@@ -430,12 +430,22 @@ subscription id, field, before, after, and which signal established ownership.
 **Keep that file** — it is how this repair gets reconstructed later.
 
 To normalise the `subscriptionCanceledAt` units, which is campaign-wide rather
-than per-subscription:
+than per-subscription. This pass needs `DATABASE_URL` only — it reads campaign
+rows and rewrites a number, so the script does not ask for a Stripe key at all
+when that is the whole run:
 
 ```bash
 npx tsx scripts/repair-orphaned-pro-subscriptions.ts --normalize-canceled-at
 npx tsx scripts/repair-orphaned-pro-subscriptions.ts --normalize-canceled-at --apply
 ```
+
+Reading the tail of an `--apply` run: **refused** and **failed** are different
+outcomes. A row lands in "Refused" when a precondition moved between the plan
+and the write — a webhook or a Manage Subscription click got there first — and
+that is the guard working, so the run still exits 0 and the row is simply
+re-planned on the next pass. Only a genuine write error counts as "Failed" and
+sets a non-zero exit code. Nothing appears under "Applied" unless its
+transaction committed.
 
 ### Step 4 — verify
 

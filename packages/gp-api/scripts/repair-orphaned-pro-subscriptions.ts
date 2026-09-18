@@ -1157,6 +1157,15 @@ export interface ApplyResult {
 }
 
 /**
+ * A result that failed for a reason other than the world having moved. The
+ * distinction is the difference between "this repair needs a human" and "this
+ * row was already taken care of by the time we got to it".
+ */
+export const isWriteFailure = (result: ApplyResult): boolean =>
+  result.error !== null &&
+  result.plan.outcome !== Outcome.RefusedRacedPrecondition
+
+/**
  * Applies one plan in one transaction, then records it. Ordering is
  * deliberate: the audit line is written after the commit, so the log can
  * under-report a crash but can never claim a change that rolled back.
@@ -1359,6 +1368,45 @@ export const createRepairContext = (
   return { db, reader: createRepairReader(db), stripe }
 }
 
+/**
+ * Whether this run has anything to ask Stripe. Only the subscription repairs
+ * do: `--normalize-canceled-at` reads campaign rows and rewrites a number, so
+ * demanding a live Stripe key for it would put the unit repair behind an AWS
+ * access request it does not need (the runbook promises it does not).
+ */
+export const needsStripe = (args: Args): boolean =>
+  args.reportPath !== null || args.subscriptionIds.length > 0
+
+const liveStripeReader = (secretKey: string): StripeReader =>
+  createStripeReader(
+    new Stripe(secretKey, {
+      maxNetworkRetries: 5,
+      // #1945's guard: a non-GET cannot reach the wire from this process.
+      httpClient: createReadOnlyHttpClient(Stripe.createNodeHttpClient()),
+    }),
+    proProductIdForKey(secretKey),
+  )
+
+/**
+ * A reader for a run with no Stripe credentials. Every method throws with the
+ * reason, rather than a client built on a placeholder key that would fail at
+ * the socket with something unrecognisable — if a future code path starts
+ * reading Stripe on the normalisation pass, this says so in one line.
+ */
+export const unavailableStripeReader = (reason: string): StripeReader => {
+  // A rejection rather than a synchronous throw, for the same reason the
+  // read-only http client rejects: a sync throw out of something declared to
+  // return a promise skips every `catch` written for it.
+  const refuse = <T>(method: string): Promise<T> =>
+    Promise.reject(new Error(`No Stripe client for ${method}: ${reason}`))
+  return {
+    listProSubscriptions: () => refuse('listProSubscriptions'),
+    retrieveSubscription: () => refuse('retrieveSubscription'),
+    sumPaidInvoiceCents: () => refuse('sumPaidInvoiceCents'),
+    retrieveCustomerEmail: () => refuse('retrieveCustomerEmail'),
+  }
+}
+
 export interface RunOptions {
   apply: boolean
   subscriptionIds: string[]
@@ -1416,7 +1464,11 @@ export const run = async (
     applied: results.filter((result) => result.applied).length,
     refused: finalPlans.filter((p) => isRefusal(p.outcome)).length,
     noop: finalPlans.filter((p) => p.outcome.startsWith('NOOP_')).length,
-    failed: results.filter((result) => result.error !== null).length,
+    // A raced precondition is a refusal, not a failure: the statement's own
+    // WHERE declined to write because the row had moved, which is the guard
+    // working. Counting it in both places would make the run look broken and
+    // would set a non-zero exit code on a repair that behaved correctly.
+    failed: results.filter((result) => isWriteFailure(result)).length,
   }
 }
 
@@ -1452,17 +1504,24 @@ export const formatPlan = (repairPlan: RepairPlan): string[] => {
   return lines
 }
 
-const printReport = (report: RunReport, apply: boolean): void => {
-  out()
-  out('══════════════════════════════════════════════')
-  out(
+export const formatReport = (report: RunReport, apply: boolean): string[] => {
+  const lines = [
+    '',
+    '══════════════════════════════════════════════',
     `  Orphaned Pro subscription repair — ${
       apply ? 'APPLY' : 'DRY RUN (nothing written)'
     }`,
-  )
-  out('══════════════════════════════════════════════')
+    '══════════════════════════════════════════════',
+  ]
 
-  const applicable = report.plans.filter((p) => isApplicable(p.outcome))
+  // Under --apply the heading has to come from what the transaction did, not
+  // from what the plan intended: a write that threw leaves its plan APPLY, and
+  // printing it under "Applied" would tell an operator a repair landed when it
+  // did not. In a dry run there are no results, so intent is all there is.
+  const applicable = apply
+    ? report.results.filter((result) => result.applied).map((r) => r.plan)
+    : report.plans.filter((p) => isApplicable(p.outcome))
+  const failures = report.results.filter(isWriteFailure)
   const refusals = report.plans.filter((p) => isRefusal(p.outcome))
   const noops = report.plans.filter((p) => p.outcome.startsWith('NOOP_'))
 
@@ -1472,47 +1531,49 @@ const printReport = (report: RunReport, apply: boolean): void => {
     ['Already repaired (no-op)', noops],
   ] as const) {
     if (group.length === 0) continue
-    out(`\n── ${heading} (${group.length}) ──────────────────`)
+    lines.push(`\n── ${heading} (${group.length}) ──────────────────`)
     for (const repairPlan of group) {
-      out()
-      for (const line of formatPlan(repairPlan)) out(line)
+      lines.push('', ...formatPlan(repairPlan))
     }
   }
 
-  const failures = report.results.filter((result) => result.error !== null)
   if (failures.length > 0) {
-    out(`\n── Failed (${failures.length}) ──────────────────`)
+    lines.push(`\n── Failed (${failures.length}) ──────────────────`)
     for (const failure of failures) {
-      out(
+      lines.push(
         `  ${failure.plan.subscriptionId ?? failure.plan.campaignId}: ` +
           `${failure.error}`,
       )
     }
   }
 
-  out(`\nPlanned: ${report.plans.length}`)
-  out(`  ${apply ? 'applied' : 'would apply'}: ${applicable.length}`)
-  out(`  refused: ${refusals.length}`)
-  out(`  no-op:   ${noops.length}`)
-  if (apply) out(`  failed:  ${report.failed}`)
+  lines.push(`\nPlanned: ${report.plans.length}`)
+  lines.push(`  ${apply ? 'applied' : 'would apply'}: ${applicable.length}`)
+  lines.push(`  refused: ${refusals.length}`)
+  lines.push(`  no-op:   ${noops.length}`)
+  if (apply) lines.push(`  failed:  ${report.failed}`)
   if (!apply && applicable.length > 0) {
-    out(`\nNothing was written. Re-run with --apply once the diff above reads`)
-    out(`correctly, then re-run stripe-campaign-reconcile.ts to verify.`)
+    lines.push(
+      `\nNothing was written. Re-run with --apply once the diff above reads`,
+      `correctly, then re-run stripe-campaign-reconcile.ts to verify.`,
+    )
   }
+  return lines
+}
+
+const printReport = (report: RunReport, apply: boolean): void => {
+  for (const line of formatReport(report, apply)) out(line)
 }
 
 const main = async (): Promise<void> => {
   const args = parseArgs(process.argv.slice(2))
 
-  const secretKey = requireEnv('STRIPE_SECRET_KEY')
-  const stripe = createStripeReader(
-    new Stripe(secretKey, {
-      maxNetworkRetries: 5,
-      // #1945's guard: a non-GET cannot reach the wire from this process.
-      httpClient: createReadOnlyHttpClient(Stripe.createNodeHttpClient()),
-    }),
-    proProductIdForKey(secretKey),
-  )
+  const stripe = needsStripe(args)
+    ? liveStripeReader(requireEnv('STRIPE_SECRET_KEY'))
+    : unavailableStripeReader(
+        'this run was started without STRIPE_SECRET_KEY because it only ' +
+          'normalises subscriptionCanceledAt, which needs no Stripe read',
+      )
 
   const subscriptionIds = [...args.subscriptionIds]
   const reportPlans: RepairPlan[] = []

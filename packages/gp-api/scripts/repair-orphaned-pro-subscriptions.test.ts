@@ -17,6 +17,8 @@ import {
   findCampaignsWithCanceledAtStamp,
   findUserByEmail,
   findUserById,
+  formatReport,
+  needsStripe,
   normalizeCanceledAtStatement,
   Outcome,
   OwnershipSource,
@@ -33,6 +35,7 @@ import {
   stalePlansFromReport,
   subscriptionIdsFromReport,
   toAuditEntries,
+  unavailableStripeReader,
   type AuditEntry,
   type CampaignRow,
   type CanceledAtRow,
@@ -121,6 +124,20 @@ const stubReader = (fixtures: {
   userByEmail: async (email) => fixtures.usersByEmail?.[email] ?? null,
   campaignsWithCanceledAtStamp: async () => fixtures.canceledAtRows ?? [],
 })
+
+/**
+ * A `Database` whose every statement answers with one rowcount, for the cases
+ * about what a run *reports*. A rowcount of 0 is how Postgres declines a
+ * statement whose `WHERE` no longer matches, and a rejection is any other
+ * write failure; the accounting has to tell those two apart.
+ */
+const stubDb = (execute: (sql: string) => Promise<number>): Database => {
+  const runner = {
+    query: async () => [],
+    execute: (sql: string) => execute(sql),
+  }
+  return { ...runner, transaction: (fn) => fn(runner) }
+}
 
 describe('classifyCanceledAt', () => {
   // The whole repair turns on this discrimination, so both real units and the
@@ -751,6 +768,164 @@ describe('the read-only Stripe guard', () => {
 
     expect(subscription.id).toBe(ORPHAN.subscriptionId)
     expect(delegate.makeRequest).toHaveBeenCalledOnce()
+  })
+})
+
+describe('what a run needs from Stripe', () => {
+  // The runbook tells an operator that the unit normalisation runs on
+  // DATABASE_URL alone, and GP_API_PROD (where the live Stripe key lives) is an
+  // access request away from the default SSO role. Demanding a key for a pass
+  // that reads campaign rows and rewrites a number would make the runbook lie
+  // and block the one repair that needs no Stripe read.
+  it('needs no Stripe key to normalise the canceled-at units', () => {
+    expect(needsStripe(parseArgs(['--normalize-canceled-at']))).toBe(false)
+  })
+
+  it('needs Stripe for anything keyed on a subscription', () => {
+    expect(
+      needsStripe(parseArgs(['--subscription', ORPHAN.subscriptionId])),
+    ).toBe(true)
+    expect(needsStripe(parseArgs(['--json', 'drift.json']))).toBe(true)
+    expect(
+      needsStripe(
+        parseArgs(['--json', 'drift.json', '--normalize-canceled-at']),
+      ),
+    ).toBe(true)
+  })
+
+  // Rather than a client built on a placeholder key, which would fail at the
+  // socket with something an operator cannot act on.
+  it('says why there is no client if something asks Stripe anyway', async () => {
+    const stripe = unavailableStripeReader('no key was needed for this run')
+
+    await expect(
+      stripe.retrieveSubscription(ORPHAN.subscriptionId),
+    ).rejects.toThrow(/retrieveSubscription: no key was needed for this run/)
+    await expect(
+      stripe.retrieveCustomerEmail(ORPHAN.customerId),
+    ).rejects.toThrow(/no key was needed/)
+    await expect(stripe.listProSubscriptions()).rejects.toThrow(/no key/)
+    await expect(stripe.sumPaidInvoiceCents('sub_x')).rejects.toThrow(/no key/)
+  })
+
+  // The claim the runbook makes, end to end: a normalisation pass plans and
+  // applies with a reader that throws on contact.
+  it('normalises without touching Stripe at all', async () => {
+    const executed: string[] = []
+    const report = await run(
+      {
+        db: stubDb(async (sql) => {
+          executed.push(sql)
+          return 1
+        }),
+        reader: stubReader({
+          canceledAtRows: [
+            {
+              id: 325636,
+              slug: 'campaign-325636',
+              userId: 500,
+              subscriptionId: null,
+              canceledAtRaw: '1757125244',
+            },
+          ],
+        }),
+        stripe: unavailableStripeReader('normalisation needs no Stripe read'),
+      },
+      { apply: true, subscriptionIds: [], normalizeCanceledAt: true },
+    )
+
+    expect(report.applied).toBe(1)
+    expect(report.failed).toBe(0)
+    expect(executed).toHaveLength(1)
+  })
+})
+
+describe('how a run accounts for what happened', () => {
+  const applicablePlan: RepairPlan = {
+    repairClass: RepairClass.NormalizeCanceledAt,
+    outcome: Outcome.Apply,
+    subscriptionId: null,
+    campaignId: 325636,
+    userId: 500,
+    ownershipSource: null,
+    detail: 'seconds -> milliseconds',
+    statements: [
+      {
+        sql: 'UPDATE campaign SET details = details || $2::jsonb WHERE id = $1',
+        params: [325636, '{"subscriptionCanceledAt":1757125244000}'],
+        precondition: 'the stamp is still in seconds',
+      },
+    ],
+    changes: [
+      {
+        entity: 'campaign',
+        entityId: 325636,
+        field: 'details.subscriptionCanceledAt',
+        before: 1757125244,
+        after: 1757125244000,
+      },
+    ],
+  }
+
+  const applyOne = (execute: (sql: string) => Promise<number>) =>
+    run(
+      {
+        db: stubDb(execute),
+        reader: stubReader({}),
+        stripe: stubStripe([]),
+      },
+      {
+        apply: true,
+        subscriptionIds: [],
+        normalizeCanceledAt: false,
+        reportPlans: [applicablePlan],
+      },
+    )
+
+  // A write that threw leaves its plan reading APPLY, because the outcome is
+  // what the planner decided. Grouping the printed report by that would tell an
+  // operator a repair landed when the transaction rolled back.
+  it('does not report a failed write as applied', async () => {
+    const report = await applyOne(() =>
+      Promise.reject(new Error('deadlock detected')),
+    )
+
+    expect(report.applied).toBe(0)
+    expect(report.failed).toBe(1)
+
+    const printed = formatReport(report, true).join('\n')
+    expect(printed).toContain('── Failed (1)')
+    expect(printed).toContain('deadlock detected')
+    expect(printed).not.toContain('── Applied')
+    expect(printed).toContain('applied: 0')
+  })
+
+  // A raced precondition is the guard working: the statement's own WHERE
+  // declined to write because the row had moved. Counting it as a failure too
+  // would show the row twice and set a non-zero exit code on a run that did
+  // exactly the right thing.
+  it('counts a raced precondition as a refusal and not as a failure', async () => {
+    const report = await applyOne(async () => 0)
+
+    expect(report.applied).toBe(0)
+    expect(report.refused).toBe(1)
+    expect(report.failed).toBe(0)
+
+    const printed = formatReport(report, true).join('\n')
+    expect(printed).toContain('── Refused')
+    expect(printed).not.toContain('── Failed')
+    expect(printed).toContain('refused: 1')
+    expect(printed).toContain('failed:  0')
+  })
+
+  it('reports a clean apply as applied and nothing else', async () => {
+    const report = await applyOne(async () => 1)
+
+    expect(report).toMatchObject({ applied: 1, failed: 0, refused: 0 })
+
+    const printed = formatReport(report, true).join('\n')
+    expect(printed).toContain('── Applied (1)')
+    expect(printed).not.toContain('── Failed')
   })
 })
 
