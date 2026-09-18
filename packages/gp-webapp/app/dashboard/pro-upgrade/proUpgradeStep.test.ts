@@ -242,6 +242,15 @@ describe('deriveProUpgradeStep purchase-only mode', () => {
     ).toBe(PRO_UPGRADE_STEP.EIN)
   })
 
+  it('re-asks filing status for a "not filed" candidate even with an EIN on file', () => {
+    expect(
+      deriveProUpgradeStep(
+        { ...inputs, filingStatus: 'not-filed', hasEin: true },
+        opts,
+      ),
+    ).toBe(PRO_UPGRADE_STEP.STATUS)
+  })
+
   it('goes straight to payment once filed and EIN are in, ignoring filing and profile', () => {
     expect(
       deriveProUpgradeStep(

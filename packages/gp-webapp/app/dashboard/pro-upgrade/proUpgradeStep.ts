@@ -120,9 +120,13 @@ export const deriveProUpgradeStep = (
   if (isPro) return PRO_UPGRADE_STEP.SUCCESS
 
   if (purchaseOnly) {
+    // A "not filed" answer is never progress here either — even with an EIN
+    // persisted from a prior session, it re-asks the filing-status question
+    // instead of reaching payment.
     const hasPurchaseProgress = filingStatus === 'has-filed' || hasEin
     if (!hasPurchaseProgress) return PRO_UPGRADE_STEP.GUIDANCE
-    if (filingStatus === 'unanswered') return PRO_UPGRADE_STEP.STATUS
+    if (filingStatus === 'unanswered' || filingStatus === 'not-filed')
+      return PRO_UPGRADE_STEP.STATUS
     if (!hasEin) return PRO_UPGRADE_STEP.EIN
     return PRO_UPGRADE_STEP.PAYMENT
   }
