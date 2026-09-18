@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Decrypt the committed secret files for one environment and write the values
-# into AWS Secrets Manager. CI only — needs kms:Decrypt on alias/gp-secret-write
-# plus PutSecretValue on the target secrets, which is exactly the role
-# github-actions-secrets-sync holds and nothing else does.
+# Fetch the payloads the manifests pin, decrypt them, and write the values into
+# AWS Secrets Manager. CI only — needs kms:Decrypt on alias/gp-secret-write, read
+# on the payload bucket, and PutSecretValue on the target secrets, which is
+# exactly the role github-actions-secrets-sync holds and nothing else does.
+#
+# The manifest is the contract: this reads the exact S3 version id recorded in
+# git at the SHA being deployed, so a payload uploaded but not yet merged has no
+# effect here, and `git revert` of a manifest change is a rollback.
 #
 # This runs OUTSIDE terraform and pulumi on purpose. Routing values through IaC
 # would put every plaintext into the state bucket, which is the leak this whole
@@ -51,6 +55,8 @@ umask 077
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 
+payload_bucket="$(secret_payload_bucket)"
+
 # --- decryption ---
 
 # Decrypts one RSA-OAEP block into $2. Asymmetric KMS decrypt requires both
@@ -69,9 +75,28 @@ kms_decrypt() {
   printf %s "$b64_out" | b64_decode >"$out_file"
 }
 
-# Writes the decrypted value of an entry into $2. Returns non-zero on any
+# Fetches the payload a manifest entry pins, and echoes it on stdout.
+#
+# GetObject is pinned to the recorded version id, never "latest". That is what
+# makes an upload inert until its manifest change is merged, and what makes a
+# revert of that change a real rollback.
+fetch_payload() {
+  local version_id="$1" object_key="$2"
+
+  aws s3api get-object \
+    --bucket "$payload_bucket" \
+    --key "$object_key" \
+    --version-id "$version_id" \
+    "$workdir/payload" >/dev/null 2>"$workdir/s3.err" || {
+    sed 's/^/    aws: /' "$workdir/s3.err" >&2
+    return 1
+  }
+  cat "$workdir/payload"
+}
+
+# Writes the decrypted value of a payload into $2. Returns non-zero on any
 # failure, and never prints the value.
-decrypt_entry() {
+decrypt_payload() {
   local entry="$1" out_file="$2" alg_payload alg payload
 
   alg_payload=$(parse_entry "$entry") || {
@@ -80,6 +105,11 @@ decrypt_entry() {
   }
   alg="${alg_payload%% *}"
   payload="${alg_payload#* }"
+
+  if [ "$alg" = "$SECRET_ALG_S3" ]; then
+    echo '    payload is itself a version id, not a ciphertext' >&2
+    return 1
+  fi
 
   if [ "$alg" = "$SECRET_ALG_RSA" ]; then
     printf %s "$payload" | b64_decode >"$workdir/ct.bin" || return 1
@@ -128,6 +158,34 @@ decrypt_entry() {
   }
 }
 
+# Manifest entry -> plaintext in $4. The two halves together: pin, fetch, decrypt.
+#
+# Holding the payload in a variable is fine — it is ciphertext. The plaintext
+# only ever exists in a file under the 077 workdir.
+resolve_entry() {
+  local entry="$1" secret_id="$2" key="$3" out_file="$4"
+  local alg_version alg version_id object_key payload
+
+  alg_version=$(parse_entry "$entry") || {
+    echo '    unrecognized manifest entry' >&2
+    return 1
+  }
+  alg="${alg_version%% *}"
+  version_id="${alg_version#* }"
+
+  if [ "$alg" != "$SECRET_ALG_S3" ]; then
+    echo "    manifest holds a raw $alg ciphertext instead of a version id" >&2
+    return 1
+  fi
+
+  object_key="$(secret_object_key "$environment" "$secret_id" "$key")"
+  payload=$(fetch_payload "$version_id" "$object_key") || {
+    echo "    cannot read s3://$payload_bucket/$object_key at version $version_id" >&2
+    return 1
+  }
+  decrypt_payload "$payload" "$out_file"
+}
+
 # --- per-file sync ---
 
 total_changed=0
@@ -155,8 +213,8 @@ verify_file() {
   while IFS= read -r key; do
     [ -n "$key" ] || continue
     entry=$(jq -r --arg k "$key" '.values[$k]' "$file")
-    if ! decrypt_entry "$entry" "$workdir/verify.bin"; then
-      echo "::error file=$file::key '$key' failed to decrypt. Most likely it was encrypted against a stale public key — re-run secret-encrypt.sh."
+    if ! resolve_entry "$entry" "$secret_id" "$key" "$workdir/verify.bin"; then
+      echo "::error file=$file::key '$key' could not be resolved. Either the pinned version is missing from the bucket, or it was encrypted against a stale public key — re-run secret-encrypt.sh."
       total_failed=$((total_failed + 1))
       continue
     fi
@@ -212,8 +270,8 @@ sync_file() {
   for key in ${keys[@]+"${keys[@]}"}; do
     entry=$(jq -r --arg k "$key" '.values[$k]' "$file")
 
-    if ! decrypt_entry "$entry" "$workdir/new.$i"; then
-      echo "::error file=$file::key '$key' failed to decrypt. Most likely it was encrypted against a stale public key — re-run secret-encrypt.sh."
+    if ! resolve_entry "$entry" "$secret_id" "$key" "$workdir/new.$i"; then
+      echo "::error file=$file::key '$key' could not be resolved. Either the pinned version is missing from the bucket, or it was encrypted against a stale public key — re-run secret-encrypt.sh."
       total_failed=$((total_failed + 1))
       continue
     fi

@@ -1,25 +1,50 @@
 # Secrets
 
-**You do not need AWS access to add, rotate, or wire up a secret.** Every secret
-change is a code change in a PR. If you are about to ask a human for AWS
-credentials, console access, or an IAM grant, stop and read this file — the answer
-is in here, and the answer is never "get access".
+**You can add or rotate any secret yourself, including a prod one, and you can
+never read one.** No admin does the mechanical work, and no task in this repo
+needs a prod value in hand. If you are about to ask a human to paste a secret to
+you, or to grant you read access, stop and read this file.
 
-## Never ask for AWS access
+What you do need, once: the **write-only secrets profile** — an AWS profile that
+can `s3:PutObject` to the payload bucket and nothing else. It cannot read a
+secret, list one, or decrypt anything, in any environment. Setting it up is a
+one-time thing per machine, not a per-secret access request.
 
-Agents must not ask for AWS credentials, an IAM user, a console login, or a
-role grant, and must not ask a human to paste a secret value into chat, a PR, or a
-ticket. No task in this repo requires holding a prod secret. Standing access to
-prod secrets is the one thing we deliberately don't hand out — malware, a confused
-agent, and a fat-fingered `update-secret` all do the same damage, and the point of
-the setup below is that none of them can.
+## Never ask to read a secret
 
-What to do instead: encrypt the value against the repo's committed public key and
-commit it. `scripts/secrets/secret-encrypt.sh` needs no credentials and makes no
-network call; CI holds the only key that can decrypt. See
-[Adding or rotating a secret](#adding-or-rotating-a-secret). If the public key
-isn't committed yet, there's a
+Agents must not ask a human to paste a secret value into chat, a PR, or a ticket,
+and must not ask for `GetSecretValue`, `kms:Decrypt`, a console login, or any
+grant beyond the write-only profile. Standing read access to prod secrets is the
+thing we deliberately don't hand out — malware, a confused agent, and a
+fat-fingered `update-secret` all do the same damage, and the point of the setup
+below is that none of them can.
+
+If the profile isn't configured on the machine, that is a one-line setup step to
+hand back to the user, not a reason to ask for the value. See
+[Adding or rotating a secret](#adding-or-rotating-a-secret). If the bootstrap
+isn't finished at all, there's a
 [slower admin handoff](#the-admin-handoff-fallback) for the interim.
+
+## Two separate acts: uploading and promoting
+
+This is the part worth understanding before you run anything, because it is why
+you can hold a write credential without that being dangerous.
+
+| Act         | What it is                                     | Reviewed? | Effect             |
+| ----------- | ---------------------------------------------- | --------- | ------------------ |
+| **Upload**  | `PutObject` of a ciphertext to the S3 bucket   | no        | **none** — inert   |
+| **Promote** | a one-line manifest diff naming the version id | yes, PR   | deploys that value |
+
+Nothing reads an S3 object until a manifest in `secrets/` pins its version id on
+`main`. So uploading is safe to leave unreviewed: an uploaded payload no one
+merged is unreachable. The reviewed act is the promotion, which is a normal diff
+with CODEOWNERS on it — and reverting that PR is a rollback, with no
+re-encryption, because the older version is still in the bucket.
+
+Payloads live in S3 rather than in git because **this repo is public.** A
+committed ciphertext is world-readable and permanently archived by third parties;
+strong encryption today is not strong encryption for the lifetime of the
+credential, and a public commit cannot be withdrawn.
 
 ## Where secrets live
 
@@ -69,19 +94,25 @@ of `docs/secrets-iac-plan.md`.
 
 ## Adding or rotating a secret
 
-One PR, no AWS access. You encrypt the value against the public key committed at
-`secrets/gp-secret-write.pub.pem`; the release train decrypts it with a role only
-CI can assume and writes it to Secrets Manager. You cannot read back what you or
-anyone else wrote.
+One command, then one PR. The value is encrypted against the public key committed
+at `secrets/gp-secret-write.pub.pem` **before it leaves your machine**, so the
+write-only profile never sees a plaintext; the release train decrypts it with a
+role only CI can assume and writes it to Secrets Manager. You cannot read back
+what you or anyone else wrote.
 
 ```bash
-# Add or rotate a value. Reads stdin, so the value never reaches your shell
-# history or `ps` output. Creates the file if it doesn't exist yet.
+# Encrypts, uploads the ciphertext, and records the version id it got back.
+# Reads stdin, so the value never reaches your shell history or `ps` output.
+# Creates the manifest if it doesn't exist yet.
 printf %s "$VALUE" | scripts/secrets/secret-encrypt.sh \
   --secret-id GP_API_PROD secrets/gp-api.prod.json VENDOR_API_KEY
 
-# Then commit secrets/gp-api.prod.json like any other file.
+# Then commit secrets/gp-api.prod.json. That one-line diff is the promotion.
 ```
+
+The manifest holds only key names and version ids, so the diff a reviewer reads
+is "this key was rotated" — which is all a reviewer can usefully check, since a
+ciphertext is unreadable by definition.
 
 Values over 446 bytes (PEM keys, certs) automatically switch to an envelope
 format — that's the RSA-OAEP ceiling, not a policy — and need nothing extra from
@@ -93,17 +124,19 @@ The secret named by `--secret-id` has to belong to the file's environment — a
 `*.dev.json` cannot write `GP_API_PROD`. The dev sync runs before the E2E, so
 crossing that line would be a way to change prod without passing the gate.
 
-The value lands in Secrets Manager on the next release train, in the stage that
-runs before the services deploy. Rotating is the same command with a new value.
-Deleting a key is a separate, explicit step — the sync never prunes, so removing
-an entry from the file leaves the live value alone and reports it.
+The value lands in Secrets Manager once the manifest change is on `main`, in the
+train stage that runs before the services deploy. Rotating is the same command
+with a new value. Deleting a key is a separate, explicit step — the sync never
+prunes, so removing an entry from the manifest leaves the live value alone and
+reports it.
 
-**Prerequisite: the public key must exist.** Until an admin completes the
-one-time steps in `docs/secrets-iac-plan.md` (create the KMS key, commit its
-public key, create the sync role, set `vars.AWS_SECRETS_SYNC_ROLE_ARN`),
-`secret-encrypt.sh` exits with that message and the train's sync stages skip.
-In that window, use the [admin handoff](#the-admin-handoff-fallback)
-below — but check for the public key first, because the handoff is the slow path.
+**Prerequisites.** Until an admin completes the one-time steps in
+`docs/secrets-iac-plan.md` (KMS key, committed public key, versioned payload
+bucket, the write-only and sync roles, `vars.AWS_SECRETS_SYNC_ROLE_ARN`),
+`secret-encrypt.sh` exits with a message naming what is missing and the train's
+sync stages skip. In that window, use the
+[admin handoff](#the-admin-handoff-fallback) below — but check first, because the
+handoff is the slow path.
 
 ### What you still have to wire
 
@@ -141,19 +174,25 @@ Tomer, Dan, Swain, Jeff.
 
 ## Tooling
 
-| Script                                     | What                                                            | Needs AWS?           |
-| ------------------------------------------ | --------------------------------------------------------------- | -------------------- |
-| `scripts/secrets/secret-encrypt.sh`        | Encrypt a value into a secret file                              | no                   |
-| `scripts/secrets/validate-secret-files.sh` | Structural check; runs pre-commit and on every PR                | no                   |
-| `scripts/secrets/secret-selftest.sh`       | End-to-end test against a throwaway keypair and a stubbed `aws` | no                   |
-| `scripts/secrets/ci-sync-secrets.sh`       | Decrypt and write to Secrets Manager; release train only         | yes — the sync role  |
+| Script                                     | What                                                            | Needs AWS?                   |
+| ------------------------------------------ | --------------------------------------------------------------- | ---------------------------- |
+| `scripts/secrets/secret-encrypt.sh`        | Encrypt, upload the payload, record the version id              | yes — write-only, PutObject  |
+| `scripts/secrets/validate-secret-files.sh` | Manifest check; runs pre-commit and on every PR                 | no                           |
+| `scripts/secrets/secret-selftest.sh`       | End-to-end test against a throwaway keypair and a stubbed `aws` | no                           |
+| `scripts/secrets/ci-sync-secrets.sh`       | Fetch the pinned payloads, decrypt, write; release train only   | yes — the sync role          |
 
-Validation never decrypts, deliberately: a PR-time job holding `kms:Decrypt`
-would be a read path into every secret, and a PR can edit the workflow that runs
-it. Checking the ciphertext's shape still catches a committed plaintext, a
-truncated paste, a malformed envelope, and a stray file in `secrets/`. A
-well-formed ciphertext encrypted to the *wrong* key can only be caught by
-decrypting, so it fails on the train instead.
+Validation never decrypts and needs no credentials at all, not even S3 read:
+a PR-time job holding `kms:Decrypt` would be a read path into every secret, and a
+PR can edit the workflow that runs it. From the manifest alone it still catches a
+plaintext pasted where a version id belongs, a raw ciphertext committed into this
+public repo, a `null` version id (which would mean the bucket lost versioning and
+the manifest had stopped pinning anything), a cross-environment `secretId`, and a
+stray file in `secrets/`.
+
+What it can't see is the payload: a truncated or wrong-key ciphertext, or a
+version id that doesn't exist. Those fail on the train — and in the **dev** stage,
+which fetches and decrypts *both* environments' payloads before any deploy, so a
+bad prod payload stops the train rather than a prod promotion.
 
 ## You cannot read a prod value, and you don't need to
 
@@ -177,7 +216,11 @@ value that touches a developer laptop is a rotation, not a shortcut.
 ## Rules
 
 - **Never commit a plaintext secret.** If you do, it is burned: rotate it, don't
-  just amend the commit. Git history and every CI log that saw it keep the value.
+  just amend the commit. Git history and every CI log that saw it keep the value,
+  and because this repo is public, so does anyone who mirrors it.
+- **Never commit a ciphertext either.** Payloads go to the bucket; the repo gets
+  a version id. Validation rejects a raw ciphertext for this reason — a public
+  commit cannot be withdrawn, and "encrypted today" is not "encrypted forever".
 - **Never print a secret.** No `console.log`, no debug print, no dumping
   `process.env` in a test.
 - **Never pass a secret through Terraform or Pulumi.** No data sources, no

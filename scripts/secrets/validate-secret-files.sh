@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# Structurally validate every file under secrets/. Runs on PRs and pre-commit.
+# Structurally validate the promotion manifests under secrets/. Runs on PRs and
+# pre-commit.
 #
-# This check NEVER decrypts, and needs no AWS credentials. That is deliberate: a
-# PR-time job holding kms:Decrypt is a read path, and a PR can edit the workflow
-# that runs it, so a decrypting validator would hand any contributor a way to
-# exfiltrate every secret. Everything here is checkable from the ciphertext's
-# shape alone.
+# This check NEVER decrypts and needs no AWS credentials at all — not even S3
+# read. That is deliberate: a PR-time job holding kms:Decrypt is a read path, and
+# a PR can edit the workflow that runs it, so a decrypting validator would hand
+# any contributor a way to exfiltrate every secret. Everything here is checkable
+# from the manifest alone.
 #
-# What that still catches, which is most real mistakes:
-#   - a plaintext secret committed by accident (no v1: prefix)
-#   - a truncated or partially pasted ciphertext (wrong decoded length)
-#   - a value encrypted with the wrong algorithm or key size (wrong length)
-#   - a malformed envelope
+# What that catches:
+#   - a plaintext secret pasted in where a version id belongs (no v1:s3: prefix)
+#   - a `null` version id, i.e. a bucket without versioning, which would make the
+#     manifest point at mutable bytes instead of pinning a value
+#   - a manifest whose secretId belongs to the other environment
+#   - a key name that is not a usable env var
 #   - a stray file dropped into secrets/
+#   - the same key declared for one environment but not the other (warning)
 #
-# What it cannot catch: a well-formed ciphertext encrypted to the wrong public
-# key. That surfaces on the release train's real decrypt, which is the only place
-# a decrypt belongs.
+# What it cannot catch, because the payload is not in the repo: a truncated or
+# wrong-key ciphertext, and a version id that does not exist. Both surface on the
+# train — the dev stage fetches and decrypts BOTH environments' payloads before
+# any deploy, so they fail there rather than during a prod promotion.
 #
 # Usage: validate-secret-files.sh [file...]   (defaults to every secrets/*.json)
 set -uo pipefail
@@ -35,48 +39,33 @@ fail() {
   failures=$((failures + 1))
 }
 
-# An entry's shape, given its algorithm and payload. Echoes a reason on failure.
-check_payload() {
-  local alg="$1" payload="$2" len
+# A manifest entry. Echoes a reason on failure.
+#
+# Only `v1:s3:` belongs in a manifest. An `rsa`/`env` payload here means someone
+# committed the ciphertext itself instead of uploading it — harmless to the
+# secret, but this repo is public and the whole reason for the S3 indirection is
+# that a ciphertext committed here can never be withdrawn.
+check_entry() {
+  local alg="$1" payload="$2"
 
-  if [ "$alg" = "$SECRET_ALG_RSA" ]; then
-    len=$(b64_decoded_len "$payload") || {
-      echo 'ciphertext is not valid base64'
+  case "$alg" in
+    "$SECRET_ALG_S3") ;;
+    "$SECRET_ALG_RSA" | "$SECRET_ALG_ENVELOPE")
+      echo "is a raw $alg ciphertext, not a version id. Payloads go to S3, never into this public repo — re-add it with scripts/secrets/secret-encrypt.sh"
       return 1
-    }
-    if [ "$len" != "$RSA_CIPHERTEXT_BYTES" ]; then
-      echo "ciphertext is $len bytes, expected exactly $RSA_CIPHERTEXT_BYTES (RSA-4096); a truncated paste or the wrong key size"
+      ;;
+    *)
+      echo "has an unrecognized format '$alg'"
       return 1
-    fi
-    return 0
-  fi
+      ;;
+  esac
 
-  # Envelope: wrapped-keys.iv.mac.ciphertext
-  local IFS='.'
-  read -r -a parts <<<"$payload"
-  if [ "${#parts[@]}" -ne 4 ]; then
-    echo "envelope has ${#parts[@]} parts, expected 4 (wrapped.iv.mac.ciphertext)"
+  if [ "$payload" = 'null' ]; then
+    echo "version id is 'null', which means the bucket is not versioned. The manifest would point at whatever is at that key rather than pinning a value"
     return 1
   fi
-
-  local names=(wrapped-keys iv mac ciphertext)
-  local expected=("$ENVELOPE_WRAPPED_BYTES" "$ENVELOPE_IV_BYTES" "$ENVELOPE_MAC_BYTES" '')
-  local i
-  for i in 0 1 2 3; do
-    len=$(b64_decoded_len "${parts[$i]}") || {
-      echo "envelope ${names[$i]} is not valid base64"
-      return 1
-    }
-    if [ -n "${expected[$i]}" ] && [ "$len" != "${expected[$i]}" ]; then
-      echo "envelope ${names[$i]} is $len bytes, expected ${expected[$i]}"
-      return 1
-    fi
-  done
-
-  # The AES-CBC body is padded, so it is always a non-zero multiple of the block.
-  len=$(b64_decoded_len "${parts[3]}")
-  if [ "$len" -eq 0 ] || [ $((len % 16)) -ne 0 ]; then
-    echo "envelope ciphertext is $len bytes, not a non-zero multiple of the 16-byte AES block"
+  if ! is_valid_version_id "$payload"; then
+    echo "'$payload' is not a usable S3 version id"
     return 1
   fi
   return 0
@@ -142,14 +131,14 @@ validate_file() {
     entry=$(jq -r --arg k "$key" '.values[$k]' "$file")
 
     if ! alg_payload=$(parse_entry "$entry"); then
-      fail "$file" "key '$key' is not a recognized ciphertext. If this is a plaintext secret, it is now burned: rotate it, then re-add it with scripts/secrets/secret-encrypt.sh"
+      fail "$file" "key '$key' is not a recognized entry. If this is a plaintext secret, it is now burned: rotate it, then re-add it with scripts/secrets/secret-encrypt.sh"
       continue
     fi
     alg="${alg_payload%% *}"
     payload="${alg_payload#* }"
 
-    if ! reason=$(check_payload "$alg" "$payload"); then
-      fail "$file" "key '$key': $reason"
+    if ! reason=$(check_entry "$alg" "$payload"); then
+      fail "$file" "key '$key' $reason"
     fi
   done < <(jq -r '.values | keys[]' "$file" 2>/dev/null)
 }

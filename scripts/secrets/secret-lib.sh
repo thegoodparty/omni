@@ -1,23 +1,50 @@
 #!/usr/bin/env bash
 # Shared definitions for the write-only secret pipeline. Sourced, not executed.
 #
-# The whole point of this pipeline is that adding a secret needs no AWS
-# credentials: an engineer encrypts against a public key committed to this repo,
-# and only CI can decrypt. So everything in here that an engineer touches must be
-# pure openssl — no `aws` calls, no network.
+# An engineer can write any secret, including a prod one, and can never read one.
+# Encryption is against a public key committed to this repo, so the value is
+# already ciphertext before it leaves the machine; the private half lives in KMS
+# where only the release train can reach it.
 #
 # See docs/secrets.md for the workflow and docs/secrets-iac-plan.md for why the
 # design looks like this.
 
-# --- Ciphertext wire format ---
+# --- Where the ciphertext lives ---
 #
-# One entry is a single string, so a secret file diffs one line per key and needs
-# no nested parsing. Two shapes:
+# In S3, not in git. This repo is PUBLIC, and a committed ciphertext is
+# world-readable and permanently archived by third parties — strong encryption
+# today is not the same as strong encryption for the lifetime of the credential,
+# and a public commit cannot be withdrawn. The bucket blocks public access and
+# has versioning on.
+#
+# What git holds instead is the *promotion*: a manifest naming each key and the
+# S3 version id to deploy. That splits the two actions apart, and only the second
+# one needs review:
+#
+#   writing a payload   — anyone with the write role, no review, and INERT.
+#                         Nothing reads an object until a version id points at it.
+#   promoting a payload — a one-line manifest diff, so it is a PR with CODEOWNERS
+#                         on it, and reverting the PR rolls the value back.
+#
+# The object key is derived, never stored: <environment>/<secretId>/<KEY>. A
+# version id therefore cannot be pointed at some other key's payload — it would
+# simply not exist at the derived path, and the fetch fails loudly.
+
+# --- Wire format ---
+#
+# One entry is a single string, so a manifest diffs one line per key. Three
+# shapes. The manifest on disk only ever holds the first; the other two are the
+# payload formats found *inside* an S3 object.
+#
+#   v1:s3:<version id>
+#     What is committed. Keeping the `v1:` prefix is what lets validation reject
+#     a hand-pasted plaintext: anything without a recognized prefix is treated as
+#     a possible leak rather than passed through.
 #
 #   v1:rsa:<b64 ciphertext>
 #     Direct RSA-OAEP-SHA-256 against the KMS public key. Ciphertext is always
-#     exactly 512 bytes (the RSA-4096 modulus), which is what lets validation
-#     catch a truncated paste without being able to decrypt anything.
+#     exactly 512 bytes (the RSA-4096 modulus), which is what catches a truncated
+#     payload without decrypting anything.
 #
 #   v1:env:<b64 wrapped-keys>.<b64 iv>.<b64 mac>.<b64 ciphertext>
 #     Envelope for values over RSA_MAX_PLAINTEXT. A 32-byte AES key and a
@@ -37,6 +64,7 @@
 readonly SECRET_FORMAT_VERSION='v1'
 readonly SECRET_ALG_RSA='rsa'
 readonly SECRET_ALG_ENVELOPE='env'
+readonly SECRET_ALG_S3='s3'
 
 # RSA-4096 with OAEP-SHA-256 holds k - 2*hLen - 2 = 512 - 64 - 2 bytes.
 readonly RSA_MAX_PLAINTEXT=446
@@ -47,6 +75,42 @@ readonly ENVELOPE_MAC_BYTES=32
 
 readonly KMS_KEY_ALIAS='alias/gp-secret-write'
 readonly KMS_ENCRYPTION_ALGORITHM='RSAES_OAEP_SHA_256'
+
+readonly SECRET_PAYLOAD_BUCKET_DEFAULT='goodparty-secret-payloads'
+
+# Overridable only under SECRET_SELFTEST, like the two paths below, so a stray
+# export cannot redirect the release train at a bucket somebody else controls.
+secret_payload_bucket() {
+  if secret_selftest_mode && [ -n "${SECRET_PAYLOAD_BUCKET:-}" ]; then
+    echo "$SECRET_PAYLOAD_BUCKET"
+    return
+  fi
+  echo "$SECRET_PAYLOAD_BUCKET_DEFAULT"
+}
+
+# Derived, never stored: a version id can only ever resolve against the key it
+# was uploaded for. See the header.
+secret_object_key() {
+  local environment="$1" secret_id="$2" key="$3"
+  printf '%s/%s/%s' "$environment" "$secret_id" "$key"
+}
+
+# S3 version ids are opaque strings, and AWS does not publish a charset beyond
+# "URL-safe, up to 1024 bytes" — observed ids include `+`, `/`, `=`, `.`, `-`
+# and `_`. So this is deliberately permissive about content and strict about the
+# two things that actually matter: no colon (which would break the `v1:s3:`
+# split), and not the literal `null`.
+#
+# `null` is what S3 returns for an object in a bucket where versioning was never
+# enabled or has been suspended. Accepting it would silently turn every promotion
+# into "whatever is at that key right now", which is exactly the unreviewed
+# mutable path this design exists to remove.
+is_valid_version_id() {
+  local version_id="$1"
+  [ "$version_id" != 'null' ] || return 1
+  [ "${#version_id}" -le 1024 ] || return 1
+  [[ "$version_id" =~ ^[A-Za-z0-9+/=._-]+$ ]]
+}
 
 # Resolved relative to this file so every script works from any cwd.
 secret_repo_root() {
@@ -157,7 +221,7 @@ parse_entry() {
   entry="${entry#*:}"
   alg="${entry%%:*}"
   case "$alg" in
-    "$SECRET_ALG_RSA" | "$SECRET_ALG_ENVELOPE") ;;
+    "$SECRET_ALG_RSA" | "$SECRET_ALG_ENVELOPE" | "$SECRET_ALG_S3") ;;
     *) return 1 ;;
   esac
   echo "$alg ${entry#*:}"

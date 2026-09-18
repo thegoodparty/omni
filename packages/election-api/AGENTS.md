@@ -101,7 +101,7 @@ Never bypass the DTO and read `request` raw — the global pipe is what enforces
 - Never bypass `createZodDto` for request validation — the global `ZodValidationPipe` is the only enforcement point.
 - Never disable `unused-imports/no-unused-imports` without an inline comment justifying it.
 - Never add `any` casually — the rule is off, but typed code is still the bar.
-- Never ask the user for AWS credentials, console access, or an IAM grant to add a credential this service needs — you can add it yourself, including in prod, without being able to read anything (`docs/secrets.md`).
+- Never ask the user to paste a secret value to you, or for secret read access, to add a credential this service needs — you can add it yourself, including in prod, with the write-only secrets profile (`docs/secrets.md`).
 
 ## Environment
 

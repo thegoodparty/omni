@@ -270,7 +270,7 @@ Details worth knowing:
 
 Secret values are committed to the repo as ciphertext and written to Secrets
 Manager by the train, in the `Dev secrets` and `Promote secrets` stages. Adding
-one needs no AWS access — full workflow in `docs/secrets.md`.
+one needs no secret read access — full workflow in `docs/secrets.md`.
 
 Three things matter for the deploy path:
 

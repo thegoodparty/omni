@@ -58,6 +58,7 @@ openssl rsa -pubout -in "$root/priv.pem" -out "$root/pub.pem" 2>/dev/null
 export SECRET_SELFTEST=1
 export SECRET_PUBLIC_KEY="$root/pub.pem"
 export SECRET_FILES_DIR="$root/secrets"
+export SECRET_PAYLOAD_BUCKET='selftest-payloads'
 mkdir -p "$SECRET_FILES_DIR"
 
 # --- fixture: stub `aws` ---
@@ -105,6 +106,31 @@ case "$service:$action" in
     cp "${src#file://}" "$AWS_STUB_ROOT/live/$id.json"
     echo '{"VersionId":"stub"}'
     ;;
+  # Versioned object store: $root/s3/<object key>/<version id>. Every put mints
+  # a new version and leaves the old ones readable, which is the property the
+  # whole promotion model rests on, so the stub has to honor it rather than
+  # overwrite.
+  s3api:put-object)
+    key=$(arg --key "$@") || exit 64
+    body=$(arg --body "$@") || exit 64
+    n=$(( $(cat "$AWS_STUB_ROOT/s3.seq" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$AWS_STUB_ROOT/s3.seq"
+    # Shaped like a real S3 version id, including the characters that make a
+    # naive charset check fail: base64-ish with + / = . _ -
+    vid="3HL4kqtJlcpXroDTDmJ+rmSpXd3dIbrHY=.v_${n}-x"
+    mkdir -p "$AWS_STUB_ROOT/s3/$key"
+    cp "$body" "$AWS_STUB_ROOT/s3/$key/$vid"
+    echo "$vid"
+    ;;
+  s3api:get-object)
+    key=$(arg --key "$@") || exit 64
+    vid=$(arg --version-id "$@") || exit 64
+    out="${!#}"   # the aws CLI takes the destination as a trailing positional
+    f="$AWS_STUB_ROOT/s3/$key/$vid"
+    [ -f "$f" ] || { echo "NoSuchVersion: $key ($vid)" >&2; exit 254; }
+    cp "$f" "$out"
+    echo '{"VersionId":"stub"}'
+    ;;
   *)
     echo "stub aws: unexpected call $service $action" >&2
     exit 99
@@ -128,6 +154,22 @@ live_value() {
 
 put_count() { wc -l <"$root/counts.put" 2>/dev/null | tr -d ' ' || echo 0; }
 
+# What the manifest pins for a key, e.g. "v1:s3:3HL4...".
+manifest_entry() {
+  jq -r --arg k "$2" '.values[$k]' "$1"
+}
+
+# The ciphertext the manifest points at, read straight out of the stub bucket.
+# Lets the tests assert on the payload format, which is no longer in the repo.
+payload_of() {
+  local manifest="$1" key="$2" secret_id environment version_id
+  secret_id=$(jq -r '.secretId' "$manifest")
+  environment=$(jq -r '.environment' "$manifest")
+  version_id=$(manifest_entry "$manifest" "$key")
+  version_id="${version_id#v1:s3:}"
+  cat "$root/s3/$environment/$secret_id/$key/$version_id"
+}
+
 # ============================================================
 echo 'crypto roundtrip'
 # ============================================================
@@ -145,10 +187,9 @@ check_eq 'short value roundtrips through sync' "$short_value" "$(live_value GP_A
 # private key is the realistic case (AI_SECRETS_PROD already holds one).
 long_value=$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)
 printf %s "$long_value" | encrypt "$file" LONG_KEY >/dev/null
-entry=$(jq -r '.values.LONG_KEY' "$file")
-case "$entry" in
+case "$(payload_of "$file" LONG_KEY)" in
   v1:env:*) ok 'long value selected the envelope format' ;;
-  *) bad 'long value selected the envelope format' "got prefix ${entry%%:*}:${entry#*:}" ;;
+  *) bad 'long value selected the envelope format' ;;
 esac
 sync_env dev >/dev/null 2>&1
 check_eq 'long value roundtrips through the envelope' "$long_value" "$(live_value GP_API_DEV LONG_KEY)"
@@ -189,6 +230,61 @@ if printf '\n' | encrypt "$file" ONLY_NL_KEY >/dev/null 2>&1; then
 else
   ok 'a lone newline counts as empty and is refused'
 fi
+
+# ============================================================
+echo 'the manifest is the promotion'
+# ============================================================
+
+# What is committed must be a version id and nothing else. This repo is public,
+# so a ciphertext in the manifest is a payload that can never be withdrawn.
+case "$(manifest_entry "$file" SHORT_KEY)" in
+  v1:s3:*) ok 'the manifest records a version id, not a ciphertext' ;;
+  *) bad 'the manifest records a version id, not a ciphertext' ;;
+esac
+check_eq 'the ciphertext itself is not in the manifest' \
+  '0' "$(grep -c 'v1:rsa:\|v1:env:' "$file" || true)"
+
+# The property the whole design rests on: uploading is unreviewed, so it must be
+# inert. A payload in the bucket that no merged manifest points at cannot reach
+# a running service.
+printf %s 'sk-test-rotated-later' | encrypt "$file" PROMOTE_KEY >/dev/null
+sync_env dev >/dev/null 2>&1
+check_eq 'the baseline value is live before the test' \
+  'sk-test-rotated-later' "$(live_value GP_API_DEV PROMOTE_KEY)"
+
+cp "$file" "$root/manifest-pinned.json"
+printf %s 'uploaded-but-never-promoted' | encrypt "$file" PROMOTE_KEY >/dev/null
+promoted_entry=$(manifest_entry "$file" PROMOTE_KEY)
+cp "$root/manifest-pinned.json" "$file" # un-promote: keep the old version pinned
+sync_env dev >/dev/null 2>&1
+check_eq 'an uploaded but unpromoted payload is never deployed' \
+  'sk-test-rotated-later' "$(live_value GP_API_DEV PROMOTE_KEY)"
+
+# Promoting it is a one-line manifest change, which is what a PR reviews.
+jq --arg v "$promoted_entry" '.values.PROMOTE_KEY = $v' "$file" >"$root/tmp.json"
+mv "$root/tmp.json" "$file"
+sync_env dev >/dev/null 2>&1
+check_eq 'promoting the version id deploys it' \
+  'uploaded-but-never-promoted' "$(live_value GP_API_DEV PROMOTE_KEY)"
+
+# And reverting that change is a rollback, with no re-encryption: the older
+# version is still in the bucket, so the previous value comes straight back.
+cp "$root/manifest-pinned.json" "$file"
+sync_env dev >/dev/null 2>&1
+check_eq 'reverting the manifest rolls the value back' \
+  'sk-test-rotated-later' "$(live_value GP_API_DEV PROMOTE_KEY)"
+
+# A version id that does not exist must fail loudly, never fall back to latest.
+jq '.values.PROMOTE_KEY = "v1:s3:no-such-version"' "$file" >"$root/tmp.json"
+mv "$root/tmp.json" "$file"
+if sync_env dev >/dev/null 2>&1; then
+  bad 'a missing version id fails instead of falling back'
+else
+  ok 'a missing version id fails instead of falling back'
+fi
+check_eq 'the live value survived the failed sync' \
+  'sk-test-rotated-later' "$(live_value GP_API_DEV PROMOTE_KEY)"
+cp "$root/manifest-pinned.json" "$file"
 
 # ============================================================
 echo 'idempotency'
@@ -371,20 +467,32 @@ jq -n '{secretId:"X_DEV", environment:"dev", values:{PLAIN_KEY:"just-a-plaintext
   >"$bad_dir/plain.dev.json"
 reject 'rejects a committed plaintext value' "$bad_dir/plain.dev.json"
 
-truncated=$(jq -r '.values.TRICKY_KEY' "$file" | cut -c1-200)
-jq -n --arg v "$truncated" '{secretId:"X_DEV", environment:"dev", values:{T_KEY:$v}}' \
-  >"$bad_dir/trunc.dev.json"
-reject 'rejects a truncated ciphertext' "$bad_dir/trunc.dev.json"
+# The public-repo guard: a payload belongs in the bucket, so a real ciphertext
+# in a manifest is rejected even though it is perfectly well-formed.
+jq -n --arg v "$(payload_of "$file" SHORT_KEY)" \
+  '{secretId:"X_DEV", environment:"dev", values:{RAW_KEY:$v}}' \
+  >"$bad_dir/raw.dev.json"
+reject 'rejects a raw ciphertext committed instead of a version id' "$bad_dir/raw.dev.json"
 
 jq -n '{secretId:"X_DEV", environment:"dev", values:{E_KEY:"v1:env:AAAA.BBBB"}}' \
   >"$bad_dir/badenv.dev.json"
-reject 'rejects a malformed envelope' "$bad_dir/badenv.dev.json"
+reject 'rejects a raw envelope committed instead of a version id' "$bad_dir/badenv.dev.json"
 
-jq -n '{secretId:"X_PROD", environment:"prod", values:{K:"v1:rsa:AAAA"}}' \
+# `null` is what S3 answers when versioning is off. Accepting it would make the
+# manifest point at mutable bytes, so the promotion would stop being a promotion.
+jq -n '{secretId:"X_DEV", environment:"dev", values:{N_KEY:"v1:s3:null"}}' \
+  >"$bad_dir/null.dev.json"
+reject 'rejects a null version id (bucket not versioned)' "$bad_dir/null.dev.json"
+
+jq -n '{secretId:"X_DEV", environment:"dev", values:{B_KEY:"v1:s3:has spaces"}}' \
+  >"$bad_dir/badvid.dev.json"
+reject 'rejects a malformed version id' "$bad_dir/badvid.dev.json"
+
+jq -n '{secretId:"X_PROD", environment:"prod", values:{K:"v1:s3:abc123"}}' \
   >"$bad_dir/mismatch.dev.json"
 reject 'rejects environment that disagrees with the filename' "$bad_dir/mismatch.dev.json"
 
-jq -n '{secretId:"X_DEV", environment:"dev", values:{"lower_case":"v1:rsa:AAAA"}}' \
+jq -n '{secretId:"X_DEV", environment:"dev", values:{"lower_case":"v1:s3:abc123"}}' \
   >"$bad_dir/case.dev.json"
 reject 'rejects a lowercase key name' "$bad_dir/case.dev.json"
 
@@ -436,15 +544,20 @@ fi
 jq 'del(.values.WRONG_KEY)' "$file" >"$root/t.json" && mv "$root/t.json" "$file"
 
 # A tampered envelope body must be caught by the MAC, not silently decrypted.
+# Now that payloads live in S3, the thing to tamper with is the object — which is
+# also the realistic threat: the bucket is a surface the repo's review cannot see,
+# so the MAC is what stands between a modified object and a deployed value.
 printf %s "$long_value" | encrypt "$file" MAC_KEY >/dev/null
+mac_version=$(manifest_entry "$file" MAC_KEY)
+mac_object="$root/s3/dev/GP_API_DEV/MAC_KEY/${mac_version#v1:s3:}"
 # Flip the first base64 character of the ciphertext body. base64 has no '.', so
-# awk -F. splits the entry cleanly into wrapped / iv / mac / body.
-tampered=$(jq -r '.values.MAC_KEY' "$file" | awk -F. '{
+# awk -F. splits the payload cleanly into wrapped / iv / mac / body.
+awk -F. '{
   first = substr($4, 1, 1);
   repl = (first == "A" ? "B" : "A");
   print $1 "." $2 "." $3 "." repl substr($4, 2)
-}')
-jq --arg v "$tampered" '.values.MAC_KEY = $v' "$file" >"$root/t.json" && mv "$root/t.json" "$file"
+}' <"$mac_object" >"$root/t.payload"
+printf %s "$(cat "$root/t.payload")" >"$mac_object"
 # Captured into a variable rather than piped into grep: `pipefail` is on, and a
 # failing sync (which is the expected outcome here) would make the pipeline
 # report failure even when grep matched.

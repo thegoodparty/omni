@@ -280,7 +280,7 @@ Categories that PR review keeps catching. Each one has caused a real bug. Read t
 - Never bypass `@goodparty_org/contracts` for cross-service shapes.
 - Never `import 'node:test'` (banned by ESLint — use Vitest).
 - Never run a mutating ClickUp MCP tool without explicit user permission (no-clickup-mutations.mdc).
-- Never ask the user for AWS credentials, console access, or an IAM grant to add a credential a new integration needs — you can add it yourself, including in prod, without being able to read anything (`docs/secrets.md`). Don't ask them to paste a prod value to you either; they encrypt it themselves.
+- Never ask the user to paste a secret value to you, and never ask for secret read access (`GetSecretValue`, `kms:Decrypt`, a console login) to add a credential a new integration needs. You can add it yourself, including in prod, using the write-only secrets profile — which cannot read anything (`docs/secrets.md`).
 - Never commit when `npm run lint` / `npm run verify` exits non-zero (rules.mdc Rule 27). Fix what you touched; raise pre-existing failures to the user.
 
 ## Environment

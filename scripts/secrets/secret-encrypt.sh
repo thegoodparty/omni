@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# Encrypt a secret value into a secret file. Needs NO AWS credentials — it
-# encrypts against the public key committed at secrets/gp-secret-write.pub.pem,
-# and only CI holds the private half.
+# Encrypt a secret value, upload the ciphertext to S3, and record the version id
+# it came back with in a manifest for review.
+#
+# The value is encrypted against the public key committed at
+# secrets/gp-secret-write.pub.pem before anything leaves this machine, so the
+# write-only AWS profile this needs cannot read any secret — not the one being
+# written, and not one already there. Only CI holds the private half.
 #
 # The value is read from stdin, never from an argument: arguments are visible to
 # every other process on the machine via `ps`.
+#
+# Uploading does not deploy anything. The object is inert until the manifest
+# change lands on main, which is the reviewed step.
 #
 # Usage:
 #   printf %s "$VALUE" | scripts/secrets/secret-encrypt.sh secrets/gp-api.prod.json VENDOR_API_KEY
@@ -55,6 +62,9 @@ is_valid_key_name "$key" ||
 
 require_openssl
 command -v jq >/dev/null 2>&1 || die 'jq not found on PATH'
+command -v aws >/dev/null 2>&1 ||
+  die 'aws CLI not found on PATH. Uploading the ciphertext needs the write-only
+secrets profile — see docs/secrets.md.'
 
 pubkey="$(secret_public_key_path)"
 if [ ! -f "$pubkey" ]; then
@@ -101,7 +111,7 @@ rsa_encrypt() {
 
 if [ "$size" -le "$RSA_MAX_PLAINTEXT" ]; then
   rsa_encrypt "$workdir/plaintext" "$workdir/ct"
-  entry="$SECRET_FORMAT_VERSION:$SECRET_ALG_RSA:$(b64 <"$workdir/ct")"
+  payload="$SECRET_FORMAT_VERSION:$SECRET_ALG_RSA:$(b64 <"$workdir/ct")"
   shape='rsa'
 else
   # Envelope: one RSA block carries both the AES key and the MAC key (64 bytes
@@ -128,10 +138,10 @@ else
   mac=$(openssl dgst -sha256 -mac HMAC -macopt "hexkey:$mac_key_hex" -binary \
     <"$workdir/mac_input" | b64)
 
-  entry="$SECRET_FORMAT_VERSION:$SECRET_ALG_ENVELOPE:$(b64 <"$workdir/wrapped")"
-  entry="$entry.$(b64 <"$workdir/iv")"
-  entry="$entry.$mac"
-  entry="$entry.$(b64 <"$workdir/ct")"
+  payload="$SECRET_FORMAT_VERSION:$SECRET_ALG_ENVELOPE:$(b64 <"$workdir/wrapped")"
+  payload="$payload.$(b64 <"$workdir/iv")"
+  payload="$payload.$mac"
+  payload="$payload.$(b64 <"$workdir/ct")"
   shape='envelope'
 fi
 
@@ -164,6 +174,34 @@ secret_id_matches_environment "$secret_id" "$environment" ||
   die "$secret_id is not a $environment secret, but $file is a $environment file.
 A $environment file must not write another environment's secret."
 
+# Upload the ciphertext. Every PUT to a versioned bucket creates a new version
+# and leaves the previous ones intact, so this is additive — it cannot disturb
+# the value currently deployed, which is pinned by the version id already in the
+# manifest on main.
+bucket="$(secret_payload_bucket)"
+object_key="$(secret_object_key "$environment" "$secret_id" "$key")"
+
+printf %s "$payload" >"$workdir/payload"
+version_id=$(aws s3api put-object \
+  --bucket "$bucket" \
+  --key "$object_key" \
+  --body "$workdir/payload" \
+  --query VersionId --output text 2>"$workdir/s3.err") || {
+  sed 's/^/    aws: /' "$workdir/s3.err" >&2
+  die "could not upload to s3://$bucket/$object_key.
+This needs the write-only secrets profile; see docs/secrets.md. The value has
+not been written anywhere."
+}
+
+# A bucket with versioning off answers `null`, which would make the manifest
+# point at "whatever is at that key right now" instead of at fixed bytes —
+# unreviewable and mutable, the opposite of the point. Refuse it.
+is_valid_version_id "$version_id" || die "S3 returned version id '$version_id' for
+s3://$bucket/$object_key. If that is 'null', versioning is not enabled on the
+bucket and the manifest cannot pin a value — see docs/secrets-iac-plan.md."
+
+entry="$SECRET_FORMAT_VERSION:$SECRET_ALG_S3:$version_id"
+
 if [ -f "$file" ]; then
   tmp=$(mktemp "$workdir/out.XXXXXX")
   jq --arg k "$key" --arg v "$entry" '.values[$k] = $v' "$file" >"$tmp"
@@ -175,5 +213,8 @@ else
 fi
 
 # Deliberately says nothing about the value, not even its length.
-echo "encrypted $key into $file ($shape, target $secret_id)"
-echo 'Commit the file. CI writes the value on the next release train.'
+echo "uploaded $key to s3://$bucket/$object_key ($shape)"
+echo "recorded version $version_id in $file"
+echo
+echo "Nothing is deployed yet. Commit $file and open a PR — merging it is what"
+echo "promotes this value, and reverting it is what rolls back."
