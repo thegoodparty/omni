@@ -52,6 +52,33 @@ describe('ProUpgradeWizard', () => {
     expect(router.replace).not.toHaveBeenCalled()
   })
 
+  it('holds the step children behind a spinner until the flag resolves', () => {
+    // An unresolved flag reads off, so rendering a step before the answer
+    // arrives would wire its Continue to the wrong next step.
+    mockUseFlag.mockReturnValue({ ready: false, enabled: false })
+
+    const { unmount } = render(
+      <ProUpgradeWizard>
+        <div>step-content</div>
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.queryByText('step-content')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    // The chrome is held, not hidden.
+    expect(screen.getByRole('link', { name: /exit/i })).toBeInTheDocument()
+    unmount()
+
+    mockUseFlag.mockReturnValue({ ready: true, enabled: false })
+    render(
+      <ProUpgradeWizard>
+        <div>step-content</div>
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.getByText('step-content')).toBeInTheDocument()
+  })
+
   it('renders an Exit link to the dashboard', () => {
     render(
       <ProUpgradeWizard>

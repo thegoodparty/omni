@@ -5,20 +5,28 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import { OUTREACH_PRO_GATING_V2_FLAG_KEY } from 'app/shared/experiments/outreachProGatingV2Flag'
 import type { MembershipState } from './deriveMembershipState'
 import { MEMBERSHIP_COPY } from './membershipCopy'
 import { MembershipBanner, resolveMembershipAction } from './MembershipBanner'
 
-const { mockUseMembershipState, mockUseFlag } = vi.hoisted(() => ({
-  mockUseMembershipState: vi.fn(),
-  mockUseFlag: vi.fn(),
-}))
+const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
+  () => ({
+    mockUseMembershipState: vi.fn(),
+    mockUseFlag: vi.fn(),
+    mockExposure: vi.fn(),
+  }),
+)
 
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
 vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
+  OUTREACH_PRO_GATING_V2_FLAG_KEY: 'outreach-pro-gating-v2',
   useOutreachProGatingV2Flag: (...args: unknown[]) => mockUseFlag(...args),
+}))
+vi.mock('app/shared/experiments/FeatureFlagsProvider', () => ({
+  useFeatureFlags: () => ({ exposure: mockExposure }),
 }))
 vi.mock('./ProPitchDialog', () => ({
   ProPitchDialog: ({ open }: { open: boolean }) => (
@@ -105,11 +113,33 @@ describe('MembershipBanner', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('takes the flag exposure, since the banner is the treatment surface', () => {
+  it('exposes the flag once, and only once the banner is on screen', () => {
     setup()
 
-    expect(mockUseFlag).toHaveBeenCalledWith()
+    // The hook read must not expose: the treatable population is the one that
+    // can see a membership surface, not everyone the flag is on for.
+    expect(mockUseFlag).toHaveBeenCalledWith(false)
+    expect(mockExposure).toHaveBeenCalledTimes(1)
+    expect(mockExposure).toHaveBeenCalledWith(OUTREACH_PRO_GATING_V2_FLAG_KEY)
     expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: true })
+  })
+
+  it('does not expose the flag when the surface is hidden', () => {
+    for (const state of [
+      membership({ isElectedOffice: true }),
+      membership({ texting: 'cleared' }),
+    ]) {
+      setup({ state })
+
+      expect(mockExposure).not.toHaveBeenCalled()
+      mockExposure.mockClear()
+    }
+  })
+
+  it('does not expose the flag before the membership state is ready', () => {
+    setup({ ready: false })
+
+    expect(mockExposure).not.toHaveBeenCalled()
   })
 
   it('renders the upsell and opens the pitch dialog for a free campaign', async () => {
@@ -176,9 +206,14 @@ describe('MembershipBanner', () => {
     expect(
       screen.queryByText(MEMBERSHIP_COPY.banner.needsVerification.cta),
     ).toBeNull()
-    expect(screen.getByRole('button')).toBeDisabled()
+    // A disabled button is unreachable by keyboard and screen reader, so the
+    // in-review copy is a status instead.
+    expect(screen.getByRole('status')).toHaveTextContent(
+      MEMBERSHIP_COPY.banner.inReview.body,
+    )
+    expect(screen.queryByRole('button')).toBeNull()
 
-    await user.click(screen.getByRole('button'))
+    await user.click(screen.getByRole('status'))
 
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Membership.BannerClicked,

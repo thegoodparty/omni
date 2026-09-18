@@ -70,7 +70,17 @@ const CampaignVerificationFlow = (): React.JSX.Element => {
             />
           )}
           {step === 'form' && (
-            <ElectionFilingForm onSubmitted={() => setStep('submitted')} />
+            <>
+              <Button
+                variant="ghost"
+                size="small"
+                className="mb-4 text-base-muted-foreground"
+                onClick={() => setStep('intro')}
+              >
+                <ArrowLeftIcon /> Back
+              </Button>
+              <ElectionFilingForm onSubmitted={() => setStep('submitted')} />
+            </>
           )}
           {step === 'submitted' && <VerificationSubmittedContent />}
         </div>

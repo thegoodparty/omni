@@ -30,8 +30,11 @@ interface UseMembershipStateResult {
 //
 // `enabled` is how a flagged-off surface opts out of the reads entirely: the
 // hook is called unconditionally (hooks always are), so without it every user
-// outside the experiment would still pay for the TCR read. The
-// elected-office query stays on — other consumers share it.
+// outside the experiment would still pay for the TCR read. The campaign gate
+// does the same for an org that has no campaign at all (Serve, or a user
+// mid-onboarding): no campaign means no membership surface can render, so the
+// reads would be paid for a UI that never appears. The elected-office query
+// stays on — other consumers share it.
 export const useMembershipState = ({
   enabled = true,
 }: { enabled?: boolean } = {}): UseMembershipStateResult => {
@@ -41,7 +44,7 @@ export const useMembershipState = ({
   const { data: tcrCompliance, isPending: tcrPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
-    enabled,
+    enabled: enabled && Boolean(campaign),
   })
 
   const isAwaitingPinCandidate =
@@ -51,7 +54,7 @@ export const useMembershipState = ({
   const { data: complianceState, isPending: compliancePending } = useQuery({
     queryKey: COMPLIANCE_STATE_QUERY_KEY,
     queryFn: getComplianceState,
-    enabled: enabled && isAwaitingPinCandidate,
+    enabled: enabled && Boolean(campaign) && isAwaitingPinCandidate,
   })
 
   const ready =

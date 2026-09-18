@@ -67,6 +67,18 @@ describe('CampaignVerificationFlow', () => {
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 
+  it('returns to the intro when Back is clicked on the form', async () => {
+    const user = userEvent.setup()
+    render(<CampaignVerificationFlow />)
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(screen.getByText(INTRO_TITLE)).toBeInTheDocument()
+    expect(screen.queryByText('mock-submit')).not.toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
   it('leaves for the dashboard when Back is clicked on the intro', async () => {
     const user = userEvent.setup()
     render(<CampaignVerificationFlow />)

@@ -68,6 +68,19 @@ describe('useMembershipState', () => {
     expect(result.current.tcrCompliance).toBeNull()
   })
 
+  it('disables both queries, and never reports ready, without a campaign', () => {
+    // No campaign means no membership surface can render, so the TCR read
+    // would be paid for a UI that never appears.
+    mockUseCampaign.mockReturnValue([undefined])
+
+    const { result } = renderHook(() => useMembershipState())
+
+    expect(queryOptions(TCR_COMPLIANCE_QUERY_KEY)?.enabled).toBe(false)
+    expect(queryOptions(COMPLIANCE_STATE_QUERY_KEY)?.enabled).toBe(false)
+    expect(result.current.ready).toBe(false)
+    expect(result.current.state).toBeNull()
+  })
+
   it('leaves the compliance-state query off for a record that never reached Peerly', () => {
     mockUseQuery.mockImplementation(
       ({ queryKey }: { queryKey: readonly string[] }) =>

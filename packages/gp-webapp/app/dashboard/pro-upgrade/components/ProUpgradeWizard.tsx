@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
-import { Button, Stepper } from '@styleguide'
+import { Button, Spinner, Stepper } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import {
@@ -126,7 +126,12 @@ const ProUpgradeWizard = ({
 }: ProUpgradeWizardProps): React.JSX.Element => {
   const router = useRouter()
   const pathname = usePathname()
-  const { enabled: purchaseOnly } = useOutreachProGatingV2Flag(false)
+  const { ready: flagReady, enabled } = useOutreachProGatingV2Flag(false)
+  // An unresolved flag reads off, so committing to the default order before it
+  // resolves would run a step's Continue against the wrong next step. Hold the
+  // step children (not the chrome) until the flag has an answer, the same way
+  // ProUpgradeEntry folds flagReady into its own `ready`.
+  const purchaseOnly = flagReady && enabled
 
   const stepOrder = proUpgradeStepOrder(purchaseOnly)
   const currentStep = stepFromPathname(pathname, stepOrder)
@@ -200,7 +205,13 @@ const ProUpgradeWizard = ({
         labels={stepperLabels}
         cardless={isPayment}
       >
-        {children}
+        {flagReady ? (
+          children
+        ) : (
+          <div className="flex h-[60vh] items-center justify-center">
+            <Spinner />
+          </div>
+        )}
       </WizardChrome>
     </ProUpgradeWizardContext.Provider>
   )

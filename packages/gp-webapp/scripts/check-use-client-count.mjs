@@ -402,6 +402,9 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-18: 574 -> 575 for PinDialog, the membership banner's PIN entry.
 // It holds the typed-PIN state and reads useCvPinGate/useSubmitCvPin, both
 // client-only hooks.
+// 2026-09-18: 575 -> 576 for ProPitchDialog, the Pro pitch the membership
+// surfaces open. It is a Radix dialog that fires its viewed event on open and
+// routes into the wizard, so it cannot render on the server.
 // 2026-09-18: 576 -> 578 for the membership banner and chip. Both read the
 // membership hook and the flag, own dialog open state, and route on click.
 const BASELINE = 578

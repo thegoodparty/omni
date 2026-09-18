@@ -17,7 +17,10 @@ export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
 
   return (
-    <FeatureFlagGuard flagKey={OUTREACH_PRO_GATING_V2_FLAG_KEY}>
+    <FeatureFlagGuard
+      flagKey={OUTREACH_PRO_GATING_V2_FLAG_KEY}
+      trackExposure={false}
+    >
       <CampaignVerificationFlow />
     </FeatureFlagGuard>
   )

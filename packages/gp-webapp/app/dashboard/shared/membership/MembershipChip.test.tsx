@@ -5,20 +5,28 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
+import { OUTREACH_PRO_GATING_V2_FLAG_KEY } from 'app/shared/experiments/outreachProGatingV2Flag'
 import type { MembershipState } from './deriveMembershipState'
 import { MEMBERSHIP_COPY } from './membershipCopy'
 import { MembershipChip } from './MembershipChip'
 
-const { mockUseMembershipState, mockUseFlag } = vi.hoisted(() => ({
-  mockUseMembershipState: vi.fn(),
-  mockUseFlag: vi.fn(),
-}))
+const { mockUseMembershipState, mockUseFlag, mockExposure } = vi.hoisted(
+  () => ({
+    mockUseMembershipState: vi.fn(),
+    mockUseFlag: vi.fn(),
+    mockExposure: vi.fn(),
+  }),
+)
 
 vi.mock('./useMembershipState', () => ({
   useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
 vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
+  OUTREACH_PRO_GATING_V2_FLAG_KEY: 'outreach-pro-gating-v2',
   useOutreachProGatingV2Flag: (...args: unknown[]) => mockUseFlag(...args),
+}))
+vi.mock('app/shared/experiments/FeatureFlagsProvider', () => ({
+  useFeatureFlags: () => ({ exposure: mockExposure }),
 }))
 vi.mock('./ProPitchDialog', () => ({
   ProPitchDialog: ({ open }: { open: boolean }) => (
@@ -79,11 +87,31 @@ describe('MembershipChip', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  it('leaves the flag exposure to the sidebar banner', () => {
+  it('exposes the flag once, so phone-only candidates are counted too', () => {
     setup()
 
     expect(mockUseFlag).toHaveBeenCalledWith(false)
+    expect(mockExposure).toHaveBeenCalledTimes(1)
+    expect(mockExposure).toHaveBeenCalledWith(OUTREACH_PRO_GATING_V2_FLAG_KEY)
     expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: true })
+  })
+
+  it('does not expose the flag when the surface is hidden', () => {
+    for (const state of [
+      membership({ isElectedOffice: true }),
+      membership({ texting: 'cleared' }),
+    ]) {
+      setup({ state })
+
+      expect(mockExposure).not.toHaveBeenCalled()
+      mockExposure.mockClear()
+    }
+  })
+
+  it('does not expose the flag before the membership state is ready', () => {
+    setup({ ready: false })
+
+    expect(mockExposure).not.toHaveBeenCalled()
   })
 
   it('renders the price for a free campaign and opens the pitch dialog', async () => {
@@ -133,11 +161,13 @@ describe('MembershipChip', () => {
     )
   })
 
-  it('renders the in-review label with no action', () => {
+  it('renders the in-review label as a status, not a disabled button', () => {
     setup({ state: membership({ texting: 'in_review' }) })
 
-    expect(screen.getByText(MEMBERSHIP_COPY.chip.inReview)).toBeInTheDocument()
-    expect(screen.getByRole('button')).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      MEMBERSHIP_COPY.chip.inReview,
+    )
+    expect(screen.queryByRole('button')).toBeNull()
   })
 
   it('renders nothing once a Pro campaign is cleared to text', () => {

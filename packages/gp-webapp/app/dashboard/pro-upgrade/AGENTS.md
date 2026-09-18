@@ -36,10 +36,13 @@ the default order below is exactly as it was.
 
 Read the flag once, in a shell, and pass it down as `purchaseOnly` on the wizard
 context. Everything else goes through `proUpgradeStepOrder(purchaseOnly)` and
-`deriveProUpgradeStep(inputs, { purchaseOnly })` instead of re-reading the flag. Its
-one exposure surface is the sidebar `MembershipBanner`
-(`app/dashboard/shared/membership/`), so every caller in this dir reads it with
-`useOutreachProGatingV2Flag(false)`.
+`deriveProUpgradeStep(inputs, { purchaseOnly })` instead of re-reading the flag.
+Exposure belongs to `app/dashboard/shared/membership/` — both `MembershipBanner`
+and `MembershipChip` fire it, and only once the surface is actually visible (a
+Serve org or a cleared Pro campaign renders neither, so neither is exposed). Every
+other caller reads the flag with `useOutreachProGatingV2Flag(false)`, and
+`/dashboard/campaign-verification` passes `trackExposure={false}` to its
+`FeatureFlagGuard` for the same reason.
 
 ## The big idea: no server-side session, step derived from canonical state
 

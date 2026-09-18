@@ -30,6 +30,9 @@ const PIN_LENGTH = 6
 interface PinDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  // Callers only open this once the TCR read has settled (the membership
+  // hook's `ready`), so null here means genuinely no record — not "still
+  // loading" — and showing only Close is the right answer.
   tcrCompliance: TcrCompliance | null
 }
 
