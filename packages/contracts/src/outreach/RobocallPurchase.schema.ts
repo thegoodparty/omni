@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ROBOCALL_SCRIPT_MAX_LENGTH } from './RobocallScript.schema'
+import { ROBOCALL_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
 
 // POST /v1/outreach/robocall — creates the robocall as a `pending_payment`
 // draft BEFORE payment (mirrors the p2p draft-first flow), storing everything

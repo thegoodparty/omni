@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
 import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
+import { ROBOCALL_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
 
 // Robocall script-draft purpose slugs, on the wire for
 // POST /v1/outreach/robocall/draft. The webapp's robocallPurposes.ts maps
@@ -11,7 +12,7 @@ export const ROBOCALL_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES
 export const RobocallPurposeSchema = z.enum(ROBOCALL_PURPOSE_VALUES)
 export type RobocallPurpose = z.infer<typeof RobocallPurposeSchema>
 
-export const ROBOCALL_SCRIPT_MAX_LENGTH = 2000
+export { ROBOCALL_SCRIPT_MAX_LENGTH }
 
 // currentDraft switches the endpoint from writing a fresh script to polishing
 // the given text (keep meaning/structure/claims, apply tone) — mirrors the
