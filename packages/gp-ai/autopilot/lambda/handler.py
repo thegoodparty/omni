@@ -450,6 +450,11 @@ def _hydrate_from_clickup(event: AutopilotEvent) -> AutopilotEvent:
         current_status=_status_label(task.get("status")),
         epic_task_id=parent if isinstance(parent, str) else None,
         event_ts=event.event_ts,
+        # Delivery-derived, not task-derived: hydration must carry it through
+        # like event_ts, or every real delivery (which always hydrates) hits
+        # the comment-resume bot filter with None and the park self-resume
+        # loop comes back.
+        event_actor_id=event.event_actor_id,
     )
 
 

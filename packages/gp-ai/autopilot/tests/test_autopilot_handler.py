@@ -597,6 +597,7 @@ def test_async_worker_hydrates_comment_posted_current_status_from_live_read(monk
         list_id=None,
         transitions=[],
         event_ts="1700000099000",
+        event_actor_id="150125283",
     ).to_payload()
 
     resp = handler.handler(payload, None)
@@ -609,6 +610,10 @@ def test_async_worker_hydrates_comment_posted_current_status_from_live_read(monk
     # The delivery timestamp is the resume dedup key's only source — it must
     # survive hydration, not be replaced by anything from the task read.
     assert routed[0].event_ts == "1700000099000"
+    # And the delivery's actor must survive it too: every real delivery
+    # hydrates, so an actor dropped here reaches the comment-resume bot
+    # filter as None and the park self-resume loop comes back.
+    assert routed[0].event_actor_id == "150125283"
 
 
 def test_comment_posted_without_parent_hydrates_even_when_list_and_status_are_set(monkeypatch, fake_lambda):
