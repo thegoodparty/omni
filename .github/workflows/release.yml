@@ -200,6 +200,12 @@ jobs:
           fi
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
+        env:
+          # nest build's type-check peaks near Node's default ~4GB heap and
+          # OOMs intermittently on the 16GB runners (exit 134, first seen
+          # 2026-09-18, run 35374622414) — same failure mode and cap as the
+          # vercel-deploy action's `next build`.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build -w packages/gp-api
       - name: Set up Docker Buildx
         if: steps.ecr-image.outputs.exists != 'true'
@@ -266,6 +272,9 @@ jobs:
           fi
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
+        env:
+          # Same nest-build heap profile as the gp-api step above.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build -w packages/election-api
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
