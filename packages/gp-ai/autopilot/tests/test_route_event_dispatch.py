@@ -197,7 +197,12 @@ def test_story_landing_in_qa_by_bot_dispatches_qa_run(fake_ecs):
 # ---------------------------------------------------------------------------
 
 
-def test_feedback_needed_to_in_progress_dispatches_resume(fake_ecs):
+def _parked_comment(stage, date="1700000000000"):
+    return {"id": "c1", "comment_text": f"[autopilot:parked stage={stage}]\n\n1. Q?", "date": date}
+
+
+def test_feedback_needed_to_in_progress_dispatches_resume(fake_ecs, monkeypatch):
+    monkeypatch.setattr(handler.supervisor, "get_task_comments", lambda task_id: [_parked_comment("qa")])
     event = make_event(
         STORY_LIST_ID,
         [transition(HUMAN_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_IN_PROGRESS)],
@@ -211,10 +216,14 @@ def test_feedback_needed_to_in_progress_dispatches_resume(fake_ecs):
     assert len(fake_ecs.run_task_calls) == 1
     vars = env_vars(fake_ecs.run_task_calls[0])
     assert vars["AUTOPILOT_STAGE"] == router.STAGE_RESUME
+    # The agent's config hard-requires this for a resume run (the first live
+    # resume died at startup without it); resolved from the park marker.
+    assert vars["RESUME_STAGE"] == "qa"
     assert "EPIC_TASK_ID" not in vars
 
 
-def test_comment_posted_while_feedback_needed_dispatches_resume(fake_ecs):
+def test_comment_posted_while_feedback_needed_dispatches_resume(fake_ecs, monkeypatch):
+    monkeypatch.setattr(handler.supervisor, "get_task_comments", lambda task_id: [_parked_comment("story")])
     # Production shape: taskCommentPosted has no history_items at all.
     event = make_event(
         STORY_LIST_ID,
@@ -230,7 +239,55 @@ def test_comment_posted_while_feedback_needed_dispatches_resume(fake_ecs):
     assert len(fake_ecs.run_task_calls) == 1
     vars = env_vars(fake_ecs.run_task_calls[0])
     assert vars["AUTOPILOT_STAGE"] == router.STAGE_RESUME
+    assert vars["RESUME_STAGE"] == "story"
     assert "EPIC_TASK_ID" not in vars
+
+
+def test_resume_without_a_park_marker_is_refused_and_logged(fake_ecs, monkeypatch, capsys):
+    # A card dragged back without ever parking (a run that stranded before
+    # its park) names no stage to re-enter — a blind resume would guess.
+    monkeypatch.setattr(handler.supervisor, "get_task_comments", lambda task_id: [{"comment_text": "hi", "date": "1"}])
+    event = make_event(
+        STORY_LIST_ID,
+        [transition(HUMAN_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_IN_PROGRESS)],
+        epic_task_id="epic-9",
+    )
+
+    handler.route_event(event)
+
+    assert fake_ecs.run_task_calls == []
+    assert "no park marker" in capsys.readouterr().out
+
+
+def test_resume_comments_read_failure_escapes_the_worker_as_a_function_error(fake_ecs, monkeypatch):
+    # Same retry contract as hydration: the sweep cannot reconstruct this
+    # trigger (STORY -> in progress is an ambiguous pair it skips), so only
+    # Lambda's async retry can save the event. That retry happens ONLY on a
+    # function error — the worker's returned 500 counts as a successful async
+    # invocation — so the failure must escape handle_async_processing's
+    # broad catch, not just route_event.
+    def boom(task_id):
+        raise RuntimeError("clickup down")
+
+    monkeypatch.setattr(handler.supervisor, "get_task_comments", boom)
+    payload = handler.AutopilotEvent(
+        kind="statusUpdated",
+        task_id=TASK_ID,
+        list_id=STORY_LIST_ID,
+        transitions=[
+            handler.StatusTransition(
+                actor_user_id=HUMAN_USER_ID,
+                from_status=router.STATUS_FEEDBACK_NEEDED,
+                to_status=router.STATUS_IN_PROGRESS,
+                transitioned_at="1700000600000",
+            )
+        ],
+        epic_task_id="epic-9",
+    ).to_payload()
+
+    with pytest.raises(handler.RetryableRouteError):
+        handler.handler(payload, None)
+    assert fake_ecs.run_task_calls == []
 
 
 # ---------------------------------------------------------------------------
