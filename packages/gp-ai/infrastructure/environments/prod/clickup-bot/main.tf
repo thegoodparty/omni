@@ -84,6 +84,10 @@ module "clickup_bot" {
   ecs_task_role_arn           = var.enable_fargate_trigger ? data.terraform_remote_state.engineer_agent_fargate[0].outputs.task_role_arn : ""
 
   shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
+
+  # The enforcement half of the flip described in the engineer-agent-fargate
+  # root. Keep this set and escalation_repos there identical.
+  implement_repos = "thegoodparty/omni,thegoodparty/gp-marketing"
 }
 
 output "failure_sns_topic_arn" {
