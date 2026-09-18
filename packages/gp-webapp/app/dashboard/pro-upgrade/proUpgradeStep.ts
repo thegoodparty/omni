@@ -38,7 +38,9 @@ export const proUpgradeStepPath = (step: ProUpgradeStep): string =>
 //   cannot derive it. It is reached only by explicit navigation from the
 //   filing-status step ("yes, already filed" → guidance) and advances by
 //   explicit navigation to the EIN step (task 09), so it stays out of the
-//   linear order by design rather than being inserted here.
+//   linear order by design rather than being inserted here. In the
+//   purchase-only order below, guidance is the first ordered step and the
+//   router derives it.
 export const PRO_UPGRADE_STEP_ORDER: ProUpgradeStep[] = [
   PRO_UPGRADE_STEP.VALUE_PROP,
   PRO_UPGRADE_STEP.STATUS,
@@ -139,7 +141,8 @@ export const deriveProUpgradeStep = (
   // resumed here — filing-instructions is a dead-end branch reached only by
   // explicit navigation from the status step (like guidance), so the router
   // does not derive it. A not-filed candidate with real downstream progress
-  // resumes at that data step below.
+  // resumes at that data step below. In the purchase-only branch above,
+  // guidance is derived directly instead.
   if (filingStatus === 'unanswered') return PRO_UPGRADE_STEP.STATUS
 
   // Remaining pre-payment data steps, in canonical order; first incomplete wins.
