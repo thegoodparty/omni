@@ -523,6 +523,21 @@ export const PhoneBankingFlow = ({
     }
   }
 
+  // The shell's Continue over a selected recommendation card: saved under
+  // the recommendation's own title, then on to the script.
+  const handleSelectedRecommendationContinue = async () => {
+    if (!audience.selectedRecommendation) return
+    try {
+      await audience.createRecommendedList(
+        audience.selectedRecommendation,
+        audience.selectedRecommendation.copy.title,
+      )
+      setStepId('script')
+    } catch {
+      // createRecommendedListError renders under the cards.
+    }
+  }
+
   const handleBack = () => {
     // Within the builder, Back walks the sub-modes: name -> filters (keeps the
     // built filters), filters -> picker (resetBuilder clears them).
@@ -586,13 +601,21 @@ export const PhoneBankingFlow = ({
               audience.reachableCount !== null
                 ? `Continue (${audience.reachableCount.toLocaleString()})`
                 : 'Continue',
-            onClick: () => setStepId('script'),
+            onClick: () => {
+              if (audience.selectedRecommendation) {
+                void handleSelectedRecommendationContinue()
+                return
+              }
+              setStepId('script')
+            },
             disabled:
-              !audience.selectedList ||
+              (!audience.selectedList && !audience.selectedRecommendation) ||
               audience.reachableLoading ||
               audience.reachableCount === null ||
               audience.reachableCount === 0,
-            loading: audience.reachableLoading,
+            loading:
+              audience.reachableLoading ||
+              audience.createRecommendedListPending,
           }
 
   const cta: FlowShellCta | null = saved
@@ -676,6 +699,9 @@ export const PhoneBankingFlow = ({
               setStepId('script')
             }}
             onRecommendationReused={audience.trackRecommendationReused}
+            selectedRecommendation={audience.selectedRecommendation}
+            onSelectRecommendation={audience.selectRecommendation}
+            createRecommendedListError={audience.createRecommendedListError}
             preselectedRecommendation={audience.preselectedRecommendation}
             preselectedRecommendationApplied={
               audience.preselectedRecommendationApplied

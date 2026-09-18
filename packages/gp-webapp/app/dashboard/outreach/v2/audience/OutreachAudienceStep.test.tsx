@@ -59,6 +59,8 @@ const baseProps = () => ({
   recommendedListsChannel: 'sms' as const,
   onCreateRecommendedList: vi.fn(async () => undefined),
   onRecommendationReused: vi.fn(),
+  selectedRecommendation: null,
+  onSelectRecommendation: vi.fn(),
   reachableCount: null,
   reachableLoading: false,
   pricePerContact: 0.035,
@@ -185,8 +187,11 @@ describe('OutreachAudienceStep — recommended lists', () => {
 // the step applies it on arrival exactly as tapping its card would, and
 // keeps the card on screen so the candidate sees what they arrived with.
 describe('OutreachAudienceStep — a preselected recommendation', () => {
-  it('opens the naming drawer on arrival for one that is not saved yet', async () => {
+  // The prototype lands with the list already chosen and nothing asking for
+  // a name: the card is the selection, and Continue saves it as it advances.
+  it('selects it on arrival for one that is not saved yet, without the naming drawer', async () => {
     const onPreselectedRecommendationApplied = vi.fn()
+    const onSelectRecommendation = vi.fn()
     const onCreateRecommendedList = vi.fn(async () => undefined)
     render(
       <OutreachAudienceStep
@@ -194,13 +199,15 @@ describe('OutreachAudienceStep — a preselected recommendation', () => {
         preselectedRecommendation={RECOMMENDATION}
         preselectedRecommendationApplied={false}
         onPreselectedRecommendationApplied={onPreselectedRecommendationApplied}
+        onSelectRecommendation={onSelectRecommendation}
         onCreateRecommendedList={onCreateRecommendedList}
       />,
     )
 
-    expect(
-      await screen.findByRole('textbox', { name: 'List name' }),
-    ).toHaveValue('Persuadable independents')
+    await waitFor(() =>
+      expect(onSelectRecommendation).toHaveBeenCalledWith(RECOMMENDATION),
+    )
+    expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
     expect(onPreselectedRecommendationApplied).toHaveBeenCalledTimes(1)
     expect(onCreateRecommendedList).not.toHaveBeenCalled()
     // The card stays listed even though this purpose's own recommendations
@@ -248,6 +255,35 @@ describe('OutreachAudienceStep — a preselected recommendation', () => {
     expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
     expect(onPreselectedRecommendationApplied).not.toHaveBeenCalled()
     expect(screen.getByTestId('recommended-list-card')).toBeInTheDocument()
+  })
+
+  it('paints the selected recommendation as the pressed card', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendations={[RECOMMENDATION, EXISTING_RECOMMENDATION]}
+        selectedRecommendation={RECOMMENDATION}
+      />,
+    )
+
+    const cards = screen.getAllByTestId('recommended-list-card')
+    expect(cards[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(cards[1]).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('shows why a Continue that saves the selected recommendation failed', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendations={[RECOMMENDATION]}
+        selectedRecommendation={RECOMMENDATION}
+        createRecommendedListError="We couldn't save this list. Try again."
+      />,
+    )
+
+    expect(
+      screen.getByText("We couldn't save this list. Try again."),
+    ).toBeInTheDocument()
   })
 
   it('keeps the carried card on screen when the purpose query fails', () => {

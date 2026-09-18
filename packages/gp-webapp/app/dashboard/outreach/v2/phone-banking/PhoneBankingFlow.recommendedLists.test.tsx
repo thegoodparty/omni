@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -79,6 +79,44 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
       recommendedVariant: 'persuadeAffinity',
       recommendedChannel: 'phoneBanking',
       // The variant's own intent, not the purpose picked to reach it.
+      recommendedIntent: 'persuade',
+    })
+  })
+})
+
+describe('PhoneBankingFlow (Win surface) — a recommendation carried in, not saved yet', () => {
+  it('arrives with the card selected and saves it under its own title on Continue', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data: query.variant === 'persuadeAffinity' ? [RECOMMENDATION] : [],
+    }))
+    const filterCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return { status: 200, data: { id: 88, name: body.name } }
+    })
+    render(
+      <PhoneBankingFlow
+        open
+        onClose={vi.fn()}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+
+    const card = await screen.findByTestId('recommended-list-card')
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
+    expect(screen.queryByText('Name this list')).not.toBeInTheDocument()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue (8,000)' }),
+    )
+
+    await waitFor(() => expect(filterCalls).toHaveLength(1))
+    expect(filterCalls[0]).toMatchObject({
+      name: 'Persuadable independents',
+      recommendedVariant: 'persuadeAffinity',
+      recommendedChannel: 'phoneBanking',
       recommendedIntent: 'persuade',
     })
   })

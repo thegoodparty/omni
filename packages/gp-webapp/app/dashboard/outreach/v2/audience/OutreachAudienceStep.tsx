@@ -95,10 +95,20 @@ interface OutreachAudienceStepProps {
   // recommendation the candidate has taken before is still measured — it
   // never reaches `createList`, which is where the other kind is counted.
   onRecommendationReused: (recommendation: RecommendedList) => void
+  // A recommendation chosen as the audience but not saved yet: its card
+  // reads pressed and the shell's Continue saves it before advancing. Set by
+  // the carried-in arrival below; a tap on a card still opens the naming
+  // drawer, so the candidate can rename before saving.
+  selectedRecommendation: RecommendedList | null
+  onSelectRecommendation: (recommendation: RecommendedList) => void
+  // Why a Continue that saves the selected recommendation failed, rendered
+  // under the cards; the naming drawer carries its own message.
+  createRecommendedListError?: string | null
   // A recommendation carried in from the voter data page (`?recommended=`),
   // already cut for this channel by useOutreachAudience. On arrival the step
-  // does what a tap on its card would — select the saved list it resolves
-  // to, or open the naming drawer — then reports it applied; the hook
+  // selects the saved list it resolves to, or selects the card itself
+  // (onSelectRecommendation) — the prototype lands with the list already
+  // chosen, so nothing asks for a name — then reports it applied; the hook
   // remembers that across this step's unmounts. Listed under "Recommended
   // for you" whatever the purpose's own recommendations are, so the
   // candidate sees what they arrived with.
@@ -156,6 +166,9 @@ export const OutreachAudienceStep = ({
   recommendedListsChannel,
   onCreateRecommendedList,
   onRecommendationReused,
+  selectedRecommendation,
+  onSelectRecommendation,
+  createRecommendedListError = null,
   preselectedRecommendation = null,
   preselectedRecommendationApplied = false,
   onPreselectedRecommendationApplied,
@@ -194,9 +207,10 @@ export const OutreachAudienceStep = ({
   const active = lists.find((l) => l.id === selectedId) ?? null
 
   // The carried-in recommendation, applied once the picker can act on it:
-  // its saved list selected when the picker has that row, the naming drawer
-  // otherwise — an existingFilterId whose row is gone (deleted in the CRM
-  // since) falls through to building it, which is what it described anyway.
+  // its saved list selected when the picker has that row, the card itself
+  // selected otherwise — an existingFilterId whose row is gone (deleted in
+  // the CRM since) falls through to the card, which is what it described
+  // anyway.
   // The hook's `applied` flag is the guard between renders; the ref covers
   // the same commit, since the callbacks below are fresh closures per render.
   const appliedVariantRef = useRef<string | null>(null)
@@ -220,7 +234,7 @@ export const OutreachAudienceStep = ({
       onRecommendationReused(preselectedRecommendation)
       onSelect(existingFilterId)
     } else {
-      setPendingRecommendation(preselectedRecommendation)
+      onSelectRecommendation(preselectedRecommendation)
     }
     onPreselectedRecommendationApplied?.()
   }, [
@@ -232,6 +246,7 @@ export const OutreachAudienceStep = ({
     lists,
     onRecommendationReused,
     onSelect,
+    onSelectRecommendation,
     onPreselectedRecommendationApplied,
   ])
 
@@ -365,6 +380,9 @@ export const OutreachAudienceStep = ({
                   key={recommendation.variant}
                   recommendation={recommendation}
                   channel={recommendedListsChannel}
+                  selected={
+                    selectedRecommendation?.variant === recommendation.variant
+                  }
                   onSelect={() => {
                     if (recommendation.existingFilterId === null) {
                       setPendingRecommendation(recommendation)
@@ -375,6 +393,14 @@ export const OutreachAudienceStep = ({
                   }}
                 />
               ))}
+              {createRecommendedListError && pendingRecommendation === null && (
+                <p
+                  data-testid="recommended-list-create-error"
+                  className="text-sm text-destructive"
+                >
+                  {createRecommendedListError}
+                </p>
+              )}
             </div>
           )}
         </div>

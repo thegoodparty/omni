@@ -1379,7 +1379,7 @@ export default function CreateListFlow({
               // rather than a picker pick — the who step suppresses its
               // own selected-state visuals then, so the audience isn't
               // shown twice.
-              hasActiveRecommendation={recommendedMeta !== null}
+              activeRecommendationVariant={recommendedMeta?.variant ?? null}
               isServeOrg={isServeOrg}
               building={buildingList}
               onBuildingChange={(next) => {

@@ -451,6 +451,21 @@ export const RobocallFlow = ({
     }
   }
 
+  // The shell's Continue over a selected recommendation card: saved under
+  // the recommendation's own title, then on to schedule.
+  const handleSelectedRecommendationContinue = async () => {
+    if (!audience.selectedRecommendation) return
+    try {
+      await audience.createRecommendedList(
+        audience.selectedRecommendation,
+        audience.selectedRecommendation.copy.title,
+      )
+      goToSchedule()
+    } catch {
+      // createRecommendedListError renders under the cards.
+    }
+  }
+
   // First AI draft on entry (non-custom, and only if we don't already have one
   // from a prior visit). Custom writes its own words, so it never drafts — but
   // it still needs the rented number to read aloud, shown in the compose step.
@@ -535,12 +550,19 @@ export const RobocallFlow = ({
               audience.reachableCount !== null
                 ? `Continue (${audience.reachableCount.toLocaleString()})`
                 : 'Continue',
-            onClick: goToSchedule,
+            onClick: () => {
+              if (audience.selectedRecommendation) {
+                void handleSelectedRecommendationContinue()
+                return
+              }
+              goToSchedule()
+            },
             disabled:
-              !audience.selectedList ||
+              (!audience.selectedList && !audience.selectedRecommendation) ||
               audience.reachableLoading ||
               audience.reachableCount === null ||
               audience.reachableCount === 0,
+            loading: audience.createRecommendedListPending,
           }
 
   const cta: FlowShellCta | null =
@@ -618,6 +640,9 @@ export const RobocallFlow = ({
               goToSchedule()
             }}
             onRecommendationReused={audience.trackRecommendationReused}
+            selectedRecommendation={audience.selectedRecommendation}
+            onSelectRecommendation={audience.selectRecommendation}
+            createRecommendedListError={audience.createRecommendedListError}
             preselectedRecommendation={audience.preselectedRecommendation}
             preselectedRecommendationApplied={
               audience.preselectedRecommendationApplied

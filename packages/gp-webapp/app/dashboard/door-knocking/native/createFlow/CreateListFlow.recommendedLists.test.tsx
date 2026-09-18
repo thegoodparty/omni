@@ -189,10 +189,11 @@ describe('CreateListFlow — a recommendation carried in on ?recommended=', () =
       }),
     )
     expect(onRecommendedPreselectApplied).toHaveBeenCalledTimes(1)
-    // Still on screen, so the candidate sees what they arrived with.
-    expect(
-      await screen.findByTestId('recommended-list-card'),
-    ).toHaveTextContent('Voters you have not met')
+    // Still on screen, and reading as the chosen audience, so the candidate
+    // sees what they arrived with.
+    const card = await screen.findByTestId('recommended-list-card')
+    expect(card).toHaveTextContent('Voters you have not met')
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
   })
 
   // `existingFilterId` names a saved list the picker has to hold before it

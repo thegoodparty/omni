@@ -506,9 +506,13 @@ hub with that flow named (`?compose=text|robocall|phoneBanking|social`, door
 knocking straight to its create flow) and the audience beside it: `?listId=`
 when the recommendation already matches a saved list, `?recommended=<variant>`
 otherwise. The chosen flow fetches the variant for its own channel from open.
-On its audience step the recommendation is applied the way a tap on its card
-would be — the saved list selected if the candidate already has it, the naming
-drawer otherwise — and the list is created only when the candidate confirms.
+On its audience step the recommendation arrives already chosen, as the
+prototype has it: the saved list selected if the candidate already has it,
+otherwise its card reads pressed with Continue carrying the recommendation's
+count for that channel, and nothing asks for a name. Continue saves the list
+under the recommendation's own title and moves on; tapping the card instead
+opens the naming drawer, for a candidate who wants to rename it first. Door
+knocking applies it to its draft the same way and paints the card pressed.
 The card is listed under "Recommended for you" whatever purpose was picked.
 
 ### Dedupe against existing lists

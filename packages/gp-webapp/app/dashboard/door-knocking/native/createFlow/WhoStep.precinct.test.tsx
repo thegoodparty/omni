@@ -24,7 +24,7 @@ const baseProps = {
   selectedListId: null,
   onSelectList: vi.fn(),
   hasPickedAudience: false,
-  hasActiveRecommendation: false,
+  activeRecommendationVariant: null,
   isServeOrg: false,
   building: true,
   onBuildingChange: vi.fn(),

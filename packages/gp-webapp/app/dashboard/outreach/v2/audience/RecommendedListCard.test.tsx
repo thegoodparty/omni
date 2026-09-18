@@ -128,6 +128,36 @@ describe('RecommendedListCard', () => {
     expect(screen.getByText(/not households/)).toBeInTheDocument()
   })
 
+  it('reads as pressed, with the selected border, when selected', () => {
+    render(
+      <RecommendedListCard
+        recommendation={RECOMMENDATION}
+        channel="sms"
+        selected
+        onSelect={vi.fn()}
+      />,
+    )
+
+    const card = screen.getByTestId('recommended-list-card')
+    expect(card).toHaveAttribute('aria-pressed', 'true')
+    expect(card).toHaveClass('border-primary')
+  })
+
+  it('is not pressed by default', () => {
+    render(
+      <RecommendedListCard
+        recommendation={RECOMMENDATION}
+        channel="sms"
+        onSelect={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
   it('calls onSelect on click and on Enter/Space', async () => {
     const user = userEvent.setup()
     const onSelect = vi.fn()

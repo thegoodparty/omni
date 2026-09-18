@@ -95,7 +95,7 @@ const openToAudience = async () => {
 // Arriving from the voter data page with `?recommended=`: the flow asks for
 // that one variant cut for SMS, and the audience step applies it on arrival.
 describe('SmsFlow — a recommendation carried in from the voter data page', () => {
-  it('fetches the variant for this channel and opens the naming drawer on the audience step', async () => {
+  it('fetches the variant for this channel and arrives with it selected, saving it on Continue', async () => {
     const queries: Record<string, unknown>[] = []
     api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
       queries.push(query)
@@ -136,10 +136,12 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
     )
     await userEvent.click(screen.getByText('Introduce myself to voters'))
 
-    // Cut for this channel, regardless of the purpose just picked.
-    expect(
-      await screen.findByRole('textbox', { name: 'List name' }),
-    ).toHaveValue('Turn out independent-leaning voters')
+    // Cut for this channel, regardless of the purpose just picked — and
+    // already the chosen audience, as the prototype has it: the card reads
+    // pressed, nothing asks for a name, and Continue carries its count.
+    const card = await screen.findByTestId('recommended-list-card')
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
+    expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
     expect(queries).toContainEqual(
       expect.objectContaining({
         channel: 'sms',
@@ -150,14 +152,19 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
       'Turn out independent-leaning voters',
     )
 
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Continue' }),
-    )
+    const continueButton = await screen.findByRole('button', {
+      name: 'Continue (19,000)',
+    })
+    expect(continueButton).toBeEnabled()
+    await userEvent.click(continueButton)
 
-    // Provenance is the variant's own intent, not the purpose the candidate
-    // happened to pick to get here.
-    expect(filterCalls).toHaveLength(1)
+    // Saved under the recommendation's own title, then the phone list is
+    // derived from it exactly as a named list's would be. Provenance is the
+    // variant's own intent, not the purpose the candidate happened to pick
+    // to get here.
+    await waitFor(() => expect(filterCalls).toHaveLength(1))
     expect(filterCalls[0]).toMatchObject({
+      name: 'Turn out independent-leaning voters',
       recommendedVariant: 'electionDayAffinity',
       recommendedChannel: 'sms',
       recommendedIntent: 'electionDay',
@@ -168,6 +175,45 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
       channel: 'sms',
       intent: 'electionDay',
     })
+    await waitFor(() =>
+      expect(createP2pPhoneList).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 88 }),
+        88,
+      ),
+    )
+  })
+
+  it('shows the failure under the cards when saving the selected recommendation fails', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data: query.variant === 'persuadeAffinity' ? [RECOMMENDATION] : [],
+    }))
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    render(
+      <SmsFlow
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue (19,000)' }),
+    )
+
+    expect(
+      await screen.findByText("We couldn't save this list. Try again."),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(createP2pPhoneList).not.toHaveBeenCalled()
   })
 })
 

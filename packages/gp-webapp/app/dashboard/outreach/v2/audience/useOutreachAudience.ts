@@ -150,6 +150,17 @@ export interface OutreachAudience {
     recommendation: RecommendedList,
     name: string,
   ) => Promise<SegmentResponse>
+  createRecommendedListPending: boolean
+  // The message for a createRecommendedList that failed from the step's
+  // Continue (the naming drawer shows its own); cleared by the next
+  // selection or attempt.
+  createRecommendedListError: string | null
+  // A recommendation chosen as the audience without being saved yet — the
+  // carried-in card on arrival. Mutually exclusive with selectedListId:
+  // picking a saved list or opening the builder drops it, and Continue
+  // saves it (under its own title) before advancing.
+  selectedRecommendation: RecommendedList | null
+  selectRecommendation: (recommendation: RecommendedList) => void
   // The conversion event for a recommendation that resolved to a list the
   // candidate already has. `applyRecommendation` deliberately does not
   // handle that case (each flow attaches its own side effects to selecting
@@ -173,6 +184,13 @@ export const useOutreachAudience = ({
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
+  const [selectedRecommendation, setSelectedRecommendation] =
+    useState<RecommendedList | null>(null)
+  const [createRecommendedListPending, setCreateRecommendedListPending] =
+    useState(false)
+  const [createRecommendedListError, setCreateRecommendedListError] = useState<
+    string | null
+  >(null)
   const [builderFilters, setBuilderFilters] = useState<VoterFileFilters>({})
   const [builderSupportStatus, setBuilderSupportStatus] = useState<
     SupportStatusRollup[]
@@ -344,7 +362,11 @@ export const useOutreachAudience = ({
     // a stale count would render with no loading state (matches listsQuery).
     staleTime: 0,
   })
-  const reachableCount = reachabilityQuery.data?.reachable ?? null
+  // A selected recommendation was already counted for this channel by the
+  // endpoint, so its count is the reach — there is no saved list to ask.
+  const reachableCount = selectedRecommendation
+    ? selectedRecommendation.count
+    : (reachabilityQuery.data?.reachable ?? null)
   const selectedListTotal = reachabilityQuery.data?.total ?? null
 
   // Filters the user built, translated for the backend. The saved list is
@@ -435,6 +457,8 @@ export const useOutreachAudience = ({
   const reset = useCallback(() => {
     setMode('picker')
     setSelectedListId(null)
+    setSelectedRecommendation(null)
+    setCreateRecommendedListError(null)
     appliedPreselectRef.current = undefined
     setAppliedPreselectedVariant(null)
     setBuilderFilters({})
@@ -445,7 +469,26 @@ export const useOutreachAudience = ({
     resetCreateMutation()
   }, [resetCreateMutation])
 
-  const startBuilder = useCallback(() => setMode('filters'), [])
+  // Opening the builder leaves a selected recommendation behind: what gets
+  // cut from here is a new audience, not that card.
+  const startBuilder = useCallback(() => {
+    setSelectedRecommendation(null)
+    setMode('filters')
+  }, [])
+
+  const selectList = useCallback((id: number | null) => {
+    setSelectedListId(id)
+    setSelectedRecommendation(null)
+  }, [])
+
+  const selectRecommendation = useCallback(
+    (recommendation: RecommendedList) => {
+      setSelectedRecommendation(recommendation)
+      setSelectedListId(null)
+      setCreateRecommendedListError(null)
+    },
+    [],
+  )
 
   // Only for a recommendation whose existingFilterId is null — the caller is
   // expected to route that case at onSelect(existingFilterId) instead, since
@@ -515,19 +558,30 @@ export const useOutreachAudience = ({
       const filters = builderFiltersFromRecommendation(recommendation.filter)
       const supportStatus = recommendation.filter.supportStatus ?? []
       const precincts = recommendation.filter.precincts ?? []
-      const { data } = await clientRequest(
-        'POST /v1/voters/voter-file/filter',
-        {
-          name: trimmed,
-          ...transformVoterFileFiltersForBackend(filters),
-          ...(supportStatus.length ? { supportStatus } : {}),
-          ...(precincts.length ? { precincts } : {}),
-          recommendedVariant: recommendation.variant,
-          recommendedChannel: reachabilityKey,
-          recommendedIntent: recommendation.intent,
-          recommendedFilter: recommendation.filter,
-        },
-      )
+      setCreateRecommendedListPending(true)
+      setCreateRecommendedListError(null)
+      let data: SegmentResponse
+      try {
+        const response = await clientRequest(
+          'POST /v1/voters/voter-file/filter',
+          {
+            name: trimmed,
+            ...transformVoterFileFiltersForBackend(filters),
+            ...(supportStatus.length ? { supportStatus } : {}),
+            ...(precincts.length ? { precincts } : {}),
+            recommendedVariant: recommendation.variant,
+            recommendedChannel: reachabilityKey,
+            recommendedIntent: recommendation.intent,
+            recommendedFilter: recommendation.filter,
+          },
+        )
+        data = response.data
+      } catch (error) {
+        setCreateRecommendedListError("We couldn't save this list. Try again.")
+        throw error
+      } finally {
+        setCreateRecommendedListPending(false)
+      }
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,
@@ -544,6 +598,7 @@ export const useOutreachAudience = ({
         queryKey: ['custom-segments', orgSlug],
       })
       setSelectedListId(data.id)
+      setSelectedRecommendation(null)
       resetBuilder()
       return data
     },
@@ -618,8 +673,12 @@ export const useOutreachAudience = ({
     builderCapError: builderCountResult.isCapError,
     builderCountErrorMessage: builderCountResult.errorMessage,
     builderZeroMatch,
-    onSelect: setSelectedListId,
+    onSelect: selectList,
     startBuilder,
+    selectedRecommendation,
+    selectRecommendation,
+    createRecommendedListPending,
+    createRecommendedListError,
     createList,
     createListPending,
     createListError,
