@@ -428,7 +428,14 @@ describe('SmsFlow', () => {
 
     // Builder: CRM wizard pills; continue stays disabled until a selection.
     expect(await screen.findByText('Build a voter list')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    // Awaited, not queried synchronously: the step's heading renders before
+    // the CTA settles on its label, and until the unfiltered count comes back
+    // the button is in its loading state under a different accessible name.
+    // Reading it in that gap found no "Continue" at all and failed the step
+    // rather than the behaviour it is checking.
+    expect(
+      await screen.findByRole('button', { name: 'Continue' }),
+    ).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: 'Super' }))
 
     // Debounced count settles into the CTA label.

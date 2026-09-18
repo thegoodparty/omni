@@ -65,13 +65,31 @@ export function AssistantAvatar(): React.JSX.Element {
 // structured widgets), matching the streaming and reloaded layouts.
 export function AssistantRow({
   children,
+  fullWidth = false,
 }: {
   children: ReactNode
+  /**
+   * Let the column take the whole chat width instead of shrinking to its
+   * content. For a turn carrying a card that is read rather than spoken — a
+   * map — where a bubble's width is the wrong measure. Bubbles inside keep
+   * their own `self-start`, so only a child that asks for the width takes it.
+   */
+  fullWidth?: boolean
 }): React.JSX.Element {
   return (
-    <div className="flex max-w-full items-start gap-2 self-start">
+    <div
+      className={`flex max-w-full items-start gap-2 ${
+        fullWidth ? 'w-full' : 'self-start'
+      }`}
+    >
       <AssistantAvatar />
-      <div className="flex min-w-0 max-w-full flex-col gap-2">{children}</div>
+      <div
+        className={`flex min-w-0 max-w-full flex-col gap-2 ${
+          fullWidth ? 'flex-1' : ''
+        }`}
+      >
+        {children}
+      </div>
     </div>
   )
 }

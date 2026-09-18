@@ -39,6 +39,7 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
@@ -240,6 +241,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           contacts: this.contacts,
           organization: ctx.organization,
         })
+        // Registered with the saved-list tool rather than beside the other
+        // reads: the only id it can legitimately be given is one
+        // crud_saved_filters just returned, so advertising it in a session
+        // that cannot create a list would be offering a map of nothing.
+        tools.show_list_map = buildShowListMapTool()
       }
     }
 

@@ -427,4 +427,62 @@ describe('useStreamingTurn', () => {
       expect(result.current.messages.some((m) => m.id === 'a1')).toBe(true),
     )
   })
+
+  // A tool the scope consumes renders no pill, so it never enters the live
+  // segment list — but it is still part of the turn, and a widget tool replays
+  // from its args. When persistence lags the whole window and the turn has to
+  // be rebuilt locally, dropping it makes a card the user watched appear
+  // vanish the moment the live row is replaced.
+  it('keeps a consumed tool call, with its args, in a locally rebuilt turn', async () => {
+    vi.useFakeTimers()
+    try {
+      // Persistence never lands, so the rebuild is the only thing on screen.
+      const listMessages = vi.fn().mockResolvedValue([])
+      const api = {
+        streamMessage: () =>
+          streamOf([
+            { type: 'text' as const, delta: 'Here they are.' },
+            {
+              type: 'tool_call' as const,
+              toolName: 'show_list_map',
+              args: { listId: 16, name: 'Traverse Heights renters' },
+            },
+            { type: 'done' as const },
+          ]),
+        listMessages,
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, {
+          // Consumed, exactly as a widget scope does it.
+          toolLabel: () => null,
+          onEvent: (event) => event.type === 'tool_call',
+        }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'where are they?')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200_000)
+        await sendPromise
+      })
+
+      const rebuilt = result.current.messages.find((m) =>
+        m.id.startsWith('local-'),
+      )
+      expect(rebuilt).toBeDefined()
+      expect(rebuilt?.segments).toEqual([
+        { kind: 'text', text: 'Here they are.' },
+        {
+          kind: 'tool',
+          toolName: 'show_list_map',
+          payload: { listId: 16, name: 'Traverse Heights renters' },
+        },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

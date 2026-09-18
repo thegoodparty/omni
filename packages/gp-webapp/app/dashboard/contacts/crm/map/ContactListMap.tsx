@@ -16,6 +16,14 @@ import {
 // product read as one map rather than two products.
 const STYLE_URL = `https://maps.geoapify.com/v1/styles/osm-liberty/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`
 
+// No sources, no layers: a valid style that needs no network, used only to
+// replace one the tile host refused. See the error handler below.
+const EMPTY_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {},
+  layers: [],
+}
+
 // `--primary` resolved to channels deck.gl can take, the way VoterMapCanvas
 // does it: nothing on a deck.gl canvas can reach a CSS variable, so the token
 // chain (--primary -> --color-brand-blue-500 -> #1e63ec) is written out and
@@ -41,7 +49,13 @@ const FIT_PADDING_PX = 48
 interface ContactListMapProps {
   people: Person[]
   selectedPersonId?: string | null
-  onSelectPerson: (personId: string) => void
+  // Omitted where the dots are markers rather than an index into anything.
+  // The Chief of Staff chat is that case: there is no person overlay in a
+  // transcript, so a dot that highlighted and opened a list of names would be
+  // offering a door with nothing behind it. Absent, the layer is not pickable
+  // at all rather than pickable-but-inert, so the cursor never suggests
+  // otherwise.
+  onSelectPerson?: (personId: string) => void
   // Whether `people` is only the first page of a longer list. It changes what
   // the unmappable count can honestly claim: `unmappable` is measured over
   // the rows actually fetched, so on a truncated list it describes the page
@@ -98,9 +112,23 @@ export default function ContactListMap({
     // looks like a half-broken feature rather than a config problem. The
     // tiles key is domain-restricted (appEnv.ts), so any host not on its
     // allowlist — every Vercel preview — lands here.
+    let swappedToEmptyStyle = false
     map.on('error', (event) => {
       const status = (event.error as { status?: number } | undefined)?.status
-      if (status === 401 || status === 403) setBasemapBlocked(true)
+      if (status !== 401 && status !== 403) return
+      setBasemapBlocked(true)
+      // And give the map a style it CAN load, because the dots depend on it.
+      // A style that 401s leaves the map permanently unloaded, and the deck
+      // overlay takes its viewport from the map's render loop — so the camera
+      // moves to the list (fitBounds works fine) while the dots stay at the
+      // opening view over the middle of the country, piled into one blob.
+      // Panning the map by hand was the only thing that resynced them.
+      // Swapping in an empty style finishes the load and the dots land where
+      // the camera already is; setStyle preserves it, so there is nothing to
+      // re-fit. Guarded because the error fires per failed tile request.
+      if (swappedToEmptyStyle) return
+      swappedToEmptyStyle = true
+      map.setStyle(EMPTY_STYLE)
     })
     map.addControl(
       new maplibregl.AttributionControl({ compact: true }),
@@ -131,7 +159,7 @@ export default function ContactListMap({
         new ScatterplotLayer<ContactPoint>({
           id: 'contacts',
           data: points,
-          pickable: true,
+          pickable: Boolean(onSelectPerson),
           radiusUnits: 'pixels',
           lineWidthUnits: 'pixels',
           stroked: true,
@@ -151,7 +179,7 @@ export default function ContactListMap({
           radiusMinPixels: BASE_RADIUS_PX,
           updateTriggers: { getFillColor: [selectedKey] },
           onClick: ({ object }) => {
-            if (!object) return false
+            if (!object || !onSelectPerson) return false
             if (object.residents.length === 1) {
               setOpenPoint(null)
               onSelectPerson(object.residents[0]!.id)
@@ -198,24 +226,29 @@ export default function ContactListMap({
         data-testid="contact-map"
       />
 
-      {/* Sits over the dots rather than replacing them: the points are real
-          and still worth reading, and hiding them would throw away the half
-          of the map that works. */}
-      {basemapBlocked ? (
-        <div className="absolute inset-x-3 top-3 rounded-md bg-background/95 px-2 py-1 text-center text-xs text-muted-foreground shadow">
-          The background map could not load here. Its tiles key does not allow
-          this domain.
-        </div>
-      ) : null}
+      {/* Both notices are absolute over the dots rather than replacing them:
+          the points are real and still worth reading, and hiding them would
+          throw away the half of the map that works. Stacked in one column
+          because a blocked basemap and unmappable people co-occur routinely —
+          a preview deploy of a list with partial coordinates hits both — and
+          positioning them independently put one on top of the other. */}
+      <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-col items-start gap-1">
+        {basemapBlocked ? (
+          <div className="w-full rounded-md bg-background/95 px-2 py-1 text-center text-xs text-muted-foreground shadow">
+            The background map could not load here. Its tiles key does not allow
+            this domain.
+          </div>
+        ) : null}
 
-      {unmappable > 0 ? (
-        <div className="absolute left-3 top-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow">
-          {unmappable} of {people.length.toLocaleString()}
-          {truncated ? ' shown' : ''} have no location on file
-        </div>
-      ) : null}
+        {unmappable > 0 ? (
+          <div className="rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow">
+            {unmappable} of {people.length.toLocaleString()}
+            {truncated ? ' shown' : ''} have no location on file
+          </div>
+        ) : null}
+      </div>
 
-      {openPoint ? (
+      {openPoint && onSelectPerson ? (
         <div className="absolute bottom-3 left-3 max-h-56 w-64 overflow-auto rounded-md bg-background p-2 shadow-lg">
           <div className="mb-1 px-1 text-xs text-muted-foreground">
             {openPoint.residents.length} people at this address

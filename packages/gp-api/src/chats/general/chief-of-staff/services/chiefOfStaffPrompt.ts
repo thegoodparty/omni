@@ -190,6 +190,12 @@ const SEGMENTATION_METHOD_RULES = `BUILDING A SEGMENT (apply whenever the user a
 - Under roughly a hundred people a segment is usually too narrow to run a campaign against. Say so and offer to widen it instead of saving it as it stands.
 - Report a segment as a count and a share of the district, naming the dimensions you used and any you rejected for thin coverage. Never imply you can name, list, or reach a particular person.`
 
+const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you call \`show_list_map\`):
+- Call it right after saving a list whose answer is partly about WHERE people are: a housing segment, a neighbourhood, anything the user would want to see placed. Skip it for a list they only asked you to count.
+- Pass the id crud_saved_filters returned and the name you gave the list. Never pass an id you were not handed; there is nothing to look one up from.
+- The card speaks for itself, so do not narrate the map. Say what the segment is and why, and let the map show where.
+- The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map.`
+
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
 - Surface the key detail clearly (category, rank, related briefings) without re-reading data already in the anchored_issue block.`
@@ -211,6 +217,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'count the constituents matching a contact filter (aggregate only)',
   crud_saved_filters:
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
+  show_list_map: 'show a saved list on a map in the conversation',
   search_help_center:
     "search GoodParty.org's support articles for how-to, compliance, and billing answers",
 }
@@ -363,6 +370,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       : []),
     ...(toolNames.includes('count_contacts') ? [CRM_TOOLS_RULES] : []),
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
+    ...(toolNames.includes('show_list_map') ? [LIST_MAP_RULES] : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
     //
