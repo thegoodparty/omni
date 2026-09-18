@@ -303,8 +303,11 @@ export class OutreachRobocallService extends createPrismaBase(
 
     try {
       await this.client.$transaction(async (tx) => {
-        await tx.outreach.update({
-          where: { id: draftOutreachId },
+        // The status transition is the claim: two resume submits both clear
+        // the read above, so a zero count here aborts the transaction before
+        // the satellite is repriced, rather than letting the last write win.
+        const claimed = await tx.outreach.updateMany({
+          where: { id: draftOutreachId, status: OutreachStatus.draft },
           data: {
             status: OutreachStatus.pending_payment,
             name: input.name,
@@ -320,6 +323,9 @@ export class OutreachRobocallService extends createPrismaBase(
             campaignPlanDueDate: input.campaignPlanDueDate,
           },
         })
+        if (claimed.count === 0) {
+          throw new ConflictException('This draft was already scheduled')
+        }
         await tx.outreachRobocall.update({
           where: { outreachId: draftOutreachId },
           data: {

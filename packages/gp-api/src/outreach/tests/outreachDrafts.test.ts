@@ -698,4 +698,131 @@ describe('resuming a draft', () => {
 
     expect(res.status).toBe(HttpStatus.CONFLICT)
   })
+
+  it("404s another campaign's robocall draft", async () => {
+    const draft = await createRobocallDraft()
+    await service.prisma.organization.create({
+      data: {
+        slug: 'resume-robocall-org',
+        ownerId: service.user.id,
+        positionId: 'pos-10',
+      },
+    })
+    const other = await service.prisma.campaign.create({
+      data: {
+        id: CAMPAIGN_ID + 3,
+        organizationSlug: 'resume-robocall-org',
+        userId: service.user.id,
+        slug: 'jane-roe',
+        isPro: true,
+        details: {},
+        data: {},
+        aiContent: {},
+      },
+    })
+    // The audio prefix check is campaign-scoped, so the foreign caller sends
+    // its own key; the draft it names still belongs to someone else.
+    const foreignAudioKey = `robocall/${other.id}/clip.webm`
+    await service.prisma.robocallComplianceResult.create({
+      data: {
+        audioKey: foreignAudioKey,
+        passed: true,
+        checkedAt: new Date(),
+        audioEtag: AUDIO_ETAG,
+      },
+    })
+    const foreignFilter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: 'resume-robocall-org', name: 'their list' },
+    })
+
+    const res = await service.client.post(
+      '/v1/outreach/robocall',
+      {
+        ...robocallCreateBody(),
+        voterFileFilterId: foreignFilter.id,
+        audioKey: foreignAudioKey,
+        draftOutreachId: draft.data.id,
+      },
+      { headers: { 'x-organization-slug': 'resume-robocall-org' } },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: draft.data.id },
+    })
+    expect(spine.status).toBe(OutreachStatus.draft)
+    const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId: draft.data.id },
+    })
+    expect(satellite.settleState).toBe(RobocallSettleState.draft)
+    expect(satellite.billableCount).toBeNull()
+  })
+
+  it('409s the second of two concurrent p2p resumes, converting once', async () => {
+    const draft = await createP2pDraft()
+    expect(draft.status).toBe(HttpStatus.CREATED)
+
+    // Both requests clear the status read, so only the `draft`-guarded write
+    // keeps one of them from silently overwriting the other.
+    const [first, second] = await Promise.all([
+      resumeP2p(draft.data.id),
+      resumeP2p(draft.data.id),
+    ])
+
+    const statuses = [first.status, second.status].sort()
+    expect(statuses).toEqual([HttpStatus.CREATED, HttpStatus.CONFLICT].sort())
+    expect(await service.prisma.outreach.count()).toBe(1)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: draft.data.id },
+    })
+    expect(row.status).toBe(OutreachStatus.pending_payment)
+  })
+
+  it('409s a second robocall resume of the same draft', async () => {
+    const draft = await createRobocallDraft()
+    const body = { ...robocallCreateBody(), draftOutreachId: draft.data.id }
+
+    const first = await postRobocall(body)
+    expect(first.status).toBe(HttpStatus.CREATED)
+
+    const second = await postRobocall(body)
+
+    expect(second.status).toBe(HttpStatus.CONFLICT)
+    const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId: draft.data.id },
+    })
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+  })
+
+  it('403s a p2p resume for a campaign that is not Pro', async () => {
+    const draft = await createP2pDraft()
+    expect(draft.status).toBe(HttpStatus.CREATED)
+    // Pro is what a resume is waiting on, and the body need not carry a saved
+    // list — so the gate cannot hang off the list's own Pro check.
+    await service.prisma.campaign.update({
+      where: { id: CAMPAIGN_ID },
+      data: { isPro: false },
+    })
+
+    const form = new FormData()
+    form.append('campaignId', String(CAMPAIGN_ID))
+    form.append('outreachType', 'p2p')
+    form.append('script', resumeScript)
+    form.append('phoneListId', '3180213')
+    form.append('date', sendAt)
+    form.append('draft', 'true')
+    form.append('draftOutreachId', String(draft.data.id))
+
+    const res = await service.client.post('/v1/outreach', form, {
+      headers: { ...orgHeaders().headers, ...form.getHeaders() },
+    })
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    const row = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: draft.data.id },
+    })
+    expect(row.status).toBe(OutreachStatus.draft)
+    expect(row.phoneListId).toBeNull()
+    expect(row.date).toBeNull()
+  })
 })

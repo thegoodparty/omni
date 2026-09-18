@@ -249,8 +249,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       didNpaSubset,
     } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
 
-    return await this.model.update({
-      where: { id: draft.id },
+    // The status transition is the claim: two resume submits both clear the
+    // read above, so the `draft` guard here is what makes exactly one of them
+    // the scheduling write instead of letting the last one win silently.
+    const claimed = await this.model.updateMany({
+      where: { id: draft.id, status: OutreachStatus.draft },
       data: {
         status: OutreachStatus.pending_payment,
         phoneListId: createOutreachDto.phoneListId,
@@ -273,6 +276,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         didNpaSubset,
         identityId: peerlyIdentityId,
       },
+    })
+    if (claimed.count === 0) {
+      throw new ConflictException('This draft was already scheduled')
+    }
+
+    return await this.model.findUniqueOrThrow({
+      where: { id: draft.id },
       include: { voterFileFilter: true },
     })
   }

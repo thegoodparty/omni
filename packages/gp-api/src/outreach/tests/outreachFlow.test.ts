@@ -113,6 +113,8 @@ beforeEach(async () => {
       organizationSlug: orgSlug,
       userId: service.user.id,
       slug: 'jane-doe',
+      // Texting is Pro-only, so a campaign that can reach this route is Pro.
+      isPro: true,
       details: { state: 'TX', zip: '78634' },
       data: { hubspotId: 'hub-1' },
       aiContent: {},

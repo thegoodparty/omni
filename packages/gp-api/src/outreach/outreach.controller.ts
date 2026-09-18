@@ -11,12 +11,15 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import { Campaign, OutreachType, User } from '../generated/prisma'
+import { Campaign, Organization, OutreachType, User } from '../generated/prisma'
 import { CacheControls, MimeTypes } from 'http-constants-ts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqCampaign } from 'src/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from 'src/campaigns/decorators/UseCampaign.decorator'
+import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
+import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { FilesInterceptor } from 'src/files/interceptors/files.interceptor'
@@ -38,6 +41,7 @@ export class OutreachController {
     private readonly outreachService: OutreachService,
     private readonly s3: S3Service,
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
+    private readonly contacts: ContactsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachController.name)
@@ -45,6 +49,7 @@ export class OutreachController {
 
   @Post()
   @UseCampaign()
+  @UseOrganization()
   @UseInterceptors(
     FilesInterceptor('file', {
       mode: 'buffer',
@@ -58,6 +63,7 @@ export class OutreachController {
   async create(
     @ReqUser() user: User,
     @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
     @Body() createOutreachDto: CreateOutreachSchema,
     @ReqFile() image?: FileUpload,
   ) {
@@ -66,6 +72,14 @@ export class OutreachController {
     }
 
     const { outreachType, date } = createOutreachDto
+
+    // Texting is a paid channel, so every p2p write — a fresh create and a
+    // draft resume alike — needs the Pro gate the robocall create carries.
+    // filterAccessCheck below only fires when a saved list rides along, which
+    // a resume body need not carry.
+    if (outreachType === OutreachType.p2p) {
+      await this.contacts.assertProAccess(organization)
+    }
 
     // Resuming a saved draft: the row already holds the image the candidate
     // uploaded, so the client sends no file — and an unexpected one is
