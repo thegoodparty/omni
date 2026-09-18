@@ -37,6 +37,7 @@ def event(
     current_status=None,
     transitions=None,
     event_ts=None,
+    event_actor_id=None,
     epic_task_id=None,
 ):
     return router.RoutableEvent(
@@ -46,6 +47,7 @@ def event(
         current_status=current_status,
         transitions=transitions or [],
         event_ts=event_ts,
+        event_actor_id=event_actor_id,
         epic_task_id=epic_task_id,
     )
 
@@ -211,17 +213,51 @@ def test_later_feedback_round_gets_a_fresh_dedup_key():
     assert first != second
 
 
-def test_comment_posted_by_bot_while_feedback_needed_still_dispatches():
-    # commentPosted has no to-status of its own, so it never matches
-    # GATE_TO_STATUSES — a bot-authored comment is as legitimate a trigger
-    # here as a human one.
+def test_comment_posted_by_the_bot_itself_is_ignored_and_logged(capsys):
+    # The park primitive's LAST card write is its own comment, which comes
+    # right back as a commentPosted delivery. Dispatching on it would resume
+    # the stage that just parked, and a resume that re-parks comments again —
+    # a self-sustaining loop at one paid Fargate run per lap (observed on the
+    # first live park; only the then-missing dedup timestamp stopped it).
     e = story_event(
         kind="commentPosted",
         current_status=router.STATUS_FEEDBACK_NEEDED,
         event_ts="1700000100000",
+        event_actor_id=BOT_USER_ID,
     )
 
-    assert len(router.route(e)) == 1
+    assert router.route(e) == []
+    assert "Ignoring the bot's own comment" in capsys.readouterr().out
+
+
+def test_comment_posted_by_a_human_dispatches_resume():
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        event_ts="1700000100000",
+        event_actor_id=HUMAN_USER_ID,
+    )
+
+    decisions = router.route(e)
+
+    assert len(decisions) == 1
+    assert decisions[0].stage == router.STAGE_RESUME
+
+
+def test_comment_resume_refused_when_bot_user_id_unconfigured(monkeypatch, capsys):
+    # Same fail-closed shape as the gate check: an actor that cannot be told
+    # apart from the bot cannot be proven human, and the failure mode of
+    # guessing wrong is the self-resume loop above.
+    monkeypatch.delenv("AUTOPILOT_BOT_USER_ID", raising=False)
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        event_ts="1700000100000",
+        event_actor_id=HUMAN_USER_ID,
+    )
+
+    assert router.route(e) == []
+    assert "refusing comment-resume dispatch" in capsys.readouterr().out
 
 
 def test_comment_posted_outside_feedback_needed_dispatches_nothing_but_logs(capsys):

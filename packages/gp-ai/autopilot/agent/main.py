@@ -36,7 +36,7 @@ from .config import CAPABILITIES, AgentConfig, UnknownStageError
 from .feedback import apply_park_outcome
 from .github_auth import setup_github_auth
 from .metrics import format_metric_line
-from .workspace import WorkspaceCloneError, clone_omni
+from .workspace import WorkspaceCloneError, clone_omni, point_playwright_mcp_at_chromium
 
 logger = get_logger(__name__)
 
@@ -260,6 +260,9 @@ async def main():
         # that is exactly what run_agent hands the SDK as `cwd` — the stage
         # works inside the omni checkout, not its parent directory.
         config.workspace_dir = clone_omni(config.workspace_dir, os.environ.get("GITHUB_TOKEN", ""))
+        # This container has no branded Chrome (none exists for ARM64 Linux);
+        # the repo's .mcp.json default would break the first browser call.
+        point_playwright_mcp_at_chromium(config.workspace_dir)
     except WorkspaceCloneError as e:
         logger.error(f"omni clone failed: {e}")
         sys.exit(1)

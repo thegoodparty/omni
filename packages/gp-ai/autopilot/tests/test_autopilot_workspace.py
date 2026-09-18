@@ -1,10 +1,16 @@
 """Tests for the pre-flight omni clone every autopilot stage runs against."""
 
+import json
 import subprocess
 
 import pytest
 
-from autopilot.agent.workspace import CLONE_TIMEOUT_SECONDS, WorkspaceCloneError, clone_omni
+from autopilot.agent.workspace import (
+    CLONE_TIMEOUT_SECONDS,
+    WorkspaceCloneError,
+    clone_omni,
+    point_playwright_mcp_at_chromium,
+)
 
 TOKEN = "ghs_supersecrettoken"
 
@@ -64,3 +70,39 @@ def test_failed_clone_scrubs_the_token_from_the_raised_error(monkeypatch, tmp_pa
 
     assert TOKEN not in str(caught.value)
     assert "***" in str(caught.value)
+
+
+def _write_mcp_json(tmp_path, playwright_args):
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"playwright": {"command": "npx", "args": playwright_args}}})
+    )
+
+
+def test_playwright_mcp_gets_pointed_at_chromium(tmp_path):
+    # The repo default (no --browser) means the branded-Chrome channel, which
+    # cannot exist on ARM64 Linux — the first live qa run died on it.
+    _write_mcp_json(tmp_path, ["@playwright/mcp@latest", "--headless", "--isolated"])
+
+    point_playwright_mcp_at_chromium(str(tmp_path))
+
+    args = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["playwright"]["args"]
+    assert args == ["@playwright/mcp@latest", "--headless", "--isolated", "--browser", "chromium"]
+
+
+def test_playwright_mcp_left_alone_when_a_browser_is_already_chosen(tmp_path):
+    original = ["@playwright/mcp@latest", "--browser", "firefox"]
+    _write_mcp_json(tmp_path, original)
+
+    point_playwright_mcp_at_chromium(str(tmp_path))
+
+    args = json.loads((tmp_path / ".mcp.json").read_text())["mcpServers"]["playwright"]["args"]
+    assert args == original
+
+
+def test_unreadable_mcp_json_fails_the_workspace_loudly(tmp_path):
+    # A workspace whose MCP config can't be read is broken the same way a
+    # failed clone is; a mid-run browser error after paid work is worse.
+    (tmp_path / ".mcp.json").write_text("{not json")
+
+    with pytest.raises(WorkspaceCloneError, match="Playwright MCP"):
+        point_playwright_mcp_at_chromium(str(tmp_path))
