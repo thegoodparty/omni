@@ -116,7 +116,8 @@ def envelope(stage=STAGE, epic_task_id=None, max_budget_usd=15.0, deadline_secon
 # ---------------------------------------------------------------------------
 
 
-def test_envelope_carries_every_var():
+def test_envelope_carries_every_var(monkeypatch):
+    monkeypatch.delenv("AUTOPILOT_SLACK_CHANNEL", raising=False)
     env = envelope(epic_task_id="epic-1").to_environment()
     by_name = {e["name"]: e["value"] for e in env}
 
@@ -134,6 +135,24 @@ def test_envelope_omits_epic_task_id_when_none():
     env = envelope(epic_task_id=None).to_environment()
 
     assert "EPIC_TASK_ID" not in {e["name"] for e in env}
+
+
+def test_envelope_forwards_the_conductors_slack_channel(monkeypatch):
+    # The agent-side feedback primitives (park, notify) post to this channel,
+    # and the task definition carries no channel of its own — the envelope is
+    # the only path it can reach the container by.
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "C0TEST")
+    env = envelope().to_environment()
+    by_name = {e["name"]: e["value"] for e in env}
+
+    assert by_name["AUTOPILOT_SLACK_CHANNEL"] == "C0TEST"
+
+
+def test_envelope_omits_a_blank_slack_channel(monkeypatch):
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "   ")
+    env = envelope().to_environment()
+
+    assert "AUTOPILOT_SLACK_CHANNEL" not in {e["name"] for e in env}
 
 
 # ---------------------------------------------------------------------------

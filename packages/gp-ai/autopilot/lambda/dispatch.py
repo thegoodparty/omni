@@ -80,6 +80,13 @@ class StageEnvelope:
         ]
         if self.epic_task_id is not None:
             environment.append({"name": "EPIC_TASK_ID", "value": self.epic_task_id})
+        # Forwarded from the conductor's own env, not an envelope field: the
+        # agent-side feedback primitives (park, notify) post to this channel,
+        # and the task definition carries no channel of its own — without
+        # this line every park in every stage dies on "No Slack channel".
+        slack_channel = os.environ.get("AUTOPILOT_SLACK_CHANNEL", "").strip()
+        if slack_channel:
+            environment.append({"name": "AUTOPILOT_SLACK_CHANNEL", "value": slack_channel})
         return environment
 
 
