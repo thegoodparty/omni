@@ -9,11 +9,11 @@ export const MEMBERSHIP_COPY = {
       cta: 'Start verification',
     },
     inReview: {
-      body: 'Campaign verification is with the carriers, usually 1 to 2 weeks.',
+      body: "Verification is in review. We'll email you in 3-7 business days when approved.",
       cta: null,
     },
     awaitingPin: {
-      body: 'Your campaign is approved. Enter the PIN we sent to finish.',
+      body: 'You will be sent a PIN within 7 business days to either your email, phone or address.',
       cta: 'Enter your PIN',
     },
   },

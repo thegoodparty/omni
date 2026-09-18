@@ -44,11 +44,11 @@ export const VerificationIntro = ({
   return (
     <div>
       <h1 className="mb-1.5 text-[32px] leading-[44px] font-semibold">
-        Campaign verification to send text messages
+        Verify your campaign to text voters
       </h1>
       <Body2 className="mb-6 text-base-muted-foreground">
-        Carriers require a registered campaign before your first text can go
-        out.
+        Phone carriers require a registered campaign before your first text can
+        go out.
       </Body2>
       <ul className="rounded-xl border border-base-border">
         {ROWS.map(({ icon: Icon, title, body }) => (

@@ -160,7 +160,7 @@ describe('SuccessStep', () => {
   })
 
   describe('purchase-only', () => {
-    it('lists what Pro unlocked and completes the flow from Continue', async () => {
+    it('lists what Pro unlocked and completes the flow from the verification CTA', async () => {
       api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
 
       render(withWizard(<SuccessStep />, { purchaseOnly: true }))
@@ -168,22 +168,58 @@ describe('SuccessStep', () => {
       expect(
         screen.getByRole('heading', { name: 'Welcome to Pro' }),
       ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Your payment went through. One step left before you can send.',
+        ),
+      ).toBeInTheDocument()
       expect(screen.getByText('Unlocked now')).toBeInTheDocument()
       expect(
         screen.getByText('Individual voter records for your race'),
       ).toBeInTheDocument()
-      // No channel, so nothing to verify and the neutral label stands.
-      expect(
-        screen.queryByText('Still to do: verification'),
-      ).not.toBeInTheDocument()
+      // The standalone page has no channel and still hands off to verification.
+      expect(screen.getByText('Still to do: verification')).toBeInTheDocument()
 
-      const continueButton = screen.getByRole('button', { name: 'Continue' })
+      const continueButton = screen.getByRole('button', {
+        name: 'Start verification',
+      })
       await waitFor(() => expect(continueButton).toBeEnabled())
       continueButton.click()
 
       expect(complete).toHaveBeenCalledTimes(1)
       expect(mockTrackEvent).toHaveBeenCalledWith(
         EVENTS.ProUpgrade.Compliance.SuccessContinue,
+      )
+    })
+
+    it('points a robocall candidate at their next outreach step instead', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+
+      render(
+        withWizard(<SuccessStep />, {
+          purchaseOnly: true,
+          channel: 'robocall',
+        }),
+      )
+
+      expect(
+        screen.getByText(
+          'Payment successful. Your next step is to schedule your robocall.',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('Still to do: schedule your robocall'),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Pick a date and time, review the cost, and pay for the calls.',
+        ),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Still to do: verification'),
+      ).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
       )
     })
 
@@ -202,7 +238,7 @@ describe('SuccessStep', () => {
       )
     })
 
-    it('holds Continue until the webhook flips isPro', async () => {
+    it('holds the hand-off CTA until the webhook flips isPro', async () => {
       // Campaign verification reads the Pro state this screen asserts, so
       // handing off before the flip lands would show a non-Pro surface.
       api.mockOrdered('GET /v1/campaigns/mine', [
@@ -212,7 +248,9 @@ describe('SuccessStep', () => {
 
       render(withWizard(<SuccessStep />, { purchaseOnly: true }))
 
-      const continueButton = screen.getByRole('button', { name: 'Continue' })
+      const continueButton = screen.getByRole('button', {
+        name: 'Start verification',
+      })
       expect(continueButton).toBeDisabled()
 
       await waitFor(() => expect(continueButton).toBeEnabled(), {

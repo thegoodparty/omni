@@ -33,6 +33,15 @@ const BackProbe = (): React.JSX.Element => {
   )
 }
 
+const CompleteProbe = (): React.JSX.Element => {
+  const { complete } = useProUpgradeWizard()
+  return (
+    <button type="button" onClick={complete}>
+      probe-complete
+    </button>
+  )
+}
+
 describe('ProUpgradeWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -168,6 +177,35 @@ describe('ProUpgradeWizard', () => {
 
     expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade/guidance')
     expect(router.back).not.toHaveBeenCalled()
+  })
+
+  it('hands off to campaign verification on complete in purchase-only mode', () => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
+
+    render(
+      <ProUpgradeWizard>
+        <CompleteProbe />
+      </ProUpgradeWizard>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'probe-complete' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/campaign-verification')
+  })
+
+  it('returns to the dashboard on complete when the flag is off', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
+
+    render(
+      <ProUpgradeWizard>
+        <CompleteProbe />
+      </ProUpgradeWizard>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'probe-complete' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
   })
 
   it('does not show the stepper on payment or on steps outside the collection steps', () => {

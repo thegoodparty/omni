@@ -6,6 +6,7 @@ import { Button, ProBadge } from '@styleguide'
 import {
   CheckCircleIcon,
   CheckIcon,
+  ClipboardListIcon,
   ShieldCheckIcon,
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
@@ -32,6 +33,21 @@ const UNLOCKED_ROWS = [
   'Downloads and targeted lists',
   'Door knocking, phone banking and robocalls',
 ]
+
+const VERIFICATION_BODY =
+  'Your payment went through. One step left before you can send.'
+
+const NEXT_NOUN = {
+  robocall: 'schedule your robocall',
+  door: 'build your walk list',
+  'phone-bank': 'download your call list',
+} as const
+
+const NEXT_STEP_BODY = {
+  robocall: 'Pick a date and time, review the cost, and pay for the calls.',
+  door: 'Build the route, then save your walk list and start knocking.',
+  'phone-bank': 'Download your call list, then start calling.',
+} as const
 
 // Post-payment landing (Stripe embedded-checkout return_url + PaymentStep's
 // on-confirm nav). Purely presentational: it never gates its content on the
@@ -74,7 +90,12 @@ const SuccessStep = (): React.JSX.Element => {
   }
 
   if (purchaseOnly) {
-    const isTexting = channel === 'sms'
+    // The standalone page has no launch channel, and it hands off to campaign
+    // verification, so it reads the same as the texting entry point.
+    const nextStep =
+      channel === 'sms' || channel === null
+        ? null
+        : { noun: NEXT_NOUN[channel], body: NEXT_STEP_BODY[channel] }
 
     return (
       <>
@@ -84,9 +105,16 @@ const SuccessStep = (): React.JSX.Element => {
             <ProBadge size="large" />
           </div>
 
-          <h1 className="text-[32px] leading-[44px] font-semibold">
-            Welcome to Pro
-          </h1>
+          <div className="flex flex-col gap-1.5">
+            <h1 className="text-[32px] leading-[44px] font-semibold">
+              Welcome to Pro
+            </h1>
+            <Body2 className="text-base-muted-foreground">
+              {nextStep
+                ? `Payment successful. Your next step is to ${nextStep.noun}.`
+                : VERIFICATION_BODY}
+            </Body2>
+          </div>
 
           <div className="w-full rounded-xl border border-base-border text-left">
             <div className="flex gap-3 p-4">
@@ -113,7 +141,20 @@ const SuccessStep = (): React.JSX.Element => {
               </div>
             </div>
 
-            {isTexting && (
+            {nextStep ? (
+              <div className="flex gap-3 border-t border-base-border p-4">
+                <ClipboardListIcon
+                  className="mt-0.5 size-5 shrink-0 text-primary"
+                  aria-hidden
+                />
+                <div>
+                  <p className="font-semibold">Still to do: {nextStep.noun}</p>
+                  <p className="mt-1 text-sm text-base-muted-foreground">
+                    {nextStep.body}
+                  </p>
+                </div>
+              </div>
+            ) : (
               <div className="flex gap-3 border-t border-base-border p-4">
                 <ShieldCheckIcon
                   className="mt-0.5 size-5 shrink-0 text-primary"
@@ -137,7 +178,7 @@ const SuccessStep = (): React.JSX.Element => {
             onClick={handleContinue}
             disabled={!data?.isPro && !pollExpired}
           >
-            {isTexting ? 'Start verification' : 'Continue'}
+            {nextStep ? 'Continue' : 'Start verification'}
           </Button>
         </div>
       </>

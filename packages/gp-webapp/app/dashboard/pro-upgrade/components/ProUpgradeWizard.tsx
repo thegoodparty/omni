@@ -7,6 +7,7 @@ import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { Button, Spinner, Stepper } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
+import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import {
   PRO_UPGRADE_BASE_PATH,
   PRO_UPGRADE_STEP,
@@ -173,6 +174,13 @@ const ProUpgradeWizard = ({
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
 
+  // Purchase-only collects filing details after payment, so the success step
+  // hands off to campaign verification instead of the dashboard.
+  const complete = useCallback(
+    () => router.push(purchaseOnly ? CAMPAIGN_VERIFICATION_PATH : '/dashboard'),
+    [purchaseOnly, router],
+  )
+
   const contextValue = useMemo<ProUpgradeWizardContextValue>(
     () => ({
       currentStep,
@@ -182,9 +190,17 @@ const ProUpgradeWizard = ({
       goToNextStep,
       goToPreviousStep,
       exit,
-      complete: exit,
+      complete,
     }),
-    [currentStep, purchaseOnly, goToStep, goToNextStep, goToPreviousStep, exit],
+    [
+      currentStep,
+      purchaseOnly,
+      goToStep,
+      goToNextStep,
+      goToPreviousStep,
+      exit,
+      complete,
+    ],
   )
 
   const stepperSteps = purchaseOnly

@@ -228,6 +228,15 @@ describe('MembershipBanner', () => {
     expect(trackEvent).not.toHaveBeenCalled()
   })
 
+  it('keeps the upsell for a lapsed Pro campaign whose texting is still cleared', () => {
+    setup({ state: membership({ tier: 'free', texting: 'cleared' }) })
+
+    expect(
+      screen.getByText(MEMBERSHIP_COPY.banner.free.body),
+    ).toBeInTheDocument()
+    expect(screen.getByText('See what you get')).toBeVisible()
+  })
+
   it('renders nothing for an elected-office organization', () => {
     setup({ state: membership({ isElectedOffice: true }) })
 

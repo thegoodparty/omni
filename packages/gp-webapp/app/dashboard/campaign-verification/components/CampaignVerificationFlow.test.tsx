@@ -34,7 +34,7 @@ vi.mock(
   }),
 )
 
-const INTRO_TITLE = 'Campaign verification to send text messages'
+const INTRO_TITLE = 'Verify your campaign to text voters'
 
 // jsdom does not implement scrollTo; the flow resets scroll on every step
 // change.

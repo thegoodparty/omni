@@ -32,6 +32,9 @@ export const resolveMembershipAction = (
   return null
 }
 
+// A free campaign with cleared texting is a lapsed Pro subscriber whose 10DLC
+// registration is still approved. Cleared texting alone doesn't hide the
+// surface: without Pro they can't send, so the upsell stays.
 export const isMembershipSurfaceVisible = (
   state: MembershipState | null,
 ): boolean =>
