@@ -30,15 +30,22 @@ import urllib.request
 EP = "https://api.anthropic.com/v1/design/mcp"
 CAP = 256 * 1024  # per-read byte cap; a single line at/over this is cut mid-line
 OPEN_RE = re.compile(r'^<untrusted-project-content\b[^>]*>\n', re.S)
+OPEN_TAG = re.compile(r'^<untrusted-project-content\b[^>]*>')
 CLOSE_RE = re.compile(r'\n</untrusted-project-content>.*$', re.S)
 # Non-final chunks end with a continuation notice on its own line.
 NOTE_RE = re.compile(r'\n[^\n]*continue with offset=\d+\][ \t]*$')
 
 
 def token():
-    r = subprocess.run(
-        ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
-        capture_output=True, text=True)
+    try:
+        r = subprocess.run(
+            ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True)
+    except FileNotFoundError:
+        sys.exit(
+            "This script reads the design credential from the macOS Keychain via the\n"
+            "`security` CLI, which is not present here. Run it on macOS, where\n"
+            "/design-login stores the credential.")
     if r.returncode != 0 or not r.stdout.strip():
         sys.exit("No Claude Code credentials in the keychain. Run /design-login.")
     try:
@@ -93,7 +100,11 @@ def read_full(tok, project_id, path, verbose=True):
     while True:
         txt = call(tok, "read_file",
                    {"project_id": project_id, "path": path, "offset": offset}, offset)
-        head = txt[:400]
+        # Parse the whole opening tag, not a fixed-size slice: a long file path can
+        # push total_lines past any byte window, and losing it means losing the only
+        # completeness check there is.
+        tag = OPEN_TAG.match(txt)
+        head = tag.group(0) if tag else txt[:2000]
         if total is None:
             m = re.search(r'total_lines="(\d+)"', head)
             total = int(m.group(1)) if m else None
@@ -115,7 +126,14 @@ def read_full(tok, project_id, path, verbose=True):
         last = int(rng.group(2))
         if verbose:
             print(f"  lines {rng.group(1)}-{last} of {total}", file=sys.stderr)
-        if total is None or last >= total:
+        if total is None:
+            # Paging without a total means no way to tell a complete file from a
+            # truncated one, which is the failure this whole script exists to stop.
+            raise RuntimeError(
+                f"{path}: the server response carries lines=\"{rng.group(1)}-{last}\" "
+                f"but no total_lines, so completeness cannot be verified. Refusing to "
+                f"return possibly-partial content.")
+        if last >= total:
             break
         offset = last + 1
     return "".join(parts), total, etag
