@@ -14,6 +14,8 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 | `shared/DashboardMenu.tsx` | Sidebar nav items (per-feature visibility lives here) |
 | `shared/candidateAccess.ts` + `serveAccess.ts` | Access predicates (`canViewX` helpers) — client + server variants |
 | `shared/ProUpgradeModal.tsx` / `ProUpgradePrompt.tsx` | Pro-tier gating UI |
+| `shared/membership/` | Membership status surfaces behind `outreach-pro-gating-v2`: `MembershipBanner` in the sidebar footer (desktop, rendered by `DashboardMenu`, and the flag's exposure surface), `MembershipChip` in the mobile top bar (rendered by `DashboardLayout`'s `MobileMenuTrigger`), plus the `ProPitchDialog` and `PinDialog` they open. One state (`deriveMembershipState` / `useMembershipState`) drives both: free → the Pro pitch, needs verification → `/dashboard/campaign-verification`, in review → no action, awaiting PIN → the PIN dialog. Hidden for Serve (elected office) and for cleared Pro campaigns |
+| `campaign-verification/` | The flagged post-payment verification flow (intro → the shared `ElectionFilingForm` → the confirmation). Reached from the membership banner/chip and from the Pro wizard's success step, never from the nav |
 | `shared/dictation/` | Domain-agnostic voice dictation (`useDictation`, `useDictationAppend`, `DictationMicButton`) used by briefings, the chat surfaces, onboarding, and outreach compose. Briefings-specific presentation (`DictationFeedback`, `DictationDemoWidget`) stays in `briefings/shared/` |
 | `components/` | Cross-feature dashboard widgets (alert banners, progress bars, `campaignManager/`) |
 
@@ -30,7 +32,7 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 
 ## Gotchas
 
-- The directory has more subdirs than the sidebar exposes (`account/`, `briefings/`, `campaign-details/`, `campaign-plan/`, `election-result/`, `pro-upgrade/`, `profile/`, `purchase/`, `questions/`). These are mostly internal flows / sub-pages reached from within other features — don't assume "directory exists" means "menu item exists." (`pro-upgrade/` is the pre-payment Pro upgrade wizard; it superseded the now-deleted `pro-sign-up/` + `upgrade-to-pro/` trees — see `pro-upgrade/CLAUDE.md`.)
+- The directory has more subdirs than the sidebar exposes (`account/`, `briefings/`, `campaign-details/`, `campaign-plan/`, `campaign-verification/`, `election-result/`, `pro-upgrade/`, `profile/`, `purchase/`, `questions/`). These are mostly internal flows / sub-pages reached from within other features — don't assume "directory exists" means "menu item exists." (`pro-upgrade/` is the pre-payment Pro upgrade wizard; it superseded the now-deleted `pro-sign-up/` + `upgrade-to-pro/` trees — see `pro-upgrade/CLAUDE.md`.)
 - `dashboard/shared/` and `dashboard/components/` overlap in spirit. Convention: `shared/` = layout, access, modals reused across features; `components/` = card-style widgets composed onto pages. Check both before adding a new file.
 - `DashboardLayout` enforces auth. Pages don't need their own redirect-to-login logic.
 

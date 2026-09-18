@@ -215,6 +215,21 @@ const WIN_AREAS: ProductArea[] = [
     ],
   },
   {
+    // No tab: candidates reach this from the membership status shown at the
+    // bottom of the left rail (or, on a phone, in the top bar), and from the
+    // end of the Pro upgrade flow.
+    navId: null,
+    name: 'Campaign verification',
+    path: '/dashboard/campaign-verification',
+    modes: ['win'],
+    does: 'Register a Pro campaign with the phone carriers, which is what makes texting possible.',
+    inside: [
+      'Campaign filing details: the committee name, the filing link, and where to send the PIN',
+      'Carrier review takes about 1 to 2 weeks, then a PIN arrives to finish it',
+    ],
+    gate: 'Pro only, and after the upgrade is paid for.',
+  },
+  {
     navId: 'nav-dash-team',
     name: 'Team',
     path: '/dashboard/team',
