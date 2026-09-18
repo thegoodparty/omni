@@ -137,6 +137,28 @@ describe('timestamp normalisation', () => {
     expect(toEpochMs(1788888059000)).toBe(1788888059000)
   })
 
+  it('scales a seconds-range stamp, which the updated handler writes', () => {
+    // customerSubscriptionUpdatedHandler writes Stripe's canceled_at verbatim,
+    // and Stripe measures it in seconds. Read as ms it would be 1970-01-21, so
+    // it would never postdate an upgrade and the row would escape the class.
+    expect(toEpochMs(1788888059)).toBe(1788888059000)
+    // The deleted handler's Date.now() must pass through untouched.
+    expect(toEpochMs(1788888059000)).toBe(1788888059000)
+  })
+
+  it('flags a cancellation stamped in seconds, not just in milliseconds', () => {
+    // The end-to-end version of the case above: same row, same upgrade date,
+    // cancellation expressed in Stripe's unit rather than ours.
+    const finding = classifyRow(
+      row({ subscriptionCanceledAt: CANCELED_AT_MS / 1000 }),
+    )
+
+    expect(finding?.driftClass).toBe(ProDriftClass.ProAfterCancellation)
+    expect(finding?.subscriptionCanceledAt).toBe(
+      new Date(CANCELED_AT_MS).toISOString(),
+    )
+  })
+
   it('treats an absent, blank, or unparseable stamp as absent rather than NaN', () => {
     // NaN comparisons are always false, so a NaN here would silently drop the
     // row out of PRO_AFTER_CANCELLATION instead of reporting it.

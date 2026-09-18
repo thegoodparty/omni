@@ -43,7 +43,10 @@ export type CampaignProRow = {
   customerId: string | null
   /** `details.isProUpdatedAt` — an ISO-8601 string written by `setIsPro`. */
   isProUpdatedAt: string | null
-  /** `details.subscriptionCanceledAt` — epoch **milliseconds**. */
+  /**
+   * `details.subscriptionCanceledAt` — epoch, but in **either** seconds or
+   * milliseconds depending on which handler wrote it. See {@link toEpochMs}.
+   */
   subscriptionCanceledAt: number | null
 }
 
@@ -51,9 +54,9 @@ export const ProDriftClass = {
   /**
    * The campaign recorded a subscription cancellation *after* its last genuine
    * non-Pro -> Pro transition, and is still Pro. The row disagrees with itself:
-   * `subscriptionCanceledAt` is stamped by the
-   * `customer.subscription.deleted` handler, which also sets `isPro = false`,
-   * so a row carrying a later cancellation than upgrade should not be Pro.
+   * `customerSubscriptionDeletedHandler` stamps `subscriptionCanceledAt` and,
+   * via `persistCampaignProCancellation`, also sets `isPro = false` — so a row
+   * carrying a later cancellation than upgrade should not still be Pro.
    */
   ProAfterCancellation: 'PRO_AFTER_CANCELLATION',
   /**
@@ -83,15 +86,34 @@ export type ProDriftFinding = {
 
 /**
  * `details.isProUpdatedAt` is an ISO string (`formatISO(new Date())` in
- * `setIsPro`) while `details.subscriptionCanceledAt` is epoch milliseconds
- * (`Date.now()` in the deleted handler). Comparing them requires normalising
- * both to a number, and a value that does not parse must be treated as absent
- * rather than as `NaN` — `NaN` comparisons are always false, which would
- * silently drop the row from the class instead of reporting it.
+ * `setIsPro`), so it parses directly.
+ *
+ * `details.subscriptionCanceledAt` is written in **two different units** by
+ * two different handlers, and both are in the column:
+ *
+ * - `customerSubscriptionDeletedHandler` writes `Date.now()` — milliseconds.
+ * - `customerSubscriptionUpdatedHandler` writes Stripe's `canceled_at`
+ *   verbatim — Unix **seconds**, the Stripe API convention.
+ *
+ * Reading a seconds value as milliseconds puts it in January 1970, so it would
+ * never postdate a real upgrade and the row would silently escape
+ * PRO_AFTER_CANCELLATION — the exact miss this report exists to catch. Anything
+ * below the threshold is therefore treated as seconds and scaled.
+ *
+ * A value that does not parse must be treated as absent rather than as `NaN`:
+ * `NaN` comparisons are always false, which would also silently drop the row
+ * instead of reporting it.
  */
+// 1e11 as ms is 1973-03-03 and as seconds is the year 5138. Every real stamp in
+// either unit is on the correct side, and no plausible date is ambiguous.
+const SECONDS_CEILING = 1e11
+
 export function toEpochMs(value: string | number | null): number | null {
   if (value === null || value === undefined) return null
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null
+    return Math.abs(value) < SECONDS_CEILING ? value * 1000 : value
+  }
   const trimmed = value.trim()
   if (!trimmed) return null
   const parsed = Date.parse(trimmed)

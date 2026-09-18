@@ -292,6 +292,12 @@ WHERE id IN (325506, 325636);
 
 -- 4. The whole class, not just the known ids.
 --    Same logic as scripts/pro-without-subscription-drift.ts.
+--
+--    subscriptionCanceledAt is NOT in a consistent unit: the deleted handler
+--    writes Date.now() (ms), the updated handler writes Stripe's canceled_at
+--    verbatim (SECONDS). Normalise, or every seconds-stamped row reads as
+--    1970 and silently fails the comparison. 1e11 as ms is 1973 and as
+--    seconds is the year 5138, so nothing real is ambiguous.
 SELECT id, slug, user_id,
        details->>'isProUpdatedAt'         AS is_pro_updated_at,
        details->>'subscriptionCanceledAt' AS subscription_canceled_at
@@ -302,8 +308,12 @@ WHERE is_pro = true
   AND details->>'subscriptionCanceledAt' IS NOT NULL
   AND (
     details->>'isProUpdatedAt' IS NULL
-    OR to_timestamp((details->>'subscriptionCanceledAt')::bigint / 1000.0)
-       > (details->>'isProUpdatedAt')::timestamptz
+    OR to_timestamp(
+         CASE WHEN abs((details->>'subscriptionCanceledAt')::bigint) < 1e11
+              THEN (details->>'subscriptionCanceledAt')::bigint
+              ELSE (details->>'subscriptionCanceledAt')::bigint / 1000
+         END
+       ) > (details->>'isProUpdatedAt')::timestamptz
   );
 ```
 

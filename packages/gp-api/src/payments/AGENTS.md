@@ -224,11 +224,20 @@ key and the prod DB password — is NOT readable by the default `EngineerAccess`
 SSO role (`secretsmanager:GetSecretValue` is denied), so anything requiring it
 is an access request rather than a self-serve step. The sharpest signal is
 `details.subscriptionCanceledAt` later than `details.isProUpdatedAt` while
-`is_pro` is still true: the row contradicts itself, because the handler that
-stamps the cancellation (`persistCampaignProCancellation`) also sets
-`isPro = false`. It cannot distinguish a comped campaign — nothing in the schema
-records a comp — so treat the output as triage input, never as an input to a
-write.
+`is_pro` is still true: the row contradicts itself, because
+`customerSubscriptionDeletedHandler` both stamps `subscriptionCanceledAt` (via
+its own `patchCampaignDetails` call) and sets `isPro = false` (via
+`persistCampaignProCancellation`, which does *not* write the stamp itself). It
+cannot distinguish a comped campaign — nothing in the schema records a comp —
+so treat the output as triage input, never as an input to a write.
+
+**`details.subscriptionCanceledAt` is not in a consistent unit.**
+`customerSubscriptionDeletedHandler` writes `Date.now()` (milliseconds);
+`customerSubscriptionUpdatedHandler` writes Stripe's `canceled_at` verbatim,
+which is Unix **seconds**. Both are in the column. Any query or script
+comparing that key to a date must normalise first — reading a seconds value as
+milliseconds silently lands in January 1970 and the comparison quietly fails
+rather than erroring.
 
 **Purchase error 400 `NO_ACTIVE_CAMPAIGN`.** `isActiveCampaign` requires: not
 demo, `primaryResult !== 'lost'`, `didWin === null`, valid future
