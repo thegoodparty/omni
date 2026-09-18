@@ -22,6 +22,7 @@ from autopilot.agent.feedback import (
     format_park_comment,
     format_park_marker,
     new_questions,
+    notify_slack,
     park_for_feedback,
     parse_parked_stage,
     previously_asked_questions,
@@ -516,3 +517,122 @@ def test_cli_parked_stage_exits_nonzero_with_no_marker_on_the_card(monkeypatch, 
 
     assert exit_code == 1
     assert "No park marker" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Notify (the park's Slack ping without the park)
+# ---------------------------------------------------------------------------
+
+
+def test_notify_slack_posts_one_message_and_touches_nothing_on_the_card():
+    slack = FakeSlackClient()
+
+    result = notify_slack(
+        TASK_ID,
+        "epic-create",
+        "Breakdown ready for review",
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+    )
+
+    assert len(slack.client.posted) == 1
+    channel, text = slack.client.posted[0]
+    assert channel == "#autopilot"
+    assert "epic-create" in text
+    assert "Breakdown ready for review" in text
+    assert f"https://app.clickup.com/t/{TASK_ID}" in text
+    assert result == {
+        "status": "notified",
+        "task_id": TASK_ID,
+        "stage": "epic-create",
+        "card_url": f"https://app.clickup.com/t/{TASK_ID}",
+        "channel": "#autopilot",
+    }
+
+
+def test_notify_slack_explicit_channel_wins_over_the_env():
+    slack = FakeSlackClient()
+
+    notify_slack(
+        TASK_ID,
+        "qa",
+        "hello",
+        channel="#other",
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+    )
+
+    assert slack.client.posted[0][0] == "#other"
+
+
+def test_notify_slack_rejects_a_task_id_outside_the_envelope():
+    slack = FakeSlackClient()
+
+    with pytest.raises(ValueError, match="Refusing to notify"):
+        notify_slack(
+            "SOMEONE-ELSES-CARD",
+            "epic-create",
+            "hello",
+            slack_client_factory=factory_for(slack),
+            env=ENV,
+        )
+    assert slack.client.posted == []
+
+
+def test_notify_slack_rejects_an_unknown_stage():
+    with pytest.raises(UnknownStageError):
+        notify_slack(
+            TASK_ID,
+            "not-a-stage",
+            "hello",
+            slack_client_factory=factory_for(FakeSlackClient()),
+            env=ENV,
+        )
+
+
+def test_notify_slack_requires_a_channel():
+    with pytest.raises(ValueError, match="No Slack channel"):
+        notify_slack(
+            TASK_ID,
+            "epic-create",
+            "hello",
+            slack_client_factory=factory_for(FakeSlackClient()),
+            env={"CLICKUP_TASK_ID": TASK_ID},
+        )
+
+
+def test_notify_slack_requires_a_nonempty_message():
+    with pytest.raises(ValueError, match="non-empty message"):
+        notify_slack(
+            TASK_ID,
+            "epic-create",
+            "   ",
+            slack_client_factory=factory_for(FakeSlackClient()),
+            env=ENV,
+        )
+
+
+def test_cli_notify_posts_and_exits_zero(monkeypatch, capsys):
+    slack = FakeSlackClient()
+    monkeypatch.setattr(feedback, "SlackClient", factory_for(slack))
+    monkeypatch.setenv("CLICKUP_TASK_ID", TASK_ID)
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot")
+
+    exit_code = feedback.main(
+        ["notify", "--task-id", TASK_ID, "--stage", "epic-create", "--message", "Breakdown ready"]
+    )
+
+    assert exit_code == 0
+    assert len(slack.client.posted) == 1
+    assert "Notified" in capsys.readouterr().out
+
+
+def test_cli_notify_exits_nonzero_when_slack_fails(monkeypatch, capsys):
+    monkeypatch.setattr(feedback, "SlackClient", factory_for(FakeSlackClient(raise_on_post=RuntimeError("down"))))
+    monkeypatch.setenv("CLICKUP_TASK_ID", TASK_ID)
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot")
+
+    exit_code = feedback.main(["notify", "--task-id", TASK_ID, "--stage", "epic-create", "--message", "hi"])
+
+    assert exit_code == 1
+    assert "Failed to notify" in capsys.readouterr().err

@@ -52,6 +52,13 @@ def test_epic_create_covers_its_load_bearing_directives():
     assert "feedback loop" in text.lower() or "park" in text.lower(), "questions must go through the park primitive"
 
     assert "`feedback needed`" in text, "must move the card to feedback needed on handoff (breakdown review column)"
+    assert "feedback notify" in text, (
+        "must ping Slack on handoff via the notify primitive — the TDD promises every card "
+        "arriving in feedback needed pings #autopilot, park and finished breakdown alike"
+    )
+    assert "--stage epic-create" in text.split("feedback notify", 1)[1], (
+        "the notify command must be shown with its own stage, not left for the model to infer"
+    )
     assert "never" in text and "executing" in text, "must forbid advancing the card to executing"
     assert "never another card" in text, "ClickUp writes must be scoped to the feature card and its subtasks"
 
