@@ -8,9 +8,18 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { OutreachStatus } from '../../generated/prisma'
 import { OutreachDraftService } from './outreachDraft.service'
 
-// A slot free of the other outreach crons (cleanup :00, capture :02, send
-// :04, fresh-charge :05, staging :07, hold-recovery :08, completion :09,
-// hold-reconcile :03/:13/...).
+// The other outreach robocall crons, together, already claim every minute
+// of every hour (cleanup :00/:10/.../:50, deferred-cancel :01/:16/:31/:46,
+// capture :02/:12/.../:52, hold-reconcile :03/:13/.../:53, send
+// :04/:14/.../:54, fresh-charge :05/:15/.../:55, stranded :06/:21/:36/:51,
+// staging :07/:17/.../:57, hold-recovery :08/:18/.../:58, completion
+// :09/:19/.../:59, cancel :11/:26/:41/:56) — so there is no minute this daily
+// job can land on without sharing one with some hourly sweep; :37 lands on
+// staging's. That overlap is harmless: each is its own `@Cron` name with its
+// own `cron_run` lock row (CronLockService keys on jobName+runDate, not on
+// the minute), this job is a single Postgres scan with no vendor call, and
+// staging already survives running alongside every other minute's sweep on
+// every other hour of the day.
 const EXPIRY_CRON = '37 4 * * *'
 const EXPIRY_JOB = 'outreachDraftExpiry'
 export const DRAFT_RETENTION_DAYS = 90

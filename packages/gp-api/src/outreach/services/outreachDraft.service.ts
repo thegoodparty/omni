@@ -172,9 +172,28 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
     await this.deleteDraftRow(row)
   }
 
-  // Shared with the expiry job. S3 first, then the row: a failed object delete
-  // leaves the row for the next attempt instead of orphaning bytes.
+  // Shared with the expiry job, whose scan-then-delete has a resume race: a
+  // candidate can convert this row (draft -> pending_payment) between the
+  // scan and this call. The status-guarded delete runs FIRST and is the only
+  // irreversible step gated on it — a 0 count means the row is already live
+  // (someone else's image/audio now), so nothing else may touch it. Only
+  // once that guard succeeds do we clean up the satellite's external
+  // resources (the row itself cascades via the FK). This does trade away the
+  // old "S3 first, so a failed object delete leaves the row for a retry"
+  // property: an S3 failure after a successful guarded delete now orphans
+  // bytes instead. That's the safer direction — a live row's assets must
+  // never be destroyed, and an orphaned object is a lesser, recoverable harm.
   async deleteDraftRow(row: DraftRowWithRobocall): Promise<void> {
+    const { count } = await this.model.deleteMany({
+      where: { id: row.id, status: OutreachStatus.draft },
+    })
+    if (count === 0) {
+      this.logger.info(
+        { outreachId: row.id },
+        'draft already converted; skipping teardown',
+      )
+      return
+    }
     if (row.imageUrl) {
       const imageKey = keyFromAssetUrl(row.imageUrl)
       if (imageKey) {
@@ -190,7 +209,6 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
       await this.s3.deleteObject(this.audioBucket, row.robocall.audioKey)
       await this.complianceResults.deleteByAudioKey(row.robocall.audioKey)
     }
-    await this.model.delete({ where: { id: row.id } })
   }
 
   // The cap's actual enforcement. A plain read-then-write lets two concurrent

@@ -2,6 +2,8 @@ import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { CronLockService } from '@/cron/services/cronLock.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
+import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import { OutreachStatus, OutreachType } from '../../generated/prisma'
 import { OutreachDraftService } from './outreachDraft.service'
 import {
@@ -71,6 +73,29 @@ describe('OutreachDraftExpiryService.expireDrafts', () => {
     expect(
       await service.prisma.outreach.findUnique({ where: { id: fresh.id } }),
     ).not.toBeNull()
+  })
+
+  it('keeps a draft that was resumed before the job ran', async () => {
+    const resumed = await createDraft(
+      subDays(new Date(), DRAFT_RETENTION_DAYS + 1),
+    )
+    // Sequential stand-in for the race: a candidate can convert this row
+    // (draft -> pending_payment) between the job's scan and its per-row
+    // delete. Sequencing create -> resume -> run stands in for that
+    // interleaving without needing real concurrency.
+    await service.prisma.outreach.update({
+      where: { id: resumed.id },
+      data: { status: OutreachStatus.pending_payment },
+    })
+    mockCronLock(true)
+
+    await expiryService().expireDrafts()
+
+    const row = await service.prisma.outreach.findUnique({
+      where: { id: resumed.id },
+    })
+    expect(row).not.toBeNull()
+    expect(row?.status).toBe(OutreachStatus.pending_payment)
   })
 
   it('does no work when another replica already holds the lease', async () => {
@@ -150,5 +175,43 @@ describe('OutreachDraftExpiryService.expireDrafts', () => {
     )
 
     expect(completeSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('OutreachDraftService.deleteDraftRow — draft guard', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('refuses a row that is no longer a draft, deleting nothing', async () => {
+    const converted = await createDraft(
+      subDays(new Date(), DRAFT_RETENTION_DAYS + 1),
+    )
+    await service.prisma.outreach.update({
+      where: { id: converted.id },
+      data: {
+        status: OutreachStatus.pending_payment,
+        imageUrl: `https://${ASSET_DOMAIN}/some/live/image.png`,
+      },
+    })
+    const drafts = service.app.get(OutreachDraftService)
+    const s3 = service.app.get(S3Service)
+    const deleteObject = vi
+      .spyOn(s3, 'deleteObject')
+      .mockResolvedValue(undefined)
+
+    // Called directly with a stale (pre-resume) row, the way the expiry
+    // job's scan would hand it a row that has since been converted.
+    await drafts.deleteDraftRow({
+      ...converted,
+      status: OutreachStatus.pending_payment,
+      imageUrl: `https://${ASSET_DOMAIN}/some/live/image.png`,
+      robocall: null,
+    })
+
+    expect(deleteObject).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.outreach.findUnique({
+        where: { id: converted.id },
+      }),
+    ).not.toBeNull()
   })
 })
