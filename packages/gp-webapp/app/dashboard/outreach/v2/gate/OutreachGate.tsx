@@ -70,12 +70,18 @@ export const OutreachGate = ({
 
   const noun = GATE_NOUN[channel]
 
-  // The hook re-derives `state` once campaign.isPro flips (a fresh render
-  // from the same query cache SuccessStep polls), so by the time this fires,
-  // `state.membership` already reflects Pro. Texting still needing
-  // verification means the gate stays open — `state.requirement` has
-  // already moved from 'pro' to 'verify' by then, so simply not completing
-  // is what shows the next screen.
+  // Safe to read `state.membership` fresh here rather than re-deriving it:
+  // ProUpgradeFlow's SuccessStep (the screen right before this fires) holds
+  // its own Continue button disabled until the shared CAMPAIGN_QUERY_KEY
+  // query cache reports `isPro: true` (it polls that cache after payment).
+  // useMembershipState derives `membership.tier` from the same cache via
+  // useCampaign, so by the time a candidate can click through to fire this,
+  // the caller's `useOutreachGate()` has already re-rendered with the
+  // post-upgrade `state` this component receives as a prop — no separate
+  // re-fetch or local state needed. Texting still needing verification
+  // means the gate stays open — `state.requirement` has already moved from
+  // 'pro' to 'verify' by then, so simply not completing is what shows the
+  // next screen.
   const handleProComplete = (): void => {
     if (channel === 'sms' && state.membership?.texting !== 'cleared') return
     onComplete()

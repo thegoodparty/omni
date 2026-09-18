@@ -200,6 +200,106 @@ describe('OutreachGate', () => {
 
       expect(onComplete).toHaveBeenCalledTimes(1)
     })
+
+    // Models the real cross-task dependency named in OutreachGate.tsx's WHY
+    // comment: ProUpgradeFlow's SuccessStep holds Continue disabled until
+    // the shared campaign query cache reports isPro, and useMembershipState
+    // derives `membership.tier` from that same cache — so by the time a
+    // candidate can click through, the caller's useOutreachGate() has
+    // already re-rendered this component with the post-upgrade `state`.
+    // OutreachGate itself never switches screens on onComplete — it only
+    // decides whether to forward the call; a caller's own next render
+    // (requirement now 'verify') is what actually shows the next screen.
+    it('does not call onComplete once Pro flips for texting still needing verification, and shows verification only once the caller advances requirement', () => {
+      const onComplete = vi.fn()
+      const { rerender } = render(
+        <OutreachGate
+          {...baseProps}
+          channel="sms"
+          state={stateWith({ requirement: 'pro' })}
+          onComplete={onComplete}
+        />,
+      )
+
+      rerender(
+        <OutreachGate
+          {...baseProps}
+          channel="sms"
+          state={stateWith({
+            requirement: 'pro',
+            membership: {
+              tier: 'pro',
+              texting: 'needs_verification',
+              pinDelivery: null,
+              isElectedOffice: false,
+            },
+          })}
+          onComplete={onComplete}
+        />,
+      )
+
+      const latestCall =
+        mockProUpgradeFlow.mock.calls[mockProUpgradeFlow.mock.calls.length - 1]!
+      latestCall[0].onComplete()
+
+      expect(onComplete).not.toHaveBeenCalled()
+      expect(mockCampaignVerificationSteps).not.toHaveBeenCalled()
+
+      rerender(
+        <OutreachGate
+          {...baseProps}
+          channel="sms"
+          state={stateWith({
+            requirement: 'verify',
+            membership: {
+              tier: 'pro',
+              texting: 'needs_verification',
+              pinDelivery: null,
+              isElectedOffice: false,
+            },
+          })}
+          onComplete={onComplete}
+        />,
+      )
+
+      expect(mockCampaignVerificationSteps).toHaveBeenCalled()
+    })
+
+    it('calls onComplete once Pro flips for a non-texting channel, without waiting on a requirement change', () => {
+      const onComplete = vi.fn()
+      const { rerender } = render(
+        <OutreachGate
+          {...baseProps}
+          channel="robocall"
+          state={stateWith({ requirement: 'pro', twoStep: false })}
+          onComplete={onComplete}
+        />,
+      )
+
+      rerender(
+        <OutreachGate
+          {...baseProps}
+          channel="robocall"
+          state={stateWith({
+            requirement: 'pro',
+            twoStep: false,
+            membership: {
+              tier: 'pro',
+              texting: 'needs_verification',
+              pinDelivery: null,
+              isElectedOffice: false,
+            },
+          })}
+          onComplete={onComplete}
+        />,
+      )
+
+      const latestCall =
+        mockProUpgradeFlow.mock.calls[mockProUpgradeFlow.mock.calls.length - 1]!
+      latestCall[0].onComplete()
+
+      expect(onComplete).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('requirement: verify', () => {

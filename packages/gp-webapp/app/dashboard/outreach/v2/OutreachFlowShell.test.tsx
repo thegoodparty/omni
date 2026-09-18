@@ -56,5 +56,20 @@ describe('OutreachFlowShell banner slot', () => {
 
     expect(screen.queryByText('Gate banner')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+    expect(document.querySelector('[data-slot="drawer-footer"]')).toBeNull()
+  })
+
+  // A React element is truthy even when it renders null (an ungated
+  // GateBanner returns null), so this must hold for an EXPLICIT
+  // banner={undefined} — not just an omitted prop — to prove showFooter
+  // isn't fooled by a caller passing a banner element through unconditionally.
+  it('renders no footer at all for an explicit banner={undefined} with no cta and no onBack', () => {
+    render(
+      <OutreachFlowShell {...baseProps} cta={null} banner={undefined}>
+        Body
+      </OutreachFlowShell>,
+    )
+
+    expect(document.querySelector('[data-slot="drawer-footer"]')).toBeNull()
   })
 })

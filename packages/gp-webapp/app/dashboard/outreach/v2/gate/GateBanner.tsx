@@ -32,8 +32,13 @@ const bannerLine = (
   return BANNER_COPY.robocall
 }
 
-// The footer's tinted, tappable one-liner (design: complianceBanner). Null
-// once nothing is gated, so a mounting flow can render it unconditionally.
+// The footer's tinted, tappable one-liner (design: complianceBanner). A
+// React element is truthy even when it renders null, so OutreachFlowShell's
+// `showFooter` can't tell a gated banner from an ungated one by the prop
+// alone — callers must gate the JSX itself:
+// `banner={state.requirement ? <GateBanner ... /> : undefined}`. The null
+// return below is a defensive fallback for a caller that doesn't, not the
+// mechanism a mounting flow should rely on.
 export const GateBanner = ({
   channel,
   state,

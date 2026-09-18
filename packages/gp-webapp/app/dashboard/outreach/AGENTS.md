@@ -126,7 +126,13 @@ candidate can land on (the interstitial or the in-review notice) offers a
 ghost destructive Delete — verification renders its own, and PIN has nothing
 left to abandon. `OutreachFlowShell`'s `banner` slot renders whichever of
 these a mounting flow passes, above the CTA row, inside the footer — a
-banner alone still renders the footer. A later task mounts `useOutreachGate`
+banner alone still renders the footer. **The caller gates the JSX, not the
+shell**: a React element is truthy even when it renders null (`GateBanner`
+returns null once nothing is gated), so `OutreachFlowShell`'s `showFooter`
+can't tell a gated banner from an ungated one by the prop alone — pass
+`banner={state.requirement ? <GateBanner ... /> : undefined}`, never an
+unconditional `<GateBanner ... />`, or an ungated flow gets an empty footer
+bar. A later task mounts `useOutreachGate`
 + `GateBanner`/`OutreachGate` inside the SMS, robocall, phone banking and
 door knocking flows.
 

@@ -411,6 +411,10 @@ import { dirname, join, relative } from 'node:path'
 // routes on click) and CampaignVerificationSteps (the state machine
 // extracted from CampaignVerificationFlow so it can be mounted elsewhere;
 // CampaignVerificationFlow keeps its own 'use client' as the page wrapper).
+// 2026-09-18: 580 -> 584 for the outreach gate: useOutreachGate (reads the
+// flag and membership hooks), GateBanner and GateExplainerModal (both own
+// click/dialog interaction), and OutreachGate (mounts the interactive
+// upgrade/verification/PIN screens). None can be a server component.
 const BASELINE = 584
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')

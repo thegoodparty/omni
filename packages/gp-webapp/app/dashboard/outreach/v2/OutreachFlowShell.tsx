@@ -109,6 +109,11 @@ export const OutreachFlowShell = ({
     onClose()
   }
 
+  // A React element is truthy even when it renders null, so `Boolean(banner)`
+  // can't distinguish a gated GateBanner from an ungated one on its own —
+  // the caller must pass `banner={state.requirement ? <GateBanner ... /> :
+  // undefined}` (see GateBanner.tsx) rather than relying on this to hide an
+  // empty footer for them.
   const showFooter = cta !== null || Boolean(onBack) || Boolean(banner)
 
   return (
