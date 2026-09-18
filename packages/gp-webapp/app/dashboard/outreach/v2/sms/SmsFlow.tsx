@@ -50,6 +50,7 @@ import {
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
+import { REVIEW_GATE_CTA } from '../gate/gateCopy'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate } from '../gate/OutreachGate'
@@ -1012,7 +1013,11 @@ export const SmsFlow = ({
                     name.trim().length === 0 ||
                     scheduledAt === null ||
                     violates48h ||
-                    outsideWindow,
+                    outsideWindow ||
+                    // The resume derives its phone list from this list:
+                    // nothing to press until it resolves, and nothing at all
+                    // if it has been deleted since the draft was saved.
+                    (resumed && !selectedList),
                   loading: resumed && phoneListCreating,
                 }
               : stepId === 'compose'
@@ -1027,10 +1032,11 @@ export const SmsFlow = ({
                       draftMutation.isPending,
                   }
                 : // Build mode's review has nothing to pay for: the CTA saves
-                  // the draft and hands the flow to the gate.
-                  stepId === 'review' && buildMode
+                  // the draft and hands the flow to the gate, named for
+                  // whatever still stands in the way.
+                  stepId === 'review' && buildMode && gate.requirement !== null
                   ? {
-                      label: 'Continue',
+                      label: REVIEW_GATE_CTA[gate.requirement],
                       onClick: () => {
                         void handleSaveDraft()
                       },
@@ -1062,12 +1068,11 @@ export const SmsFlow = ({
       currentStep={stepIndex + 1}
       totalSteps={scheduled ? 0 : stepOrder.length}
       onBack={
-        // Resume opens on schedule with everything before it settled, and
-        // the gate screens own their own way out.
-        !scheduled &&
-        !gateOpen &&
-        stepIndex > 0 &&
-        !(resumed && stepId === 'schedule')
+        // A resume has no reachable step behind it at all: purpose, audience
+        // and compose were settled when the draft was saved, and compose
+        // could never advance again (its Continue needs a local image file
+        // the saved row cannot supply).
+        !scheduled && !gateOpen && !resumed && stepIndex > 0
           ? handleBack
           : undefined
       }
@@ -1157,7 +1162,11 @@ export const SmsFlow = ({
               setPhoneListError(false)
               audience.startBuilder()
             }}
-            hideBuilder={gate.membership?.tier === 'free'}
+            // Only a gated free candidate loses the builder: its count calls
+            // go through the Pro-gated voter-file read, and an ungated
+            // elected official is on the free tier but can use it.
+            hideBuilder={buildMode && gate.membership?.tier === 'free'}
+            onChoosePurpose={() => setStepId('purpose')}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
@@ -1230,6 +1239,11 @@ export const SmsFlow = ({
           />
           {/* Resume derives the phone list here, so its failure reads here
               too — the audience step is behind the candidate. */}
+          {resumed && !audience.listsLoading && !selectedList && (
+            <p className="mt-4 text-sm text-destructive">
+              The voter list for this text is no longer available.
+            </p>
+          )}
           {resumed && phoneListError && (
             <p className="mt-4 text-sm text-destructive">
               We couldn&apos;t prepare this audience. Try again.

@@ -597,6 +597,11 @@ describe('SmsFlow', () => {
       ).toBeInTheDocument()
     }
 
+    // The gated review CTA is named for what still stands in the way, not
+    // "Continue" (design: the sms review CTA).
+    const saveDraft = () =>
+      userEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+
     it('saves the text as a draft and opens the Pro interstitial', async () => {
       gateRef.current = FREE_GATE
       mockDraft()
@@ -604,7 +609,7 @@ describe('SmsFlow', () => {
 
       expect(await screen.findByText(GATE_LINE)).toBeInTheDocument()
       await buildToReview()
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await saveDraft()
 
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
       expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
@@ -631,13 +636,22 @@ describe('SmsFlow', () => {
         detailRequests.push(params.id)
         return { status: 200, data: draftDetail({ id: 55 }) }
       })
+      const deleted: string[] = []
+      api.mock('DELETE /v1/outreach/:id', ({ params }) => {
+        deleted.push(params.id)
+        return { status: 200, data: undefined }
+      })
       openFlow()
 
       await buildToReview()
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await saveDraft()
 
       await waitFor(() => expect(detailRequests).toEqual(['55']))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      // The flow is now working the existing row, not the one it tried to
+      // write: the gate's Delete targets 55.
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      await waitFor(() => expect(deleted).toEqual(['55']))
     })
 
     it('opens a cleared draft at the schedule step and converts it', async () => {
@@ -656,6 +670,11 @@ describe('SmsFlow', () => {
         await screen.findByText('When do you want to send it?'),
       ).toBeInTheDocument()
       expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+      // Purpose, audience and compose are settled; compose could never
+      // advance again, so there is nowhere to go back to.
+      expect(
+        screen.queryByRole('button', { name: 'Back' }),
+      ).not.toBeInTheDocument()
       await userEvent.click(screen.getByText('Pick a date'))
       await userEvent.click(
         await screen.findByRole('button', { name: dayName(4) }),
@@ -667,10 +686,40 @@ describe('SmsFlow', () => {
           expect.objectContaining({
             draftOutreachId: 88,
             script: DRAFT_SCRIPT,
+            voterFileFilterId: 41,
+            phoneListId: 77,
           }),
           null,
         ),
       )
+      expect(
+        screen.queryByRole('button', { name: 'Back' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('blocks the resume when the draft list is gone', async () => {
+      gateRef.current = CLEARED_GATE
+      api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+      render(
+        <SmsFlow
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={draftDetail()}
+        />,
+      )
+
+      expect(
+        await screen.findByText(
+          'The voter list for this text is no longer available.',
+        ),
+      ).toBeInTheDocument()
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     })
 
     it('deletes the draft from the gate and closes the flow', async () => {
@@ -684,13 +733,62 @@ describe('SmsFlow', () => {
       const { onClose, onScheduled } = openFlow()
 
       await buildToReview()
-      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
       await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
       await waitFor(() => expect(deleted).toEqual(['77']))
       expect(onScheduled).toHaveBeenCalledTimes(2)
       expect(onClose).toHaveBeenCalled()
+    })
+
+    // Free tier loses the in-flow builder, and the custom purpose asks for
+    // no recommendations: with no saved lists either there is nothing to
+    // pick, so the step has to say what to do instead of sitting on a
+    // disabled Continue.
+    it('offers a way out when a free candidate has nothing to pick', async () => {
+      gateRef.current = FREE_GATE
+      mockDraft()
+      api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+      openFlow()
+
+      await userEvent.click(screen.getByText('Write my own message'))
+
+      expect(
+        await screen.findByText(
+          'Pick a purpose to see recommended voter lists.',
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByText('Choose a voter list')).not.toBeInTheDocument()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Choose a purpose' }),
+      )
+
+      expect(
+        await screen.findByText('Introduce myself to voters'),
+      ).toBeInTheDocument()
+    })
+
+    it('keeps the builder for an ungated elected official', async () => {
+      gateRef.current = {
+        enabled: true,
+        requirement: null,
+        twoStep: true,
+        membership: {
+          tier: 'free',
+          texting: 'cleared',
+          pinDelivery: null,
+          isElectedOffice: true,
+        },
+        tcrCompliance: null,
+      }
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+
+      expect(await screen.findByText('Create a new list')).toBeInTheDocument()
     })
 
     it('renders no banner and keeps the schedule step with the flag off', async () => {

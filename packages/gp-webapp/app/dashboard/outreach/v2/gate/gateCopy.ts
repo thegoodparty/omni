@@ -139,6 +139,22 @@ export const RESUME_COPY: Record<
   },
 }
 
+// The gated review step's primary button, by what still stands in the way
+// (design: the sms review CTA reads "Save draft" before Pro and "Start
+// verification" once Pro but not yet cleared). The keys are spelled out
+// rather than imported from useOutreachGate's GateRequirement so this file
+// keeps no dependency on the hook; indexing it with a requirement is what
+// catches drift.
+export const REVIEW_GATE_CTA: Record<
+  'pro' | 'verify' | 'in_review' | 'pin',
+  string
+> = {
+  pro: 'Save draft',
+  verify: 'Start verification',
+  in_review: 'Save draft',
+  pin: 'Enter your PIN',
+}
+
 export const BANNER_COPY = {
   twoStepFree: (noun: string): string =>
     `Two things are needed before this ${noun} can send.`,

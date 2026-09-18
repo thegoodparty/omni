@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
+  Button,
   Card,
   cn,
   Popover,
@@ -80,6 +81,10 @@ interface OutreachAudienceStepProps {
   // from what is already there (recommended and saved lists) rather than
   // cutting a new audience they cannot reach yet.
   hideBuilder?: boolean
+  // With the builder gone, a purpose that recommends nothing (custom) and a
+  // campaign with no saved lists leaves nothing to pick — the way out is
+  // another purpose, so the empty state offers it.
+  onChoosePurpose?: () => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
   // "All lists" in picker mode only.
   recommendations: RecommendedList[]
@@ -165,6 +170,7 @@ export const OutreachAudienceStep = ({
   onSelect,
   onStartBuilder,
   hideBuilder = false,
+  onChoosePurpose,
   recommendations,
   recommendationsLoading,
   recommendationsError,
@@ -320,6 +326,11 @@ export const OutreachAudienceStep = ({
   // it is a user-initiated follow-up, not part of the landing.
   const initialLoading = listsLoading || recommendationsLoading
 
+  // Builder hidden, no cards, no saved lists: the picker can only say "No
+  // saved lists yet.", so the step says what to do instead.
+  const nothingToPick =
+    hideBuilder && !initialLoading && cards.length === 0 && lists.length === 0
+
   if (initialLoading) {
     return (
       <div className="space-y-6">
@@ -411,136 +422,152 @@ export const OutreachAudienceStep = ({
         </div>
       )}
 
-      <div className="space-y-2">
-        <p className="text-xs font-bold uppercase text-primary">All lists</p>
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Card
-              role="button"
-              tabIndex={0}
-              className="cursor-pointer flex-row items-center justify-between gap-3 p-4 transition-colors hover:border-primary/50"
-            >
-              <div className="min-w-0">
-                <p className="truncate font-medium text-foreground">
-                  {listsLoading
-                    ? 'Loading your lists…'
-                    : (active?.name ??
-                      // When recommendations sit above the picker, the
-                      // picker's role shifts to "here's where your saved
-                      // lists are" — the primary control is the card up
-                      // top. A plain "Choose a voter list" reads as
-                      // instructing the candidate to ignore what they
-                      // were just offered. Same conditional door
-                      // knocking's WhoStep already applies.
-                      (cards.length > 0
-                        ? 'View your lists here'
-                        : 'Choose a voter list'))}
-                </p>
-                {active && (
-                  <p className="text-sm text-muted-foreground">
-                    {reachableLoading ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Loader2Icon className="size-3.5 animate-spin" />
-                        Counting reachable voters…
-                      </span>
-                    ) : reachableCount !== null ? (
-                      <>
-                        {copy.reachVerb} {reachableCount.toLocaleString()}{' '}
-                        {copy.reachNoun}
-                        {pricePerContact > 0 &&
-                          ` for $${money(reachableCount * pricePerContact)}`}
-                      </>
-                    ) : (
-                      "We couldn't count this list right now."
-                    )}
+      {nothingToPick ? (
+        <div
+          data-testid="outreach-audience-empty"
+          className="flex flex-col items-start gap-3 rounded-xl border border-base-border p-4"
+        >
+          <p className="text-sm text-muted-foreground">
+            Pick a purpose to see recommended voter lists.
+          </p>
+          {onChoosePurpose && (
+            <Button type="button" variant="outline" onClick={onChoosePurpose}>
+              Choose a purpose
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs font-bold uppercase text-primary">All lists</p>
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Card
+                role="button"
+                tabIndex={0}
+                className="cursor-pointer flex-row items-center justify-between gap-3 p-4 transition-colors hover:border-primary/50"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">
+                    {listsLoading
+                      ? 'Loading your lists…'
+                      : (active?.name ??
+                        // When recommendations sit above the picker, the
+                        // picker's role shifts to "here's where your saved
+                        // lists are" — the primary control is the card up
+                        // top. A plain "Choose a voter list" reads as
+                        // instructing the candidate to ignore what they
+                        // were just offered. Same conditional door
+                        // knocking's WhoStep already applies.
+                        (cards.length > 0
+                          ? 'View your lists here'
+                          : 'Choose a voter list'))}
                   </p>
-                )}
-                {active &&
-                  !reachableLoading &&
-                  reachableCount !== null &&
-                  selectedListTotal !== null &&
-                  selectedListTotal > reachableCount &&
-                  copy.reachableOfTotalLine && (
+                  {active && (
                     <p className="text-sm text-muted-foreground">
-                      {copy.reachableOfTotalLine(
-                        reachableCount,
-                        selectedListTotal,
+                      {reachableLoading ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2Icon className="size-3.5 animate-spin" />
+                          Counting reachable voters…
+                        </span>
+                      ) : reachableCount !== null ? (
+                        <>
+                          {copy.reachVerb} {reachableCount.toLocaleString()}{' '}
+                          {copy.reachNoun}
+                          {pricePerContact > 0 &&
+                            ` for $${money(reachableCount * pricePerContact)}`}
+                        </>
+                      ) : (
+                        "We couldn't count this list right now."
                       )}
                     </p>
                   )}
-              </div>
-              <ChevronDownIcon
-                className={cn(
-                  'size-5 shrink-0 text-muted-foreground transition-transform',
-                  open && 'rotate-180',
-                )}
-              />
-            </Card>
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            sideOffset={4}
-            // Portal into the picker's own root — see the ref declaration
-            // above for why the default body portal breaks scroll here.
-            container={pickerRootRef.current}
-            className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
-          >
-            <div className="divide-y divide-border">
-              {!hideBuilder && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(false)
-                    onStartBuilder()
-                  }}
-                  className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
-                >
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
-                    <PlusIcon className="size-4 text-primary" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block font-medium text-primary">
-                      Create a new list
-                    </span>
-                    <span className="block text-sm text-muted-foreground">
-                      Build a custom audience
-                    </span>
-                  </span>
-                </button>
-              )}
-              {lists.length === 0 && !listsLoading && (
-                <p className="p-4 text-sm text-muted-foreground">
-                  No saved lists yet.
-                </p>
-              )}
-              {lists.map((list) => {
-                const on = list.id === selectedId
-                return (
+                  {active &&
+                    !reachableLoading &&
+                    reachableCount !== null &&
+                    selectedListTotal !== null &&
+                    selectedListTotal > reachableCount &&
+                    copy.reachableOfTotalLine && (
+                      <p className="text-sm text-muted-foreground">
+                        {copy.reachableOfTotalLine(
+                          reachableCount,
+                          selectedListTotal,
+                        )}
+                      </p>
+                    )}
+                </div>
+                <ChevronDownIcon
+                  className={cn(
+                    'size-5 shrink-0 text-muted-foreground transition-transform',
+                    open && 'rotate-180',
+                  )}
+                />
+              </Card>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              sideOffset={4}
+              // Portal into the picker's own root — see the ref declaration
+              // above for why the default body portal breaks scroll here.
+              container={pickerRootRef.current}
+              className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
+            >
+              <div className="divide-y divide-border">
+                {!hideBuilder && (
                   <button
-                    key={list.id}
                     type="button"
                     onClick={() => {
-                      onSelect(list.id)
                       setOpen(false)
+                      onStartBuilder()
                     }}
-                    className={cn(
-                      'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
-                      on && 'bg-muted',
-                    )}
+                    className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
                   >
-                    <span className="block min-w-0 truncate font-medium text-foreground">
-                      {list.name ?? `List ${list.id}`}
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
+                      <PlusIcon className="size-4 text-primary" />
                     </span>
-                    {on && (
-                      <CheckIcon className="size-5 shrink-0 text-primary" />
-                    )}
+                    <span className="min-w-0">
+                      <span className="block font-medium text-primary">
+                        Create a new list
+                      </span>
+                      <span className="block text-sm text-muted-foreground">
+                        Build a custom audience
+                      </span>
+                    </span>
                   </button>
-                )
-              })}
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+                )}
+                {lists.length === 0 && !listsLoading && (
+                  <p className="p-4 text-sm text-muted-foreground">
+                    No saved lists yet.
+                  </p>
+                )}
+                {lists.map((list) => {
+                  const on = list.id === selectedId
+                  return (
+                    <button
+                      key={list.id}
+                      type="button"
+                      onClick={() => {
+                        onSelect(list.id)
+                        setOpen(false)
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
+                        on && 'bg-muted',
+                      )}
+                    >
+                      <span className="block min-w-0 truncate font-medium text-foreground">
+                        {list.name ?? `List ${list.id}`}
+                      </span>
+                      {on && (
+                        <CheckIcon className="size-5 shrink-0 text-primary" />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
       {pricePerContact > 0 && (
         <p className="text-sm text-muted-foreground">
           {copy.unitCostLabel} ${pricePerContact.toFixed(3)}
