@@ -72,7 +72,15 @@ via a Clerk invitation). No other code path may create one.
 | GET    | `team/invites/mine`    | session only, NOT org-scoped          |
 | POST   | `team/invites/accept`  | session only, NOT org-scoped          |
 | PATCH  | `team/members/:userId` | `@UseOrganization()` + `@OwnerOnly()` |
+| DELETE | `team/members/me`      | `@UseOrganization()` + `@AllowVolunteer()` |
 | DELETE | `team/members/:userId` | `@UseOrganization()` + `@OwnerOnly()` |
+
+**`DELETE team/members/me` is self-removal (ENG-11137).** Any member —
+volunteer or manager — can leave; it reuses `removeMember` with the caller
+as target, so the owner check (400), the membership + assignment cascade,
+the analytics event, and the HubSpot removal sync are all the same code
+path. Declared before `members/:userId` so `me` never reaches the
+ParseIntPipe.
 
 **Flag gate is scoped to one route.** `win-team-accounts` (via
 `FeaturesService.isFeatureEnabled`) gates only `POST team/invites` — the
@@ -230,6 +238,9 @@ A volunteer's entire read surface is "assignments where assignee = me"
 the interaction rows' `actorUserId`). The `@AllowVolunteer()` allowlist is
 fail-closed and opened route by route:
 
+- `DELETE /organizations/team/members/me` — self-removal (ENG-11137), the
+  volunteer's one write on the team controller. The webapp's entry point is
+  "Leave campaign" in the volunteer sidebar.
 - `GET /outreach/assignments/mine` — the whole volunteer read surface
   (`src/outreach/AGENTS.md`, which also covers assignment mechanics:
   idempotent assign, assignee-must-already-be-a-member 422, the org
