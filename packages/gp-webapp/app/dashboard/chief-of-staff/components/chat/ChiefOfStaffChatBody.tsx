@@ -238,6 +238,12 @@ export default function ChiefOfStaffChatBody({
         setStreamError(null)
         setLiveListMap(null)
       },
+      // Cleared on settle as well as on start. The commit empties
+      // liveSegments and swaps in the persisted transcript, whose segment
+      // carries this same payload — so holding the live copy any longer
+      // renders the card twice, once in the streaming row and once in
+      // history, until the next message happens to clear it.
+      onTurnSettle: () => setLiveListMap(null),
       onError: (message, retryable) => setStreamError({ message, retryable }),
       onEvent: (event) => {
         // The ARGS carry the payload, which is why this reads tool_call and
@@ -598,10 +604,19 @@ export default function ChiefOfStaffChatBody({
         // onEvent, and a map that only existed in the session that made it
         // would vanish under the user the moment they refreshed.
         listMap: listMapFromSegments(m.segments ?? []),
+        // The map segment is dropped from the inline run, not just rendered
+        // alongside it. Live, onEvent consumes the event so no pill is ever
+        // built; on replay the segment is still in the transcript and would
+        // project to a status pill reading `show_list_map` above the card it
+        // already drew. The ordinance flow splits its present_* segments out
+        // for the same reason.
         live:
           m.role === 'user'
             ? null
-            : segmentsToLive(m.segments ?? [], m.content),
+            : segmentsToLive(
+                (m.segments ?? []).filter((s) => s.toolName !== LIST_MAP_TOOL),
+                m.content,
+              ),
       })),
     [visibleMessages],
   )

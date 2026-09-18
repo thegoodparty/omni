@@ -204,22 +204,27 @@ export default function ContactListMap({
         data-testid="contact-map"
       />
 
-      {/* Sits over the dots rather than replacing them: the points are real
-          and still worth reading, and hiding them would throw away the half
-          of the map that works. */}
-      {basemapBlocked ? (
-        <div className="absolute inset-x-3 top-3 rounded-md bg-background/95 px-2 py-1 text-center text-xs text-muted-foreground shadow">
-          The background map could not load here. Its tiles key does not allow
-          this domain.
-        </div>
-      ) : null}
+      {/* Both notices are absolute over the dots rather than replacing them:
+          the points are real and still worth reading, and hiding them would
+          throw away the half of the map that works. Stacked in one column
+          because a blocked basemap and unmappable people co-occur routinely —
+          a preview deploy of a list with partial coordinates hits both — and
+          positioning them independently put one on top of the other. */}
+      <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-col items-start gap-1">
+        {basemapBlocked ? (
+          <div className="w-full rounded-md bg-background/95 px-2 py-1 text-center text-xs text-muted-foreground shadow">
+            The background map could not load here. Its tiles key does not allow
+            this domain.
+          </div>
+        ) : null}
 
-      {unmappable > 0 ? (
-        <div className="absolute left-3 top-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow">
-          {unmappable} of {people.length.toLocaleString()}
-          {truncated ? ' shown' : ''} have no location on file
-        </div>
-      ) : null}
+        {unmappable > 0 ? (
+          <div className="rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow">
+            {unmappable} of {people.length.toLocaleString()}
+            {truncated ? ' shown' : ''} have no location on file
+          </div>
+        ) : null}
+      </div>
 
       {openPoint && onSelectPerson ? (
         <div className="absolute bottom-3 left-3 max-h-56 w-64 overflow-auto rounded-md bg-background p-2 shadow-lg">
