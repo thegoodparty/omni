@@ -21,18 +21,20 @@ import { PersonIdReconcileService } from './services/person-id-reconcile.service
 import { PersonLookupService } from './services/person-lookup.service'
 import { PERSON_PROFILES_DATABRICKS } from './personProfiles.constants'
 
-// Single-row identifier lookups against the civics person mart, on the shared
-// Serve warehouse credential (DATABRICKS_*) — the same one briefing-chats and
-// chief-of-staff use. Returns null unless host/path + a credential are
-// configured, so with nothing set the CRM sync reports "no contact" and skips
-// instead of erroring on every public claim submission.
-const civicsDatabricksProviderFactory = (): DatabricksProvider | null => {
+// Single-row identifier lookups against the Serve mart, on the shared Serve
+// warehouse credential (DATABRICKS_*) — the same one briefing-chats and
+// chief-of-staff use. That credential is granted one schema, so the person
+// crosswalk it reads is passed through to mart_serve_agents rather than read
+// from the civics mart it originates in. Returns null unless host/path + a
+// credential are configured, so with nothing set the CRM sync reports "no
+// contact" and skips instead of erroring on every public claim submission.
+const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
   const conn = resolveDatabricksConnection()
   if (!conn) return null
   return new DatabricksSqlProvider({
     ...conn,
     catalog: 'goodparty_data_catalog',
-    schema: 'mart_civics',
+    schema: 'mart_serve_agents',
   })
 }
 
@@ -65,7 +67,7 @@ const civicsDatabricksProviderFactory = (): DatabricksProvider | null => {
     PersonLookupService,
     {
       provide: PERSON_PROFILES_DATABRICKS,
-      useFactory: civicsDatabricksProviderFactory,
+      useFactory: serveDatabricksProviderFactory,
     },
   ],
   exports: [PersonProfilesService],
