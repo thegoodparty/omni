@@ -150,8 +150,8 @@ documents plus standard L2 append coverage:
   they set both wire bytes and JS string-allocation cost, so getting the
   vocabulary literally right matters more than getting the proportions exactly
   right.
-- Consumer-append null rates: marital 35%, education 40%, income 30%, ethnicity
-  15%, homeowner 25%, children 45%, veteran 92%, business owner 95%, language
+- Consumer-append null rates: marital 35%, education 40%, income 30%,
+  homeowner 25%, children 45%, veteran 92%, business owner 95%, language
   20%. Registered 88%; cell phone 45%; landline 18%.
 - Geography: households drawn from buildings, 6% of which are multi-unit
   averaging ~10.5 units sharing one rooftop coordinate (so ~39% of household
@@ -494,10 +494,11 @@ manifest offsets converges in two iterations and costs nothing.
 
 ### 5. Bit-packing the planes — **works, and is free to produce; it is a payload decision, not a build decision**
 
-37 bits per person (party 2, gender 2, marital 3, veteran 1, children 2,
-homeowner 2, education 3, ethnicity 3, age 3, voter status 3, income 4, language
+34 bits per person (party 2, gender 2, marital 3, veteran 1, children 2,
+homeowner 2, education 3, age 3, voter status 3, income 4, language
 2, and 1 each for the four booleans, plus 3 for canvass status) against today's
-136. Measured:
+136. The measurements below were taken before the ethnicity plane was removed,
+so they still carry its 3 bits and one byte per person. Measured:
 
 - payload **15,866,467 → 8,094,940 bytes, −49%**
 - encode cost **276 ms vs 276 ms — identical**. Packing is free; the shift-and-or

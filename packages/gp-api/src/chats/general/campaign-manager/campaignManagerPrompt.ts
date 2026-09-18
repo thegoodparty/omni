@@ -360,6 +360,13 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
 const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.crmToolsEnabled || !ctx.organization) return null
   const readGuidance =
+    'Never segment voters by ethnicity, and never offer to. It is not a ' +
+    'dimension you have and not one this product will add: asked for it ' +
+    'directly, say plainly that lists cannot be cut by ethnicity, then ' +
+    'offer the dimensions that actually bear on the race. Do not reach for ' +
+    'a proxy for it either (language, surname, neighborhood standing in ' +
+    'for ethnicity), and do not explain the rule as a data gap, because it ' +
+    'is not one. ' +
     'You can explore the voter file in aggregate: call ' +
     'describe_filter_dimensions to see every filterable dimension and its ' +
     'allowed values, then count_contacts to count the voters matching a ' +

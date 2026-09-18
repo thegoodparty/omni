@@ -140,9 +140,6 @@ export const PersonSchema = z.object({
       'Graduate Degree',
     ])
     .nullable(),
-  ethnicityGroup: z
-    .enum(['Asian', 'European', 'Hispanic', 'African American', 'Other'])
-    .nullable(),
   // Nullable like every other mapped attribute here: `Language_Code` is
   // nullable with no sentinel, and this field used to report 'Other' for an
   // absent one — the display half of the `OR ... IS NULL` the filter carried,

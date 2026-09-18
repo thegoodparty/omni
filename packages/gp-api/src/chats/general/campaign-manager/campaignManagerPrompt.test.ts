@@ -454,6 +454,21 @@ describe('buildCampaignManagerSystemPrompt', () => {
     }
   })
 
+  // Same rule as Serve, same wording about proxies, this prompt's voice. It
+  // rides with the CRM guidance because that is the block describing what the
+  // voter file can be cut by.
+  it('refuses to segment voters by ethnicity', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        organization: { slug: 'org-1' } as Organization,
+        crmToolsEnabled: true,
+      }),
+    )
+    expect(prompt).toContain('Never segment voters by ethnicity')
+    expect(prompt).toContain('lists cannot be cut by ethnicity')
+    expect(prompt).toContain('do not explain the rule as a data gap')
+  })
+
   it('never invents facts (candidate-in-control guardrail)', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx()).toLowerCase()
     expect(prompt).toContain('never invent')
