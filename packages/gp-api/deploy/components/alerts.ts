@@ -250,6 +250,51 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'contacts',
 ]
 
+/**
+ * Controllers whose generated route alert needs a burst rather than a single
+ * error, keyed to the count a 10-minute window must EXCEED.
+ *
+ * The default of 0 pages on one qualifying error, and that is right nearly
+ * everywhere: on a controller that errors a handful of times a month, the
+ * first error IS the incident and waiting for a second only delays the page.
+ *
+ * It is wrong for a high-volume public route whose failure mode includes a
+ * transient upstream. `GET /v1/public-person-profiles/voter-density` serves
+ * ~150k requests a day and resolves the person's district through
+ * election-api on every one of them; an isolated 502 there costs one visitor
+ * one heat map, on a card that is progressive enhancement to begin with, and
+ * the next request succeeds. Paging on it spends attention at a rate the
+ * failure does not justify, and the estate has already lost one alert that
+ * way — see the `contacts` note in SERVER_ERRORS_ONLY.
+ *
+ * MEASURED before being set, over the 30 days to 2026-09-18, counting the
+ * errors this rule actually fires on per 10-minute window:
+ *
+ *   - Outside a real incident, EVERY window held 1 or 2 errors. There were 18
+ *     of them, spread across the month, each a single transient 502.
+ *   - The 2026-08-24 outage opened with 83 in its first window and then ran
+ *     2,000-4,800 per window for four days.
+ *   - The 2026-09-14 burst was 52 errors split across two windows, 5 then 47.
+ *
+ * So `> 2` drops all 18 noise windows and keeps both incidents, and it keeps
+ * them at the same evaluation they would have fired on before — the nearest
+ * real window is 5, comfortably clear, and nothing measured lands on 3 or 4.
+ *
+ * THE COST, stated plainly: a fault that produces one or two errors per 10
+ * minutes and never more will no longer page here. On this route that is a
+ * fault affecting under 0.01% of requests, which is below what the ratio rule
+ * would call broken anyway, and it still lands in the logs and on the
+ * dashboard. A fault that grows past it pages on the window it grows in.
+ *
+ * This does not touch `public-person-profiles-error-ratio`, which asks the
+ * other question — whether the route is substantially broken — and is
+ * unchanged. The pair still separates "something failed" from "this is down";
+ * this only moves where the first of those starts counting.
+ */
+export const ROUTE_ERROR_THRESHOLDS: Partial<Record<ControllerName, number>> = {
+  'public-person-profiles': 2,
+}
+
 export const GLOBAL_ALERTS: Alert[] = [
   // ------ Global Shared Alerts ------ //
   {
@@ -890,7 +935,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     //
     // Same shape as public-campaigns-lookup-error-ratio above. This controller
     // is ALSO in ALERT_OWNERSHIP, so it has a generated route alert too, and
-    // the two are not redundant: the generated rule trips on the first error
+    // the two are not redundant: the generated rule trips on a burst of errors
     // and this one only when a route is substantially broken, so the pair
     // separates "something failed" from "this route is down" without either
     // having to guess which it is.
@@ -901,6 +946,19 @@ export const GLOBAL_ALERTS: Alert[] = [
     // 2026-09-17 the errors the generated rule fires on fell in 2 hours out of
     // 168: a 52-error burst and one stray. So it pages about twice a week at
     // worst, and the muting risk was theoretical.
+    //
+    // THE STRAYS TURNED OUT TO BE THE PROBLEM, which is why the generated rule
+    // now needs more than 2 errors in its window (ROUTE_ERROR_THRESHOLDS). The
+    // 2 hours in 168 were counted as hours, and an hour holding one transient
+    // 502 pages exactly as loudly as an hour holding fifty — so what the
+    // measurement read as "twice a week" was mostly single failed requests on
+    // a route serving ~150k a day. Re-measured per 10-minute window over the
+    // 30 days to 2026-09-18, 18 windows held 1-2 errors and the only windows
+    // above that were the two real incidents. THIS rule is what makes raising
+    // that safe: it is unchanged, it is what catches the outage the generated
+    // rule now sleeps through the first minutes of, and against the August
+    // failure it reads 100%. Do not delete it to "simplify" the pair — a test
+    // in controller-alerts.test.ts fails if you do, and says why.
     //
     // `sum by (request_endpoint)` rather than one ratio for the controller:
     // Grafana turns each returned series into its own alert instance, so a
