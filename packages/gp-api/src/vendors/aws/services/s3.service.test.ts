@@ -11,6 +11,7 @@ import {
   BadGatewayException,
   BadRequestException,
   ForbiddenException,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common'
 import { ServiceException } from '@smithy/smithy-client'
@@ -376,6 +377,50 @@ describe('S3Service', () => {
 
       await expect(service.getFile(bucket, key)).rejects.toThrow(
         BadGatewayException,
+      )
+    })
+
+    // The real one, verbatim from dev. A briefing row points at a bucket named
+    // `seed` that exists in ap-south-1 and belongs to somebody else, so S3
+    // answers 301 PermanentRedirect in ~120ms with `$fault: "client"`.
+    //
+    // This used to be a 502, because the switch above only names about a dozen
+    // client faults and everything else fell to the gateway default. That is
+    // not a cosmetic mislabel: 502 tells the caller to retry, and one browser
+    // tab took that advice 768 times in a week against a request that could
+    // never succeed. A 500 says the failure is ours and permanent.
+    it('reports a permanent client fault as a server error, not a retryable gateway error', async () => {
+      const permanentRedirect = new ServiceException({
+        name: 'PermanentRedirect',
+        message:
+          'The bucket you are attempting to access must be addressed using the specified endpoint.',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 301 },
+      })
+      s3Mock.on(GetObjectCommand).rejects(permanentRedirect)
+
+      await expect(service.getFile(bucket, key)).rejects.toThrow(
+        InternalServerErrorException,
+      )
+      await expect(service.getFile(bucket, key)).rejects.not.toThrow(
+        BadGatewayException,
+      )
+    })
+
+    // Named client faults keep their specific statuses; the change above only
+    // moves the ones that were falling through.
+    it('still answers a named input fault with 400', async () => {
+      s3Mock.on(GetObjectCommand).rejects(
+        new ServiceException({
+          name: 'InvalidArgument',
+          message: 'bad argument',
+          $fault: 'client',
+          $metadata: {},
+        }),
+      )
+
+      await expect(service.getFile(bucket, key)).rejects.toThrow(
+        BadRequestException,
       )
     })
 
