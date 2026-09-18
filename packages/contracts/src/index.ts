@@ -881,6 +881,8 @@ export {
 export {
   RobocallDraftCreateRequestSchema,
   type RobocallDraftCreateRequest,
+  OutreachRobocallDetailSchema,
+  type OutreachRobocallDetail,
   RobocallDraftCreateResponseSchema,
   type RobocallDraftCreateResponse,
 } from './outreach/RobocallPurchase.schema'

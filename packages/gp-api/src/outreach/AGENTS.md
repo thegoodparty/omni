@@ -96,7 +96,10 @@ identity, no billing — and returns the `OutreachDetail` shape via
 other row (`findByScope` filters only `pending_payment`, so drafts list).
 Robocall drafts carry a satellite with `settleState: draft` and null
 `billableCount`/`amountInCents`: pricing is re-derived at resume, against the
-audience as it is then. One active draft per type per campaign, so the wizard
+audience as it is then. `OutreachDetail.robocall` exposes exactly the two
+satellite fields a resume cannot re-derive — `audioKey` and `callbackNumber`
+— because the resume's own `POST /outreach/robocall` has to send them back;
+the rest of the satellite is billing and settlement state no client reads. One active draft per type per campaign, so the wizard
 resumes rather than accumulating half-built sends; the cap check runs INSIDE
 the insert's `Serializable` transaction (with a cheap `preflight` copy before
 the image upload, so a rejected create orphans no S3 object). `deleteDraftRow` is the

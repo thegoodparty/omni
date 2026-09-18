@@ -6,6 +6,7 @@ import { packageFormData } from 'helpers/packageFormData'
 import { clientFetch } from './clientFetch'
 import type { ApiResponse } from './clientFetch'
 import { apiRoutes } from './routes'
+import { clientRequest, type Response as TypedResponse } from './typed-request'
 
 /**
  * Save an outreach as a draft (POST /outreach/drafts). Multipart always: a
@@ -20,3 +21,14 @@ export const createOutreachDraft = async (
     apiRoutes.outreach.drafts,
     packageFormData({ ...payload }, image),
   )
+
+/**
+ * Save a robocall as a draft (POST /outreach/drafts). JSON, not multipart:
+ * a robocall draft carries no file, so it goes through the typed route and
+ * gets its request and response types checked. Throws on a non-2xx (the
+ * 409 included) — `helpers/createOutreachDraft` maps that.
+ */
+export const createRobocallDraft = async (
+  payload: CreateOutreachDraftRequest,
+): Promise<TypedResponse<OutreachDetail>> =>
+  clientRequest('POST /v1/outreach/drafts', payload)

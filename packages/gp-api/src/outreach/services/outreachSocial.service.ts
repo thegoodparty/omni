@@ -25,7 +25,7 @@ import {
 import { SOCIAL_PLATFORM_KIND } from '../util/socialAssets.util'
 
 type OutreachWithSocial = Prisma.OutreachGetPayload<{
-  include: { social: { include: { assets: true } } }
+  include: { social: { include: { assets: true } }; robocall: true }
 }>
 
 // A Win save/detail carries the paying campaign (and its org slug); a Serve
@@ -59,6 +59,14 @@ const toOutreachDetail = (
     : undefined,
   phoneBanking,
   doorKnocking,
+  // Only the two fields a resume cannot re-derive; the rest of the satellite
+  // is billing and settlement state no client reads.
+  robocall: outreach.robocall
+    ? {
+        audioKey: outreach.robocall.audioKey,
+        callbackNumber: outreach.robocall.callbackNumber,
+      }
+    : undefined,
 })
 
 @Injectable()
@@ -115,7 +123,7 @@ export class OutreachSocialService extends createPrismaBase(
       })
       return tx.outreach.findUniqueOrThrow({
         where: { id: spine.id },
-        include: { social: { include: { assets: true } } },
+        include: { social: { include: { assets: true } }, robocall: true },
       })
     })
 
@@ -128,7 +136,7 @@ export class OutreachSocialService extends createPrismaBase(
   ): Promise<OutreachDetail> {
     const outreach = await this.client.outreach.findFirst({
       where: { id, ...scope },
-      include: { social: { include: { assets: true } } },
+      include: { social: { include: { assets: true } }, robocall: true },
     })
     if (!outreach) {
       throw new NotFoundException('Outreach not found')

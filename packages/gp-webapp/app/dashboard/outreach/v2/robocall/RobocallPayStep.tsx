@@ -101,6 +101,10 @@ interface RobocallPayStepProps {
   // list and returns the estimate this step displays.
   voterFileFilterId: number | null
   audioKey: string | null
+  // A resumed draft (milestone 2): the server converts THAT row in place
+  // instead of inserting, so the saved recording and its compliance bind
+  // stand rather than a second row being written for the same audio.
+  draftOutreachId?: number
   callbackNumber: string | null
   scheduledAt: Date | null
   timeZone: string
@@ -135,6 +139,7 @@ const isSettled = (outcome: RobocallAuthorizeResponse | null): boolean =>
 export const RobocallPayStep = ({
   voterFileFilterId,
   audioKey,
+  draftOutreachId,
   callbackNumber,
   scheduledAt,
   timeZone,
@@ -179,6 +184,7 @@ export const RobocallPayStep = ({
         ...(script.trim() ? { script } : {}),
         ...(campaignName.trim() ? { name: campaignName } : {}),
         ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
+        ...(draftOutreachId ? { draftOutreachId } : {}),
       })
       return data
     },

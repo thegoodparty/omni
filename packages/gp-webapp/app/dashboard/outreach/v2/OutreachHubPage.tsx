@@ -86,6 +86,10 @@ const OutreachHubContent = ({
   // A saved draft the candidate is picking back up: the SMS flow opens on it
   // instead of starting a new text. Cleared on close, like tilePreselect.
   const [resumeDraft, setResumeDraft] = useState<OutreachDetail | null>(null)
+  // The robocall sibling of the above — the two channels keep separate rows,
+  // and a campaign can hold one draft of each.
+  const [robocallResumeDraft, setRobocallResumeDraft] =
+    useState<OutreachDetail | null>(null)
   // Seeds a `?compose=` deep link handed over (a tracker/manager task's due
   // date, Know Your Opponent's suggested message, a CRM list). Held per open
   // and cleared on close, so a later tile click starts clean.
@@ -207,8 +211,10 @@ const OutreachHubContent = ({
           setRobocallFlowOpen(false)
           setComposeSeeds(null)
           setTilePreselect(null)
+          setRobocallResumeDraft(null)
         }}
         onScheduled={refetchOutreaches}
+        resumeDraft={robocallResumeDraft}
         campaignPlanDueDate={composeSeeds?.due}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
         preselectedRecommendedVariant={

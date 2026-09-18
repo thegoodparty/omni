@@ -47,6 +47,18 @@ export type RobocallDraftCreateRequest = z.infer<
   typeof RobocallDraftCreateRequestSchema
 >
 
+// The robocall satellite as `GET /v1/outreach/:id` reads it back. Only the
+// two fields a resume cannot re-derive: the recording it was saved with and
+// the number the candidate already read aloud, both of which the resume's
+// own create has to send again.
+export const OutreachRobocallDetailSchema = z.object({
+  audioKey: z.string(),
+  callbackNumber: z.string(),
+})
+export type OutreachRobocallDetail = z.infer<
+  typeof OutreachRobocallDetailSchema
+>
+
 export const RobocallDraftCreateResponseSchema = z.object({
   // The draft's Outreach id — the anchor the later hold/settlement slices act
   // on, the way the p2p draft's id does.

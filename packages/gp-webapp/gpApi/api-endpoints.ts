@@ -34,6 +34,7 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   CancelOutreachResponse,
+  CreateOutreachDraftRequest,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
   OutreachDetail,
@@ -308,6 +309,15 @@ export type APIEndpoints = {
   // 404 when the row doesn't belong to the requester's campaign.
   'GET /v1/outreach/:id': {
     Request: {}
+    Response: OutreachDetail
+  }
+
+  // Save an outreach as a DRAFT (milestone 2). JSON, which is what a
+  // robocall draft posts — a texting draft carries its image, so it goes
+  // multipart through gpApi/outreachDraft.api.ts instead. 409 carries
+  // `{ existingId }`: the campaign already holds a draft of that type.
+  'POST /v1/outreach/drafts': {
+    Request: CreateOutreachDraftRequest
     Response: OutreachDetail
   }
 

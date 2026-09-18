@@ -35,6 +35,10 @@ interface RobocallReviewStepProps {
   // The saved clip (playback here) and the script it was read against.
   recording: RobocallRecording | null
   script: string
+  // The candidate cannot send yet (milestone 2's gate), so this reads back
+  // what they built with no schedule rows — the flow's own CTA saves it as a
+  // draft instead of continuing to payment.
+  readOnlySummary?: boolean
 }
 
 // The pre-send summary (after compose, before payment): reads back the
@@ -53,6 +57,7 @@ export const RobocallReviewStep = ({
   callbackNumber,
   recording,
   script,
+  readOnlySummary = false,
 }: RobocallReviewStepProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
@@ -76,8 +81,13 @@ export const RobocallReviewStep = ({
   const estimatedCost = reachCount * pricePerContact
 
   const rows: [string, string][] = [
-    ['Send date', dateStr],
-    ['Send time', timeStr],
+    // A draft carries no date, so those two rows would only read "—".
+    ...(readOnlySummary
+      ? []
+      : ([
+          ['Send date', dateStr],
+          ['Send time', timeStr],
+        ] as [string, string][])),
     ['Audience', audienceName],
     ['People', reachCount.toLocaleString()],
     ['Caller ID number', callbackNumber ?? '—'],
@@ -89,7 +99,11 @@ export const RobocallReviewStep = ({
       <Intro
         channel="robocall"
         title="Review your campaign"
-        body="Check the details below, then continue to payment to schedule your calls."
+        body={
+          readOnlySummary
+            ? 'Check the details below, then save this call for later.'
+            : 'Check the details below, then continue to payment to schedule your calls.'
+        }
       />
 
       <Card className="gap-0 overflow-hidden p-0">

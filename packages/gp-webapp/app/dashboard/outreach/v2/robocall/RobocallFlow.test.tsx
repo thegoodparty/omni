@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type {
+  OutreachDetail,
   RobocallAuthorizeStatus,
   RobocallScriptDraftRequest,
 } from '@goodparty_org/contracts'
@@ -9,6 +10,32 @@ import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { RobocallFlow } from './RobocallFlow'
+import type { OutreachGateState } from '../gate/useOutreachGate'
+
+// The gate's own flag/membership plumbing has its own tests; here the flow's
+// wiring is what's under test, so the hook is driven directly.
+const gateRef = vi.hoisted(() => ({
+  current: {
+    enabled: false,
+    requirement: null,
+    twoStep: false,
+    membership: null,
+    tcrCompliance: null,
+  } as OutreachGateState,
+}))
+vi.mock('../gate/useOutreachGate', () => ({
+  useOutreachGate: () => gateRef.current,
+}))
+
+// Both mount real Stripe / filing surfaces; the flow only owns whether they
+// are on screen.
+vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
+  default: () => <div data-testid="pro-upgrade-flow" />,
+}))
+vi.mock(
+  'app/dashboard/campaign-verification/components/CampaignVerificationSteps',
+  () => ({ default: () => <div data-testid="campaign-verification" /> }),
+)
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -427,6 +454,13 @@ describe('RobocallFlow', () => {
     confirmSetupMock.mockResolvedValue({
       setupIntent: { payment_method: 'pm_test_123' },
     })
+    gateRef.current = {
+      enabled: false,
+      requirement: null,
+      twoStep: false,
+      membership: null,
+      tcrCompliance: null,
+    }
   })
 
   it('opens on the purpose step with the robocall purposes', () => {
@@ -1930,5 +1964,255 @@ describe('RobocallFlow', () => {
     expect(
       screen.getByRole('button', { name: /Manage payment methods/ }),
     ).toBeInTheDocument()
+  })
+
+  describe('pro gate and drafts', () => {
+    const GATE_LINE = 'Pro is needed before this call can go out.'
+
+    const FREE_GATE: OutreachGateState = {
+      enabled: true,
+      requirement: 'pro',
+      twoStep: false,
+      membership: {
+        tier: 'free',
+        texting: 'needs_verification',
+        pinDelivery: null,
+        isElectedOffice: false,
+      },
+      tcrCompliance: null,
+    }
+
+    const PRO_GATE: OutreachGateState = {
+      enabled: true,
+      requirement: null,
+      twoStep: false,
+      membership: {
+        tier: 'pro',
+        texting: 'cleared',
+        pinDelivery: null,
+        isElectedOffice: false,
+      },
+      tcrCompliance: null,
+    }
+
+    const DRAFT_SCRIPT =
+      'Hi, this is Alex, and I am running for City Council. Paid for by ' +
+      'Friends of Alex. Call me back at 202-555-0147.'
+
+    const draftDetail = (
+      overrides: Partial<OutreachDetail> = {},
+    ): OutreachDetail => ({
+      id: 88,
+      createdAt: new Date('2026-08-20T12:00:00Z'),
+      updatedAt: new Date('2026-08-20T12:00:00Z'),
+      campaignId: 9,
+      outreachType: 'robocall',
+      projectId: null,
+      name: 'Renters in 98103 robocall',
+      status: 'draft',
+      error: null,
+      audienceRequest: null,
+      script: DRAFT_SCRIPT,
+      message: null,
+      date: null,
+      imageUrl: null,
+      voterFileFilterId: 1,
+      doorKnockingRouteId: null,
+      phoneListId: null,
+      identityId: null,
+      didState: null,
+      didNpaSubset: [],
+      title: null,
+      textCount: null,
+      billableTextCount: null,
+      campaignPlanDueDate: null,
+      organizationSlug: 'campaign-9',
+      archivedAt: null,
+      robocall: {
+        audioKey: 'robocall/42/clip.webm',
+        callbackNumber: '+12025550147',
+      },
+      ...overrides,
+    })
+
+    const mockSaveDraft = () => {
+      const bodies: unknown[] = []
+      api.mock('POST /v1/outreach/drafts', ({ body }) => {
+        bodies.push(body)
+        return { status: 200, data: draftDetail({ id: 77 }) }
+      })
+      return bodies
+    }
+
+    // Build mode drops the schedule step: purpose -> audience -> compose ->
+    // review, ending on the summary the draft save reads from.
+    const buildToReview = async (onClose: () => void = vi.fn()) => {
+      mockDraft()
+      mockSavedLists()
+      mockListDetail(80)
+      render(<RobocallFlow open onClose={onClose} />)
+      fireEvent.click(screen.getByText('Persuade likely voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Renters in 98103'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(80\)/ }),
+      )
+      await screen.findByText(/Read the script below into your microphone/)
+      mockAudioUpload()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Start recording' }),
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Stop recording' }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+      const continueBtn = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueBtn).toBeEnabled())
+      await userEvent.click(continueBtn)
+      await screen.findByRole('button', { name: 'Save draft' })
+    }
+
+    const saveDraft = () =>
+      userEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+
+    it('saves the robocall as a draft and opens the Pro interstitial', async () => {
+      gateRef.current = FREE_GATE
+      const bodies = mockSaveDraft()
+
+      await buildToReview()
+      expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
+      await saveDraft()
+
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      expect(bodies).toEqual([
+        expect.objectContaining({
+          outreachType: 'robocall',
+          name: 'Renters in 98103 robocall',
+          voterFileFilterId: 1,
+          audioKey: 'robocall/42/clip.webm',
+          callbackNumber: '+12025550147',
+        }),
+      ])
+    })
+
+    it('switches into resume mode when a draft already exists', async () => {
+      gateRef.current = FREE_GATE
+      api.mock('POST /v1/outreach/drafts', {
+        status: 409,
+        data: { message: 'already', existingId: 55 },
+      })
+      const detailRequests: string[] = []
+      api.mock('GET /v1/outreach/:id', ({ params }) => {
+        detailRequests.push(params.id)
+        return { status: 200, data: draftDetail({ id: 55 }) }
+      })
+      const deleted: string[] = []
+      api.mock('DELETE /v1/outreach/:id', ({ params }) => {
+        deleted.push(params.id)
+        return { status: 200, data: undefined }
+      })
+
+      await buildToReview()
+      await saveDraft()
+
+      await waitFor(() => expect(detailRequests).toEqual(['55']))
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      // The flow is now working the existing row, not the one it tried to
+      // write: the gate's Delete targets 55.
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      await waitFor(() => expect(deleted).toEqual(['55']))
+    })
+
+    it('opens a cleared draft at the schedule step and converts it', async () => {
+      gateRef.current = PRO_GATE
+      mockSavedLists()
+      mockListDetail(80)
+      mockSaveCardIntent()
+      const bodies: unknown[] = []
+      api.mock('POST /v1/outreach/robocall', ({ body }) => {
+        bodies.push(body)
+        return {
+          status: 200,
+          data: {
+            outreachId: 88,
+            billableCount: 80,
+            amountInCents: 560,
+            numberFeeInCents: 200,
+          },
+        }
+      })
+
+      render(
+        <RobocallFlow open onClose={vi.fn()} resumeDraft={draftDetail()} />,
+      )
+
+      await screen.findByLabelText('Campaign name')
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+      // Purpose, audience and compose were settled when the draft was saved,
+      // so there is nowhere to go back to.
+      expect(
+        screen.queryByRole('button', { name: 'Back' }),
+      ).not.toBeInTheDocument()
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(await screen.findByText('mock-pick-future'))
+      await userEvent.click(screen.getByRole('combobox', { name: /Send time/ }))
+      await userEvent.click(
+        await screen.findByRole('option', { name: '10:00 AM' }),
+      )
+      const continueBtn = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueBtn).toBeEnabled())
+      await userEvent.click(continueBtn)
+
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Continue to payment' }),
+      )
+
+      await waitFor(() =>
+        expect(bodies).toEqual([
+          expect.objectContaining({
+            draftOutreachId: 88,
+            audioKey: 'robocall/42/clip.webm',
+            callbackNumber: '+12025550147',
+            voterFileFilterId: 1,
+            script: DRAFT_SCRIPT,
+          }),
+        ]),
+      )
+    })
+
+    it('deletes the draft from the gate and closes the flow', async () => {
+      gateRef.current = FREE_GATE
+      mockSaveDraft()
+      const deleted: string[] = []
+      api.mock('DELETE /v1/outreach/:id', ({ params }) => {
+        deleted.push(params.id)
+        return { status: 200, data: undefined }
+      })
+      const onClose = vi.fn()
+
+      await buildToReview(onClose)
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+      await waitFor(() => expect(deleted).toEqual(['77']))
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('renders no banner and keeps the schedule step with the flag off', async () => {
+      mockDraft()
+      mockSavedLists()
+      mockListDetail(80)
+      render(<RobocallFlow open onClose={vi.fn()} />)
+      fireEvent.click(screen.getByText('Persuade likely voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Renters in 98103'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(80\)/ }),
+      )
+
+      expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+    })
   })
 })
