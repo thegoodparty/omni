@@ -133,7 +133,9 @@ export const useDraftGate = ({
       setGateOrigin('save')
       setGateOpen(true)
       setSavingDraft(false)
-      await onDraftSaved()
+      // The row exists once the 201 lands; a failed history refetch here is
+      // not a failed save, and the hub refetches again when the sheet closes.
+      await onDraftSaved().catch(() => undefined)
       return
     }
     if (conflictId !== null) {

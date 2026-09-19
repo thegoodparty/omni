@@ -958,6 +958,26 @@ describe('SmsFlow', () => {
     // The row is already gone once DELETE returns, so a history refetch that
     // fails afterwards must still close the sheet instead of leaving the
     // candidate on a spinner over a draft that no longer exists.
+    // A 201 means the draft exists; the hub refetch that follows is a
+    // courtesy, so its failure must neither surface as a save error nor keep
+    // the gate from opening.
+    it('opens the gate after a save even when the history refetch fails', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      const { onScheduled } = openFlow()
+      onScheduled.mockRejectedValueOnce(new Error('refetch failed'))
+
+      await buildToReview()
+      await saveDraft()
+
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      expect(onScheduled).toHaveBeenCalledTimes(1)
+      expect(
+        screen.queryByText("We couldn't save this draft. Try again."),
+      ).not.toBeInTheDocument()
+    })
+
     it('still closes the flow when the history refetch fails after a delete', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
