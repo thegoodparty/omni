@@ -97,6 +97,14 @@ describe('<FollowUpOutstandingSection>', () => {
     )
 
     expect(await screen.findByText('0')).toBeInTheDocument()
+    expect(screen.getByText('Asked for follow-up')).toBeInTheDocument()
+    // The zero state differs from the non-zero one ONLY by the missing
+    // buttons — pinned because the doc and the code drifted here once.
+    expect(
+      screen.getByText(
+        'People who requested a follow-up during this outreach campaign',
+      ),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
