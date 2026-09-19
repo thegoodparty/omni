@@ -363,6 +363,24 @@ export class ContactsService {
     }
   }
 
+  // The exact inverse, and refused rather than ignored for the reason the
+  // party gate refuses: silently dropping an unsupported dimension returns a
+  // WIDER audience than the caller asked for, and a phone list built from it
+  // would call people nobody selected.
+  private assertNoFollowUpFilterForCampaign(
+    organization: Organization,
+    filterInput: Partial<VoterFileFilter>,
+  ): void {
+    if (
+      !this.hasElectedOfficeAccess(organization) &&
+      filterInput.followUpRequested
+    ) {
+      throw new BadRequestException(
+        'Follow-up filtering is not available for this organization',
+      )
+    }
+  }
+
   // Override-aware Voter Likelihood filtering (ENG-10838): a person manually
   // set to a bucket must match that bucket's filter even when their seed
   // disagrees, and vice versa. Runs off whatever `filters.voterStatus`
@@ -455,6 +473,7 @@ export class ContactsService {
       baseFilters,
     )
     this.assertNoContactsMadeFilterForElectedOffice(organization, filterInput)
+    this.assertNoFollowUpFilterForCampaign(organization, filterInput)
     return this.resolveVoterLikelihoodFilter(organization, baseFilters)
   }
 
@@ -485,7 +504,16 @@ export class ContactsService {
       },
     )
     if (this.hasElectedOfficeAccess(organization)) {
-      return { idResolution }
+      // Serve's own dimension takes the Win block's place rather than sitting
+      // beside it: an org is one surface or the other, and neither product
+      // can select the other's audience.
+      return {
+        idResolution: await this.resolveFollowUpRequested(
+          organization,
+          filterInput,
+          idResolution,
+        ),
+      }
     }
 
     const selected = extractContactsMadeSelection(filterInput)
@@ -516,6 +544,47 @@ export class ContactsService {
         contactsMadeResolution,
       ),
     }
+  }
+
+  // Serve's "who still owes a follow-up" dimension. It reads the STANDING
+  // flag (contact_current_status.follow_up), not the follow-up column on the
+  // interaction rows, so a request already met by a later call, a later
+  // knock, or the contact card's toggle drops out of the audience. That is
+  // the whole reason the field exists: AND-ed with an activity condition for
+  // one closed outreach, it answers "who from that campaign still needs
+  // calling back", and it shrinks as the official works it down — which the
+  // campaign's own byFollowUp.yes count, a frozen historical fact, cannot.
+  //
+  // Only ever a positive membership set, so unlike contactsMade there is no
+  // notIn or override shape to compose: nobody carries an implicit flag, and
+  // a person with no row is simply not in it.
+  private async resolveFollowUpRequested(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    idResolution: IdFilterResolution,
+  ): Promise<IdFilterResolution> {
+    if (!filterInput.followUpRequested) {
+      return idResolution
+    }
+    if (idResolution.kind === 'empty') {
+      return idResolution
+    }
+
+    const personIds = await this.contactStatusService.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.follow_up,
+      [FollowUpStatus.requested],
+    )
+    // Nobody flagged is an empty audience, not an absent filter — falling
+    // through to "no constraint" would hand back the whole district.
+    if (personIds.length === 0) {
+      return { kind: 'empty' }
+    }
+
+    return intersectIdFilterResolutions(idResolution, {
+      kind: 'filter',
+      idFilter: { in: personIds },
+    })
   }
 
   // Everything a saved list needs before it can be queried: the FilterObject
@@ -972,6 +1041,19 @@ export class ContactsService {
                 supportStatus: savedFilter.supportStatus,
               },
             )
+          // followUpRequested is in fieldsHandledSeparately, so
+          // convertVoterFileFilterToFilters above skipped it — without this
+          // the set would contribute everyone its activity conditions match
+          // rather than the flagged subset, and the strip would over-report.
+          // Unlike the voter-likelihood overrides this loop deliberately
+          // leaves unresolved, dropping this one does not refine the
+          // audience, it erases the whole constraint: a five-person
+          // follow-up list would count as everyone its campaign reached.
+          savedIdResolution = await this.resolveFollowUpRequested(
+            organization,
+            savedFilter,
+            savedIdResolution,
+          )
         } catch (error) {
           this.logger.warn(
             {
@@ -1738,6 +1820,7 @@ export class ContactsService {
       organization,
     )
     this.assertNoContactsMadeFilterForElectedOffice(organization, customSegment)
+    this.assertNoFollowUpFilterForCampaign(organization, customSegment)
 
     const { filters: baseFilters, idOverrides } =
       await this.resolveVoterLikelihoodFilter(
