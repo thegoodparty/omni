@@ -47,9 +47,9 @@ variable "task_cpu" {
 }
 
 variable "task_memory" {
-  description = "Memory for the base autopilot-agent task (epic-create/story/resume), in MB"
+  description = "Memory for the base autopilot-agent task (epic-create/story/resume), in MB. 8GB: NODE_OPTIONS grants Node a 6GB heap for gp-api's tsc/vitest, which the old 4GB task could not physically house."
   type        = string
-  default     = "4096"
+  default     = "8192"
 }
 
 variable "task_memory_playwright" {
