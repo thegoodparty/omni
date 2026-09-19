@@ -53,7 +53,7 @@ variable "task_memory" {
 }
 
 variable "task_memory_playwright" {
-  description = "Memory for the autopilot-agent-playwright (qa) task, in MB. 2x the base task: a headless Chromium under Playwright needs meaningfully more headroom than the base agent."
+  description = "Memory for the autopilot-agent-playwright (qa) task, in MB. Base + 4GB: the 6GB NODE_OPTIONS heap plus V8 non-heap plus the Python agent already claim most of the base 8GB, and a headless Chromium under Playwright (0.5-1.5GB resident) needs its own headroom on top."
   type        = string
-  default     = "8192"
+  default     = "12288"
 }
