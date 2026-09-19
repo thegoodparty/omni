@@ -90,6 +90,14 @@ export const FollowUpOutstandingSection = ({
           savedListRef.current = saved
           return saved
         })
+        // Reported here rather than in onError: both taps share this one
+        // promise, but each mutateAsync() wires its own onError, so a single
+        // failed save would announce itself twice. This catch is part of the
+        // chain built once, and rethrows so both callers still reject.
+        .catch((error: unknown) => {
+          errorSnackbar("Couldn't build the follow-up list. Please try again.")
+          throw error
+        })
         .finally(() => {
           inFlightRef.current = null
         })
@@ -104,9 +112,6 @@ export const FollowUpOutstandingSection = ({
       queryClient.invalidateQueries({
         queryKey: ['outreach-audience-lists', orgSlug],
       })
-    },
-    onError: () => {
-      errorSnackbar("Couldn't build the follow-up list. Please try again.")
     },
   })
 

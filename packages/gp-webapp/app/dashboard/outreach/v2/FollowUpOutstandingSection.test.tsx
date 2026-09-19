@@ -265,6 +265,30 @@ describe('<FollowUpOutstandingSection>', () => {
     await waitFor(() => expect(container).toBeEmptyDOMElement())
   })
 
+  // Both taps share one in-flight promise, but each mutateAsync() wires its
+  // own onError — so a single network failure must still be reported once.
+  it('reports a failed save once when both taps land before React re-renders', async () => {
+    mockCount(3)
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    render(
+      <FollowUpOutstandingSection
+        outreachId={OUTREACH_ID}
+        outreachName="Tuesday calls"
+      />,
+    )
+
+    const button = await screen.findByRole('button', { name: 'Save as list' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    await waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
+    expect(errorSnackbar).toHaveBeenCalledTimes(1)
+  })
+
   it('surfaces a save failure instead of silently doing nothing', async () => {
     const user = userEvent.setup()
     const onCallList = vi.fn()
