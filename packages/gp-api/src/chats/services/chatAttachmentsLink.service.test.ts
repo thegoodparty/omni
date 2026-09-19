@@ -89,9 +89,13 @@ const makeService = (
     fakeHttp(fetchResult),
   )
   const mockPrisma = makeMockPrisma(conv)
-  Object.defineProperty(svc, '_prisma', { get: () => mockPrisma })
+  Object.defineProperty(svc, '_prisma', {
+    get: () => mockPrisma,
+    configurable: true,
+  })
   Object.defineProperty(svc, 'model', {
     get: () => mockPrisma.chatAttachment,
+    configurable: true,
   })
   return svc
 }
