@@ -71,6 +71,21 @@ export const LinkAttachRequestSchema = z
   .strict()
 export type LinkAttachRequest = z.infer<typeof LinkAttachRequestSchema>
 
+export const ChatAttachmentListResponseSchema = z.object({
+  attachments: z.array(ChatAttachmentSchema),
+})
+export type ChatAttachmentListResponse = z.infer<
+  typeof ChatAttachmentListResponseSchema
+>
+
+export const ChatAttachmentDownloadResponseSchema = z.object({
+  url: z.string(),
+  expiresAt: zCoerceDate(),
+})
+export type ChatAttachmentDownloadResponse = z.infer<
+  typeof ChatAttachmentDownloadResponseSchema
+>
+
 export const ChatMessageSegmentCitationPayloadSchema = z.object({
   attachmentId: z.string(),
   page: z.number().int().optional(),
