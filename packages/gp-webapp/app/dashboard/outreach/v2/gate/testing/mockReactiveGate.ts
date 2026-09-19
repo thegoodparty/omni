@@ -39,9 +39,6 @@ export const gateRef = {
     state = next
     listeners.forEach((listener) => listener())
   },
-  reset(): void {
-    gateRef.set(DEFAULT_STATE)
-  },
 }
 
 export const useMockOutreachGate = (): OutreachGateState =>

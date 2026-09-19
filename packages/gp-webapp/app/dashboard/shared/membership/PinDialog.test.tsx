@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { CV_PIN_GATE } from 'app/dashboard/profile/texting-compliance/shared/useCvPinGate'
+import type { TcrCompliance } from 'helpers/types'
 import { PinDialog } from './PinDialog'
 
 const mockUseCvPinGate = vi.fn()
@@ -135,7 +136,10 @@ describe('PinDialog', () => {
       pinDelivery: null,
     })
     mockUseSubmitCvPin.mockImplementation(
-      (_tcr: unknown, options: { onSuccess: () => void }) => ({
+      (
+        _tcrCompliance: TcrCompliance | null,
+        options: { onSuccess: () => void },
+      ) => ({
         submit: async () => options.onSuccess(),
         submitting: false,
         error: null,
@@ -170,7 +174,10 @@ describe('PinDialog', () => {
       pinDelivery: null,
     })
     mockUseSubmitCvPin.mockImplementation(
-      (_tcr: unknown, options: { onSuccess: () => void }) => ({
+      (
+        _tcrCompliance: TcrCompliance | null,
+        options: { onSuccess: () => void },
+      ) => ({
         submit: async () => options.onSuccess(),
         submitting: false,
         error: null,

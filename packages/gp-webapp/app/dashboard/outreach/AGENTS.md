@@ -249,11 +249,14 @@ gate.membership?.tier === 'free'` passes `hideBuilder` AND `hideSavedLists`
 to `OutreachAudienceStep` and `reachCountDisabled` to `useOutreachAudience`,
 which turns the list-detail query off rather than letting it fire and fail.
 Recommendation cards carry their own counts, so Continue enables on a
-selected card, and a card that resolves to a list the candidate already saved
-keeps its own count against that list id (`trackRecommendationReused` records
-it — that branch never reaches `createList`, so it is the only place the
-count can be captured). That count is the snapshot the build-mode review
-summary prices off; where no count is known at all the People and total rows
+selected card, and whichever way a card is accepted its count is kept against
+the saved list id it ends up as (`recommendationSnapshot` in the hook). BOTH
+branches record it and both have to: `createRecommendedList` for a card saved
+for the first time, and `trackRecommendationReused` for one that already
+resolved to a list the candidate had. Selecting the list drops
+`selectedRecommendation`, so without the snapshot the very first free build
+reached review with no People row and no total. That count is what the
+build-mode review summary prices off; where no count is known at all the People and total rows
 are omitted, since a 0 reads as an empty audience and a $0.00 reads as free.
 `GET /v1/contacts/list-detail` stays Pro — it is not on the relaxed list.
 

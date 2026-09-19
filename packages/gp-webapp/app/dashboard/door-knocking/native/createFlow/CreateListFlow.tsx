@@ -649,8 +649,9 @@ export default function CreateListFlow({
   const gate = useOutreachGate('door')
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step but the draw,
-  // so its explainer can open the gate long before Build route — finishing
-  // there must not buy a route the candidate never pressed for.
+  // so its explainer can open the gate from any of them, with Build route
+  // still several steps away — finishing there must not buy a route the
+  // candidate never pressed for.
   const [gateOrigin, setGateOrigin] = useState<'build' | 'explainer' | null>(
     null,
   )
