@@ -192,6 +192,7 @@ export class ChatAttachmentsService extends createPrismaBase(
       await this.markFailed(attachment.id, 'upload_too_large')
       throw new BadRequestException('upload_too_large')
     }
+    const actualSizeBytes = head.contentLength
 
     const leadingBytes = await this.s3.getRangeBytes(
       this.bucket,
@@ -213,22 +214,25 @@ export class ChatAttachmentsService extends createPrismaBase(
         this.bucket,
         attachment.storageKey,
       )
-      if (bytes) {
-        const { pages } = await parsePdfText(new Uint8Array(bytes))
-        if (pages !== null && pages > CHAT_ATTACHMENT_MAX_PAGES) {
-          await this.markFailed(attachment.id, 'too_many_pages')
-          throw new BadRequestException('too_many_pages')
-        }
-        const row = await this.client.chatAttachment.update({
-          where: { id: attachment.id },
-          data: {
-            status: ChatAttachmentStatus.ready,
-            pageCount: pages,
-            readyAt: new Date(),
-          },
-        })
-        return this.rowToDto(row)
+      if (!bytes) {
+        await this.markFailed(attachment.id, 'object_missing')
+        throw new BadRequestException('object_missing')
       }
+      const { pages } = await parsePdfText(new Uint8Array(bytes))
+      if (pages !== null && pages > CHAT_ATTACHMENT_MAX_PAGES) {
+        await this.markFailed(attachment.id, 'too_many_pages')
+        throw new BadRequestException('too_many_pages')
+      }
+      const row = await this.client.chatAttachment.update({
+        where: { id: attachment.id },
+        data: {
+          status: ChatAttachmentStatus.ready,
+          sizeBytes: actualSizeBytes,
+          pageCount: pages,
+          readyAt: new Date(),
+        },
+      })
+      return this.rowToDto(row)
     }
 
     if (
@@ -239,6 +243,7 @@ export class ChatAttachmentsService extends createPrismaBase(
         where: { id: attachment.id },
         data: {
           status: ChatAttachmentStatus.ready,
+          sizeBytes: actualSizeBytes,
           readyAt: new Date(),
         },
       })
@@ -247,7 +252,10 @@ export class ChatAttachmentsService extends createPrismaBase(
 
     await this.client.chatAttachment.update({
       where: { id: attachment.id },
-      data: { status: ChatAttachmentStatus.processing },
+      data: {
+        status: ChatAttachmentStatus.processing,
+        sizeBytes: actualSizeBytes,
+      },
     })
 
     try {
