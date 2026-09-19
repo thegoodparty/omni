@@ -80,7 +80,7 @@ describe('<FollowUpOutstandingSection>', () => {
     expect(screen.getByText('Asked for follow-up')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'People who requested a follow-up during the course of your campaign',
+        'People who requested a follow-up during this outreach campaign',
       ),
     ).toBeInTheDocument()
   })

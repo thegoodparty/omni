@@ -159,7 +159,7 @@ export const FollowUpOutstandingSection = ({
         />
       </MetricGrid>
       <p className="text-sm text-muted-foreground">
-        People who requested a follow-up during the course of your campaign
+        People who requested a follow-up during this outreach campaign
       </p>
       {outstanding > 0 && (
         <div className="flex flex-wrap gap-2">
