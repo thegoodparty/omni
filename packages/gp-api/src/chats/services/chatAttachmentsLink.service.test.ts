@@ -325,17 +325,15 @@ describe('ChatAttachmentsService.attachLink', () => {
         },
         $transaction: vi
           .fn()
-          .mockImplementation(
-            async (fn: (tx: unknown) => Promise<unknown>) => {
-              const tx = {
-                chatAttachment: {
-                  count: vi.fn().mockResolvedValue(0),
-                  create: vi.fn().mockResolvedValue(pdfRow),
-                },
-              }
-              return fn(tx)
-            },
-          ),
+          .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+            const tx = {
+              chatAttachment: {
+                count: vi.fn().mockResolvedValue(0),
+                create: vi.fn().mockResolvedValue(pdfRow),
+              },
+            }
+            return fn(tx)
+          }),
       }
       Object.defineProperty(svc, '_prisma', {
         get: () => mockPrisma,

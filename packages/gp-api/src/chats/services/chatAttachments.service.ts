@@ -17,7 +17,7 @@ import {
   ChatAttachmentStatus,
   ChatScope,
   Prisma,
-} from '@/generated/prisma'
+} from '../../generated/prisma'
 import { addSeconds } from 'date-fns'
 import {
   CHAT_ATTACHMENT_MAX_BYTES,

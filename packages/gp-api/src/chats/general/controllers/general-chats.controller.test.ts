@@ -78,7 +78,6 @@ describe('GeneralChatsController.streamMessage', () => {
       buildService(
         buildIterable([{ type: 'text', delta: 'hello' }, { type: 'done' }]),
       ),
-      ATTACHMENTS,
       FEATURES,
       ATTACHMENTS,
       createMockLogger(),
@@ -103,7 +102,6 @@ describe('GeneralChatsController.streamMessage', () => {
     }
     const controller = new GeneralChatsController(
       buildService(throwing),
-      ATTACHMENTS,
       FEATURES,
       ATTACHMENTS,
       logger,
@@ -135,7 +133,6 @@ describe('GeneralChatsController.streamMessage', () => {
       buildService({ [Symbol.asyncIterator]: () => longStream() }, (args) => {
         signalRef.signal = args.signal
       }),
-      ATTACHMENTS,
       FEATURES,
       ATTACHMENTS,
       createMockLogger(),
@@ -172,7 +169,6 @@ describe('GeneralChatsController.streamMessage', () => {
           { type: 'done' },
         ]),
       ),
-      ATTACHMENTS,
       FEATURES,
       ATTACHMENTS,
       createMockLogger(),

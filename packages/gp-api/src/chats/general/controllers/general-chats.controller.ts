@@ -110,7 +110,6 @@ const formatChunk = (chunk: ChatStreamChunk): string =>
 export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
-    private readonly attachments: ChatAttachmentsService,
     private readonly features: FeaturesService,
     private readonly attachments: ChatAttachmentsService,
     private readonly logger: PinoLogger,
