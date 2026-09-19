@@ -300,7 +300,7 @@ export class ChatAttachmentsService extends createPrismaBase(
         const result = await parsePdfText(new Uint8Array(fetched.body))
         pages = result.pages
       } catch {
-        return { ok: false, error: 'too_large' }
+        return { ok: false, error: 'unsupported_content_type' }
       }
       if (pages === null || pages > CHAT_ATTACHMENT_MAX_PAGES) {
         return { ok: false, error: 'too_large' }

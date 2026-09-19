@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
 import {
   ChatAttachmentsService,
@@ -6,6 +6,11 @@ import {
   type FetchBytesResult,
   type LinkFetchHttp,
 } from './chatAttachments.service'
+import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
+
+vi.mock('@/ocr/extractors/pdf.extractor', () => ({
+  parsePdfText: vi.fn(),
+}))
 
 const PDF_HEADER = Buffer.from('%PDF-1.7 content here')
 const HTML_BODY = Buffer.from(
@@ -248,5 +253,69 @@ describe('ChatAttachmentsService.attachLink', () => {
       'https://example.com/page',
     )
     expect(result).toEqual({ ok: false, error: 'too_large' })
+  })
+
+  describe('PDF branch', () => {
+    const pdfFetch = (): FetchBytesResult =>
+      okFetch({ contentType: 'application/pdf', body: PDF_HEADER })
+
+    beforeEach(() => {
+      vi.mocked(parsePdfText).mockReset()
+    })
+
+    it('returns unsupported_content_type when parsePdfText throws', async () => {
+      vi.mocked(parsePdfText).mockRejectedValue(new Error('corrupt PDF'))
+      const svc = makeService(pdfFetch())
+      const result = await svc.attachLink(
+        CONV_ID,
+        USER_ID,
+        'org-slug-stub',
+        'https://example.com/doc.pdf',
+      )
+      expect(result).toEqual({ ok: false, error: 'unsupported_content_type' })
+    })
+
+    it('returns too_large when page count exceeds CHAT_ATTACHMENT_MAX_PAGES', async () => {
+      vi.mocked(parsePdfText).mockResolvedValue({ text: '', pages: 101 })
+      const svc = makeService(pdfFetch())
+      const result = await svc.attachLink(
+        CONV_ID,
+        USER_ID,
+        'org-slug-stub',
+        'https://example.com/big.pdf',
+      )
+      expect(result).toEqual({ ok: false, error: 'too_large' })
+    })
+
+    it('returns ok with mimeType application/pdf on happy path', async () => {
+      const pdfRow = {
+        ...mockRow,
+        mimeType: 'application/pdf',
+        pageCount: 5,
+        extractedText: null,
+      }
+      vi.mocked(parsePdfText).mockResolvedValue({
+        text: 'pdf content',
+        pages: 5,
+      })
+      const svc = makeService(pdfFetch())
+      Object.defineProperty(svc, 'model', {
+        get: () => ({
+          create: vi.fn().mockResolvedValue(pdfRow),
+        }),
+        configurable: true,
+      })
+      const result = await svc.attachLink(
+        CONV_ID,
+        USER_ID,
+        'org-slug-stub',
+        'https://example.com/doc.pdf',
+      )
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error('expected ok')
+      expect(result.attachment.mimeType).toBe('application/pdf')
+      expect(result.attachment.pageCount).toBe(5)
+      expect(result.attachment.status).toBe('ready')
+    })
   })
 })
