@@ -81,6 +81,11 @@ interface OutreachAudienceStepProps {
   // from what is already there (recommended and saved lists) rather than
   // cutting a new audience they cannot reach yet.
   hideBuilder?: boolean
+  // Recommendations only. A saved list's reach count comes from the
+  // Pro-gated list-detail read, so on the free build path the picker can
+  // offer a list it cannot count or price — the cards carry their own
+  // counts and are the only audience that works there.
+  hideSavedLists?: boolean
   // With the builder gone, a purpose that recommends nothing (custom) and a
   // campaign with no saved lists leaves nothing to pick — the way out is
   // another purpose, so the empty state offers it.
@@ -170,6 +175,7 @@ export const OutreachAudienceStep = ({
   onSelect,
   onStartBuilder,
   hideBuilder = false,
+  hideSavedLists = false,
   onChoosePurpose,
   recommendations,
   recommendationsLoading,
@@ -329,7 +335,10 @@ export const OutreachAudienceStep = ({
   // Builder hidden, no cards, no saved lists: the picker can only say "No
   // saved lists yet.", so the step says what to do instead.
   const nothingToPick =
-    hideBuilder && !initialLoading && cards.length === 0 && lists.length === 0
+    hideBuilder &&
+    !initialLoading &&
+    cards.length === 0 &&
+    (hideSavedLists || lists.length === 0)
 
   if (initialLoading) {
     return (
@@ -436,7 +445,7 @@ export const OutreachAudienceStep = ({
             </Button>
           )}
         </div>
-      ) : (
+      ) : hideSavedLists ? null : (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase text-primary">All lists</p>
           <Popover open={open} onOpenChange={setOpen}>

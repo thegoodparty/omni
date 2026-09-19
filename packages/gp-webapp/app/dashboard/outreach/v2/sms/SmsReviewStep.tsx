@@ -55,7 +55,10 @@ interface SmsReviewStepProps {
   sendAt: Date
   composedMessage: string
   imagePreviewUrl: string | null
-  contactCount: number
+  // Null only in build mode, where the reach count comes from the
+  // recommendation the candidate picked and may not be known at all. The
+  // rows it feeds are omitted rather than printed as 0.
+  contactCount: number | null
   pricePerContact: number
   outreachId: number | null
   phoneListToken: string | null
@@ -103,11 +106,14 @@ export const SmsReviewStep = ({
   const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
   const isFree =
     checkoutSession?.amount === 0 ||
-    (hasFreeTextsOffer && contactCount <= FREE_TEXTS_OFFER.COUNT)
+    (hasFreeTextsOffer &&
+      contactCount !== null &&
+      contactCount <= FREE_TEXTS_OFFER.COUNT)
   const totalDollars = isFree ? 0 : (checkoutSession?.amount ?? 0)
   // No checkout session exists before the draft is saved, so the total is
   // the same estimate the audience step priced.
-  const summaryDollars = isFree ? 0 : contactCount * pricePerContact
+  const summaryDollars =
+    contactCount === null ? null : isFree ? 0 : contactCount * pricePerContact
 
   useEffect(() => {
     if (readOnlySummary || !outreachId || hasFetchedSession.current) return
@@ -123,7 +129,7 @@ export const SmsReviewStep = ({
     setIsRedeeming(true)
     try {
       const response = await completeFreePurchase(PURCHASE_TYPES.TEXT, {
-        contactCount,
+        contactCount: contactCount ?? 0,
         pricePerContact,
         outreachType: 'p2p',
         outreachId: outreachId ?? undefined,
@@ -213,12 +219,14 @@ export const SmsReviewStep = ({
               <dt className="text-muted-foreground">Audience</dt>
               <dd className="truncate text-foreground">{audienceName}</dd>
             </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">People</dt>
-              <dd className="text-foreground">
-                {contactCount.toLocaleString()}
-              </dd>
-            </div>
+            {contactCount !== null && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">People</dt>
+                <dd className="text-foreground">
+                  {contactCount.toLocaleString()}
+                </dd>
+              </div>
+            )}
             {!!excludedOptedOutCount && (
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Excluded (opted out)</dt>
@@ -251,11 +259,16 @@ export const SmsReviewStep = ({
             )}
           </dl>
         </div>
-        <div className="flex items-center justify-between border-t border-border px-4 py-4">
+        {/* A build-mode summary with no count has no total to state, and a
+            fabricated $0.00 would read as "free". */}
+        <div
+          className="flex items-center justify-between border-t border-border px-4 py-4"
+          hidden={readOnlySummary && summaryDollars === null}
+        >
           <span className="font-medium text-foreground">Total</span>
           <span className="font-semibold text-foreground">
             {readOnlySummary ? (
-              summaryDollars > 0 ? (
+              summaryDollars !== null && summaryDollars > 0 ? (
                 `$${money(summaryDollars)}`
               ) : (
                 'Free'

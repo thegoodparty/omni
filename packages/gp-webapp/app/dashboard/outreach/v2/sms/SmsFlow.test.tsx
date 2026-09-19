@@ -516,6 +516,36 @@ describe('SmsFlow', () => {
   describe('pro gate and drafts', () => {
     const GATE_LINE = 'Two things are needed before this text can send.'
 
+    // The free build path's only audience. Both Pro-gated voter-file reads
+    // (the builder's count and a saved list's reach count) 403 for this
+    // candidate, so the recommendation card — which carries its own count —
+    // is what the step offers and what the summary prices off.
+    const RECOMMENDATION = {
+      variant: 'persuadeAffinity' as const,
+      intent: 'persuade' as const,
+      filter: { independentAffinity: true },
+      count: 900,
+      copy: {
+        title: 'Persuadable independents',
+        criteriaSummary: 'Moderate to high propensity voters',
+      },
+      existingFilterId: 41,
+    }
+
+    // Truthful for a free campaign: gp-api refuses list-detail without Pro.
+    const mockFreeAudience = () => {
+      let listDetailCalls = 0
+      api.mock('GET /v1/contacts/list-detail', () => {
+        listDetailCalls += 1
+        return { status: 403, data: { message: 'Pro subscription required' } }
+      })
+      api.mock('GET /v1/campaigns/mine/recommended-lists', {
+        status: 200,
+        data: [RECOMMENDATION],
+      })
+      return () => listDetailCalls
+    }
+
     const FREE_GATE: OutreachGateState = {
       enabled: true,
       requirement: 'pro',
@@ -582,10 +612,11 @@ describe('SmsFlow', () => {
     // review, ending on the summary the draft save reads from.
     const buildToReview = async () => {
       await userEvent.click(screen.getByText('Introduce myself to voters'))
-      await userEvent.click(await screen.findByText('Choose a voter list'))
-      await userEvent.click(await screen.findByText('Likely voters'))
+      // Recommendations only: the picker offers no saved lists here.
+      expect(screen.queryByText('Choose a voter list')).not.toBeInTheDocument()
+      await userEvent.click(await screen.findByText('Persuadable independents'))
       await userEvent.click(
-        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+        await screen.findByRole('button', { name: /Continue \(900\)/ }),
       )
       expect(
         await screen.findByText(/AI body \(warm\) for introduce_myself/),
@@ -608,9 +639,26 @@ describe('SmsFlow', () => {
     const saveDraft = () =>
       userEvent.click(screen.getByRole('button', { name: 'Save draft' }))
 
+    // The whole free build path, with every Pro-gated read answering the way
+    // gp-api really answers it: the reach count is the recommendation's own,
+    // and nothing asks list-detail for one.
+    it('reaches review and prices the summary off the recommendation', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      const listDetailCalls = mockFreeAudience()
+      openFlow()
+
+      await buildToReview()
+
+      expect(screen.getByText('People')).toBeInTheDocument()
+      expect(screen.getByText('900')).toBeInTheDocument()
+      expect(listDetailCalls()).toBe(0)
+    })
+
     it('saves the text as a draft and opens the Pro interstitial', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       const { onScheduled } = openFlow()
 
       expect(await screen.findByText(GATE_LINE)).toBeInTheDocument()
@@ -633,6 +681,7 @@ describe('SmsFlow', () => {
     it('switches into resume mode when a draft already exists', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       vi.mocked(createOutreachDraft).mockResolvedValue({
         draft: null,
         conflictId: 55,
@@ -667,6 +716,7 @@ describe('SmsFlow', () => {
     it('lands the 409 resume on the schedule step once the upgrade completes', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       vi.mocked(createOutreachDraft).mockResolvedValue({
         draft: null,
         conflictId: 55,
@@ -770,6 +820,7 @@ describe('SmsFlow', () => {
     it('deletes the draft from the gate and closes the flow', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       const deleted: string[] = []
       api.mock('DELETE /v1/outreach/:id', ({ params }) => {
         deleted.push(params.id)
@@ -794,6 +845,7 @@ describe('SmsFlow', () => {
     it('offers a way out when a free candidate has nothing to pick', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
       openFlow()
 
@@ -839,6 +891,7 @@ describe('SmsFlow', () => {
     it('reports the saved draft', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       openFlow()
 
       await buildToReview()
@@ -857,6 +910,7 @@ describe('SmsFlow', () => {
       vi.mocked(trackEvent).mockClear()
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       vi.mocked(createOutreachDraft).mockResolvedValue({
         draft: null,
         conflictId: 55,
@@ -880,6 +934,7 @@ describe('SmsFlow', () => {
     it('reports the deleted draft', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
       openFlow()
 
@@ -903,12 +958,12 @@ describe('SmsFlow', () => {
     it('keeps the build intact when the upgrade starts from the banner', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       vi.mocked(createOutreachDraft).mockClear()
       openFlow()
 
       await userEvent.click(screen.getByText('Introduce myself to voters'))
-      await userEvent.click(await screen.findByText('Choose a voter list'))
-      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(await screen.findByText('Persuadable independents'))
 
       await userEvent.click(screen.getByText(GATE_LINE))
       await userEvent.click(
@@ -921,9 +976,11 @@ describe('SmsFlow', () => {
         screen.getByRole('button', { name: 'Finish upgrade' }),
       )
 
-      // Back on the audience step with the list still picked, not dropped on
-      // schedule against a draft that was never written.
-      expect(await screen.findByText('Likely voters')).toBeInTheDocument()
+      // Back on the audience step with the audience still picked, not dropped
+      // on schedule against a draft that was never written.
+      expect(
+        await screen.findByText('Persuadable independents'),
+      ).toBeInTheDocument()
       expect(
         screen.queryByText('When do you want to send it?'),
       ).not.toBeInTheDocument()
@@ -933,6 +990,7 @@ describe('SmsFlow', () => {
     it('reports a failed delete instead of leaving the draft silently', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
+      mockFreeAudience()
       api.mock('DELETE /v1/outreach/:id', {
         status: 500,
         data: { message: 'nope' },

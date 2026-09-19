@@ -56,6 +56,11 @@ interface UseOutreachAudienceParams {
   // run on steps that don't show it.
   active: boolean
   reachabilityKey: ReachabilityKey
+  // The reach count comes from GET /v1/contacts/list-detail, which is
+  // Pro-gated. A free candidate on the build path would only ever get a 403
+  // from it, so that mode turns the query off and reads the count off the
+  // recommendation it picked instead.
+  reachCountDisabled?: boolean
   // The channel's reachability overlay applied to the in-flow BUILDER count so
   // the running total matches what the feature will actually reach (robocall:
   // { hasLandline: true }). It is deliberately NOT written into the saved list
@@ -181,11 +186,18 @@ export const useOutreachAudience = ({
   recommendedListIntent = null,
   preselectedListId,
   preselectedRecommendedVariant,
+  reachCountDisabled = false,
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
   const [selectedRecommendation, setSelectedRecommendation] =
     useState<RecommendedList | null>(null)
+  // The count of a recommendation the candidate accepted by reusing the
+  // saved list it already resolves to, kept against that list's id.
+  const [reusedRecommendation, setReusedRecommendation] = useState<{
+    listId: number
+    count: number
+  } | null>(null)
   const [createRecommendedListPending, setCreateRecommendedListPending] =
     useState(false)
   const [createRecommendedListError, setCreateRecommendedListError] = useState<
@@ -345,7 +357,7 @@ export const useOutreachAudience = ({
     // review/pay steps read a null (rendered 0) reachable count. Fetch whenever
     // a list is selected; the automatic refetches the `active` gate used to
     // guard against are suppressed directly below.
-    enabled: open && selectedListId !== null,
+    enabled: open && selectedListId !== null && !reachCountDisabled,
     // Both window-focus and reconnect refetches are disabled for the same
     // reason: on a post-audience step (schedule/compose/review) a focus regain
     // or a network reconnect (common on mobile) would, under staleTime:0, refire
@@ -364,9 +376,15 @@ export const useOutreachAudience = ({
   })
   // A selected recommendation was already counted for this channel by the
   // endpoint, so its count is the reach — there is no saved list to ask.
+  // A recommendation that resolved to a list the candidate already has is
+  // selected AS that list, so its own count is the only one on hand when
+  // list-detail is off (second visit, free build path).
   const reachableCount = selectedRecommendation
     ? selectedRecommendation.count
-    : (reachabilityQuery.data?.reachable ?? null)
+    : (reachabilityQuery.data?.reachable ??
+      (reusedRecommendation?.listId === selectedListId
+        ? reusedRecommendation.count
+        : null))
   const selectedListTotal = reachabilityQuery.data?.total ?? null
 
   // Filters the user built, translated for the backend. The saved list is
@@ -458,6 +476,7 @@ export const useOutreachAudience = ({
     setMode('picker')
     setSelectedListId(null)
     setSelectedRecommendation(null)
+    setReusedRecommendation(null)
     setCreateRecommendedListError(null)
     appliedPreselectRef.current = undefined
     setAppliedPreselectedVariant(null)
@@ -528,6 +547,12 @@ export const useOutreachAudience = ({
   // the two kinds of accept separable in the funnel rather than conflated.
   const trackRecommendationReused = useCallback(
     (recommendation: RecommendedList) => {
+      if (recommendation.existingFilterId !== null) {
+        setReusedRecommendation({
+          listId: recommendation.existingFilterId,
+          count: recommendation.count,
+        })
+      }
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,

@@ -24,7 +24,10 @@ interface RobocallReviewStepProps {
   // Landline-reachable count already resolved in the audience step, and the
   // per-contact robocall price the audience step charges against it — the
   // estimated cost is their product (no second price source).
-  reachCount: number
+  // Null only in build mode, where the reach count comes from the
+  // recommendation the candidate picked and may not be known at all. The row
+  // it feeds is omitted rather than printed as 0.
+  reachCount: number | null
   pricePerContact: number
   // The UTC send instant and the zone it was chosen in, so the summary reads
   // back the same wall-clock date/time the schedule step showed.
@@ -78,7 +81,7 @@ export const RobocallReviewStep = ({
   const timeStr = scheduledAt
     ? `${formatInTimeZone(scheduledAt, timeZone, 'h:mm a')} ${timeZoneShortLabel(timeZone, scheduledAt)}`
     : '—'
-  const estimatedCost = reachCount * pricePerContact
+  const estimatedCost = (reachCount ?? 0) * pricePerContact
 
   const rows: [string, string][] = [
     // A draft carries no date, so those two rows would only read "—".
@@ -89,7 +92,11 @@ export const RobocallReviewStep = ({
           ['Send time', timeStr],
         ] as [string, string][])),
     ['Audience', audienceName],
-    ['People', reachCount.toLocaleString()],
+    // An unknown count has no row: a fabricated 0 would read as an empty
+    // audience rather than a figure we do not have.
+    ...(reachCount === null
+      ? []
+      : ([['People', reachCount.toLocaleString()]] as [string, string][])),
     ['Caller ID number', callbackNumber ?? '—'],
     ['Price per call', `$${pricePerContact.toFixed(3)}`],
   ]
@@ -128,7 +135,12 @@ export const RobocallReviewStep = ({
             </div>
           ))}
         </div>
-        <div className="flex justify-between border-t border-border p-4">
+        {/* A build-mode summary with no count has no estimate to state, and
+            a fabricated $0.00 would read as "free". */}
+        <div
+          className="flex justify-between border-t border-border p-4"
+          hidden={reachCount === null}
+        >
           <span className="font-medium text-foreground">Estimated cost</span>
           <span className="font-semibold text-foreground">
             ${money(estimatedCost)}

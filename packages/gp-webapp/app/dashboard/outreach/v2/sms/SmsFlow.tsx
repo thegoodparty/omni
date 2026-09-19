@@ -343,6 +343,12 @@ export const SmsFlow = ({
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
   const stepOrder = buildMode ? BUILD_STEP_ORDER : STEP_ORDER
+  // A free candidate on the build path can reach neither the in-flow builder
+  // nor a saved list's reach count: both go through the Pro-gated voter-file
+  // reads, which 403 for them. Recommended lists carry their own counts, so
+  // that is the whole audience step in this mode. An ungated elected
+  // official is also free-tier and keeps everything.
+  const freeBuildMode = buildMode && gate.membership?.tier === 'free'
 
   const recommendedListIntent = purpose
     ? intentForOutreachPurpose(purpose)
@@ -363,6 +369,7 @@ export const SmsFlow = ({
     recommendedListIntent,
     preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
+    reachCountDisabled: freeBuildMode,
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
@@ -1110,7 +1117,8 @@ export const SmsFlow = ({
             // Only a gated free candidate loses the builder: its count calls
             // go through the Pro-gated voter-file read, and an ungated
             // elected official is on the free tier but can use it.
-            hideBuilder={buildMode && gate.membership?.tier === 'free'}
+            hideBuilder={freeBuildMode}
+            hideSavedLists={freeBuildMode}
             onChoosePurpose={() => setStepId('purpose')}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}
@@ -1240,7 +1248,7 @@ export const SmsFlow = ({
             composedMessage={composedMessage}
             imagePreviewUrl={previewUrl}
             contactCount={
-              buildMode ? (reachableCount ?? 0) : (phoneList?.leadsLoaded ?? 0)
+              buildMode ? reachableCount : (phoneList?.leadsLoaded ?? 0)
             }
             pricePerContact={PRICE_PER_MESSAGE}
             outreachId={draftOutreachId}
