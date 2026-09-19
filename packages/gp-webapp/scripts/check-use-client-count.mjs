@@ -385,6 +385,14 @@ import { dirname, join, relative } from 'node:path'
 // the handshake — it reads the Clerk session through `useUser`, holds the
 // field's state, and redirects on success, none of which a server component
 // can do. Its page shell stays a server component.
+// 2026-09-18: 567 -> 569 for the Serve list-boundary surfaces. BoundaryStep
+// owns the wizard's drawn ring and reads the polygon-preview count, and
+// ListBoundaryOverlay owns the in-progress ring for the full-bleed drawing
+// surface a saved list's map opens into — both hold state and neither can
+// render on the server. Their sibling BoundaryDrawPanel stays directive-free
+// and inherits the boundary from its importers, the same rule ListMapSection
+// beside it already follows: it holds no state and only binds handlers it is
+// handed.
 // 2026-09-18: 567 -> 568 for FollowUpRow, the Serve contact card's follow-up
 // toggle. It owns a React Query mutation with an optimistic write, rollback
 // and a snackbar on failure, and reads the org from context — all client
@@ -393,7 +401,10 @@ import { dirname, join, relative } from 'node:path'
 // follow-up results block. It fetches its own outstanding count, saves the
 // audience as a list on click, and reports failure through the snackbar —
 // all client state, inside an already-client drawer.
-const BASELINE = 569
+// 568 + 2 (the boundary surfaces above) + 1 (FollowUpOutstandingSection):
+// both sides of this merge raised the ratchet from the same base, so the
+// count is the sum of the two, not either one of them.
+const BASELINE = 571
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

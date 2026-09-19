@@ -98,6 +98,26 @@ model VoterFileFilter {
   supportStatus              SupportStatusRollup[]              @default([]) @map("support_status")
   firstUsedForOutreachAt     DateTime?                          @map("first_used_for_outreach_at")
   activityConditions         VoterFileFilterActivityCondition[]
+  /// [GeoJsonPolygon]
+  /// The shape the holder drew on the map, in [lng, lat] rings. Provenance,
+  /// not a predicate: people_db has no geometry column, so a polygon cannot
+  /// become SQL at all. Resolving one means a bbox prefilter plus an
+  /// in-process ray-cast, which yields a set of person ids either way — and
+  /// that set, `geoMembers`, is what actually filters. The shape is kept so
+  /// the outline can be drawn back onto the map beside the dots, and so a
+  /// re-resolve has its input.
+  ///
+  /// A `geoPoly` with zero `geoMembers` rows means the shape enclosed
+  /// NOBODY, and must resolve to an empty list — never to "no geographic
+  /// constraint". A resolver keyed on `rows.length > 0` silently drops the
+  /// polygon and hands back the whole demographic audience.
+  geoPoly                    Json?                              @map("geo_poly")
+  /// When `geoMembers` was last resolved from `geoPoly`. The demographic
+  /// half of a list re-resolves on every read while the geographic half is
+  /// frozen; this makes that asymmetry visible and gives a future
+  /// re-resolve job something to key on.
+  geoMembersResolvedAt       DateTime?                          @map("geo_members_resolved_at")
+  geoMembers                 VoterFileFilterGeoMember[]
   /// Registry key of the recommendation this list was created from; null
   /// means user-built. Set once at create time, never re-derived.
   recommendedVariant         String?                            @map("recommended_variant")

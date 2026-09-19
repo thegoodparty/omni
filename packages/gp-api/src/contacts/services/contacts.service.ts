@@ -18,6 +18,9 @@ import {
   type UpdateContactStatusInput,
   type VoterLikelihood,
   type PeoplePrecinctsResponse,
+  type DoorKnockingEvaluateResponse,
+  type GeoJsonPolygon,
+  MAX_RESULTS_PER_PAGE,
 } from '@goodparty_org/contracts'
 import {
   ContactStatusField,
@@ -48,9 +51,14 @@ import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
+import { VoterFileFilterGeoService } from '@/voters/services/voterFileFilterGeo.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
+import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import { DoorKnockingEvaluateDTO } from '@/peopleDb/schemas/doorKnocking.schema'
+import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
+import type { Bbox } from '@goodparty_org/contracts'
 import {
   EXCLUDABLE_VOTER_COLUMNS,
   type ExcludableVoterColumn,
@@ -69,6 +77,8 @@ import {
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
+import { PolygonPreviewContactsDTO } from '../schemas/polygonPreviewContacts.schema'
+import { FilterPointsContactsDTO } from '../schemas/filterPointsContacts.schema'
 import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
 import type { VoterFileFilter } from '../../generated/prisma'
 import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
@@ -108,6 +118,29 @@ const ALL_CONTACTS_SEGMENT = 'all'
 // so the reason to keep it is the plain one: 403 is what "not entitled" means.
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
+
+// The bbox query's own ceiling (the contract caps it here), taken whole
+// rather than reused from door knocking's 20,000: that number is sized from
+// a 150-stop walk route, and a constituent list is not a walk route.
+const POLYGON_PREVIEW_MAX_PEOPLE = 50_000
+
+// Everywhere. The district is the boundary for a points read, and the SQL
+// scopes to it already — the bbox in that query exists to prefilter for a
+// drawn shape, and with no shape to prefilter for, a predicate that excludes
+// nothing is the correct one.
+const DISTRICT_WIDE_BBOX: Bbox = {
+  minLat: -90,
+  maxLat: 90,
+  minLng: -180,
+  maxLng: 180,
+}
+
+// Matched to MAX_RESULTS_PER_PAGE on purpose: the saved-list map draws its
+// dots through GET /v1/contacts under exactly this ceiling, so a list looks
+// the same on the draw step as it does the moment after it is saved. A
+// different number here would move dots on screen at save time for no
+// reason the holder could see.
+const MAP_POINTS_MAX = MAX_RESULTS_PER_PAGE
 
 // The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
 // `eo-` org's download drops this column from the projection instead
@@ -230,6 +263,7 @@ export type ContactsFilterResolutionInput = Partial<
 export class ContactsService {
   constructor(
     private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly voterFileFilterGeoService: VoterFileFilterGeoService,
     private readonly elections: ElectionsService,
     private readonly campaigns: CampaignsService,
     private readonly organizations: OrganizationsService,
@@ -240,6 +274,7 @@ export class ContactsService {
     private readonly activityConditionResolution: ActivityConditionResolutionService,
     private readonly voterQueryService: VoterQueryService,
     private readonly voterDownloadService: VoterDownloadService,
+    private readonly voterDoorKnockingService: VoterDoorKnockingService,
     private readonly peopleStatsService: StatsService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly logger: PinoLogger,
@@ -489,6 +524,26 @@ export class ContactsService {
   // eo- org's filterInput carries no contactsMade selection
   // (assertNoContactsMadeFilterForElectedOffice), so hasElectedOfficeAccess
   // here is a defense-in-depth no-op, not the primary gate.
+  // A saved boundary, as an id set to intersect with everything else.
+  //
+  // Keyed on `geoPoly`, never on the member rows: a shape that enclosed
+  // nobody stores zero rows, and reading that as "no constraint" would serve
+  // the whole unrefined list — the one failure here that looks like success.
+  // An unsaved draft carries a shape but no `id` and so has nothing frozen
+  // to read; it resolves to empty for the same reason.
+  private async resolveGeoIdFilter(
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    if (!filterInput.geoPoly) return { kind: 'none' }
+    if (typeof filterInput.id !== 'number') return { kind: 'empty' }
+    const personIds = await this.voterFileFilterGeoService.personIdsFor(
+      filterInput.id,
+    )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
   private async resolveIdFilterWithContactsMade(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -496,12 +551,21 @@ export class ContactsService {
     idResolution: IdFilterResolution
     contactsMadeIdOverrides?: IdOverrides
   }> {
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: filterInput.activityConditions,
-        supportStatus: filterInput.supportStatus,
-      },
+    const activityResolution =
+      await this.activityConditionResolution.resolveIdFilter(
+        organization.slug,
+        {
+          activityConditions: filterInput.activityConditions,
+          supportStatus: filterInput.supportStatus,
+        },
+      )
+    // Folded in BEFORE the elected-office return below, because a drawn
+    // boundary is a Serve feature and that return is the Serve path. Applied
+    // after it, the boundary would hold on the CSV and the counts and
+    // nowhere a holder actually looks.
+    const idResolution = intersectIdFilterResolutions(
+      activityResolution,
+      await this.resolveGeoIdFilter(filterInput),
     )
     if (this.hasElectedOfficeAccess(organization)) {
       // Serve's own dimension takes the Win block's place rather than sitting
@@ -894,6 +958,190 @@ export class ContactsService {
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
+  }
+
+  // The draw step's answer to "how many of these are inside the shape?",
+  // asked while a boundary is still being dragged. Mirrors countContacts —
+  // same unsaved-draft grammar, same Pro gate, same district gate — and
+  // then narrows by geography the only way people_db allows: a bbox
+  // prefilter, because there is no geometry column to run ST_Contains
+  // against, followed by an in-process ray-cast that decides membership.
+  async polygonPreview(
+    { geoPoly, filters: filterInput }: PolygonPreviewContactsDTO,
+    organization: Organization,
+  ): Promise<{ count: number; audienceEmpty: boolean }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const resolved = await this.resolveSavedFilterForQuery(
+      organization,
+      filterInput,
+    )
+
+    // Two zeros that are indistinguishable on the wire and are not the same
+    // problem. "This shape encloses none of your audience" is a boundary to
+    // move; "your filters match nobody at all" is a zero no boundary can
+    // fix, and the criteria causing it are exactly the ones the map cannot
+    // shade. Flagged rather than thrown: a shape mid-drag is allowed to
+    // enclose nobody.
+    // Returned before the district gate, because this answer does not need a
+    // district: the local filters already matched nobody, so there is nothing
+    // to go and count. Inside the gate it was not "flagged rather than
+    // thrown" at all — an org whose office has no linked district got
+    // VOTER_DATA_UNAVAILABLE instead of the flag. Emptiness and district
+    // availability are unrelated, so one cannot stand in for the other.
+    if (resolved.empty) {
+      return { count: 0, audienceEmpty: true }
+    }
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId }) => {
+        const { people } = await this.evaluateWithinBbox(
+          districtId,
+          polygonBbox(geoPoly),
+          resolved,
+        )
+        const inside = people.filter((person) =>
+          pointInPolygon(person.lng, person.lat, geoPoly),
+        )
+        return { count: inside.length, audienceEmpty: false }
+      },
+    )
+  }
+
+  // The dots the draw step draws on: everyone the in-progress filters match,
+  // across the whole district, as bare coordinates.
+  //
+  // This exists because the step used to draw `ALL_SEGMENTS` — the district's
+  // entire contactable universe — under a pill counting only the filtered
+  // audience. Drawing a shape around visible dots then returned a number
+  // smaller than the dots enclosed, because most of them were never in the
+  // list being built. The map now shows the list, so the shape and the count
+  // are answering about one population.
+  //
+  // Names and addresses are deliberately absent. The step has no person
+  // overlay behind its dots, so the only thing it needs is where they are,
+  // and a district-wide read of a draft filter is the widest query in the
+  // CRM — the narrowest response it can serve is the right one.
+  async filterPoints(
+    { filters: filterInput }: FilterPointsContactsDTO,
+    organization: Organization,
+  ): Promise<{
+    points: { id: string; lat: number; lng: number }[]
+    truncated: boolean
+  }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const resolved = await this.resolveSavedFilterForQuery(
+      organization,
+      filterInput,
+    )
+
+    // Filters that match nobody: an empty map, not an error, and not a
+    // district round trip. Mirrors polygonPreview's own short circuit,
+    // including its placement before the district gate — emptiness does not
+    // need a district to be true.
+    if (resolved.empty) {
+      return { points: [], truncated: false }
+    }
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId }) => {
+        const { people, truncated } =
+          await this.voterDoorKnockingService.evaluatePoints(
+            DoorKnockingEvaluateDTO.create({
+              districtId,
+              bbox: DISTRICT_WIDE_BBOX,
+              filters: resolved.filters,
+              idOverrides: resolved.idOverrides,
+              contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+              maxPeople: MAP_POINTS_MAX,
+            }),
+            // Same reason polygonPreview drops it: the rooftop gate is door
+            // knocking's routing rule, and a dot the holder is about to draw
+            // a shape around must be one the count will find.
+            { requireRooftopAccuracy: false },
+          )
+        return {
+          points: people.map(({ id, lat, lng }) => ({ id, lat, lng })),
+          truncated,
+        }
+      },
+    )
+  }
+
+  // Everyone a drawn boundary encloses, for freezing onto the list.
+  //
+  // Evaluated with NO demographic filters on purpose. The stored set is the
+  // geographic half of a list and nothing else: the criteria re-resolve on
+  // every read and intersect with it, so editing a list's filters can never
+  // invalidate a boundary nobody moved. Resolving it pre-filtered would tie
+  // the two together and make every criteria edit owe a fresh Databricks
+  // scan.
+  async resolveGeoMemberIds(
+    organization: Organization,
+    geoPoly: GeoJsonPolygon,
+  ): Promise<string[]> {
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId }) => {
+        const { people } = await this.evaluateWithinBbox(
+          districtId,
+          polygonBbox(geoPoly),
+          { filters: {} },
+        )
+        return people
+          .filter((person) => pointInPolygon(person.lng, person.lat, geoPoly))
+          .map((person) => person.id)
+      },
+    )
+  }
+
+  private async evaluateWithinBbox(
+    districtId: string,
+    bbox: Bbox,
+    resolved: {
+      filters: FilterObject
+      idOverrides?: IdOverrides
+      contactsMadeIdOverrides?: IdOverrides
+    },
+  ): Promise<DoorKnockingEvaluateResponse> {
+    try {
+      return await this.voterDoorKnockingService.evaluate(
+        DoorKnockingEvaluateDTO.create({
+          districtId,
+          bbox,
+          filters: resolved.filters,
+          idOverrides: resolved.idOverrides,
+          contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          maxPeople: POLYGON_PREVIEW_MAX_PEOPLE,
+        }),
+        // The contacts map draws every geocoded row, with no accuracy gate.
+        // Counting rooftop-only would answer about a different population
+        // than the one the holder just drew a shape around — every
+        // interpolated dot on their screen would be uncountable, which is
+        // how a shape over hundreds of visible dots came back as zero.
+        { requireRooftopAccuracy: false },
+      )
+    } catch (err) {
+      // evaluate rejects rather than truncates past maxPeople, and the only
+      // BadRequest it raises is that cap. Its wording is about turfs and
+      // stops, which is not what the holder drew here — and a constituent
+      // district reaches the cap on shapes they would call ordinary, so the
+      // refusal has to name something they can actually do.
+      if (err instanceof BadRequestException) {
+        throw new BadRequestException(
+          'This area holds too many people to count. Draw a smaller ' +
+            'boundary or narrow the list.',
+        )
+      }
+      throw err
+    }
   }
 
   // Saved-list overlap count (ENG-10840): how many of the in-progress

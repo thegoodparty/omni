@@ -1113,11 +1113,15 @@ export type APIEndpoints = {
     Response: { token: string }
   }
 
+  // `geoPoly` narrows the saved list by a drawn boundary. Null clears one; on
+  // the PUT, omitting it keeps whatever the row already holds, like every
+  // other key of this partial update.
   'POST /v1/voters/voter-file/filter': {
     Request: {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      geoPoly?: GeoJsonPolygon | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1126,6 +1130,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      geoPoly?: GeoJsonPolygon | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1183,6 +1188,46 @@ export type APIEndpoints = {
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
     Response: { count: number }
+  }
+  // How many of an in-progress list fall inside a boundary being drawn. The
+  // filter half is the same unsaved-draft grammar `POST /v1/contacts/count`
+  // takes — there is no saved filter row yet — but nested under `filters`
+  // rather than spread, because the shape rides beside it.
+  // `audienceEmpty` separates "your filters match nobody" from "this shape
+  // holds none of your audience": the same zero on the wire, and two
+  // different things to go and fix.
+  'POST /v1/contacts/polygon-preview': {
+    Request: {
+      geoPoly: GeoJsonPolygon
+      filters: {
+        activityConditions?: ActivityConditionInput[]
+        supportStatus?: SupportStatusRollup[]
+      } & Record<string, unknown>
+    }
+    Response: { count: number; audienceEmpty: boolean }
+  }
+  // The dots the draw step draws on: everyone the in-progress filters match,
+  // across the whole district, as bare coordinates.
+  //
+  // Sibling of polygon-preview and takes the same draft payload minus the
+  // shape, because the map has to show the list before there is a shape to
+  // narrow it with. Names and addresses are deliberately not in the
+  // response — the step has no person overlay behind its dots.
+  //
+  // `truncated` rather than a refusal: past the cap this returns the first
+  // page of dots and says so, the way every other map in the CRM does. A map
+  // that declines to draw teaches the holder less than a partial one.
+  'POST /v1/contacts/points': {
+    Request: {
+      filters: {
+        activityConditions?: ActivityConditionInput[]
+        supportStatus?: SupportStatusRollup[]
+      } & Record<string, unknown>
+    }
+    Response: {
+      points: { id: string; lat: number; lng: number }[]
+      truncated: boolean
+    }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }

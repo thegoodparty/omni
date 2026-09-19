@@ -115,6 +115,20 @@ export const saveWizardList = async (
   name: string,
 ): Promise<string> => {
   const nameInput = page.getByLabel('List name')
+  // Serve's wizard puts a skippable boundary step between the conditions and
+  // the name; Win has none. Waiting on either landing spot rather than
+  // branching on the mode keeps this helper usable from both, and no caller
+  // here draws a shape — the boundary paths have their own specs.
+  const boundaryContinue = page.getByRole('button', {
+    name: 'Continue',
+    exact: true,
+  })
+  await expect(nameInput.or(boundaryContinue).first()).toBeVisible({
+    timeout: 15_000,
+  })
+  if (!(await nameInput.isVisible())) {
+    await boundaryContinue.click()
+  }
   await expect(nameInput).toBeVisible({ timeout: 15_000 })
   await nameInput.fill(name)
   await page.getByRole('button', { name: 'Save list' }).click()

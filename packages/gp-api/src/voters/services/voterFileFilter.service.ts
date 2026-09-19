@@ -13,6 +13,7 @@ import {
   Prisma,
   VoterFileFilter,
 } from '../../generated/prisma'
+import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
 
@@ -43,6 +44,17 @@ const toActivityConditionCreateInput = (
 export class VoterFileFilterService extends createPrismaBase(
   MODELS.VoterFileFilter,
 ) {
+  // Deliberately does NOT inject ContactsService. The scan a boundary needs
+  // lives there, and ContactsService already injects this service — a
+  // forwardRef fixes Nest's DI cycle but not the ES module one, because
+  // emitDecoratorMetadata evaluates the constructor's param types eagerly
+  // and crashes the app at boot with "Cannot access 'ContactsService'
+  // before initialization". The controller owns both and resolves the ids
+  // before calling in.
+  constructor(private readonly geo: VoterFileFilterGeoService) {
+    super()
+  }
+
   private async validateActivityConditions(
     organizationSlug: string,
     conditions: ActivityCondition[],
@@ -134,8 +146,12 @@ export class VoterFileFilterService extends createPrismaBase(
   async create(
     organizationSlug: string,
     data: CreateVoterFileFilterSchema,
+    // The people a drawn boundary enclosed, already resolved by the caller.
+    // Null means no boundary was submitted; every caller without one (the
+    // assistant tool, recommended lists) omits it and is unchanged.
+    geoMemberIds?: string[] | null,
   ): Promise<VoterFileFilterWithConditions> {
-    const { activityConditions, recommendedFilter, ...rest } = data
+    const { activityConditions, recommendedFilter, geoPoly, ...rest } = data
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -154,20 +170,32 @@ export class VoterFileFilterService extends createPrismaBase(
       ? findEquivalentFilter(rest, [{ ...recommendedFilter, id: -1 }]) === null
       : null
 
-    return this.model.create({
-      data: {
-        organizationSlug,
-        ...rest,
-        recommendedModified,
-        ...(activityConditions
-          ? {
-              activityConditions: {
-                create: toActivityConditionCreateInput(activityConditions),
-              },
-            }
-          : {}),
-      },
-      include: ACTIVITY_CONDITIONS_INCLUDE,
+    return this.client.$transaction(async (tx) => {
+      const created = await tx.voterFileFilter.create({
+        data: {
+          organizationSlug,
+          ...rest,
+          recommendedModified,
+          // A nullable Json column clears with Prisma.DbNull; a plain null
+          // would be read as the JSON value `null` instead of no value.
+          ...(geoPoly === undefined
+            ? {}
+            : { geoPoly: geoPoly ?? Prisma.DbNull }),
+          ...(geoMemberIds ? { geoMembersResolvedAt: new Date() } : {}),
+          ...(activityConditions
+            ? {
+                activityConditions: {
+                  create: toActivityConditionCreateInput(activityConditions),
+                },
+              }
+            : {}),
+        },
+        include: ACTIVITY_CONDITIONS_INCLUDE,
+      })
+      if (geoMemberIds) {
+        await this.geo.replaceMembers(tx, created.id, geoMemberIds)
+      }
+      return created
     })
   }
 
@@ -235,10 +263,11 @@ export class VoterFileFilterService extends createPrismaBase(
     id: number,
     organizationSlug: string,
     data: UpdateVoterFileFilterSchema,
+    geoMemberIds?: string[] | null,
   ): Promise<VoterFileFilterWithConditions> {
     await this.assertNotLocked(id, organizationSlug)
 
-    const { activityConditions, ...rest } = data
+    const { activityConditions, geoPoly, ...rest } = data
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -266,9 +295,27 @@ export class VoterFileFilterService extends createPrismaBase(
         }
       }
 
+      // Absent leaves the boundary alone. Explicit null clears the shape,
+      // its frozen membership and the resolved-at stamp together — a shape
+      // removed but its rows left behind would keep narrowing the list with
+      // nothing on the map to explain why.
+      if (geoPoly === null) {
+        await this.geo.replaceMembers(tx, id, [])
+      } else if (geoMemberIds) {
+        await this.geo.replaceMembers(tx, id, geoMemberIds)
+      }
+
       return tx.voterFileFilter.update({
         where: { id, organizationSlug },
-        data: rest,
+        data: {
+          ...rest,
+          ...(geoPoly === undefined
+            ? {}
+            : {
+                geoPoly: geoPoly ?? Prisma.DbNull,
+                geoMembersResolvedAt: geoPoly === null ? null : new Date(),
+              }),
+        },
         include: ACTIVITY_CONDITIONS_INCLUDE,
       })
     })

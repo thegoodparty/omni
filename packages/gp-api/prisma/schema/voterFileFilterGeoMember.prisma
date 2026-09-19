@@ -1,0 +1,29 @@
+/// One person the drawn shape resolved to, frozen at the moment it was drawn
+/// — the same split door knocking makes between a turf's `geoPoly` and its
+/// resolved stops, and for the same reason: people_db has no geometry
+/// column, so a shape can only ever become a set of person ids, and the set
+/// is what filters.
+///
+/// These rows are the GEOGRAPHIC component of a list, not its membership. A
+/// list's members are the resolution of the whole filter — the demographic
+/// half, which re-resolves on every read, AND this frozen set.
+///
+/// Rows only, no name or address. The map re-reads those from the contacts
+/// route by id, so there is nothing here to keep in step with a privacy
+/// deletion — unlike a call sheet, which has to hold the name it will print.
+model VoterFileFilterGeoMember {
+  id                Int             @id @default(autoincrement())
+  createdAt         DateTime        @default(now()) @map("created_at")
+  voterFileFilter   VoterFileFilter @relation(fields: [voterFileFilterId], references: [id], onDelete: Cascade)
+  voterFileFilterId Int             @map("voter_file_filter_id")
+  /// people_db person UUID (hash-derived from the L2 id). Raw LALVOTERIDs
+  /// never enter these tables.
+  personId          String          @map("person_id")
+
+  /// Drawing the same shape twice must not double the set, and a resolution
+  /// is a set rather than a sequence — there is no order here to preserve,
+  /// unlike a turf's walk order. This btree is also the prefix index for
+  /// every lookup by voterFileFilterId, so that column needs no second one.
+  @@unique([voterFileFilterId, personId])
+  @@map("voter_file_filter_geo_member")
+}

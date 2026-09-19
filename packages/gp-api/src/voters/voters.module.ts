@@ -7,6 +7,7 @@ import { SlackModule } from 'src/vendors/slack/slack.module'
 import { ElectedOfficeModule } from '../electedOffice/electedOffice.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { VoterFileFilterService } from './services/voterFileFilter.service'
+import { VoterFileFilterGeoService } from './services/voterFileFilterGeo.service'
 import { VotersService } from './services/voters.service'
 import { VoterFileController } from './voterFile/voterFile.controller'
 import { VoterFileService } from './voterFile/voterFile.service'
@@ -27,7 +28,17 @@ import { VoterFileService } from './voterFile/voterFile.service'
     ElectedOfficeModule,
   ],
   controllers: [VoterFileController],
-  providers: [VoterFileService, VotersService, VoterFileFilterService],
-  exports: [VoterFileService, VotersService, VoterFileFilterService],
+  providers: [
+    VoterFileService,
+    VotersService,
+    VoterFileFilterService,
+    VoterFileFilterGeoService,
+  ],
+  exports: [
+    VoterFileService,
+    VotersService,
+    VoterFileFilterService,
+    VoterFileFilterGeoService,
+  ],
 })
 export class VotersModule {}

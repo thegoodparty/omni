@@ -476,6 +476,13 @@ export const EVENTS = {
       MethodCompleted: 'Contacts - List Wizard Method Completed',
       ConditionsViewed: 'Contacts - List Wizard Conditions Viewed',
       ConditionsCompleted: 'Contacts - List Wizard Conditions Completed',
+      // Serve only — the boundary step sits between conditions and name and
+      // Win's wizard has no such stage, so these two never fire with
+      // context 'win'. Completed carries { hasBoundary }: the step is
+      // skippable, and how often it is skipped is the question the stage
+      // exists to answer.
+      BoundaryViewed: 'Contacts - List Wizard Boundary Viewed',
+      BoundaryCompleted: 'Contacts - List Wizard Boundary Completed',
       NameViewed: 'Contacts - List Wizard Name Viewed',
       NameCompleted: 'Contacts - List Wizard Name Completed',
     },
@@ -506,6 +513,12 @@ export const EVENTS = {
     ListCreated: 'Constituent Data - List Created',
     ActivityListCreated: 'Constituent Data - Activity List Created',
     ListExported: 'Constituent Data - List Exported',
+    // The boundary saved onto an existing list from the map on its detail
+    // sheet. `{ listId, cleared }` — clearing a boundary is the same write
+    // and is worth telling apart from setting one. Serve-only surface (the
+    // map itself is), so there is no VoterData variant, same as
+    // ContactStatusChanged below in the other direction.
+    ListBoundarySaved: 'Constituent Data - List Boundary Saved',
     // The person-record follow-up toggle. Fires once per confirmed-successful
     // change with { from, to } — never on a failed PATCH. Serve-only
     // surface, the mirror of VoterData.ContactStatusChanged below.
