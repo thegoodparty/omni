@@ -45,9 +45,21 @@ describe('serve-chat-attachments flag gate', () => {
   const conversationId = 'conv-stub-123'
 
   const routes = [
-    ['POST', `/v1/chats/${conversationId}/attachments/presign`],
-    ['POST', `/v1/chats/${conversationId}/attachments`],
-    ['POST', `/v1/chats/${conversationId}/attachments/link`],
+    [
+      'POST',
+      `/v1/chats/${conversationId}/attachments/presign`,
+      {
+        fileName: 'test.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 1024,
+      },
+    ],
+    [
+      'POST',
+      `/v1/chats/${conversationId}/attachments`,
+      { storageKey: 'chat-attachments/123/att-stub' },
+    ],
+    ['POST', `/v1/chats/${conversationId}/attachments/link`, {}],
   ] as const
 
   describe('flag off → 404', () => {
@@ -65,9 +77,9 @@ describe('serve-chat-attachments flag gate', () => {
       flagSpy.mockRestore()
     })
 
-    for (const [method, path] of routes) {
+    for (const [method, path, body] of routes) {
       it(`${method} ${path} → 404`, async () => {
-        const res = await service.client.post(path, {}, header)
+        const res = await service.client.post(path, body, header)
         expect(res.status).toBe(404)
       })
     }

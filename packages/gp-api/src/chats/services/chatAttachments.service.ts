@@ -114,39 +114,49 @@ export class ChatAttachmentsService extends createPrismaBase(
       throw new NotFoundException()
     }
 
-    const created = await this.client.$transaction(
-      async (tx) => {
-        const count = await tx.chatAttachment.count({
-          where: {
-            conversationId,
-            status: { not: ChatAttachmentStatus.failed },
-          },
-        })
-        if (count >= CHAT_ATTACHMENTS_PER_CONVERSATION) {
+    const created = await this.client
+      .$transaction(
+        async (tx) => {
+          const count = await tx.chatAttachment.count({
+            where: {
+              conversationId,
+              status: { not: ChatAttachmentStatus.failed },
+            },
+          })
+          if (count >= CHAT_ATTACHMENTS_PER_CONVERSATION) {
+            throw new BadRequestException('attachment_limit_reached')
+          }
+          const row = await tx.chatAttachment.create({
+            data: {
+              conversationId,
+              ownerUserId: userId,
+              source: ChatAttachmentSource.UPLOAD,
+              storageKey: '',
+              fileName: body.fileName,
+              mimeType: body.mimeType,
+              sizeBytes: body.sizeBytes,
+              status: ChatAttachmentStatus.pending,
+            },
+            select: { id: true },
+          })
+          const storageKey = this.buildStorageKey(userId, row.id)
+          await tx.chatAttachment.update({
+            where: { id: row.id },
+            data: { storageKey },
+          })
+          return { id: row.id, storageKey }
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      )
+      .catch((err: unknown) => {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2034'
+        ) {
           throw new BadRequestException('attachment_limit_reached')
         }
-        const row = await tx.chatAttachment.create({
-          data: {
-            conversationId,
-            ownerUserId: userId,
-            source: ChatAttachmentSource.UPLOAD,
-            storageKey: '',
-            fileName: body.fileName,
-            mimeType: body.mimeType,
-            sizeBytes: body.sizeBytes,
-            status: ChatAttachmentStatus.pending,
-          },
-          select: { id: true },
-        })
-        const storageKey = this.buildStorageKey(userId, row.id)
-        await tx.chatAttachment.update({
-          where: { id: row.id },
-          data: { storageKey },
-        })
-        return { id: row.id, storageKey }
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    )
+        throw err
+      })
 
     try {
       const { url: uploadUrl, fields: uploadFields } =
