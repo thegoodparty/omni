@@ -684,7 +684,7 @@ describe('GET /v1/chats/:conversationId/attachments/:id/download', () => {
     expect(res.data.url).toBe('https://s3.example/signed-url')
     expect(typeof res.data.expiresAt).toBe('string')
     expect(s3.view).toHaveBeenCalledWith(
-      'chat-attachments-test',
+      'goodparty-chat-attachments-test',
       att.storageKey,
       { expiresIn: 900 },
     )
@@ -744,7 +744,10 @@ describe('DELETE /v1/chats/:conversationId/attachments/:id', () => {
     )
 
     expect(res.status).toBe(204)
-    expect(s3.del).toHaveBeenCalledWith('chat-attachments-test', att.storageKey)
+    expect(s3.del).toHaveBeenCalledWith(
+      'goodparty-chat-attachments-test',
+      att.storageKey,
+    )
     const row = await service.prisma.chatAttachment.findUnique({
       where: { id: att.id },
     })
@@ -768,7 +771,7 @@ describe('DELETE /v1/chats/:conversationId/attachments/:id', () => {
     expect(second.status).toBe(404)
   })
 
-  it('returns 502 and leaves the row intact when S3 delete fails', async () => {
+  it('still deletes the row (204) when the best-effort S3 delete fails', async () => {
     const s3 = service.app.get(S3Service)
     vi.spyOn(s3, 'deleteObject').mockRejectedValue(new Error('S3 failure'))
     const conv = await seedConversation(orgSlug)
@@ -779,11 +782,11 @@ describe('DELETE /v1/chats/:conversationId/attachments/:id', () => {
       header,
     )
 
-    expect(res.status).toBe(502)
+    expect(res.status).toBe(204)
     const row = await service.prisma.chatAttachment.findUnique({
       where: { id: att.id },
     })
-    expect(row).not.toBeNull()
+    expect(row).toBeNull()
   })
 
   it('returns 404 when conversation belongs to a different user', async () => {

@@ -1,5 +1,4 @@
 import {
-  BadGatewayException,
   BadRequestException,
   Injectable,
   NotFoundException,
@@ -203,13 +202,19 @@ export class ChatAttachmentsService extends createPrismaBase(
     })
     if (!attachment) throw new NotFoundException('Attachment not found')
 
+    // DB-first, S3 best-effort (annotationAttachment.service.ts pattern): a
+    // DB failure leaves both sides intact and retryable, while an S3 failure
+    // after the row is gone leaves only an unreachable orphan — never a row
+    // pointing at a deleted object.
+    await this.model.delete({ where: { id: attachmentId } })
     try {
       await this.s3.deleteObject(this.bucket, attachment.storageKey)
-    } catch {
-      throw new BadGatewayException('Failed to delete attachment from storage')
+    } catch (err) {
+      this.logger.warn(
+        { err, attachmentId, storageKey: attachment.storageKey },
+        'best-effort S3 delete failed for attachment',
+      )
     }
-
-    await this.model.delete({ where: { id: attachmentId } })
   }
 
   async presign(
