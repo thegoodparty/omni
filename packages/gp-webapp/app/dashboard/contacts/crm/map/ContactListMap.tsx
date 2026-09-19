@@ -131,9 +131,10 @@ export default function ContactListMap({
   const justDraggedRef = useRef(false)
 
   const derived = useMemo(() => toContactPoints(people), [people])
-  // Coordinates given directly carry no unmappable count: the query behind
-  // them cannot return a row without a location, so there is nothing to
-  // report as missing.
+  // Coordinates given directly carry no unmappable count. The query behind
+  // them selects lat/lng, so every row it returns has a location and the
+  // response cannot describe the ones it dropped — a caller that needs to
+  // say "N have no location on file" has to count them itself.
   const { points, unmappable } = contactPoints
     ? { points: contactPoints, unmappable: 0 }
     : derived
