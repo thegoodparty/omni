@@ -19,6 +19,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import type {
+  ChatAttachmentDownloadResponse,
+  ChatAttachmentListResponse,
   ChatConversation as ChatConversationResponse,
   ChatHistoryResponse,
   ChatMessageFeedback as ChatMessageFeedbackResponse,
@@ -27,6 +29,8 @@ import type {
   PresignResponse,
 } from '@goodparty_org/contracts'
 import {
+  ChatAttachmentDownloadResponseSchema,
+  ChatAttachmentListResponseSchema,
   ChatAttachmentSchema,
   FinalizeRequest,
   FinalizeRequestSchema,
@@ -108,6 +112,7 @@ export class GeneralChatsController {
     private readonly chats: GeneralChatsService,
     private readonly attachments: ChatAttachmentsService,
     private readonly features: FeaturesService,
+    private readonly attachments: ChatAttachmentsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(GeneralChatsController.name)
@@ -317,6 +322,7 @@ export class GeneralChatsController {
   @ResponseSchema(PresignResponseSchema)
   async presignAttachment(
     @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Body(new ZodValidationPipe(PresignRequestSchema)) body: PresignRequest,
   ): Promise<PresignResponse> {
@@ -325,13 +331,19 @@ export class GeneralChatsController {
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    return this.attachments.presign(conversationId, user.id, body)
+    return this.attachments.presign(
+      conversationId,
+      user.id,
+      organizationSlug,
+      body,
+    )
   }
 
   @Post(':conversationId/attachments')
   @ResponseSchema(ChatAttachmentSchema)
   async finalizeAttachment(
     @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Body(new ZodValidationPipe(FinalizeRequestSchema)) body: FinalizeRequest,
   ): Promise<ChatAttachmentDTO> {
@@ -340,7 +352,12 @@ export class GeneralChatsController {
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    return this.attachments.finalize(conversationId, user.id, body)
+    return this.attachments.finalize(
+      conversationId,
+      user.id,
+      organizationSlug,
+      body,
+    )
   }
 
   @Post(':conversationId/attachments/link')
@@ -363,6 +380,52 @@ export class GeneralChatsController {
       user.id,
       organizationSlug,
       parsed.data.url,
+    )
+  }
+
+  @Get(':conversationId/attachments')
+  @ResponseSchema(ChatAttachmentListResponseSchema)
+  async listAttachments(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+  ): Promise<ChatAttachmentListResponse> {
+    return this.attachments.listAttachments(
+      conversationId,
+      user.id,
+      organizationSlug,
+    )
+  }
+
+  @Get(':conversationId/attachments/:attachmentId/download')
+  @ResponseSchema(ChatAttachmentDownloadResponseSchema)
+  async downloadAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<ChatAttachmentDownloadResponse> {
+    return this.attachments.getDownloadUrl(
+      conversationId,
+      attachmentId,
+      user.id,
+      organizationSlug,
+    )
+  }
+
+  @Delete(':conversationId/attachments/:attachmentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<void> {
+    await this.attachments.deleteAttachment(
+      conversationId,
+      attachmentId,
+      user.id,
+      organizationSlug,
     )
   }
 

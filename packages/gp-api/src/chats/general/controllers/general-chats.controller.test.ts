@@ -80,6 +80,7 @@ describe('GeneralChatsController.streamMessage', () => {
       ),
       ATTACHMENTS,
       FEATURES,
+      ATTACHMENTS,
       createMockLogger(),
     )
 
@@ -104,6 +105,7 @@ describe('GeneralChatsController.streamMessage', () => {
       buildService(throwing),
       ATTACHMENTS,
       FEATURES,
+      ATTACHMENTS,
       logger,
     )
 
@@ -135,6 +137,7 @@ describe('GeneralChatsController.streamMessage', () => {
       }),
       ATTACHMENTS,
       FEATURES,
+      ATTACHMENTS,
       createMockLogger(),
     )
     const { req, emitter } = buildReq()
@@ -171,6 +174,7 @@ describe('GeneralChatsController.streamMessage', () => {
       ),
       ATTACHMENTS,
       FEATURES,
+      ATTACHMENTS,
       createMockLogger(),
     )
 

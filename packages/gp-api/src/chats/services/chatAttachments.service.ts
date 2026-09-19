@@ -13,6 +13,13 @@ import sanitizeHtml from 'sanitize-html'
 import TurndownService from 'turndown'
 import { v7 as uuidv7 } from 'uuid'
 import {
+  ChatAttachmentSource,
+  ChatAttachmentStatus,
+  ChatScope,
+  Prisma,
+} from '@/generated/prisma'
+import { addSeconds } from 'date-fns'
+import {
   CHAT_ATTACHMENT_MAX_BYTES,
   CHAT_ATTACHMENT_MAX_PAGES,
   CHAT_ATTACHMENTS_PER_CONVERSATION,
@@ -22,14 +29,13 @@ import {
   PresignRequest,
   PresignResponse,
 } from '@goodparty_org/contracts'
-import {
-  ChatAttachmentSource,
-  ChatAttachmentStatus,
-  ChatScope,
-  Prisma,
-} from '@/generated/prisma'
-import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
+import type {
+  ChatAttachment,
+  ChatAttachmentDownloadResponse,
+  ChatAttachmentListResponse,
+} from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { parsePdfText } from '@/ocr/extractors/pdf.extractor'
 import {
   isPublicAddress,
   ssrfSafeLookup,
@@ -50,6 +56,7 @@ const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 const MAX_HTML_CONVERT_BYTES = 1_500_000
 const MAX_FETCH_CONTENT_CHARS = 24_000
 
+const DOWNLOAD_EXPIRY_SECONDS = 60 * 15
 const PRESIGN_EXPIRES_IN = 60 * 15
 const OCR_TEXT_MAX_BYTES = 200_000
 const MAGIC_BYTES_LEN = 8
@@ -190,6 +197,28 @@ export class ChatAttachmentsService extends createPrismaBase(
     return `chat-attachments/${userId}/${attachmentId}`
   }
 
+  // Mirrors GeneralChatStoreService.findOwnedConversation: organizationSlug
+  // is part of the ownership check, so a user's org-A session can never
+  // reach a conversation they hold under org-B.
+  private async loadOwnedChiefOfStaffConversation(
+    conversationId: string,
+    userId: number,
+    organizationSlug: string | null,
+  ): Promise<void> {
+    const conversation = await this.client.chatConversation.findFirst({
+      where: {
+        id: conversationId,
+        ownerUserId: userId,
+        organizationSlug,
+        deletedAt: null,
+      },
+      select: { scope: true },
+    })
+    if (!conversation || conversation.scope !== ChatScope.chief_of_staff) {
+      throw new NotFoundException('Conversation not found')
+    }
+  }
+
   private async markFailed(
     attachmentId: string,
     failureReason: string,
@@ -239,12 +268,9 @@ export class ChatAttachmentsService extends createPrismaBase(
         organizationSlug,
         deletedAt: null,
       },
-      include: { _count: { select: { attachments: true } } },
+      select: { scope: true },
     })
     if (!conversation) throw new NotFoundException()
-    if (conversation._count.attachments >= CHAT_ATTACHMENTS_PER_CONVERSATION) {
-      return { ok: false, error: 'too_large' }
-    }
 
     let parsed: URL
     try {
@@ -328,25 +354,46 @@ export class ChatAttachmentsService extends createPrismaBase(
       )
     }
 
-    const row = await this.model
-      .create({
-        data: {
-          id: attachmentId,
-          conversationId,
-          ownerUserId: userId,
-          source: ChatAttachmentSource.URL,
-          sourceUrl: url,
-          storageKey,
-          fileName,
-          mimeType,
-          sizeBytes,
-          pageCount,
-          extractedText,
-          status: ChatAttachmentStatus.ready,
-          readyAt: new Date(),
+    // Serializable transaction closes the TOCTOU race: the re-count + create
+    // are atomic, so two concurrent requests cannot both pass the cap check.
+    let row: Awaited<ReturnType<typeof this.model.create>>
+    try {
+      row = await this.client.$transaction(
+        async (tx) => {
+          const count = await tx.chatAttachment.count({
+            where: {
+              conversationId,
+              status: { not: ChatAttachmentStatus.failed },
+            },
+          })
+          if (count >= CHAT_ATTACHMENTS_PER_CONVERSATION) {
+            throw new BadRequestException('attachment_limit_reached')
+          }
+          return tx.chatAttachment.create({
+            data: {
+              id: attachmentId,
+              conversationId,
+              ownerUserId: userId,
+              source: ChatAttachmentSource.URL,
+              sourceUrl: url,
+              storageKey,
+              fileName,
+              mimeType,
+              sizeBytes,
+              pageCount,
+              extractedText,
+              status: ChatAttachmentStatus.ready,
+              readyAt: new Date(),
+            },
+          })
         },
-      })
-      .catch(async (err) => {
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      )
+    } catch (err) {
+      if (
+        err instanceof BadRequestException &&
+        err.message === 'attachment_limit_reached'
+      ) {
         await this.s3
           .deleteObject(this.bucket, storageKey)
           .catch((rollbackErr: Error) =>
@@ -355,8 +402,32 @@ export class ChatAttachmentsService extends createPrismaBase(
               's3 rollback failed',
             ),
           )
-        throw err
-      })
+        return { ok: false, error: 'attachment_limit_reached' }
+      }
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2034'
+      ) {
+        await this.s3
+          .deleteObject(this.bucket, storageKey)
+          .catch((rollbackErr: Error) =>
+            this.logger.error(
+              { err: rollbackErr, attachmentId, conversationId },
+              's3 rollback failed',
+            ),
+          )
+        return { ok: false, error: 'attachment_limit_reached' }
+      }
+      await this.s3
+        .deleteObject(this.bucket, storageKey)
+        .catch((rollbackErr: Error) =>
+          this.logger.error(
+            { err: rollbackErr, attachmentId, conversationId },
+            's3 rollback failed',
+          ),
+        )
+      throw err
+    }
 
     return {
       ok: true,
@@ -375,17 +446,103 @@ export class ChatAttachmentsService extends createPrismaBase(
     }
   }
 
+  async listAttachments(
+    conversationId: string,
+    userId: number,
+    organizationSlug: string | null,
+  ): Promise<ChatAttachmentListResponse> {
+    await this.loadOwnedChiefOfStaffConversation(
+      conversationId,
+      userId,
+      organizationSlug,
+    )
+    const rows = await this.model.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        source: true,
+        sourceUrl: true,
+        fileName: true,
+        mimeType: true,
+        sizeBytes: true,
+        pageCount: true,
+        status: true,
+        failureReason: true,
+        createdAt: true,
+      },
+    })
+    return { attachments: rows as ChatAttachment[] }
+  }
+
+  async getDownloadUrl(
+    conversationId: string,
+    attachmentId: string,
+    userId: number,
+    organizationSlug: string | null,
+  ): Promise<ChatAttachmentDownloadResponse> {
+    await this.loadOwnedChiefOfStaffConversation(
+      conversationId,
+      userId,
+      organizationSlug,
+    )
+    const attachment = await this.model.findFirst({
+      where: { id: attachmentId, conversationId },
+      select: { storageKey: true },
+    })
+    if (!attachment) throw new NotFoundException('Attachment not found')
+
+    const url = await this.s3.getSignedUrlForViewing(
+      this.bucket,
+      attachment.storageKey,
+      { expiresIn: DOWNLOAD_EXPIRY_SECONDS },
+    )
+    return { url, expiresAt: addSeconds(new Date(), DOWNLOAD_EXPIRY_SECONDS) }
+  }
+
+  async deleteAttachment(
+    conversationId: string,
+    attachmentId: string,
+    userId: number,
+    organizationSlug: string | null,
+  ): Promise<void> {
+    await this.loadOwnedChiefOfStaffConversation(
+      conversationId,
+      userId,
+      organizationSlug,
+    )
+    const attachment = await this.model.findFirst({
+      where: { id: attachmentId, conversationId },
+      select: { storageKey: true },
+    })
+    if (!attachment) throw new NotFoundException('Attachment not found')
+
+    // DB-first, S3 best-effort (annotationAttachment.service.ts pattern): a
+    // DB failure leaves both sides intact and retryable, while an S3 failure
+    // after the row is gone leaves only an unreachable orphan — never a row
+    // pointing at a deleted object.
+    await this.model.delete({ where: { id: attachmentId } })
+    try {
+      await this.s3.deleteObject(this.bucket, attachment.storageKey)
+    } catch (err) {
+      this.logger.warn(
+        { err, attachmentId, storageKey: attachment.storageKey },
+        'best-effort S3 delete failed for attachment',
+      )
+    }
+  }
+
   async presign(
     conversationId: string,
     userId: number,
+    organizationSlug: string | null,
     body: PresignRequest,
   ): Promise<PresignResponse> {
-    const conversation = await this.client.chatConversation.findFirst({
-      where: { id: conversationId, ownerUserId: userId, deletedAt: null },
-    })
-    if (!conversation || conversation.scope !== ChatScope.chief_of_staff) {
-      throw new NotFoundException()
-    }
+    await this.loadOwnedChiefOfStaffConversation(
+      conversationId,
+      userId,
+      organizationSlug,
+    )
 
     const created = await this.client
       .$transaction(
@@ -460,8 +617,14 @@ export class ChatAttachmentsService extends createPrismaBase(
   async finalize(
     conversationId: string,
     userId: number,
+    organizationSlug: string | null,
     body: FinalizeRequest,
   ): Promise<ChatAttachmentDTO> {
+    await this.loadOwnedChiefOfStaffConversation(
+      conversationId,
+      userId,
+      organizationSlug,
+    )
     const attachment = await this.client.chatAttachment.findFirst({
       where: { storageKey: body.storageKey, conversationId },
     })

@@ -95,10 +95,26 @@ export const LinkAttachResponseSchema = z.discriminatedUnion('ok', [
       'unsupported_content_type',
       'too_large',
       'timeout',
+      'attachment_limit_reached',
     ]),
   }),
 ])
 export type LinkAttachResponse = z.infer<typeof LinkAttachResponseSchema>
+
+export const ChatAttachmentListResponseSchema = z.object({
+  attachments: z.array(ChatAttachmentSchema),
+})
+export type ChatAttachmentListResponse = z.infer<
+  typeof ChatAttachmentListResponseSchema
+>
+
+export const ChatAttachmentDownloadResponseSchema = z.object({
+  url: z.string(),
+  expiresAt: zCoerceDate(),
+})
+export type ChatAttachmentDownloadResponse = z.infer<
+  typeof ChatAttachmentDownloadResponseSchema
+>
 
 export const ChatMessageSegmentCitationPayloadSchema = z.object({
   attachmentId: z.string(),

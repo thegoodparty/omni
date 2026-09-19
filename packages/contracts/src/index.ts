@@ -771,6 +771,10 @@ export {
   type LinkAttachRequest,
   LinkAttachResponseSchema,
   type LinkAttachResponse,
+  ChatAttachmentListResponseSchema,
+  type ChatAttachmentListResponse,
+  ChatAttachmentDownloadResponseSchema,
+  type ChatAttachmentDownloadResponse,
   ChatMessageSegmentCitationPayloadSchema,
   type ChatMessageSegmentCitationPayload,
 } from './chats/ChatAttachment.schema'

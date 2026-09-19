@@ -66,29 +66,42 @@ const mockRow = {
 
 const makeMockPrisma = (
   conv: typeof mockConversation | null = mockConversation,
-) => ({
-  chatConversation: {
-    findFirst: vi.fn().mockResolvedValue(conv),
-  },
-  chatAttachment: {
+  attachmentCount = 0,
+) => {
+  const chatAttachment = {
+    count: vi.fn().mockResolvedValue(attachmentCount),
     create: vi.fn().mockResolvedValue(mockRow),
-  },
-})
+  }
+  return {
+    chatConversation: {
+      findFirst: vi.fn().mockResolvedValue(conv),
+    },
+    chatAttachment,
+    $transaction: vi
+      .fn()
+      .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = { chatAttachment }
+        return fn(tx)
+      }),
+  }
+}
 
 const mockS3 = {
   uploadFile: vi.fn().mockResolvedValue('https://bucket.s3.amazonaws.com/key'),
+  deleteObject: vi.fn().mockResolvedValue(undefined),
 }
 
 const makeService = (
   fetchResult: FetchBytesResult,
   conv: typeof mockConversation | null = mockConversation,
+  attachmentCount = 0,
 ): ChatAttachmentsService => {
   const svc = new ChatAttachmentsService(
     mockS3 as never,
     {} as never,
     fakeHttp(fetchResult),
   )
-  const mockPrisma = makeMockPrisma(conv)
+  const mockPrisma = makeMockPrisma(conv, attachmentCount)
   Object.defineProperty(svc, '_prisma', {
     get: () => mockPrisma,
     configurable: true,
@@ -247,16 +260,15 @@ describe('ChatAttachmentsService.attachLink', () => {
     expect(result.attachment.mimeType).toBe('text/markdown')
   })
 
-  it('returns too_large when cap is reached', async () => {
-    const fullConv = { ...mockConversation, _count: { attachments: 10 } }
-    const svc = makeService(okFetch(), fullConv)
+  it('returns attachment_limit_reached when cap is reached', async () => {
+    const svc = makeService(okFetch(), mockConversation, 10)
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
       'org-slug-stub',
       'https://example.com/page',
     )
-    expect(result).toEqual({ ok: false, error: 'too_large' })
+    expect(result).toEqual({ ok: false, error: 'attachment_limit_reached' })
   })
 
   describe('PDF branch', () => {
@@ -303,10 +315,34 @@ describe('ChatAttachmentsService.attachLink', () => {
         pages: 5,
       })
       const svc = makeService(pdfFetch())
-      Object.defineProperty(svc, 'model', {
-        get: () => ({
+      const mockPrisma = {
+        chatConversation: {
+          findFirst: vi.fn().mockResolvedValue(mockConversation),
+        },
+        chatAttachment: {
+          count: vi.fn().mockResolvedValue(0),
           create: vi.fn().mockResolvedValue(pdfRow),
-        }),
+        },
+        $transaction: vi
+          .fn()
+          .mockImplementation(
+            async (fn: (tx: unknown) => Promise<unknown>) => {
+              const tx = {
+                chatAttachment: {
+                  count: vi.fn().mockResolvedValue(0),
+                  create: vi.fn().mockResolvedValue(pdfRow),
+                },
+              }
+              return fn(tx)
+            },
+          ),
+      }
+      Object.defineProperty(svc, '_prisma', {
+        get: () => mockPrisma,
+        configurable: true,
+      })
+      Object.defineProperty(svc, 'model', {
+        get: () => mockPrisma.chatAttachment,
         configurable: true,
       })
       const result = await svc.attachLink(
