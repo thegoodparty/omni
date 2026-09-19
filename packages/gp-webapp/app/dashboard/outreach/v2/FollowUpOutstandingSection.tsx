@@ -1,6 +1,6 @@
 'use client'
-import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useRef } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
@@ -46,7 +46,14 @@ export const FollowUpOutstandingSection = ({
   const listName = `${outreachName?.trim() || 'Phone banking'} — follow-ups`
   const orgSlug = useOrganization()?.slug
   const { errorSnackbar, successSnackbar } = useSnackbar()
-  const [savedListId, setSavedListId] = useState<number | null>(null)
+  const queryClient = useQueryClient()
+  // Refs, not state: the guard has to be set BEFORE the first await, and a
+  // state update is not visible to a second handler dispatched in the same
+  // tick. A double-tap (ordinary on mobile) would otherwise have both
+  // closures read null and save the list twice — `isPending` has not
+  // re-rendered the disabled button by then either.
+  const savedListRef = useRef<{ id: number; name: string } | null>(null)
+  const inFlightRef = useRef<Promise<{ id: number; name: string }> | null>(null)
 
   const outstandingQuery = useQuery({
     queryKey: ['follow-up-outstanding', orgSlug, outreachId],
@@ -66,19 +73,37 @@ export const FollowUpOutstandingSection = ({
   // click, so working the list and then exporting it does not leave two
   // identical lists behind.
   const saveList = useMutation({
-    mutationFn: async () => {
-      if (savedListId !== null) {
-        return { id: savedListId, name: listName }
+    mutationFn: () => {
+      if (savedListRef.current) {
+        return Promise.resolve(savedListRef.current)
       }
-      const { data } = await clientRequest(
-        'POST /v1/voters/voter-file/filter',
-        {
-          name: listName,
-          ...audiencePayload(outreachId),
-        },
-      )
-      setSavedListId(data.id)
-      return { id: data.id, name: data.name ?? listName }
+      // A second tap joins the in-flight save rather than starting its own.
+      if (inFlightRef.current) {
+        return inFlightRef.current
+      }
+      const pending = clientRequest('POST /v1/voters/voter-file/filter', {
+        name: listName,
+        ...audiencePayload(outreachId),
+      })
+        .then(({ data }) => {
+          const saved = { id: data.id, name: data.name ?? listName }
+          savedListRef.current = saved
+          return saved
+        })
+        .finally(() => {
+          inFlightRef.current = null
+        })
+      inFlightRef.current = pending
+      return pending
+    },
+    onSuccess: () => {
+      // Every other list-create path refreshes these two; without it the CRM
+      // lists index and the audience picker keep serving a set that does not
+      // contain the list we just told the official about.
+      queryClient.invalidateQueries({ queryKey: ['custom-segments', orgSlug] })
+      queryClient.invalidateQueries({
+        queryKey: ['outreach-audience-lists', orgSlug],
+      })
     },
     onError: () => {
       errorSnackbar("Couldn't build the follow-up list. Please try again.")
@@ -112,6 +137,9 @@ export const FollowUpOutstandingSection = ({
         action: 'call',
         outstanding,
       })
+      // Calling saves a list too; saying so is what stops the official
+      // finding an unexplained list in Constituent Data later.
+      successSnackbar(`Saved "${list.name}" to your lists.`)
       onCallList(list.id, list.name)
     }
   }

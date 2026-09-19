@@ -196,6 +196,59 @@ describe('POST /v1/contacts/count — follow-up filter', () => {
     })
   })
 
+  // The overlap strip resolves each SAVED list on its own path, which skips
+  // convertVoterFileFilterToFilters' handled-separately fields. Unresolved,
+  // a five-person follow-up list would contribute everyone its campaign
+  // reached and the strip would over-report by the difference.
+  it('honours the flag when a saved list is resolved for the overlap count', async () => {
+    const slug = await setupEoOrg('overlap')
+    const flagged = randomUUID()
+    const reachedNotFlagged = randomUUID()
+    await setFollowUp(slug, flagged, FollowUpStatus.requested)
+
+    const textService = service.app.get(ContactInteractionTextService)
+    await textService.create({
+      organizationSlug: slug,
+      personId: flagged,
+      occurredAt: new Date(),
+    })
+    await textService.create({
+      organizationSlug: slug,
+      personId: reachedNotFlagged,
+      occurredAt: new Date(),
+    })
+
+    const saved = await service.prisma.voterFileFilter.create({
+      data: {
+        organizationSlug: slug,
+        name: 'Follow-ups',
+        followUpRequested: true,
+        activityConditions: {
+          create: [{ outreachType: OutreachType.text, actions: [] }],
+        },
+      },
+    })
+    expect(saved.followUpRequested).toBe(true)
+
+    const overlapSpy = vi
+      .spyOn(service.app.get(VoterQueryService), 'getOverlapCount')
+      .mockResolvedValue({ count: 0 })
+
+    await service.client.post(
+      '/v1/contacts/overlap-count',
+      { followUpRequested: true },
+      { headers: { [ORG_SLUG_HEADER]: slug }, validateStatus: () => true },
+    )
+
+    const dto = overlapSpy.mock.calls[0]?.[0]
+    const savedSet = dto?.savedFilterSets?.[0]
+    expect(savedSet?.filterOperators?.id).toEqual({
+      operator: 'in',
+      values: [flagged],
+      includeNull: false,
+    })
+  })
+
   // Refused rather than ignored: silently dropping it would return a WIDER
   // audience than asked for, and a phone list built from that calls people
   // nobody selected.

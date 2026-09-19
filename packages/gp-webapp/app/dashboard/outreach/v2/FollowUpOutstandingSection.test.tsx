@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -168,6 +168,69 @@ describe('<FollowUpOutstandingSection>', () => {
     await waitFor(() => expect(successSnackbar).toHaveBeenCalled())
 
     expect(createCalls).toBe(1)
+  })
+
+  // Both clicks dispatched in ONE tick, which is what a double-tap does and
+  // what userEvent's awaited clicks cannot reproduce: React has not flushed
+  // the re-render that disables the button, so a state-based guard lets both
+  // through and saves the list twice.
+  it('saves once when both taps land before React re-renders', async () => {
+    mockCount(3)
+    let createCalls = 0
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    api.mock('POST /v1/voters/voter-file/filter', async () => {
+      createCalls += 1
+      await gate
+      return {
+        status: 200,
+        data: { id: 77, name: 'Tuesday calls — follow-ups' },
+      }
+    })
+
+    render(
+      <FollowUpOutstandingSection
+        outreachId={OUTREACH_ID}
+        outreachName="Tuesday calls"
+      />,
+    )
+
+    const button = await screen.findByRole('button', { name: 'Save as list' })
+    fireEvent.click(button)
+    fireEvent.click(button)
+    release?.()
+
+    await waitFor(() => expect(successSnackbar).toHaveBeenCalled())
+    expect(createCalls).toBe(1)
+  })
+
+  it('refreshes the lists caches so the saved list is findable', async () => {
+    const user = userEvent.setup()
+    mockCount(3)
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 77, name: 'Tuesday calls — follow-ups' },
+    })
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+
+    render(
+      <FollowUpOutstandingSection
+        outreachId={OUTREACH_ID}
+        outreachName="Tuesday calls"
+      />,
+    )
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Save as list' }),
+    )
+    await waitFor(() => expect(successSnackbar).toHaveBeenCalled())
+
+    const keys = invalidate.mock.calls.map((call) => call[0]?.queryKey?.[0])
+    expect(keys).toContain('custom-segments')
+    expect(keys).toContain('outreach-audience-lists')
+    invalidate.mockRestore()
   })
 
   it('offers no call action when the caller cannot open a flow', async () => {

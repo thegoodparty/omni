@@ -1041,6 +1041,19 @@ export class ContactsService {
                 supportStatus: savedFilter.supportStatus,
               },
             )
+          // followUpRequested is in fieldsHandledSeparately, so
+          // convertVoterFileFilterToFilters above skipped it — without this
+          // the set would contribute everyone its activity conditions match
+          // rather than the flagged subset, and the strip would over-report.
+          // Unlike the voter-likelihood overrides this loop deliberately
+          // leaves unresolved, dropping this one does not refine the
+          // audience, it erases the whole constraint: a five-person
+          // follow-up list would count as everyone its campaign reached.
+          savedIdResolution = await this.resolveFollowUpRequested(
+            organization,
+            savedFilter,
+            savedIdResolution,
+          )
         } catch (error) {
           this.logger.warn(
             {
