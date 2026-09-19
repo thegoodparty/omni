@@ -1,11 +1,11 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   HttpCode,
   HttpStatus,
-  NotImplementedException,
   NotFoundException,
   Param,
   Post,
@@ -25,6 +25,7 @@ import type {
   ChatHistoryResponse,
   ChatMessageFeedback as ChatMessageFeedbackResponse,
   CreateChatResponse,
+  LinkAttachResponse,
   PresignResponse,
 } from '@goodparty_org/contracts'
 import {
@@ -33,6 +34,8 @@ import {
   ChatAttachmentSchema,
   FinalizeRequest,
   FinalizeRequestSchema,
+  LinkAttachRequestSchema,
+  LinkAttachResponseSchema,
   PresignRequest,
   PresignRequestSchema,
   PresignResponseSchema,
@@ -357,13 +360,26 @@ export class GeneralChatsController {
   }
 
   @Post(':conversationId/attachments/link')
-  async linkAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(LinkAttachResponseSchema)
+  async linkAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Body() rawBody: Record<string, unknown>,
+  ): Promise<LinkAttachResponse> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    const parsed = LinkAttachRequestSchema.safeParse(rawBody)
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues)
+    return this.attachments.attachLink(
+      conversationId,
+      user.id,
+      organizationSlug,
+      parsed.data.url,
+    )
   }
 
   @Get(':conversationId/attachments')
