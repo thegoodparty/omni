@@ -192,9 +192,12 @@ export const useOutreachAudience = ({
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
   const [selectedRecommendation, setSelectedRecommendation] =
     useState<RecommendedList | null>(null)
-  // The count of a recommendation the candidate accepted by reusing the
-  // saved list it already resolves to, kept against that list's id.
-  const [reusedRecommendation, setReusedRecommendation] = useState<{
+  // The count of the recommendation the selected saved list came from, kept
+  // against that list's id. Both accept branches record it — the card that
+  // resolved to a list the candidate already had, and the card saved for the
+  // first time — because it is the only reach figure available when the
+  // Pro-gated list-detail read is off.
+  const [recommendationSnapshot, setRecommendationSnapshot] = useState<{
     listId: number
     count: number
   } | null>(null)
@@ -382,8 +385,8 @@ export const useOutreachAudience = ({
   const reachableCount = selectedRecommendation
     ? selectedRecommendation.count
     : (reachabilityQuery.data?.reachable ??
-      (reusedRecommendation?.listId === selectedListId
-        ? reusedRecommendation.count
+      (recommendationSnapshot?.listId === selectedListId
+        ? recommendationSnapshot.count
         : null))
   const selectedListTotal = reachabilityQuery.data?.total ?? null
 
@@ -476,7 +479,7 @@ export const useOutreachAudience = ({
     setMode('picker')
     setSelectedListId(null)
     setSelectedRecommendation(null)
-    setReusedRecommendation(null)
+    setRecommendationSnapshot(null)
     setCreateRecommendedListError(null)
     appliedPreselectRef.current = undefined
     setAppliedPreselectedVariant(null)
@@ -548,7 +551,7 @@ export const useOutreachAudience = ({
   const trackRecommendationReused = useCallback(
     (recommendation: RecommendedList) => {
       if (recommendation.existingFilterId !== null) {
-        setReusedRecommendation({
+        setRecommendationSnapshot({
           listId: recommendation.existingFilterId,
           count: recommendation.count,
         })
@@ -623,6 +626,13 @@ export const useOutreachAudience = ({
         queryKey: ['custom-segments', orgSlug],
       })
       setSelectedListId(data.id)
+      // The card's own count is the reach figure for the list it just
+      // became: selecting it drops `selectedRecommendation`, and with the
+      // Pro-gated list-detail read off nothing else can supply one.
+      setRecommendationSnapshot({
+        listId: data.id,
+        count: recommendation.count,
+      })
       setSelectedRecommendation(null)
       resetBuilder()
       return data

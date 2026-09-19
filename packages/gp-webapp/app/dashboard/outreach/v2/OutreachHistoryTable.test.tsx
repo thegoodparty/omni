@@ -684,6 +684,48 @@ describe('OutreachHistoryTable — draft rows', () => {
     expect(screen.getByLabelText('Ready to schedule')).toBeInTheDocument()
   })
 
+  // `useMembershipState` derives a fresh object on every call, so the hub
+  // hands this table a new-but-equal `membership` on every re-render (a rows
+  // refetch, a window focus, a sheet opening). Re-seeding the filter set off
+  // that identity restored every box the candidate had just unchecked.
+  it('keeps unchecked filters through a re-render with a new membership object', async () => {
+    const membership = () =>
+      ({
+        tier: 'free',
+        texting: 'needs_verification',
+        pinDelivery: null,
+        isElectedOffice: false,
+      }) as const
+
+    const { rerender } = render(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={membership()}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    await userEvent.click(screen.getByLabelText('Pro needed'))
+    expect(screen.getByLabelText('Pro needed')).not.toBeChecked()
+    expect(screen.getByRole('button', { name: /Filters/ })).toHaveTextContent(
+      '1',
+    )
+
+    rerender(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={membership()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Pro needed')).not.toBeChecked()
+    expect(screen.getByRole('button', { name: /Filters/ })).toHaveTextContent(
+      '1',
+    )
+  })
+
   it('reads no label for a draft when no membership is passed', () => {
     render(<OutreachHistoryTable rows={[draftRow]} onRowClick={vi.fn()} />)
 

@@ -29,11 +29,21 @@ vi.mock('../gate/useOutreachGate', async () => {
 vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
   // The completion is the candidate's Continue on the upgrade's success
   // screen — the one press the gate's own latch exists to keep reachable —
-  // so the stand-in exposes it as a button.
-  default: ({ onComplete }: { onComplete: () => void }) => (
+  // so the stand-in exposes it as a button. `onExit` is the wizard's own way
+  // out, which is also what Back on its FIRST step calls.
+  default: ({
+    onComplete,
+    onExit,
+  }: {
+    onComplete: () => void
+    onExit: () => void
+  }) => (
     <div data-testid="pro-upgrade-flow">
       <button type="button" onClick={onComplete}>
         Finish upgrade
+      </button>
+      <button type="button" onClick={onExit}>
+        Finish later
       </button>
     </div>
   ),
@@ -1991,6 +2001,18 @@ describe('RobocallFlow', () => {
       existingFilterId: 1,
     }
 
+    // The same card before it has ever been saved: the candidate names it,
+    // the flow creates the list, and the count has to survive that.
+    const NEW_RECOMMENDATION = {
+      ...RECOMMENDATION,
+      variant: 'persuadeUndecided' as const,
+      copy: {
+        title: 'Undecided persuadables',
+        criteriaSummary: 'Undecided voters',
+      },
+      existingFilterId: null,
+    }
+
     // Truthful for a free campaign: gp-api refuses list-detail without Pro.
     const mockFreeAudience = () => {
       let listDetailCalls = 0
@@ -2085,7 +2107,7 @@ describe('RobocallFlow', () => {
     const buildToReview = async (onClose: () => void = vi.fn()) => {
       mockDraft()
       mockSavedLists()
-      mockFreeAudience()
+      const listDetailCalls = mockFreeAudience()
       render(<RobocallFlow open onClose={onClose} />)
       fireEvent.click(screen.getByText('Persuade likely voters'))
       // Recommendations only: the picker offers no saved lists here.
@@ -2107,6 +2129,7 @@ describe('RobocallFlow', () => {
       await waitFor(() => expect(continueBtn).toBeEnabled())
       await userEvent.click(continueBtn)
       await screen.findByRole('button', { name: 'Save draft' })
+      return listDetailCalls
     }
 
     const saveDraft = () =>
@@ -2152,14 +2175,96 @@ describe('RobocallFlow', () => {
     it('reaches review and prices the summary off the recommendation', async () => {
       gateRef.set(FREE_GATE)
       mockSaveDraft()
-      const listDetailCalls = mockFreeAudience()
-
-      await buildToReview()
+      // buildToReview registers the audience mocks itself and hands back the
+      // live counter. Registering a second set here would leave this test
+      // counting a handler msw had already replaced.
+      const listDetailCalls = await buildToReview()
 
       expect(screen.getByText('People')).toBeInTheDocument()
       expect(screen.getByText('900')).toBeInTheDocument()
       expect(screen.getByText('Estimated cost')).toBeInTheDocument()
       expect(listDetailCalls()).toBe(0)
+    })
+
+    // The FIRST time a recommendation is taken there is no saved list yet, so
+    // it goes through createRecommendedList rather than the reuse branch.
+    // That path has to carry the card's count too, or the very first free
+    // build reaches review with no People row and no estimate.
+    it('carries the count through a recommendation saved for the first time', async () => {
+      gateRef.set(FREE_GATE)
+      mockSaveDraft()
+      mockDraft()
+      mockSavedLists()
+      const listDetailCalls = mockFreeAudience()
+      api.mock('GET /v1/campaigns/mine/recommended-lists', {
+        status: 200,
+        data: [NEW_RECOMMENDATION],
+      })
+      api.mock('POST /v1/voters/voter-file/filter', {
+        status: 200,
+        data: { id: 71, name: 'Undecided persuadables' },
+      })
+      render(<RobocallFlow open onClose={vi.fn()} />)
+
+      fireEvent.click(screen.getByText('Persuade likely voters'))
+      // A card with no saved list behind it opens the naming drawer, and its
+      // Continue is what creates the list.
+      await userEvent.click(await screen.findByText('Undecided persuadables'))
+      expect(await screen.findByLabelText('List name')).toHaveValue(
+        'Undecided persuadables',
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Continue' }),
+      )
+      await screen.findByText(/Read the script below into your microphone/)
+      mockAudioUpload()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Start recording' }),
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Stop recording' }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+      const continueBtn = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueBtn).toBeEnabled())
+      await userEvent.click(continueBtn)
+      await screen.findByRole('button', { name: 'Save draft' })
+
+      expect(screen.getByText('People')).toBeInTheDocument()
+      expect(screen.getByText('900')).toBeInTheDocument()
+      expect(screen.getByText('Estimated cost')).toBeInTheDocument()
+      expect(listDetailCalls()).toBe(0)
+    })
+
+    // The banner's gate opens the wizard on its first step, whose Back is the
+    // wizard's own exit. Wired straight to onClose it shut the sheet on a
+    // candidate who had only wanted to read what Pro was.
+    it('keeps the build when Back is pressed on the banner-opened gate', async () => {
+      gateRef.set(FREE_GATE)
+      mockSaveDraft()
+      mockDraft()
+      mockSavedLists()
+      mockFreeAudience()
+      const onClose = vi.fn()
+      render(<RobocallFlow open onClose={onClose} />)
+
+      fireEvent.click(screen.getByText('Persuade likely voters'))
+      await userEvent.click(await screen.findByText('Persuadable independents'))
+
+      await userEvent.click(screen.getByText(GATE_LINE))
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Upgrade to Pro' }),
+      )
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish later' }),
+      )
+
+      expect(
+        await screen.findByText('Persuadable independents'),
+      ).toBeInTheDocument()
+      expect(onClose).not.toHaveBeenCalled()
     })
 
     it('saves the robocall as a draft and opens the Pro interstitial', async () => {

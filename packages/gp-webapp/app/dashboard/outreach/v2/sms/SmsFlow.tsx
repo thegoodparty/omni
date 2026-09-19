@@ -1078,7 +1078,7 @@ export const SmsFlow = ({
           state={gate}
           open
           hasDraft={savedDraft !== null}
-          onExit={onClose}
+          onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onDelete={
             savedDraft

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Button,
@@ -332,24 +332,30 @@ export const OutreachHistoryTable = ({
   const [channelFilter, setChannelFilter] = useState<Set<ChannelFilterKey>>(
     () => new Set(CHANNEL_FILTERS.map((c) => c.key)),
   )
+  // Keyed on WHETHER there is a membership, never on the object: the hub
+  // re-renders often (rows refetch, window focus, a sheet opening) and a
+  // membership identity in the dependency list re-seeded the filter set on
+  // every one of them, restoring every box the candidate had unchecked.
+  const hasMembership = membership !== null
   const statusFilters: readonly StatusFilterKey[] = useMemo(
     () =>
-      membership
+      hasMembership
         ? [...BASE_STATUS_FILTERS, ...DRAFT_STATUS_FILTERS]
         : BASE_STATUS_FILTERS,
-    [membership],
+    [hasMembership],
   )
   const [statusFilter, setStatusFilter] = useState<Set<StatusFilterKey>>(
     () => new Set(statusFilters),
   )
   // Membership arrives after the flag read settles, so the five draft names
   // can join the set mid-mount; they start checked like every other filter.
+  // Once only — a second widening would undo the candidate's own unchecking.
+  const draftFiltersWidenedRef = useRef(hasMembership)
   useEffect(() => {
-    setStatusFilter((prev) => {
-      if (statusFilters.every((key) => prev.has(key))) return prev
-      return new Set([...prev, ...statusFilters])
-    })
-  }, [statusFilters])
+    if (!hasMembership || draftFiltersWidenedRef.current) return
+    draftFiltersWidenedRef.current = true
+    setStatusFilter((prev) => new Set([...prev, ...DRAFT_STATUS_FILTERS]))
+  }, [hasMembership])
 
   const displayStatusLabel = (row: HistoryRow): string | null => {
     // An archived row reads "Archived" no matter what state it was shelved

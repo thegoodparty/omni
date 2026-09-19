@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
@@ -64,18 +65,38 @@ export const useMembershipState = ({
     !tcrPending &&
     (!isAwaitingPinCandidate || !compliancePending)
 
+  const isPro = Boolean(campaign?.isPro)
+  const isElectedOffice = Boolean(electedOffice)
+  const tcrStatus = tcrCompliance?.status ?? null
+  const hasPeerlyIdentity = Boolean(tcrCompliance?.peerlyIdentityId)
+  const peerlyCvStatus = complianceState?.peerlyCvStatus ?? null
+  const pinDelivery = complianceState?.pinDelivery ?? null
+
+  // Derived on every call otherwise, so `state` was a NEW object on every
+  // render of every consumer — and a consumer that keys anything on its
+  // identity (the outreach history table's status filters) reset itself on
+  // every unrelated re-render. The derivation is pure over these six.
+  const state = useMemo(
+    () =>
+      deriveMembershipState({
+        isPro,
+        isElectedOffice,
+        tcrStatus,
+        hasPeerlyIdentity,
+        peerlyCvStatus,
+        pinDelivery,
+      }),
+    [
+      isPro,
+      isElectedOffice,
+      tcrStatus,
+      hasPeerlyIdentity,
+      peerlyCvStatus,
+      pinDelivery,
+    ],
+  )
+
   if (!ready) return { ready: false, state: null, tcrCompliance: null }
 
-  return {
-    ready: true,
-    tcrCompliance: tcrCompliance ?? null,
-    state: deriveMembershipState({
-      isPro: Boolean(campaign?.isPro),
-      isElectedOffice: Boolean(electedOffice),
-      tcrStatus: tcrCompliance?.status ?? null,
-      hasPeerlyIdentity: Boolean(tcrCompliance?.peerlyIdentityId),
-      peerlyCvStatus: complianceState?.peerlyCvStatus ?? null,
-      pinDelivery: complianceState?.pinDelivery ?? null,
-    }),
-  }
+  return { ready: true, tcrCompliance: tcrCompliance ?? null, state }
 }

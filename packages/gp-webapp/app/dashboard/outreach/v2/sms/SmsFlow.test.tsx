@@ -27,11 +27,21 @@ vi.mock('../gate/useOutreachGate', async () => {
 vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
   // The completion is the candidate's Continue on the upgrade's success
   // screen — the one press the gate's own latch exists to keep reachable —
-  // so the stand-in exposes it as a button.
-  default: ({ onComplete }: { onComplete: () => void }) => (
+  // so the stand-in exposes it as a button. `onExit` is the wizard's own way
+  // out, which is also what Back on its FIRST step calls.
+  default: ({
+    onComplete,
+    onExit,
+  }: {
+    onComplete: () => void
+    onExit: () => void
+  }) => (
     <div data-testid="pro-upgrade-flow">
       <button type="button" onClick={onComplete}>
         Finish upgrade
+      </button>
+      <button type="button" onClick={onExit}>
+        Finish later
       </button>
     </div>
   ),
@@ -532,6 +542,18 @@ describe('SmsFlow', () => {
       existingFilterId: 41,
     }
 
+    // The same card before it has ever been saved: the candidate names it,
+    // the flow creates the list, and the count has to survive that.
+    const NEW_RECOMMENDATION = {
+      ...RECOMMENDATION,
+      variant: 'persuadeUndecided' as const,
+      copy: {
+        title: 'Undecided persuadables',
+        criteriaSummary: 'Undecided voters',
+      },
+      existingFilterId: null,
+    }
+
     // Truthful for a free campaign: gp-api refuses list-detail without Pro.
     const mockFreeAudience = () => {
       let listDetailCalls = 0
@@ -653,6 +675,101 @@ describe('SmsFlow', () => {
       expect(screen.getByText('People')).toBeInTheDocument()
       expect(screen.getByText('900')).toBeInTheDocument()
       expect(listDetailCalls()).toBe(0)
+    })
+
+    // The FIRST time a recommendation is taken there is no saved list yet, so
+    // it goes through createRecommendedList rather than the reuse branch.
+    // That path has to carry the card's count too, or the very first free
+    // build reaches review with no People row and no total.
+    it('carries the count through a recommendation saved for the first time', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      const listDetailCalls = mockFreeAudience()
+      api.mock('GET /v1/campaigns/mine/recommended-lists', {
+        status: 200,
+        data: [NEW_RECOMMENDATION],
+      })
+      api.mock('POST /v1/voters/voter-file/filter', {
+        status: 200,
+        data: { id: 71, name: 'Undecided persuadables' },
+      })
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      // A card with no saved list behind it opens the naming drawer, and its
+      // Continue is what creates the list.
+      await userEvent.click(await screen.findByText('Undecided persuadables'))
+      expect(await screen.findByLabelText('List name')).toHaveValue(
+        'Undecided persuadables',
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Continue' }),
+      )
+      expect(
+        await screen.findByText(/AI body \(warm\) for introduce_myself/),
+      ).toBeInTheDocument()
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'Review and verify',
+        }),
+      ).toBeInTheDocument()
+      expect(screen.getByText('People')).toBeInTheDocument()
+      expect(screen.getByText('900')).toBeInTheDocument()
+      expect(listDetailCalls()).toBe(0)
+    })
+
+    // The banner's gate opens the wizard on its first step, whose Back is the
+    // wizard's own exit. Wired straight to onClose it shut the sheet on a
+    // candidate who had only wanted to read what Pro was.
+    it('keeps the build when Back is pressed on the banner-opened gate', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      const { onClose } = openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Persuadable independents'))
+
+      await userEvent.click(screen.getByText(GATE_LINE))
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Upgrade to Pro' }),
+      )
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish later' }),
+      )
+
+      expect(
+        await screen.findByText('Persuadable independents'),
+      ).toBeInTheDocument()
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    // The other half of the rule: with a row saved, Finish later still means
+    // what it always did — the draft is safe in history, so the sheet closes.
+    it('closes the sheet on Finish later once a draft is saved', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      const { onClose } = openFlow()
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish later' }),
+      )
+
+      expect(onClose).toHaveBeenCalled()
     })
 
     it('saves the text as a draft and opens the Pro interstitial', async () => {

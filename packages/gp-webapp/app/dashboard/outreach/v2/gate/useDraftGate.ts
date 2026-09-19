@@ -52,6 +52,7 @@ export interface DraftGate {
   saveDraft: () => Promise<void>
   deleteDraft: () => Promise<void>
   handleGateComplete: () => void
+  handleGateExit: () => void
   openGateFromExplainer: () => void
 }
 
@@ -191,6 +192,19 @@ export const useDraftGate = ({
     goToResumeStep()
   }
 
+  // Leaving the gate. With a draft behind it, "Finish later" means what it
+  // always did: the row is safe in history and the sheet closes. With
+  // nothing saved there is nothing to come back to, so leaving the gate can
+  // only mean returning to the step the candidate was building — which is
+  // also what Back on the upgrade wizard's first step calls.
+  const handleGateExit = (): void => {
+    setGateOpen(false)
+    const origin = gateOrigin
+    setGateOrigin(null)
+    if (origin === 'explainer' || savedDraft === null) return
+    onClose()
+  }
+
   const openGateFromExplainer = useCallback((): void => {
     setGateOrigin('explainer')
     setGateOpen(true)
@@ -210,6 +224,7 @@ export const useDraftGate = ({
     saveDraft,
     deleteDraft,
     handleGateComplete,
+    handleGateExit,
     openGateFromExplainer,
   }
 }
