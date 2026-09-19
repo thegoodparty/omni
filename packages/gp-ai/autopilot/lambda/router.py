@@ -154,7 +154,10 @@ class StageCeiling:
 STAGE_CEILINGS: dict[str, StageCeiling] = {
     STAGE_EPIC_CREATE: StageCeiling(max_budget_usd=10.0, deadline_seconds=30 * 60),
     STAGE_STORY: StageCeiling(max_budget_usd=15.0, deadline_seconds=45 * 60),
-    STAGE_QA: StageCeiling(max_budget_usd=8.0, deadline_seconds=30 * 60),
+    # 45, not 30: the first live 30-minute qa run was killed mid-walk (the
+    # walk shares its budget with waiting out the release train's deploy),
+    # exiting with nothing parked.
+    STAGE_QA: StageCeiling(max_budget_usd=8.0, deadline_seconds=45 * 60),
     # Resume continues story work rather than being its own kind of work —
     # the ticket carves out no separate budget for it, so it inherits story's.
     STAGE_RESUME: StageCeiling(max_budget_usd=15.0, deadline_seconds=45 * 60),

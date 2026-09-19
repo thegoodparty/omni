@@ -711,15 +711,59 @@ def test_park_if_stranded_skips_an_already_parked_result(tmp_path):
     assert clickup.writes == []
 
 
-def test_park_if_stranded_skips_errored_runs(tmp_path):
-    # A run that errored or hit a ceiling did not cleanly end — the card's
-    # state is whatever the crash left, and the sweep/stall alerts own it.
+def test_park_if_stranded_parks_an_errored_run_left_in_progress(tmp_path):
+    # An errored run (deadline kill, ceiling, crash after startup) leaves the
+    # card wherever the crash did — the first live qa deadline kill proved
+    # neither the sweep nor the stall alert routes it back, so the guard
+    # parks errors exactly like successes.
     clickup = FakeClickUpClient(task_status="in progress")
-    result = {"status": "error", "error": "boom"}
+    slack = FakeSlackClient()
+    result = {"status": "error", "error": "Deadline exceeded (1800s)"}
 
     park_if_stranded(
         result,
         "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert ("status", TASK_ID, FEEDBACK_NEEDED_STATUS) in clickup.writes
+    assert result["parked_stage"] == "story"
+    parked_comment = next(text for (kind, _, text) in clickup.writes if kind == "comment")
+    assert "Deadline exceeded" in parked_comment
+
+
+def test_park_if_stranded_parks_a_qa_run_dead_in_qa_status(tmp_path):
+    # A qa run's card STARTS in "qa", a status nothing routes out of — a run
+    # that dies mid-walk strands it exactly where it began (ENG-11132 live).
+    clickup = FakeClickUpClient(task_status="qa")
+    slack = FakeSlackClient()
+    result = {"status": "error", "error": "Deadline exceeded (1800s)"}
+
+    park_if_stranded(
+        result,
+        "qa",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert ("status", TASK_ID, FEEDBACK_NEEDED_STATUS) in clickup.writes
+    assert result["parked_stage"] == "qa"
+
+
+def test_park_if_stranded_leaves_a_passed_qa_card_in_done_alone(tmp_path):
+    clickup = FakeClickUpClient(task_status="done")
+    result = {"status": "success"}
+
+    park_if_stranded(
+        result,
+        "qa",
         TASK_ID,
         clickup_client_factory=factory_for(clickup),
         slack_client_factory=factory_for(FakeSlackClient()),
@@ -728,7 +772,7 @@ def test_park_if_stranded_skips_errored_runs(tmp_path):
     )
 
     assert clickup.writes == []
-    assert result == {"status": "error", "error": "boom"}
+    assert "parked_stage" not in result
 
 
 def test_park_if_stranded_guard_failure_never_masks_the_run_result(tmp_path):
