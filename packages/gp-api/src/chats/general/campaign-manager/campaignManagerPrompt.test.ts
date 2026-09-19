@@ -121,6 +121,9 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(on).toContain('count_contacts')
     expect(on).toContain('describe_filter_dimensions')
     expect(on).toContain('Pro upgrade')
+    expect(on).toContain(
+      'name any part of the request the filter could not apply',
+    )
 
     // Flag on but no org row resolved = tools not registered, so no block.
     const noOrg = buildCampaignManagerSystemPrompt(
@@ -150,6 +153,8 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(withWrites).toContain('40 characters')
     expect(withWrites).toContain('duplicated')
     expect(withWrites).toContain('confirm the size')
+    expect(withWrites).toContain('report the count crud_saved_filters returned')
+    expect(withWrites).toContain('abbreviating it does not make it belong')
   })
 
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {
