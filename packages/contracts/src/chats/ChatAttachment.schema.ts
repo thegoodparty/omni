@@ -65,7 +65,21 @@ export type FinalizeRequest = z.infer<typeof FinalizeRequestSchema>
 
 export const LinkAttachRequestSchema = z
   .object({
-    url: z.string().url().max(2048),
+    url: z
+      .string()
+      .url()
+      .max(2048)
+      .refine(
+        (u) => {
+          try {
+            const { protocol } = new URL(u)
+            return protocol === 'http:' || protocol === 'https:'
+          } catch {
+            return false
+          }
+        },
+        { message: 'URL scheme must be http or https' },
+      ),
   })
   .strict()
 export type LinkAttachRequest = z.infer<typeof LinkAttachRequestSchema>

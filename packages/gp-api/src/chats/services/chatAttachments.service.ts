@@ -147,10 +147,16 @@ export class ChatAttachmentsService extends createPrismaBase(
   async attachLink(
     conversationId: string,
     userId: number,
+    organizationSlug: string,
     url: string,
   ): Promise<LinkAttachResponse> {
     const conversation = await this.client.chatConversation.findFirst({
-      where: { id: conversationId, ownerUserId: userId, deletedAt: null },
+      where: {
+        id: conversationId,
+        ownerUserId: userId,
+        organizationSlug,
+        deletedAt: null,
+      },
       include: { _count: { select: { attachments: true } } },
     })
     if (!conversation) throw new NotFoundException()
@@ -163,6 +169,9 @@ export class ChatAttachmentsService extends createPrismaBase(
       parsed = new URL(url)
     } catch {
       return { ok: false, error: 'unreachable' }
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { ok: false, error: 'blocked_url' }
     }
     if (literalHostBlocked(parsed.hostname)) {
       return { ok: false, error: 'blocked_url' }
@@ -209,7 +218,7 @@ export class ChatAttachmentsService extends createPrismaBase(
         const result = await parsePdfText(new Uint8Array(fetched.body))
         pages = result.pages
       } catch {
-        // PDF parsing failure — store without page count
+        return { ok: false, error: 'too_large' }
       }
       if (pages !== null && pages > CHAT_ATTACHMENT_MAX_PAGES) {
         return { ok: false, error: 'too_large' }
@@ -240,23 +249,30 @@ export class ChatAttachmentsService extends createPrismaBase(
       )
     }
 
-    const row = await this.model.create({
-      data: {
-        id: attachmentId,
-        conversationId,
-        ownerUserId: userId,
-        source: ChatAttachmentSource.URL,
-        sourceUrl: url,
-        storageKey,
-        fileName,
-        mimeType,
-        sizeBytes,
-        pageCount,
-        extractedText,
-        status: ChatAttachmentStatus.ready,
-        readyAt: new Date(),
-      },
-    })
+    const row = await this.model
+      .create({
+        data: {
+          id: attachmentId,
+          conversationId,
+          ownerUserId: userId,
+          source: ChatAttachmentSource.URL,
+          sourceUrl: url,
+          storageKey,
+          fileName,
+          mimeType,
+          sizeBytes,
+          pageCount,
+          extractedText,
+          status: ChatAttachmentStatus.ready,
+          readyAt: new Date(),
+        },
+      })
+      .catch(async (err) => {
+        await this.s3
+          .deleteObject(CHAT_ATTACHMENTS_BUCKET, storageKey)
+          .catch(() => {})
+        throw err
+      })
 
     return {
       ok: true,

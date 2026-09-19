@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -25,7 +26,10 @@ import type {
   CreateChatResponse,
   LinkAttachResponse,
 } from '@goodparty_org/contracts'
-import { LinkAttachResponseSchema } from '@goodparty_org/contracts'
+import {
+  LinkAttachRequestSchema,
+  LinkAttachResponseSchema,
+} from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
@@ -45,7 +49,6 @@ import {
   ChatMessageFeedbackSchema,
   CreateChatDto,
   CreateChatResponseSchema,
-  LinkAttachDto,
   SendChatMessageDto,
   SetChatMessageFeedbackDto,
 } from '../schemas/GeneralChat.schema'
@@ -325,15 +328,23 @@ export class GeneralChatsController {
   @ResponseSchema(LinkAttachResponseSchema)
   async linkAttachment(
     @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
-    @Body(ZodValidationPipe) body: LinkAttachDto,
+    @Body() rawBody: Record<string, unknown>,
   ): Promise<LinkAttachResponse> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    return this.attachments.attachLink(conversationId, user.id, body.url)
+    const parsed = LinkAttachRequestSchema.safeParse(rawBody)
+    if (!parsed.success) throw new BadRequestException(parsed.error.errors)
+    return this.attachments.attachLink(
+      conversationId,
+      user.id,
+      organizationSlug,
+      parsed.data.url,
+    )
   }
 
   @Delete(':conversationId')
