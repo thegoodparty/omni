@@ -379,6 +379,27 @@ describe('OutreachGate', () => {
       expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
     })
 
+    // The PIN is the last thing standing between the candidate and their
+    // text. Reading its success as a close dropped them out of the sheet at
+    // the very end of the journey.
+    it('completes the gate when the PIN verifies', () => {
+      const onComplete = vi.fn()
+      const onExit = vi.fn()
+      render(
+        <OutreachGate
+          {...baseProps}
+          state={stateWith({ requirement: 'pin' })}
+          onComplete={onComplete}
+          onExit={onExit}
+        />,
+      )
+
+      mockPinDialog.mock.calls[0]![0].onSuccess?.()
+
+      expect(onComplete).toHaveBeenCalledTimes(1)
+      expect(onExit).not.toHaveBeenCalled()
+    })
+
     it('exits when PinDialog closes', () => {
       const onExit = vi.fn()
       render(

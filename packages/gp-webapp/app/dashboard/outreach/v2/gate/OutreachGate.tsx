@@ -168,9 +168,13 @@ export const OutreachGate = ({
         </Body2>
         <PinDialog
           open
+          // A dismissal is the candidate leaving; a verified PIN is the last
+          // thing standing between them and their text, so it completes the
+          // gate rather than closing the sheet on them.
           onOpenChange={(nextOpen) => {
             if (!nextOpen) onExit()
           }}
+          onSuccess={onComplete}
           tcrCompliance={state.tcrCompliance}
         />
       </div>

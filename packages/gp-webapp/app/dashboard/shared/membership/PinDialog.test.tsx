@@ -125,6 +125,69 @@ describe('PinDialog', () => {
     expect(mockSubmit).toHaveBeenCalledWith('123456')
   })
 
+  // A verified PIN is not the same event as the dialog closing. A caller
+  // that has something to do next — the outreach gate has a text to hand
+  // back — takes it here instead of reading the close.
+  it('reports a verified PIN through onSuccess instead of closing', async () => {
+    const user = userEvent.setup()
+    mockUseCvPinGate.mockReturnValue({
+      state: CV_PIN_GATE.READY,
+      pinDelivery: null,
+    })
+    mockUseSubmitCvPin.mockImplementation(
+      (_tcr: unknown, options: { onSuccess: () => void }) => ({
+        submit: async () => options.onSuccess(),
+        submitting: false,
+        error: null,
+      }),
+    )
+    const onOpenChange = vi.fn()
+    const onSuccess = vi.fn()
+    render(
+      <PinDialog
+        open
+        onOpenChange={onOpenChange}
+        onSuccess={onSuccess}
+        tcrCompliance={null}
+      />,
+    )
+
+    await user.type(getPinInput(), '123456')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify PIN' })).toBeEnabled()
+    })
+    await user.click(screen.getByRole('button', { name: 'Verify PIN' }))
+
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1))
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  // The membership banner and chip pass none, and must keep closing.
+  it('still closes on success when no onSuccess is given', async () => {
+    const user = userEvent.setup()
+    mockUseCvPinGate.mockReturnValue({
+      state: CV_PIN_GATE.READY,
+      pinDelivery: null,
+    })
+    mockUseSubmitCvPin.mockImplementation(
+      (_tcr: unknown, options: { onSuccess: () => void }) => ({
+        submit: async () => options.onSuccess(),
+        submitting: false,
+        error: null,
+      }),
+    )
+    const onOpenChange = vi.fn()
+    render(<PinDialog open onOpenChange={onOpenChange} tcrCompliance={null} />)
+
+    await user.type(getPinInput(), '123456')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Verify PIN' })).toBeEnabled()
+    })
+    await user.click(screen.getByRole('button', { name: 'Verify PIN' }))
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
+
   it('falls back to the generic PIN copy when no delivery is reported', () => {
     mockUseCvPinGate.mockReturnValue({
       state: CV_PIN_GATE.READY,

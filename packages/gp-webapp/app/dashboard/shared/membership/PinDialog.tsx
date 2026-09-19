@@ -30,6 +30,11 @@ const PIN_LENGTH = 6
 interface PinDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  // A VERIFIED PIN, as distinct from the dialog closing. The membership
+  // surfaces have nothing to do after one and can ignore it; the outreach
+  // gate cannot, because it reads any close as the candidate leaving and
+  // would drop them out of the flow at the end of the texting journey.
+  onSuccess?: () => void
   // Callers only open this once the TCR read has settled (the membership
   // hook's `ready`), so null here means genuinely no record — not "still
   // loading" — and showing only Close is the right answer.
@@ -41,6 +46,7 @@ interface PinDialogProps {
 export const PinDialog = ({
   open,
   onOpenChange,
+  onSuccess,
   tcrCompliance,
 }: PinDialogProps): React.JSX.Element => {
   const [pin, setPin] = useState('')
@@ -48,6 +54,10 @@ export const PinDialog = ({
   const { submit, submitting, error } = useSubmitCvPin(tcrCompliance, {
     onSuccess: () => {
       setPin('')
+      if (onSuccess) {
+        onSuccess()
+        return
+      }
       onOpenChange(false)
     },
   })
