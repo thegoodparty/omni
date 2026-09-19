@@ -59,7 +59,17 @@ shipped.
 
 - **Anything failed**: post a numbered findings comment on `CLICKUP_TASK_ID`
   (expected vs. actual per finding), attach the screenshots via the ClickUp
-  attachment API, and move the ticket back to `in progress`.
+  attachment API, then park:
+
+      python -m autopilot.agent.feedback park --task-id <CLICKUP_TASK_ID> \
+          --stage qa \
+          --question "QA failed: see the findings comment above. Fix (or answer) the findings, then comment here or move the card back to in progress to re-verify."
+
+  Never move the ticket to `in progress` yourself — for a story that status
+  is a dead end the conductor routes nothing from (the first live QA fail
+  proved it: the card sat unroutable until a safety net parked it). The park
+  lands the card in `feedback needed` with the marker `resume` needs, and a
+  human's answer or drag re-dispatches QA.
 - **Everything passed**: move the ticket to `done`.
 
 Either way, screenshots belong on the ticket, not left behind in the

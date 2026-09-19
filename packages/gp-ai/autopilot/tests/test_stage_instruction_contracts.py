@@ -178,7 +178,15 @@ def test_qa_covers_its_load_bearing_directives():
 
     assert "numbered findings comment" in text.lower(), "failures must file a numbered findings comment"
     assert "attach" in text.lower() and "ClickUp attachment API" in text, "screenshots must attach via the ClickUp API"
-    assert "move the ticket back to `in progress`" in text, "a failing run must reopen the ticket"
+    # A failing run parks (marker + feedback needed + Slack). It must NOT
+    # move the story to `in progress`: no conductor route matches
+    # qa -> in progress, so that status is a dead end only the stall alert
+    # would ever notice — the first live QA fail sat there until the
+    # stranded-run guard rescued it.
+    assert "--stage qa" in text, "a failing run must park via the feedback primitive"
+    assert "Never move the ticket to `in progress` yourself" in text, (
+        "must forbid the dead-end in-progress reopen"
+    )
     assert "move the ticket to `done`" in text, "a passing run must close the ticket"
 
     assert "never edits code" in text, "must stay read-only against the app"
