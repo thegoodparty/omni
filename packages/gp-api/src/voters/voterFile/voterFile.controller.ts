@@ -30,6 +30,7 @@ import { userHasRole } from 'src/users/util/users.util'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
 import { VoterFileFilterService } from '../services/voterFileFilter.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { CanDownloadVoterFileGuard } from './guards/CanDownloadVoterFile.guard'
 import { GetVoterFileSchema } from './schemas/GetVoterFile.schema'
 import { VoterFileService } from './voterFile.service'
@@ -42,6 +43,9 @@ export class VoterFileController {
     private readonly voterFileService: VoterFileService,
     private readonly campaigns: CampaignsService,
     private readonly voterFileFilterService: VoterFileFilterService,
+    // Safe here and not in VoterFileFilterService: nothing imports this
+    // controller, so reaching into contacts closes no ES module cycle.
+    private readonly contacts: ContactsService,
     private readonly organizationsService: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
@@ -93,7 +97,12 @@ export class VoterFileController {
     return this.voterFileFilterService.create(
       organization.slug,
       voterFileFilter,
-      organization,
+      voterFileFilter.geoPoly
+        ? await this.contacts.resolveGeoMemberIds(
+            organization,
+            voterFileFilter.geoPoly,
+          )
+        : null,
     )
   }
 
@@ -140,7 +149,9 @@ export class VoterFileController {
       id,
       organization.slug,
       body,
-      organization,
+      body.geoPoly
+        ? await this.contacts.resolveGeoMemberIds(organization, body.geoPoly)
+        : null,
     )
   }
 

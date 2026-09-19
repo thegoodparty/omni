@@ -2,22 +2,17 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
-  Inject,
   Injectable,
-  forwardRef,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
 import {
-  Organization,
   OutreachStatus,
   OutreachType,
   Prisma,
   VoterFileFilter,
 } from '../../generated/prisma'
-import type { GeoJsonPolygon } from '@goodparty_org/contracts'
-import { ContactsService } from '@/contacts/services/contacts.service'
 import { VoterFileFilterGeoService } from './voterFileFilterGeo.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
@@ -49,26 +44,15 @@ const toActivityConditionCreateInput = (
 export class VoterFileFilterService extends createPrismaBase(
   MODELS.VoterFileFilter,
 ) {
-  constructor(
-    // ContactsService owns the district gate and the people-db scan a shape
-    // has to run through; it already depends on this service, and the two
-    // modules already forwardRef each other.
-    @Inject(forwardRef(() => ContactsService))
-    private readonly contacts: ContactsService,
-    private readonly geo: VoterFileFilterGeoService,
-  ) {
+  // Deliberately does NOT inject ContactsService. The scan a boundary needs
+  // lives there, and ContactsService already injects this service — a
+  // forwardRef fixes Nest's DI cycle but not the ES module one, because
+  // emitDecoratorMetadata evaluates the constructor's param types eagerly
+  // and crashes the app at boot with "Cannot access 'ContactsService'
+  // before initialization". The controller owns both and resolves the ids
+  // before calling in.
+  constructor(private readonly geo: VoterFileFilterGeoService) {
     super()
-  }
-
-  // Resolved OUTSIDE any transaction: this is a Databricks scan, and holding
-  // a Postgres transaction open across it would pin a connection for its
-  // whole duration.
-  private async resolveGeoMembers(
-    organization: Organization | undefined,
-    geoPoly: GeoJsonPolygon | null | undefined,
-  ): Promise<string[] | null> {
-    if (!geoPoly || !organization) return null
-    return this.contacts.resolveGeoMemberIds(organization, geoPoly)
   }
 
   private async validateActivityConditions(
@@ -162,9 +146,10 @@ export class VoterFileFilterService extends createPrismaBase(
   async create(
     organizationSlug: string,
     data: CreateVoterFileFilterSchema,
-    // Only needed to resolve a drawn boundary; every caller without one
-    // (the assistant tool, recommended lists) omits it and is unchanged.
-    organization?: Organization,
+    // The people a drawn boundary enclosed, already resolved by the caller.
+    // Null means no boundary was submitted; every caller without one (the
+    // assistant tool, recommended lists) omits it and is unchanged.
+    geoMemberIds?: string[] | null,
   ): Promise<VoterFileFilterWithConditions> {
     const { activityConditions, recommendedFilter, geoPoly, ...rest } = data
 
@@ -184,8 +169,6 @@ export class VoterFileFilterService extends createPrismaBase(
     const recommendedModified = rest.recommendedVariant
       ? findEquivalentFilter(rest, [{ ...recommendedFilter, id: -1 }]) === null
       : null
-
-    const geoMemberIds = await this.resolveGeoMembers(organization, geoPoly)
 
     return this.client.$transaction(async (tx) => {
       const created = await tx.voterFileFilter.create({
@@ -280,12 +263,11 @@ export class VoterFileFilterService extends createPrismaBase(
     id: number,
     organizationSlug: string,
     data: UpdateVoterFileFilterSchema,
-    organization?: Organization,
+    geoMemberIds?: string[] | null,
   ): Promise<VoterFileFilterWithConditions> {
     await this.assertNotLocked(id, organizationSlug)
 
     const { activityConditions, geoPoly, ...rest } = data
-    const geoMemberIds = await this.resolveGeoMembers(organization, geoPoly)
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
