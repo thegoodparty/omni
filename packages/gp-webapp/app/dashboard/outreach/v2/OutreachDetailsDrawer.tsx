@@ -1084,7 +1084,6 @@ export const OutreachDetailsDrawer = ({
                 <FollowUpOutstandingSection
                   outreachId={row.id}
                   outreachName={row.name}
-                  answeredYesCount={phoneBanking.byFollowUp.yes}
                   onCallList={onCallFollowUpList}
                 />
               )}

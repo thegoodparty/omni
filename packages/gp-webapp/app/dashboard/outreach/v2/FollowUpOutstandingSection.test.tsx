@@ -54,7 +54,6 @@ describe('<FollowUpOutstandingSection>', () => {
       <FollowUpOutstandingSection
         outreachId={OUTREACH_ID}
         outreachName="Tuesday calls"
-        answeredYesCount={9}
       />,
     )
 
@@ -67,38 +66,37 @@ describe('<FollowUpOutstandingSection>', () => {
     })
   })
 
-  it('shows the outstanding count and names the gap against the campaign tally', async () => {
+  it('shows the outstanding count as a labelled tile', async () => {
     mockCount(3)
 
     render(
       <FollowUpOutstandingSection
         outreachId={OUTREACH_ID}
         outreachName="Tuesday calls"
-        answeredYesCount={9}
       />,
     )
 
     expect(await screen.findByText('3')).toBeInTheDocument()
-    expect(screen.getByText(/9 asked during this campaign/)).toBeInTheDocument()
+    expect(screen.getByText('Asked for follow-up')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'People who requested a follow-up during the course of your campaign',
+      ),
+    ).toBeInTheDocument()
   })
 
-  it('reads as done, with no actions, when nothing is outstanding', async () => {
+  it('shows a zero tile and no actions when nothing is outstanding', async () => {
     mockCount(0)
 
     render(
       <FollowUpOutstandingSection
         outreachId={OUTREACH_ID}
         outreachName="Tuesday calls"
-        answeredYesCount={4}
         onCallList={vi.fn()}
       />,
     )
 
-    expect(
-      await screen.findByText(
-        'Everyone who asked for a follow-up has had one.',
-      ),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('0')).toBeInTheDocument()
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
@@ -119,7 +117,6 @@ describe('<FollowUpOutstandingSection>', () => {
       <FollowUpOutstandingSection
         outreachId={OUTREACH_ID}
         outreachName="Tuesday calls"
-        answeredYesCount={9}
         onCallList={onCallList}
       />,
     )
@@ -159,7 +156,6 @@ describe('<FollowUpOutstandingSection>', () => {
       <FollowUpOutstandingSection
         outreachId={OUTREACH_ID}
         outreachName="Tuesday calls"
-        answeredYesCount={9}
         onCallList={vi.fn()}
       />,
     )
@@ -181,7 +177,6 @@ describe('<FollowUpOutstandingSection>', () => {
       <FollowUpOutstandingSection
         outreachId={OUTREACH_ID}
         outreachName="Tuesday calls"
-        answeredYesCount={9}
       />,
     )
 
@@ -200,7 +195,6 @@ describe('<FollowUpOutstandingSection>', () => {
       <FollowUpOutstandingSection
         outreachId={OUTREACH_ID}
         outreachName="Tuesday calls"
-        answeredYesCount={9}
         onCallList={vi.fn()}
       />,
     )
@@ -221,7 +215,6 @@ describe('<FollowUpOutstandingSection>', () => {
       <FollowUpOutstandingSection
         outreachId={OUTREACH_ID}
         outreachName="Tuesday calls"
-        answeredYesCount={9}
         onCallList={onCallList}
       />,
     )

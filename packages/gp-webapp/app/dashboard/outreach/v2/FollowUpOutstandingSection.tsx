@@ -6,16 +6,18 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { DetailsSection } from './listDetails/ListDetailsMetric'
+import { PhoneIcon } from '@styleguide/components/ui/icons'
+import {
+  DetailsSection,
+  Metric,
+  MetricGrid,
+} from './listDetails/ListDetailsMetric'
 
 interface FollowUpOutstandingSectionProps {
   outreachId: number
   // Nullable: a campaign can reach results without ever being named, and
   // the saved list still needs something an official will recognise.
   outreachName: string | null | undefined
-  // The campaign's own tally of "yes" answers, straight off its interaction
-  // rows. Passed in only so the copy can explain the gap when the two differ.
-  answeredYesCount: number
   // Serve's hub hands this in to open the phone-banking flow on the list this
   // section just saved. Omitted by any caller that cannot open a flow, which
   // is what keeps the section useful (Save as list still works) rather than
@@ -39,7 +41,6 @@ const audiencePayload = (outreachId: number) => ({
 export const FollowUpOutstandingSection = ({
   outreachId,
   outreachName,
-  answeredYesCount,
   onCallList,
 }: FollowUpOutstandingSectionProps): React.JSX.Element | null => {
   const listName = `${outreachName?.trim() || 'Phone banking'} — follow-ups`
@@ -117,11 +118,15 @@ export const FollowUpOutstandingSection = ({
 
   return (
     <DetailsSection title="Follow-ups outstanding">
-      <p className="text-3xl font-semibold text-foreground">{outstanding}</p>
+      <MetricGrid>
+        <Metric
+          icon={<PhoneIcon />}
+          label="Asked for follow-up"
+          value={String(outstanding)}
+        />
+      </MetricGrid>
       <p className="text-sm text-muted-foreground">
-        {outstanding === 0
-          ? 'Everyone who asked for a follow-up has had one.'
-          : `Still waiting to hear back from you. ${answeredYesCount} asked during this campaign; anyone you have followed up with since is no longer counted here.`}
+        People who requested a follow-up during the course of your campaign
       </p>
       {outstanding > 0 && (
         <div className="flex flex-wrap gap-2">
