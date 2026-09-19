@@ -25,7 +25,7 @@ STAGES = ("epic-create", "story", "qa", "resume")
 STAGE_CEILINGS: dict[str, tuple[float, float]] = {
     "epic-create": (10.0, 30 * 60),
     "story": (15.0, 45 * 60),
-    "qa": (8.0, 30 * 60),
+    "qa": (8.0, 45 * 60),
 }
 
 

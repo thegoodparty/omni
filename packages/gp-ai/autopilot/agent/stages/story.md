@@ -79,8 +79,11 @@ first command worked.
 
 ### 5. Drive delegate to approval
 
-Re-trigger delegate-reviewer review after every push you make (comment
-`delegate review`), and check `reviewDecision` before pushing anything
+Re-trigger delegate-reviewer review after every push you make: post an issue
+comment whose body is exactly `delegate review` — no leading slash, no other
+text. `/delegate review` is NOT the trigger and silently does nothing (a live
+PR sat blocked for hours on two slash-prefixed triggers no reviewer ever
+answered). Check `reviewDecision` before pushing anything
 further — don't push blind into an in-flight review. Fix blockers yourself;
 if a finding needs a human call (it's verifiably wrong, or touches something
 outside this story's scope), park instead of deciding alone. Your exit
