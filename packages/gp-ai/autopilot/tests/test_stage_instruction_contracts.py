@@ -183,7 +183,9 @@ def test_qa_covers_its_load_bearing_directives():
     # qa -> in progress, so that status is a dead end only the stall alert
     # would ever notice — the first live QA fail sat there until the
     # stranded-run guard rescued it.
-    assert "--stage qa" in text, "a failing run must park via the feedback primitive"
+    # "QA failed" is unique to the fail-park block ("--stage qa" alone would
+    # be satisfied by section 1's deploy-pending park).
+    assert "QA failed" in text, "a failing run must park via the feedback primitive"
     assert "Never move the ticket to `in progress` yourself" in text, (
         "must forbid the dead-end in-progress reopen"
     )

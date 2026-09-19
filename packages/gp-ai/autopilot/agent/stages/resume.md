@@ -63,6 +63,13 @@ pending: ...") instead of a real question. Don't wait for a human reply to
 view` / `gh pr checks` for a pending merge, or the deployed commit for a
 pending deploy.
 
+This shortcut applies ONLY to those status-note parks. A qa park whose
+question starts "QA failed" is a real question — the findings comment above
+it needs a fix or an answer, and "the commit is live on dev" resolves
+nothing (it was live when QA failed). Treat it through step 3: no human
+reply addressing the findings means park again and end your turn, never
+re-run the QA walk on a hunch.
+
 - **Resolved** (the PR has since merged; the commit is now live on dev):
   continue straight into that stage's remaining handoff steps — moving the
   ticket to `qa`, or running the QA walk — you don't need a reply in the
