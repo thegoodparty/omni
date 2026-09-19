@@ -64,11 +64,15 @@ view` / `gh pr checks` for a pending merge, or the deployed commit for a
 pending deploy.
 
 This shortcut applies ONLY to those status-note parks. A qa park whose
-question starts "QA failed" is a real question — the findings comment above
-it needs a fix or an answer, and "the commit is live on dev" resolves
-nothing (it was live when QA failed). Treat it through step 3: no human
-reply addressing the findings means park again and end your turn, never
-re-run the QA walk on a hunch.
+question starts "QA failed" is a real question about real findings — never
+auto-resolve it with the deploy check above, because "the commit is live on
+dev" resolves nothing: the findings were produced against that same live
+commit. But you don't wait for a reply here either. Every resume dispatch is
+human-initiated by construction (the conductor drops the bot's own comments,
+and only a human can drag through the gate), so being in this run at all
+means a human asked for re-verification. Read the findings comment and any
+replies for what changed or was answered, then re-run the QA walk with that
+context.
 
 - **Resolved** (the PR has since merged; the commit is now live on dev):
   continue straight into that stage's remaining handoff steps — moving the

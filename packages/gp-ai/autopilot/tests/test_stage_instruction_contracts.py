@@ -186,8 +186,17 @@ def test_qa_covers_its_load_bearing_directives():
     # "QA failed" is unique to the fail-park block ("--stage qa" alone would
     # be satisfied by section 1's deploy-pending park).
     assert "QA failed" in text, "a failing run must park via the feedback primitive"
-    assert "Never move the ticket to `in progress` yourself" in text, (
-        "must forbid the dead-end in-progress reopen"
+    assert "Never move the ticket to `in progress` yourself" in text, "must forbid the dead-end in-progress reopen"
+
+    # The fail-park question promises the human that a reply OR a drag
+    # re-verifies; resume.md's QA-failed carve-out must uphold both halves.
+    resume_text = _read("resume")
+    assert '"QA failed"' in resume_text, "resume must carve QA-failed parks out of the status-note shortcut"
+    assert "never" in resume_text.lower() and "auto-resolve" in resume_text, (
+        "a QA-failed park must not be auto-resolved by the deploy check"
+    )
+    assert "re-run the QA walk" in resume_text, (
+        "a human-initiated resume of a QA-failed park re-verifies — the human was promised a drag suffices"
     )
     assert "move the ticket to `done`" in text, "a passing run must close the ticket"
 
