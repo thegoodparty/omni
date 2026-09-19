@@ -16,6 +16,7 @@ import { getContactsLabels } from '../../../shared/contactsLabels'
 import { useContactsTable } from '../ContactsTableProvider'
 import { SectionLabel } from '../lists/ListDetailSection'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
+import { boundarySaveErrorMessage } from '../shared/boundarySaveError'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useListPeople, listPeopleQueryKey } from './useListPeople'
 import ListBoundaryOverlay from './ListBoundaryOverlay'
@@ -90,6 +91,14 @@ export default function ListMapSection({
         await queryClient.invalidateQueries({
           queryKey: ['custom-segments', orgSlug],
         })
+        return
+      }
+      // The cap refusal reaches this surface too — a saved list's boundary
+      // is frozen by the same unfiltered scan — and its wording is the only
+      // thing that tells the holder to draw smaller.
+      const capMessage = boundarySaveErrorMessage(error)
+      if (capMessage) {
+        errorSnackbar(capMessage, { autoHideDuration: 6000 })
         return
       }
       errorSnackbar('Failed to update list')

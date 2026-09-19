@@ -1000,6 +1000,45 @@ describe('CreateListWizard — error handling', () => {
     expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(0)
     expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(0)
   })
+
+  // The save freezes the shape's membership with an UNFILTERED scan where
+  // the live preview applies the list's filters, so the same shape can
+  // preview at a few thousand and still exceed the cap here. gp-api words
+  // that refusal for whoever drew it, and a generic "Failed to create list"
+  // throws away the only thing telling them to draw smaller.
+  it('surfaces the cap refusal from the server rather than a generic failure', async () => {
+    const capMessage =
+      'This area holds too many people to count. Draw a smaller boundary ' +
+      'or narrow the list.'
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 400,
+      data: { message: capMessage },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Too big')
+    await clickSaveList(user)
+
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        capMessage,
+        expect.objectContaining({ autoHideDuration: 6000 }),
+      ),
+    )
+    expect(errorSnackbar).not.toHaveBeenCalledWith('Failed to create list')
+  })
 })
 
 describe('CreateListWizard — ENG-10709 List Created / Activity List Created analytics', () => {
@@ -1166,6 +1205,39 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await drawBoundary(user)
 
     expect(await screen.findByText(/no constituents here/i)).toBeInTheDocument()
+    await vi.waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
+      { timeout: 10_000 },
+    )
+  })
+
+  // The save re-runs the enclosing scan UNFILTERED to freeze the shape's
+  // membership, so a shape the preview refused is one the save will refuse
+  // too. Letting Continue through walks the holder all the way to naming a
+  // list that cannot be saved.
+  it('blocks Continue when the boundary count errors rather than settling', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('POST /v1/contacts/polygon-preview', {
+      status: 400,
+      data: {
+        message:
+          'This area holds too many people to count. Draw a smaller ' +
+          'boundary or narrow the list.',
+      },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await drawBoundary(user)
+
+    expect(
+      await screen.findByText(/too many people to count/i),
+    ).toBeInTheDocument()
     await vi.waitFor(
       () =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),

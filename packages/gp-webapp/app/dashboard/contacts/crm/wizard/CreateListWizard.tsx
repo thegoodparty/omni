@@ -18,6 +18,7 @@ import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import CrmSheet from '../shared/CrmSheet'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
+import { boundarySaveErrorMessage } from '../shared/boundarySaveError'
 import { MAX_SEGMENT_NAME_LENGTH } from '../shared/segments.util'
 import type {
   SegmentResponse,
@@ -333,9 +334,14 @@ export default function CreateListWizard({
   // nothing, and the step says to move it rather than refusing silently. An
   // errored or in-flight count is unknown, not zero — the same discipline
   // the conditions step's zero-match gate applies.
+  // An errored count blocks too, which is the opposite of the conditions
+  // step's rule and deliberately so. There the unknown is harmless — the
+  // save proceeds and writes what the filters say. Here the only 400 this
+  // count earns is the people cap, and the save re-runs that same scan to
+  // freeze the shape's membership, so continuing on an error walks the
+  // holder through naming a list that cannot be saved.
   const isBoundaryBlocked =
-    hasBoundary &&
-    (isEffectiveCounting || (!isPolygonError && polygonCount === 0))
+    hasBoundary && (isEffectiveCounting || isPolygonError || polygonCount === 0)
 
   // ENG-10840: the overlap strip only ever fires on a REAL selection (unlike
   // the live count above, which deliberately also fires unfiltered to show
@@ -494,7 +500,18 @@ export default function CreateListWizard({
       // otherwise render a frame with both full-screen drawers stacked.
       setTimeout(() => selectList(response.id), 0)
     },
-    onError: () => {
+    onError: (error) => {
+      // gp-api words the people-cap refusal for whoever drew the shape
+      // ("Draw a smaller boundary or narrow the list"), and that message was
+      // being thrown away for a generic failure. The save's own scan runs
+      // UNFILTERED where the preview applies the filters, so a shape the
+      // pill counted happily can still land here — which makes the real
+      // message the only thing telling the holder what to do about it.
+      const capMessage = boundarySaveErrorMessage(error)
+      if (capMessage) {
+        errorSnackbar(capMessage, { autoHideDuration: 6000 })
+        return
+      }
       errorSnackbar('Failed to create list')
     },
   })
