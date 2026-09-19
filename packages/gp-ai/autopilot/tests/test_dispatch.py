@@ -101,7 +101,7 @@ def dedup_table_env(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_DEDUP_TABLE", "autopilot-dedup-test")
 
 
-def envelope(stage=STAGE, epic_task_id=None, max_budget_usd=15.0, deadline_seconds=45 * 60):
+def envelope(stage=STAGE, epic_task_id=None, max_budget_usd=15.0, deadline_seconds=45 * 60, resume_stage=None):
     return dispatch.StageEnvelope(
         stage=stage,
         task_id=TASK_ID,
@@ -109,6 +109,7 @@ def envelope(stage=STAGE, epic_task_id=None, max_budget_usd=15.0, deadline_secon
         model="sonnet",
         max_budget_usd=max_budget_usd,
         deadline_seconds=deadline_seconds,
+        resume_stage=resume_stage,
     )
 
 
@@ -243,6 +244,35 @@ def test_qa_stage_uses_playwright_task_definition(fake_ecs):
 
 def test_non_qa_stage_uses_base_task_definition(fake_ecs):
     dispatch.dispatch_stage(TASK_ID, STAGE, TRANSITIONED_AT, envelope())
+
+    call = fake_ecs.run_task_calls[0]
+    assert call["taskDefinition"] == "autopilot-agent:1"
+    assert call["overrides"]["containerOverrides"][0]["name"] == "autopilot-agent"
+
+
+def test_resume_of_qa_uses_playwright_task_definition(fake_ecs):
+    # A resume that re-enters qa re-runs the browser walk, so it needs the
+    # Playwright image exactly like a fresh qa dispatch — the first live
+    # resume-of-qa launched on the base image and had no browser (ENG-11144).
+    dispatch.dispatch_stage(
+        TASK_ID,
+        "resume",
+        TRANSITIONED_AT,
+        envelope(stage="resume", resume_stage=dispatch.QA_STAGE),
+    )
+
+    call = fake_ecs.run_task_calls[0]
+    assert call["taskDefinition"] == "autopilot-agent-playwright:1"
+    assert call["overrides"]["containerOverrides"][0]["name"] == "autopilot-agent-playwright"
+
+
+def test_resume_of_story_uses_base_task_definition(fake_ecs):
+    dispatch.dispatch_stage(
+        TASK_ID,
+        "resume",
+        TRANSITIONED_AT,
+        envelope(stage="resume", resume_stage="story"),
+    )
 
     call = fake_ecs.run_task_calls[0]
     assert call["taskDefinition"] == "autopilot-agent:1"

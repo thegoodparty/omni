@@ -162,7 +162,14 @@ def test_qa_covers_its_load_bearing_directives():
     )
     assert "`parent` field" in text, "must name the ClickUp `parent` field as the derivation source"
 
-    assert "Clerk sign-in ticket" in text, "must log in via a redeemed Clerk sign-in ticket"
+    # The stage provisions its own fixture user; the container carries only a
+    # Clerk machine secret, never the dev instance secret key, and Clerk caps
+    # M2M token TTLs so the token must be minted per run, not stored.
+    assert "AUTOPILOT_MACHINE_SECRET" in text, "must mint the M2M token from the machine secret env var"
+    assert "test-fixtures/users" in text, "must provision the QA user via gp-api's test-fixtures API"
+    assert "GP_API_DEV_BASE_URL" in text, "fixtures calls must target the wired dev API base URL"
+    assert "signInToken" in text, "must log in by redeeming the fixture's single-use sign-in token"
+    assert "userIds" in text, "must clean up its fixture users before ending the run"
     assert "Never put credentials" in text or "never put credentials" in text.lower(), (
         "must forbid credentials in prompts"
     )
