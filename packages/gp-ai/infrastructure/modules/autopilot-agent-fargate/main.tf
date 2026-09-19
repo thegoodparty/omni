@@ -243,6 +243,14 @@ locals {
     {
       name  = "GP_API_DEV_BASE_URL"
       value = "https://gp-api-dev.goodparty.org"
+    },
+    # gp-api's tsc/vitest overflow Node's default heap — the same OOM CI hit
+    # (release train fixed it with a 6GB NODE_OPTIONS); a live story run
+    # burned dozens of its turns retrying "JavaScript heap out of memory"
+    # verify commands before dying on the turn cap.
+    {
+      name  = "NODE_OPTIONS"
+      value = "--max-old-space-size=6144"
     }
   ]
 }
