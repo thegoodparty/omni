@@ -646,6 +646,44 @@ describe('OutreachHistoryTable — draft rows', () => {
     expect(screen.getAllByText('Pro needed')).toHaveLength(2)
   })
 
+  // The hub passes no membership with the flag off, and with it off no draft
+  // row reaches this table at all — so the five labels naming a draft's next
+  // step have nothing to filter and must not be offered.
+  it('offers the draft statuses only when membership is passed', async () => {
+    const { unmount } = render(
+      <OutreachHistoryTable rows={[draftRow]} onRowClick={vi.fn()} />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    expect(screen.queryByLabelText('Pro needed')).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText('Verification needed'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText('Verification in review'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('PIN needed')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Ready to schedule')).not.toBeInTheDocument()
+    unmount()
+
+    render(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={{
+          tier: 'free',
+          texting: 'needs_verification',
+          pinDelivery: null,
+          isElectedOffice: false,
+        }}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    expect(screen.getByLabelText('Pro needed')).toBeInTheDocument()
+    expect(screen.getByLabelText('Ready to schedule')).toBeInTheDocument()
+  })
+
   it('reads no label for a draft when no membership is passed', () => {
     render(<OutreachHistoryTable rows={[draftRow]} onRowClick={vi.fn()} />)
 

@@ -278,7 +278,7 @@ const channelFilterKey = (
   )?.key ?? null
 
 // The unified label vocabulary across both legacy status maps.
-const STATUS_FILTERS = [
+const BASE_STATUS_FILTERS = [
   'Draft',
   'In review',
   'Denied',
@@ -288,12 +288,23 @@ const STATUS_FILTERS = [
   'Done',
   'Pending payment',
   'Canceled',
+] as const
+
+// The five names a saved draft's status can take (historyStatus.util.ts's
+// DRAFT_LABELS). They are offered only when the caller passes a membership:
+// with the flag off the hub passes none AND filters every draft row out, so
+// these would be five checkboxes matching nothing.
+const DRAFT_STATUS_FILTERS = [
   'Pro needed',
   'Verification needed',
   'Verification in review',
   'PIN needed',
   'Ready to schedule',
 ] as const
+
+type StatusFilterKey =
+  | (typeof BASE_STATUS_FILTERS)[number]
+  | (typeof DRAFT_STATUS_FILTERS)[number]
 
 // Representative timestamp for newest-first sorting: the row's own date,
 // falling back to createdAt (social rows never set the spine date).
@@ -321,9 +332,24 @@ export const OutreachHistoryTable = ({
   const [channelFilter, setChannelFilter] = useState<Set<ChannelFilterKey>>(
     () => new Set(CHANNEL_FILTERS.map((c) => c.key)),
   )
-  const [statusFilter, setStatusFilter] = useState<
-    Set<(typeof STATUS_FILTERS)[number]>
-  >(() => new Set(STATUS_FILTERS))
+  const statusFilters: readonly StatusFilterKey[] = useMemo(
+    () =>
+      membership
+        ? [...BASE_STATUS_FILTERS, ...DRAFT_STATUS_FILTERS]
+        : BASE_STATUS_FILTERS,
+    [membership],
+  )
+  const [statusFilter, setStatusFilter] = useState<Set<StatusFilterKey>>(
+    () => new Set(statusFilters),
+  )
+  // Membership arrives after the flag read settles, so the five draft names
+  // can join the set mid-mount; they start checked like every other filter.
+  useEffect(() => {
+    setStatusFilter((prev) => {
+      if (statusFilters.every((key) => prev.has(key))) return prev
+      return new Set([...prev, ...statusFilters])
+    })
+  }, [statusFilters])
 
   const displayStatusLabel = (row: HistoryRow): string | null => {
     // An archived row reads "Archived" no matter what state it was shelved
@@ -347,18 +373,18 @@ export const OutreachHistoryTable = ({
           const status = displayStatusLabel(row)
           return (
             status === null ||
-            !(STATUS_FILTERS as readonly string[]).includes(status) ||
-            statusFilter.has(status as (typeof STATUS_FILTERS)[number])
+            !(statusFilters as readonly string[]).includes(status) ||
+            statusFilter.has(status as StatusFilterKey)
           )
         })
         .sort((a, b) => rowTime(b) - rowTime(a)),
-    [rows, showArchive, channelFilter, statusFilter],
+    [rows, showArchive, channelFilter, statusFilter, statusFilters],
   )
 
   const activeFilterCount =
     CHANNEL_FILTERS.length -
     channelFilter.size +
-    (STATUS_FILTERS.length - statusFilter.size)
+    (statusFilters.length - statusFilter.size)
 
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
   const currentPage = Math.min(page, pageCount)
@@ -384,7 +410,7 @@ export const OutreachHistoryTable = ({
       return next
     })
 
-  const toggleStatus = (key: (typeof STATUS_FILTERS)[number], on: boolean) =>
+  const toggleStatus = (key: StatusFilterKey, on: boolean) =>
     setStatusFilter((prev) => {
       const next = new Set(prev)
       if (on) next.add(key)
@@ -394,7 +420,7 @@ export const OutreachHistoryTable = ({
 
   const clearFilters = () => {
     setChannelFilter(new Set(CHANNEL_FILTERS.map((c) => c.key)))
-    setStatusFilter(new Set(STATUS_FILTERS))
+    setStatusFilter(new Set(statusFilters))
   }
 
   const activeRowCount = rows.filter((row) => !row.archivedAt).length
@@ -455,7 +481,7 @@ export const OutreachHistoryTable = ({
                 <p className="text-xs font-medium text-muted-foreground">
                   Status
                 </p>
-                {STATUS_FILTERS.map((s) => (
+                {statusFilters.map((s) => (
                   <CheckboxLabel
                     key={s}
                     id={`status-${s}`}
