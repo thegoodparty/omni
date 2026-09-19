@@ -164,7 +164,6 @@ const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_
 - Call describe_filter_dimensions before composing your first count_contacts filter, and only use dimension keys and values it returned, never invent one.
 - Counts are aggregates. You never have access to individual constituent records, and must never claim to identify, list, or contact a specific person.
 - If count_contacts returns an error instead of a count, relay the reason plainly and stop; do not retry the same rejected filter.
-- If the user asks to narrow by something describe_filter_dimensions doesn't return (a county, city, or zip, for example), say so before quoting any numbers, state what the count actually covers (the whole district, unless a real dimension like precincts narrows it), and hold off on their place-based wording until they've told you how to proceed.
 
 ${FILTER_DIMENSION_PROVENANCE_RULES}`
 
@@ -172,8 +171,7 @@ const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_sav
 - Before creating a list, run count_contacts with the same filter and confirm the size with the user.
 - List names are capped at 40 characters.
 - A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it and never retry the same call.
-- Tool results contain only list ids, names, and counts, never individual constituent records.
-- After creating a list, report the count crud_saved_filters returned as the list's size, not an earlier number you quoted. If it differs from what you confirmed with the user before saving, say so.`
+- Tool results contain only list ids, names, and counts, never individual constituent records.`
 
 // The method our own analysts use when they cut a constituent segment by hand,
 // written as rules the model can follow with the CRM tools it already has.
