@@ -784,6 +784,31 @@ describe('Outreach submission flow — single API call contract', () => {
       ).toBe(0)
     })
 
+    // The Pro gate on p2p is what stands between a free candidate and a paid
+    // send; the resume path carries no voterFileFilterId, so filterAccessCheck
+    // cannot be the thing enforcing it.
+    it('a fresh p2p create from a non-Pro campaign 403s and writes nothing', async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { isPro: false },
+      })
+
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(403)
+      expect(
+        await service.prisma.outreach.count({
+          where: { campaignId: campaign.id },
+        }),
+      ).toBe(0)
+      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+    })
+
     it('a client-set status of draft → 400, no DB row', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
