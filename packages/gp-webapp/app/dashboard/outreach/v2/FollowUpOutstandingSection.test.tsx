@@ -142,6 +142,10 @@ describe('<FollowUpOutstandingSection>', () => {
     // The saved list carries the same audience the count was taken over, so
     // the call sheet cannot disagree with the number that prompted it.
     expect(savedBody).toMatchObject({
+      // Asserted on what was SENT, not on the mock's echoed response — the
+      // snackbar and onCallList assertions above read data.name, so a broken
+      // listName template would slip past all of them.
+      name: 'Tuesday calls — follow-ups',
       followUpRequested: true,
       activityConditions: [
         { outreachType: 'phoneBanking', outreachId: OUTREACH_ID, actions: [] },
