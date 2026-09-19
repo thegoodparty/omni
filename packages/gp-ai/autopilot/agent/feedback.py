@@ -370,9 +370,10 @@ def park_if_stranded(
         )
         if result.get("status") == "success":
             question = (
-                "This run ended while the card was still in progress — most likely waiting on a PR "
-                "merge in a background watcher that died with the run. Check the PR's state, then "
-                "comment here (or move the card back to in progress) to resume."
+                f"This run ended while the card was still in '{current_normalized}' — most likely "
+                "waiting on something in a background watcher that died with the run, or ending "
+                "without finishing its handoff. Check the PR/deploy state, then comment here (or "
+                "move the card back) to resume."
             )
         else:
             question = (
