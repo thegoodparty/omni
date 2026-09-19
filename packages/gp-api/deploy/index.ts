@@ -131,7 +131,7 @@ export = async () => {
   // for text extraction. Preview environments share the dev bucket.
   const chatAttachmentsBucketName =
     environment === 'preview'
-      ? 'chat-attachments-dev'
+      ? 'goodparty-chat-attachments-dev'
       : createChatAttachmentsBucket({ environment }).bucket.bucket
 
   // Private bucket for shared campaign-plan PDFs. Preview shares the dev

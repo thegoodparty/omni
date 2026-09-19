@@ -22,7 +22,12 @@ export function createChatAttachmentsBucket({
   const select = <T>(values: Record<'dev' | 'prod', T>): T =>
     values[environment]
 
-  const bucketName = `chat-attachments-${environment}`
+  // goodparty-prefixed, unlike the sibling buckets this component was cloned
+  // from: S3 bucket names are a single global namespace across every AWS
+  // account, and the bare `chat-attachments-dev` is owned by someone else —
+  // the deploy failed live with BucketAlreadyExists. The siblings' generic
+  // names only ever worked by luck.
+  const bucketName = `goodparty-chat-attachments-${environment}`
 
   const bucket = new aws.s3.Bucket('chat-attachments-bucket', {
     bucket: bucketName,
