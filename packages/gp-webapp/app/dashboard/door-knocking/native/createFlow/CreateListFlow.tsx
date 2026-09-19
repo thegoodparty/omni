@@ -648,7 +648,18 @@ export default function CreateListFlow({
   // wired now so that opening those reads is the only change that day needs.
   const gate = useOutreachGate('door')
   const [gateOpen, setGateOpen] = useState(false)
+  // WHICH gesture opened the gate. The banner rides every step but the draw,
+  // so its explainer can open the gate long before Build route — finishing
+  // there must not buy a route the candidate never pressed for.
+  const [gateOrigin, setGateOrigin] = useState<'build' | 'explainer' | null>(
+    null,
+  )
   const [explainerOpen, setExplainerOpen] = useState(false)
+
+  const openGateFromExplainer = (): void => {
+    setGateOrigin('explainer')
+    setGateOpen(true)
+  }
 
   // Recommendations render in the who step's list-picker face only — the
   // same "picker mode, above the saved lists" placement Task 8 used for the
@@ -1371,6 +1382,7 @@ export default function CreateListFlow({
                           // route: a gated click opens the gate and the
                           // mutation waits for it to clear.
                           if (gate.requirement !== null) {
+                            setGateOrigin('build')
                             setGateOpen(true)
                             return
                           }
@@ -1384,19 +1396,27 @@ export default function CreateListFlow({
         state={gate}
         open={explainerOpen}
         onOpenChange={setExplainerOpen}
-        onUpgrade={() => setGateOpen(true)}
-        onVerify={() => setGateOpen(true)}
-        onPin={() => setGateOpen(true)}
+        onUpgrade={openGateFromExplainer}
+        onVerify={openGateFromExplainer}
+        onPin={openGateFromExplainer}
       />
       {gateOpen ? (
         <OutreachGate
           channel="door"
           state={gate}
           open
-          onExit={() => setGateOpen(false)}
+          hasDraft={false}
+          onExit={() => {
+            setGateOpen(false)
+            setGateOrigin(null)
+          }}
           onComplete={() => {
             setGateOpen(false)
-            save.mutate()
+            const origin = gateOrigin
+            setGateOrigin(null)
+            // Only Build route's own gate buys the route; from the banner the
+            // candidate keeps building where they were.
+            if (origin === 'build') save.mutate()
           }}
         />
       ) : (

@@ -13,7 +13,6 @@ import {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { createRobocallDraft } from 'helpers/createOutreachDraft'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
@@ -36,6 +35,7 @@ import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
+import { useDraftGate } from '../gate/useDraftGate'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
@@ -158,20 +158,21 @@ export const RobocallFlow = ({
   const [campaign] = useCampaign()
   const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
-  // The saved draft row this flow is working against: the one the hub
-  // resumed, the one a 409 says already exists, or the one this flow just
-  // wrote.
-  const [savedDraft, setSavedDraft] = useState<OutreachDetail | null>(
+  // Every saved-draft and gate concern — the row, the resume switch, the
+  // gate/explainer visibility, and the origin that says what finishing the
+  // gate means — lives in the shared hook SmsFlow uses too. Only the payload
+  // and the step ids below are this channel's.
+  const draftGate = useDraftGate({
+    channel: 'robocall',
+    gate,
+    open,
     resumeDraft,
-  )
-  // Whether the flow is running off that row (seeded and scheduling it)
-  // rather than still building one.
-  const [resumed, setResumed] = useState(Boolean(resumeDraft))
-  const [savingDraft, setSavingDraft] = useState(false)
-  const [draftSaveError, setDraftSaveError] = useState(false)
-  const [deletingDraft, setDeletingDraft] = useState(false)
-  const [gateOpen, setGateOpen] = useState(false)
-  const [explainerOpen, setExplainerOpen] = useState(false)
+    createDraft: () => createDraftRow(),
+    goToResumeStep: () => setStepId('schedule'),
+    onDraftSaved: () => handleDraftSaved(),
+    onClose,
+  })
+  const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
 
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
@@ -354,13 +355,6 @@ export const RobocallFlow = ({
     setScript(resumeDraft?.script ?? '')
     setCallbackNumber(resumeDraft?.robocall?.callbackNumber ?? null)
     setPayOutcome(null)
-    setSavedDraft(resumeDraft)
-    setResumed(Boolean(resumeDraft))
-    setSavingDraft(false)
-    setDraftSaveError(false)
-    setDeletingDraft(false)
-    setGateOpen(false)
-    setExplainerOpen(false)
     resetRent()
     resetCompliance()
     draftRequestRef.current = 0
@@ -418,16 +412,6 @@ export const RobocallFlow = ({
     ? (savedDraft?.robocall?.audioKey ?? null)
     : audioUpload.key
 
-  // The gate screens stand in for a resumed flow until the candidate can
-  // send. Open-only: the requirement clears the moment payment lands, while
-  // the upgrade's own success screen is still up, so closing the gate here
-  // would take that screen away before the candidate could press Continue —
-  // and Continue is what calls handleGateComplete. The gate closes through
-  // onExit or onComplete, never through a requirement change.
-  useEffect(() => {
-    if (resumed && gate.requirement !== null) setGateOpen(true)
-  }, [resumed, gate.requirement])
-
   const handleDraftSaved = async () => {
     if (onDraftSaved) {
       await onDraftSaved()
@@ -436,21 +420,14 @@ export const RobocallFlow = ({
     onScheduled?.()
   }
 
-  // Build mode's one write: the draft the candidate comes back to. A 409
-  // means they already have one, so the flow switches to that row instead of
-  // reporting a failure they can do nothing about.
-  const handleSaveDraft = async () => {
-    if (
-      savingDraft ||
-      !audience.selectedListId ||
-      !audioUpload.key ||
-      !callbackNumber
-    ) {
-      return
+  // Build mode's one write, assembled here because only this flow knows the
+  // typed JSON payload and what has to be in hand before there is anything
+  // to save. The 201/409 branching is the shared hook's.
+  const createDraftRow = async () => {
+    if (!audience.selectedListId || !audioUpload.key || !callbackNumber) {
+      return null
     }
-    setSavingDraft(true)
-    setDraftSaveError(false)
-    const { draft, conflictId } = await createRobocallDraft({
+    return createRobocallDraft({
       outreachType: 'robocall',
       name: campaignName.trim(),
       voterFileFilterId: audience.selectedListId,
@@ -458,60 +435,6 @@ export const RobocallFlow = ({
       callbackNumber,
       ...(script.trim() ? { script } : {}),
     })
-    if (draft) {
-      trackEvent(EVENTS.Outreach.Draft.Saved, { channel: 'robocall' })
-      setSavedDraft(draft)
-      setGateOpen(true)
-      setSavingDraft(false)
-      await handleDraftSaved()
-      return
-    }
-    if (conflictId !== null) {
-      try {
-        const { data } = await clientRequest('GET /v1/outreach/:id', {
-          id: String(conflictId),
-        })
-        setSavedDraft(data)
-        setResumed(true)
-        // The existing row has no send date, so the flow has to land where
-        // a resume starts. Leaving it on review would put it one enabled
-        // button away from the pay step the moment the gate steps aside.
-        setStepId('schedule')
-        setGateOpen(true)
-        return
-      } catch {
-        setDraftSaveError(true)
-        return
-      } finally {
-        setSavingDraft(false)
-      }
-    }
-    setSavingDraft(false)
-    setDraftSaveError(true)
-  }
-
-  const handleDeleteDraft = async () => {
-    if (!savedDraft || deletingDraft) return
-    setDeletingDraft(true)
-    try {
-      await clientRequest('DELETE /v1/outreach/:id', {
-        id: String(savedDraft.id),
-      })
-    } catch {
-      setDeletingDraft(false)
-      return
-    }
-    trackEvent(EVENTS.Outreach.Draft.Deleted, { channel: 'robocall' })
-    await handleDraftSaved()
-    onClose()
-  }
-
-  // Upgrading inside the sheet turns the flow into the resume of the row it
-  // just saved.
-  const handleGateComplete = () => {
-    setGateOpen(false)
-    setResumed(true)
-    setStepId('schedule')
   }
 
   // Any change to the script the candidate must read aloud (purpose, tone,
@@ -800,13 +723,13 @@ export const RobocallFlow = ({
               {
                 label: REVIEW_GATE_CTA[gate.requirement],
                 onClick: () => {
-                  void handleSaveDraft()
+                  void draftGate.saveDraft()
                 },
                 disabled:
                   !audience.selectedListId ||
                   !audioUpload.key ||
                   !callbackNumber,
-                loading: savingDraft,
+                loading: draftGate.savingDraft,
               }
             : stepId === 'review'
               ? {
@@ -845,7 +768,7 @@ export const RobocallFlow = ({
           <GateBanner
             channel="robocall"
             state={gate}
-            onOpenExplainer={() => setExplainerOpen(true)}
+            onOpenExplainer={() => draftGate.setExplainerOpen(true)}
           />
         ) : undefined
       }
@@ -855,26 +778,28 @@ export const RobocallFlow = ({
         channel="robocall"
         state={gate}
         open={explainerOpen}
-        onOpenChange={setExplainerOpen}
-        onUpgrade={() => setGateOpen(true)}
-        onVerify={() => setGateOpen(true)}
-        onPin={() => setGateOpen(true)}
+        onOpenChange={draftGate.setExplainerOpen}
+        onUpgrade={draftGate.openGateFromExplainer}
+        onVerify={draftGate.openGateFromExplainer}
+        onPin={draftGate.openGateFromExplainer}
       />
       {gateOpen ? (
         <OutreachGate
           channel="robocall"
           state={gate}
           open
+          hasDraft={savedDraft !== null}
           onExit={onClose}
-          onComplete={handleGateComplete}
+          onComplete={draftGate.handleGateComplete}
           onDelete={
             savedDraft
               ? () => {
-                  void handleDeleteDraft()
+                  void draftGate.deleteDraft()
                 }
               : undefined
           }
-          deleting={deletingDraft}
+          deleting={draftGate.deletingDraft}
+          deleteError={draftGate.deleteError}
         />
       ) : stepId === 'purpose' ? (
         <RobocallPurposeStep
@@ -1006,7 +931,7 @@ export const RobocallFlow = ({
             script={script}
             readOnlySummary={buildMode}
           />
-          {draftSaveError && (
+          {draftGate.draftSaveError && (
             <p className="mt-4 text-sm text-destructive">
               We couldn&apos;t save this draft. Try again.
             </p>

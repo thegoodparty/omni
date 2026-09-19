@@ -29,16 +29,25 @@ interface OutreachGateProps {
   onComplete: () => void
   onDelete?: () => void
   deleting?: boolean
+  // A delete that failed. Silence here left the candidate looking at a draft
+  // they had already asked twice to discard.
+  deleteError?: boolean
+  // Whether a draft row stands behind this gate. With none the Pro screen
+  // cannot open on the interstitial — its copy says the campaign has been
+  // made and will be kept for 90 days, which would be a lie.
+  hasDraft?: boolean
 }
 
 const DeleteButton = ({
   onDelete,
   deleting,
+  deleteError,
 }: {
   onDelete: () => void
   deleting?: boolean
+  deleteError?: boolean
 }): React.JSX.Element => (
-  <div className="mb-4 flex justify-end">
+  <div className="mb-4 flex flex-col items-end gap-1">
     <Button
       type="button"
       variant="ghost"
@@ -48,8 +57,11 @@ const DeleteButton = ({
       onClick={onDelete}
     >
       <Trash2Icon className="size-4" aria-hidden />
-      Delete
+      {GATE_NOTICE_COPY.delete}
     </Button>
+    {deleteError && (
+      <p className="text-sm text-destructive">{GATE_NOTICE_COPY.deleteError}</p>
+    )}
   </div>
 )
 
@@ -66,6 +78,8 @@ export const OutreachGate = ({
   onComplete,
   onDelete,
   deleting,
+  deleteError,
+  hasDraft = true,
 }: OutreachGateProps): React.JSX.Element | null => {
   // THE SCREEN IS LATCHED FOR THE LIFE OF ONE OPEN, and must stay that way.
   // `state.requirement` is derived from the same campaign cache
@@ -110,9 +124,20 @@ export const OutreachGate = ({
   if (screen === 'pro') {
     return (
       <div>
-        {onDelete && <DeleteButton onDelete={onDelete} deleting={deleting} />}
+        {onDelete && (
+          <DeleteButton
+            onDelete={onDelete}
+            deleting={deleting}
+            deleteError={deleteError}
+          />
+        )}
         <ProUpgradeFlow
-          initialStep={PRO_UPGRADE_STEP.INTERSTITIAL}
+          // With no draft behind the gate the interstitial's "has been made /
+          // saved for 90 days" copy has nothing to describe, so the wizard
+          // opens on the first step of its own purchase-only order instead.
+          initialStep={
+            hasDraft ? PRO_UPGRADE_STEP.INTERSTITIAL : PRO_UPGRADE_STEP.GUIDANCE
+          }
           channel={channel}
           onExit={onExit}
           onComplete={handleProComplete}
@@ -155,7 +180,13 @@ export const OutreachGate = ({
   // screen === 'in_review'
   return (
     <div className="flex flex-col gap-4">
-      {onDelete && <DeleteButton onDelete={onDelete} deleting={deleting} />}
+      {onDelete && (
+        <DeleteButton
+          onDelete={onDelete}
+          deleting={deleting}
+          deleteError={deleteError}
+        />
+      )}
       <div className="flex flex-col items-center gap-6 rounded-xl border border-base-border bg-card p-6 text-center">
         <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
           <ClockIcon className="size-8 text-primary" aria-hidden />

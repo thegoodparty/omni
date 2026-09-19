@@ -6,40 +6,15 @@ import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { PhoneBankingFlow } from './PhoneBankingFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
+import { gateRef } from '../gate/testing/mockReactiveGate'
 
-// Same convention as RobocallFlow.test.tsx: the gate's own flag/membership
-// plumbing has its own tests, so the hook is driven directly here and `set`
-// is a real subscription, since the requirement clearing mid-flow is its own
-// behavior.
-const gateRef = vi.hoisted(() => {
-  const listeners = new Set<() => void>()
-  return {
-    current: {
-      enabled: false,
-      requirement: null,
-      twoStep: false,
-      membership: null,
-      tcrCompliance: null,
-    } as OutreachGateState,
-    listeners,
-    set(next: OutreachGateState) {
-      this.current = next
-      listeners.forEach((listener) => listener())
-    },
-  }
-})
+// Same convention as the other flow tests: the gate's own flag/membership
+// plumbing has its own tests, so the hook is driven directly through the
+// shared reactive stand-in.
 vi.mock('../gate/useOutreachGate', async () => {
-  const { useSyncExternalStore } = await import('react')
-  const subscribe = (onChange: () => void) => {
-    gateRef.listeners.add(onChange)
-    return () => {
-      gateRef.listeners.delete(onChange)
-    }
-  }
-  const snapshot = () => gateRef.current
-  return {
-    useOutreachGate: () => useSyncExternalStore(subscribe, snapshot, snapshot),
-  }
+  const { useMockOutreachGate } =
+    await import('../gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
 })
 
 // Mounts real Stripe surfaces; the flow only owns whether it is on screen and
@@ -157,7 +132,7 @@ const advanceToSheets = async () => {
 describe('PhoneBankingFlow — the Pro gate', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    gateRef.current = PRO_GATE
+    gateRef.set(PRO_GATE)
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [{ id: 3, name: 'Likely Dems' }],
@@ -196,7 +171,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   })
 
   it('shows the gate banner on every step for a free candidate', async () => {
-    gateRef.current = FREE_GATE
+    gateRef.set(FREE_GATE)
     render(<PhoneBankingFlow open onClose={vi.fn()} />)
 
     expect(await screen.findByText(GATE_LINE)).toBeInTheDocument()
@@ -207,7 +182,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   })
 
   it('free candidate: the sheets Continue opens the gate instead of creating the list', async () => {
-    gateRef.current = FREE_GATE
+    gateRef.set(FREE_GATE)
     const createCalls = mockCreateList()
     render(<PhoneBankingFlow open onClose={vi.fn()} />)
     await advanceToSheets()
@@ -223,7 +198,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   // flip must leave the candidate exactly where they were — the Continue
   // they are about to press is what creates the list.
   it('free candidate: the requirement clearing mid-upgrade leaves the gate up, and its completion creates the list', async () => {
-    gateRef.current = FREE_GATE
+    gateRef.set(FREE_GATE)
     const createCalls = mockCreateList()
     render(<PhoneBankingFlow open onClose={vi.fn()} />)
     await advanceToSheets()
@@ -245,7 +220,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
   })
 
   it('free candidate: leaving the gate lands back on the sheets step', async () => {
-    gateRef.current = FREE_GATE
+    gateRef.set(FREE_GATE)
     const onClose = vi.fn()
     render(<PhoneBankingFlow open onClose={onClose} />)
     await advanceToSheets()
@@ -262,6 +237,42 @@ describe('PhoneBankingFlow — the Pro gate', () => {
       ).length,
     ).toBeGreaterThan(0)
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // The banner rides every step, so its explainer can open the gate long
+  // before the candidate has reached the one write this flow makes. Finishing
+  // there must hand them back the step they were on, not buy a list they
+  // never asked for.
+  it('free candidate: upgrading from the banner creates nothing and keeps the step', async () => {
+    gateRef.set(FREE_GATE)
+    const createCalls = mockCreateList()
+    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+
+    // Stop on the script step: the audience is picked, so a create fired
+    // from here would really post — the purpose step would have thrown
+    // before the request and hidden the bug.
+    await user.click(screen.getByText('Introduce myself to voters'))
+    await screen.findAllByText('Who do you want to reach?')
+    await user.click(screen.getByText('Choose a voter list'))
+    await user.click(await screen.findByText('Likely Dems'))
+    await user.click(
+      await screen.findByRole('button', { name: /Continue \([\d,]+\)/ }),
+    )
+    await screen.findAllByText('Write your call script')
+
+    await user.click(await screen.findByText(GATE_LINE))
+    await user.click(
+      await screen.findByRole('button', { name: 'Upgrade to Pro' }),
+    )
+    expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+    act(() => gateRef.set(PRO_GATE))
+    await user.click(screen.getByRole('button', { name: 'Finish upgrade' }))
+
+    expect(
+      (await screen.findAllByText('Write your call script')).length,
+    ).toBeGreaterThan(0)
+    expect(createCalls).toHaveLength(0)
   })
 
   it('Pro candidate: the sheets Continue creates the list, with no banner', async () => {

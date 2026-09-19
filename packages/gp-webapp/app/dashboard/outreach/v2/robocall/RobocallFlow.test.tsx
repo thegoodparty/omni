@@ -12,41 +12,16 @@ import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RobocallFlow } from './RobocallFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
+import { gateRef } from '../gate/testing/mockReactiveGate'
 
 // The gate's own flag/membership plumbing has its own tests; here the flow's
-// wiring is what's under test, so the hook is driven directly. `set` is a
-// real subscription rather than a plain assignment because the requirement
-// clearing MID-FLOW (the candidate upgrades inside the sheet) is its own
-// behavior, and a test has to be able to make that happen.
-const gateRef = vi.hoisted(() => {
-  const listeners = new Set<() => void>()
-  return {
-    current: {
-      enabled: false,
-      requirement: null,
-      twoStep: false,
-      membership: null,
-      tcrCompliance: null,
-    } as OutreachGateState,
-    listeners,
-    set(next: OutreachGateState) {
-      this.current = next
-      listeners.forEach((listener) => listener())
-    },
-  }
-})
+// wiring is what's under test, so the hook is driven directly through the
+// shared reactive stand-in (see mockReactiveGate for why it is a module
+// singleton rather than a hoisted ref).
 vi.mock('../gate/useOutreachGate', async () => {
-  const { useSyncExternalStore } = await import('react')
-  const subscribe = (onChange: () => void) => {
-    gateRef.listeners.add(onChange)
-    return () => {
-      gateRef.listeners.delete(onChange)
-    }
-  }
-  const snapshot = () => gateRef.current
-  return {
-    useOutreachGate: () => useSyncExternalStore(subscribe, snapshot, snapshot),
-  }
+  const { useMockOutreachGate } =
+    await import('../gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
 })
 
 // Both mount real Stripe / filing surfaces; the flow only owns whether they
@@ -2105,6 +2080,39 @@ describe('RobocallFlow', () => {
 
     const saveDraft = () =>
       userEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+
+    // The banner rides every build-mode step, so its explainer can open the
+    // gate long before there is a draft. Finishing there must hand the
+    // candidate back the step they were on — landing them on schedule would
+    // throw away the audience and the recording they just made.
+    it('keeps the build intact when the upgrade starts from the banner', async () => {
+      gateRef.set(FREE_GATE)
+      const bodies = mockSaveDraft()
+      mockDraft()
+      mockSavedLists()
+      mockListDetail(80)
+      render(<RobocallFlow open onClose={vi.fn()} />)
+
+      fireEvent.click(screen.getByText('Persuade likely voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Renters in 98103'))
+
+      await userEvent.click(screen.getByText(GATE_LINE))
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Upgrade to Pro' }),
+      )
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      act(() => gateRef.set(PRO_GATE))
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish upgrade' }),
+      )
+
+      // Back on the audience step with the list still picked, not dropped on
+      // schedule against a draft that was never written.
+      expect(await screen.findByText('Renters in 98103')).toBeInTheDocument()
+      expect(bodies).toEqual([])
+    })
 
     it('saves the robocall as a draft and opens the Pro interstitial', async () => {
       gateRef.set(FREE_GATE)

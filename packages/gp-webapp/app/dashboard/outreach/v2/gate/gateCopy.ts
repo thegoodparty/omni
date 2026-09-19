@@ -212,4 +212,8 @@ export const GATE_NOTICE_COPY = {
   inReviewSavedLine: (noun: string): string =>
     `Your ${noun} stays saved. We tell you when it clears.`,
   backToNoun: (noun: string): string => `Back to my ${noun}`,
+  // Every gate screen's discard button reads the same word, wherever the
+  // candidate reached it from.
+  delete: 'Delete',
+  deleteError: "We couldn't delete this draft. Try again.",
 }

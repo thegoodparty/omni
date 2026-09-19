@@ -251,6 +251,13 @@ export const PhoneBankingFlow = ({
   // front of the one write instead of behind a saved row.
   const gate = useOutreachGate('phone-bank')
   const [gateOpen, setGateOpen] = useState(false)
+  // WHICH gesture opened the gate. The banner rides every step, so its
+  // explainer can open the gate long before the candidate has reached the
+  // one write this flow makes — finishing there must not buy a list they
+  // never asked for.
+  const [gateOrigin, setGateOrigin] = useState<'create' | 'explainer' | null>(
+    null,
+  )
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
@@ -371,6 +378,7 @@ export const PhoneBankingFlow = ({
     setSaved(false)
     setCreateResponse(null)
     setGateOpen(false)
+    setGateOrigin(null)
     setExplainerOpen(false)
     resetDraftMutation()
     resetCreateMutation()
@@ -661,6 +669,11 @@ export const PhoneBankingFlow = ({
               audience.createRecommendedListPending,
           }
 
+  const openGateFromExplainer = (): void => {
+    setGateOrigin('explainer')
+    setGateOpen(true)
+  }
+
   const cta: FlowShellCta | null = gateOpen
     ? // The gate screens carry their own buttons.
       null
@@ -697,6 +710,7 @@ export const PhoneBankingFlow = ({
                   // a gated Continue opens the gate and the mutation waits for
                   // it to clear.
                   if (gate.requirement !== null) {
+                    setGateOrigin('create')
                     setGateOpen(true)
                     return
                   }
@@ -735,19 +749,27 @@ export const PhoneBankingFlow = ({
         state={gate}
         open={explainerOpen}
         onOpenChange={setExplainerOpen}
-        onUpgrade={() => setGateOpen(true)}
-        onVerify={() => setGateOpen(true)}
-        onPin={() => setGateOpen(true)}
+        onUpgrade={openGateFromExplainer}
+        onVerify={openGateFromExplainer}
+        onPin={openGateFromExplainer}
       />
       {gateOpen ? (
         <OutreachGate
           channel="phone-bank"
           state={gate}
           open
-          onExit={() => setGateOpen(false)}
+          hasDraft={false}
+          onExit={() => {
+            setGateOpen(false)
+            setGateOrigin(null)
+          }}
           onComplete={() => {
             setGateOpen(false)
-            createMutation.mutate()
+            const origin = gateOrigin
+            setGateOrigin(null)
+            // Only the paid Continue's own gate buys the list; from the
+            // banner the candidate keeps building where they were.
+            if (origin === 'create') createMutation.mutate()
           }}
         />
       ) : stepId === 'purpose' ? (

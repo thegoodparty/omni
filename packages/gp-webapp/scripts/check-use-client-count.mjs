@@ -415,7 +415,10 @@ import { dirname, join, relative } from 'node:path'
 // flag and membership hooks), GateBanner and GateExplainerModal (both own
 // click/dialog interaction), and OutreachGate (mounts the interactive
 // upgrade/verification/PIN screens). None can be a server component.
-const BASELINE = 584
+// 2026-09-19: 584 -> 585 for useDraftGate, the saved-draft/gate state the
+// texting and robocall flows both run on. It owns React state and effects,
+// so it can only run in the browser.
+const BASELINE = 585
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

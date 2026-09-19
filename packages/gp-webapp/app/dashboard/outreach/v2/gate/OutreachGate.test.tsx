@@ -93,6 +93,37 @@ describe('OutreachGate', () => {
       )
     })
 
+    // The interstitial's copy says the campaign has been made and will be
+    // kept for 90 days. With nothing saved that is a lie, so the wizard opens
+    // on the first step of its own purchase-only order instead.
+    it('starts on guidance when no draft stands behind the gate', () => {
+      render(
+        <OutreachGate
+          {...baseProps}
+          state={stateWith({ requirement: 'pro' })}
+          hasDraft={false}
+        />,
+      )
+
+      expect(mockProUpgradeFlow).toHaveBeenCalledWith(
+        expect.objectContaining({ initialStep: PRO_UPGRADE_STEP.GUIDANCE }),
+        undefined,
+      )
+    })
+
+    it('captions a failed delete beside the Delete button', () => {
+      render(
+        <OutreachGate
+          {...baseProps}
+          state={stateWith({ requirement: 'pro' })}
+          onDelete={vi.fn()}
+          deleteError
+        />,
+      )
+
+      expect(screen.getByText(GATE_NOTICE_COPY.deleteError)).toBeInTheDocument()
+    })
+
     it('passes onExit straight through', async () => {
       const onExit = vi.fn()
       render(

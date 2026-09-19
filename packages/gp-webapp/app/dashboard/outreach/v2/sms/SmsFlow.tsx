@@ -30,7 +30,6 @@ import {
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_OPTIONS,
@@ -56,6 +55,7 @@ import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
+import { useDraftGate } from '../gate/useDraftGate'
 import { SmsPurposeStep } from './SmsPurposeStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
@@ -321,22 +321,23 @@ export const SmsFlow = ({
   const [scheduled, setScheduled] = useState(false)
   const [paidSend, setPaidSend] = useState(false)
 
-  // The saved draft row this flow is working against: the one the hub
-  // resumed, the one a 409 says already exists, or the one this flow just
-  // wrote.
-  const [savedDraft, setSavedDraft] = useState<OutreachDetail | null>(
-    resumeDraft,
-  )
-  // Whether the flow is running off that row (seeded and scheduling it)
-  // rather than still building one.
-  const [resumed, setResumed] = useState(Boolean(resumeDraft))
-  const [savingDraft, setSavingDraft] = useState(false)
-  const [draftSaveError, setDraftSaveError] = useState(false)
-  const [deletingDraft, setDeletingDraft] = useState(false)
-  const [gateOpen, setGateOpen] = useState(false)
-  const [explainerOpen, setExplainerOpen] = useState(false)
-
   const draftRequestRef = useRef(0)
+
+  // Every saved-draft and gate concern — the row, the resume switch, the
+  // gate/explainer visibility, and the origin that says what finishing the
+  // gate means — lives in the shared hook RobocallFlow uses too. Only the
+  // payload and the step ids below are this channel's.
+  const draftGate = useDraftGate({
+    channel: 'sms',
+    gate,
+    open,
+    resumeDraft,
+    createDraft: () => createDraftRow(),
+    goToResumeStep: () => setStepId('schedule'),
+    onDraftSaved: () => handleDraftSaved(),
+    onClose,
+  })
+  const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
 
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
@@ -418,13 +419,6 @@ export const SmsFlow = ({
     setDraftCreateError(false)
     setScheduled(false)
     setPaidSend(false)
-    setSavedDraft(resumeDraft)
-    setResumed(Boolean(resumeDraft))
-    setSavingDraft(false)
-    setDraftSaveError(false)
-    setDeletingDraft(false)
-    setGateOpen(false)
-    setExplainerOpen(false)
     resetDraftMutation()
   }, [
     open,
@@ -714,28 +708,16 @@ export const SmsFlow = ({
   const previewUrl =
     imagePreviewUrl ?? (resumed ? (savedDraft?.imageUrl ?? null) : null)
 
-  // The gate screens stand in for a resumed flow until the candidate can
-  // send. Open-only: the requirement clears the moment payment lands, while
-  // the upgrade's own success screen is still up, so closing the gate here
-  // would take that screen away before the candidate could press Continue —
-  // and Continue is what calls handleGateComplete. The gate closes through
-  // onExit or onComplete, never through a requirement change.
-  useEffect(() => {
-    if (resumed && gate.requirement !== null) setGateOpen(true)
-  }, [resumed, gate.requirement])
-
   const handleDraftSaved = async () => {
     await (onDraftSaved ?? onScheduled)()
   }
 
-  // Build mode's one write: the draft the candidate comes back to. A 409
-  // means they already have one, so the flow switches to that row instead of
-  // reporting a failure they can do nothing about.
-  const handleSaveDraft = async () => {
-    if (savingDraft || !audience.selectedListId || !image) return
-    setSavingDraft(true)
-    setDraftSaveError(false)
-    const { draft, conflictId } = await createOutreachDraft(
+  // Build mode's one write, assembled here because only this flow knows the
+  // multipart payload and what has to be in hand before there is anything to
+  // save. The 201/409 branching is the shared hook's.
+  const createDraftRow = async () => {
+    if (!audience.selectedListId || !image) return null
+    return createOutreachDraft(
       {
         outreachType: 'p2p',
         name: name.trim(),
@@ -744,61 +726,6 @@ export const SmsFlow = ({
       },
       image,
     )
-    if (draft) {
-      trackEvent(EVENTS.Outreach.Draft.Saved, { channel: 'sms' })
-      setSavedDraft(draft)
-      setGateOpen(true)
-      setSavingDraft(false)
-      await handleDraftSaved()
-      return
-    }
-    if (conflictId !== null) {
-      try {
-        const { data } = await clientRequest('GET /v1/outreach/:id', {
-          id: String(conflictId),
-        })
-        setSavedDraft(data)
-        setResumed(true)
-        // The existing row has no send date, so the flow has to land where
-        // a resume starts. Leaving it on review would put it one enabled
-        // button away from a checkout with no date the moment the gate
-        // steps aside.
-        setStepId('schedule')
-        setGateOpen(true)
-        return
-      } catch {
-        setDraftSaveError(true)
-        return
-      } finally {
-        setSavingDraft(false)
-      }
-    }
-    setSavingDraft(false)
-    setDraftSaveError(true)
-  }
-
-  const handleDeleteDraft = async () => {
-    if (!savedDraft || deletingDraft) return
-    setDeletingDraft(true)
-    try {
-      await clientRequest('DELETE /v1/outreach/:id', {
-        id: String(savedDraft.id),
-      })
-    } catch {
-      setDeletingDraft(false)
-      return
-    }
-    trackEvent(EVENTS.Outreach.Draft.Deleted, { channel: 'sms' })
-    await handleDraftSaved()
-    onClose()
-  }
-
-  // Upgrading (and, for texting, verifying) inside the sheet turns the flow
-  // into the resume of the row it just saved.
-  const handleGateComplete = () => {
-    setGateOpen(false)
-    setResumed(true)
-    setStepId('schedule')
   }
 
   // Resume's schedule advance: the audience and the message were settled
@@ -1054,10 +981,10 @@ export const SmsFlow = ({
                   ? {
                       label: REVIEW_GATE_CTA[gate.requirement],
                       onClick: () => {
-                        void handleSaveDraft()
+                        void draftGate.saveDraft()
                       },
                       disabled: !audience.selectedListId || image === null,
-                      loading: savingDraft,
+                      loading: draftGate.savingDraft,
                     }
                   : null
 
@@ -1100,7 +1027,7 @@ export const SmsFlow = ({
           <GateBanner
             channel="sms"
             state={gate}
-            onOpenExplainer={() => setExplainerOpen(true)}
+            onOpenExplainer={() => draftGate.setExplainerOpen(true)}
           />
         ) : undefined
       }
@@ -1125,10 +1052,10 @@ export const SmsFlow = ({
         channel="sms"
         state={gate}
         open={explainerOpen}
-        onOpenChange={setExplainerOpen}
-        onUpgrade={() => setGateOpen(true)}
-        onVerify={() => setGateOpen(true)}
-        onPin={() => setGateOpen(true)}
+        onOpenChange={draftGate.setExplainerOpen}
+        onUpgrade={draftGate.openGateFromExplainer}
+        onVerify={draftGate.openGateFromExplainer}
+        onPin={draftGate.openGateFromExplainer}
       />
       {scheduled ? (
         <SuccessScreen
@@ -1143,16 +1070,18 @@ export const SmsFlow = ({
           channel="sms"
           state={gate}
           open
+          hasDraft={savedDraft !== null}
           onExit={onClose}
-          onComplete={handleGateComplete}
+          onComplete={draftGate.handleGateComplete}
           onDelete={
             savedDraft
               ? () => {
-                  void handleDeleteDraft()
+                  void draftGate.deleteDraft()
                 }
               : undefined
           }
-          deleting={deletingDraft}
+          deleting={draftGate.deletingDraft}
+          deleteError={draftGate.deleteError}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep selected={purpose} onSelect={handleSelectPurpose} />
@@ -1328,7 +1257,7 @@ export const SmsFlow = ({
             readOnlySummary={buildMode}
             onComplete={handleScheduled}
           />
-          {draftSaveError && (
+          {draftGate.draftSaveError && (
             <p className="mt-4 text-sm text-destructive">
               We couldn&apos;t save this draft. Try again.
             </p>

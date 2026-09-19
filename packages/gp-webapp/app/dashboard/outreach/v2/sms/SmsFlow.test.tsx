@@ -9,42 +9,17 @@ import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
+import { gateRef } from '../gate/testing/mockReactiveGate'
 import type { TcrCompliance } from 'helpers/types'
 
 // The gate's own flag/membership plumbing has its own tests; here the flow's
-// wiring is what's under test, so the hook is driven directly.
-// `set` is a real subscription rather than a plain assignment because the
-// requirement clearing MID-FLOW (the candidate upgrades inside the sheet) is
-// its own behavior, and a test has to be able to make that happen.
-const gateRef = vi.hoisted(() => {
-  const listeners = new Set<() => void>()
-  return {
-    current: {
-      enabled: false,
-      requirement: null,
-      twoStep: true,
-      membership: null,
-      tcrCompliance: null,
-    } as OutreachGateState,
-    listeners,
-    set(next: OutreachGateState) {
-      this.current = next
-      listeners.forEach((listener) => listener())
-    },
-  }
-})
+// wiring is what's under test, so the hook is driven directly through the
+// shared reactive stand-in (see mockReactiveGate for why it is a module
+// singleton rather than a hoisted ref).
 vi.mock('../gate/useOutreachGate', async () => {
-  const { useSyncExternalStore } = await import('react')
-  const subscribe = (onChange: () => void) => {
-    gateRef.listeners.add(onChange)
-    return () => {
-      gateRef.listeners.delete(onChange)
-    }
-  }
-  const snapshot = () => gateRef.current
-  return {
-    useOutreachGate: () => useSyncExternalStore(subscribe, snapshot, snapshot),
-  }
+  const { useMockOutreachGate } =
+    await import('../gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
 })
 
 // Both mount real Stripe / filing surfaces; the flow only owns whether they
@@ -919,6 +894,60 @@ describe('SmsFlow', () => {
           { channel: 'sms' },
         ),
       )
+    })
+
+    // The banner rides every build-mode step, so its explainer can open the
+    // gate long before there is a draft. Finishing there must hand the
+    // candidate back the step they were on — landing them on schedule would
+    // throw away purpose, audience and message the moment they paid.
+    it('keeps the build intact when the upgrade starts from the banner', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      vi.mocked(createOutreachDraft).mockClear()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+
+      await userEvent.click(screen.getByText(GATE_LINE))
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Upgrade to Pro' }),
+      )
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      act(() => gateRef.set(CLEARED_GATE))
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish upgrade' }),
+      )
+
+      // Back on the audience step with the list still picked, not dropped on
+      // schedule against a draft that was never written.
+      expect(await screen.findByText('Likely voters')).toBeInTheDocument()
+      expect(
+        screen.queryByText('When do you want to send it?'),
+      ).not.toBeInTheDocument()
+      expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+    })
+
+    it('reports a failed delete instead of leaving the draft silently', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      api.mock('DELETE /v1/outreach/:id', {
+        status: 500,
+        data: { message: 'nope' },
+      })
+      const { onClose } = openFlow()
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+      expect(
+        await screen.findByText("We couldn't delete this draft. Try again."),
+      ).toBeInTheDocument()
+      expect(onClose).not.toHaveBeenCalled()
     })
 
     it('renders no banner and keeps the schedule step with the flag off', async () => {

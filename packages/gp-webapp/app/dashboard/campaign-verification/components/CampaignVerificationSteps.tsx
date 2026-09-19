@@ -46,7 +46,7 @@ const CampaignVerificationSteps = ({
   onExit,
   onComplete,
   onDelete,
-  deleteLabel = 'Delete draft',
+  deleteLabel = 'Delete',
   completeLabel = 'Back to dashboard',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
   const [step, setStep] = useState<VerificationStep>(initialStep)

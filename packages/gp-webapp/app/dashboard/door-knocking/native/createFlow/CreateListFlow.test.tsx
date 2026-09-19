@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
@@ -10,6 +10,7 @@ import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
+import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -23,35 +24,10 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 // own tests, and the requirement clearing mid-upgrade is a behavior this file
 // has to be able to stage. Ungated by default, so every other case here is
 // the Pro candidate this flow shipped for.
-const gateRef = vi.hoisted(() => {
-  const listeners = new Set<() => void>()
-  return {
-    current: {
-      enabled: false,
-      requirement: null,
-      twoStep: false,
-      membership: null,
-      tcrCompliance: null,
-    } as OutreachGateState,
-    listeners,
-    set(next: OutreachGateState) {
-      this.current = next
-      listeners.forEach((listener) => listener())
-    },
-  }
-})
 vi.mock('app/dashboard/outreach/v2/gate/useOutreachGate', async () => {
-  const { useSyncExternalStore } = await import('react')
-  const subscribe = (onChange: () => void) => {
-    gateRef.listeners.add(onChange)
-    return () => {
-      gateRef.listeners.delete(onChange)
-    }
-  }
-  const snapshot = () => gateRef.current
-  return {
-    useOutreachGate: () => useSyncExternalStore(subscribe, snapshot, snapshot),
-  }
+  const { useMockOutreachGate } =
+    await import('app/dashboard/outreach/v2/gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
 })
 
 // Mounts real Stripe surfaces; the flow only owns whether the gate is on
@@ -293,7 +269,7 @@ beforeEach(() => {
 })
 
 beforeEach(() => {
-  gateRef.current = PRO_GATE
+  gateRef.set(PRO_GATE)
 })
 
 describe('CreateListFlow', () => {
@@ -2077,7 +2053,7 @@ describe('CreateListFlow — the Pro gate', () => {
   beforeEach(() => {
     testQueryClient.clear()
     vi.clearAllMocks()
-    gateRef.current = FREE_GATE
+    gateRef.set(FREE_GATE)
   })
 
   const mockCreate = () => {
@@ -2163,8 +2139,33 @@ describe('CreateListFlow — the Pro gate', () => {
     expect(turfPosts).toHaveLength(0)
   })
 
+  // The banner rides every step but the draw, so its explainer can open the
+  // gate long before Build route. Finishing there must hand the candidate
+  // back the step they were on, not buy the route behind their back.
+  it('free candidate: upgrading from the banner buys nothing and keeps the step', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+
+    fireEvent.click(screen.getByText(GATE_LINE))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Upgrade to Pro' }),
+    )
+    await screen.findByTestId('pro-upgrade-flow')
+
+    act(() => gateRef.set(PRO_GATE))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish upgrade' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Build route' }),
+    ).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
   it('Pro candidate: Build route buys the route with no gate and no banner', async () => {
-    gateRef.current = PRO_GATE
+    gateRef.set(PRO_GATE)
     const turfPosts = mockCreate()
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="confirm" />,
