@@ -55,6 +55,10 @@ interface OutreachHistoryTableProps {
   // org-scoped sibling the same bound-function way SocialFlow's `surface`
   // does, so this table never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // "Campaign" is fine on both surfaces here — these ARE outreach campaigns,
+  // not a run for office. An election CYCLE is not: an elected official
+  // archives outreach across a term, so Serve names the shelf, not the cycle.
+  isServe?: boolean
 }
 
 // Social rows carry no send counts on the list payload — the platform count
@@ -303,6 +307,7 @@ export const OutreachHistoryTable = ({
   onRowClick,
   rowClickable = () => true,
   detailFetcher = fetchOutreachDetail,
+  isServe = false,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
   const [showArchive, setShowArchive] = useState(false)
@@ -407,7 +412,9 @@ export const OutreachHistoryTable = ({
           </h2>
           <p className="text-sm text-muted-foreground">
             {showArchive
-              ? 'Completed and cancelled campaigns from earlier cycles.'
+              ? isServe
+                ? 'Completed and cancelled campaigns you have archived.'
+                : 'Completed and cancelled campaigns from earlier cycles.'
               : "Every campaign you've sent, most recent first."}
           </p>
         </div>

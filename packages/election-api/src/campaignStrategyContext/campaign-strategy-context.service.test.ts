@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ElectionCode } from '../generated/prisma'
 import { CampaignStrategyContextService } from './campaign-strategy-context.service'
 import { CampaignStrategyContextRequestDto } from './campaign-strategy-context.schema'
 
@@ -18,6 +19,7 @@ type RaceRow = {
   normalizedPositionName: string | null
   numberOfSeats: number | null
   winNumber: number | null
+  electionCode: ElectionCode | null
   projectedTurnout: number | null
   projectedTurnoutLower: number | null
   projectedTurnoutUpper: number | null
@@ -63,6 +65,7 @@ const baseRace = (overrides: Partial<RaceRow> = {}): RaceRow => ({
   normalizedPositionName: 'City Legislature',
   numberOfSeats: 1,
   winNumber: null,
+  electionCode: ElectionCode.General,
   projectedTurnout: 10000,
   projectedTurnoutLower: 8000,
   projectedTurnoutUpper: 13000,
@@ -144,6 +147,7 @@ describe('CampaignStrategyContextService', () => {
       ],
       civics_win_number: null,
       contacts_needed_estimate: 25005,
+      election_code: 'General',
       general_election_date: '2026-08-25',
       number_of_seats: 1,
       office_level: null,
@@ -164,6 +168,31 @@ describe('CampaignStrategyContextService', () => {
       win_number_lower: 4001,
       win_number_upper: 6501,
     })
+  })
+
+  // Passed through verbatim, never derived. The warehouse tags each race with
+  // the electorate its projection was drawn for; a consumer that needs to
+  // know whether a race is a November general reads this rather than
+  // re-classifying the date, so the rule lives in one place.
+  it.each([
+    ['General', ElectionCode.General],
+    ['LocalOrMunicipal', ElectionCode.LocalOrMunicipal],
+    ['Primary', ElectionCode.Primary],
+    ['ConsolidatedGeneral', ElectionCode.ConsolidatedGeneral],
+  ])('passes the %s election code through untouched', async (_label, code) => {
+    raceFindFirst.mockResolvedValue(baseRace({ electionCode: code }))
+
+    const result = await service.getCampaignStrategyContext(baseRequest())
+
+    expect(result.election_code).toBe(code)
+  })
+
+  it('returns a null election code where the race row has none', async () => {
+    raceFindFirst.mockResolvedValue(baseRace({ electionCode: null }))
+
+    const result = await service.getCampaignStrategyContext(baseRequest())
+
+    expect(result.election_code).toBeNull()
   })
 
   it('returns every candidate in the race regardless of party', async () => {

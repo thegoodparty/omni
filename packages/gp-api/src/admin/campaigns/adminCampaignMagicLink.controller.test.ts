@@ -14,6 +14,7 @@ function makeController() {
     provisionMagicLinkUser: vi.fn().mockResolvedValue({
       user: { id: 1 },
       token: 'tok',
+      clerkId: 'user_clerk1',
     }),
   }
   const analytics = { track: vi.fn().mockResolvedValue(undefined) }
@@ -71,6 +72,9 @@ describe('AdminCampaignMagicLinkController.createMagicLink', () => {
     const result = await ctx.controller.createMagicLink(dto({}))
     expect(result.userId).toBe(1)
     expect(result.url).toContain('/win/welcome?__clerk_ticket=tok')
+    // The redemption page needs the ticket's Clerk user id (the token itself
+    // carries no user claim) to recognize an already-signed-in recipient.
+    expect(result.url).toContain('&uid=user_clerk1')
     // No ElectedOffice is created for candidate leads — that marker would route
     // them into the serve flow instead.
     expect(ctx.analytics.track).toHaveBeenCalledWith(

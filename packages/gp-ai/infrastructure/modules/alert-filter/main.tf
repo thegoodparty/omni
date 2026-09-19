@@ -384,10 +384,14 @@ resource "aws_cloudwatch_metric_alarm" "handler_errors" {
 #
 # What it catches instead is the narrow case that is unambiguously broken:
 # Grafana is still routing to this contact point and the function is not being
-# invoked at all for a fortnight. Any real alerting stack fires something in two
-# weeks — the door-knocking rules alone have not gone that quiet — so 14 silent
+# invoked at all for a week. Any real alerting stack fires something in seven
+# days — the door-knocking rules alone have not gone that quiet — so 7 silent
 # days while the route is live means the route is not actually live, which is
 # the misconfiguration that looks most like success.
+#
+# Seven days is a CloudWatch ceiling, not a tuning choice: an alarm with
+# period >= 3600 must satisfy EvaluationPeriods * Period <= 604800 (one week),
+# so PutMetricAlarm rejects the 14-day version of this alarm outright.
 #
 # treat_missing_data = "breaching" is the point, as it is for clickup-bot:
 # Lambda metrics are sparse, so no invocations produces no datapoint rather than
@@ -395,10 +399,10 @@ resource "aws_cloudwatch_metric_alarm" "handler_errors" {
 # exactly the state it exists to catch.
 resource "aws_cloudwatch_metric_alarm" "no_deliveries" {
   alarm_name          = "alert-filter-no-deliveries-${var.environment}"
-  alarm_description   = "alert-filter ${var.environment} has received NO alert deliveries for 14 days. Either nothing has fired in two weeks (check #dev-alerts-raw — if it has traffic, this is wrong) or the Grafana notification policy is no longer routing to the gpbot-alert-filter contact point. The second case looks exactly like the filter working perfectly."
+  alarm_description   = "alert-filter ${var.environment} has received NO alert deliveries for 7 days. Either nothing has fired in a week (check #dev-alerts-raw — if it has traffic, this is wrong) or the Grafana notification policy is no longer routing to the gpbot-alert-filter contact point. The second case looks exactly like the filter working perfectly."
   comparison_operator = "LessThanThreshold"
-  evaluation_periods  = 14
-  datapoints_to_alarm = 14
+  evaluation_periods  = 7
+  datapoints_to_alarm = 7
   metric_name         = "Invocations"
   namespace           = "AWS/Lambda"
   period              = 86400

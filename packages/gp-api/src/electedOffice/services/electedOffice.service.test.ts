@@ -1,6 +1,7 @@
 import { useTestService } from '@/test-service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
+import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -304,6 +305,77 @@ describe('ElectedOfficeService.create', () => {
     expect(office.id).toBeDefined()
     hookSpy.mockRestore()
   }, 3000)
+
+  it('seeds priorities from the winning campaign after a fresh create with a linked campaign', async () => {
+    // End-to-end regression: with seedFromWin now fired post-commit rather
+    // than inside the $transaction, verify the seed still runs and produces
+    // the expected priority rows for the freshly created office.
+    const priorities = service.app.get(PrioritiesService)
+    const slug = `campaign-eo-seed-fresh`
+    await service.prisma.organization.create({
+      data: { slug, ownerId: service.user.id },
+    })
+    const campaign = await service.prisma.campaign.create({
+      data: {
+        slug,
+        userId: service.user.id,
+        organizationSlug: slug,
+        details: {
+          customIssues: [{ title: 'Housing', position: 'Build more' }],
+        },
+      },
+    })
+
+    const office = await electedOffices.create({
+      userId: service.user.id,
+      campaignId: campaign.id,
+    })
+
+    const seeded = await priorities.listActive(office.id)
+    expect(seeded).toHaveLength(1)
+    expect(seeded[0]).toMatchObject({ title: 'Housing' })
+  })
+
+  it('still creates the office when priority seeding rejects (seedFromWin runs outside the txn)', async () => {
+    // Regression for ENG-11116: seedFromWin used to run INSIDE the interactive
+    // $transaction, so a rejection there rolled back the office row (and
+    // consumed the 5,000 ms budget on the way — the source of the P2028
+    // stream on POST /v1/elected-office). Now it fires post-commit with a
+    // swallowed .catch, so a seeding failure must never turn a successful
+    // create into a 5xx.
+    vi.spyOn(
+      service.app.get(PrioritiesService),
+      'seedFromWin',
+    ).mockRejectedValue(new Error('seed failed'))
+
+    const office = await electedOffices.create({ userId: service.user.id })
+
+    expect(office.id).toBeDefined()
+    expect(await service.prisma.electedOffice.count()).toBe(1)
+  })
+
+  it('does not re-invoke seedFromWin on the idempotent-retry return path', async () => {
+    // seedFromWin has always only fired on the fresh-create path; moving it
+    // outside the transaction preserves that gating — otherwise every retry
+    // would fire three extra round trips for no state change.
+    const seedSpy = vi.spyOn(service.app.get(PrioritiesService), 'seedFromWin')
+    const first = await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+    })
+    expect(seedSpy).toHaveBeenCalledTimes(1)
+
+    seedSpy.mockClear()
+    const retry = await electedOffices.create({
+      userId: service.user.id,
+      termStartDate: new Date('2025-01-01T00:00:00.000Z'),
+      termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+    })
+
+    expect(retry.id).toBe(first.id)
+    expect(seedSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('ElectedOfficeService.update', () => {

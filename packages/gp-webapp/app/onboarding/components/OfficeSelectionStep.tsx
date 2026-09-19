@@ -41,7 +41,12 @@ const FILTER_PRIORITY: Record<string, number> = {
   'City Council': 0,
   Mayor: 1,
   'School Board': 2,
+  // Both chambers share a tier, so they sort together (alphabetically, via the
+  // sortFilters tiebreak) rather than one landing far from the other.
   'State Senate': 3,
+  'State House': 3,
+  'State Assembly': 3,
+  'House of Delegates': 3,
   Sheriff: 4,
   Judge: 5,
   Other: 6,
@@ -68,6 +73,30 @@ const FILTER_BUCKETS: ReadonlyArray<{
   {
     label: 'State Senate',
     match: (race) => /state senate/i.test(race.position?.name ?? ''),
+  },
+  // Lower chamber, split by the name each state actually uses, so a candidate
+  // sees their own term. Only the bucket matching their state's races produces a
+  // chip, because the options are built from the races on hand. Without these,
+  // every state-house race in the country falls through to `Other`, which
+  // DEPRIORITIZED_CATEGORIES pushes to the bottom of both the chips and the list.
+  {
+    label: 'State House',
+    // Congressional seats are named "U.S. House of Representatives - …", so
+    // they have to be excluded or they land in a state-chamber bucket.
+    match: (race) =>
+      /house of representatives/i.test(race.position?.name ?? '') &&
+      !/u\.?\s?s\.?\s+house/i.test(race.position?.name ?? ''),
+  },
+  {
+    // Requires the chamber word: a "Borough Assembly" or "Municipal Assembly"
+    // is a local council, not a state legislature.
+    label: 'State Assembly',
+    match: (race) =>
+      /(state|general) assembly/i.test(race.position?.name ?? ''),
+  },
+  {
+    label: 'House of Delegates',
+    match: (race) => /house of delegates/i.test(race.position?.name ?? ''),
   },
   {
     label: 'Sheriff',

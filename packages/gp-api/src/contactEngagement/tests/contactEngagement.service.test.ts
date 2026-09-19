@@ -1,4 +1,6 @@
 import {
+  ContactStatusField,
+  ContactStatusSource,
   OutreachType,
   PollIndividualMessageSender,
   VoterOutreachAttributionSource,
@@ -537,6 +539,76 @@ describe('ContactEngagementService', () => {
       expect(result.results).toEqual([])
     })
 
+    it('reads back only follow_up status changes for a Serve org', async () => {
+      await service.getIndividualActivities(baseInput)
+
+      expect(mockContactStatusService.findEventsForFeed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            organizationSlug: 'eo-office-123',
+            personId: 'person-123',
+            field: ContactStatusField.follow_up,
+          }),
+        }),
+      )
+    })
+
+    it('excludes follow_up status changes for a Win org', async () => {
+      const campaignInput: IndividualActivityInput = {
+        personId: 'person-123',
+        organizationSlug: 'campaign-org-1',
+        campaignId: 7,
+        take: 20,
+      }
+
+      await service.getIndividualActivities(campaignInput)
+
+      expect(mockContactStatusService.findEventsForFeed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            organizationSlug: 'campaign-org-1',
+            field: { not: ContactStatusField.follow_up },
+          }),
+        }),
+      )
+    })
+
+    it('renders a Serve follow-up change with its actor and timestamp', async () => {
+      mockContactStatusService.findEventsForFeed.mockResolvedValue([
+        {
+          id: 'event-1',
+          createdAt: new Date('2026-09-18T15:30:00Z'),
+          organizationSlug: 'eo-office-123',
+          personId: 'person-123',
+          field: ContactStatusField.follow_up,
+          fromValue: 'cleared',
+          toValue: 'requested',
+          source: ContactStatusSource.phone_banking,
+          actorUserId: 42,
+          sourceId: 'call-1',
+          actor: { firstName: 'Ada', lastName: 'Lovelace' },
+        },
+      ])
+
+      const result = await service.getIndividualActivities(baseInput)
+
+      expect(result.results).toEqual([
+        {
+          type: ConstituentActivityType.STATUS_CHANGE,
+          date: '2026-09-18T15:30:00.000Z',
+          data: {
+            activityId: 'event-1',
+            field: ContactStatusField.follow_up,
+            fromLabel: 'No',
+            toLabel: 'Yes',
+            actorName: 'Ada Lovelace',
+            actorUserId: 42,
+            source: ContactStatusSource.phone_banking,
+          },
+        },
+      ])
+    })
+
     it('unions in legacy VoterOutreachActivity rows only when lalVoterId is given', async () => {
       mockVoterOutreachActivityService.findMany.mockResolvedValue([
         {
@@ -685,6 +757,8 @@ describe('ContactEngagementService', () => {
             outcome: 'answered',
             supportAnswer: 'supporter',
             willVote: 'yes',
+            // Win reads back its own two answers and never a follow-up.
+            followUp: null,
             note: 'Confirmed will vote',
             manual: false,
             actorName: null,
@@ -722,6 +796,7 @@ describe('ContactEngagementService', () => {
             activityId: 'dk-1',
             outcome: 'answered',
             supportAnswer: 'supporter',
+            followUp: null,
             note: 'Friendly chat',
             manual: true,
             actorName: null,
@@ -729,6 +804,71 @@ describe('ContactEngagementService', () => {
           },
         },
       ])
+    })
+
+    // A support answer and a turnout intention are Win facts about a person,
+    // and this feed is read on the Serve surface too — the walk's person sheet
+    // and the Constituent Data overlay. Nulled here rather than hidden per
+    // reader, the same rule `politicalParty` follows: the `eo-` prefix decides
+    // it, so a Serve row states its outcome, note and actor and nothing about
+    // a question its canvasser never asked.
+    it('nulls the win answers for an elected-office org, keeping the rest', async () => {
+      mockContactInteractionDoorKnockService.findMany.mockResolvedValue([
+        {
+          id: 'dk-1',
+          occurredAt: new Date('2026-01-01T10:00:00Z'),
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          followUp: 'yes',
+          note: 'Friendly chat',
+          manual: true,
+          actorUserId: null,
+          actor: null,
+        },
+      ])
+      mockContactInteractionPhoneBankingService.findMany.mockResolvedValue([
+        {
+          id: 'pb-1',
+          occurredAt: new Date('2026-01-04T10:00:00Z'),
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          willVote: 'yes',
+          followUp: 'no',
+          note: 'Confirmed will vote',
+          manual: false,
+          actorUserId: null,
+          actor: null,
+        },
+      ])
+
+      const result = await service.getIndividualActivities({
+        personId: 'person-123',
+        organizationSlug: 'eo-cheyenne-ward-1',
+        take: 20,
+      })
+
+      const phoneBanking = result.results.find(
+        (activity) => activity.type === ConstituentActivityType.PHONE_BANKING,
+      )
+      const doorKnock = result.results.find(
+        (activity) => activity.type === ConstituentActivityType.DOOR_KNOCK,
+      )
+
+      expect(phoneBanking?.data).toMatchObject({
+        supportAnswer: null,
+        willVote: null,
+        // Serve's own answer rides in their place.
+        followUp: 'no',
+        // Everything that is a fact about the call itself survives.
+        outcome: 'answered',
+        note: 'Confirmed will vote',
+      })
+      expect(doorKnock?.data).toMatchObject({
+        supportAnswer: null,
+        followUp: 'yes',
+        outcome: 'answered',
+        note: 'Friendly chat',
+      })
     })
   })
 

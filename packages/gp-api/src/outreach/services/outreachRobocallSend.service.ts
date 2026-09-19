@@ -18,6 +18,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
+import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // Every 10 minutes, offset :04 so the sweep neither joins the top-of-hour herd
@@ -70,6 +71,7 @@ export class OutreachRobocallSendService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     private readonly hold: OutreachRobocallHoldService,
     private readonly robocallSingleSend: OutreachRobocallSingleSendService,
+    private readonly notification: OutreachNotificationService,
   ) {
     super()
   }
@@ -447,7 +449,8 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // does not know WHO was reached (CallHub reports no per-call disposition), so
     // the robocall records only the aggregate audience/billable count on its
     // OutreachRobocall row, never a per-person feed entry.
-    await this.markSpineInProgress(outreachId)
+    const advanced = await this.markSpineInProgress(outreachId)
+    if (advanced) await this.notifyDialing(outreachId)
   }
 
   // Advance the spine `pending → in_progress` so the history UI shows "Sending"
@@ -457,16 +460,44 @@ export class OutreachRobocallSendService extends createPrismaBase(
   // canceled/failed row — mirrors markSpineScheduled/markSpineFailed in the hold
   // service. A miss only leaves the row showing "Scheduled"; log it, never fail
   // the dial (the call already went out).
-  private async markSpineInProgress(outreachId: number): Promise<void> {
+  private async markSpineInProgress(outreachId: number): Promise<boolean> {
     try {
-      await this.client.outreach.updateMany({
+      const res = await this.client.outreach.updateMany({
         where: { id: outreachId, status: OutreachStatus.pending },
         data: { status: OutreachStatus.in_progress },
       })
+      return res.count > 0
     } catch (err) {
       this.logger.error(
         { err, outreachId },
         'robocall: failed to advance spine to in_progress',
+      )
+      return false
+    }
+  }
+
+  // A short CAS "now dialing" line, only on the real pending -> in_progress
+  // transition so it fires once per run. Best-effort: the dial already went out,
+  // so a Slack or context-load failure must never touch it.
+  private async notifyDialing(outreachId: number): Promise<void> {
+    try {
+      const row = await this.model.findUnique({
+        where: { outreachId },
+        select: {
+          billableCount: true,
+          outreach: { select: { campaign: { select: { slug: true } } } },
+        },
+      })
+      if (!row) return
+      await this.notification.notifyRobocallDialing(
+        row.outreach.campaign?.slug ?? 'unknown',
+        outreachId,
+        row.billableCount,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: CAS dialing notify failed',
       )
     }
   }

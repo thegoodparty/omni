@@ -504,6 +504,19 @@ The steps:
    nothing to ask: the vendor's only output is the face order, and one face
    orders itself. A long thin turf down one side of one street is a single face
    at any door count, so this is not only the tiny-turf case.
+
+   **An open route anchors on the face nearest the centroid**, which reads
+   backwards — a walk ought to finish at the far edge, and that is what the
+   anchor used to be. The far edge is also where a bad geocode lands, and an
+   anchor the road network cannot reach is the one input that makes this API
+   hang: it holds the request until its own gateway gives up at 120s, past our
+   30s deadline. Anchoring at the centre costs 1.6% of route time on a
+   representative turf and is what lets the vendor name the broken address
+   instead of failing everything (see § Turfs the road network cannot serve).
+
+   **A walk spanning more than 100 km is refused before the call.** Geoapify
+   rejects one with a 400 the client would re-raise as a 502, blaming the
+   vendor for a request that was ours. Walk only: driving has no such ceiling.
 6. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
    immediately, on the plain client and NOT the transaction. The vendor has
    been paid by this point, so the ledger row has to commit whether or not the
@@ -823,6 +836,13 @@ cannot separate a people-db 502 from a vendor's. Distinct from
 `VOTER_DATA_UNAVAILABLE`, which is a 4xx eligibility state (no district, no
 stats row) rather than a read that failed.
 
+The route planner's own refusals went the other way. Geoapify answering a 200
+with no plan, or with a plan that skips a stop, is not a fault — nothing is
+broken and the same coordinates get the same answer tomorrow — so those are
+400s now, and they carry the address (see "Turfs the road network cannot
+serve"). A 502 from `planRoute` means the call itself failed or the response
+could not be read, which is the case where waiting genuinely is the advice.
+
 **Neither of these is a found-nobody 400**, and there are two of those now
 (see "Two ways of finding nobody" below). A found-nobody 400 cannot be a
 masked timeout: a timeout throws before any rows are shaped, and the
@@ -927,6 +947,50 @@ structured log line `event: 'DoorKnockingCampaignLimitOverride'`
 Loki the same way `DoorKnockingSpend` is. `actorEmail` is frequently null:
 gp-admin authenticates with an M2M token and authorizes the human in its own
 server action, so gp-api never sees who pressed the button.
+
+### Turfs the road network cannot serve
+
+Three inputs Geoapify will not plan. All three were measured against the live
+Route Planner, none had ever fired in prod, and all three used to surface as
+the same 502 and the same "try again in a moment" — advice that is wrong for
+every one of them, because each is deterministic.
+
+**The refusal rule is narrower than it looks.** A request fails when *every*
+location in it — both anchors and all jobs — is a single coordinate. Two
+identical jobs with the anchor on them fails and names both; move the anchor
+somewhere else and the same two jobs plan fine. That is why the single-face
+short-circuit above is a complete fix rather than a patch: stops dedupe on a
+~1m grid and faces partition stops, so two faces always carry two distinct
+coordinates, and one face always carries exactly one.
+
+**An unreachable stop** — a geocode in open water, a parcel with no way to it
+— comes back as a plan that covers every *other* face, with the bad one in
+`issues.unassigned_jobs`, in under a second. `planRoute` reconciles requested
+against planned and raises `RoutePlanRejectedError` carrying the job ids it
+could not place; the create service maps those back to the faces'
+representative addresses and answers 400 naming them. It names the
+representative and not the face's other doors, because the representative is
+the only coordinate the vendor was ever shown.
+
+**Unless the anchor is the unreachable one**, which is where the anchor choice
+in step 5 comes from. An agent anchored on a coordinate the network cannot
+reach is the worst input this API takes: it holds the request for 120s before
+its own gateway 504s (3 of 3 attempts), well past the 30s `PLAN_TIMEOUT_MS`,
+and when it does answer it marks *every* job unassigned — so the one broken
+address becomes indistinguishable from an unwalkable turf. On an 8-face turf
+with one bad stop, the far-edge anchor returns no plan and all 9 jobs
+unassigned; the central anchor returns 8 planned and `unassigned_jobs: [8]`.
+
+**A walk spanning over 100 km** is a 400 from the vendor, not a routing
+failure: *"Distance should not exceed 100000 meters for a regular API call"*.
+99 km plans, 101 km does not. `orderFaces` checks the max pairwise distance
+across the face representatives before spending anything. Walk only — 120 km
+plans normally in drive mode.
+
+Reproducing any of these needs only `GEOAPIFY_API_KEY` from `GP_API_DEV` in
+Secrets Manager and a POST to `/v1/routeplanner`; an agent with no anchor at
+all is rejected outright, which is why one has to be chosen rather than
+omitted.
 
 ### The account-wide budget, and why it needs its own alerts
 
@@ -1822,13 +1886,48 @@ which is a separate instruction from an observed refusal and gets its own ADR.
 
 ## Scope guardrails (v1)
 
-Out: precinct / top-issue / district filters, recommended lists, canvasser
-identity (candidate-only), **voter record mutation** — `not_a_voter` now
-captures a reason and suppresses the person from future evaluation
-(ADR 0008), but no person, address, or L2-derived field is ever deleted or
-edited — sharable URLs, tagging, arbitrary questions, UI turf-splitting
-(the schema already supports N turfs). Feature flag: `native-door-knocking`
-gates all FE surfaces; backend lands dark.
+**Still out.** There is no **top-issue or district filter**:
+`voterFilterBaseSchema` carries neither, and a district is _resolved_ from the
+organization (`resolveEligibleDistrictId`) rather than chosen, so the one
+sub-district cut that exists — precinct — narrows the district an official
+already serves instead of picking a different one. No **voter record
+mutation**: nothing under `doorKnocking/`, `contacts/` or `peopleDb/` issues
+anything but a `SELECT` against the people database, and `not_a_voter` is the
+near-exception that proves it — it captures a reason and suppresses the person
+from future evaluation (ADR 0008), but that write lands in our own Postgres and
+no person, address or L2-derived field is ever deleted or edited. No **sharable
+URLs**: the deep links that exist (`?listId=`, `?walkTurfId=`,
+`/volunteer/door-knocking/[turfId]`) are authenticated in-app routes, not
+tokens. No **tagging**, and no **arbitrary questions at a native knock** —
+`RecordDoorKnockInteractionSchema` is `.strict()` over a closed outcome and
+answer vocabulary, and the question designer under `door-knocking/surveys/`
+belongs to the eCanvasser arm, which the flag-on arm redirects away from. No
+**UI turf-splitting**: the schema has supported N turfs per audience since the
+start (`voterFileFilterId` is deliberately not unique), but nothing divides a
+polygon, and an over-cap shape is refused rather than split.
+
+**Since shipped**, and listed here rather than deleted because their absence was
+load-bearing in the design above. **Precinct filtering** reached every
+list-creation surface including the who step; the map still cannot shade by it,
+which is the gap `UNSHADEABLE_LIST_CRITERIA` names, and the counts a candidate
+sees while drawing do not narrow. **Recommended lists** landed — see
+`docs/features/recommended-lists.md`, where a door-knocking recommendation is
+itself a precinct cut, which is how a recommendation could set precincts long
+before the builder could. **Canvasser identity** landed with the volunteer walk:
+an assigned volunteer knocks six `@AllowVolunteer()` routes scoped to their own
+`OutreachAssignment`, and `ContactInteractionDoorKnock.actorUserId` records who
+knocked. See § Volunteer access to the walk (ENG-11051), which this line used to
+contradict.
+
+**The flag line has drifted on both halves.** `native-door-knocking` still gates
+the dashboard surfaces and still demands the variant be literally `on`, but it
+does not gate _all_ of them: the volunteer walk is gated on `win-team-accounts`
+instead (`activeOrgVolunteer.server.ts`), so the two arms of this feature sit
+behind two different flags and can be turned on independently. And the backend
+no longer lands dark — gp-api checks no flag anywhere, `DoorKnockingModule` is
+registered unconditionally, and the routes are held by the Pro gate
+(`assertProAccess`) and by role. The figures in § Spend visibility are
+production measurements, not projections.
 
 ## Phones at the door
 

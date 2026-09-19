@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import {
   type PhoneBankingCallResult,
   type PhoneBankingListEntry,
-  VOTER_NAME_TOKEN,
+  CONTACT_NAME_TOKENS,
 } from '@goodparty_org/contracts'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import {
@@ -52,26 +52,39 @@ interface PhoneBankingEntryPanelProps {
   hasNext: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
+  // Passed straight through to the outcome form, which asks a different
+  // engaged-call question on each surface.
+  isServe: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
 }
 
+// Either surface's contact-name token: a Serve script says "[constituent
+// name]" and a Win one "[voter name]", and a script frozen before Serve had
+// its own token still carries the Win one whatever surface reads it back.
 // Case-insensitive so a script emitted with different casing still matches;
-// [.*+?^${}()|[\]\\] escapes every regex metacharacter the literal token
-// contains (the brackets themselves).
-const VOTER_NAME_TOKEN_PATTERN = new RegExp(
-  `(${VOTER_NAME_TOKEN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
+// [.*+?^${}()|[\]\\] escapes every regex metacharacter the literal tokens
+// contain (the brackets themselves).
+const CONTACT_NAME_TOKEN_PATTERN = new RegExp(
+  `(${CONTACT_NAME_TOKENS.map((token) =>
+    token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+  ).join('|')})`,
   'gi',
 )
 
-// Renders the frozen script with every occurrence of the voter-name token
+const isContactNameToken = (part: string): boolean =>
+  CONTACT_NAME_TOKENS.some(
+    (token) => part.toLowerCase() === token.toLowerCase(),
+  )
+
+// Renders the frozen script with every occurrence of the contact-name token
 // swapped for the active contact's first name, set apart visually so
 // callers can tell it's live data rather than part of the fixed script.
-const renderScriptWithVoterName = (
+const renderScriptWithContactName = (
   script: string,
   firstName: string,
 ): React.ReactNode =>
-  script.split(VOTER_NAME_TOKEN_PATTERN).map((part, index) =>
-    part.toLowerCase() === VOTER_NAME_TOKEN.toLowerCase() ? (
+  script.split(CONTACT_NAME_TOKEN_PATTERN).map((part, index) =>
+    isContactNameToken(part) ? (
       <span key={index} className="font-semibold">
         {firstName}
       </span>
@@ -97,6 +110,7 @@ export default function PhoneBankingEntryPanel({
   hasNext,
   open,
   onOpenChange,
+  isServe,
   onSaved,
 }: PhoneBankingEntryPanelProps): React.JSX.Element {
   const isMobile = useIsMobile()
@@ -253,7 +267,7 @@ export default function PhoneBankingEntryPanel({
 
           <ProfileCard title="Call script" icon={ScrollTextIcon}>
             <p className="whitespace-pre-line text-sm text-foreground">
-              {renderScriptWithVoterName(script, firstName)}
+              {renderScriptWithContactName(script, firstName)}
             </p>
           </ProfileCard>
 
@@ -272,6 +286,7 @@ export default function PhoneBankingEntryPanel({
           personId={person.personId}
           interaction={person.interaction}
           householdHasOthersUnlogged={householdHasOthersUnlogged}
+          isServe={isServe}
           onSaved={onSaved}
         />
       </div>

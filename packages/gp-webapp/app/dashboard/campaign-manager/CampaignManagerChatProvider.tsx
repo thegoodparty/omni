@@ -11,7 +11,6 @@ import {
   type ReactNode,
 } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { useQueryClient } from '@tanstack/react-query'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
@@ -19,7 +18,6 @@ import {
 import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
-import { reportErrorToSentry } from '@shared/sentry'
 import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
@@ -39,9 +37,17 @@ import {
 // manager".
 const MEET_CARD_DISMISSED_KEY = 'campaign-manager-meet-dismissed'
 
+// Passed as the body's `defaultIntro` on the entries that deliberately play no
+// greeting (a kickoff, a reopened conversation). The body's own default is
+// Chief of Staff's intro, so leaving it unset would type CoS's opener into the
+// manager on the candidate's first chat ever — which is exactly when the home
+// cards that fire a kickoff are on screen. Module-level so its identity is
+// stable across renders (the body keys an effect on it).
+const NO_INTRO: string[] = []
+
 interface CampaignManagerChatContextValue {
-  // Open the manager in general mode (meet card / footer). Dismisses the
-  // first-run meet card.
+  // Open the manager in general mode (meet card / footer) on a new chat.
+  // Dismisses the first-run meet card.
   openManager: () => void
   // Open a specific past conversation from history. Dismisses the meet card.
   openConversation: (id: string) => void
@@ -75,11 +81,12 @@ export const useCampaignManagerChat =
  * manager home's cards and the tracker's "Campaign Manager" button drive the
  * same dock instead of each owning a copy.
  *
- * The manager runs as a single ongoing conversation: opening it resumes the
- * candidate's existing thread (or creates one on first open), so it always
- * continues where they left off. The server seeds the resume-aware greeting as
- * the conversation's first message; until the candidate replies, the chat body
- * types that seeded greeting in on open (no separate client opener).
+ * Conversations work exactly as they do for Chief of Staff, and must keep
+ * working that way: opening the manager starts a NEW chat, the conversation is
+ * created on the first message (so an open with nothing typed leaves nothing
+ * behind), and earlier chats are reopened by id from the footer's history
+ * popover. The greeting plays client-side as the chat body's `opener`; gp-api
+ * seeds the same copy as the conversation's first message once it exists.
  */
 export function CampaignManagerChatProvider({
   children,
@@ -88,7 +95,6 @@ export function CampaignManagerChatProvider({
 }): React.JSX.Element {
   const [user] = useUser()
   const firstName = user?.firstName || undefined
-  const queryClient = useQueryClient()
   const router = useRouter()
   const pathname = usePathname()
   const [chatOpen, setChatOpen] = useState(false)
@@ -133,14 +139,14 @@ export function CampaignManagerChatProvider({
   }, [])
 
   // Entering via the story flow (the story card / personalize deep link) sets
-  // pendingKickoff before the conversation opens. On that entry the kickoff
-  // streams the story-intake greeting, so the server-seeded general greeting
-  // ("Hi <name>, I'm your Campaign Manager.") would show ABOVE it — the double
-  // greeting in the screenshot. Hide the exact seeded string on that entry only,
-  // so it shows just the story flow (fresh open AND resume). The general "meet"/
-  // footer entry (pendingKickoff undefined) keeps the greeting + starter chips.
-  // The string mirrors gp-api's buildCampaignManagerGreeting (buildCampaign
-  // ManagerIntro is its hand-synced client twin).
+  // pendingKickoff before the chat opens. On that entry the kickoff streams the
+  // story-intake greeting, and the general greeting gp-api seeds into the new
+  // conversation reappears above it when the turn reconciles against the server
+  // transcript — the double greeting. Hide the exact seeded string on that
+  // entry only. The general "meet"/footer entry (pendingKickoff undefined)
+  // keeps the greeting + starter chips. The string mirrors gp-api's
+  // buildCampaignManagerGreeting (buildCampaignManagerIntro is its hand-synced
+  // client twin).
   const hiddenMessageContents = useMemo(() => {
     // Only the two sentinels belong here. loadExisting skips the assistant turn
     // that FOLLOWS a hidden user message, on the assumption that a hidden
@@ -180,93 +186,49 @@ export function CampaignManagerChatProvider({
     },
   ]
 
-  // Resume-or-create the ongoing manager conversation, then open it by id so
-  // the surface loads its transcript (starting with the seeded greeting).
-  // Resolve before opening so the drawer opens straight into the conversation
-  // rather than flashing an empty state. Does NOT touch the meet card — the
+  // Open the dock on a NEW chat. The conversation itself is created by the
+  // chat body on the first message (deferred create, exactly as Chief of Staff
+  // does it), so opening the manager and typing nothing leaves no empty
+  // conversation in the history popover. Does NOT touch the meet card — the
   // callers below decide whether opening counts as "meeting the manager".
-  // Guarded against concurrent opens (a double-click, or a general open racing
-  // the story flow): createConversation always creates a NEW conversation, so
-  // two in-flight calls would orphan one. Matches OnboardingFlow's isAdvancingRef.
-  const resumingRef = useRef(false)
-  const resumeAndOpen = useCallback(async () => {
-    if (resumingRef.current) return
-    resumingRef.current = true
-    try {
-      const { conversationId: id } =
-        await campaignManagerChatApi.createConversation()
-      setConversationId(id)
-      // A conversation now exists, so refresh history so the footer picker
-      // shows it.
-      void queryClient.invalidateQueries({
-        queryKey: CAMPAIGN_MANAGER_HISTORY_KEY,
-      })
-    } catch (err) {
-      reportErrorToSentry(err, {
-        surface: 'campaign-manager-chat',
-        phase: 'init',
-      })
-      // Fall back to a fresh chat (deferred create on first send).
-      setConversationId(null)
-      // Clear any pending story kickoff: firing the sentinel into the
-      // deferred-create fallback would trigger a second createConversation
-      // (which may also fail) and could leave the sentinel armed.
-      setPendingKickoff(undefined)
-    } finally {
-      resumingRef.current = false
-    }
+  const openNewChat = useCallback((kickoff?: string) => {
+    setPendingKickoff(kickoff)
+    setConversationId(null)
     setChatOpen(true)
-  }, [queryClient])
+  }, [])
 
   // General open (meet card / footer): counts as meeting the manager, so it
   // dismisses the first-run meet card.
   const openManager = useCallback(() => {
     dismissMeetCard()
-    void resumeAndOpen()
-  }, [dismissMeetCard, resumeAndOpen])
+    openNewChat()
+  }, [dismissMeetCard, openNewChat])
 
   const openConversation = useCallback(
     (id: string) => {
       dismissMeetCard()
+      setPendingKickoff(undefined)
       setConversationId(id)
       setChatOpen(true)
     },
     [dismissMeetCard],
   )
 
-  // Opens the manager and queues the hidden story-intake sentinel so it fires
-  // once the resolved conversation loads. Shared by the story card, the
+  // Opens the manager on a new chat and queues the hidden story-intake
+  // sentinel so it fires once the body is ready. Shared by the story card, the
   // personalize deep link, and both plan-tab gate links. Does NOT dismiss the
   // meet card (the story flow is not "meeting the manager").
   const startStory = useCallback(() => {
-    // Bail if an open is already in flight (matching resumeAndOpen's guard):
-    // otherwise we'd set the story kickoff but resumeAndOpen would no-op, and
-    // the sentinel would later fire into the racing general-mode open.
-    if (resumingRef.current) return
-    setPendingKickoff(CAMPAIGN_MANAGER_START_STORY_SENTINEL)
-    void resumeAndOpen()
-  }, [resumeAndOpen])
+    openNewChat(CAMPAIGN_MANAGER_START_STORY_SENTINEL)
+  }, [openNewChat])
 
-  // Opens the manager and queues the ballot-access question so the candidate
-  // lands on the answer instead of an empty composer. Same one-shot kickoff
-  // path and same in-flight guard as startStory; does NOT dismiss the meet card
-  // (asking about the ballot is not "meeting the manager").
+  // Opens the manager on a new chat and queues the ballot-access question so
+  // the candidate lands on the answer instead of an empty composer. Does NOT
+  // dismiss the meet card (asking about the ballot is not "meeting the
+  // manager").
   const startBallotAccess = useCallback(() => {
-    if (resumingRef.current) return
-    // Closing the chat clears pendingKickoff, which resets the body's
-    // kicked-off ref, so a second card click would fire the kickoff again. The
-    // story sentinel can absorb that (its reply is canned); this one is a real
-    // LLM turn, so it would append a duplicate paid exchange to the transcript.
-    // Once a conversation is open, reopening it is all the card does — the
-    // answer is already in the thread, and if they arrived at that conversation
-    // another way the manager already leads with ballot access for them.
-    if (conversationId) {
-      setChatOpen(true)
-      return
-    }
-    setPendingKickoff(CAMPAIGN_MANAGER_BALLOT_KICKOFF)
-    void resumeAndOpen()
-  }, [conversationId, resumeAndOpen])
+    openNewChat(CAMPAIGN_MANAGER_BALLOT_KICKOFF)
+  }, [openNewChat])
 
   // The personalize deep link (`/dashboard?personalize=1`) is how the plan-tab
   // story gate's "Open"/"Edit in campaign manager" links start the same story
@@ -289,6 +251,18 @@ export function CampaignManagerChatProvider({
     startStory()
     router.replace(pathname)
   }, [pathname, router, startStory])
+
+  const greetingIntro = useMemo(
+    () => buildCampaignManagerIntro(firstName),
+    [firstName],
+  )
+  // Memoized because it is the body's `opener`, and that array's identity is an
+  // effect dependency of the typed-in intro — a fresh array every render would
+  // restart the typing interval on every keystroke of it.
+  const greetingOpener = useMemo(
+    () => (conversationId || pendingKickoff ? undefined : greetingIntro),
+    [conversationId, pendingKickoff, greetingIntro],
+  )
 
   const contextValue = useMemo(
     () => ({
@@ -334,12 +308,24 @@ export function CampaignManagerChatProvider({
           if (!next) setPendingKickoff(undefined)
         }}
         initialConversationId={conversationId}
+        // The manager greets on every new chat, not just the candidate's
+        // first, so the greeting is an `opener` rather than `defaultIntro`
+        // (which is gated on the first-chat-ever check). Skipped on a kickoff
+        // entry, where the kickoff's own reply is the opening message, and on
+        // a conversation reopened from history, which replays its transcript.
+        opener={greetingOpener}
+        openerKey={greetingOpener ? 'manager-greeting' : null}
         title="Campaign manager"
         subtitle="Always on, focused on your week"
         chatApi={campaignManagerChatApi}
         analyticsLabel="campaign-manager-chat"
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-        defaultIntro={buildCampaignManagerIntro(firstName)}
+        // The greeting rides on `opener` alone. This only keeps the entries
+        // that pass no opener from falling through to the body's Chief of
+        // Staff default — it must not re-add the greeting, or a kickoff would
+        // type the general hello in while its own create is still in flight
+        // and then greet a second time.
+        defaultIntro={greetingOpener ?? NO_INTRO}
         suggestions={suggestions}
         showSuggestionsWithGreeting
         quickPrompts={[
@@ -355,6 +341,7 @@ export function CampaignManagerChatProvider({
         // the agent's name reads as a proper noun in prose.
         disclaimer="Campaign Manager can make mistakes. Check important details."
         hiddenMessageContents={hiddenMessageContents}
+        showMessageActions
       />
     </CampaignManagerChatContext.Provider>
   )

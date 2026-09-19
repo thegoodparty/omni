@@ -22,6 +22,10 @@ vi.mock('./useListRowDetail', () => ({
 vi.mock('./useDuplicateList', () => ({
   useDuplicateList: vi.fn(),
 }))
+const openChannelPicker = vi.fn()
+vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
+  useOpenChannelPicker: () => openChannelPicker,
+}))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
@@ -167,27 +171,29 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
 
     render(<ListsIndex />)
 
-    const outreachLinks = screen.getAllByRole('link', {
-      name: 'Send outreach',
-    })
-    expect(outreachLinks).toHaveLength(2)
+    expect(
+      screen.getAllByRole('button', { name: 'Send outreach' }),
+    ).toHaveLength(2)
   })
 
-  // ENG-10762: the "All voters" universe row has no saved-segment id, so
-  // its link carries no listId param — only a list card's link does.
-  it('carries listId on a list card link but keeps the universe row link bare', () => {
+  // Send outreach opens the channel picker over the page (the prototype's
+  // "Choose a channel" drawer); the universe row has no saved segment, so
+  // it opens on the whole district.
+  it('opens the channel picker on the universe from the universe row and on the list from a card', async () => {
     setContext({ customSegments: [{ id: 42, name: 'GOTV text list' }] })
+    const user = userEvent.setup()
 
     render(<ListsIndex />)
 
-    const outreachLinks = screen.getAllByRole('link', {
-      name: 'Send outreach',
+    const buttons = screen.getAllByRole('button', { name: 'Send outreach' })
+    await user.click(buttons[0]!)
+    expect(openChannelPicker).toHaveBeenLastCalledWith({ kind: 'universe' })
+
+    await user.click(buttons[1]!)
+    expect(openChannelPicker).toHaveBeenLastCalledWith({
+      kind: 'list',
+      segment: expect.objectContaining({ id: 42 }),
     })
-    expect(outreachLinks[0]).toHaveAttribute('href', '/dashboard/outreach')
-    expect(outreachLinks[1]).toHaveAttribute(
-      'href',
-      '/dashboard/outreach?listId=42',
-    )
   })
 
   it('hides Send outreach everywhere for Serve while keeping Details, the count, and the options menu', () => {
@@ -199,7 +205,7 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
     render(<ListsIndex />)
 
     expect(
-      screen.queryByRole('link', { name: 'Send outreach' }),
+      screen.queryByRole('button', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
     // The universe row and the list card both carry a Details CTA now
     // (ENG-10778).
@@ -219,7 +225,7 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
     render(<ListsIndex />)
 
     expect(
-      screen.queryByRole('link', { name: 'Send outreach' }),
+      screen.queryByRole('button', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
   })
 })
@@ -232,16 +238,16 @@ describe('ListsIndex — Send Outreach Clicked analytics', () => {
 
     render(<ListsIndex />)
 
-    const outreachLinks = screen.getAllByRole('link', {
+    const outreachButtons = screen.getAllByRole('button', {
       name: 'Send outreach',
     })
-    await user.click(outreachLinks[0]!)
+    await user.click(outreachButtons[0]!)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.SendOutreachClicked,
       { surface: 'universeRow' },
     )
 
-    await user.click(outreachLinks[1]!)
+    await user.click(outreachButtons[1]!)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.SendOutreachClicked,
       { listId: 42, surface: 'listCard' },

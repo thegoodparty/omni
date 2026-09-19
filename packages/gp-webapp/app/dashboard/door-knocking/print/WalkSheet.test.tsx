@@ -923,6 +923,7 @@ describe('WalkSheet', () => {
             activityId: 'dk-1',
             outcome: 'answered' as const,
             supportAnswer: 'unsure' as const,
+            followUp: null,
             // Free text about a named voter never travels onto paper.
             note: 'Dog in the yard, come back Saturday',
             manual: false,

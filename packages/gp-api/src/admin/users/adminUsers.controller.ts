@@ -126,9 +126,8 @@ export class AdminUsersController {
     @Body() body: AdminSignInLinkSchema,
   ) {
     const user = await this.usersService.findUniqueOrThrow({ where: { id } })
-    const { token, expiresAt } = await this.usersService.createSignInLink(
-      user.id,
-    )
+    const { token, clerkId, expiresAt } =
+      await this.usersService.createSignInLink(user.id)
 
     const actorClerkId =
       req.actorUser?.clerkId ?? req.user?.clerkId ?? req.actorSub ?? null
@@ -156,10 +155,13 @@ export class AdminUsersController {
 
     // Return only the ticketed URL — the raw sign-in token is already embedded
     // in `url` as __clerk_ticket, so returning it separately would only spread
-    // the credential through extra logs and proxies.
+    // the credential through extra logs and proxies. `uid` carries the ticket's
+    // Clerk user id because the token itself has no user claim — the redemption
+    // page needs it to recognize an already-signed-in recipient instead of
+    // signing them out against a spent single-use ticket.
     const url = `${APP_ROOT}/sign-in-link?__clerk_ticket=${encodeURIComponent(
       token,
-    )}`
+    )}&uid=${encodeURIComponent(clerkId)}`
     return { url, expiresAt }
   }
 

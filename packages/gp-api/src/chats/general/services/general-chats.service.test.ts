@@ -73,10 +73,85 @@ describe('GeneralChatsService', () => {
     store = buildStore()
   })
 
-  it('routes resolveConversation to the scope handler', async () => {
+  it('creates a fresh conversation per open by default', async () => {
+    // The shared session model: every open is its own conversation, so a
+    // handler that declares no resolveConversation can't drift into
+    // find-or-create and collapse new chats onto the latest thread.
+    store = buildStore({
+      createScopedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'fresh' }),
+      ) as never,
+    })
+    const seedConversation = vi.fn(() => Promise.resolve())
+    const service = new GeneralChatsService(
+      buildRegistry(
+        buildHandler({ resolveConversation: undefined, seedConversation }),
+      ),
+      store,
+      {} as never,
+      {} as never,
+      {} as never,
+    )
+
+    const result = await service.resolveConversation(
+      { scope: SCOPE, organizationSlug: ORG },
+      USER_ID,
+    )
+
+    expect(result).toEqual({ conversationId: 'fresh', created: true })
+    expect(store.createScopedConversation).toHaveBeenCalledWith({
+      ownerUserId: USER_ID,
+      organizationSlug: ORG,
+      scope: SCOPE,
+    })
+    expect(seedConversation).toHaveBeenCalledWith('fresh', {
+      scope: SCOPE,
+      organizationSlug: ORG,
+    })
+  })
+
+  it('carries an anchor and its title onto the new conversation', async () => {
+    const anchor = {
+      resourceType: 'community_issue' as const,
+      resourceId: 'issue-abc',
+      url: 'https://goodparty.org/issues/issue-abc',
+      snapshot: {
+        title: 'Fix the potholes on Main Street',
+        summary: 'Residents have complained about road conditions.',
+      },
+    }
+    store = buildStore({
+      createScopedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'anchored' }),
+      ) as never,
+    })
+    const service = new GeneralChatsService(
+      buildRegistry(buildHandler({ resolveConversation: undefined })),
+      store,
+      {} as never,
+      {} as never,
+      {} as never,
+    )
+
+    const result = await service.resolveConversation(
+      { scope: SCOPE, organizationSlug: ORG, anchor },
+      USER_ID,
+    )
+
+    expect(result).toEqual({ conversationId: 'anchored', created: true })
+    expect(store.createScopedConversation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anchor,
+        title: 'Fix the potholes on Main Street',
+      }),
+    )
+  })
+
+  it('routes resolveConversation to a handler that overrides it', async () => {
     const service = new GeneralChatsService(
       buildRegistry(handler),
       store,
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -97,13 +172,14 @@ describe('GeneralChatsService', () => {
       store,
       {} as never,
       {} as never,
+      {} as never,
     )
-    expect(() =>
+    await expect(
       service.resolveConversation(
         { scope: ChatScope.campaign_assistant, organizationSlug: ORG },
         USER_ID,
       ),
-    ).toThrowError(NotFoundException)
+    ).rejects.toThrowError(NotFoundException)
   })
 
   it('lists scoped conversations with titles', async () => {
@@ -123,6 +199,7 @@ describe('GeneralChatsService', () => {
     const service = new GeneralChatsService(
       buildRegistry(handler),
       store,
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -153,6 +230,7 @@ describe('GeneralChatsService', () => {
       store,
       { softDeleteConversation: softDelete } as never,
       {} as never,
+      {} as never,
     )
     await service.deleteConversation('c1', SCOPE, USER_ID, ORG)
     expect(softDelete).toHaveBeenCalledWith('c1', USER_ID)
@@ -165,6 +243,7 @@ describe('GeneralChatsService', () => {
     const service = new GeneralChatsService(
       buildRegistry(handler),
       store,
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -199,6 +278,7 @@ describe('GeneralChatsService', () => {
         store,
         {} as never,
         chatStream as never,
+        {} as never,
       )
       const chunks = await collect(
         service.sendMessage({
@@ -247,6 +327,7 @@ describe('GeneralChatsService', () => {
       store,
       {} as never,
       chatStream as never,
+      {} as never,
     )
     await collect(
       service.sendMessage({
@@ -267,6 +348,7 @@ describe('GeneralChatsService', () => {
     const service = new GeneralChatsService(
       buildRegistry(handler),
       store,
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -310,6 +392,7 @@ describe('GeneralChatsService', () => {
         store,
         chatStore,
         chatStream as never,
+        {} as never,
       )
       const chunks = await collect(
         service.sendMessage({
@@ -369,6 +452,7 @@ describe('GeneralChatsService', () => {
         store,
         chatStore,
         chatStream as never,
+        {} as never,
       )
       const args = {
         conversationId: 'c1',
@@ -431,6 +515,7 @@ describe('GeneralChatsService', () => {
         store,
         chatStore,
         chatStream as never,
+        {} as never,
       )
       const chunks = await collect(
         service.sendMessage({
@@ -478,6 +563,7 @@ describe('GeneralChatsService', () => {
       store,
       chatStore,
       chatStream as never,
+      {} as never,
     )
     const chunks = await collect(
       service.sendMessage({

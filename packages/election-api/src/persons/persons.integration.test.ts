@@ -687,6 +687,50 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
       expect(res.data.id).toBe(PERSON_ID)
     })
 
+    it('forwards a slugless purged id to its survivor instead of the live person on the same prefix', async () => {
+      // The shape the data team will actually publish: no retiredSlug. The
+      // purged id shares PERSON_ID's 8-hex prefix, so without reconstruction
+      // this URL resolves to the live jane-doe -- a different human -- which
+      // gp-marketing would then 308 to permanently.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-cafe-cafe-cafe-cafecafecafe',
+          survivingId: OTHER_PERSON_ID,
+          retiredSlug: null,
+          retiredAt: new Date('2026-09-04T00:00:00.000Z'),
+        },
+      })
+
+      // The survivor is john-roe-22222222, so the duplicate's slug was minted
+      // as john-roe + its own suffix.
+      const res = await service.client.get(
+        '/v1/persons/by-slug/john-roe-11111111',
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(OTHER_PERSON_ID)
+      expect(res.data.id).not.toBe(PERSON_ID)
+    })
+
+    it('404s a slugless purged id it cannot reconstruct rather than serving the live neighbour', async () => {
+      // Same row, but the URL carries a name variant the survivor does not, so
+      // nothing can confirm whose URL it is. A dead link beats the wrong person.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-cafe-cafe-cafe-cafecafecafe',
+          survivingId: OTHER_PERSON_ID,
+          retiredSlug: null,
+          retiredAt: new Date('2026-09-04T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get(
+        '/v1/persons/by-slug/bob-smith-11111111',
+      )
+
+      expect(res.status).toBe(404)
+    })
+
     it('does not let a purged id shadow a live person on the same prefix', async () => {
       // A retired id sharing PERSON_ID's 8-hex prefix must not hijack the live
       // person's own URL.

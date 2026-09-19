@@ -246,6 +246,7 @@ The submodule is initialized automatically by `npm install` via the `postinstall
 
 - `BadRequestException` (400) — invalid input, validation failures, business-rule violations caused by user input
 - `BadGatewayException` (502) — third-party / external service failures (Vercel, AWS, Stripe, etc.)
+- `InternalServerErrorException` (500) — a request *we* built wrong while the vendor is working fine (an AWS `$fault: 'client'` such as `PermanentRedirect`). 502 tells the caller to retry, so keep it for failures a retry could fix, and never re-wrap an already-classified vendor exception as 502 on the way out
 - `ConflictException` (409) — duplicates, resource-state conflicts
 - `NotFoundException` (404) — missing resources
 - DB ops rely on Prisma + global `PrismaExceptionFilter` — **do not** wrap them in try/catch

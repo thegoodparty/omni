@@ -52,6 +52,13 @@ def test_epic_create_covers_its_load_bearing_directives():
     assert "feedback loop" in text.lower() or "park" in text.lower(), "questions must go through the park primitive"
 
     assert "`feedback needed`" in text, "must move the card to feedback needed on handoff (breakdown review column)"
+    assert "feedback notify" in text, (
+        "must ping Slack on handoff via the notify primitive — the TDD promises every card "
+        "arriving in feedback needed pings #autopilot, park and finished breakdown alike"
+    )
+    assert "--stage epic-create" in text.split("feedback notify", 1)[1], (
+        "the notify command must be shown with its own stage, not left for the model to infer"
+    )
     assert "never" in text and "executing" in text, "must forbid advancing the card to executing"
     assert "never another card" in text, "ClickUp writes must be scoped to the feature card and its subtasks"
 
@@ -92,6 +99,18 @@ def test_story_covers_its_load_bearing_directives():
 
     assert "wait for the merge" in text.lower(), "must wait for the merge, not the dev deploy"
     assert "move" in text.lower() and "`qa`" in text, "must move the ticket to qa once merged"
+
+    # The first real story run ended its turn with "background watchers" on
+    # the merge — which die with the container, stranding the card in
+    # `in progress` with no marker, no comment, and nothing to resume.
+    assert "dies with the container" in text, (
+        "must state that backgrounded waits die with the container when the turn ends"
+    )
+    assert "in-turn wait" in text, "must require the merge wait to happen inside the turn"
+
+    # The same run shipped past a verify that errored out before typechecking
+    # (broken worktree install) — an unrunnable verify must read as red.
+    assert "cannot run counts as red" in text, "a verify that cannot run must count as red, not as skipped"
 
     # A deadline-exceeded run must PARK (marker + status move + Slack ping),
     # not just end cleanly — an unparked run leaves nothing for `parked-stage`
@@ -143,7 +162,14 @@ def test_qa_covers_its_load_bearing_directives():
     )
     assert "`parent` field" in text, "must name the ClickUp `parent` field as the derivation source"
 
-    assert "Clerk sign-in ticket" in text, "must log in via a redeemed Clerk sign-in ticket"
+    # The stage provisions its own fixture user; the container carries only a
+    # Clerk machine secret, never the dev instance secret key, and Clerk caps
+    # M2M token TTLs so the token must be minted per run, not stored.
+    assert "AUTOPILOT_MACHINE_SECRET" in text, "must mint the M2M token from the machine secret env var"
+    assert "test-fixtures/users" in text, "must provision the QA user via gp-api's test-fixtures API"
+    assert "GP_API_DEV_BASE_URL" in text, "fixtures calls must target the wired dev API base URL"
+    assert "signInToken" in text, "must log in by redeeming the fixture's single-use sign-in token"
+    assert "userIds" in text, "must clean up its fixture users before ending the run"
     assert "Never put credentials" in text or "never put credentials" in text.lower(), (
         "must forbid credentials in prompts"
     )
@@ -159,7 +185,24 @@ def test_qa_covers_its_load_bearing_directives():
 
     assert "numbered findings comment" in text.lower(), "failures must file a numbered findings comment"
     assert "attach" in text.lower() and "ClickUp attachment API" in text, "screenshots must attach via the ClickUp API"
-    assert "move the ticket back to `in progress`" in text, "a failing run must reopen the ticket"
+    # A failing run parks (marker + feedback needed + Slack). It must NOT
+    # move the story to `in progress`: no conductor route matches
+    # qa -> in progress, so that status is a dead end only the stall alert
+    # would ever notice — the first live QA fail sat there until the
+    # stranded-run guard rescued it.
+    # "QA failed" is unique to the fail-park block ("--stage qa" alone would
+    # be satisfied by section 1's deploy-pending park).
+    assert "QA failed" in text, "a failing run must park via the feedback primitive"
+    assert "Never move the ticket to `in progress` yourself" in text, "must forbid the dead-end in-progress reopen"
+
+    # The fail-park question promises the human that a reply OR a drag
+    # re-verifies; resume.md's QA-failed carve-out must uphold both halves.
+    resume_text = _read("resume")
+    assert '"QA failed"' in resume_text, "resume must carve QA-failed parks out of the status-note shortcut"
+    assert "never auto-resolve" in resume_text.lower(), "a QA-failed park must not be auto-resolved by the deploy check"
+    assert "re-run the QA walk" in resume_text, (
+        "a human-initiated resume of a QA-failed park re-verifies — the human was promised a drag suffices"
+    )
     assert "move the ticket to `done`" in text, "a passing run must close the ticket"
 
     assert "never edits code" in text, "must stay read-only against the app"

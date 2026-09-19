@@ -19,10 +19,12 @@ import {
 } from '../../generated/prisma'
 import { AddProjectDomainResponseBody } from '@vercel/sdk/models/addprojectdomainop'
 import { BuySingleDomainResponseBody } from '@vercel/sdk/models/buysingledomainop'
+import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
 import { GetDomainResponseBody } from '@vercel/sdk/models/getdomainop'
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
 import { GetProjectDomainResponseBody } from '@vercel/sdk/models/getprojectdomainop'
 import { Records } from '@vercel/sdk/models/getrecordsop'
+import { VercelError } from '@vercel/sdk/models/vercelerror'
 import { VerifyProjectDomainResponseBody } from '@vercel/sdk/models/verifyprojectdomainop'
 import { isAxiosError } from 'axios'
 import { PaymentStatus } from 'src/payments/payments.types'
@@ -50,6 +52,7 @@ import { ForwardEmailService } from '../../vendors/forwardEmail/services/forward
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import {
+  AuthCodeRequester,
   DomainPurchaseMetadata,
   DomainSearchResult,
   hasSupportedTld,
@@ -66,6 +69,14 @@ import { parseIsoDateAsUTC } from '@/shared/util/date.util'
 import { sleep } from '@/shared/util/sleep.util'
 
 const MAX_PATTERN_CANDIDATES = 50
+
+// Route53 Domains throttles account-wide at a very low rate. An unbounded
+// fanout of availability checks drains the token bucket and starves the
+// purchase call's own check that follows in the same agent flow (chronic
+// ~25% 502s on /domains/purchase), and throttled candidates are silently
+// dropped from search results. Search is agent-driven, so the added latency
+// from batching is fine.
+const AVAILABILITY_CHECK_BATCH_SIZE = 5
 
 const DOMAIN_PURCHASE_ADVISORY_LOCK_KEY = 918_275
 
@@ -421,6 +432,93 @@ export class DomainsService
     return this.vercel.getDomainDetails(domainName)
   }
 
+  /**
+   * Issue the transfer (EPP) auth code for a domain we registered on a
+   * candidate's behalf, so they can move it to their own registrar.
+   *
+   * The code is passed straight through to the caller and deliberately never
+   * written to the `domain` table: it is a bearer credential, and persisting it
+   * would turn a DB read into the ability to steal any campaign's domain.
+   */
+  async getDomainTransferAuthCode(
+    domainName: string,
+    requestedBy: AuthCodeRequester,
+  ): Promise<string> {
+    // Our Vercel team also holds GoodParty's own infrastructure domains, and
+    // Vercel will happily mint a transfer code for those too. Rows in `domain`
+    // only ever come from a campaign purchase, so requiring one here is what
+    // keeps this endpoint from handing away goodparty.org itself.
+    const campaignDomain = await this.model.findUnique({
+      where: { name: domainName },
+      select: { status: true, website: { select: { campaignId: true } } },
+    })
+
+    if (!campaignDomain) {
+      throw new NotFoundException(
+        `${domainName} is not a campaign domain on record. If GoodParty did ` +
+          `register it, the campaign may have since been deleted — escalate ` +
+          `to engineering rather than telling the candidate we never owned it.`,
+      )
+    }
+
+    try {
+      const authCode = await this.vercel.getDomainAuthCode(domainName)
+
+      // WHOIS registrant on these domains is a GoodParty identity rather than
+      // the candidate, so we are the only party who can produce this code.
+      // Logged only once Vercel has actually returned one: control of the
+      // domain changes hands on issuance, not on asking, and the attempt
+      // itself is already covered by AdminAuditInterceptor and by the error
+      // VercelService logs when the registrar refuses.
+      this.logger.info(
+        {
+          domain: domainName,
+          domainStatus: campaignDomain.status,
+          campaignId: campaignDomain.website.campaignId,
+          requestedByEmail: requestedBy.email,
+          requestedByUserId:
+            requestedBy.authSource === 'user' ? requestedBy.userId : undefined,
+          // Whether the identity above was verified here or asserted by
+          // gp-admin over a machine token.
+          authSource: requestedBy.authSource,
+        },
+        'Domain transfer auth code issued',
+      )
+
+      return authCode
+    } catch (error) {
+      // A row exists but the registrar disagrees, so our records are out of
+      // step with Vercel rather than the candidate being wrong about the name.
+      if (this.vercel.isVercelNotFoundError(error)) {
+        throw new NotFoundException(
+          `${domainName} is on record for a campaign but is not registered ` +
+            `in GoodParty's Vercel account`,
+        )
+      }
+
+      // Vercel's message names the date the ICANN 60-day post-registration lock
+      // lifts, which is the only actionable detail for the candidate.
+      if (error instanceof DomainCannotBeTransferedOutUntil) {
+        throw new ConflictException(error.message)
+      }
+
+      // The registrar API rejects tokens without Owner scope on the team. That
+      // is our misconfiguration, not the caller's, so say so plainly instead of
+      // surfacing a bare 500 that reads like the domain is at fault.
+      if (
+        error instanceof VercelError &&
+        error.statusCode === Number(HttpStatus.FORBIDDEN)
+      ) {
+        throw new BadGatewayException(
+          `Vercel refused the transfer-code request for ${domainName}. The ` +
+            `configured VERCEL_TOKEN likely lacks Owner scope on the team.`,
+        )
+      }
+
+      throw error
+    }
+  }
+
   async searchDomainsForCampaign(
     campaign: Campaign & { user: User },
     patterns: string[],
@@ -484,11 +582,15 @@ export class DomainsService
       ),
     )
 
-    const checked = await Promise.allSettled(
-      candidates.map((domain) =>
-        this.checkPatternedCandidate(domain, maxPrice),
-      ),
-    )
+    const checked: PromiseSettledResult<PatternedDomainCandidate | null>[] = []
+    for (let i = 0; i < candidates.length; i += AVAILABILITY_CHECK_BATCH_SIZE) {
+      const batch = candidates.slice(i, i + AVAILABILITY_CHECK_BATCH_SIZE)
+      checked.push(
+        ...(await Promise.allSettled(
+          batch.map((domain) => this.checkPatternedCandidate(domain, maxPrice)),
+        )),
+      )
+    }
 
     const found: PatternedDomainCandidate[] = []
     for (const r of checked) {

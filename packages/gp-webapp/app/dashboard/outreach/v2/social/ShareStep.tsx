@@ -8,6 +8,7 @@ import { Intro } from './Intro'
 import { ThinkingStream } from './ThinkingStream'
 
 interface ShareStepProps {
+  isServe: boolean
   platforms: SocialAssetPlatform[]
   assets: SocialAsset[] | null
   isGenerating: boolean
@@ -18,6 +19,7 @@ interface ShareStepProps {
 }
 
 export const ShareStep = ({
+  isServe,
   platforms,
   assets,
   isGenerating,
@@ -41,7 +43,7 @@ export const ShareStep = ({
         body="Copy the post text or read the script on camera. Free to share — no ad spend required."
       />
 
-      {isGenerating && <ThinkingStream />}
+      {isGenerating && <ThinkingStream isServe={isServe} />}
 
       {isError && !isGenerating && (
         <Card className="items-start gap-3 p-4">

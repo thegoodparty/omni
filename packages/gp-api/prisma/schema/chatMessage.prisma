@@ -25,6 +25,7 @@ model ChatMessage {
   createdAt DateTime @default(now()) @map("created_at")
 
   segments ChatMessageSegment[]
+  feedback ChatMessageFeedback[]
 
   @@index([conversationId, createdAt])
   @@index([conversationId, clientMessageId])

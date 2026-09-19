@@ -75,6 +75,7 @@ import type {
   RecommendedListChannel,
   RecommendedListIntent,
   RecommendedListsResponse,
+  RecommendedListVariant,
   MyAssignmentsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -102,6 +103,7 @@ import type {
   CampaignStoryRewrite,
   RaceOpponentThreatTier,
   OrganizationRole,
+  SetChatMessageFeedbackRequest,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -116,10 +118,12 @@ import type {
   ContactNoteInput,
   ContactNoteListResponse,
   ContactStatuses,
+  FollowUpStatusResponse,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   SupportStatusRollup,
   UpdateContactStatusInput,
+  UpdateFollowUpInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
@@ -668,6 +672,15 @@ export type APIEndpoints = {
     Response: undefined
   }
 
+  // Self-removal (ENG-11137): any member — volunteer included — can leave
+  // the active org; the owner is rejected (400, ownership transfer is the
+  // only way an owner leaves). Same cascade as the owner-driven delete:
+  // membership and outreach assignments go together.
+  'DELETE /v1/organizations/team/members/me': {
+    Request: {}
+    Response: undefined
+  }
+
   // Mirrors gp-api's GET /v1/eligibility (EligibilitySchema in
   // @goodparty_org/contracts). Drives the org switcher's "run for" actions.
   'GET /v1/eligibility': {
@@ -916,6 +929,30 @@ export type APIEndpoints = {
     Response: void
   }
 
+  // `scope` rides in the query string, not this body — see the override in
+  // agent-chat/chatClient.ts. The response is spelled out structurally rather
+  // than importing the contract's `ChatMessageFeedback`: that type is a
+  // zCoerceDate-bearing z.infer, and adding it here pushed APIEndpoints past a
+  // TS inference ceiling, silently degrading narrowing in every api.mock()
+  // handler in the app. Dates are strings on the wire regardless.
+  'PUT /v1/chats/:id/messages/:messageId/feedback': {
+    Request: SetChatMessageFeedbackRequest
+    Response: {
+      id: string
+      conversationId: string
+      messageId: string
+      feedback: 'positive' | 'negative'
+      comment: string | null
+      createdAt: string
+      updatedAt: string
+    }
+  }
+
+  'DELETE /v1/chats/:id/messages/:messageId/feedback': {
+    Request: { scope: ChatScope }
+    Response: void
+  }
+
   'GET /v1/ordinances': {
     Request: {}
     Response: OrdinanceListResponse
@@ -1097,9 +1134,13 @@ export type APIEndpoints = {
     Response: SegmentResponse[]
   }
   'GET /v1/campaigns/mine/recommended-lists': {
+    // No channel = the global universes the voter data page lists (every
+    // intent, no contactability cut). A variant asks for that one universe
+    // regardless of intent, for a flow entered from that page.
     Request: {
-      channel: RecommendedListChannel
+      channel?: RecommendedListChannel
       intent?: RecommendedListIntent
+      variant?: RecommendedListVariant
     }
     Response: RecommendedListsResponse
   }
@@ -1120,6 +1161,10 @@ export type APIEndpoints = {
   'PATCH /v1/contacts/:personId/status': {
     Request: UpdateContactStatusInput
     Response: ContactStatuses
+  }
+  'PATCH /v1/contacts/:personId/follow-up': {
+    Request: UpdateFollowUpInput
+    Response: FollowUpStatusResponse
   }
   'GET /v1/contacts/:id': {
     Request: {}
@@ -1278,6 +1323,15 @@ export type APIEndpoints = {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
     // unfiltered district.
     Request: { segment?: number }
+    Response: ListDetailContactsResponse
+  }
+  // The same payload for a filter that has not been saved (a recommended
+  // list's detail sheet); the body is the count endpoint's inline filter.
+  'POST /v1/contacts/list-detail': {
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: ListDetailContactsResponse
   }
 

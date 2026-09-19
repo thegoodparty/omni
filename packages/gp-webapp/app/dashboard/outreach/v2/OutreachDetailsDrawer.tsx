@@ -6,7 +6,7 @@ import type {
   SmsOutreachResults,
   OutreachReceipt,
   PhoneBankCallOutcome,
-  SupportAnswer,
+  PhoneBankingOutreachDetail,
 } from '@goodparty_org/contracts'
 import {
   AlertDialog,
@@ -107,14 +107,27 @@ const PHONE_BANKING_OUTCOME_LABEL: Record<PhoneBankCallOutcome, string> = {
   hung_up: 'Hung up',
 }
 
-const SUPPORT_ANSWER_LABEL: Record<SupportAnswer, string> = {
-  supporter: 'Yes',
-  unsure: 'Unsure',
-  non_supporter: 'No',
-}
-
 const percentLabel = (count: number, total: number): string =>
   total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
+
+// The completed-results rows for whichever question this list's callers were
+// actually asked. Both surfaces state every answer even at zero — "nobody
+// needs following up" is an answer, and a row that disappeared when it
+// emptied would make the table's own shape a fact about the list.
+const answerRows = (
+  phoneBanking: PhoneBankingOutreachDetail,
+  isServe: boolean,
+): Array<[string, number]> =>
+  isServe
+    ? [
+        ['Needs follow-up: Yes', phoneBanking.byFollowUp.yes],
+        ['Needs follow-up: No', phoneBanking.byFollowUp.no],
+      ]
+    : [
+        ['Support: Yes', phoneBanking.supporters],
+        ['Support: Unsure', phoneBanking.unsure],
+        ['Support: No', phoneBanking.nonSupporters],
+      ]
 
 const PRICE_PER_TEXT =
   OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
@@ -146,6 +159,10 @@ interface OutreachDetailsDrawerProps {
   // Serve caller threads its org-scoped sibling the same bound-function way
   // SocialFlow's `surface` does, so this drawer never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // Serve has no team-accounts surface: an elected official's org has no
+  // campaign roles to assign a list to, so the assignees section is not
+  // rendered there at all rather than relabelled.
+  isServe?: boolean
 }
 
 interface DetailRow extends HistoryRow {
@@ -158,6 +175,7 @@ export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
   detailFetcher = fetchOutreachDetail,
+  isServe = false,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
@@ -740,8 +758,12 @@ export const OutreachDetailsDrawer = ({
                 flag-gated inside the section itself so this renders nothing
                 extra when win-team-accounts is off. Volunteers never open
                 this drawer (their whole surface is /volunteer's own
-                assignments page), so there's no second gate here. */}
-            {(isPhoneBanking || isDoorKnocking) && (
+                assignments page), so there's no second gate for them.
+                Serve is excluded outright: team accounts are a Win feature
+                (the roles are campaign roles), so an elected official is
+                offered no assignment rather than one labelled in Win's
+                vocabulary. */}
+            {(isPhoneBanking || isDoorKnocking) && !isServe && (
               <OutreachAssigneesSection
                 outreachId={row.id}
                 outreachName={row.name || row.title || undefined}
@@ -1053,25 +1075,27 @@ export const OutreachDetailsDrawer = ({
                           </TableCell>
                         </TableRow>
                       ))}
-                      {(
-                        [
-                          ['supporter', phoneBanking.supporters],
-                          ['unsure', phoneBanking.unsure],
-                          ['non_supporter', phoneBanking.nonSupporters],
-                        ] as [SupportAnswer, number][]
-                      ).map(([answer, count]) => (
-                        <TableRow key={answer}>
-                          <TableCell>
-                            Support: {SUPPORT_ANSWER_LABEL[answer]}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {count}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {percentLabel(count, phoneBanking.peopleCalled)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {/* The conversation rows, in this list's own
+                          vocabulary. Serve never asks for a stance, so its
+                          support tallies are permanently zero — three rows
+                          reading "Support: Yes 0" is what this branch
+                          exists to stop an official seeing. Picked by
+                          surface and not by which tally is populated, so a
+                          completed list nobody answered still reads in the
+                          right words. */}
+                      {answerRows(phoneBanking, isServe).map(
+                        ([label, count]) => (
+                          <TableRow key={label}>
+                            <TableCell>{label}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {count}
+                            </TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {percentLabel(count, phoneBanking.peopleCalled)}
+                            </TableCell>
+                          </TableRow>
+                        ),
+                      )}
                     </TableBody>
                   </Table>
                 </Card>

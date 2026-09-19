@@ -149,3 +149,50 @@ describe('buildSlackBlocks - text count', () => {
     expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('N/A')
   })
 })
+
+describe('buildSlackBlocks - phone', () => {
+  const baseParams = {
+    type: OutreachType.text,
+    formattedAudience: [],
+  }
+
+  it('renders the phone when provided', () => {
+    const { blocks } = buildSlackBlocks({ ...baseParams, phone: '8286063703' })
+
+    expect(findLabeledValue(blocks, 'Phone: ')).toBe('8286063703')
+  })
+
+  it('renders "N/A" when phone is omitted', () => {
+    const { blocks } = buildSlackBlocks(baseParams)
+
+    expect(findLabeledValue(blocks, 'Phone: ')).toBe('N/A')
+  })
+
+  it('renders "N/A" when phone is an empty string', () => {
+    const { blocks } = buildSlackBlocks({ ...baseParams, phone: '' })
+
+    expect(findLabeledValue(blocks, 'Phone: ')).toBe('N/A')
+  })
+})
+
+describe('buildSlackBlocks - call count (robocall)', () => {
+  const baseParams = {
+    type: OutreachType.robocall,
+    formattedAudience: [],
+  }
+
+  it('shows the call count in place of the p2p text-count lines', () => {
+    const { blocks } = buildSlackBlocks({ ...baseParams, callCount: 1500 })
+
+    expect(findLabeledValue(blocks, '# of Calls: ')).toBe('1,500')
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBeUndefined()
+    expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBeUndefined()
+  })
+
+  it('falls back to the text-count lines when callCount is omitted', () => {
+    const { blocks } = buildSlackBlocks(baseParams)
+
+    expect(findLabeledValue(blocks, '# of Calls: ')).toBeUndefined()
+    expect(findLabeledValue(blocks, '# of Texts: ')).toBe('N/A')
+  })
+})

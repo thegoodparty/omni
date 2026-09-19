@@ -2,17 +2,188 @@ import { ControllerName } from '../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 
-/** Map of slack group to controllers */
-export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
-  'serve-bugs': [
-    'elected-office',
-    'polls',
-    'contacts',
-    'contact-engagement',
-    'organizations',
-  ],
-  'win-bugs': ['door-knocking'],
+/**
+ * Which product's users each controller serves, and therefore who hears about
+ * it when it breaks.
+ *
+ * Being in here is what enables a controller's generated route alert at all —
+ * `controllerAlerts` ends with `disabled: !owners.length`. That has been true
+ * since 2026-03-01, and the map was seeded on 2026-03-05 with five `serve-bugs`
+ * entries and an empty `win-bugs`. It gained exactly one entry in the six months
+ * after, while gp-api went from 40 `@Controller` decorators to 99 — so what used
+ * to be here was not a set of decisions about what needs watching, it was where
+ * two teams happened to opt in once. 320 of 382 routes could not report their
+ * own failure, which is how GET /v1/public-person-profiles/voter-density served
+ * 1,498,324 consecutive 500s over four days without paging anyone.
+ *
+ * One line per controller, rather than two lists to keep in sync: a fifth of
+ * these are owned by both products, and expressing that as membership in two
+ * arrays means 22 entries duplicated by hand. ALERT_OWNERSHIP is derived below
+ * and keeps its old shape, so nothing downstream changes.
+ *
+ * `BOTH` is the honest answer for a shared surface, not a hedge. Auth, users,
+ * payments and elections are used by both products, and naming one owner means
+ * the other finds out second-hand. It is also the safe direction to be wrong in:
+ * over-tagging costs someone a glance, under-tagging costs an outage.
+ *
+ * The assignments come from guards and module docs rather than from names —
+ * `@UseCampaign()` for Win, `@UseElectedOffice()` for Serve, an explicit `eo-`
+ * organization rejection, or an AGENTS.md that says outright who a feature is
+ * for. Three are weaker and worth revisiting if they ever page the wrong team:
+ * `content` (mixed content types, no webapp caller), `subscribe` (no caller in
+ * the monorepo at all — presumably the marketing site), and the two public
+ * controllers, whose callers live in gp-marketing.
+ *
+ * The group split is itself on the way out — it is one team now, and a single
+ * rotation is wanted. That is deliberately NOT done here, because it changes
+ * who is paged for everything in one commit. Until then, which key a controller
+ * sits under matters less than that it sits under one.
+ */
+const SERVE = 'serve-bugs' satisfies SlackGroup
+const WIN = 'win-bugs' satisfies SlackGroup
+const BOTH = [SERVE, WIN] satisfies SlackGroup[]
+
+const CONTROLLER_OWNERS: Partial<
+  Record<ControllerName, readonly SlackGroup[]>
+> = {
+  // Serve — officeholders governing. Almost all of these carry
+  // `@UseElectedOffice()`; the briefing, ordinance and annotation surfaces are
+  // the Chief of Staff product.
+  'elected-office': [SERVE],
+  polls: [SERVE],
+  contacts: [SERVE],
+  'contact-engagement': [SERVE],
+  organizations: [SERVE],
+  'dashboard/cards': [SERVE],
+  'dashboard/onboarding-cards': [SERVE],
+  'organizations/:slug/ordinance-code': [SERVE],
+  'outreach/serve': [SERVE],
+  priorities: [SERVE],
+  'admin/briefings': [SERVE],
+  'admin/elected-office': [SERVE],
+  annotations: [SERVE],
+  'meetings/:date/briefing/annotations': [SERVE],
+  'ordinances/:slug/annotations': [SERVE],
+  'meetings/:date/briefing/feedback': [SERVE],
+  'meetings/:date/briefing/items/:itemId/feedback': [SERVE],
+  'meetings/:date/briefing/review-verdict': [SERVE],
+  'community-issues': [SERVE],
+  briefings: [SERVE],
+  meetings: [SERVE],
+  ordinances: [SERVE],
+  'briefing-chats': [SERVE],
+  speech: [SERVE],
+
+  // Win — candidates campaigning. `@UseCampaign()`, a CampaignOwner guard, or a
+  // Prisma model that only relates to `Campaign`.
+  'door-knocking': [WIN],
+  campaigns: [WIN],
+  'campaign-plan-shares': [WIN],
+  'campaigns/mine/story': [WIN],
+  campaignStrategy: [WIN],
+  crm: [WIN],
+  'organizations/team': [WIN],
+  outreach: [WIN],
+  'outreach/admin/sms': [WIN],
+  'campaigns/mine/race-opponent': [WIN],
+  'campaigns/mine/recommended-lists': [WIN],
+  'campaigns/tracker-tasks': [WIN],
+  'campaigns/:id/positions': [WIN],
+  'campaigns/tasks': [WIN],
+  'campaigns/tcr-compliance': [WIN],
+  'campaigns/mine/update-history': [WIN],
+  'admin/campaign': [WIN],
+  'admin/campaigns': [WIN],
+  positions: [WIN],
+  ecanvasser: [WIN],
+  p2p: [WIN],
+  domains: [WIN],
+  websites: [WIN],
+  'campaigns/ai/chat': [WIN],
+  'campaigns/ai': [WIN],
+
+  // Shared. Platform surfaces, onboarding steps both flows render, and the two
+  // dual-product profile features.
+  authentication: BOTH,
+  content: BOTH,
+  elections: BOTH,
+  experiment: BOTH,
+  'onboarding/contacts': BOTH,
+  'onboarding/local-news': BOTH,
+  'onboarding/voter-issues': BOTH,
+  payments: BOTH,
+  'payments/purchase': BOTH,
+  'phone-banking': BOTH,
+  subscribe: BOTH,
+  'top-issues': BOTH,
+  users: BOTH,
+  'admin/agent-runs': BOTH,
+  'admin/users': BOTH,
+  eligibility: BOTH,
+  'person-profiles': BOTH,
+  'public-person-profiles': BOTH,
+  'public-campaigns': BOTH,
+  'speech/transcribe': BOTH,
+  'voters/voter-file': BOTH,
+  chats: BOTH,
+  'error-logger': BOTH,
+  // One route serving both products' tools, so BOTH is the literal answer
+  // rather than the safe one. The 13 handlers carrying `@McpTool` today are 9
+  // Win surfaces (campaigns, tracker tasks, TCR compliance, websites, domains)
+  // and 4 Serve ones (priorities, community issues, ordinance flow), and a
+  // `tools/call` is an internal proxy of whichever one the agent picked — see
+  // src/mcp/AGENTS.md § Request flow. A failure at the transport is a failure
+  // of every tool behind it, so neither team can be the one told second.
+  mcp: BOTH,
 }
+
+const ownedBy = (group: SlackGroup): ControllerName[] =>
+  (Object.keys(CONTROLLER_OWNERS) as ControllerName[]).filter((controller) =>
+    CONTROLLER_OWNERS[controller]?.includes(group),
+  )
+
+/** Map of slack group to controllers, derived from {@link CONTROLLER_OWNERS}. */
+export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
+  'serve-bugs': ownedBy(SERVE),
+  'win-bugs': ownedBy(WIN),
+}
+
+/**
+ * Controllers deliberately left without a route alert.
+ *
+ * Every other controller is now owned in CONTROLLER_OWNERS above. This list is
+ * what is left over, and it is short on purpose — each entry is a claim that
+ * failure here is not worth waking anyone for, and the tests make a new
+ * controller land in one place or the other rather than defaulting to silence.
+ *
+ * `health` is covered better elsewhere. `health-check-probe-failure` watches it
+ * with a synthetic probe from outside, which tests reachability rather than just
+ * whether the handler threw, so a log-based route alert on the same endpoint
+ * would duplicate it and add nothing.
+ *
+ * `test-fixtures` returns 404 outside dev and preview, so prod traffic to it is
+ * by definition not ours; paging on it means paging for a broken test, which CI
+ * already reports.
+ *
+ * `version` echoes the build version and `queue` is a method literally named
+ * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
+ * a product route. Nothing downstream depends on either answering.
+ *
+ * Every entry is now a claim of that kind, which was not true until 2026-09-17.
+ * `mcp` sat here because it had no ROUTE_MAP entries at all — its only handler
+ * is `@All()`, which generate-route-types.ts did not recognise — so
+ * `controllerAlerts` returned nothing for it and there was no rule to enable.
+ * Being listed here made it look reviewed while POST /v1/mcp served 24,736 real
+ * requests in 30 days and answered 19 of them with nothing. The generator now
+ * expands `@All()` and refuses outright to emit a controller with no routes, so
+ * a controller can only reach this list by someone deciding it belongs.
+ */
+export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
+  'health',
+  'test-fixtures',
+  'version',
+  'queue',
+]
 
 /**
  * Controllers whose generated route alerts fire on 5xx only.
@@ -26,13 +197,17 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  *
  * This list needs to carry less than it used to. Door knocking's other
  * designed 4xx — an empty or oversized turf, an ineligible district the
- * webapp renders as a state — are 400s, and EXCLUDED_STATUS_CODES now drops
- * those on every controller. 429 is what still requires the entry. A
- * controller whose only designed 4xx is a 400 does not belong here.
+ * webapp renders as a state, a turf holding an address the road network
+ * cannot reach — are 400s, and EXCLUDED_STATUS_CODES now drops those on every
+ * controller. 429 is what still requires the entry. A controller whose only
+ * designed 4xx is a 400 does not belong here.
  *
  * What is worth waking someone for is the 5xx range: a missing
- * GEOAPIFY_API_KEY (502), a Route Planner outage or a plan that doesn't cover
- * every stop (502), and unhandled 500s.
+ * GEOAPIFY_API_KEY (502), a Route Planner outage (502), and unhandled 500s. A
+ * plan that skips a stop is NOT in that range any more — the vendor is
+ * working and the turf is the problem, so it answers 400 naming the address.
+ * Its only trace is the `door-knocking turf contains stops the route planner
+ * cannot reach` warn line, which is deliberate: it is a data fix, not a page.
  *
  * And, since 2026-08-25, a completion with NO status — see `noStatusFilter` in
  * alerting/controller-alerts.ts. That is a request gp-api never answered, so
@@ -74,6 +249,51 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'door-knocking',
   'contacts',
 ]
+
+/**
+ * Controllers whose generated route alert needs a burst rather than a single
+ * error, keyed to the count a 10-minute window must EXCEED.
+ *
+ * The default of 0 pages on one qualifying error, and that is right nearly
+ * everywhere: on a controller that errors a handful of times a month, the
+ * first error IS the incident and waiting for a second only delays the page.
+ *
+ * It is wrong for a high-volume public route whose failure mode includes a
+ * transient upstream. `GET /v1/public-person-profiles/voter-density` serves
+ * ~150k requests a day and resolves the person's district through
+ * election-api on every one of them; an isolated 502 there costs one visitor
+ * one heat map, on a card that is progressive enhancement to begin with, and
+ * the next request succeeds. Paging on it spends attention at a rate the
+ * failure does not justify, and the estate has already lost one alert that
+ * way — see the `contacts` note in SERVER_ERRORS_ONLY.
+ *
+ * MEASURED before being set, over the 30 days to 2026-09-18, counting the
+ * errors this rule actually fires on per 10-minute window:
+ *
+ *   - Outside a real incident, EVERY window held 1 or 2 errors. There were 18
+ *     of them, spread across the month, each a single transient 502.
+ *   - The 2026-08-24 outage opened with 83 in its first window and then ran
+ *     2,000-4,800 per window for four days.
+ *   - The 2026-09-14 burst was 52 errors split across two windows, 5 then 47.
+ *
+ * So `> 2` drops all 18 noise windows and keeps both incidents, and it keeps
+ * them at the same evaluation they would have fired on before — the nearest
+ * real window is 5, comfortably clear, and nothing measured lands on 3 or 4.
+ *
+ * THE COST, stated plainly: a fault that produces one or two errors per 10
+ * minutes and never more will no longer page here. On this route that is a
+ * fault affecting under 0.01% of requests, which is below what the ratio rule
+ * would call broken anyway, and it still lands in the logs and on the
+ * dashboard. A fault that grows past it pages on the window it grows in.
+ *
+ * This does not touch `public-person-profiles-error-ratio`, which asks the
+ * other question — whether the route is substantially broken — and is
+ * unchanged. The pair still separates "something failed" from "this is down";
+ * this only moves where the first of those starts counting.
+ */
+export const ROUTE_ERROR_THRESHOLDS: Partial<Record<ControllerName, number>> = {
+  'public-person-profiles': 2,
+}
 
 export const GLOBAL_ALERTS: Alert[] = [
   // ------ Global Shared Alerts ------ //
@@ -381,52 +601,160 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
-    slug: 'people-completion-request-no-email-ratio',
-    name: '[People] Profile completion nudges undeliverable',
+    slug: 'people-claim-request-crm-sync-failing',
+    name: '[People] Candidate profile request counter not syncing',
     type: 'metric',
-    // `no_email` is normally a large, stable share: the person feed only carries
-    // an address where a source had one, and notify exists for the people we
-    // hold the least data on. So this does NOT alert on the level — it alerts on
-    // the level going almost total, which is the shape of a regression rather
-    // than of data coverage (election-api's contact-email route answering
-    // `{email: null}` for everyone, the M2M credential failing open to null, or
-    // the person feed dropping the column). That failure emits no `failed`
-    // samples at all, so the alert above cannot see it.
+    // person_profile.claim_request_crm_sync.count{result="failed"} — the
+    // `candidate_profile_requests` write on the subject's HubSpot contact.
     //
-    // 24h window because the volume is small; the `and` clause is a floor,
-    // since a ratio over a handful of submissions is noise. Under the floor the
-    // query returns no data, which grafana.ts maps to OK, not Alerting.
-    expr: [
-      '( sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="no_email"}[24h]))',
-      '/',
-      'sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[24h])) )',
-      'and',
-      '( sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[24h])) > 20 )',
-    ].join(' '),
-    threshold: 0.95,
-    for: '0m',
-    // The [24h] vector is only fully visible if the fetch window matches it.
-    timeRangeSeconds: 86400,
-    // A day-long window does not need minute resolution, and re-reading 24h
-    // every 60s for no added signal is the cost mistake documented on this
-    // field.
-    evaluationIntervalSeconds: 3600,
+    // THERE WAS NO RULE ON THIS METRIC AT ALL until now, which is how it sat at
+    // a 100% failure rate in prod while the only people alert that did fire
+    // fired about a downstream symptom and named the wrong cause. Both halves
+    // of the claim-request CRM side-effect are independent, and this is the
+    // half nothing was watching.
+    //
+    // `no_contact` and `unresolved` are ordinary skips (the CRM has never heard
+    // of most of the civics spine, and the warehouse is unconfigured off-prod),
+    // so only `failed` is a fault. Volume is low enough that a sustained
+    // failure is worth a look without needing a ratio.
+    expr: 'sum(rate(person_profile_claim_request_crm_sync_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[5m]))',
+    threshold: 0,
+    for: '15m',
     message: [
-      'Over 95% of profile completion requests in the last 24 hours found no email address for the subject, across at least 20 submissions.',
-      'Some share here is normal — the civics person feed only holds an address where a source had one — but near-total means the lookup itself is likely broken rather than the data being thin. This fails silently: no address means no event, which is a deliberate skip, so no error is raised anywhere.',
-      'Click *View in Grafana*, then verify GET /v1/persons/:personId/contact-email on election-api returns an address for a person you know has one, and check the log line "Person contact email lookup failed" for M2M auth failures.',
+      "gp-api has been failing to write `candidate_profile_requests` to candidates' HubSpot contacts for 15 minutes.",
+      "Visitors' asks are still being stored in `person_profile_claim_request` and the public endpoint is unaffected — this is a detached side-effect. But the counter marketing segments on is drifting, and because the same lookup establishes whether HubSpot holds a contact for the subject at all, nothing downstream can tell an absent contact from an unread one while this is failing.",
+      'Click *View in Grafana*, then check the log line "candidate_profile_requests sync failed (non-fatal)" for the underlying error. The counter is a computed total rather than an increment, so it self-heals on the next submission once the cause is fixed — no replay is needed.',
     ].join('\n\n'),
+    knownCauses: [
+      {
+        id: 'databricks-invalid-client',
+        summary:
+          "The shared Serve Databricks service principal is being rejected, so the person-mart read that resolves the subject's HubSpot contact id never runs.",
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "candidate_profile_requests sync failed"',
+          '|= "invalid_client"',
+        ].join(' '),
+        confirmedBy:
+          'Every matched line carries `invalid_client (Client authentication failed)` and names `DatabricksOAuthManager.getTokenM2M` in its stack. A matched line missing either is a different sync failure and this is not the cause. What this confirms is narrow but useful: the token endpoint rejected the DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET pair from the GP_API_PROD secret, which is authentication and happens before any warehouse or table grant is consulted — so a permission change cannot be the cause and a deploy cannot be the fix. It does NOT say which of expired, replaced, mistyped, or never-valid-for-this-workspace applies; check the service principal in Databricks against the client id actually in the secret before assuming a rotation is what is needed.',
+        action: 'annotate',
+      },
+    ],
+  },
+  {
+    slug: 'people-person-contact-email-lookup-failing',
+    name: '[People] Person contact email lookup failing',
+    type: 'log',
+    // REPLACES `people-completion-request-no-email-ratio`, which was deleted
+    // rather than retuned because both halves of it were unsound:
+    //
+    //  - It alerted on a share that is ~100% in the steady state. The `sent`
+    //    counter has never once been non-zero in prod, so "over 95% of nudges
+    //    undeliverable" is this feature's normal condition, not a regression.
+    //    A rule that is always true the moment it has volume gets muted.
+    //  - Its `> 20` volume floor never was one. It summed increase() over a
+    //    counter whose series conflated both prod tasks, so 4 real submissions
+    //    read as 1,702 and the floor was cleared by arithmetic rather than by
+    //    traffic — which is how it fired in the first place. See the
+    //    service.instance.id comment in src/otel.ts.
+    //
+    // What that rule was reaching for, and could not see, is the lookup
+    // ERRORING: resolveContactEmail returns null both for "no address on file"
+    // (ordinary, and most of the spine) and for a 404, and logs this line only
+    // for a genuine fault — M2M auth, a 5xx, or election-api unreachable. That
+    // is the actionable signal. Address coverage is a data question and belongs
+    // on the dashboard, not in #dev-alerts.
+    expr: [
+      'count_over_time({service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Person contact email lookup failed" [5m])',
+    ].join(' '),
+    threshold: 0,
+    for: '15m',
+    message: [
+      "gp-api has been unable to read subjects' contact addresses from election-api for 15 minutes.",
+      "Every profile-completion nudge in this window was skipped for want of an address, which is indistinguishable from ordinary thin coverage in the metric — this log line is the only thing that separates the two. Visitors' asks are unaffected and remain stored in `person_profile_claim_request`.",
+      'Click *View in Grafana*, then read the `status` and `reason` fields on the matched lines. A 401/403 is the gp-api → election-api M2M credential; a 5xx or a connection error is election-api itself. Note the response body is deliberately not logged, because on this route the body IS the address.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'people-person-id-repoint-collision',
+    name: '[People] Person id repoint blocked, left for manual resolution',
+    type: 'log',
+    // The one drift outcome that ASKS FOR A HUMAN BY NAME and, until this
+    // rule, told none. `resyncLinkedUser` ends in exactly five ways; four are
+    // self-correcting (`repointed` fixed it, `unchanged` had nothing to fix,
+    // `unresolved` retries tomorrow, `failed` is a transient the next sweep
+    // re-attempts). `collision` is the one that does not: the destination
+    // civics id already holds another user's rows, so the repoint is abandoned
+    // and the stale link stays stale every night until somebody merges the two
+    // by hand.
+    //
+    // Nothing about that is visible from outside. gp-api answers a correct 404
+    // at the abandoned id and a correct 200 at the destination, both services
+    // report healthy, and the only symptom is a public profile that renders
+    // the unclaimed civics spine instead of its owner — or, worse, a takedown
+    // that stops being honored because `isRemoved` matches on an id the person
+    // no longer renders under. See the header on `resyncLinkedUser`.
+    //
+    // ON THE LOG RATHER THAN person_profile_person_id_drift_count_total, for
+    // the reason `people-person-contact-email-lookup-failing` above sets out at
+    // length: src/otel.ts sets no `service.instance.id`, so both prod tasks
+    // export that counter under one series identity, and `increase()` over
+    // interleaved cumulative streams is not a number to page on — here it would
+    // read a lock that moved between tasks as a fresh collision. The log line
+    // is exact, and it carries the `userId`, `from`, `to` and `blocker` the
+    // responder needs, which the counter's `result` label does not.
+    //
+    // Both collision branches: the pre-check in `repoint` and the unique
+    // violation that loses a race to a concurrent write. Same situation, found
+    // at different moments, same manual fix.
+    expr: [
+      'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Cheap line filter before the alternation, as every sibling log alert does.
+      '|= "person_id"',
+      '|~ "destination id is already occupied|lost a race to a concurrent write"',
+      '[6h]))',
+    ].join(' '),
+    threshold: 0,
+    // No grace period, and none is wanted. The sweep is `0 4 * * *`, so this is
+    // one burst a day rather than a signal that can flap across a boundary —
+    // a `for` here would only delay the page past the emission that caused it.
+    for: '0m',
+    // >= the [6h] vector, or the engine's default ten minutes means a rule that
+    // only ever sees 03:54-04:04 and reports zero the rest of the day.
+    timeRangeSeconds: 21600,
+    // 24 re-reads/day against the MAX_REREAD_FACTOR of 100 in
+    // global-alerts.test.ts. A daily sweep does not need minute resolution, and
+    // a 6h window on the 60s default would re-read those hours 360 times.
+    evaluationIntervalSeconds: 900,
+    message: [
+      'The nightly person-id sweep found a user whose civics id has moved, and could not follow it: the destination id already holds another user’s rows. The link was left stale deliberately, for a human.',
+      'Nothing retries this. The stale link survives every subsequent sweep, so the symptom persists until someone acts — that user’s public /people page renders the unclaimed civics spine (wrong name, wrong headshot, no bio) instead of their profile, and if they are under a takedown it silently stops being enforced, because `isRemoved` matches on an id they no longer render under.',
+      'Click *View in Grafana* and read `userId`, `from`, `to` and `blocker` off the matched lines. `blocker` names the table standing in the way — `profile`, `removal` or `claim`. Resolve the destination by hand (decide which of the two rows survives, move or delete the loser), then let the 04:00 sweep repoint the link, or call the backfill directly. Afterwards `POST /api/revalidate-person` on BOTH ids, or gp-marketing serves the two versions for up to an hour per edge.',
+      'If the two ids turn out to describe DIFFERENT PEOPLE, stop and escalate rather than merging: person clusters are built partly from probabilistic matching, and a collision is one of the few places that surfaces. See ENG-11112.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
   },
   {
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
     type: 'log',
-    // `public-campaigns` is not in ALERT_OWNERSHIP, so its generated per-route
-    // alert is provisioned `disabled`. That is why 5k+ daily 500s on a public
-    // endpoint paged nobody. It is deliberately still not opted in: the
-    // generated rule fires on a single error in the window, and this route
-    // serves ~2 req/s, so it would have been firing continuously and been
-    // muted. This is the rate-aware replacement.
+    // Written when `public-campaigns` was not in ALERT_OWNERSHIP and its
+    // generated per-route alert was therefore provisioned `disabled` — which
+    // is why 5k+ daily 500s on a public endpoint paged nobody. It was left out
+    // of the ownership map on the grounds that the generated rule fires on a
+    // single error in the window, so on a route serving ~2 req/s it would fire
+    // continuously and be muted.
+    //
+    // It is in the map as of 2026-09, because that stopped being true: in the
+    // seven days to 09-17 this route produced ZERO errors the generated rule
+    // would fire on, and the 5k-a-day era it was reasoning from is over. The
+    // two rules now stack rather than substitute — the generated one answers
+    // "did anything fail at all" within a minute, this one answers "is the
+    // route substantially broken" and carries the known causes below.
+    //
+    // Keep this rule anyway. It is the one that still works if the volume
+    // returns, and the argument above becomes true again the moment it does.
     //
     // Denominator is lookups that resolved to a campaign (non-404), not all
     // traffic. ~95% of requests are 404s — gp-marketing asks "has this
@@ -441,6 +769,17 @@ export const GLOBAL_ALERTS: Alert[] = [
     // the query returns no data, which grafana.ts maps to OK (noDataState),
     // not Alerting. The cost is that a large drop in traffic (e.g. if
     // gp-marketing starts caching this call) silences the alert.
+    //
+    // KNOWN GAP, written down rather than left to be rediscovered: unlike the
+    // generated rules and unlike public-person-profiles-error-ratio below,
+    // this one does not admit `response_statusCode = ""`, so a request the
+    // gateway kills mid-flight is invisible to it — see noStatusFilter in
+    // controller-alerts.ts for why that is the one failure a status range
+    // cannot see. A pure timeout wave on this route would score 0% and page
+    // nobody. Closing it is a one-line change on each half, but it moves the
+    // firing profile of a live rule, and the numbers quoted above were
+    // measured against the narrow expression; it wants its own replay over
+    // real traffic rather than being changed in passing here.
     expr: [
       '( sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -641,5 +980,143 @@ export const GLOBAL_ALERTS: Alert[] = [
     // deliberate no-mention rule, and if it fires unrouted it still appears in
     // Grafana's own alert list, which is the last channel left when every other
     // one depends on the thing that broke.
+  },
+  {
+    slug: 'public-person-profiles-error-ratio',
+    name: '[People] Public person profile requests failing',
+    type: 'log',
+    // The rule that was missing on 2026-08-24, when GET /v1/public-person
+    // -profiles/voter-density began answering every single request with a 500
+    // and continued for four days. 1,498,324 of them. Nothing fired, because
+    // `public-person-profiles` is in CONTROLLERS_WITHOUT_ROUTE_ALERTS, so its
+    // generated rule is provisioned disabled. It ended when the table it reads
+    // was created, not when anyone responded.
+    //
+    // Same shape as public-campaigns-lookup-error-ratio above. This controller
+    // is ALSO in ALERT_OWNERSHIP, so it has a generated route alert too, and
+    // the two are not redundant: the generated rule trips on a burst of errors
+    // and this one only when a route is substantially broken, so the pair
+    // separates "something failed" from "this route is down" without either
+    // having to guess which it is.
+    //
+    // The case for not opting the controller in — that a threshold-0 rule on a
+    // route serving ~4 req/s would fire permanently and get muted — was worth
+    // testing rather than assuming, and did not hold. Over the seven days to
+    // 2026-09-17 the errors the generated rule fires on fell in 2 hours out of
+    // 168: a 52-error burst and one stray. So it pages about twice a week at
+    // worst, and the muting risk was theoretical.
+    //
+    // THE STRAYS TURNED OUT TO BE THE PROBLEM, which is why the generated rule
+    // now needs more than 2 errors in its window (ROUTE_ERROR_THRESHOLDS). The
+    // 2 hours in 168 were counted as hours, and an hour holding one transient
+    // 502 pages exactly as loudly as an hour holding fifty — so what the
+    // measurement read as "twice a week" was mostly single failed requests on
+    // a route serving ~150k a day. Re-measured per 10-minute window over the
+    // 30 days to 2026-09-18, 18 windows held 1-2 errors and the only windows
+    // above that were the two real incidents. THIS rule is what makes raising
+    // that safe: it is unchanged, it is what catches the outage the generated
+    // rule now sleeps through the first minutes of, and against the August
+    // failure it reads 100%. Do not delete it to "simplify" the pair — a test
+    // in controller-alerts.test.ts fails if you do, and says why.
+    //
+    // `sum by (request_endpoint)` rather than one ratio for the controller:
+    // Grafana turns each returned series into its own alert instance, so a
+    // route that is entirely broken is judged on its own numbers instead of
+    // being averaged out by a busier sibling that is fine. In August the base
+    // route was healthy and served more traffic than the one that was down.
+    //
+    // Prefix regex rather than the exact alternation the generated rules build,
+    // so a route added to this controller is covered the day it ships. That is
+    // the whole complaint this alert answers, and an alternation would have to
+    // be remembered.
+    //
+    // Denominator excludes 404s for the reason it does on public-campaigns:
+    // most requests here legitimately miss (1.8M of them in the last 7 days).
+    // gp-marketing asks about every candidate, and a person who maps to no L2
+    // district gets no heat map — both are the feature working, and counting
+    // them buries a total outage in a rounding error. Against non-404s the
+    // August failure reads 100%, and normal weeks read under 0.01%.
+    //
+    // The volume floor is the same 20-in-the-window guard, per route: under it
+    // the series drops out, which grafana.ts maps to OK via noDataState, so a
+    // single 500 on a quiet route does not page. It also means a route that
+    // stops being called cannot alert — acceptable, since a route with no
+    // traffic has no users to fail.
+    //
+    // WHAT THIS WILL PAGE FOR, measured rather than guessed. Replayed over the
+    // 30 days to 2026-09-16 it produces two firings, both real: the August
+    // outage, and a connection-pool exhaustion burst on the base route on
+    // 09-14 that held 99% for twenty minutes. The second only counts because
+    // P2024 now answers 503 instead of 400 (see prisma-exception.filter.ts) —
+    // it was invisible to every 5xx rule at the time. Over the quiet week of
+    // 09-09 the expression returns a single datapoint, 0.036%, which is 274x
+    // under the threshold. So: roughly two pages a month, and nothing to mute.
+    //
+    // Both halves admit `response_statusCode = ""` for the reason
+    // controller-alerts.ts spells out at `noStatusFilter`: a request the
+    // gateway kills mid-flight completes with a null status, Loki's json
+    // parser drops a null field, and every status-RANGE filter therefore
+    // misses it. The generated rules were widened after two door-knocking
+    // pack timeouts went unseen that way in August; written the narrow way
+    // here, a wave of gateway timeouts on voter-density would be scored 0%
+    // and page nobody — the same endpoint, the same silence, one release
+    // after this rule was added to end it.
+    //
+    // It has to be added to the denominator too, not just the numerator. A
+    // rule that counted no-status requests as failures but not as traffic
+    // would read over 100% during a pure timeout wave, and the volume floor
+    // would be measuring a smaller population than the ratio it guards.
+    expr: [
+      '( sum by (request_endpoint) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Request completed" | json',
+      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
+      '| ( response_statusCode >= 500 ) or ( response_statusCode = "" )',
+      '[10m]))',
+      '/',
+      'sum by (request_endpoint) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Request completed" | json',
+      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
+      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
+      '[10m])) )',
+      'and',
+      '( sum by (request_endpoint) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Request completed" | json',
+      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
+      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
+      '[10m])) > 20 )',
+    ].join(' '),
+    threshold: 0.1,
+    for: '10m',
+    summaryDetail: '`{{ $labels.request_endpoint }}`',
+    message: [
+      'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
+      'These routes back the public candidate profiles on the marketing site. 404s are excluded because most requests here are meant to miss: the caller asks about every candidate, and a person who maps to no L2 district has no heat map to return.',
+      'Click *View in Grafana* to find the failing requests. Check which Prisma client raised the error before assuming the main database: the voter-density route reads people-db through a second client (see peopleDb/AGENTS.md), and its tables are populated by the data team rather than by a migration in this repo — so a table this repo has a migration for can still be absent in the database.',
+      'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout rather than the handler, and points at how long the query takes rather than at what it returned.',
+    ].join('\n\n'),
+    knownCauses: [
+      {
+        id: 'people-db-table-missing',
+        summary:
+          'The people-db table the voter-density route reads does not exist. gp-api has a migration for it, but the data team creates and populates it (dbt/Databricks), so shipping the reader before that lands breaks the route completely until it does.',
+        // Not scoped to a status code or endpoint: the P2021 is what confirms
+        // the cause, and it is raised before any response is written. Matching
+        // only the failing route's completions would hide the case where the
+        // same missing table is breaking something else too, which is the
+        // evidence that this is a data-side outage rather than one route's bug.
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "does not exist in the current database"',
+          '| json',
+          '| exception_type = "P2021"',
+        ].join(' '),
+        confirmedBy:
+          "Matched lines name the missing table in `exception.message`, and their `exception.stacktrace` runs through generated/people-prisma. No matched lines means the failures are something else and this is NOT the cause. This does not lower the urgency: while it holds, the route returns nothing to anyone, and the fix is on the data team's side rather than in a deploy of this repo.",
+        action: 'annotate',
+      },
+    ],
   },
 ]

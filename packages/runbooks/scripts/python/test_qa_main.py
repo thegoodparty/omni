@@ -255,7 +255,7 @@ class TestSingleSourceLink:
 
     def test_qa_checks_list_has_all_checks(self):
         qc = _qa_checks()
-        assert len(qc.CHECKS) == 11
+        assert len(qc.CHECKS) == 12
         names = [c.__name__ for c in qc.CHECKS]
         assert "check_cross_reference_integrity" in names
         assert "check_disclosure_present" in names

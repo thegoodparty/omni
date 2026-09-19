@@ -1,3 +1,5 @@
+import { TeamInviteRole } from '@goodparty_org/contracts'
+
 // Escapes the 5 characters that matter for HTML text/attribute contexts.
 // Named entities (not numeric) so the encoded text still reads in a spam
 // filter's plaintext preview.
@@ -64,15 +66,21 @@ export function getRecoverPasswordEmailContent(name: string, link: string) {
             `
 }
 
+// UI labels for the roles a direct-add can grant. "Campaign Manager" —
+// never "Admin" — is the locked label for campaignAdmin.
+const TEAM_ROLE_LABELS: Record<TeamInviteRole, string> = {
+  campaignAdmin: 'Campaign Manager',
+  volunteer: 'Volunteer',
+}
+
 // Existing-account "you've been added" notification. Clerk can only invite
 // an email with no Clerk account, so a person who already has one is added
-// to the campaign directly and told about it here instead. Role label is
-// always "Campaign Manager" — never "Admin" — the only role this branch
-// grants in Phase 1.
+// to the campaign directly and told about it here instead.
 export function getTeamMemberAddedEmailContent(
   name: string,
   campaignName: string,
   link: string,
+  role: TeamInviteRole,
 ) {
   // name and campaignName are both set by other users (the inviter's own
   // campaign name, and — for name — whatever value that flow captured), so
@@ -105,7 +113,7 @@ export function getTeamMemberAddedEmailContent(
                         margin-bottom: 5px;
                       "
                     >
-                    You've been added to ${safeCampaignName} as Campaign Manager.
+                    You've been added to ${safeCampaignName} as ${TEAM_ROLE_LABELS[role]}.
                     </p>
                   </td>
                 </tr>
@@ -200,30 +208,6 @@ export function getBasicEmailContent(msg = '', subject = '') {
                   style="margin: 0 auto"
                   src="https://assets.goodparty.org/logo-hologram.png"
                 />
-            </td>
-          </tr>
-          <tr>
-            <td style="text-align: center">
-              <br /><br />
-              <p
-                style="
-                  font-weight: normal;
-                  font-size: 11px;
-                  line-height: 15px;
-                  /* identical to box height, or 136% */
-
-                  text-align: center;
-                  letter-spacing: 0.5px;
-
-                  /* Neutral/N40 - Faded Ink */
-
-                  color: #666666;
-                "
-              >
-                To stop receiving updates, you can remove this campaign from  <a href="https://goodparty.org/profile">
-                your endorsements
-                </a>
-              </p>
             </td>
           </tr>
         </table>

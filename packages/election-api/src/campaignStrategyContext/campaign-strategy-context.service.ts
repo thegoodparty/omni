@@ -109,6 +109,7 @@ export class CampaignStrategyContextService extends createPrismaBase(
       candidates,
       civics_win_number: race.winNumber,
       contacts_needed_estimate: contactsNeededEstimate,
+      election_code: race.electionCode,
       general_election_date: this.toIsoDate(generalDate),
       number_of_seats: race.numberOfSeats,
       office_level: race.officeLevel,

@@ -15,7 +15,7 @@ import sys
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOCAL = os.path.join(LOCAL, "local")
+LOCAL = os.path.join(HERE, "local")
 os.makedirs(LOCAL, exist_ok=True)
 
 

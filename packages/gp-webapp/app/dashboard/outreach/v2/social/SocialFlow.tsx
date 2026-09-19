@@ -72,6 +72,9 @@ interface SocialFlowSaveInput {
 // lookup, and which network the flow's three mutations hit — everything
 // else (steps, shell, tone/Improve/dictation, SocialAssetCards) is shared.
 export interface SocialFlowSurface {
+  // Which product this surface belongs to. Read only for copy that the
+  // per-surface records below don't reach — the shared steps' own strings.
+  isServe: boolean
   purposes: { id: SocialFlowPurpose; label: string }[]
   nameSuggestion: (purpose: SocialFlowPurpose) => string
   // Platforms excluded for a given purpose on this surface (ENG-10989),
@@ -93,6 +96,7 @@ export interface SocialFlowSurface {
 // this surface's `purposes` only ever contains SocialPurpose members, and
 // the flow only ever calls these endpoints with a purpose drawn from them.
 const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
+  isServe: false,
   purposes: SOCIAL_PURPOSES,
   nameSuggestion: socialPurposeNameSuggestion,
   excludedPlatforms: (purpose) =>
@@ -126,6 +130,7 @@ const WIN_SOCIAL_SURFACE: SocialFlowSurface = {
 // the wiring ticket passes this as SocialFlow's `surface` prop on the serve
 // social tile.
 export const SERVE_SOCIAL_SURFACE: SocialFlowSurface = {
+  isServe: true,
   purposes: SERVE_SOCIAL_PURPOSES,
   nameSuggestion: serveSocialPurposeNameSuggestion,
   excludedPlatforms: (purpose) =>
@@ -498,6 +503,7 @@ export const SocialFlow = ({
         />
       ) : stepId === 'compose' ? (
         <ComposeStep
+          isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
           draft={draft}
@@ -523,6 +529,7 @@ export const SocialFlow = ({
         />
       ) : (
         <ShareStep
+          isServe={surface.isServe}
           platforms={platforms}
           assets={assets}
           isGenerating={generateMutation.isPending}

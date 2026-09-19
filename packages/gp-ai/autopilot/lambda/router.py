@@ -14,6 +14,7 @@ before calling route().
 
 import importlib.util
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,78 @@ STAGE_SUPERVISOR = "supervisor"
 EPIC_SCOPED_STAGES = frozenset({STAGE_STORY, STAGE_QA})
 
 DEFAULT_AGENT_MODEL = "sonnet"
+
+# The park marker the agent's feedback primitive writes as the FIRST LINE of
+# every parking comment. Deliberately duplicated from
+# autopilot/agent/feedback.py (PARK_MARKER_PATTERN): the Lambda bundle stays
+# dependency-light and cannot import the agent package, whose feedback module
+# pulls in the shared ClickUp/Slack clients. A contract test asserts the two
+# patterns stay character-identical.
+PARK_MARKER_PATTERN = re.compile(r"\[autopilot:parked stage=([a-z0-9][a-z0-9-]*)\]", re.IGNORECASE)
+
+
+def _comment_date_ms(comment: dict) -> int:
+    try:
+        return int(str(comment.get("date", "")))
+    except ValueError:
+        return 0
+
+
+@dataclass(frozen=True)
+class Park:
+    stage: str
+    question: str
+    comment_id: str | None
+    date_ms: int
+
+
+def latest_park(comments: list[dict]) -> Park | None:
+    """The most recent park in a comment thread, with the question text the
+    auto-resume classifier keys on (the first numbered line after the marker)
+    and the park comment's own id and date, so the sweep can dedup one
+    auto-resume per park instance and detect replies posted after it."""
+    for comment in sorted(comments, key=_comment_date_ms, reverse=True):
+        text = comment.get("comment_text")
+        if not isinstance(text, str):
+            continue
+        match = PARK_MARKER_PATTERN.search(text)
+        if not match:
+            continue
+        question = ""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped and not PARK_MARKER_PATTERN.search(stripped):
+                question = stripped.lstrip("0123456789. ").strip()
+                break
+        comment_id = comment.get("id")
+        return Park(
+            stage=match.group(1).lower(),
+            question=question,
+            comment_id=comment_id if isinstance(comment_id, str) else None,
+            date_ms=_comment_date_ms(comment),
+        )
+    return None
+
+
+def park_marker_count(comments: list[dict]) -> int:
+    """How many park comments the thread carries, across stages — the sweep's
+    loop bound: a story that keeps re-parking needs a human, not more laps."""
+    count = 0
+    for comment in comments:
+        text = comment.get("comment_text")
+        if isinstance(text, str) and PARK_MARKER_PATTERN.search(text):
+            count += 1
+    return count
+
+
+def parked_stage_from_comments(comments: list[dict]) -> str | None:
+    """The stage named by the MOST RECENT park marker in a comment thread, or
+    None. Latest wins by the comment's own date (a card can park, resume, and
+    re-park); an unparseable date sorts oldest, same fail-toward-not-blocking
+    direction the agent-side parse takes."""
+    park = latest_park(comments)
+    return park.stage if park is not None else None
+
 
 # --- Status names --------------------------------------------------------
 # The real board (ENG-11104): ONE ClickUp list holds both feature cards and
@@ -126,9 +199,13 @@ class RoutableEvent:
     list_id: str | None
     current_status: str | None
     transitions: list[Transition]
-    # Top-level delivery timestamp; the only dedup key source for kinds that
-    # carry no history_items (commentPosted).
+    # The delivery's timestamp; the only dedup key source for kinds whose
+    # history items parse to no status transition (commentPosted).
     event_ts: str | None = None
+    # Who caused the delivery (first history item's user). The comment-resume
+    # route keys off it: a park's own parking comment must never resume the
+    # stage that just parked.
+    event_actor_id: str | None = None
     # The task's ClickUp parent: set = this is a story and names its epic,
     # unset = this is a feature card (see derive_card_type). For the
     # breakdown-approval gate the epic IS the card itself, so route() derives
@@ -249,6 +326,23 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
         # commentPosted carries no status transition — the trigger is the
         # CURRENT status at delivery time, not a before/after pair.
         if card_type == STORY_CARD and event.current_status == STATUS_FEEDBACK_NEEDED:
+            # The park primitive's LAST card write is its own comment, which
+            # arrives right back here as a commentPosted delivery. Without
+            # this check every park resumes itself immediately — and a resume
+            # that re-parks comments again, so the loop self-sustains, one
+            # paid Fargate run per lap. Fail closed on a missing bot id for
+            # the same reason the gate check does: an unidentifiable actor
+            # cannot be proven human.
+            bot_user_id = os.environ.get("AUTOPILOT_BOT_USER_ID")
+            if not bot_user_id:
+                print("ERROR: AUTOPILOT_BOT_USER_ID not configured; refusing comment-resume dispatch")
+                return []
+            if event.event_actor_id == bot_user_id:
+                print(
+                    f"Ignoring the bot's own comment on story {event.task_id}: "
+                    "a parking comment must not resume the stage that parked"
+                )
+                return []
             # Bucketed, not the raw delivery timestamp: distinct comments in a
             # burst would each mint a fresh key and launch concurrent resume
             # runs (see COMMENT_TRIGGER_BUCKET_MS).

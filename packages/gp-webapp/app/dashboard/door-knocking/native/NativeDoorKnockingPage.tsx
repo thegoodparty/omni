@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
+import {
+  DOOR_KNOCK_STATUSES,
+  DoorKnockingTurf,
+  type RecommendedListVariant,
+} from '@goodparty_org/contracts'
 import { Spinner } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { DoorKnockingDailyLimitDialog } from './DoorKnockingDailyLimitDialog'
@@ -104,6 +108,10 @@ interface NativeDoorKnockingPageProps {
   // audience a walk will be cut from, and the map's own scope is the rail's
   // `selectedTurf`, which is a turf and not a list.
   preselectedListId?: number
+  // A recommendation carried in on `?recommended=` (a voter data page card
+  // not saved yet), handed to the create flow the same way and spent the
+  // same way.
+  preselectedRecommendedVariant?: RecommendedListVariant
   // A turf carried in on `?walkTurfId=`, from the outreach hub's "Continue
   // knocking". Distinct from `preselectedListId` in both noun and effect: that
   // one names an audience and opens the create flow, this one names a routed
@@ -161,6 +169,7 @@ export default function NativeDoorKnockingPage({
   pathname,
   campaign,
   preselectedListId,
+  preselectedRecommendedVariant,
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
@@ -233,6 +242,12 @@ export default function NativeDoorKnockingPage({
   const [spentPreselectId, setSpentPreselectId] = useState<number>()
   const carriedListId =
     preselectedListId === spentPreselectId ? undefined : preselectedListId
+  const [spentPreselectVariant, setSpentPreselectVariant] =
+    useState<RecommendedListVariant>()
+  const carriedVariant =
+    preselectedRecommendedVariant === spentPreselectVariant
+      ? undefined
+      : preselectedRecommendedVariant
   const [filters, setFilters] = useState<VoterFileFilters>({})
   // The hand-cut precinct selection, beside `filters` because precinct values
   // are enumerated per district and the boolean draft has no key for them —
@@ -1237,6 +1252,10 @@ export default function NativeDoorKnockingPage({
                 onRemoveDraft={removeDraft}
                 onUpdateDraft={updateDraft}
                 onPickColor={pickActiveColor}
+                preselectedRecommendedVariant={carriedVariant}
+                onRecommendedPreselectApplied={() =>
+                  setSpentPreselectVariant(preselectedRecommendedVariant)
+                }
               />
             )}
           </div>

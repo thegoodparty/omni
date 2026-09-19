@@ -3,6 +3,7 @@ import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import DoorKnockingPageGate from './native/DoorKnockingPageGate'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
+import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
 import { serverFetch } from 'gpApi/serverFetch'
 import { apiRoutes } from 'gpApi/routes'
 
@@ -34,6 +35,7 @@ export const dynamic = 'force-dynamic'
 interface PageParams {
   searchParams: Promise<{
     listId?: string
+    recommended?: string
     walkTurfId?: string
     outreachId?: string
     create?: string
@@ -47,7 +49,7 @@ export default async function Page({
   await candidateAccess()
 
   const [
-    { listId, walkTurfId, outreachId, create, campaignOutreachId },
+    { listId, recommended, walkTurfId, outreachId, create, campaignOutreachId },
     campaign,
     summary,
   ] = await Promise.all([
@@ -63,12 +65,16 @@ export default async function Page({
   // page exactly as it was before the param existed, and an id that no longer
   // resolves to one of this org's lists is dropped downstream by the picker.
   const preselectedListId = parsePositiveListId(listId)
+  // The hub tile's other carry: a voter data page recommendation not saved
+  // yet. Same stance — an unknown variant is dropped, never an error.
+  const preselectedRecommendedVariant = parseRecommendedListVariant(recommended)
 
   const childProps = {
     pathname: '/dashboard/door-knocking',
     campaign,
     summary,
     preselectedListId,
+    preselectedRecommendedVariant,
     // "Continue knocking" on an outreach row. A turf rather than a list, and
     // it opens that turf's walk rather than the create flow — the two params
     // name different nouns and do different things, which is why they are two.

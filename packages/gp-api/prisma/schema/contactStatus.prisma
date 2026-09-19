@@ -28,6 +28,12 @@ enum ContactStatusField {
   // here rather than on the interaction because it has to be reversible and
   // queryable as a set. Seed is `cleared`, same as do_not_knock.
   not_a_voter
+  // Serve's standing "this constituent asked to be followed up with". The
+  // interaction column of the same name answers "did this ONE call/knock end
+  // owing them something"; this answers "is anything still owed", which is a
+  // person-level fact an official toggles as they work through people. Seed is
+  // `cleared`, same as the two flags above.
+  follow_up
 }
 
 // ADR 0007. `cleared` is a real value rather than a deleted row so that
@@ -48,6 +54,23 @@ enum DoNotKnockStatus {
 enum NotAVoterStatus {
   moved
   deceased
+  cleared
+}
+
+// The vocabulary for `follow_up`. Binary, because the door and the call both
+// ask a yes/no question and an official either owes this person something or
+// does not — `unsure` there would only be a way of not writing the note (see
+// FOLLOW_UP_OPTIONS on the door-knocking side). `cleared` rather than a
+// deleted row for the DoNotKnockStatus reason: lifting the flag is itself the
+// interesting event, since "who followed up, and when" is the question this
+// feature exists to answer.
+//
+// Backs no column — contact_current_status.value and
+// contact_status_event.to_value are plain text, each field's vocabulary
+// enforced in Zod at the write boundary. This type exists to generate the
+// contracts enum that does the enforcing.
+enum FollowUpStatus {
+  requested
   cleared
 }
 

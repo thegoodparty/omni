@@ -1,3 +1,4 @@
+import { hostname } from 'node:os'
 import { metrics } from '@opentelemetry/api'
 import {
   BatchSpanProcessor,
@@ -6,7 +7,10 @@ import {
 } from '@opentelemetry/sdk-trace-base'
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { resourceFromAttributes } from '@opentelemetry/resources'
-import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions'
+import {
+  ATTR_SERVICE_INSTANCE_ID,
+  ATTR_SERVICE_NAME,
+} from '@opentelemetry/semantic-conventions'
 import { ATTR_DEPLOYMENT_ENVIRONMENT_NAME } from '@opentelemetry/semantic-conventions/incubating'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
@@ -28,6 +32,10 @@ import { NestInstrumentation } from '@opentelemetry/instrumentation-nestjs-core'
 import { HostMetrics } from '@opentelemetry/host-metrics'
 import { FastifyOtelInstrumentation } from '@fastify/otel'
 import { RuntimeNodeInstrumentation } from '@opentelemetry/instrumentation-runtime-node'
+import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici'
+// Relative, not the `@/` alias: this module is preloaded with `node -r` before
+// any path-alias resolver is registered.
+import { isDbxStatementPoll } from './observability/otel/dbxStatementPoll'
 
 /**
  * Why we want this:
@@ -92,8 +100,29 @@ if (!headers) {
     }),
   )
 
+  // Every exporting process MUST be its own metric series, and this attribute
+  // is the only thing that makes it one. Prod runs two tasks (service.ts
+  // `desiredCount`), and with `autoDetectResources: false` they otherwise
+  // export byte-identical resource attributes — so both tasks' CUMULATIVE
+  // counters land on a single Prometheus series that oscillates between the two
+  // running totals. Every step down reads as a counter reset to rate() and
+  // increase(), which then add the whole subsequent value again.
+  //
+  // That is not a rounding error. On person_profile.completion_request_event
+  // the raw series ran 1..3 over 24h while increase()[24h] returned 1702, and
+  // the 1702 cleared a `> 20` volume floor that existed precisely to stop a
+  // ratio alert firing on a handful of samples. Any rate()/increase() rule over
+  // a gp-api counter was reading invented numbers before this.
+  //
+  // os.hostname() is the container id under ECS awsvpc and is stable for the
+  // task's lifetime, so series churn when a task is replaced (a real new
+  // instance, whose counters genuinely start at zero) rather than per export.
+  // The cost is one series per task per metric, which is the price of the
+  // counters being arithmetic rather than decorative.
   const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: 'gp-api',
+    [ATTR_SERVICE_INSTANCE_ID]:
+      process.env.OTEL_SERVICE_INSTANCE_ID || hostname(),
     [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]:
       process.env.OTEL_SERVICE_ENVIRONMENT || 'local',
   })
@@ -122,7 +151,21 @@ if (!headers) {
     'http.host',
     'host.name',
     'host.id',
+    // SPAN attributes only, which is why this does not contradict the
+    // service.instance.id on the resource above: per-span instance identity is
+    // unbounded churn on traces, while the RESOURCE attribute is one value per
+    // task and is what keeps the metric counters addable.
     'service.instance.id',
+    // Undici emits stable-semconv names, so the old list above does not reach
+    // it. `url.full` and `url.query` carry statement ids, chunk indexes and
+    // bearer-adjacent query strings; `network.peer.*` is a resolved IP that
+    // changes per connection. `server.address` is deliberately NOT scrubbed —
+    // it is the bounded set of vendor hostnames, and it is the whole reason
+    // these spans are worth having.
+    'url.full',
+    'url.query',
+    'network.peer.address',
+    'network.peer.port',
   ]
   const cardinalityScrubProcessor: SpanProcessor = {
     onStart: () => undefined,
@@ -135,6 +178,24 @@ if (!headers) {
     forceFlush: () => Promise.resolve(),
     shutdown: () => Promise.resolve(),
   }
+
+  // HttpInstrumentation only patches node's `http`/`https`. Everything that
+  // talks over global fetch — the Databricks voter path, the Anthropic calls
+  // behind the AI SDK, Clerk, @google/genai — was therefore invisible in Tempo,
+  // showing up as an unexplained gap between spans rather than a named
+  // dependency. That gap is the dominant cost on the contacts routes, so the
+  // traces were missing the one span worth looking at.
+  //
+  // Databricks statement polling is excluded: `startCsvExport` uses
+  // `wait_timeout: 0s` and then polls every 500ms up to the 60s ceiling, which
+  // is ~120 identical GETs for a single export. Traces are unsampled, so that
+  // is real ingest for no information — the wait is already covered end to end
+  // by the `databricks.statement` span in PeopleDbxStatementClient. The submit
+  // POST and the chunk fetches are NOT excluded; those carry the payload.
+  const undiciInstrumentation = new UndiciInstrumentation({
+    ignoreRequestHook: (request) =>
+      isDbxStatementPoll(request.method, request.path),
+  })
 
   const traceExporter = new OTLPTraceExporter({
     url: `${endpoint}/v1/traces`,
@@ -176,6 +237,7 @@ if (!headers) {
     ],
     instrumentations: [
       new HttpInstrumentation(),
+      undiciInstrumentation,
       new NestInstrumentation(),
       new PrismaInstrumentation(),
       new PinoInstrumentation(),

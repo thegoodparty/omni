@@ -5,6 +5,7 @@ calls. See test_supervisor.py for the epic-tick logic the sweep also
 triggers for executing feature cards.
 """
 
+import json
 import time
 
 import autopilot_conductor_dispatch as dispatch
@@ -87,6 +88,7 @@ def env(monkeypatch):
     monkeypatch.setenv("SUBNET_IDS", "subnet-1,subnet-2")
     monkeypatch.setenv("SECURITY_GROUP_ID", "sg-1")
     monkeypatch.setenv("AUTOPILOT_CLICKUP_API_KEY", "test-clickup-key")
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot-test")
 
 
 class FakeClickUp:
@@ -99,6 +101,7 @@ class FakeClickUp:
         self.list_tasks: dict[str, list[dict]] = {}
         self.executing_tasks: dict[str, list[dict]] = {}
         self.in_progress_tasks: dict[str, list[dict]] = {}
+        self.parked_tasks: dict[str, list[dict]] = {}
         self.comments: dict[str, list[dict]] = {}
         self.time_in_status_since: dict[str, int] = {}
         self.task_queries: list[str] = []
@@ -108,7 +111,12 @@ class FakeClickUp:
             list_id, query = endpoint.split("/list/", 1)[1].split("/task?", 1)
             self.task_queries.append(query)
             if "statuses" in query:
-                registry = self.in_progress_tasks if "in%20progress" in query else self.executing_tasks
+                if "feedback%20needed" in query:
+                    registry = self.parked_tasks
+                elif "in%20progress" in query:
+                    registry = self.in_progress_tasks
+                else:
+                    registry = self.executing_tasks
                 return {"tasks": registry.get(list_id, [])}
             return {"tasks": self.list_tasks.get(list_id, [])}
         if method == "GET" and endpoint.endswith("/comment"):
@@ -467,3 +475,96 @@ def test_genuine_sweep_payload_is_dispatched_to_handle_sweep(monkeypatch):
 
     assert swept == [{"autopilot_sweep": True}]
     assert resp["statusCode"] == 200
+
+
+# ---------------------------------------------------------------------------
+# Auto-resume of actionable parks
+# ---------------------------------------------------------------------------
+
+
+def parked_comment(stage, question, comment_id="park-1", date="2000"):
+    return {
+        "id": comment_id,
+        "comment_text": f"[autopilot:parked stage={stage}]\n\n1. {question}",
+        "date": date,
+    }
+
+
+def test_actionable_park_gets_exactly_one_auto_resume(fake_clickup, fake_ecs):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [parked_comment("story", "Merge pending: PR #42 armed but not merged.")]
+
+    first = sweep.handle_sweep({"autopilot_sweep": True})
+    second = sweep.handle_sweep({"autopilot_sweep": True})
+
+    resumes = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_RESUME]
+    assert len(resumes) == 1
+    assert env_vars(resumes[0])["RESUME_STAGE"] == "story"
+    assert json.loads(first["body"])["auto_resumed"] == 1
+    # Same park instance: the dedup claim on the park comment id holds.
+    assert json.loads(second["body"])["auto_resumed"] == 0
+
+
+def test_fresh_repark_earns_one_more_auto_resume(fake_clickup, fake_ecs):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [
+        parked_comment("story", "Merge pending: PR #42 armed but not merged.", comment_id="park-1", date="2000")
+    ]
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    fake_clickup.comments["story-9"].append(
+        parked_comment("story", "Merge pending: still waiting.", comment_id="park-2", date="3000")
+    )
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    resumes = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_RESUME]
+    assert len(resumes) == 2
+    assert json.loads(result["body"])["auto_resumed"] == 1
+
+
+def test_qa_failed_park_is_left_for_a_human(fake_clickup, fake_ecs):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [parked_comment("qa", "QA failed: see the findings comment above.")]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+
+
+def test_park_with_a_reply_after_it_is_left_to_the_comment_route(fake_clickup, fake_ecs):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [
+        parked_comment("story", "Merge pending: PR #42 armed but not merged.", date="2000"),
+        {"id": "reply-1", "comment_text": "on it - resume please", "date": "3000"},
+    ]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+
+
+def test_relapsing_story_stops_getting_auto_resumes(fake_clickup, fake_ecs, capsys):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [
+        parked_comment("story", "Merge pending: lap 1.", comment_id=f"park-{i}", date=str(1000 + i))
+        for i in range(sweep.AUTO_RESUME_MAX_PARKS)
+    ]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+    assert "leaving it for a human" in capsys.readouterr().out
+
+
+def test_top_level_card_in_feedback_needed_is_never_auto_resumed(fake_clickup, fake_ecs):
+    # A feature card in feedback needed is epic-create's breakdown review or a
+    # real question — human territory; only stories (subtasks) auto-resume.
+    fake_clickup.parked_tasks[FEATURE_LIST_ID] = [task("feature-1", router.STATUS_FEEDBACK_NEEDED, parent=None)]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert json.loads(result["body"])["auto_resumed"] == 0

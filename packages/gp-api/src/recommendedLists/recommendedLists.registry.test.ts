@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { RECOMMENDED_LIST_VARIANT_VALUES } from '@goodparty_org/contracts'
+import {
+  RECOMMENDED_LIST_VARIANT_INTENT,
+  RECOMMENDED_LIST_VARIANT_VALUES,
+} from '@goodparty_org/contracts'
 import {
   RECOMMENDED_LISTS_REGISTRY,
   fillCopy,
   variantsForIntent,
 } from './recommendedLists.registry'
 import { buildVariantFilter } from './recommendedListsUniverse.util'
+import { ElectionCode } from '@/elections/types/elections.types'
 
 describe('variantsForIntent', () => {
   it('returns one variant for introduce', () => {
@@ -18,6 +22,17 @@ describe('variantsForIntent', () => {
       'persuadeIdeology',
       'persuadeUndecided',
     ])
+  })
+
+  // The webapp answers the outreach flow's purpose step for a carried-in
+  // recommendation from the contracts map; a registry that disagreed would
+  // build one intent's list and open the flow on another's purpose.
+  it('agrees with the contracts map about every variant’s intent', () => {
+    for (const variant of RECOMMENDED_LIST_VARIANT_VALUES) {
+      expect(RECOMMENDED_LISTS_REGISTRY[variant].intent).toBe(
+        RECOMMENDED_LIST_VARIANT_INTENT[variant],
+      )
+    }
   })
 
   it('covers all five intents and all thirteen variants exactly once', () => {
@@ -70,7 +85,12 @@ describe('RECOMMENDED_LISTS_REGISTRY copy', () => {
   // floor exemption it has not earned.
   it('agrees with each variant universe about who is a supporter list', () => {
     for (const variant of RECOMMENDED_LIST_VARIANT_VALUES) {
-      const filter = buildVariantFilter(variant, 'sms', 'progressive')
+      const filter = buildVariantFilter(
+        variant,
+        'sms',
+        'progressive',
+        ElectionCode.General,
+      )
       const targetsSupportersOnly =
         filter?.supportStatus?.length === 1 &&
         filter.supportStatus[0] === 'supporter'

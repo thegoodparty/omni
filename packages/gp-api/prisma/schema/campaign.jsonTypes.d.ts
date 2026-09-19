@@ -32,6 +32,11 @@ declare global {
       // existing rows until backfilled
       isProUpdatedAt?: string | number
       proUpgradeSlackNotifiedAt?: number
+      // Set only by 20260917220000_backfill_pro_upgrade_slack_stamp, on the two
+      // prod campaigns whose announcement was posted but whose stamp was lost.
+      // Its presence means the sibling stamp was reconstructed from a log line,
+      // not recorded by notifySlackOnProUpgrade. ISO string.
+      proUpgradeSlackNotifiedAtBackfilledAt?: string
       customIssues?: Record<'title' | 'position', string>[]
       runningAgainst?: Record<'name' | 'party' | 'description', string>[]
       geoLocation?: {

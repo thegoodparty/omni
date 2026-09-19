@@ -1,4 +1,5 @@
 'use client'
+import type { RecommendedListVariant } from '@goodparty_org/contracts'
 
 import Link from 'next/link'
 import {
@@ -30,9 +31,11 @@ interface DoorKnockingPageGateProps {
   pathname: string
   campaign: Campaign | null
   summary?: EcanvasserSummary
-  // `?listId=` off the page. Only the native arm has a create flow to open on
-  // it; the eCanvasser dashboard has no audience step to preselect.
+  // `?listId=` / `?recommended=` off the page. Only the native arm has a
+  // create flow to open on them; the eCanvasser dashboard has no audience
+  // step to preselect.
   preselectedListId?: number
+  preselectedRecommendedVariant?: RecommendedListVariant
   // `?walkTurfId=` and `?outreachId=` — the outreach hub's "Continue
   // knocking". Native-only for the same reason: eCanvasser has no walk.
   walkTurfId?: number
@@ -105,6 +108,7 @@ export default function DoorKnockingPageGate({
   campaign,
   summary,
   preselectedListId,
+  preselectedRecommendedVariant,
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
@@ -148,6 +152,7 @@ export default function DoorKnockingPageGate({
         pathname={pathname}
         campaign={campaign}
         preselectedListId={preselectedListId}
+        preselectedRecommendedVariant={preselectedRecommendedVariant}
         walkTurfId={walkTurfId}
         fromOutreachId={fromOutreachId}
         openCreateFlow={openCreateFlow}

@@ -234,9 +234,6 @@ export const EVENTS = {
   Dashboard: {
     CampaignPlan: {
       GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
-      // The legacy dashboard task checklist (story-off cohort only). The
-      // campaign tracker that replaced it fires CampaignTrackerViewed below.
-      Viewed: 'Dashboard - Campaign Plan Viewed',
       CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
       TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
@@ -509,6 +506,10 @@ export const EVENTS = {
     ListCreated: 'Constituent Data - List Created',
     ActivityListCreated: 'Constituent Data - Activity List Created',
     ListExported: 'Constituent Data - List Exported',
+    // The person-record follow-up toggle. Fires once per confirmed-successful
+    // change with { from, to } — never on a failed PATCH. Serve-only
+    // surface, the mirror of VoterData.ContactStatusChanged below.
+    FollowUpChanged: 'Constituent Data - Follow Up Changed',
   },
   VoterData: {
     ContactSearched: 'Voter Data - Contact Searched',

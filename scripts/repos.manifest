@@ -11,7 +11,6 @@
 gp-api           https://github.com/thegoodparty/gp-api.git           develop  packages/gp-api
 gp-webapp        https://github.com/thegoodparty/gp-webapp.git        develop  packages/gp-webapp
 election-api     https://github.com/thegoodparty/election-api.git     develop  packages/election-api
-people-api       https://github.com/thegoodparty/people-api.git       develop  packages/people-api
 candidate-sites  https://github.com/thegoodparty/candidate-sites.git  develop  packages/candidate-sites
 gp-sdk           https://github.com/thegoodparty/gp-sdk.git           master   packages/gp-sdk
 gp-admin         https://github.com/thegoodparty/gp-admin.git         master   packages/gp-admin

@@ -81,6 +81,18 @@ const SHARED_AREAS: ProductArea[] = [
     does: 'Billing, subscription, and closing an account. This is where every payment and cancellation question goes.',
   },
   {
+    navId: 'nav-dash-support',
+    name: 'Get help',
+    // Not a section: it ends the main nav on desktop and sits in the account
+    // group on mobile. See SUPPORT_ROUTE in productKnowledgePrompt.ts.
+    path: 'the bottom of the left-hand menu',
+    modes: ['win', 'serve'],
+    does: 'Opens the support chat, where a person answers billing, account, and anything that needs changing on their behalf.',
+    inside: [
+      'It opens the chat in place; there is no separate page to navigate to',
+    ],
+  },
+  {
     // Same story as Profile: the rendered label is "Community Forum", in the
     // account menu. The 'community-dashboard' entry's "Community" label is
     // filtered out of the nav and never reaches a screen.
@@ -109,6 +121,10 @@ const WIN_AREAS: ProductArea[] = [
     path: '/dashboard',
     modes: ['win'],
     does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
+    inside: [
+      'Each reply carries a copy button and a thumbs up / thumbs down',
+      'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
+    ],
   },
   {
     navId: 'campaign-story-dashboard',
@@ -151,6 +167,8 @@ const WIN_AREAS: ProductArea[] = [
       'Saved lists live HERE, on the lists index below the district stat card. This is the answer to "where are my lists" and it is not under Contacts',
       'Create new list is in the top bar of the page',
       'The district stat card carries projected turnout and voters needed to win',
+      'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
+      'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
     ],
     gate: 'Filtering the voter file needs the Pro upgrade. Without Pro the page still shows district aggregates and a blurred preview.',
@@ -202,6 +220,10 @@ const WIN_AREAS: ProductArea[] = [
     path: '/dashboard/team',
     modes: ['win'],
     does: 'Invite campaign staff and manage who has access. In the account menu, and candidate campaigns only.',
+    inside: [
+      'Only the owner can remove members or change roles',
+      'A member can also leave on their own: Leave campaign in the sidebar of their volunteer view',
+    ],
   },
 ]
 
@@ -213,6 +235,10 @@ const SERVE_AREAS: ProductArea[] = [
     path: '/dashboard/chief-of-staff',
     modes: ['serve'],
     does: 'The home tab, and where this chat lives.',
+    inside: [
+      'Each reply carries a copy button and a thumbs up / thumbs down',
+      'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
+    ],
   },
   {
     navId: 'briefings-dashboard',
@@ -277,6 +303,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Saved lists live HERE, on the lists index below the district stat card',
       'Create new list is in the top bar of the page',
       'Opening a list shows its filter summary and outreach history, never a table of individual people',
+      'A constituent’s record carries an "Asked for follow-up" toggle, and the record’s activity history shows who set it and when',
       'Party is not a filter in this product',
     ],
   },

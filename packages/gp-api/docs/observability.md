@@ -23,11 +23,12 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **High CPU utilization** (>80% for 5 min)
 - **High memory utilization** (>90% for 5 min)
 - **Missing health check logs** (no `/v1/health` requests logged for 2 min)
-- **Slow Prisma connection acquisitions** (10+ connections exceeding 150ms in a 2-minute window)
 - **Door-knocking route planner spend ceiling** (>10,000 Geoapify credits across all organizations in 6h) -- the global view nothing else gives, since no per-organization limit bounds spend: the one daily limit door knocking has counts campaigns, and five two-stop turfs and five 150-stop turfs are the same five campaigns. See gp-api `docs/door-knocking.md` § Spend visibility.
 - **Geoapify daily credit budget** at 60 / 80 / 90 / 95% consumed over 24h -- four rules generated from `alerting/geoapify-budget-alerts.ts`, escalating as the whole account approaches the wall. The ceiling above measures the _rate_ of a runaway; these measure how much of the _pool_ is left, which is what decides whether the next knock gets a route at all. **Their denominator is a hand-maintained constant** (`GEOAPIFY_DAILY_CREDIT_POOL`), because the allowance lives in Geoapify's billing console and nothing in gp-api can read it -- if all four fire at once, suspect the constant before the spend.
 - **Public campaign lookup failing** (>10% of resolvable `GET /v1/public-campaigns` lookups returning 5xx over 10 min) -- a rate-based rule for a route the generated one can't serve. See [High-volume routes](#high-volume-routes-prefer-a-ratio).
 - **Door-knocking pack build failed mid-response** -- `GET /v1/door-knocking/pack` streams, so it commits a 200 before it starts building and a later failure cannot be a status code. The generated route alert is structurally blind to it; this log-line rule is the only signal. See gp-api `docs/door-knocking.md` § The pack.
+
+This list previously included a **Slow Prisma connection acquisitions** rule. No such rule exists in `GLOBAL_ALERTS`, and it never did — the entry described an intent, not a deployment. The underlying metrics are real and emitted by the span processor in `src/otel.ts`: `prisma.connection.duration` (histogram, ms) and `prisma.connection.slow` (counter, acquisitions over 150ms). They are queryable in Explore and worth a rule; they simply do not page today.
 
 ### Synthetic monitoring (prod only)
 
@@ -131,7 +132,7 @@ The cost is accepted rather than avoided: a 400 that really is a bug -- the weba
 export const SERVER_ERRORS_ONLY: ControllerName[] = ['door-knocking']
 ```
 
-The default filter assumes an unexcluded 4xx on your controller is a bug. That holds for most of them and breaks for a controller whose 4xx responses are the product's own vocabulary. `door-knocking` answers an over-budget knock with **429**, which the default filter does count -- so under the default rule normal pilot use would page, and an alert that fires on designed behavior gets muted. What is left is the range worth waking up for: a missing `GEOAPIFY_API_KEY` (502), a Route Planner outage or a plan that misses stops (502), and unhandled 500s.
+The default filter assumes an unexcluded 4xx on your controller is a bug. That holds for most of them and breaks for a controller whose 4xx responses are the product's own vocabulary. `door-knocking` answers an over-budget knock with **429**, which the default filter does count -- so under the default rule normal pilot use would page, and an alert that fires on designed behavior gets muted. What is left is the range worth waking up for: a missing `GEOAPIFY_API_KEY` (502), a Route Planner outage (502), and unhandled 500s. A plan that misses stops used to sit in that list and no longer does: the vendor is answering fine and the turf holds an address nothing can route to, so it is a 400 naming that address, traced by the `door-knocking turf contains stops the route planner cannot reach` warn line instead of a page.
 
 This list narrowed in scope once **400 joined the global exclusions**. Door knocking's other designed 4xx -- an empty or oversized turf, and an ineligible district the webapp renders as a state -- are 400s, so every controller now drops those. 429 is the part still doing work here. A controller whose only designed 4xx is a 400 no longer needs to be listed at all.
 
@@ -181,6 +182,19 @@ Key things to know:
 - **Widening `timeRangeSeconds` means slowing `evaluationIntervalSeconds`.** Evaluation defaults to every 60s, and each evaluation is billed for its whole fetch window, so the two together set the rule's cost -- see [Query cost](#query-cost). Grafana evaluates a rule group as a unit, so `grafana.ts` buckets the global alerts into one group per distinct interval; setting the field is all you need to do. Keep `for` a whole multiple of the interval, since `for` is counted in whole evaluations and an interval that does not divide it evenly quietly pushes firing out to the next one.
 
 For more details on configuring alerts, see the [Grafana Alerting documentation](https://grafana.com/docs/grafana/latest/alerting/fundamentals/alert-rule-evaluation/).
+
+## Counters need per-task identity, or `rate()` and `increase()` invent numbers
+
+Prod runs more than one task (`desiredCount` in `deploy/components/service.ts`). Our OTLP counters are **cumulative**, so each task exports its own running total — and two tasks whose resource attributes are identical land on one Prometheus series that oscillates between their two totals. Every step down looks like a counter reset, which `rate()` and `increase()` handle by adding the whole subsequent value again.
+
+The distortion is not marginal. On `person_profile_completion_request_event_count_total` the raw series read `1..3` across a 24h window while `increase()[24h]` over the same window returned **1702**. A ratio alert with a `> 20` volume floor — a floor that existed specifically to stop it firing on a handful of samples — was cleared by that inflation and fired on four real submissions.
+
+`src/otel.ts` now sets `service.instance.id` on the resource, which gives each task its own series and makes the counters addable again. Two things follow:
+
+- **Do not add a rule that depends on counter magnitude without checking the series first.** Query the bare metric over your window and look at the values. If a `sum(increase(...))` is orders of magnitude above what the raw series plausibly accumulated, identity is missing somewhere and the number is an artifact.
+- **Counting log lines is the ground truth when magnitude matters.** `sum(count_over_time({...} |= "..." [24h]))` cannot be inflated this way. It costs Loki bytes (see below), so it is a verification tool rather than a default, but it is what settles a disagreement between a counter and reality.
+
+`threshold: 0` rules on a `failed` result are largely immune, since "is anything failing" survives inflation. Ratios, volume floors, and anything quoting an absolute count are not.
 
 ## Query cost
 

@@ -577,6 +577,14 @@ beforeEach(() => {
       campaignLimit: 5,
     },
   })
+  // Fires as soon as the create flow opens. Answered so it never reaches the
+  // network: left unhandled it passes through, fails, and retries on a ~1s
+  // backoff, re-rendering the who step partway through a test. Precinct
+  // itself is covered by PrecinctFilter and usePrecinctOptions.
+  api.mock('GET /v1/contacts/precincts', {
+    status: 200,
+    data: { options: [], truncated: false },
+  })
 })
 
 describe('NativeDoorKnockingPage voter map', () => {
@@ -878,6 +886,48 @@ describe('NativeDoorKnockingPage create flow', () => {
         'data-people',
         '1',
       ),
+    )
+  })
+
+  // The same chain for a recommended variant: page prop through the surface
+  // into the flow, which asks for it on door knocking and applies it.
+  it('opens the create flow on the recommendation carried in on ?recommended=', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity'
+          ? [
+              {
+                variant: 'persuadeAffinity',
+                intent: 'persuade',
+                filter: { voterStatus: ['Super', 'Likely'] },
+                count: 3,
+                copy: {
+                  title: 'Persuadable independents',
+                  criteriaSummary: 'Moderate to high propensity independents',
+                },
+                existingFilterId: null,
+              },
+            ]
+          : [],
+    }))
+    renderPage({ preselectedRecommendedVariant: 'persuadeAffinity' }, [
+      { id: 7, name: 'Precinct 2 homeowners' },
+    ])
+
+    // The card answered the goal question, so the flow opens on the who
+    // stage with no goal cards to press.
+    expect(
+      await screen.findByTestId('recommended-list-card'),
+    ).toHaveTextContent('Persuadable independents')
+    expect(
+      screen.queryByRole('button', { name: /Introduce myself/ }),
+    ).toBeNull()
+    // Applied, not merely offered: the draft carries the universe's bands.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /^Continue \(/ }),
+      ).toBeEnabled(),
     )
   })
 

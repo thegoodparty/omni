@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
+
+// The segmentation method is held to non-prod deploys, so the suite drives
+// that gate directly rather than depending on the runner's environment.
+const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get IS_NON_PROD_DEPLOY() {
+      return envNonProd.value
+    },
+  }
+})
+
 import {
   buildChiefOfStaffSystemPrompt,
   COS_GUARDRAIL_DECLINE,
@@ -182,6 +197,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
 
+  it('gates the missing-filter disclosure sentence on count_contacts', () => {
+    const withCount = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['describe_filter_dimensions', 'count_contacts'],
+    })
+    expect(withCount).toContain('say so before quoting any numbers')
+    expect(withCount).not.toContain(
+      'report the count crud_saved_filters returned',
+    )
+  })
+
+  it('gates the count-readback sentence on crud_saved_filters', () => {
+    const withSaved = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['crud_saved_filters'],
+    })
+    expect(withSaved).toContain('report the count crud_saved_filters returned')
+    expect(withSaved).not.toContain('say so before quoting any numbers')
+  })
+
   it('omits the provenance rules when the CRM tools are not registered', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
@@ -189,6 +224,99 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).not.toContain('CONTACT LIST RULES')
     expect(prompt).not.toContain(FILTER_DIMENSION_PROVENANCE_RULES)
+  })
+
+  it('teaches the segmentation method once saving is available', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [
+        'describe_filter_dimensions',
+        'count_contacts',
+        'crud_saved_filters',
+      ],
+    })
+    expect(prompt).toContain('BUILDING A SEGMENT')
+  })
+
+  // The release train promotes every merge to prod unattended, so this gate is
+  // the only thing keeping an unfinished method away from real officials.
+  it('withholds the method on a prod deploy even with the tool registered', () => {
+    envNonProd.value = false
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: ALL_TOOLS,
+      })
+      expect(prompt).not.toContain('BUILDING A SEGMENT')
+      // The rest of the saved-list surface is unaffected by the gate.
+      expect(prompt).toContain('SAVED LIST RULES')
+    } finally {
+      envNonProd.value = true
+    }
+  })
+
+  it('withholds the method from a session that can only count', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['describe_filter_dimensions', 'count_contacts'],
+    })
+    expect(prompt).not.toContain('BUILDING A SEGMENT')
+  })
+
+  // The three rules the hand-cut lists got wrong often enough to be written
+  // down. Pinned individually because a reworded block that quietly drops one
+  // still passes a test that only looks for the heading.
+  it('orders the gates ahead of sizing', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('Gate, then size')
+  })
+
+  // A list nobody can be reached on is the one failure that wastes the whole
+  // segment, and each channel needs a different thing on file.
+  it('makes the reach gate depend on the channel', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('Texting needs a cell phone')
+    expect(prompt).toContain('Door knocking needs no reach gate')
+  })
+
+  it('forbids carrying dimensions over from the last issue', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('fresh for THIS issue')
+  })
+
+  it('requires a coverage check before a dimension carries a segment', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain("that dimension's unknown value selected")
+  })
+
+  it('teaches the map rules once show_list_map is registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...ALL_TOOLS, 'show_list_map'],
+    })
+    expect(prompt).toContain('LIST MAP RULES')
+    // The rule that keeps it honest: it cannot see the map it just drew.
+    expect(prompt).toContain('The dots are markers, not a directory')
+  })
+
+  it('omits the map rules when the tool is not registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).not.toContain('LIST MAP RULES')
   })
 
   it('instructs against over-refusing borderline in-scope requests', () => {
@@ -215,6 +343,61 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).toContain(
       'exclude unknowns rather than counting them as zero',
+    )
+  })
+
+  // A model that says it hit an authentication error it never hit is not a
+  // capability problem, it is a reporting one, so these rules are unconditional
+  // rather than hung off any one tool.
+  it('always includes the honest reporting rules', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [],
+    })
+    expect(prompt).toContain('HONEST REPORTING')
+    expect(prompt).toContain('real only if a tool you called returned it')
+  })
+
+  it('forbids reporting a call it never made', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('never describe what calling it did')
+    expect(prompt).toContain('No count, list, citation, or saved record')
+  })
+
+  it('requires relaying a real tool error instead of blurring it', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('relay what it actually said in plain language')
+    expect(prompt).toContain('Never swap in a different cause')
+  })
+
+  it('requires correcting an inaccurate statement it already made', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('already told the user something inaccurate')
+    expect(prompt).toContain('no apology spiral')
+  })
+
+  // The proactivity rule is the pressure that produces a made-up obstacle:
+  // never hand back a dead end, so invent a reason there isn't an answer.
+  it('subordinates proactivity and voice to accuracy, in both blocks', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      'Never satisfy this rule with something that is not true',
+    )
+    expect(prompt).toContain('never license an inaccurate statement')
+    expect(prompt.indexOf('HONEST REPORTING')).toBeLessThan(
+      prompt.indexOf('PROACTIVITY'),
     )
   })
 

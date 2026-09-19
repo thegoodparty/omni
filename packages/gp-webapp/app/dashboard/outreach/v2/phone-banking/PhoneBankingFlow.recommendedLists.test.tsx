@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -19,6 +19,7 @@ vi.mock('@shared/organization-picker', () => ({
 
 const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
+  intent: 'persuade' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 8000,
   voteGoalShare: 0.22,
@@ -77,7 +78,59 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
     expect(filterCalls[0]).toMatchObject({
       recommendedVariant: 'persuadeAffinity',
       recommendedChannel: 'phoneBanking',
-      recommendedIntent: 'introduce',
+      // The variant's own intent, not the purpose picked to reach it.
+      recommendedIntent: 'persuade',
+    })
+  })
+})
+
+describe('PhoneBankingFlow (Win surface) — a recommendation carried in, not saved yet', () => {
+  it('opens on the who step with the variant’s purpose picked and drafted, the card selected, and saves it under its own title on Continue', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data: query.variant === 'persuadeAffinity' ? [RECOMMENDATION] : [],
+    }))
+    const draftCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/phone-banking/draft', ({ body }) => {
+      draftCalls.push(body)
+      return { status: 200, data: { draft: 'drafted script' } }
+    })
+    const filterCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return { status: 200, data: { id: 88, name: body.name } }
+    })
+    render(
+      <PhoneBankingFlow
+        open
+        onClose={vi.fn()}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+
+    // The card's intent is the purpose: no question asked, and the script
+    // drafts for it exactly as tapping "Persuade likely voters" would.
+    expect(screen.queryByText('Introduce myself to voters')).toBeNull()
+    await waitFor(() => expect(draftCalls).toHaveLength(1))
+    expect(draftCalls[0]).toMatchObject({
+      purpose: 'persuade_voters',
+      tone: 'warm',
+    })
+
+    const card = await screen.findByTestId('recommended-list-card')
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
+    expect(screen.queryByText('Name this list')).not.toBeInTheDocument()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue (8,000)' }),
+    )
+
+    await waitFor(() => expect(filterCalls).toHaveLength(1))
+    expect(filterCalls[0]).toMatchObject({
+      name: 'Persuadable independents',
+      recommendedVariant: 'persuadeAffinity',
+      recommendedChannel: 'phoneBanking',
+      recommendedIntent: 'persuade',
     })
   })
 })

@@ -9,6 +9,7 @@ import {
   buildRecordCallRequest,
   calledPeopleCount,
   draftFromInteraction,
+  draftWithFollowUp,
   draftWithEngagement,
   draftWithOutcome,
   draftWithSupportAnswer,
@@ -81,6 +82,7 @@ describe('totalPeopleCount / calledPeopleCount / outcomeCounts', () => {
               outcome: 'answered',
               supportAnswer: 'supporter',
               willVote: 'yes',
+              followUp: null,
               occurredAt: new Date(),
             },
           }),
@@ -124,6 +126,7 @@ describe('isEntrySuppressed', () => {
             outcome: 'wrong_number',
             supportAnswer: null,
             willVote: null,
+            followUp: null,
             occurredAt: new Date(),
           },
         }),
@@ -141,6 +144,7 @@ describe('isEntrySuppressed', () => {
             outcome: 'disconnected',
             supportAnswer: null,
             willVote: null,
+            followUp: null,
             occurredAt: new Date(),
           },
         }),
@@ -162,6 +166,7 @@ describe('isEntrySuppressed', () => {
             outcome: 'hung_up',
             supportAnswer: null,
             willVote: null,
+            followUp: null,
             occurredAt: new Date(),
           },
         }),
@@ -238,14 +243,18 @@ describe('cascade state machine (draftWith*)', () => {
   })
 
   it('draftFromInteraction seeds from a logged interaction, and empty from none', () => {
-    expect(draftFromInteraction(null)).toEqual({})
+    expect(draftFromInteraction(null, false)).toEqual({})
     expect(
-      draftFromInteraction({
-        outcome: 'answered',
-        supportAnswer: 'supporter',
-        willVote: 'unsure',
-        occurredAt: new Date(),
-      }),
+      draftFromInteraction(
+        {
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          willVote: 'unsure',
+          followUp: null,
+          occurredAt: new Date(),
+        },
+        false,
+      ),
     ).toEqual({
       outcome: 'answered',
       engagement: 'engaged',
@@ -254,24 +263,78 @@ describe('cascade state machine (draftWith*)', () => {
     })
   })
 
+  // Serve phone banking shipped asking support and will-vote, so its existing
+  // rows carry both. Reading them into a Serve draft would leave a row whose
+  // follow-up is unanswered — Save/Cancel would never appear, stranding the
+  // caller mid-edit — and, answered, a body the write schema now refuses for
+  // mixing the two vocabularies. The engagement still comes off the
+  // interaction, so the row correctly reopens as engaged.
+  it('a serve draft drops the win answers a legacy row carries, keeping engaged', () => {
+    const legacyServeRow = {
+      outcome: 'answered' as const,
+      supportAnswer: 'supporter' as const,
+      willVote: 'unsure' as const,
+      followUp: null,
+      occurredAt: new Date(),
+    }
+
+    const draft = draftFromInteraction(legacyServeRow, true)
+    expect(draft).toEqual({ outcome: 'answered', engagement: 'engaged' })
+
+    // Answering Serve's question alone makes it terminal and saves clean.
+    const answered = draftWithFollowUp(draft, 'no')
+    expect(isDraftComplete(answered, true)).toBe(true)
+    expect(buildRecordCallRequest(5, answered, 'active-person', false)).toEqual(
+      {
+        entryId: 5,
+        outcome: 'answered',
+        personId: 'active-person',
+        followUp: 'no',
+      },
+    )
+  })
+
+  it('a win draft drops a followUp the row carries', () => {
+    expect(
+      draftFromInteraction(
+        {
+          outcome: 'answered',
+          supportAnswer: null,
+          willVote: null,
+          followUp: 'yes',
+          occurredAt: new Date(),
+        },
+        false,
+      ),
+    ).toEqual({ outcome: 'answered', engagement: 'engaged' })
+  })
+
   it('a bare answered row (household fill) reopens with the engage question unanswered', () => {
     expect(
-      draftFromInteraction({
-        outcome: 'answered',
-        supportAnswer: null,
-        willVote: null,
-        occurredAt: new Date(),
-      }),
+      draftFromInteraction(
+        {
+          outcome: 'answered',
+          supportAnswer: null,
+          willVote: null,
+          followUp: null,
+          occurredAt: new Date(),
+        },
+        false,
+      ),
     ).toEqual({ outcome: 'answered' })
   })
 
   it('a persisted refused reopens as answered + engage Refused so an unchanged re-save stays person-attributed', () => {
-    const draft = draftFromInteraction({
-      outcome: 'refused',
-      supportAnswer: null,
-      willVote: null,
-      occurredAt: new Date(),
-    })
+    const draft = draftFromInteraction(
+      {
+        outcome: 'refused',
+        supportAnswer: null,
+        willVote: null,
+        followUp: null,
+        occurredAt: new Date(),
+      },
+      false,
+    )
     expect(draft).toEqual({ outcome: 'answered', engagement: 'refused' })
     expect(buildRecordCallRequest(5, draft, 'active-person', false)).toEqual({
       entryId: 5,
@@ -281,12 +344,16 @@ describe('cascade state machine (draftWith*)', () => {
   })
 
   it('a persisted hung_up reopens as answered + engage Hung up so an unchanged re-save stays person-attributed', () => {
-    const draft = draftFromInteraction({
-      outcome: 'hung_up',
-      supportAnswer: null,
-      willVote: null,
-      occurredAt: new Date(),
-    })
+    const draft = draftFromInteraction(
+      {
+        outcome: 'hung_up',
+        supportAnswer: null,
+        willVote: null,
+        followUp: null,
+        occurredAt: new Date(),
+      },
+      false,
+    )
     expect(draft).toEqual({ outcome: 'answered', engagement: 'hung_up' })
     expect(buildRecordCallRequest(5, draft, 'active-person', false)).toEqual({
       entryId: 5,
@@ -298,37 +365,75 @@ describe('cascade state machine (draftWith*)', () => {
 
 describe('isDraftComplete (terminal states that reveal Save/Cancel)', () => {
   it('is false with no outcome and true for any non-answered outcome', () => {
-    expect(isDraftComplete({})).toBe(false)
-    expect(isDraftComplete({ outcome: 'no_answer' })).toBe(true)
-    expect(isDraftComplete({ outcome: 'refused' })).toBe(true)
+    expect(isDraftComplete({}, false)).toBe(false)
+    expect(isDraftComplete({ outcome: 'no_answer' }, false)).toBe(true)
+    expect(isDraftComplete({ outcome: 'refused' }, false)).toBe(true)
   })
 
   it('answered is incomplete until the whole engaged cascade is answered', () => {
-    expect(isDraftComplete({ outcome: 'answered' })).toBe(false)
+    expect(isDraftComplete({ outcome: 'answered' }, false)).toBe(false)
     expect(
-      isDraftComplete({ outcome: 'answered', engagement: 'engaged' }),
+      isDraftComplete({ outcome: 'answered', engagement: 'engaged' }, false),
     ).toBe(false)
     expect(
-      isDraftComplete({
-        outcome: 'answered',
-        engagement: 'engaged',
-        supportAnswer: 'supporter',
-      }),
+      isDraftComplete(
+        {
+          outcome: 'answered',
+          engagement: 'engaged',
+          supportAnswer: 'supporter',
+        },
+        false,
+      ),
     ).toBe(false)
     expect(
-      isDraftComplete({
-        outcome: 'answered',
-        engagement: 'engaged',
-        supportAnswer: 'supporter',
-        willVote: 'yes',
-      }),
+      isDraftComplete(
+        {
+          outcome: 'answered',
+          engagement: 'engaged',
+          supportAnswer: 'supporter',
+          willVote: 'yes',
+        },
+        false,
+      ),
     ).toBe(true)
   })
 
   it('answered + engage refused is terminal on its own', () => {
     expect(
-      isDraftComplete({ outcome: 'answered', engagement: 'refused' }),
+      isDraftComplete({ outcome: 'answered', engagement: 'refused' }, false),
     ).toBe(true)
+  })
+
+  // Serve asks one question where Win asks two, so the surfaces reach a
+  // terminal engaged state on different answers — and neither is satisfied
+  // by the other's.
+  it('serve is terminal on followUp alone, and never on the win answers', () => {
+    expect(
+      isDraftComplete({ outcome: 'answered', engagement: 'engaged' }, true),
+    ).toBe(false)
+    expect(
+      isDraftComplete(
+        { outcome: 'answered', engagement: 'engaged', followUp: 'no' },
+        true,
+      ),
+    ).toBe(true)
+    expect(
+      isDraftComplete(
+        {
+          outcome: 'answered',
+          engagement: 'engaged',
+          supportAnswer: 'supporter',
+          willVote: 'yes',
+        },
+        true,
+      ),
+    ).toBe(false)
+    expect(
+      isDraftComplete(
+        { outcome: 'answered', engagement: 'engaged', followUp: 'yes' },
+        false,
+      ),
+    ).toBe(false)
   })
 })
 
@@ -417,6 +522,7 @@ describe('applyCallResults (fan-out rendering)', () => {
           outcome: 'no_answer',
           supportAnswer: null,
           willVote: null,
+          followUp: null,
           occurredAt,
         },
       },
@@ -426,6 +532,7 @@ describe('applyCallResults (fan-out rendering)', () => {
           outcome: 'no_answer',
           supportAnswer: null,
           willVote: null,
+          followUp: null,
           occurredAt,
         },
       },
@@ -451,6 +558,7 @@ describe('applyCallResults (fan-out rendering)', () => {
           outcome: 'voicemail',
           supportAnswer: null,
           willVote: null,
+          followUp: null,
           occurredAt: new Date(),
         },
       },

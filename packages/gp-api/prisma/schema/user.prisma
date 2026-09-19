@@ -37,7 +37,9 @@ model User {
   electedOffices              ElectedOffice[]
   annotations                 Annotation[]
   chatConversations           ChatConversation[]
+  chatAttachments             ChatAttachment[]
   artifactFeedbacks           ArtifactFeedback[]
+  chatMessageFeedbacks        ChatMessageFeedback[]
   userAgendaUploads           UserAgendaUpload[]
   personProfile               PersonProfile?
   contactStatusEvents         ContactStatusEvent[]

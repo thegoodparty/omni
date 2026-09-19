@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
@@ -29,11 +30,28 @@ import { PinoLogger } from 'nestjs-pino'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { RaceOpponentService } from '../../raceOpponent/services/raceOpponent.service'
 import { OutreachRobocallWebhookService } from '../../outreach/services/outreachRobocallWebhook.service'
+import { StripeService } from '../../vendors/stripe/services/stripe.service'
 
 const { STRIPE_WEBSOCKET_SECRET } = process.env
 if (!STRIPE_WEBSOCKET_SECRET) {
   throw new Error('Please set STRIPE_WEBSOCKET_SECRET in your .env')
 }
+
+// The two Stripe statuses a subscription can never bill from again. Every other
+// status — active, trialing, past_due, unpaid, incomplete, paused — can still
+// take the candidate's money, or resume taking it once a payment succeeds.
+const UNBILLABLE_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
+  'canceled',
+  'incomplete_expired',
+])
+
+// How long after Stripe mints a subscription an unmatched lookup is still
+// assumed to be racing our own fulfillment write rather than describing a
+// genuine orphan. checkout.session.completed and customer.subscription.created
+// are what store details.subscriptionId, and Stripe delivers sibling events
+// concurrently with that write, not after it — ten minutes covers a slow
+// finalize and a couple of redeliveries with room to spare.
+const SUBSCRIPTION_WRITE_RACE_WINDOW_SECONDS = 10 * 60
 
 @Injectable()
 export class PaymentEventsService {
@@ -49,6 +67,7 @@ export class PaymentEventsService {
     @Inject(forwardRef(() => PurchaseService))
     private readonly purchaseService: WrapperType<PurchaseService>,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
+    private readonly stripeService: StripeService,
     private readonly moduleRef: ModuleRef,
     private readonly logger: PinoLogger,
   ) {
@@ -226,7 +245,11 @@ export class PaymentEventsService {
     }
     const { id: campaignId } = campaign
 
-    // These have to happen in serial since setIsPro also mutates the JSONP details column
+    // Still serial, but no longer to stop the two from clobbering each other's
+    // `details` keys — patchCampaignDetails merges in one atomic statement now.
+    // The order is what matters: subscriptionId has to be stored before the Pro
+    // flip, because findBySubscriptionId is how later subscription events for
+    // this campaign find it.
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: subscriptionId as string,
     })
@@ -254,6 +277,185 @@ export class PaymentEventsService {
     ])
   }
 
+  // Both subscription handlers below resolve their campaign through
+  // details.subscriptionId, and both used to throw BadGatewayException when that
+  // lookup missed. The throw was wrong twice over: a missing local row is not a
+  // third-party failure (AGENTS.md § Exception handling reserves 502 for those),
+  // and redelivery re-runs the same query against the same rows, so Stripe spent
+  // 7 attempts over ~68h raising one alert each on a state that cannot change.
+  //
+  // Acknowledging is right only because no redelivery can change the answer,
+  // which is true of every miss EXCEPT one: the write that stores
+  // details.subscriptionId is ours and lands seconds after checkout, so a
+  // subscription minted minutes ago may simply not be linked yet. That one
+  // keeps its retry (see below).
+  //
+  // Acknowledging silently would bury the reason the miss matters. One lookup
+  // failure covers three conditions with three very different costs, and the
+  // event payload separates them:
+  //
+  // - Still billable. The customer is being charged and no campaign is being
+  //   served. UsersService.deleteUser cancels the subscription, so a billable
+  //   subscription can never be deletion residue — this is the
+  //   paying-but-not-Pro shape of ENG-10771 / ENG-11083.
+  // - Canceled, account still live — by the stored customer id, or failing that
+  //   by the email on the billing Stripe customer. The de-Pro never ran, so the
+  //   campaign may still be Pro, or its subscriptionId was orphaned by a
+  //   duplicate checkout (ENG-11084). Money stopped and fulfillment did not
+  //   follow: the one shape this file must never swallow.
+  // - Canceled, no account. deleteUser cascade-deletes the campaign and the user
+  //   row in one transaction and cancels Stripe afterwards, so the cancellation
+  //   lands with nothing left to un-Pro. No redelivery and no human can act.
+  //
+  // Only the last is quiet. The other two error-log — what the Loki alert
+  // pipeline keys on — in the same "alert loudly, don't block fulfillment"
+  // shape as the ENG-11084 duplicate-subscription guard in
+  // handleSubscriptionCheckoutCompleted.
+  private async reportUnmatchedSubscription(
+    event:
+      | Stripe.CustomerSubscriptionUpdatedEvent
+      | Stripe.CustomerSubscriptionDeletedEvent,
+  ): Promise<void> {
+    const subscription = event.data.object
+    const customerId =
+      typeof subscription.customer === 'string'
+        ? subscription.customer
+        : subscription.customer.id
+    const context = {
+      eventType: event.type,
+      subscriptionId: subscription.id,
+      customerId,
+      status: subscription.status,
+      cancelAt: subscription.cancel_at,
+      canceledAt: subscription.canceled_at,
+      cancellationReason: subscription.cancellation_details?.reason ?? null,
+    }
+
+    // The one miss redelivery can still fix. Our own fulfillment writes the id
+    // this lookup reads, and Stripe delivers a subscription's sibling events
+    // concurrently with that write rather than after it, so a freshly minted
+    // subscription may be unlinked for a few seconds rather than orphaned.
+    // Keeping the retry here is what stops a cancellation that beat its own
+    // checkout from being dropped, and a first-time Pro upgrade from being
+    // reported as an unserved paying customer. 503 rather than the old 502:
+    // this is our state catching up, not a Stripe failure (#1937). The window
+    // closes on its own, so a genuine orphan minted minutes ago falls through
+    // to the classification below on a later attempt instead of retrying for
+    // three days.
+    const subscriptionAgeSeconds = Date.now() / 1000 - subscription.created
+    if (subscriptionAgeSeconds < SUBSCRIPTION_WRITE_RACE_WINDOW_SECONDS) {
+      this.logger.warn(
+        { ...context, subscriptionAgeSeconds },
+        '[WEBHOOK] Unmatched Stripe subscription is younger than the ' +
+          'fulfillment write that links it — asking Stripe to redeliver',
+      )
+      throw new ServiceUnavailableException(
+        'Subscription is not linked to a campaign yet',
+      )
+    }
+
+    if (!UNBILLABLE_SUBSCRIPTION_STATUSES.has(subscription.status)) {
+      this.logger.error(
+        context,
+        '[WEBHOOK] Unmatched Stripe subscription is still billable — the ' +
+          'customer is being charged with no campaign carrying their ' +
+          'subscriptionId',
+      )
+      return
+    }
+
+    // The Stripe customer is the only remaining link back to an account: Pro
+    // checkouts write no userId onto the subscription itself, only onto the
+    // checkout session, which is long gone by the time a cancellation arrives.
+    const accountByStoredId =
+      await this.usersService.findByCustomerId(customerId)
+    const emailFallback = accountByStoredId
+      ? null
+      : await this.resolveAccountByStripeCustomerEmail(customerId)
+    const user = accountByStoredId ?? emailFallback?.user ?? null
+
+    if (!user || user.metaData?.isDeleted) {
+      this.logger.warn(
+        {
+          ...context,
+          userId: user?.id ?? null,
+          emailFallback: emailFallback?.outcome ?? 'not-needed',
+        },
+        '[WEBHOOK] Unmatched canceled Stripe subscription resolves to no live ' +
+          'account by stored customer id or Stripe customer email — ' +
+          'consistent with account deletion; nothing left to un-Pro',
+      )
+      return
+    }
+
+    if (accountByStoredId) {
+      this.logger.error(
+        { ...context, userId: user.id, matchedBy: 'storedCustomerId' },
+        '[WEBHOOK] Unmatched canceled Stripe subscription belongs to a live ' +
+          'account — the Pro cancellation was never applied',
+      )
+      return
+    }
+
+    // Deliberately a separate line from the stored-id match above: the evidence
+    // is weaker and the reader has to know which they are looking at. A stored
+    // customerId that disagrees with the one actually billing is itself the
+    // ENG-11084 signature, so log both rather than only the billing one.
+    this.logger.error(
+      {
+        ...context,
+        userId: user.id,
+        matchedBy: 'stripeCustomerEmail',
+        storedCustomerId: user.metaData?.customerId ?? null,
+      },
+      '[WEBHOOK] Unmatched canceled Stripe subscription matches a live account ' +
+        'by the email on its Stripe customer, not by the stored customer id — ' +
+        'the Pro cancellation was never applied. Confirm the account before ' +
+        'acting: checkout emails are candidate-entered',
+    )
+  }
+
+  // meta_data.customerId is the strong link, and it is mostly missing: a
+  // reconciliation of every unmatched production subscription on 2026-09-17
+  // resolved 1 of 20 through it, and 0 of the 6 canceled ones. Pre-ENG-11084
+  // email-only checkout minted a fresh Stripe customer per session, so the
+  // customer that ends up billing is routinely not the one stored on the user.
+  // Without this fallback the two confirmed lost cancellations both land on the
+  // warn — the condition this file exists to never swallow, swallowed.
+  //
+  // It stays a fallback, and nothing acts on it: candidates type arbitrary
+  // addresses at checkout (§ Debugging Pro billing issues), so an email hit is
+  // grounds for a human to go look, not for code to re-link a subscription.
+  private async resolveAccountByStripeCustomerEmail(customerId: string) {
+    let email: string | null
+    try {
+      const customer = await this.stripeService.retrieveCustomer(customerId)
+      email = customer.deleted ? null : customer.email
+    } catch (error) {
+      // This lookup can only ever raise a warn to an error. Letting it throw
+      // would turn an event we had already classified into an unhandled 5xx and
+      // restart the retry storm, so a Stripe failure degrades to the warn we
+      // would have logged without it.
+      this.logger.warn(
+        { error, customerId },
+        '[WEBHOOK] Could not read the Stripe customer to resolve an unmatched ' +
+          'subscription by email',
+      )
+      return { user: null, outcome: 'stripe-unavailable' as const }
+    }
+
+    if (!email) {
+      return { user: null, outcome: 'customer-has-no-email' as const }
+    }
+
+    // user_email_lower_unique (a unique index on LOWER(email)) is what makes a
+    // case-insensitive match resolve to at most one account.
+    const user = await this.usersService.findUserByEmail(email.toLowerCase())
+    return user
+      ? { user, outcome: 'matched' as const }
+      : { user: null, outcome: 'no-match' as const }
+  }
+
   async customerSubscriptionUpdatedHandler(
     event: Stripe.CustomerSubscriptionUpdatedEvent,
   ): Promise<void> {
@@ -273,7 +475,8 @@ export class PaymentEventsService {
     const campaign =
       await this.campaignsService.findBySubscriptionId(subscriptionId)
     if (!campaign) {
-      throw new BadGatewayException('No campaign found with given subscription')
+      await this.reportUnmatchedSubscription(event)
+      return
     }
 
     await this.campaignsService.patchCampaignDetails(campaign.id, {
@@ -395,7 +598,11 @@ export class PaymentEventsService {
       )
     }
 
-    // These have to happen in serial since setIsPro also mutates the JSONP details column
+    // Still serial, but no longer to stop the two from clobbering each other's
+    // `details` keys — patchCampaignDetails merges in one atomic statement now.
+    // The order is what matters: subscriptionId has to be stored before the Pro
+    // flip, because findBySubscriptionId is how later subscription events for
+    // this campaign find it.
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: incomingSubscriptionId,
     })
@@ -592,9 +799,8 @@ export class PaymentEventsService {
       await this.campaignsService.findBySubscriptionId(subscriptionId)
 
     if (!campaign) {
-      throw new BadGatewayException(
-        `No campaign found with given subscriptionId => ${subscriptionId}`,
-      )
+      await this.reportUnmatchedSubscription(event)
+      return
     }
 
     const user = await this.usersService.findUser({

@@ -1,9 +1,10 @@
 import { useTestService } from '@/test-service'
-import { HttpStatus } from '@nestjs/common'
+import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
   CommunityIssueCategory,
   CommunityIssueList,
@@ -608,7 +609,27 @@ describe('POST /v1/community-issues/seed', () => {
     ],
   })
 
+  // The seed lands its stub briefing artifact in S3 before writing the row
+  // that points at it, so the double has to behave like a bucket keyed on
+  // (bucket, key). One that only swallowed the PUT could not tell a pointer
+  // the seed can actually answer from the ("seed", "seed") pair it used to
+  // write, which no upload had ever populated.
+  const stubS3 = () => {
+    const objects = new Map<string, string>()
+    const s3 = service.app.get(S3Service)
+    vi.spyOn(s3, 'uploadFile').mockImplementation(async (bucket, body, key) => {
+      objects.set(`${bucket}/${key}`, String(body))
+      return `https://${bucket}.s3.amazonaws.com/${key}`
+    })
+    vi.spyOn(s3, 'getFile').mockImplementation(async (bucket, key) =>
+      objects.get(`${bucket}/${key}`),
+    )
+    return objects
+  }
+
   it('seeds issues for the caller org, readable via the list + detail reads', async () => {
+    stubS3()
+
     const seedRes = await service.client.post<{
       issues: { id: string; list: string; rank: number | null; title: string }[]
     }>(`${BASE}/seed`, seedBody(), eoHeaders())
@@ -648,6 +669,316 @@ describe('POST /v1/community-issues/seed', () => {
       'item-housing',
     )
     expect(detailRes.data.relatedBriefings[0]?.meetingDate).toBe('2026-07-01')
+  })
+
+  it('leaves the related briefing readable at GET /meetings/:date/briefing', async () => {
+    stubS3()
+    await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    // The exact request that failed 768 times in seven days on dev. The seed's
+    // related-briefing row is an ordinary briefing pointer, and this endpoint
+    // fetches artifactBucket/artifactKey from S3 on every call — so a row
+    // naming a bucket nobody had uploaded to could only ever fail, for as long
+    // as the row existed. The e2e suite that drives this endpoint navigates to
+    // /dashboard/briefings/2026-07-01 at the end of its run, which is how a
+    // seeded row and an open browser tab found each other in the first place.
+    const briefing = await service.client.get<{
+      briefing_id: string
+      executive_summary: { items: { item_id: string; content: string }[] }
+    }>('/v1/meetings/2026-07-01/briefing', eoHeaders())
+
+    expect(briefing.status).toBe(HttpStatus.OK)
+    expect(briefing.data.executive_summary.items).toEqual([
+      { item_id: 'item-housing', content: 'Council discussed housing.' },
+    ])
+
+    // The seeded community-issue runs publish nothing to S3 — their issues go
+    // straight through upsertFromArtifact — so their pointers stay null rather
+    // than naming a bucket the admin run-detail view would then try to GET.
+    const runs = await service.prisma.experimentRun.findMany({
+      where: { organizationSlug: eoOrgSlug },
+    })
+    expect(runs.length).toBeGreaterThan(0)
+    expect(
+      runs.every((r) => r.artifactBucket === null && r.artifactKey === null),
+    ).toBe(true)
+  })
+
+  it('puts every issue sharing a meeting date into the one artifact', async () => {
+    stubS3()
+    const base = seedBody()
+    const body = {
+      issues: [
+        base.issues[0]!,
+        {
+          ...base.issues[1]!,
+          relatedBriefing: {
+            meetingDate: '2026-07-01',
+            briefingItemId: 'item-lighting',
+            content: 'Council discussed street lighting.',
+          },
+        },
+        base.issues[2]!,
+      ],
+    }
+
+    const { data: seeded } = await service.client.post<{
+      issues: { id: string; title: string }[]
+    }>(`${BASE}/seed`, body, eoHeaders())
+
+    // One (office, date) is one artifact object and one row. Uploading per
+    // issue meant the second issue found the row the first had created,
+    // skipped the upload, and left the object listing only item-housing.
+    const briefing = await service.client.get<{
+      executive_summary: { items: { item_id: string; content: string }[] }
+    }>('/v1/meetings/2026-07-01/briefing', eoHeaders())
+    expect(briefing.status).toBe(HttpStatus.OK)
+    expect(briefing.data.executive_summary.items).toEqual([
+      { item_id: 'item-housing', content: 'Council discussed housing.' },
+      {
+        item_id: 'item-lighting',
+        content: 'Council discussed street lighting.',
+      },
+    ])
+
+    // The link row alone was never the problem — it was written before too.
+    // CommunityIssueService drops links whose briefingItemId is absent from
+    // the artifact, so the second issue's related briefing disappeared from
+    // the reader with nothing logged. This is the assertion that catches it.
+    const lightingId = seeded.issues.find(
+      (i) => i.title === 'Street lighting',
+    )?.id
+    expect(lightingId).toBeTruthy()
+    const detailRes = await service.client.get<{
+      relatedBriefings: { briefingItemId: string; meetingDate: string }[]
+    }>(`${BASE}/${lightingId}`, eoHeaders())
+    expect(detailRes.data.relatedBriefings).toHaveLength(1)
+    expect(detailRes.data.relatedBriefings[0]?.briefingItemId).toBe(
+      'item-lighting',
+    )
+
+    const rows = await service.prisma.meetingBriefing.findMany({
+      where: { electedOfficeId: eoId },
+    })
+    expect(rows).toHaveLength(1)
+  })
+
+  // Both cases below start from a briefing row that already exists for the
+  // date the seed body targets, which is the branch that decides whether this
+  // endpoint may overwrite someone else's pointer.
+  const seedExistingBriefing = async (
+    artifactBucket: string,
+    artifactKey: string,
+  ) => {
+    const run = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket,
+        artifactKey,
+      },
+    })
+    return service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eoId,
+        meetingDate: new Date('2026-07-01'),
+        meetingTime: '18:00',
+        meetingTimezone: 'America/New_York',
+        experimentRunId: run.runId,
+        artifactBucket,
+        artifactKey,
+        artifact: { executive_summary: { items: [] } },
+      },
+    })
+  }
+
+  it('repairs a briefing still carrying the pre-fix seed pointer', async () => {
+    stubS3()
+    // The exact row shape this service used to write, and the one sitting in
+    // the dev database answering every poll with an S3 PermanentRedirect.
+    const broken = await seedExistingBriefing('seed', 'seed')
+
+    await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    const repaired = await service.prisma.meetingBriefing.findFirstOrThrow({
+      where: { electedOfficeId: eoId },
+    })
+    expect(repaired.artifactBucket).not.toBe('seed')
+    expect(repaired.artifactKey).toBe(
+      `community-issue-seed/${eoId}/2026-07-01.json`,
+    )
+
+    // The run pointer has to move with the columns. The run this row arrived
+    // pointing at carries the same ('seed', 'seed') pair on its own copies, so
+    // a repaired row still attached to it names a run that never published
+    // anything and keeps AdminAgentRunsService.detail failing for that run.
+    expect(repaired.experimentRunId).not.toBe(broken.experimentRunId)
+    const attached = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: repaired.experimentRunId },
+    })
+    expect(attached.artifactBucket).toBeNull()
+    expect(attached.artifactKey).toBeNull()
+
+    // The point of the repair is the endpoint, not the columns: a post-merge
+    // e2e run on dev has to be enough to make this request start answering.
+    const briefing = await service.client.get<{
+      executive_summary: { items: { item_id: string; content: string }[] }
+    }>('/v1/meetings/2026-07-01/briefing', eoHeaders())
+    expect(briefing.status).toBe(HttpStatus.OK)
+    expect(briefing.data.executive_summary.items).toEqual([
+      { item_id: 'item-housing', content: 'Council discussed housing.' },
+    ])
+  })
+
+  it('leaves a briefing written by a real agent run untouched', async () => {
+    stubS3()
+    // A plausible agent-path pointer: the bucket the broker reports and the
+    // key shape it publishes under. Repointing this at the seed's stub would
+    // strand the real artifact and serve dummy data for the meeting, so the
+    // repair above has to be keyed on the bug's exact signature rather than on
+    // the bucket merely not being ours.
+    const before = await seedExistingBriefing(
+      'gp-agent-artifacts-dev',
+      'meeting_briefing/019826f4-0000-7000-8000-00000000000a/artifact.json',
+    )
+
+    await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    const after = await service.prisma.meetingBriefing.findUniqueOrThrow({
+      where: { id: before.id },
+    })
+    expect(after.artifactBucket).toBe('gp-agent-artifacts-dev')
+    expect(after.artifactKey).toBe(
+      'meeting_briefing/019826f4-0000-7000-8000-00000000000a/artifact.json',
+    )
+    expect(after.artifact).toEqual({ executive_summary: { items: [] } })
+
+    // Leaving the row alone is only half of it. A link row naming
+    // item-housing against the agent's artifact is a row no reader can
+    // resolve — CommunityIssueReadService filters links through the artifact's
+    // item ids — so the seeded issue would come back with relatedBriefings: []
+    // and nothing would say why.
+    const links = await service.prisma.meetingBriefingItemLink.findMany({
+      where: { meetingBriefing: { electedOfficeId: eoId } },
+    })
+    expect(links).toEqual([])
+
+    const housingId = (
+      await service.prisma.communityIssue.findFirstOrThrow({
+        where: { organizationSlug: eoOrgSlug, title: 'Housing affordability' },
+      })
+    ).id
+    const detailRes = await service.client.get<{
+      relatedBriefings: { briefingItemId: string }[]
+    }>(`${BASE}/${housingId}`, eoHeaders())
+    expect(detailRes.data.relatedBriefings).toEqual([])
+  })
+
+  it('refuses a date the briefing seed already owns', async () => {
+    stubS3()
+    // The row BriefingSeedService writes, identified by its deterministic key.
+    await seedExistingBriefing(
+      'meeting-pipeline-dev',
+      `briefing-seed/${eoId}/2026-07-01.json`,
+    )
+
+    const res = await service.client.post(
+      `${BASE}/seed`,
+      seedBody(),
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+
+    // Without the guard this returned 200 and wrote a link row whose
+    // briefingItemId appears nowhere in the briefing seed's artifact, and
+    // CommunityIssueService drops every such link — so the issue's related
+    // briefing was gone from every reader with nothing logged. The link rows
+    // must not be written at all.
+    const links = await service.prisma.meetingBriefingItemLink.findMany({
+      where: { meetingBriefing: { electedOfficeId: eoId } },
+    })
+    expect(links).toEqual([])
+  })
+
+  it('refreshes the artifact when re-seeding a date it already owns', async () => {
+    stubS3()
+    await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    const base = seedBody()
+    const second = {
+      issues: [
+        {
+          ...base.issues[0]!,
+          relatedBriefing: {
+            meetingDate: '2026-07-01',
+            briefingItemId: 'item-housing-revised',
+            content: 'Council revisited housing.',
+          },
+        },
+        base.issues[1]!,
+        base.issues[2]!,
+      ],
+    }
+    const { data: seeded } = await service.client.post<{
+      issues: { id: string; title: string }[]
+    }>(`${BASE}/seed`, second, eoHeaders())
+
+    // The row is this service's own, so a second call has to rewrite it. Under
+    // `update: {}` the object and the JSONB copy both kept listing
+    // item-housing while the link row for item-housing-revised was written
+    // anyway, and the reader filters links through the artifact's item ids —
+    // so the re-seeded issue came back with no related briefing at all.
+    const briefing = await service.client.get<{
+      executive_summary: { items: { item_id: string; content: string }[] }
+    }>('/v1/meetings/2026-07-01/briefing', eoHeaders())
+    expect(briefing.status).toBe(HttpStatus.OK)
+    expect(briefing.data.executive_summary.items).toEqual([
+      {
+        item_id: 'item-housing-revised',
+        content: 'Council revisited housing.',
+      },
+    ])
+
+    const housingId = seeded.issues.find(
+      (i) => i.title === 'Housing affordability',
+    )?.id
+    const detailRes = await service.client.get<{
+      relatedBriefings: { briefingItemId: string }[]
+    }>(`${BASE}/${housingId}`, eoHeaders())
+    expect(
+      detailRes.data.relatedBriefings.map((b) => b.briefingItemId),
+    ).toEqual(['item-housing-revised'])
+
+    const rows = await service.prisma.meetingBriefing.findMany({
+      where: { electedOfficeId: eoId },
+    })
+    expect(rows).toHaveLength(1)
+  })
+
+  it('commits no briefing row when the stub artifact upload fails', async () => {
+    const s3 = service.app.get(S3Service)
+    vi.spyOn(s3, 'uploadFile').mockRejectedValue(
+      new BadGatewayException('Error communicating with AWS service'),
+    )
+
+    const res = await service.client.post(
+      `${BASE}/seed`,
+      seedBody(),
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+
+    // Pins the write order, which is the whole point of this branch: a
+    // MeetingBriefing row is a promise that an object exists at
+    // (artifactBucket, artifactKey), and both read paths GET it
+    // unconditionally. Committing the row first turned one failed PUT into a
+    // briefing that 502s on every read forever with no code path able to
+    // repair it — 768 times in seven days on dev.
+    const briefings = await service.prisma.meetingBriefing.findMany({
+      where: { electedOfficeId: eoId },
+    })
+    expect(briefings).toEqual([])
   })
 
   it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {

@@ -61,18 +61,23 @@ vi.mock('app/dashboard/purchase/utils/purchaseFetch.utils', () => ({
     completeFreePurchase(type, meta),
 }))
 
-// The flow reads campaign (details/office, free-texts offer) and user (first
-// name) from their providers; both are context-mocked at the hook level.
+// The flow reads campaign (details/office, free-texts offer, ownerName) and
+// user (first name) from their providers; both are context-mocked at the
+// hook level. The campaign is a mutable ref so the team-member case can swap
+// ownerName; the base is the owner-composing shape (session user Jane IS the
+// owner), matching the real GET /v1/campaigns/mine payload.
+const campaignState = vi.hoisted(() => {
+  const base = () => ({
+    id: 9,
+    isPro: true,
+    hasFreeTextsOffer: true,
+    ownerName: 'Jane Doe',
+    details: { normalizedOffice: 'City Council' },
+  })
+  return { base, campaign: base() }
+})
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [
-    {
-      id: 9,
-      isPro: true,
-      hasFreeTextsOffer: true,
-      details: { normalizedOffice: 'City Council' },
-    },
-    vi.fn(),
-  ],
+  useCampaign: () => [campaignState.campaign, vi.fn()],
 }))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'campaign-9', district: {} }),
@@ -182,6 +187,7 @@ const TCR_FIXTURE = {
 
 describe('SmsFlow', () => {
   beforeEach(() => {
+    campaignState.campaign = campaignState.base()
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
     mockLists()
@@ -197,6 +203,14 @@ describe('SmsFlow', () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,
       data: [],
+    })
+    // Answered so it never reaches the network. Left unhandled it passes
+    // through, fails, and retries on a ~1s backoff, re-rendering the builder
+    // partway through a test. Precinct itself is covered by PrecinctFilter
+    // and usePrecinctOptions.
+    api.mock('GET /v1/contacts/precincts', {
+      status: 200,
+      data: { options: [], truncated: false },
     })
     mockOutreachList()
   })
@@ -297,6 +311,36 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
     expect(receiptCalls).toBe(0)
+  })
+
+  it('identifies the campaign owner, not the composer, in the intro', async () => {
+    // A Campaign Manager (session user Jane) composing on Jared's campaign:
+    // the identification intro and the standards check must use the OWNER's
+    // name, or the client passes a script the server rejects at scheduling.
+    campaignState.campaign = {
+      ...campaignState.base(),
+      ownerName: 'Jared Smith',
+    }
+    mockDraft()
+    openFlow()
+
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+    await userEvent.click(screen.getByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await screen.findByText('When do you want to send it?')
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/this is Jared, candidate for City Council\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/this is Jane/)).not.toBeInTheDocument()
   })
 
   // The hub's `?compose=text` deep link seeds these. A preset message is one
@@ -420,7 +464,14 @@ describe('SmsFlow', () => {
 
     // Builder: CRM wizard pills; continue stays disabled until a selection.
     expect(await screen.findByText('Build a voter list')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    // Awaited, not queried synchronously: the step's heading renders before
+    // the CTA settles on its label, and until the unfiltered count comes back
+    // the button is in its loading state under a different accessible name.
+    // Reading it in that gap found no "Continue" at all and failed the step
+    // rather than the behaviour it is checking.
+    expect(
+      await screen.findByRole('button', { name: 'Continue' }),
+    ).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: 'Super' }))
 
     // Debounced count settles into the CTA label.

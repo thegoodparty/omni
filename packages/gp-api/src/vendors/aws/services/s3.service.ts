@@ -185,9 +185,11 @@ export class S3Service extends AwsService {
         )
         return response.Body?.transformToString()
       } catch (error) {
-        if (error instanceof NoSuchKey) {
-          return undefined
-        }
+        if (error instanceof NoSuchKey) return undefined
+        // S3 GET on a missing key surfaces as either NoSuchKey or a plain
+        // 404 depending on permissions (no s3:ListBucket, NoSuchBucket);
+        // treat both as "missing" — mirrors objectExists / headObject.
+        if (isHttpStatusError(error, 404)) return undefined
         throw error
       }
     }, 'getFile')
@@ -205,12 +207,36 @@ export class S3Service extends AwsService {
         const bytes = await response.Body?.transformToByteArray()
         return bytes ? Buffer.from(bytes) : undefined
       } catch (error) {
-        if (error instanceof NoSuchKey) {
-          return undefined
-        }
+        if (error instanceof NoSuchKey) return undefined
+        if (isHttpStatusError(error, 404)) return undefined
         throw error
       }
     }, 'getFileBytes')
+  }
+
+  async getRangeBytes(
+    bucket: string,
+    key: string,
+    start: number,
+    end: number,
+  ): Promise<Buffer | undefined> {
+    return this.executeAwsOperation(async () => {
+      try {
+        const response = await this.s3Client.send(
+          new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Range: `bytes=${start}-${end}`,
+          }),
+        )
+        const bytes = await response.Body?.transformToByteArray()
+        return bytes ? Buffer.from(bytes) : undefined
+      } catch (error) {
+        if (error instanceof NoSuchKey) return undefined
+        if (isHttpStatusError(error, 404)) return undefined
+        throw error
+      }
+    }, 'getRangeBytes')
   }
 
   async getFileBytesWithContentType(
@@ -236,9 +262,8 @@ export class S3Service extends AwsService {
             }
           : undefined
       } catch (error) {
-        if (error instanceof NoSuchKey) {
-          return undefined
-        }
+        if (error instanceof NoSuchKey) return undefined
+        if (isHttpStatusError(error, 404)) return undefined
         throw error
       }
     }, 'getFileBytesWithContentType')

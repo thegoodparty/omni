@@ -744,6 +744,24 @@ export class StripeService {
     return customer.id
   }
 
+  // Returns the customer as Stripe holds it, deleted ones included — a deleted
+  // customer comes back as `{ deleted: true }` with none of its fields, which
+  // callers have to handle rather than treat as a failure.
+  async retrieveCustomer(customerId: string) {
+    try {
+      return await this.stripe.customers.retrieve(customerId)
+    } catch (e) {
+      if (e instanceof Error) {
+        this.logger.error(e, `Failed to retrieve customer ${customerId}`)
+        throw new BadGatewayException(
+          `Failed to retrieve customer ${customerId}`,
+          e.message,
+        )
+      }
+      throw e
+    }
+  }
+
   async retrieveSubscription(subscriptionId: string) {
     try {
       return await this.stripe.subscriptions.retrieve(subscriptionId)
@@ -762,10 +780,78 @@ export class StripeService {
     }
   }
 
+  // Idempotent cancel: a retry after the DB write failed, a race with the
+  // customer.subscription.deleted webhook that clears details.subscriptionId,
+  // or an out-of-band cancel from the Stripe dashboard all leave the caller
+  // asking to cancel a subscription Stripe already shows as canceled. Stripe
+  // rejects that as StripeInvalidRequestError, which would surface as a 502
+  // and abort the caller's DB write — leaving the campaign stuck as Pro. Read
+  // status first and treat an already-canceled sub as success.
+  //
+  // The status read cannot stand alone, because it is a check against state
+  // somebody else can change before the cancel runs. Three layers, because
+  // there are three distinct ways this races and each needs a different one:
+  //
+  //   already canceled when we start   -> the status read returns it
+  //   two callers of THIS method       -> the idempotency key replays the first
+  //                                       response rather than erroring, which
+  //                                       is why the key is derived from the
+  //                                       subscription and not the attempt
+  //   canceled out of band mid-flight  -> the inner catch below
+  //
+  // The key does nothing for the third: an admin cancelling from the Stripe
+  // dashboard, or an earlier retry through another code path, sends no key of
+  // ours, so the cancel is rejected on its merits and only the subscription's
+  // settled status says whether that rejection still got us what we wanted.
   async cancelSubscription(subscriptionId: string) {
     try {
-      return await this.stripe.subscriptions.cancel(subscriptionId)
+      const existing = await this.stripe.subscriptions.retrieve(subscriptionId)
+      if (existing.status === 'canceled') {
+        return existing
+      }
+      try {
+        return await this.stripe.subscriptions.cancel(
+          subscriptionId,
+          {},
+          { idempotencyKey: `cancel-subscription-${subscriptionId}` },
+        )
+      } catch (e) {
+        // The settled status decides, not the error class. Gating on the class
+        // is both too broad and too narrow: StripeInvalidRequestError also
+        // covers a mismatched idempotent replay and states Stripe refuses to
+        // cancel, neither of which stopped the subscription, while a connection
+        // error thrown after the cancel landed did stop it. Recovering a cancel
+        // that did not happen is the expensive direction, because the caller
+        // clears the campaign's Pro flag on the strength of this return.
+        const settled = await this.stripe.subscriptions.retrieve(subscriptionId)
+        if (settled.status !== 'canceled') {
+          throw e
+        }
+        this.logger.info(
+          { subscriptionId },
+          'Subscription was canceled out of band mid-cancel; treating as success',
+        )
+        return settled
+      }
     } catch (e) {
+      // A subscription id that no longer resolves is indistinguishable from
+      // success: de-Pro wants nothing billing this campaign, and nothing is.
+      // Stripe answers resource_missing when the record was hard-deleted from
+      // the dashboard, or when details.subscriptionId was left behind because
+      // the customer.subscription.deleted webhook never fired. Both are stale
+      // pointers, and a 502 over one blocks the admin from de-Pro-ing a
+      // campaign that cannot be charged anyway. Callers await this for its
+      // effect and read nothing, so null costs them nothing.
+      if (
+        e instanceof Stripe.errors.StripeInvalidRequestError &&
+        e.code === 'resource_missing'
+      ) {
+        this.logger.info(
+          { subscriptionId },
+          'Subscription not found in Stripe; treating as already canceled',
+        )
+        return null
+      }
       if (e instanceof Error) {
         this.logger.error(e, `Failed to cancel subscription ${subscriptionId}`)
         await this.slack.errorMessage({

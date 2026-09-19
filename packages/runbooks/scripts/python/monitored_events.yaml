@@ -35,7 +35,6 @@ events:
   - {event: "Onboarding - Candidate Office Searched",   product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Office Step: Office Selected", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Candidate Office Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
-  - {event: "Onboarding - Registration Completed",      product: win, family: win_onboarding, floor: null, owner: TBD, okr: "Onboarded"}
   - {event: "Onboarding - User Created",                product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Candidate Affiliation Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
   # Pledge-union okr flags are doc-level confidence (knowledge-doc definition, no dbt model).
@@ -54,22 +53,17 @@ events:
   - {event: "Onboarding - Magic Link Clicked",          product: win, family: win_onboarding, floor: null, owner: TBD}
 
   # ---- Win · activation: dashboard ----
-  # Candidate Dashboard Viewed is code-retired (PR #732) but still anchors the OKR until
-  # DATA-2173 re-anchors it — the okr flag documents the (currently broken) dependency.
-  - {event: "Dashboard - Candidate Dashboard Viewed",   product: win, family: win_dashboard, floor: null, owner: TBD, okr: "Active Candidates"}
   - {event: "Dashboard - Campaign Plan Generation Completed", product: win, family: win_dashboard, floor: null, owner: TBD}
 
   # ---- Win · activation: voter outreach (campaign sent) ----
   - {event: "Schedule Text Campaign - Audience: Enter Audience Request", product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
   - {event: "Schedule Text Campaign: Submit",           product: win, family: win_outreach_scheduling, floor: null, owner: TBD}
-  - {event: "Voter Outreach - 10DLC Compliance Completed", product: win, family: win_voter_outreach, floor: null, owner: TBD}
   - {event: "Voter Outreach - 10DLC Compliance PIN Sent", product: win, family: win_voter_outreach, floor: null, owner: TBD}
 
   # ---- Win · activation: pro upgrade ----
   - {event: "Pro Upgrade - Modal: Modal Shown",         product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Pro Upgrade - Splash Page: Click upgrade", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   # Pro count of record is the Stripe webhook; this event is the client-side timing signal.
-  - {event: "pro_upgrade_complete",                     product: win, family: win_pro_upgrade, floor: null, owner: TBD, okr: "Pro Conversions"}
 
   # ---- Serve · onboarding funnel ----
   - {event: "Serve Onboarding - Getting Started Viewed", product: serve, family: serve, floor: null, owner: TBD}
@@ -101,16 +95,12 @@ events:
   - {event: "Serve Onboarding - Confirm Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Pro Upgrade - Value Prop: Click Get Pro", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Pro Upgrade - EIN: Click continue", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
-  - {event: "Pro Upgrade - Banner: Click Get Pro", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
   - {event: "Org Switcher - Run For Office Clicked", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Dashboard - Campaign Plan: Campaign Manager Clicked", product: win, family: win_dashboard, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Agenda Not Created", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Pro Upgrade - Candidate Profile Submitted", product: win, family: win_pro_upgrade, floor: null, owner: TBD, okr: ["Pro Conversions"]}
-  - {event: "Onboarding V2 - Welcome Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding V2 - Pledge Completed", product: win, family: win_onboarding, floor: null, owner: TBD, okr: ["Win Onboarding Completed"]}
-  - {event: "Onboarding V2 - Office Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding V2 - Ballot Status Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
-  - {event: "Pro Upgrade - Filing Details Submitted", product: win, family: win_pro_upgrade, floor: null, owner: TBD, okr: ["Pro Conversions"]}
   - {event: "Briefing Assistant - Briefing Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Agenda Created", product: serve, family: serve, floor: null, owner: TBD, okr: ["Active Serve Users", "People Served"]}
 
@@ -143,16 +133,19 @@ behaviors:
       - "Are people creating and downloading lists but never doing outreach on our platform?"
     product: win
     asked_by: nate@goodparty.org
+    caveats: >-
+      Two events fire per download and they are not duplicates: `Contacts - Download` fires at
+      click time and always fires, `Voter Data - List Exported` only from the cookie-confirmed
+      success branch and only once the isWinContextReady and listSize gates pass. Count exports
+      off List Exported alone; a union double-counts. The gap between the two is a free health
+      signal (failed downloads plus the readiness race), not a demand signal.
     surfaces:
+      # The only export surface in the product as of 2026-09-16. The outreach-wizard and
+      # outreach-table download surfaces were deleted in the v2 rewrite, not silenced —
+      # their entries are gone rather than declared gaps (DATA-2343 sweep).
       - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
         label: crm_list_detail
         instrumented_by: "Voter Data - List Exported"
-      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/DownloadStep.tsx
-        label: outreach_wizard_download
-        instrumented_by: null
-      - path: packages/gp-webapp/app/dashboard/outreach/components/DownloadAudienceActionOption.tsx
-        label: outreach_table_download
-        instrumented_by: null
     superseded:
       - "Download Voter File Success"
     review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
@@ -165,15 +158,39 @@ behaviors:
     product: win
     asked_by: nate@goodparty.org
     caveats: >-
-      The outreach flow appears to create a list on every abandoned attempt, so a raw count
-      overstates intent. Verify before reporting a number (DATA-2308).
+      No single event answers this question as asked. `Voter Data - List Created` covers the
+      wizard's voter-file branch only; five other paths create a real saved list and emit a
+      different event or nothing, so a count off one event is a narrower question than the one
+      posed (DATA-2343 sweep). Two further defects: the outreach flow may create a list on every
+      abandoned attempt, so a raw count overstates intent (DATA-2308); and both wizard events sit
+      behind an `isWinContextReady` gate that DROPS the event rather than misattributing it when
+      the mode has not settled, so the wizard's own count has an unmeasured loss rate.
     surfaces:
+      # Every path that produces a saved list, enumerated 2026-09-16. Four different events and
+      # one silence — the inventory is the answer to "across every path", not any one row.
       - path: packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx
-        label: crm_wizard
+        label: crm_wizard_voter_file
         instrumented_by: "Voter Data - List Created"
-      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/AudienceStep.tsx
-        label: outreach_audience_step
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx
+        label: crm_wizard_activity
+        instrumented_by: "Voter Data - Activity List Created"
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/useDuplicateList.ts
+        label: crm_list_duplicate
+        instrumented_by: "Contacts - Segment Created"
+      # DATA-2307, relocated: the ticket names components/tasks/flows/AudienceStep.tsx, which the
+      # v2 rewrite deleted. The gap moved with the surface and got worse — building an audience is
+      # mandatory in every v2 channel flow, so this is now the majority creation path. A
+      # recommendation-driven create fires Outreach - Recommended List Accepted; a hand-built one
+      # fires nothing.
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/audience/useOutreachAudience.ts
+        label: outreach_v2_audience_step
         instrumented_by: null          # DATA-2307
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
+        label: door_knocking_list
+        instrumented_by: "Door Knocking - List Created"
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx
+        label: phone_banking_call_list
+        instrumented_by: "Voter Outreach - Phone Banking Call List Created"
     superseded:
       - "Custom Voter file created"
     review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
@@ -186,9 +203,35 @@ behaviors:
     product: win
     okr: ["Activated Candidates", "Outreach Intensity"]
     asked_by: nate@goodparty.org
+    caveats: >-
+      BOTH OKRs anchored here are currently wrong. `Voter Outreach - Campaign Completed` stopped
+      firing on outreach scheduling when the flow was rewritten to outreach/v2/ — it survives only
+      on a completed door-knocking walk and on the manual self-report modal, so these metrics count
+      door knocks and self-reports and call it outreach (DATA-2343 sweep, DATA-2432). Three of four
+      channels have no scheduled/sent terminal at all, which reads identically to total abandonment
+      rather than to missing instrumentation. Re-anchoring is a paired change across omni and
+      gp-data-platform's semantic layer and is deliberately NOT done here: editing this tag alone
+      would diverge the registry from the metric definition (DATA-2421).
     surfaces:
-      - path: packages/gp-webapp/app/dashboard/components/tasks/flows/TaskFlow.tsx
-        label: schedule_campaign_completed
+      # Per-channel, 2026-09-16. Only robocall has a true scheduled terminal; door knocking has a
+      # completion event, which is a different moment. The three nulls replace a single
+      # components/tasks/flows/TaskFlow.tsx pointer that claimed all scheduling was covered.
+      - path: packages/gp-api/src/outreach/services/outreachRobocall.service.ts
+        label: robocall_scheduled
+        instrumented_by: "Robocall - Scheduled"
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx
+        label: sms_scheduled
+        instrumented_by: null
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx
+        label: social_scheduled
+        instrumented_by: null
+      # Call List Created and Call Sheet Downloaded are preparation, not outreach, so this stays a
+      # declared gap rather than borrowing either as a proxy.
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx
+        label: phone_banking_scheduled
+        instrumented_by: null
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+        label: door_knocking_walk_completed
         instrumented_by: "Voter Outreach - Campaign Completed"
       - path: packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx
         label: door_knocking_list_created
@@ -199,21 +242,367 @@ behaviors:
     question: "Do candidates open their campaign plan, and do they read it to the end?"
     question_ref: 86ak20ama
     product: win
-    okr: ["Active Candidates", "Onboarded"]
     asked_by: nate@goodparty.org
+    caveats: >-
+      Two things make a plan-open number a floor rather than a count. The tracker event returns
+      early unless a generated strategy exists, so a candidate looking at an ungenerated plan fires
+      nothing — "opened their campaign plan" means "opened a plan that exists". And the Active
+      Candidates OKR anchored here has its own broken anchor elsewhere in this file: `Dashboard -
+      Candidate Dashboard Viewed` was retired in PR #732 and no longer exists in the codebase.
+      Re-anchoring spans omni and gp-data-platform's semantic layer, so it is not done here
+      (DATA-2173, DATA-2421).
     surfaces:
-      # Legacy checklist and the tracker that replaced it: the model's first live
-      # supersession, and why both are declared rather than one being picked.
-      - path: packages/gp-webapp/app/dashboard/components/tasks/TasksList.tsx
-        label: campaign_plan_legacy_checklist
-        instrumented_by: "Dashboard - Campaign Plan Viewed"
+      # Cold entry confirmed 2026-09-16: the tracker event fires from a useEffect keyed on the
+      # strategy resolving, latched per campaign id — not from a navigation event — so direct and
+      # email-link arrivals are counted. The legacy-checklist pointer was removed: the file was
+      # deleted and its event is a constant nothing fires, so it is lineage now, not a surface.
       - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
         label: campaign_plan_tracker
         instrumented_by: "Campaign Plan - Campaign Tracker Viewed"
       - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
         label: campaign_plan_read_through
         instrumented_by: null          # no scroll-depth instrument; Nate asked for this
+    superseded:
+      - "Dashboard - Campaign Plan Viewed"
     review: {interval_days: 90, last_reviewed: 2026-08-13, reviewed_by: tristan@goodparty.org}
+
+  # ---- DATA-2343 walkthrough, 2026-09-15/16 ----
+  # Fifteen questions the coverage audit walked on production and then checked against the
+  # code. Surfaces and instruments come from that sweep, not from guesswork: where a surface
+  # is `null` it was confirmed uninstrumented by reading the code, and where it names an event
+  # the fire site was located. Verdict detail lives on each question's ClickUp task.
+
+  - id: signup_onboarding_funnel
+    question: "Of the people who start signup, how many complete signup, how many complete onboarding, and where do the rest stop?"
+    question_ref: 86akjz92p
+    product: win
+    okr: "Onboarded"
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      There is no terminal onboarding event. Completion exists only as the user property
+      `onboardingCompleted`, so the last funnel step has to be proxied by Pledge Completed or a
+      first-dashboard event — the DATA-2337 failure. Two further traps: signup and onboarding are
+      separate funnels with a save point between them, so "account with no campaign" and "campaign
+      stuck at step N" are different populations a single definition will conflate; and step events
+      re-fire on resume, so count distinct users per step, not events.
+    surfaces:
+      - path: packages/gp-webapp/app/sign-up
+        label: signup_entry
+        instrumented_by: "Onboarding - Registration Completed"
+      - path: packages/gp-webapp/app/onboarding/[slug]/[step]
+        label: onboarding_steps
+        instrumented_by: "Onboarding V2 - Welcome Completed"
+      - path: packages/gp-webapp/app/onboarding/success
+        label: onboarding_terminal
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: acquisition_source_to_activation
+    question: "Which acquisition sources produce candidates who actually activate, not just sign up?"
+    question_ref: 86akjz989
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      Capture is in the code but has never been observed end to end: the walked signup arrived with
+      no UTMs on the URL, so the profile carried only initial_referrer/referrer. Closing this needs
+      one walk with UTM params present, not new instrumentation.
+    surfaces:
+      - path: packages/gp-webapp/helpers/analyticsHelper.ts
+        label: utm_capture
+        instrumented_by: "Onboarding - Registration Completed"
+      - path: packages/gp-webapp/app/shared/layouts/navigation/SegmentIdentify.tsx
+        label: first_last_touch
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: first_value_reached
+    question: "What share of new candidates reach their first real piece of value, and how long does it take?"
+    question_ref: 86akjz9b3
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      Blocked on a definition, not on instrumentation. Timestamps and step events are sufficient;
+      nobody has decided what "first real value" is. The proposed default is the first campaign
+      action whose output leaves the product — every event below already fires. The same list
+      doubles as the "active" definition weekly_active_candidates needs.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+        label: first_value_export
+        instrumented_by: "Voter Data - List Exported"
+      - path: packages/gp-api/src/outreach/services/outreachRobocall.service.ts
+        label: first_value_robocall
+        instrumented_by: "Robocall - Scheduled"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+        label: first_value_door_knocking
+        instrumented_by: "Voter Outreach - Campaign Completed"
+      - path: packages/gp-webapp/app/dashboard/website
+        label: first_value_website
+        instrumented_by: "Candidate Website - Published"
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: outreach_flow_completion
+    question: "Of candidates who start an outreach flow, what share actually send, and where do the rest stop?"
+    question_ref: 86akjz9dy
+    product: win
+    asked_by: nate@goodparty.org
+    caveats: >-
+      Entry and intermediate steps fire, but the send terminal exists for robocall only. For SMS,
+      social and phone banking the funnel has a start and no end, which reads identically to total
+      abandonment rather than to missing instrumentation — same root cause as
+      voter_outreach_scheduled. `Outreach - Click Create` also double-fires, so any step counted off
+      it is inflated; that is a query-time de-duplication decision, not a gap.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+        label: outreach_funnel_entry
+        instrumented_by: "Voter Data - Send Outreach Clicked"
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/OutreachHubPage.tsx
+        label: outreach_hub_viewed
+        instrumented_by: "Outreach - View Accessed"
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/ChannelTileGrid.tsx
+        label: outreach_channel_chosen
+        instrumented_by: "Outreach - Click Create"
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx
+        label: outreach_send_terminal
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: ai_artifacts_acted_on
+    question: "Do the AI-generated Win artifacts get opened and acted on, or just generated?"
+    question_ref: 86akjz9fr
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      Opened is covered; acted-on is covered for two of four artifacts, which corrects the walk.
+      Campaign Story and Know Your Opponent both carry act-on events. The campaign plan itself has
+      no copy/edit/use event, and dashboard/campaign-manager has no analytics calls at all — it is
+      in the same investment bucket and this question cannot see it.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/campaign-plan
+        label: plan_artifact_displayed
+        instrumented_by: "Dashboard - Campaign Plan: Media Displayed"
+      - path: packages/gp-webapp/app/dashboard/campaign-story
+        label: campaign_story_acted_on
+        instrumented_by: "Campaign Story - Rewrite Accepted"
+      - path: packages/gp-api/src/raceOpponent
+        label: opponent_contrast_acted_on
+        instrumented_by: "Win - Contrast Used"
+      - path: packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx
+        label: plan_acted_on
+        instrumented_by: null
+      - path: packages/gp-webapp/app/dashboard/campaign-manager
+        label: campaign_manager_any_usage
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: onboarding_abandon_return
+    question: "Do candidates who abandon onboarding ever come back, or are they gone?"
+    question_ref: 86akjz9jt
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      Answerable as a query rather than by clicking, and the walk accidentally produced the exact
+      behaviour (abandoned 18:42, resumed 20:49 across two sessions). Still needs both terms
+      defined: what counts as abandoning, and what counts as coming back.
+    surfaces:
+      - path: packages/gp-webapp/app/onboarding/[slug]/[step]
+        label: abandon_point
+        instrumented_by: "Onboarding V2 - Office Completed"
+      - path: packages/gp-webapp/app/post-auth-redirect/page.tsx
+        label: resume_point
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: monthly_cohort_retention
+    question: "Of candidates who activate in a given month, how many are still active the next month, and the one after?"
+    question_ref: 86akjz9q0
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      Nothing is missing from the warehouse — every journey event lands in amplitude_events with a
+      timestamp and a user id, and month-cohort retention off that is ordinary SQL. Blocked on TWO
+      undefined terms: "activate" belongs to first_value_reached and "active" to
+      weekly_active_candidates. Settle those and this closes with no code.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+        label: retention_activity_export
+        instrumented_by: "Voter Data - List Exported"
+      - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
+        label: retention_activity_outreach
+        instrumented_by: "Voter Outreach - Campaign Completed"
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: weekly_active_candidates
+    question: "How many candidates are active in a given week, and what actions does active mean?"
+    question_ref: 86akjz9xb
+    product: win
+    okr: "Active Candidates"
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      A WAU number is already circulating and is already wrong. The Active Candidates OKR anchors on
+      `Dashboard - Candidate Dashboard Viewed`, retired in PR #732 and absent from the codebase, so
+      the metric reads residual traffic. Re-anchoring is a PAIRED change across omni's okr: tag and
+      gp-data-platform's semantic layer; nothing links or enforces the pairing, so the omni side is
+      deliberately not edited alone (DATA-2173, DATA-2421, DATA-2432). Defining "active" is separate
+      and downstream of that.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/page.tsx
+        label: dashboard_visit
+        instrumented_by: "Dashboard - Candidate Dashboard Viewed"
+      - path: packages/gp-webapp/app/shared/layouts/navigation
+        label: breadth_of_navigation
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: pro_value_prop_conversion
+    question: "What share of candidates who see the Pro value prop convert, and at which step do the rest drop?"
+    question_ref: 86akjza5w
+    product: win
+    okr: "Pro Conversions"
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      The best-instrumented flow in the product, with two reasons the number is a floor rather than
+      exact. Both terminal events fire from the Stripe webhook inside try/catch that logs and
+      continues, so a Segment outage loses the conversion while the upgrade succeeds, and the two
+      can disagree because they fail independently — Stripe is the count of record. And the
+      denominator rests on `Pro Upgrade - Banner Viewed`, seen firing on the dashboard only; if the
+      banner renders elsewhere without firing, conversion looks better than it is. Step events also
+      repeat on funnel re-entry, so count distinct users per step.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/pro-upgrade
+        label: pro_funnel_entry
+        instrumented_by: "Pro Upgrade - Banner: Click Get Pro"
+      - path: packages/gp-webapp/app/dashboard/pro-upgrade
+        label: pro_filing_details
+        instrumented_by: "Pro Upgrade - Filing Details Submitted"
+      - path: packages/gp-api/src/payments/services/paymentEventsService.ts
+        label: pro_purchase_confirmed
+        instrumented_by: "pro_upgrade_complete"
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: pro_feature_demand
+    question: "Which Pro feature is the one people actually came for?"
+    question_ref: 86akjzaec
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      The only fully uncovered question of the nineteen. The value-prop events carry email and the
+      impersonation/actor fields and nothing else — no identifier for which prop or feature was
+      shown or clicked. Needs a feature identifier on those events or a per-feature click event.
+      Consequence worth noting: the surrounding funnel is the best instrumented in the product, so a
+      confident conversion number is available while the "what did they want" question is
+      unanswerable, which is a good number buying a wrong conclusion.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/pro-upgrade
+        label: value_prop_feature_identity
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: post_upgrade_first_week
+    question: "What do candidates do in the first week after upgrading, and does it predict whether they stay?"
+    question_ref: 86akjzahp
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      Answerable today, both halves. First-week behaviour is a self-join on amplitude_events off the
+      webhook-fired upgrade timestamp; retention needs Stripe subscription state, confirmed present
+      2026-09-16 and joinable on gp_api_db_user.meta_data.customerId. The caveat that matters:
+      `Account - Pro Subscription Confirmed` is NOT a purchase event — it also fires on staff-granted
+      Pro (paymentMethod 'admin') and on a degraded webhook payload, both at price 0. Comped Pro is
+      separable on paymentMethod, never on price. Prefer the Stripe row for anything revenue-shaped.
+    surfaces:
+      - path: packages/gp-api/src/payments/services/paymentEventsService.ts
+        label: upgrade_timestamp
+        instrumented_by: "Account - Pro Subscription Confirmed"
+      - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
+        label: post_upgrade_activity
+        instrumented_by: "Voter Data - List Exported"
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: pro_subscription_churn
+    question: "Do Pro subscribers churn, and when?"
+    question_ref: 86akjzakk
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      Answered 2026-09-16, not merely judged answerable: a cohort churn table with average
+      days-to-churn ran in one query. No event instruments this and none should — cancellation is a
+      Stripe state change and isPro is current state with no history, so the warehouse is the only
+      source. 3,047 subscriptions, history to 2024-06-23, pipeline current. Two query caveats:
+      exclude the 74 `incomplete_expired` rows (failed checkouts, never active, they inflate churn),
+      and key churn on `status`, never on `canceled_at IS NOT NULL` — 18 active subscriptions carry a
+      canceled_at because they are set to cancel at period end.
+    surfaces:
+      - path: packages/gp-api/src/payments/services/paymentEventsService.ts
+        label: subscription_state_of_record
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: tendlc_compliance_block
+    question: "How many candidates are blocked by 10DLC compliance, and how long are they stuck?"
+    question_ref: 86akjzank
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      "How many are blocked" is answerable from two independent signals. "How long are they stuck" is
+      not: there is no resolution event to close the interval. 10DLC is a multi-day external process,
+      so the duration cannot be walked — it has to come from code and data. Compliance is the hard
+      gate on outreach, so the duration is what decides whether this is a funnel problem or a vendor
+      problem.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/outreach/v2/ChannelTileGrid.tsx
+        label: compliance_block_moment
+        instrumented_by: "Voter Outreach - 10DLC Compliance Modal Viewed"
+      - path: packages/gp-webapp/app/dashboard/profile/texting-compliance
+        label: compliance_submitted
+        instrumented_by: "Voter Outreach - 10DLC Compliance Completed"
+      - path: packages/gp-webapp/app/dashboard/profile/texting-compliance
+        label: compliance_resolution
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: usage_to_election_outcome
+    question: "Do candidates who use more of the product do better in the real outcome?"
+    question_ref: 86akjzat6
+    product: win
+    asked_by: zak@goodparty.org
+    caveats: >-
+      Use the event, not the column: campaigns.service.ts clears Campaign.didWin when a re-running
+      candidate moves their election date (ENG-10954), so the column is current-race-only and a
+      multi-cycle cohort loses its history. That is the storage problem. The reason this stays
+      caveated is selection, which no event fixes — only candidates who return after election day
+      report an outcome, returning correlates with having won, and returning also correlates with
+      product usage, the independent variable. The bias runs with the hypothesis, so a positive
+      correlation is the expected result whether or not the effect is real. An external results feed
+      joined on race id is the only fix.
+    surfaces:
+      - path: packages/gp-webapp/app/dashboard/election-result/components/ElectionResultPage.tsx
+        label: self_reported_outcome
+        instrumented_by: "Candidacy - Did You Win Modal Completed"
+      - path: packages/gp-api/src/campaigns/services/campaigns.service.ts
+        label: external_results_feed
+        instrumented_by: null
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
+
+  - id: ab_test_readout
+    question: "Can we read out an A/B test on any of these surfaces today?"
+    question_ref: 86akjzavc
+    product: win
+    asked_by: bryan@goodparty.org
+    caveats: >-
+      Not blocked on instrumentation: assignment and exposure both fire, and Flags Enabled moved 0 to
+      1 during the walk. Kept despite being marked Drop on the question list, because the Win
+      engagement report's next move is testing hypotheses rather than mining history, and that only
+      works if these are readable.
+    surfaces:
+      # Both events are emitted by the Amplitude Experiment SDK itself, not by a trackEvent call,
+      # so the surface is where variants are resolved rather than a fire site in app code.
+      - path: packages/gp-webapp/app/shared/experiments/getFlagVariants.ts
+        label: experiment_assignment
+        instrumented_by: "Assignment"
+      - path: packages/gp-webapp/app/shared/experiments/FeatureFlagsProvider.tsx
+        label: experiment_exposure
+        instrumented_by: "Exposure"
+    review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
 
 # Proposals a human reviewed and rejected (DATA-2152). The self-healing proposal queue
 # skips these permanently — a dismissed event never re-proposes (it would otherwise keep

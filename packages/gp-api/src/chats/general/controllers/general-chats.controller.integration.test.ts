@@ -242,6 +242,181 @@ describe('GeneralChatsController (integration)', () => {
     })
   })
 
+  describe('message feedback', () => {
+    const startThread = async (): Promise<{
+      conversationId: string
+      assistantMessageId: string
+    }> => {
+      const created = await service.client.post(
+        '/v1/chats',
+        { scope: COS_SCOPE },
+        headers,
+      )
+      const conversationId = created.data.conversationId as string
+      await chatStore.appendMessage({
+        conversationId,
+        role: ChatMessageRole.user,
+        content: 'What is on my agenda?',
+      })
+      const assistant = await chatStore.appendMessage({
+        conversationId,
+        role: ChatMessageRole.assistant,
+        content: 'Three items, two of them zoning.',
+      })
+      return { conversationId, assistantMessageId: assistant.id }
+    }
+
+    it('stores a rating with its note and replays it on the message', async () => {
+      const { conversationId, assistantMessageId } = await startThread()
+
+      const set = await service.client.put(
+        `/v1/chats/${conversationId}/messages/${assistantMessageId}/feedback?scope=${COS_SCOPE}`,
+        { feedback: 'negative', comment: 'Missed the budget item.' },
+        headers,
+      )
+      expect(set.status).toBe(HttpStatus.OK)
+      expect(set.data.conversationId).toBe(conversationId)
+      expect(set.data.messageId).toBe(assistantMessageId)
+      expect(set.data.feedback).toBe('negative')
+      expect(set.data.comment).toBe('Missed the budget item.')
+
+      const replay = await service.client.get(
+        `/v1/chats/${conversationId}?scope=${COS_SCOPE}`,
+        headers,
+      )
+      const rated = (
+        replay.data.messages as Array<{
+          id: string
+          feedback?: { feedback: string; comment: string | null }
+        }>
+      ).find((m) => m.id === assistantMessageId)
+      expect(rated?.feedback).toEqual({
+        feedback: 'negative',
+        comment: 'Missed the budget item.',
+      })
+    })
+
+    it('re-rating without a comment keeps the stored note', async () => {
+      const { conversationId, assistantMessageId } = await startThread()
+      const url = `/v1/chats/${conversationId}/messages/${assistantMessageId}/feedback?scope=${COS_SCOPE}`
+
+      await service.client.put(
+        url,
+        { feedback: 'negative', comment: 'Wrong meeting.' },
+        headers,
+      )
+      const again = await service.client.put(
+        url,
+        { feedback: 'negative' },
+        headers,
+      )
+      expect(again.data.comment).toBe('Wrong meeting.')
+
+      const flipped = await service.client.put(
+        url,
+        { feedback: 'positive', comment: null },
+        headers,
+      )
+      expect(flipped.data.feedback).toBe('positive')
+      expect(flipped.data.comment).toBeNull()
+    })
+
+    it('clears a rating so the replayed message carries none', async () => {
+      const { conversationId, assistantMessageId } = await startThread()
+      const url = `/v1/chats/${conversationId}/messages/${assistantMessageId}/feedback?scope=${COS_SCOPE}`
+
+      await service.client.put(url, { feedback: 'positive' }, headers)
+      const cleared = await service.client.delete(url, headers)
+      expect(cleared.status).toBe(HttpStatus.NO_CONTENT)
+
+      const replay = await service.client.get(
+        `/v1/chats/${conversationId}?scope=${COS_SCOPE}`,
+        headers,
+      )
+      const rated = (
+        replay.data.messages as Array<{ id: string; feedback?: unknown }>
+      ).find((m) => m.id === assistantMessageId)
+      expect(rated?.feedback).toBeUndefined()
+    })
+
+    it('404s on a message that belongs to another conversation', async () => {
+      const first = await startThread()
+      const second = await startThread()
+
+      const res = await service.client.put(
+        `/v1/chats/${second.conversationId}/messages/${first.assistantMessageId}/feedback?scope=${COS_SCOPE}`,
+        { feedback: 'negative' },
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+
+    it('404s a retraction on a message outside the conversation', async () => {
+      const first = await startThread()
+      const second = await startThread()
+
+      // The documented contract is that BOTH verbs reject an unratable id, so
+      // a client bug surfaces instead of returning a silent 204.
+      const res = await service.client.delete(
+        `/v1/chats/${second.conversationId}/messages/${first.assistantMessageId}/feedback?scope=${COS_SCOPE}`,
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+
+    it('404s a retraction on a user turn', async () => {
+      const created = await service.client.post(
+        '/v1/chats',
+        { scope: COS_SCOPE },
+        headers,
+      )
+      const conversationId = created.data.conversationId as string
+      const userTurn = await chatStore.appendMessage({
+        conversationId,
+        role: ChatMessageRole.user,
+        content: 'Anything urgent?',
+      })
+
+      const res = await service.client.delete(
+        `/v1/chats/${conversationId}/messages/${userTurn.id}/feedback?scope=${COS_SCOPE}`,
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+
+    it('retracting a rating that was never left still succeeds', async () => {
+      const { conversationId, assistantMessageId } = await startThread()
+
+      // Idempotent on the ROW, strict on the id: deleting nothing is fine.
+      const res = await service.client.delete(
+        `/v1/chats/${conversationId}/messages/${assistantMessageId}/feedback?scope=${COS_SCOPE}`,
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('404s on a user turn — only assistant replies are ratable', async () => {
+      const created = await service.client.post(
+        '/v1/chats',
+        { scope: COS_SCOPE },
+        headers,
+      )
+      const conversationId = created.data.conversationId as string
+      const userTurn = await chatStore.appendMessage({
+        conversationId,
+        role: ChatMessageRole.user,
+        content: 'Anything urgent?',
+      })
+
+      const res = await service.client.put(
+        `/v1/chats/${conversationId}/messages/${userTurn.id}/feedback?scope=${COS_SCOPE}`,
+        { feedback: 'positive' },
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+  })
+
   describe('POST /v1/chats with anchor', () => {
     it('persists anchor and title from snapshot.title', async () => {
       const anchor = {

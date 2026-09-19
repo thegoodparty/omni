@@ -73,6 +73,13 @@ interface UseOutreachAudienceParams {
   // preselection, never a broken step, the same rule door knocking's
   // CreateListFlow applies to the id it carries.
   preselectedListId?: number
+  // A recommendation carried in from the voter data page (`?recommended=`),
+  // not saved yet. Fetched for THIS channel from open — so it is cut and
+  // priced the way the flow will send it, and ready by the audience step —
+  // and handed to the step, which applies it on arrival the way a tap on its
+  // card would. Whether that has happened lives here rather than in the
+  // step, which unmounts between steps.
+  preselectedRecommendedVariant?: RecommendedListVariant
 }
 
 export interface OutreachAudience {
@@ -143,11 +150,27 @@ export interface OutreachAudience {
     recommendation: RecommendedList,
     name: string,
   ) => Promise<SegmentResponse>
+  createRecommendedListPending: boolean
+  // The message for a createRecommendedList that failed from the step's
+  // Continue (the naming drawer shows its own); cleared by the next
+  // selection or attempt.
+  createRecommendedListError: string | null
+  // A recommendation chosen as the audience without being saved yet — the
+  // carried-in card on arrival. Mutually exclusive with selectedListId:
+  // picking a saved list or opening the builder drops it, and Continue
+  // saves it (under its own title) before advancing.
+  selectedRecommendation: RecommendedList | null
+  selectRecommendation: (recommendation: RecommendedList) => void
   // The conversion event for a recommendation that resolved to a list the
   // candidate already has. `applyRecommendation` deliberately does not
   // handle that case (each flow attaches its own side effects to selecting
   // a list), so the accept has to be reported from the same branch.
   trackRecommendationReused: (recommendation: RecommendedList) => void
+  // The carried-in recommendation, once fetched for this channel, and
+  // whether the audience step has applied it yet.
+  preselectedRecommendation: RecommendedList | null
+  preselectedRecommendationApplied: boolean
+  markPreselectedRecommendationApplied: () => void
 }
 
 export const useOutreachAudience = ({
@@ -157,15 +180,28 @@ export const useOutreachAudience = ({
   countOverlay,
   recommendedListIntent = null,
   preselectedListId,
+  preselectedRecommendedVariant,
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
+  const [selectedRecommendation, setSelectedRecommendation] =
+    useState<RecommendedList | null>(null)
+  const [createRecommendedListPending, setCreateRecommendedListPending] =
+    useState(false)
+  const [createRecommendedListError, setCreateRecommendedListError] = useState<
+    string | null
+  >(null)
   const [builderFilters, setBuilderFilters] = useState<VoterFileFilters>({})
   const [builderSupportStatus, setBuilderSupportStatus] = useState<
     SupportStatusRollup[]
   >([])
   const [builderPrecincts, setBuilderPrecincts] = useState<string[]>([])
   const [builderName, setBuilderName] = useState('')
+  // Which carried-in variant the audience step has already applied. Held
+  // here and not in the step because the step unmounts between steps, and
+  // Back into it must not reopen a naming drawer the candidate dismissed.
+  const [appliedPreselectedVariant, setAppliedPreselectedVariant] =
+    useState<RecommendedListVariant | null>(null)
   // Provenance of the current builder selection, when it originated from a
   // recommendation. gp-api persists variant/channel/intent on the created
   // filter and diffs the submitted filter against `filter` (the
@@ -222,6 +258,35 @@ export const useOutreachAudience = ({
     // steps that don't show it.
     enabled:
       open && active && mode === 'picker' && recommendedListIntent !== null,
+    staleTime: 0,
+  })
+
+  // Fetched from open rather than from the audience step, so the candidate
+  // never waits on a warehouse aggregate they already saw on the voter data
+  // page. Cut for this channel: the count and price are the flow's own.
+  const preselectedRecommendationQuery = useQuery({
+    queryKey: [
+      'outreach-audience-preselected-recommendation',
+      orgSlug,
+      reachabilityKey,
+      preselectedRecommendedVariant,
+    ],
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: reachabilityKey,
+          // Guarded by `enabled` below.
+          variant: preselectedRecommendedVariant,
+        },
+      )
+      return data[0] ?? null
+    },
+    enabled: open && preselectedRecommendedVariant !== undefined,
+    refetchOnWindowFocus: false,
+    // Always refetch on open: whether the list exists yet can change
+    // between opens, and recommendationsLoading holds the step until the
+    // fresh copy lands (see below).
     staleTime: 0,
   })
 
@@ -301,7 +366,11 @@ export const useOutreachAudience = ({
     // a stale count would render with no loading state (matches listsQuery).
     staleTime: 0,
   })
-  const reachableCount = reachabilityQuery.data?.reachable ?? null
+  // A selected recommendation was already counted for this channel by the
+  // endpoint, so its count is the reach — there is no saved list to ask.
+  const reachableCount = selectedRecommendation
+    ? selectedRecommendation.count
+    : (reachabilityQuery.data?.reachable ?? null)
   const selectedListTotal = reachabilityQuery.data?.total ?? null
 
   // Filters the user built, translated for the backend. The saved list is
@@ -392,7 +461,10 @@ export const useOutreachAudience = ({
   const reset = useCallback(() => {
     setMode('picker')
     setSelectedListId(null)
+    setSelectedRecommendation(null)
+    setCreateRecommendedListError(null)
     appliedPreselectRef.current = undefined
+    setAppliedPreselectedVariant(null)
     setBuilderFilters({})
     setBuilderSupportStatus([])
     setBuilderPrecincts([])
@@ -401,7 +473,26 @@ export const useOutreachAudience = ({
     resetCreateMutation()
   }, [resetCreateMutation])
 
-  const startBuilder = useCallback(() => setMode('filters'), [])
+  // Opening the builder leaves a selected recommendation behind: what gets
+  // cut from here is a new audience, not that card.
+  const startBuilder = useCallback(() => {
+    setSelectedRecommendation(null)
+    setMode('filters')
+  }, [])
+
+  const selectList = useCallback((id: number | null) => {
+    setSelectedListId(id)
+    setSelectedRecommendation(null)
+  }, [])
+
+  const selectRecommendation = useCallback(
+    (recommendation: RecommendedList) => {
+      setSelectedRecommendation(recommendation)
+      setSelectedListId(null)
+      setCreateRecommendedListError(null)
+    },
+    [],
+  )
 
   // Only for a recommendation whose existingFilterId is null — the caller is
   // expected to route that case at onSelect(existingFilterId) instead, since
@@ -420,15 +511,16 @@ export const useOutreachAudience = ({
       setRecommendedMeta({
         variant: recommendation.variant,
         channel: reachabilityKey,
-        // Only called while recommendations are loaded, which only happens
-        // with a non-null intent (the query's own `enabled` gate).
-        intent: recommendedListIntent as RecommendedListIntent,
+        // The variant's own intent, not this flow's purpose: a recommendation
+        // carried in from the voter data page belongs to whichever intent
+        // the registry says, whatever purpose the candidate picked here.
+        intent: recommendation.intent,
         filter: recommendation.filter,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
       })
     },
-    [reachabilityKey, recommendedListIntent],
+    [reachabilityKey],
   )
 
   // The other half of the conversion measurement. A recommendation the
@@ -443,17 +535,27 @@ export const useOutreachAudience = ({
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,
-        // Only reachable while recommendations are rendered, which requires
-        // a non-null intent (the query's own `enabled` gate).
-        intent: recommendedListIntent as RecommendedListIntent,
+        intent: recommendation.intent,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
         modified: false,
         reusedExistingList: true,
       })
     },
-    [reachabilityKey, recommendedListIntent],
+    [reachabilityKey],
   )
+
+  // A save changes the answer to "does this list exist yet" for every card
+  // that describes it, so both recommendation caches are refetched: the
+  // purpose's own cards and the carried-in copy.
+  const invalidateRecommendations = useCallback(() => {
+    queryClient.invalidateQueries({
+      queryKey: ['outreach-audience-recommendations', orgSlug],
+    })
+    queryClient.invalidateQueries({
+      queryKey: ['outreach-audience-preselected-recommendation', orgSlug],
+    })
+  }, [queryClient, orgSlug])
 
   // Seeds the builder from a recommendation, then POSTs the create with an
   // explicitly-passed name — the drawer's name input is the source of truth,
@@ -472,23 +574,34 @@ export const useOutreachAudience = ({
       const filters = builderFiltersFromRecommendation(recommendation.filter)
       const supportStatus = recommendation.filter.supportStatus ?? []
       const precincts = recommendation.filter.precincts ?? []
-      const { data } = await clientRequest(
-        'POST /v1/voters/voter-file/filter',
-        {
-          name: trimmed,
-          ...transformVoterFileFiltersForBackend(filters),
-          ...(supportStatus.length ? { supportStatus } : {}),
-          ...(precincts.length ? { precincts } : {}),
-          recommendedVariant: recommendation.variant,
-          recommendedChannel: reachabilityKey,
-          recommendedIntent: recommendedListIntent as RecommendedListIntent,
-          recommendedFilter: recommendation.filter,
-        },
-      )
+      setCreateRecommendedListPending(true)
+      setCreateRecommendedListError(null)
+      let data: SegmentResponse
+      try {
+        const response = await clientRequest(
+          'POST /v1/voters/voter-file/filter',
+          {
+            name: trimmed,
+            ...transformVoterFileFiltersForBackend(filters),
+            ...(supportStatus.length ? { supportStatus } : {}),
+            ...(precincts.length ? { precincts } : {}),
+            recommendedVariant: recommendation.variant,
+            recommendedChannel: reachabilityKey,
+            recommendedIntent: recommendation.intent,
+            recommendedFilter: recommendation.filter,
+          },
+        )
+        data = response.data
+      } catch (error) {
+        setCreateRecommendedListError("We couldn't save this list. Try again.")
+        throw error
+      } finally {
+        setCreateRecommendedListPending(false)
+      }
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,
-        intent: recommendedListIntent as RecommendedListIntent,
+        intent: recommendation.intent,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
         modified: data.recommendedModified ?? false,
@@ -500,17 +613,19 @@ export const useOutreachAudience = ({
       queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
       })
+      invalidateRecommendations()
       setSelectedListId(data.id)
+      setSelectedRecommendation(null)
       resetBuilder()
       return data
     },
     [
       seedFromRecommendation,
       reachabilityKey,
-      recommendedListIntent,
       queryClient,
       resetBuilder,
       orgSlug,
+      invalidateRecommendations,
     ],
   )
 
@@ -534,6 +649,7 @@ export const useOutreachAudience = ({
     await queryClient.invalidateQueries({
       queryKey: outreachAudienceListsKey(orgSlug),
     })
+    invalidateRecommendations()
     // The CRM lists tab reads the same endpoint under its own key; refresh it
     // too (fire-and-forget — it isn't mounted here) so a list built in this
     // flow shows up there without waiting out its default staleTime, mirroring
@@ -544,7 +660,14 @@ export const useOutreachAudience = ({
     setSelectedListId(created.id)
     resetBuilder()
     return created
-  }, [runCreateList, recommendedMeta, queryClient, resetBuilder, orgSlug])
+  }, [
+    runCreateList,
+    recommendedMeta,
+    queryClient,
+    resetBuilder,
+    orgSlug,
+    invalidateRecommendations,
+  ])
 
   return {
     mode,
@@ -576,8 +699,12 @@ export const useOutreachAudience = ({
     builderCapError: builderCountResult.isCapError,
     builderCountErrorMessage: builderCountResult.errorMessage,
     builderZeroMatch,
-    onSelect: setSelectedListId,
+    onSelect: selectList,
     startBuilder,
+    selectedRecommendation,
+    selectRecommendation,
+    createRecommendedListPending,
+    createRecommendedListError,
     createList,
     createListPending,
     createListError,
@@ -585,10 +712,23 @@ export const useOutreachAudience = ({
     resetBuilder,
     reset,
     recommendations: recommendationsQuery.data ?? [],
-    recommendationsLoading: recommendationsQuery.isLoading,
+    // The carried-in recommendation shares the landing skeleton: applying it
+    // is the first thing the step does, so the picker must not paint first.
+    // isFetching, not isLoading: the cache outlives the flow, and a copy
+    // fetched before the list was saved still says existingFilterId null —
+    // applied during the refetch, it saved the same list a second time.
+    recommendationsLoading:
+      recommendationsQuery.isLoading ||
+      preselectedRecommendationQuery.isFetching,
     recommendationsError: recommendationsQuery.isError,
     recommendedListsChannel: reachabilityKey,
     createRecommendedList,
     trackRecommendationReused,
+    preselectedRecommendation: preselectedRecommendationQuery.data ?? null,
+    preselectedRecommendationApplied:
+      preselectedRecommendedVariant !== undefined &&
+      appliedPreselectedVariant === preselectedRecommendedVariant,
+    markPreselectedRecommendationApplied: () =>
+      setAppliedPreselectedVariant(preselectedRecommendedVariant ?? null),
   }
 }

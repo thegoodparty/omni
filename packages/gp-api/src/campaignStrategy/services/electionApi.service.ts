@@ -5,6 +5,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { lastValueFrom } from 'rxjs'
 import { z } from 'zod'
 import { ApiCandidate, RaceContextFromApi } from '../types/electionApi.types'
+import { ElectionCode } from '@/elections/types/elections.types'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 
@@ -41,6 +42,11 @@ const ApiResponseSchema = z.object({
   candidates: z.array(ApiCandidateSchema),
   civics_win_number: z.number().nullable(),
   contacts_needed_estimate: z.number().nullable(),
+  // `nullish` rather than `nullable`: the field is absent from an
+  // election-api deployed before it was added, and a hard parse failure
+  // there would take down every consumer of this endpoint rather than
+  // degrade the one feature that reads it.
+  election_code: z.nativeEnum(ElectionCode).nullish(),
   general_election_date: z.string().nullable(),
   number_of_seats: z.number().nullable(),
   office_level: z.string().nullable(),
@@ -94,6 +100,7 @@ const toRaceContext = (data: ApiResponse): RaceContextFromApi => {
     officialOfficeName: data.official_office_name,
     officeLevel: data.office_level,
     officeType: data.office_type,
+    electionCode: data.election_code ?? null,
     primaryElectionDate: data.primary_election_date,
     generalElectionDate: data.general_election_date,
     relevantElectionDate: data.relevant_election_date,

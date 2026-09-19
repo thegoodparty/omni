@@ -84,6 +84,37 @@ describe('buildAlertDescription', () => {
     expect(description).not.toContain('<!subteam^')
     expect(description.trimEnd()).toEqual(description)
   })
+
+  // Shared surfaces — auth, users, payments, websites — belong to both products,
+  // and `notify` used to hold one group, so the alert reached whichever was
+  // found first and the other was never told. Tagging both is the point of the
+  // list, and the failure it replaces was silent: the controller WAS listed
+  // under the second group, so the map looked right.
+  it('mentions every group an alert is owned by', () => {
+    const description = buildAlertDescription(
+      { ...alert, notify: ['serve-bugs', 'win-bugs'] },
+      'prod',
+    )
+
+    const mentions = description.match(/<!subteam\^/g) ?? []
+    expect(mentions).toHaveLength(2)
+  })
+
+  // The single-group spelling is what most alerts use, and a list of one has to
+  // read identically — otherwise widening the type quietly reformats every
+  // existing alert's message.
+  it('renders one group the same whether or not it is in a list', () => {
+    const asScalar = buildAlertDescription(
+      { ...alert, notify: 'win-bugs' },
+      'prod',
+    )
+    const asList = buildAlertDescription(
+      { ...alert, notify: ['win-bugs'] },
+      'prod',
+    )
+
+    expect(asList).toEqual(asScalar)
+  })
 })
 
 describe('buildKnownCausesAnnotation', () => {

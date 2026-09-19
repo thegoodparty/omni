@@ -138,10 +138,17 @@ class AutopilotEvent:
     # this is also what card typing keys on (router.derive_card_type).
     # Hydrated from the task read; real deliveries never carry it.
     epic_task_id: str | None = None
-    # Top-level delivery timestamp (ClickUp's `date` on the webhook body).
-    # commentPosted carries no history_items, so this is the only timestamp
-    # available to key that kind's dedup claim.
+    # The delivery's timestamp. Real taskCommentPosted deliveries carry NO
+    # top-level `date` — the timestamp lives on the history items (verified
+    # against ClickUp's documented payloads after the first live park's
+    # answer path was refused for a missing dedup key) — so parsing falls
+    # back to the first history item's date.
     event_ts: str | None = None
+    # Who caused this delivery, from the first history item's user id. The
+    # comment-resume route needs it to tell a human's answer from the park's
+    # own parking comment: without the distinction, every park would resume
+    # itself the moment its own comment webhook lands.
+    event_actor_id: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         # autopilot_async is the internal-dispatch marker handler() checks for
@@ -156,6 +163,7 @@ class AutopilotEvent:
             "current_status": self.current_status,
             "epic_task_id": self.epic_task_id,
             "event_ts": self.event_ts,
+            "event_actor_id": self.event_actor_id,
         }
 
     @classmethod
@@ -168,6 +176,7 @@ class AutopilotEvent:
             current_status=payload.get("current_status"),
             epic_task_id=payload.get("epic_task_id"),
             event_ts=payload.get("event_ts"),
+            event_actor_id=payload.get("event_actor_id"),
         )
 
 
@@ -294,7 +303,27 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
     if not isinstance(epic_task_id, str):
         epic_task_id = None
 
+    # Real deliveries carry no top-level `date` (same reason list_id above
+    # stays None) — the timestamp and the acting user live on the history
+    # items, including for taskCommentPosted, whose items parse to no status
+    # transition but still carry `date` and `user`. Without this fallback
+    # every comment-triggered resume was refused at dispatch for a missing
+    # dedup timestamp, which is the whole answer-a-parked-question loop.
     event_ts = _normalize_ts(body.get("date"))
+    event_actor_id = None
+    raw_items = body.get("history_items")
+    if isinstance(raw_items, list):
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            if event_ts is None:
+                event_ts = _normalize_ts(item.get("date"))
+            if event_actor_id is None:
+                user = item.get("user")
+                if isinstance(user, dict) and user.get("id") is not None:
+                    event_actor_id = str(user["id"])
+            if event_ts is not None and event_actor_id is not None:
+                break
 
     return AutopilotEvent(
         kind=kind,
@@ -304,7 +333,20 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
         current_status=current_status,
         epic_task_id=epic_task_id,
         event_ts=event_ts,
+        event_actor_id=event_actor_id,
     )
+
+
+class RetryableRouteError(Exception):
+    """A pre-dispatch routing failure worth a Lambda async retry.
+
+    handle_async_processing swallows every ordinary route_event exception
+    into a returned 500 on purpose — a raise AFTER a dedup claim or a
+    RunTask could double-run a stage on retry. This sentinel is the narrow
+    exception to that rule: it may only be raised BEFORE any claim or
+    dispatch side effect (the resume route's comments read), where a retry
+    replays a pure read and the dedup claim still guards everything after.
+    """
 
 
 def route_event(event: AutopilotEvent) -> None:
@@ -322,6 +364,7 @@ def route_event(event: AutopilotEvent) -> None:
         list_id=event.list_id,
         current_status=event.current_status,
         event_ts=event.event_ts,
+        event_actor_id=event.event_actor_id,
         epic_task_id=event.epic_task_id,
         transitions=[
             router.Transition(
@@ -349,6 +392,41 @@ def route_event(event: AutopilotEvent) -> None:
             )
             continue
 
+        resume_stage = None
+        if decision.stage == router.STAGE_RESUME:
+            # The agent's config requires RESUME_STAGE for a resume run —
+            # the first live resume died at startup without it. The parked
+            # stage lives in the card's park marker, so this is the one
+            # route that costs a comments read. A read failure RAISES for
+            # the same reason hydration's does: the sweep cannot reconstruct
+            # this trigger (STORY->in progress is an ambiguous pair it
+            # skips), so only Lambda's async retry can save the event.
+            try:
+                comments = supervisor.get_task_comments(event.task_id)
+            except Exception as e:
+                print(
+                    f"ERROR: failed to read comments to resolve the parked stage for "
+                    f"{event.task_id}: {type(e).__name__}"
+                )
+                # Not a bare raise: route_event's caller swallows ordinary
+                # exceptions into a returned 500, and a returned payload is a
+                # SUCCESSFUL async invocation — no retry. The sentinel is
+                # what handle_async_processing re-raises to reach Lambda.
+                raise RetryableRouteError(
+                    f"comments read failed while resolving RESUME_STAGE for {event.task_id}"
+                ) from e
+            resume_stage = router.parked_stage_from_comments(comments)
+            if resume_stage is None:
+                # No marker means nothing ever parked (a card dragged back
+                # without a park — e.g. a run that stranded before parking).
+                # There is no stage to re-enter; the recovery is re-kicking
+                # the story from approved tdd, not a blind resume.
+                print(
+                    f"ERROR: no park marker on {event.task_id}; cannot resolve RESUME_STAGE, "
+                    "refusing resume dispatch (re-kick the story from approved tdd instead)"
+                )
+                continue
+
         ceiling = router.STAGE_CEILINGS[decision.stage]
         epic_task_id = event.epic_task_id if decision.stage in router.EPIC_SCOPED_STAGES else None
 
@@ -359,6 +437,7 @@ def route_event(event: AutopilotEvent) -> None:
             model=router.DEFAULT_AGENT_MODEL,
             max_budget_usd=ceiling.max_budget_usd,
             deadline_seconds=ceiling.deadline_seconds,
+            resume_stage=resume_stage,
         )
         dispatch.dispatch_stage(event.task_id, decision.stage, decision.transitioned_at, envelope)
 
@@ -419,6 +498,11 @@ def _hydrate_from_clickup(event: AutopilotEvent) -> AutopilotEvent:
         current_status=_status_label(task.get("status")),
         epic_task_id=parent if isinstance(parent, str) else None,
         event_ts=event.event_ts,
+        # Delivery-derived, not task-derived: hydration must carry it through
+        # like event_ts, or every real delivery (which always hydrates) hits
+        # the comment-resume bot filter with None and the park self-resume
+        # loop comes back.
+        event_actor_id=event.event_actor_id,
     )
 
 
@@ -470,6 +554,13 @@ def handle_async_processing(event: dict) -> dict:
 
     try:
         route_event(autopilot_event)
+    except RetryableRouteError:
+        # The one sanctioned escape from the never-raise rule below: raised
+        # only before any claim or dispatch side effect (see the class
+        # docstring), so Lambda's async retry replays a pure read — and a
+        # returned 500 would NOT retry (a returned payload is a successful
+        # async invocation), permanently losing the event.
+        raise
     except Exception as e:
         # The worker must never raise: an unhandled exception in an async
         # ("Event") invocation makes Lambda auto-retry it, which would

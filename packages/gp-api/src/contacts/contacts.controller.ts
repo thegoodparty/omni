@@ -12,6 +12,9 @@ import {
 } from '@nestjs/common'
 import {
   ContactStatusesSchema,
+  FollowUpStatusResponseSchema,
+  UpdateFollowUpInputSchema,
+  type UpdateFollowUpInput,
   ListDetailContactsResponseSchema,
   PersonSchema,
   type UpdateContactStatusInput,
@@ -104,6 +107,17 @@ export class ContactsController {
     return this.contactsService.getListDetail(dto, organization)
   }
 
+  // The same payload for an unsaved filter (a recommended list's detail
+  // sheet) — a body rather than a segment id, like `count` above.
+  @Post('list-detail')
+  @ResponseSchema(ListDetailContactsResponseSchema)
+  async getFilterDetail(
+    @Body() filters: CountContactsDTO,
+    @ReqOrganization() organization: Organization,
+  ) {
+    return this.contactsService.getFilterDetail(filters, organization)
+  }
+
   @Get(':id')
   @ResponseSchema(PersonSchema)
   async getContact(
@@ -111,6 +125,27 @@ export class ContactsController {
     @ReqOrganization() organization: Organization,
   ) {
     return this.contactsService.findPerson(params.id, organization)
+  }
+
+  // Serve's own status write, separate from the PATCH below for the reasons
+  // on FollowUpStatusSchema in contracts: no Pro gate (an ElectedOffice row is
+  // the entitlement) and its own response, so Win's two-status guarantee is
+  // untouched.
+  @Patch(':personId/follow-up')
+  @ResponseSchema(FollowUpStatusResponseSchema)
+  async updateFollowUp(
+    @Param() { personId }: UpdateContactStatusParamsDTO,
+    @Body(new ZodValidationPipe(UpdateFollowUpInputSchema))
+    body: UpdateFollowUpInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    return this.contactsService.updateFollowUp(
+      personId,
+      body.value,
+      organization,
+      user.id,
+    )
   }
 
   @Patch(':personId/status')

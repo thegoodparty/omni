@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { clerkBackend, createHeadlessTestUser } from 'tests/utils/headless-user'
+import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
 
 // The real new-user invite path (ENG-11027): a Clerk invitation's hosted
 // accept URL redirects to /team-invite with __clerk_ticket, the signed-out
@@ -22,22 +23,30 @@ test.describe('Team invite — new-user ticket redemption', () => {
     page,
     baseURL,
   }) => {
-    test.setTimeout(4 * 60 * 1000)
+    // Headroom for the accept retry loop below: three 60s outcome waits plus
+    // two 12s backoffs on top of throttled setup.
+    test.setTimeout(7 * 60 * 1000)
 
     const owner = await createHeadlessTestUser({ product: 'win' })
     const inviteeEmail = `test-${Date.now()}-invitee@test.goodparty.org`
 
-    const invitation = await clerkBackend.invitations.createInvitation({
-      emailAddress: inviteeEmail,
-      redirectUrl: `${baseURL}/team-invite`,
-      notify: false,
-      publicMetadata: {
-        organizationSlug: owner.orgSlug!,
-        role: 'campaignAdmin',
-        name: 'Ticket Invitee',
-        invitedByUserId: owner.user.id,
-      },
-    })
+    // Through clerkThrottle like every other direct Clerk SDK call in the
+    // suite: it spends from the same instance-wide 100req/10s budget, and
+    // Clerk errors aren't axios errors, so only the limiter's own 429 retry
+    // covers this path (ENG-11105).
+    const invitation = await clerkThrottle(() =>
+      clerkBackend.invitations.createInvitation({
+        emailAddress: inviteeEmail,
+        redirectUrl: `${baseURL}/team-invite`,
+        notify: false,
+        publicMetadata: {
+          organizationSlug: owner.orgSlug!,
+          role: 'campaignAdmin',
+          name: 'Ticket Invitee',
+          invitedByUserId: owner.user.id,
+        },
+      }),
+    )
 
     try {
       expect(invitation.url).toBeTruthy()
@@ -55,13 +64,52 @@ test.describe('Team invite — new-user ticket redemption', () => {
       await page.getByLabel('First name').fill('Ticket')
       await page.getByLabel('Last name').fill('Invitee')
       await page.getByLabel('Password').fill(`Test${randomUUID()}!`)
-      await page.getByRole('button', { name: 'Accept invitation' }).click()
+      const acceptButton = page.getByRole('button', {
+        name: 'Accept invitation',
+      })
+      const errorAlert = page.getByRole('alert')
+      await acceptButton.click()
 
       // Ticket sign-up (account created, email pre-verified — no OTP) +
-      // server-side accept + hard nav.
-      await page.waitForURL((url) => url.pathname === '/dashboard', {
-        timeout: 90_000,
-      })
+      // server-side accept + hard nav. Either half can fail transiently when
+      // the instance-wide Clerk budget is exhausted (another run's shards, the
+      // 6-hourly test-user sweep — this spec failed all its retries inside the
+      // 18:00 UTC sweep window, run 35376397843). The page surfaces that as a
+      // role="alert" with the button re-enabled, and a re-click resumes where
+      // it failed — a failed sign-up left the ticket unconsumed, and a failed
+      // accept retries against the session the sign-up just created. So drive
+      // through the error state instead of holding one blind 90s wait open;
+      // only a genuinely dead ticket ("already been used") fails fast.
+      // Only the URL decides success — racing the alert against the
+      // navigation misread a slow but successful accept as a failure (the
+      // page has other role="alert" nodes, e.g. Next's route announcer).
+      // The alert is read purely as a diagnostic after a timed-out wait.
+      const ACCEPT_ATTEMPTS = 3
+      for (let attempt = 1; ; attempt++) {
+        const navigated = await page
+          .waitForURL((url) => url.pathname === '/dashboard', {
+            timeout: 60_000,
+          })
+          .then(
+            () => true,
+            () => false,
+          )
+        if (navigated) break
+        const alertText = await errorAlert
+          .textContent({ timeout: 1_000 })
+          .catch(() => null)
+        expect(alertText ?? '').not.toContain('already been used')
+        expect(
+          attempt,
+          `accept never reached /dashboard (alert: ${alertText ?? 'none'})`,
+        ).toBeLessThan(ACCEPT_ATTEMPTS)
+        // Clerk's rate windows are 10s — wait one out so the re-click isn't
+        // spent inside the same exhausted budget.
+        await page.waitForTimeout(12_000)
+        if (new URL(page.url()).pathname === '/dashboard') break
+        await expect(acceptButton).toBeEnabled({ timeout: 30_000 })
+        await acceptButton.click()
+      }
 
       // The durable assertion is the membership itself: the owner's team
       // list shows the invitee as a persisted manager and the invitation is
@@ -84,9 +132,9 @@ test.describe('Team invite — new-user ticket redemption', () => {
       // sweeper removes users, not invitations) — revoke it so it can't
       // accumulate in the instance-wide pending list. A consumed invitation
       // 400s here, which is fine.
-      await clerkBackend.invitations
-        .revokeInvitation(invitation.id)
-        .catch(() => undefined)
+      await clerkThrottle(() =>
+        clerkBackend.invitations.revokeInvitation(invitation.id),
+      ).catch(() => undefined)
     }
   })
 })

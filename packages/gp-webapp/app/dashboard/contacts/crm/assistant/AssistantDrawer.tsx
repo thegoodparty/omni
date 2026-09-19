@@ -21,8 +21,7 @@ import {
 } from './assistantChat'
 
 // A bar submit starts a chat with that first message; a pick from the clock
-// popover reopens that conversation. For Win the scope handler resumes the
-// latest campaign_assistant conversation on "new", so history still loads.
+// popover reopens that conversation.
 export type AssistantRequest =
   | { kind: 'new'; initialMessage: string }
   | { kind: 'existing'; conversationId: string }
@@ -124,6 +123,11 @@ function AssistantConversation({
           })
           void queryClient.invalidateQueries({
             queryKey: ['list-detail', orgSlug],
+          })
+          // The map reads the list's members, not its summary, so it needs
+          // its own key dropped or it keeps drawing the pre-edit set.
+          void queryClient.invalidateQueries({
+            queryKey: ['list-people', orgSlug],
           })
         }
         return false

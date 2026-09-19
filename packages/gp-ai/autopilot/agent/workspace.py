@@ -8,6 +8,7 @@ starts rather than spending a turn on the model running the same `git clone`
 every single run.
 """
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -51,3 +52,32 @@ def clone_omni(workspace_dir: str, github_token: str) -> str:
             f"git clone failed (exit {result.returncode}): {_scrub_token(result.stderr, github_token)}"
         )
     return dest
+
+
+def point_playwright_mcp_at_chromium(clone_dir: str) -> None:
+    """Rewrites the clone's .mcp.json so the Playwright MCP launches chromium.
+
+    @playwright/mcp defaults to the branded-Chrome channel, which exists on
+    every engineer's laptop but cannot exist in this container: Google ships
+    no ARM64 Linux Chrome at all, and the qa image bakes Playwright's
+    chromium instead (Dockerfile, INSTALL_PLAYWRIGHT=true). Without this the
+    first browser call dies with "Chromium distribution 'chrome' is not
+    found" — the first live qa run did exactly that. Patched here, in the
+    run's own clone, rather than in the repo's .mcp.json, so engineers'
+    local MCP keeps using their real Chrome.
+
+    Raises on a malformed or unexpected .mcp.json: a workspace whose MCP
+    config can't be read is broken the same way a failed clone is, and
+    failing at startup beats a mid-run browser error after paid work.
+    """
+    path = Path(clone_dir) / ".mcp.json"
+    try:
+        config = json.loads(path.read_text())
+        args = config["mcpServers"]["playwright"]["args"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise WorkspaceCloneError(f"could not point the Playwright MCP at chromium: {e!r}") from e
+    if not isinstance(args, list):
+        raise WorkspaceCloneError(f"could not point the Playwright MCP at chromium: args is {type(args).__name__}")
+    if "--browser" not in args:
+        args.extend(["--browser", "chromium"])
+        path.write_text(json.dumps(config, indent=2) + "\n")

@@ -16,8 +16,9 @@ nearest reference wrapper.
 | `useStreamingTurn.ts` | **The engine.** Drives one turn: optimistic user push, the `streamMessage` event loop, interleaved text/tool `liveSegments`, smooth reveal, the idle watchdog, the late-persistence commit poll, and abort-on-unmount. This is the only streaming loop — there is no second one. |
 | `chatUI.tsx` | **The display kit.** `AssistantRow`, `UserBubble`, `InlineSegments` (text + inline tool pills in stream order), `ThinkingRow`, `ChatComposer` (pill composer; pass `dictation` for the mic variant, `leadingSlot` for a history popover, `ariaLabel` for the input's name), plus `AssistantMarkdown` / `ToolPillRow` for bespoke layouts. |
 | `streaming.ts` | `LiveSegment` + `segmentsToLive` (project a persisted turn into segments for rendering) + `useSmoothReveal`. |
-| `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface. |
+| `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. |
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
+| `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
 | `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
 | `usePinnedAutoScroll.ts` | Stick-to-bottom scroll (releases on scroll-up). Optional — a chat inside a vaul drawer may roll its own scroll instead. |
 
@@ -74,3 +75,9 @@ The kit provides all streaming and rendering. A wrapper owns only: a client, a
   before pushing.
 - **The composer has no built-in accessible name** beyond `ariaLabel`/placeholder —
   pass `ariaLabel` when a test or a11y needs a stable label.
+- **The action bar needs a persisted message id**, so it appears on committed
+  turns only — never on the live `visibleSegments` turn, the typed intro, or the
+  seeded-greeting playback, none of which have a server row to hang a rating on.
+  Ratings key on `(user, message)` and also carry the conversation id, so a read
+  of the table can reconstruct the thread that earned one. Rating routes and
+  their replay field: `packages/gp-api/src/chats/CLIENT_HOOKUP.md`.

@@ -97,7 +97,10 @@ describe('SignUpForm phone capture', () => {
     await user.click(screen.getByTestId('signup-google'))
 
     expect(authenticateWithRedirect).toHaveBeenCalledWith(
-      expect.objectContaining({ redirectUrl: '/sign-up/sso-callback' }),
+      expect.objectContaining({
+        redirectUrl: '/sign-up/sso-callback',
+        redirectUrlComplete: '/sign-up/phone',
+      }),
     )
     expect(authenticateWithRedirect.mock.calls[0]?.[0]).not.toHaveProperty(
       'unsafeMetadata',

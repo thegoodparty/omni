@@ -84,6 +84,14 @@ beforeEach(() => {
   setContext()
   api.mock('GET /v1/outreach', { status: 200, data: [] })
   api.mock('POST /v1/contacts/count', { status: 200, data: { count: 250 } })
+  // Answered so it never reaches the network. Left unhandled it passes
+  // through, fails, and retries on a ~1s backoff, re-rendering the step
+  // partway through a test for no reason any assertion here is about.
+  // Precinct itself is covered by PrecinctFilter and usePrecinctOptions.
+  api.mock('GET /v1/contacts/precincts', {
+    status: 200,
+    data: { options: [], truncated: false },
+  })
 })
 
 describe('CreateListWizard — step navigation', () => {

@@ -20,7 +20,10 @@ import type {
   CreateFlowStep,
   RecommendedCriteria,
 } from './createFlow/CreateListFlow'
-import type { DoorKnockingTurf } from '@goodparty_org/contracts'
+import type {
+  DoorKnockingTurf,
+  RecommendedListVariant,
+} from '@goodparty_org/contracts'
 import type { TurfDraft } from './turfDrafts'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
@@ -330,6 +333,9 @@ export interface CreateListSurfaceProps {
   // The colour picker. Separate from `onUpdateDraft` because a colour has to
   // reach the live ring as well as the draft, and only the page holds both.
   onPickColor: (color: string) => void
+  // The same pair for a recommendation carried in on `?recommended=`.
+  preselectedRecommendedVariant?: RecommendedListVariant
+  onRecommendedPreselectApplied?: () => void
 }
 
 export default function CreateListSurface({
@@ -371,6 +377,8 @@ export default function CreateListSurface({
   onRemoveDraft,
   onUpdateDraft,
   onPickColor,
+  preselectedRecommendedVariant,
+  onRecommendedPreselectApplied,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
   // so this costs nothing: the saved lists are already warm (the rail resolves
@@ -562,6 +570,8 @@ export default function CreateListSurface({
       orgSlug={orgSlug}
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}
+      preselectedRecommendedVariant={preselectedRecommendedVariant}
+      onRecommendedPreselectApplied={onRecommendedPreselectApplied}
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}

@@ -374,6 +374,7 @@ describe('OutreachHistoryTable — unified history', () => {
           supporters: 2,
           unsure: 1,
           nonSupporters: 0,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -454,6 +455,7 @@ describe('OutreachHistoryTable — unified history', () => {
           supporters: 1,
           unsure: 0,
           nonSupporters: 0,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })

@@ -20,6 +20,7 @@ export const doorKnock = (
     activityId: 'dk-1',
     outcome: 'answered',
     supportAnswer: 'unsure',
+    followUp: null,
     note: null,
     manual: false,
     actorName: null,

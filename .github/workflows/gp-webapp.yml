@@ -57,6 +57,13 @@ jobs:
       - name: Guard legacy fetch count
         run: npm run check:legacy-fetch -w ${{ env.WORKSPACE }}
 
+      # Serve users are elected officials: no voters, no election, no
+      # candidacy, no ballot, and no "campaign" in the run-for-office sense.
+      # Also a Vitest test, so it fails whichever job runs first; this step is
+      # the one that names the problem in its own title. docs/product-vocabulary.md
+      - name: Guard Serve vocabulary
+        run: npm run check:serve-vocabulary -w ${{ env.WORKSPACE }}
+
   # The vitest suite (~400 jsdom files) was the long pole of the single
   # Validate job (~11 of its ~14 minutes), and it gates both PR merge and the
   # release train's await-checks. Fan it out the same way gp-api does. No

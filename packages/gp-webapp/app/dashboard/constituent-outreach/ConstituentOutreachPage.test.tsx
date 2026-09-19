@@ -476,6 +476,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
         supporters: 2,
         unsure: 1,
         nonSupporters: 1,
+        byFollowUp: { yes: 0, no: 0 },
       },
     }
     let serveDetailCalls = 0

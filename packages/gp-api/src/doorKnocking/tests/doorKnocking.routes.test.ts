@@ -141,6 +141,68 @@ const geoapifyPlan = (body: PostBody) => {
   }
 }
 
+// What an address the road network cannot reach actually produces: every other
+// face plans normally and the unreachable one is simply absent, with its index
+// in `issues.unassigned_jobs`. Confirmed against the live Route Planner — a
+// job dropped into open water comes back exactly like this, in under a second.
+const geoapifyPlanSkipping = (skipJobId: string) => (body: PostBody) => {
+  const planned = [...body.jobs].reverse().filter((job) => job.id !== skipJobId)
+  return {
+    type: 'FeatureCollection',
+    properties: {
+      mode: 'walk',
+      params: {
+        mode: 'walk',
+        agents: body.agents ?? [{}],
+        jobs: body.jobs,
+        shipments: [],
+        locations: [],
+      },
+      issues: { unassigned_jobs: [Number(skipJobId)] },
+    },
+    features: [
+      {
+        type: 'Feature',
+        properties: {
+          agent_index: 0,
+          time: 900,
+          distance: 1200,
+          mode: 'walk',
+          actions: planned.map((job) => ({ type: 'job', job_id: job.id })),
+          legs: planned.map((_, i) => ({ time: 60 + i, distance: 100 + i })),
+          waypoints: planned.map((job) => ({
+            original_location: job.location ?? [0, 0],
+            location: job.location ?? [0, 0],
+            actions: [],
+          })),
+        },
+      },
+    ],
+  }
+}
+
+// A 200 carrying no plan at all. Live, this is what an agent anchored on an
+// unreachable coordinate eventually returns — with every job unassigned, so
+// there is no subset to blame.
+const geoapifyNoPlan = (body: PostBody) => ({
+  type: 'FeatureCollection',
+  properties: {
+    mode: 'walk',
+    params: {
+      mode: 'walk',
+      agents: body.agents ?? [{}],
+      jobs: body.jobs,
+      shipments: [],
+      locations: [],
+    },
+    issues: {
+      unassigned_agents: [0],
+      unassigned_jobs: body.jobs.map((_, index) => index),
+    },
+  },
+  features: [],
+})
+
 // people-db targeting rides the in-process DoorKnockingPeopleApiService; the
 // Geoapify SDK rides global fetch — two seams. stubVendors sets both and
 // returns the FETCH spy, whose first call arg is the routeplanner URL (the
@@ -924,6 +986,152 @@ describe('door-knocking routes', () => {
       })
     })
 
+    // A geocode the road network cannot reach — open water, a parcel with no
+    // way to it — is the other input Geoapify refuses, and all of this was
+    // measured against the live API rather than reasoned about.
+    //
+    // Two things follow from that measurement. The vendor names the offending
+    // job ONLY when the agent's anchor is somewhere reachable: anchor on the
+    // bad coordinate instead and it sits on the request until its own gateway
+    // gives up at 120s, or answers with every job unassigned and nothing to
+    // blame. And the refusal is deterministic, so the candidate must not be
+    // told to wait — these are 400s carrying the address, not 502s.
+    describe('a turf with a stop the route planner cannot reach', () => {
+      // Three faces — odd Elm, even Elm, odd Oak — placed so that the one
+      // farthest from their centroid is NOT the one nearest it. That is the
+      // whole point of the anchor test below, and the default fixture cannot
+      // make it because its two faces are equidistant.
+      const at = (
+        index: number,
+        lat: number,
+        lng: number,
+        displayAddress: string,
+      ) => ({
+        ...person(index, lat, lng, `KEY-${index}`),
+        displayAddress,
+      })
+      const threeFaces = [
+        at(1, 41.895, -87.652, '1 W Elm St'),
+        at(2, 41.8955, -87.6515, '2 W Elm St'),
+        at(3, 41.905, -87.6505, '1 N Oak St'),
+      ]
+      // Nearest the centroid of the three, and the farthest from it.
+      const CENTRAL: [number, number] = [-87.6515, 41.8955]
+      const FARTHEST: [number, number] = [-87.6505, 41.905]
+
+      // The anchor used to be the farthest face, so that the walk ended at the
+      // turf's far edge. The farthest face is also where a bad geocode lands,
+      // and an unreachable anchor is the one input that makes this API hang.
+      // Measured cost of moving to the centre on an 8-face turf: 1.6%.
+      it('anchors an open route on the most central face, not the farthest', async () => {
+        let agents: Array<Record<string, unknown>> | undefined
+        stubVendors({
+          people: threeFaces,
+          geoapify: (body) => {
+            agents = body.agents
+            return geoapifyPlan(body)
+          },
+        })
+
+        const res = await postTurf({ loop: false })
+
+        expect(res.status).toBe(201)
+        expect(agents?.[0]?.end_location).toEqual(CENTRAL)
+        expect(agents?.[0]?.end_location).not.toEqual(FARTHEST)
+      })
+
+      // The payoff: a named address the candidate can find on their own map.
+      it('names the unreachable address and does not blame the vendor', async () => {
+        // Job "1" is the even-Elm face, whose only door is 2 W Elm St.
+        stubVendors({
+          people: threeFaces,
+          geoapify: geoapifyPlanSkipping('1'),
+        })
+
+        const res = await postTurf()
+
+        expect(res.status).toBe(400)
+        expect(res.data.message).toContain('2 W Elm St')
+        // The two readings the copy exists to deny: that waiting helps, and
+        // that the other doors on that street are the problem.
+        expect(res.data.message).not.toContain('try again in a moment')
+        expect(res.data.message).not.toContain('1 W Elm St')
+        expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+      })
+
+      // No plan at all means no subset to name, so the copy has to carry the
+      // advice on its own — but it still must not be a 502.
+      it('asks for a different area when nothing could be planned', async () => {
+        stubVendors({ people: threeFaces, geoapify: geoapifyNoPlan })
+
+        const res = await postTurf()
+
+        expect(res.status).toBe(400)
+        expect(res.data.message).toContain('drawing a slightly different area')
+        expect(res.data.message).not.toContain('try again in a moment')
+      })
+    })
+
+    // Geoapify hard-rejects a walking request spanning more than 100 km with a
+    // 400 — measured, not read off the docs: 99 km plans and 101 km does not.
+    // Sending it anyway buys a vendor error we would re-raise as a 502, which
+    // blames Geoapify for a request that was ours and tells a candidate to wait
+    // for a turf that will never get smaller on its own.
+    it('refuses a walk spanning more than 100 km without calling the vendor', async () => {
+      // The default polygon is a few km across, so this needs its own.
+      const widePoly: GeoJsonPolygon = {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [-90, 41],
+            [-86, 41],
+            [-88, 43],
+            [-90, 41],
+          ],
+        ],
+      }
+      const spy = stubVendors({
+        // ~217 km apart, odd and even so they are two faces and the vendor
+        // would really have been called.
+        people: [person(1, 41.5, -89.3), person(4, 41.5, -86.7)],
+      })
+
+      const res = await postTurf({ geoPoly: widePoly })
+
+      expect(res.status).toBe(400)
+      expect(res.data.message).toContain('too far apart to plan as a walk')
+      expect(
+        spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
+      ).toHaveLength(0)
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+    })
+
+    // The same spread is ordinary for a car, and the ceiling is walk-only —
+    // 120 km plans fine in drive mode against the live API.
+    it('allows the same spread when the turf is driven', async () => {
+      const widePoly: GeoJsonPolygon = {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [-90, 41],
+            [-86, 41],
+            [-88, 43],
+            [-90, 41],
+          ],
+        ],
+      }
+      const spy = stubVendors({
+        people: [person(1, 41.5, -89.3), person(4, 41.5, -86.7)],
+      })
+
+      const res = await postTurf({ geoPoly: widePoly, mode: 'drive' })
+
+      expect(res.status).toBe(201)
+      expect(
+        spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
+      ).toHaveLength(1)
+    })
+
     // The wizard's talking-points step: the purpose lands on the turf beside
     // the audience it selected, and the card lands on the envelope's `script`
     // column — the same one every other outreach channel keeps its script in.
@@ -1166,6 +1374,38 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(201)
       const lastCall = vi.mocked(peopleApi.evaluate).mock.calls.at(-1)
       expect(lastCall?.[0].filters?.id).toEqual({ in: [responded] })
+    })
+
+    // Unlike the two above, a precinct narrows the query instead of resolving
+    // an id set — which is exactly why nothing else notices when it goes
+    // missing. The audience check cannot see it (an empty precinct matches no
+    // rows, but only the people database knows that), the pack cannot shade by
+    // it (UNSHADEABLE_LIST_CRITERIA), and the create would still answer 201 on
+    // the whole district. One clause on one outgoing call is the entire
+    // observable behaviour, so it is asserted here rather than inferred from
+    // the converter's own unit test.
+    //
+    // A single selection on purpose. `convertVoterFileFilterToFilters` handles
+    // `precincts` explicitly because the generic array branch would get it
+    // wrong twice over: it writes `filters[key]`, and the persisted column is
+    // `precincts` while the filter key is `precinct`, and it emits `{ eq }`
+    // for one value where the filter accepts only `in`. PeopleFiltersSchema
+    // drops either mistake silently, widening the audience to the whole
+    // district without erroring. The multi-value case shares the branch; this
+    // is the one that fails quietly.
+    it("applies the list's precinct, and never as an eq", async () => {
+      await service.prisma.voterFileFilter.update({
+        where: { id: filter.id },
+        data: { precincts: ['ORANGE|711'] },
+      })
+      stubVendors()
+      const peopleApi = service.app.get(DoorKnockingPeopleApiService)
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(201)
+      const lastCall = vi.mocked(peopleApi.evaluate).mock.calls.at(-1)
+      expect(lastCall?.[0].filters?.precinct).toEqual({ in: ['ORANGE|711'] })
     })
 
     it('rejects a list that resolves to nobody without calling the vendor', async () => {
@@ -3650,6 +3890,181 @@ describe('door-knocking routes', () => {
           where: { organizationSlug: orgSlug, field: 'voter_likelihood' },
         })
         expect(events).toHaveLength(0)
+      })
+
+      // The inverse of the likelihood writer's guard: the standing follow-up
+      // flag is Serve's, so a Win door that happens to carry the answer
+      // records the column and nothing else.
+      it('writes no follow_up event for a Win organization', async () => {
+        const target = await knockAndGetTarget()
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, field: 'follow_up' },
+        })
+        expect(events).toHaveLength(0)
+      })
+
+      it('propagates a corrected follow-up answer on a re-synced knock', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('fixup')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up correction turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = (followUp: string) =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp,
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        expect((await recordEo('yes')).status).toBe(201)
+        expect((await recordEo('no')).status).toBe(201)
+
+        // The correction has to reach the projection, not just the column:
+        // on a stable-per-knock sourceId the second write collided with the
+        // first event and left the flag reading `requested` forever.
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('cleared')
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug, field: 'follow_up' },
+          orderBy: { createdAt: 'asc' },
+        })
+        expect(events.map((event) => event.toValue)).toEqual([
+          'requested',
+          'cleared',
+        ])
+      })
+
+      // Pinning a known limitation, not endorsing it (the likelihood twin
+      // has the same one): the sourceId is keyed to the knock and its
+      // answer, so a knock corrected BACK to an answer it already synced
+      // collides with its own first event. Telling that apart from a
+      // replayed sync needs a revision marker the row does not carry.
+      it('does not propagate a correction back to an already-synced answer', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('flipback')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up flip-back turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = (followUp: string) =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp,
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        await recordEo('yes')
+        await recordEo('no')
+        expect((await recordEo('yes')).status).toBe(201)
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('cleared')
+      })
+
+      it('writes a follow_up event for an eo- (Serve) organization, and no duplicate on a replayed knock', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('followup')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = () =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp: 'yes',
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        expect((await recordEo()).status).toBe(201)
+
+        const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: { organizationSlug: eoSlug, field: 'follow_up' },
+        })
+        expect(event).toMatchObject({
+          personId: eoTarget.personId,
+          fromValue: 'cleared',
+          toValue: 'requested',
+          source: 'door_knock',
+        })
+
+        expect((await recordEo()).status).toBe(201)
+        expect(
+          await service.prisma.contactStatusEvent.count({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          }),
+        ).toBe(1)
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('requested')
       })
     })
 

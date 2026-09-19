@@ -16,6 +16,14 @@ Python function only importable from inside this process.
     python -m autopilot.agent.feedback park --task-id <id> --stage <stage> \\
         --question "..." --question "..."
     python -m autopilot.agent.feedback parked-stage --task-id <id>
+    python -m autopilot.agent.feedback notify --task-id <id> --stage <stage> \\
+        --message "..."
+
+`notify` is the park's Slack ping without the park: no comment, no status
+move, no marker, no sentinel. It exists for handoffs that already put the
+card where a human will review it (epic-create's finished breakdown lands in
+`feedback needed` by its own status move) but still owe the TDD's promise
+that every card arriving there pings #autopilot.
 """
 
 import argparse
@@ -174,6 +182,10 @@ def _slack_message(card_url: str, stage: str, questions: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
+def _notify_message(card_url: str, stage: str, message: str) -> str:
+    return f"Autopilot *{stage}* on <{card_url}|a card>: {message}"
+
+
 def _sentinel_path(workspace_dir: str) -> Path:
     return Path(workspace_dir) / PARK_SENTINEL_FILENAME
 
@@ -298,6 +310,116 @@ def park_for_feedback(
     }
 
 
+# The one status a cleanly-ended run must never leave a card in: every
+# legitimate success ends elsewhere (story -> qa, epic-create/qa parks or
+# hands off to feedback needed, qa pass -> done).
+IN_PROGRESS_STATUS = "in progress"
+
+
+def park_if_stranded(
+    result: dict,
+    stage: str,
+    task_id: str,
+    *,
+    clickup_client_factory: Callable[[], Any] = ClickUpClient,
+    slack_client_factory: Callable[[], Any] = SlackClient,
+    env: Mapping[str, str] | None = None,
+    workspace_dir: str | None = None,
+) -> dict:
+    """The harness's stranded-run guard: if a run reports success but left
+    its card in `in progress` without parking, park it deterministically.
+
+    Both live story runs ended their turn "watching the merge in the
+    background" — watchers that die with the container — despite the stage
+    instruction forbidding exactly that. An instruction is a request; this is
+    the invariant: a successful run never leaves its card in `in progress`.
+    Runs only on an already-successful, not-already-parked result. Guard
+    failures are logged, never raised — the run's real outcome must not be
+    masked by a failure of its safety net (a park that got as far as the
+    comment + status move has still rescued the card, even if the Slack ping
+    or sentinel step then failed).
+    """
+    if not isinstance(result, dict) or result.get("status") != "success" or result.get("parked_stage"):
+        return result
+
+    try:
+        with clickup_client_factory() as clickup:
+            current = clickup.get_task(task_id).get_status_name()
+        if current.strip().lower() != IN_PROGRESS_STATUS:
+            return result
+        logger.error(
+            f"Run for {task_id} (stage {stage!r}) ended successfully with the card still in "
+            f"'{IN_PROGRESS_STATUS}' and no park — parking it now so the card cannot strand"
+        )
+        park_result = park_for_feedback(
+            task_id,
+            stage,
+            [
+                "This run ended while the card was still in progress — most likely waiting on a PR "
+                "merge in a background watcher that died with the run. Check the PR's state, then "
+                "comment here (or move the card back to in progress) to resume."
+            ],
+            clickup_client_factory=clickup_client_factory,
+            slack_client_factory=slack_client_factory,
+            env=env,
+            workspace_dir=workspace_dir,
+        )
+        result["parked_stage"] = park_result["stage"]
+    except Exception as e:
+        logger.error(f"Stranded-run guard failed for {task_id}: {type(e).__name__}: {e}")
+    return result
+
+
+def notify_slack(
+    task_id: str,
+    stage: str,
+    message: str,
+    *,
+    channel: str | None = None,
+    slack_client_factory: Callable[[], Any] = SlackClient,
+    env: Mapping[str, str] | None = None,
+) -> dict:
+    """The park's Slack ping on its own (see the module docstring): posts one
+    message linking the card, touching nothing on the card itself. The same
+    scope and channel guards as park_for_feedback, because a notify that can
+    address arbitrary cards or silently drop for a missing channel would be
+    the same bug in a smaller box. The card URL is constructed, not fetched —
+    notify runs after the caller already wrote the card, and a read here
+    would add a failure mode to a step whose only job is the ping.
+    """
+    source_env = env if env is not None else os.environ
+
+    if stage not in STAGE_CEILINGS:
+        raise UnknownStageError(f"Unknown stage {stage!r}; known stages: {sorted(STAGE_CEILINGS)}")
+
+    allowed_task_ids = _allowed_task_ids(source_env)
+    if task_id not in allowed_task_ids:
+        raise ValueError(
+            f"Refusing to notify about {task_id!r}: writes are scoped to CLICKUP_TASK_ID/EPIC_TASK_ID "
+            f"({sorted(allowed_task_ids) if allowed_task_ids else 'neither is set'})"
+        )
+
+    resolved_channel = channel or source_env.get("AUTOPILOT_SLACK_CHANNEL", "").strip()
+    if not resolved_channel:
+        raise ValueError("No Slack channel: pass --channel or set AUTOPILOT_SLACK_CHANNEL")
+
+    if not message or not message.strip():
+        raise ValueError("A non-empty message is required to notify")
+
+    card_url = f"https://app.clickup.com/t/{task_id}"
+    slack = slack_client_factory()
+    slack.client.chat_postMessage(channel=resolved_channel, text=_notify_message(card_url, stage, message.strip()))
+
+    logger.info(f"Notified {resolved_channel} about {task_id} at stage {stage!r}")
+    return {
+        "status": "notified",
+        "task_id": task_id,
+        "stage": stage,
+        "card_url": card_url,
+        "channel": resolved_channel,
+    }
+
+
 def _park_command(args: argparse.Namespace) -> int:
     try:
         # ClickUpClient/SlackClient looked up as module globals HERE, at call
@@ -319,6 +441,25 @@ def _park_command(args: argparse.Namespace) -> int:
     print(f"Parked {result['task_id']} for feedback at stage {result['stage']!r}: {result['card_url']}")
     for i, question in enumerate(result["questions"], start=1):
         print(f"{i}. {question}")
+    return 0
+
+
+def _notify_command(args: argparse.Namespace) -> int:
+    try:
+        # Same call-time factory lookup as _park_command, for the same
+        # monkeypatch reason.
+        result = notify_slack(
+            args.task_id,
+            args.stage,
+            args.message,
+            channel=args.channel,
+            slack_client_factory=SlackClient,
+        )
+    except Exception as e:
+        print(f"Failed to notify about {args.task_id}: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Notified {result['channel']} about {result['task_id']} at stage {result['stage']!r}: {result['card_url']}")
     return 0
 
 
@@ -354,6 +495,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parked_stage.add_argument("--task-id", required=True)
     parked_stage.set_defaults(func=_parked_stage_command)
+
+    notify = subparsers.add_parser("notify", help="Ping Slack about a card without touching the card")
+    notify.add_argument("--task-id", required=True)
+    notify.add_argument("--stage", required=True, choices=sorted(STAGE_CEILINGS))
+    notify.add_argument("--message", required=True)
+    notify.add_argument("--channel", default=None, help="Defaults to AUTOPILOT_SLACK_CHANNEL")
+    notify.set_defaults(func=_notify_command)
 
     args = parser.parse_args(argv)
     return args.func(args)

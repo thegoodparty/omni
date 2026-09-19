@@ -3,7 +3,10 @@ import {
   SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
   type SupportStatusRollup as GeneratedSupportStatusRollup,
 } from '../generated/enums'
-import { VoterLikelihoodSchema } from './ContactStatus.schema'
+import {
+  FollowUpStatusSchema,
+  VoterLikelihoodSchema,
+} from './ContactStatus.schema'
 
 // Support-status rollup vocabulary shown on the person detail response
 // (ENG-10696). Sourced from the Prisma `SupportStatusRollup` enum (ENG-10700)
@@ -175,6 +178,12 @@ export const PersonSchema = z.object({
   // (ENG-10833). Detail-only, like supportStatus/optedOutAt; omitted for
   // `eo-` (Serve) orgs, which don't get this status at all.
   voterLikelihood: VoterLikelihoodSchema.optional(),
+  // The mirror image of the line above: Serve's standing "asked to be
+  // followed up with", omitted for a Win org, which has no such flag. Its
+  // absence on a Serve person means nothing is owed — nothing derives this
+  // field, so there is no seed to distinguish "no override" from "answered
+  // no".
+  followUp: FollowUpStatusSchema.optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>

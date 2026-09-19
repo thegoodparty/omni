@@ -66,18 +66,26 @@ test.describe('Win Contacts', () => {
       page.getByRole('heading', { name: 'Your Voter Universe' }),
     ).toBeVisible({ timeout: 20_000 })
     await expect(
-      page.getByRole('heading', { name: 'Voter Lists' }),
+      page.getByRole('heading', { name: 'Voter Lists', exact: true }),
     ).toBeVisible()
     await expect(listCard(page, 'All voters')).toBeVisible({
       timeout: 20_000,
     })
 
-    // --- Win keeps the send-outreach affordance (ENG-10749) ---
+    // --- Win keeps the send-outreach affordance (ENG-10749), and it opens
+    // the "Choose a channel" sheet over the page rather than leaving it ---
+    await listCard(page, 'All voters')
+      .getByRole('button', { name: 'Send outreach' })
+      .click()
+    const channelPicker = crmSheet(page)
     await expect(
-      listCard(page, 'All voters').getByRole('link', {
-        name: 'Send outreach',
-      }),
-    ).toBeVisible({ timeout: 20_000 })
+      channelPicker.getByRole('heading', { name: 'Choose a channel' }),
+    ).toBeVisible({ timeout: 15_000 })
+    await expect(
+      channelPicker.getByRole('link', { name: /^SMS/ }),
+    ).toHaveAttribute('href', /compose=text&source=voter_data$/)
+    await channelPicker.getByRole('button', { name: 'Close' }).click()
+    await expect(channelPicker).toBeHidden({ timeout: 10_000 })
 
     // --- Wizard: Win opens on the branch chooser (3-step flow) ---
     await page.getByRole('button', { name: 'Create new list' }).click()
@@ -151,9 +159,10 @@ test.describe('Win Contacts', () => {
       detailSheet.getByRole('heading', { name: 'Voter list details' }),
     ).toBeVisible({ timeout: 20_000 })
 
-    // Win detail sheet keeps Send outreach in the footer (ENG-10749).
+    // Win detail sheet keeps Send outreach in the footer (ENG-10749); it
+    // swaps this sheet for the channel picker, which is covered above.
     await expect(
-      detailSheet.getByRole('link', { name: 'Send outreach' }),
+      detailSheet.getByRole('button', { name: 'Send outreach' }),
     ).toBeVisible({ timeout: 20_000 })
 
     // --- Download from the detail-sheet footer: the request must succeed

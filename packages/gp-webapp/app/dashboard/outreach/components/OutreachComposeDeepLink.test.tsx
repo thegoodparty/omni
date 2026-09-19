@@ -9,9 +9,10 @@ import type { Campaign, TcrCompliance } from 'helpers/types'
 
 let mockSearchParams = new URLSearchParams()
 const mockReplace = vi.fn()
+const mockPush = vi.fn()
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
   usePathname: () => '/dashboard/outreach',
   useSearchParams: () => mockSearchParams,
 }))
@@ -51,6 +52,7 @@ describe('OutreachComposeDeepLink', () => {
   beforeEach(() => {
     mockSearchParams = new URLSearchParams()
     mockReplace.mockClear()
+    mockPush.mockClear()
     onCompose.mockClear()
     vi.mocked(trackEvent).mockClear()
   })
@@ -157,6 +159,65 @@ describe('OutreachComposeDeepLink', () => {
     })
   })
 
+  // The voter data page's channel picker opens every flow through this
+  // link, so phone banking and social ride the same param as text/robocall.
+  it('asks for the phone-banking flow for a Pro user, carrying the source', async () => {
+    mockSearchParams = new URLSearchParams(
+      'compose=phoneBanking&source=voter_data&listId=42',
+    )
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest()).toMatchObject({ type: 'phoneBanking', listId: 42 })
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
+      type: 'phoneBanking',
+      source: 'voter_data',
+    })
+  })
+
+  // Same upgrade-at-entry the phone-banking tile applies: straight to the
+  // Pro upgrade wizard, not a modal, and no flow.
+  it('sends a non-Pro phone-banking request to the upgrade wizard', async () => {
+    mockSearchParams = new URLSearchParams('compose=phoneBanking')
+    renderDeepLink({ isPro: false, tcrCompliance: approvedCompliance })
+
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith('/dashboard/pro-upgrade'),
+    )
+    expect(onCompose).not.toHaveBeenCalled()
+  })
+
+  it('asks for the social flow with no gate', async () => {
+    mockSearchParams = new URLSearchParams('compose=social&source=voter_data')
+    renderDeepLink({ isPro: false })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest()).toMatchObject({ type: 'socialMedia' })
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('carries a recommended variant alongside compose', async () => {
+    mockSearchParams = new URLSearchParams(
+      'compose=text&recommended=persuadeAffinity',
+    )
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest()).toMatchObject({
+      type: 'text',
+      recommendedVariant: 'persuadeAffinity',
+    })
+    expect(composeRequest().listId).toBeUndefined()
+  })
+
+  it('drops an unknown recommended variant rather than carrying it', async () => {
+    mockSearchParams = new URLSearchParams('compose=text&recommended=nope')
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().recommendedVariant).toBeUndefined()
+  })
+
   it('gates robocall behind Pro with the upgrade modal', async () => {
     mockSearchParams = new URLSearchParams('compose=robocall')
     renderDeepLink({ isPro: false, tcrCompliance: approvedCompliance })
@@ -202,6 +263,20 @@ describe('OutreachComposeDeepLink', () => {
   // same way `compose` is.
   it('strips a bare listId param from the address bar on mount', async () => {
     mockSearchParams = new URLSearchParams('listId=123')
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
+        scroll: false,
+      }),
+    )
+    expect(onCompose).not.toHaveBeenCalled()
+  })
+
+  // The voter data page's recommended cards carry ?recommended=<variant>
+  // the same way; the server reads it, so it is stripped the same way.
+  it('strips a bare recommended param from the address bar on mount', async () => {
+    mockSearchParams = new URLSearchParams('recommended=persuadeAffinity')
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
     await waitFor(() =>

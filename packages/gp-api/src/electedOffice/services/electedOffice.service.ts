@@ -104,6 +104,7 @@ export class ElectedOfficeService extends createPrismaBase(
     const newStart = args.termStartDate ?? null
     const newEnd = args.termEndDate ?? null
 
+    let freshlyCreated = false
     const office = await this.client.$transaction(async (tx) => {
       // Serialize office creation per user. Task 01 removed the
       // @@unique([userId]) constraint, so this advisory lock is what stops two
@@ -267,10 +268,28 @@ export class ElectedOfficeService extends createPrismaBase(
         },
       })
 
-      await this.priorities.seedFromWin(created.id, tx)
-
+      freshlyCreated = true
       return created
     })
+
+    // Bootstrap priorities from the winning campaign. Moved out of the txn
+    // above because it does 3 more round trips (findUnique + findFirst +
+    // findUnique, plus a createMany on the seed path) — inside the interactive
+    // transaction that meant the per-user pg_advisory_xact_lock and a pooled
+    // connection were held across those trips, and the total body regularly
+    // tipped over Prisma's 5,000 ms budget → P2028 on POST /v1/elected-office
+    // (ENG-11116). Gated on freshlyCreated: the placeholder / idempotent-retry
+    // / bare-existing return paths never seeded and must not start doing so.
+    // Failure is swallowed — a seed miss leaves the office intact; the seed
+    // can be replayed and is idempotent — so it must never 5xx the create.
+    if (freshlyCreated) {
+      await this.priorities.seedFromWin(office.id).catch((err: Error) => {
+        this.logger.error(
+          { err, electedOfficeId: office.id },
+          'priorities seedFromWin failed after EO created',
+        )
+      })
+    }
 
     // Fires for both a fresh create and an idempotent return: a prior call may
     // have committed the row but crashed before dispatching the schedule, and

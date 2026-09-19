@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -16,6 +16,7 @@ vi.mock('@shared/organization-picker', () => ({
 
 const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
+  intent: 'persuade' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 12000,
   voteGoalShare: 0.31,
@@ -44,6 +45,87 @@ const openToAudience = async () => {
     await screen.findByText(/Choose a voter list|View your lists here/),
   ).toBeInTheDocument()
 }
+
+describe('RobocallFlow — a recommendation carried in from the voter data page', () => {
+  it('selects the saved list on the audience step when the variant already exists', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 501, name: 'Persuadable independents' }],
+    })
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity'
+          ? [{ ...RECOMMENDATION, existingFilterId: 501 }]
+          : [],
+    }))
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 12000, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: null,
+          robocall: 9000,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    render(
+      <RobocallFlow
+        open
+        onClose={vi.fn()}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+
+    expect(
+      await screen.findByText(/Reach 9,000 supporters with landlines/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Introduce myself to voters')).toBeNull()
+    expect(screen.queryByText('Name this list')).not.toBeInTheDocument()
+  })
+})
+
+describe('RobocallFlow — a recommendation carried in, not saved yet', () => {
+  it('opens on the audience step with the card selected and saves it under its own title on Continue', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data: query.variant === 'persuadeAffinity' ? [RECOMMENDATION] : [],
+    }))
+    const filterCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return { status: 200, data: { id: 88, name: body.name } }
+    })
+    render(
+      <RobocallFlow
+        open
+        onClose={vi.fn()}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+
+    expect(screen.queryByText('Introduce myself to voters')).toBeNull()
+    const card = await screen.findByTestId('recommended-list-card')
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
+    expect(screen.queryByText('Name this list')).not.toBeInTheDocument()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue (12,000)' }),
+    )
+
+    await waitFor(() => expect(filterCalls).toHaveLength(1))
+    expect(filterCalls[0]).toMatchObject({
+      name: 'Persuadable independents',
+      recommendedVariant: 'persuadeAffinity',
+      recommendedChannel: 'robocall',
+      recommendedIntent: 'persuade',
+    })
+  })
+})
 
 describe('RobocallFlow — recommended lists', () => {
   it('shows a card and carries its variant, channel and intent through to the created filter', async () => {
@@ -79,7 +161,8 @@ describe('RobocallFlow — recommended lists', () => {
     expect(filterCalls[0]).toMatchObject({
       recommendedVariant: 'persuadeAffinity',
       recommendedChannel: 'robocall',
-      recommendedIntent: 'introduce',
+      // The variant's own intent, not the purpose picked to reach it.
+      recommendedIntent: 'persuade',
     })
   })
 

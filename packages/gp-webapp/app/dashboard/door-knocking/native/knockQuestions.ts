@@ -63,6 +63,39 @@ export const FOLLOW_UP_OPTIONS: Array<[FollowUpAnswer, string]> = [
   ['no', 'No'],
 ]
 
+// Serve cannot say "voter" for the `not_a_voter` ending, which is the one
+// label in the two shared option lists that carries the word. The bucket means
+// the same thing on both surfaces — the person on file isn't who lives here —
+// so this is a relabel, not a Serve-only ending: the slug stays the
+// contract's, and `statusPresentation.ts` moves the same bucket's status word.
+const SERVE_OUTCOME_LABELS: Partial<Record<DoorKnockOutcome, string>> = {
+  not_a_voter: 'Not a constituent',
+}
+
+const withServeLabels = (
+  options: Array<[DoorKnockOutcome, string]>,
+  isServe: boolean,
+): Array<[DoorKnockOutcome, string]> =>
+  isServe
+    ? options.map(([outcome, label]) => [
+        outcome,
+        SERVE_OUTCOME_LABELS[outcome] ?? label,
+      ])
+    : options
+
+// Every surface that prints one of these labels goes through these rather than
+// indexing the arrays directly, for the same reason `statusLabel` exists: a
+// Serve reader must not be able to pick up a Win word by forgetting to check.
+export const outcomeOptions = (
+  isServe: boolean,
+): Array<[DoorKnockOutcome, string]> =>
+  withServeLabels(OUTCOME_OPTIONS, isServe)
+
+export const engagementOptions = (
+  isServe: boolean,
+): Array<[DoorKnockOutcome, string]> =>
+  withServeLabels(ENGAGEMENT_OPTIONS, isServe)
+
 export const OUTCOME_QUESTION = 'Did they answer?'
 export const ENGAGEMENT_QUESTION = 'Did they engage?'
 export const SUPPORT_QUESTION = 'Do they support you?'
