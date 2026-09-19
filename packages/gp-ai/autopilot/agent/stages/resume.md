@@ -72,7 +72,10 @@ human-initiated by construction (the conductor drops the bot's own comments,
 and only a human can drag through the gate), so being in this run at all
 means a human asked for re-verification. Read the findings comment and any
 replies for what changed or was answered, then re-run the QA walk with that
-context.
+context. The re-run's outcome is qa.md's to decide, not the bullets below —
+everything passed moves the ticket to `done`, anything failed posts fresh
+findings and parks again with a new "QA failed" question; the
+Resolved/Still-not-resolved bullets apply only to status-note parks.
 
 - **Resolved** (the PR has since merged; the commit is now live on dev):
   continue straight into that stage's remaining handoff steps — moving the
