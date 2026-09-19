@@ -19,10 +19,16 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import type {
+  ChatAttachmentDownloadResponse,
+  ChatAttachmentListResponse,
   ChatConversation as ChatConversationResponse,
   ChatHistoryResponse,
   ChatMessageFeedback as ChatMessageFeedbackResponse,
   CreateChatResponse,
+} from '@goodparty_org/contracts'
+import {
+  ChatAttachmentDownloadResponseSchema,
+  ChatAttachmentListResponseSchema,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
@@ -30,7 +36,10 @@ import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.deco
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
-import { SERVE_CHAT_ATTACHMENTS_FLAG } from '@/chats/services/chatAttachments.service'
+import {
+  ChatAttachmentsService,
+  SERVE_CHAT_ATTACHMENTS_FLAG,
+} from '@/chats/services/chatAttachments.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
@@ -89,6 +98,7 @@ export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
     private readonly features: FeaturesService,
+    private readonly attachments: ChatAttachmentsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(GeneralChatsController.name)
@@ -322,6 +332,43 @@ export class GeneralChatsController {
     })
     if (!enabled) throw new NotFoundException()
     throw new NotImplementedException()
+  }
+
+  @Get(':conversationId/attachments')
+  @ResponseSchema(ChatAttachmentListResponseSchema)
+  async listAttachments(
+    @ReqUser() user: User,
+    @Param('conversationId') conversationId: string,
+  ): Promise<ChatAttachmentListResponse> {
+    return this.attachments.listAttachments(conversationId, user.id)
+  }
+
+  @Get(':conversationId/attachments/:attachmentId/download')
+  @ResponseSchema(ChatAttachmentDownloadResponseSchema)
+  async downloadAttachment(
+    @ReqUser() user: User,
+    @Param('conversationId') conversationId: string,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<ChatAttachmentDownloadResponse> {
+    return this.attachments.getDownloadUrl(
+      conversationId,
+      attachmentId,
+      user.id,
+    )
+  }
+
+  @Delete(':conversationId/attachments/:attachmentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteAttachment(
+    @ReqUser() user: User,
+    @Param('conversationId') conversationId: string,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<void> {
+    await this.attachments.deleteAttachment(
+      conversationId,
+      attachmentId,
+      user.id,
+    )
   }
 
   @Delete(':conversationId')
