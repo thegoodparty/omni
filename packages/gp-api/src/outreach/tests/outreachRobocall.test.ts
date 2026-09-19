@@ -292,16 +292,21 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
-  it('rejects a non-Pro campaign with a 403', async () => {
+  // Not Pro-gated (outreach-pro-gating-v2): the free build path drafts a
+  // script before upgrading, exactly as the sms script draft already does.
+  it('allows a non-Pro campaign to draft a script', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { isPro: false },
     })
+    mockDraft('Hi, this is Jane Doe, and I am running for City Council.')
 
     const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
 
-    expect(res.status).toBe(HttpStatus.FORBIDDEN)
-    expect(jsonCompletion).not.toHaveBeenCalled()
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      draft: 'Hi, this is Jane Doe, and I am running for City Council.',
+    })
   })
 })
 

@@ -168,17 +168,18 @@ export class OutreachRobocallController {
     return { clientSecret, customerId }
   }
 
+  // Not Pro-gated (outreach-pro-gating-v2), mirroring the sms script draft: a
+  // free candidate builds the whole robocall before upgrading, and this route
+  // only calls an LLM — it reads no voter data. Only the paid
+  // create/authorize/send routes still require Pro.
   @Post('robocall/draft')
   @ResponseSchema(RobocallScriptDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
     @ReqCampaign() campaign: Campaign,
-    @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(RobocallScriptDraftRequestSchema))
     input: RobocallScriptDraftRequest,
   ): Promise<RobocallScriptDraftResponse> {
-    await this.contacts.assertProAccess(organization)
-
     return {
       draft: await this.generationService.generateDraft(
         input,
