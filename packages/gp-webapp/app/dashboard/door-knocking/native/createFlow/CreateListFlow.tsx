@@ -9,6 +9,7 @@ import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
+import { formatName, teamQueryKey } from 'app/dashboard/team/team.util'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
@@ -27,7 +28,7 @@ import {
 } from './voterFilterPreview'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
-import type { TurfDraft } from '../turfDrafts'
+import { nextTurfName, type TurfDraft } from '../turfDrafts'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
@@ -67,6 +68,7 @@ import {
 import { WhoStep } from './WhoStep'
 import { DrawStep } from './DrawStep'
 import { DrawFullScreen } from './DrawFullScreen'
+import { DrawToolbar, type TeamOption } from './DrawToolbar'
 import { RouteStep } from './RouteStep'
 import type { SavedListOption } from './savedListOptions'
 import type {
@@ -85,6 +87,27 @@ export type { CreateFlowStep } from './createFlowSteps'
 
 // Hard cap on stops per list — anything over this can't route.
 export const HARD_STOP_LIMIT = 150
+
+// The canvas emits an OPEN ring — the vertices as placed, first corner not
+// repeated at the end — and `GeoJsonPolygonSchema` requires a closed one.
+// Closing happens here, at the wire, rather than in the drawing session,
+// because a closed ring on the canvas would draw its first vertex twice and
+// give Undo a phantom corner to drop.
+const closeRing = (ring: PolygonRing): PolygonRing => {
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+  if (!first || !last) return ring
+  return first[0] === last[0] && first[1] === last[1] ? ring : [...ring, first]
+}
+
+// One turf the batch below actually bought, paired with the draft that asked
+// for it. The pairing is what the assignment writes and the draft cleanup
+// both read: a response carries no `clientId`, and the draft carries no
+// envelope id, so neither half can find the other on its own.
+interface CreatedTurf {
+  draft: TurfDraft
+  turf: DoorKnockingTurf
+}
 const CREATE_ERROR_FALLBACK =
   'Building the route failed — nothing was saved. Try again in a moment.'
 
@@ -271,25 +294,26 @@ interface CreateListFlowProps {
   // from `?campaignOutreachId=` on the URL — the drawer's "Add another
   // turf" affordance is what sets it.
   campaignOutreachId?: number
-  // Multi-turf drafts: polygons the candidate has committed on the drawing
-  // surface but not yet paid for. Owned by the page (the canvas draws
-  // them), received here so the draw step body can render one card per
-  // draft and the save mutation can batch a `POST /v1/door-knocking/turfs`
-  // per draft.
+  // The turfs cut in this sitting, in the order they were cut. One campaign
+  // holds all of them, and the route step's press buys a route for each.
   //
-  // Optional during the multi-turf refactor: a caller (a test, or a
-  // pre-refactor render) that omits them gets an empty drafts list and
-  // no-op writers, and the flow behaves as it did on the single-turf path
-  // — the save mutation falls back to the current `ring` alone. The next
-  // session that finishes the refactor should tighten these to required.
-  turfDrafts?: TurfDraft[]
-  onCommitDraft?: (draft: Omit<TurfDraft, 'clientId'>) => void
-  onRemoveDraft?: (clientId: string) => void
-  onUpdateDraft?: (
+  // Nothing here commits one — a turf becomes a draft the moment its ring is
+  // valid, which only the page can see. See `CreateListSurfaceProps`.
+  turfDrafts: TurfDraft[]
+  // The pack's stops/doors/people per draft, keyed by `clientId`. Absent
+  // means the pack has not answered for that boundary yet.
+  draftStats: Map<string, PolygonStats>
+  // The turf whose boundary is under the cursor right now, or null while a
+  // new one is being drawn. The toolbar's controls act on this one.
+  activeDraftId: string | null
+  onSelectDraft: (clientId: string) => void
+  onStartNewTurf: () => void
+  onRemoveDraft: (clientId: string) => void
+  onUpdateDraft: (
     clientId: string,
     patch: Partial<Omit<TurfDraft, 'clientId'>>,
   ) => void
-  onClearDrafts?: () => void
+  onPickColor: (color: string) => void
 }
 
 // The clauses an accepted recommendation carries that the who step's boolean
@@ -393,25 +417,61 @@ export default function CreateListFlow({
   siblingTurfs,
   campaignOutreachId,
   turfDrafts,
-  onCommitDraft,
+  draftStats,
+  activeDraftId,
+  onSelectDraft,
+  onStartNewTurf,
   onRemoveDraft,
   onUpdateDraft,
-  onClearDrafts,
+  onPickColor,
 }: CreateListFlowProps) {
-  // WIP HANDOFF (2026-09-18): the multi-turf drafts props are declared on
-  // the interface and received here, but the draw step body, the drawing
-  // surface toolbar, and the batch-save mutation that will read them have
-  // not landed yet. Voided so the compiler stops flagging them as unused
-  // while the next session finishes the drawing surface refactor. Remove
-  // this block once each prop has a real caller.
-  void turfDrafts
-  void onCommitDraft
-  void onRemoveDraft
-  void onUpdateDraft
-  void onClearDrafts
   const queryClient = useQueryClient()
   const serveMode = useDoorKnockingServeMode()
   const officeName = useDoorKnockingOfficeName()
+  const activeDraft =
+    turfDrafts.find((draft) => draft.clientId === activeDraftId) ?? null
+  // The org's roster, for the drawing surface's assignee control.
+  //
+  // Shares `teamQueryKey` with the team page and the outreach drawer's
+  // assignees section, which is the whole reason it is read through that
+  // helper: three surfaces asking the same question must not each keep
+  // their own copy of the answer, and a candidate who has just come from
+  // either of the other two pays for no request here.
+  //
+  // Failure is silent on purpose. An assignee is optional on every turf and
+  // can be set from the outreach drawer afterwards, so a roster that will
+  // not load costs the candidate a convenience and not the campaign they
+  // came to cut — the toolbar simply does not offer the control.
+  const teamQuery = useQuery({
+    queryKey: teamQueryKey(orgSlug),
+    queryFn: () =>
+      clientRequest('GET /v1/organizations/team', {}).then((res) => res.data),
+    enabled: !!orgSlug,
+  })
+  const teamOptions = useMemo<TeamOption[]>(
+    () =>
+      (teamQuery.data?.members ?? []).map((member) => ({
+        userId: member.userId,
+        label: formatName(member.name, member.email),
+      })),
+    [teamQuery.data],
+  )
+  // Draft id -> the canvasser's name, for the cards on the step behind the
+  // drawing surface. An assignee whose membership has gone (removed from the
+  // org between the pick and the save) drops out of the map rather than
+  // printing a bare id, and the save still posts the assignment — gp-api is
+  // the authority on whether that user may hold one.
+  const assigneeLabels = useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const draft of turfDrafts) {
+      if (draft.assigneeId === null) continue
+      const member = teamOptions.find(
+        (option) => option.userId === draft.assigneeId,
+      )
+      if (member) labels.set(draft.clientId, member.label)
+    }
+    return labels
+  }, [turfDrafts, teamOptions])
   // For the talking-points step's composed sections only: the identity clause
   // it previews, and the website its call to action is built from. The
   // candidate's name lives on the user, not the campaign.
@@ -708,6 +768,15 @@ export default function CreateListFlow({
   // only valid for the confirm/points/route steps it was minted in — going
   // back to the filters, or closing, may change the audience, so it resets.
   const createdFilterIdRef = useRef<number | null>(null)
+  // The anchor envelope this flow has already paid for, if the batch below
+  // got that far. Its whole job is to survive a partial failure: a retry
+  // that re-minted an anchor would leave the candidate holding two campaigns
+  // of one turf each, with nothing in the product able to merge them.
+  //
+  // Unlike `createdFilterIdRef` there is no cleanup that undoes this — a
+  // routed turf has been billed, and abandoning the flow leaves a real
+  // one-turf campaign on the outreach hub rather than an orphan.
+  const createdAnchorRef = useRef<number | null>(null)
   const releaseOrphanFilter = () => {
     // Best-effort; an orphaned list is a nuisance, not a correctness problem.
     const orphanId = createdFilterIdRef.current
@@ -794,21 +863,22 @@ export default function CreateListFlow({
     setName(suggestion)
   }, [step, purpose, purposeNameSuggestion, siblingTurfs])
 
-  // Stops are what the router and its 150-stop cap are denominated in; doors
-  // are what the candidate walks and what the time estimate is worth. At a
-  // multi-unit building one stop is many doors, so reporting stops as doors
-  // understated the evening exactly where buildings are densest.
+  // The stop count for the boundary under the cursor, and the only figure
+  // this component derives from the live ring — everything else about a turf
+  // is read off its draft, which is where a turf's identity now lives.
   //
-  // One quantity, one number: the preview REPLACES the estimate rather than
-  // The pack's counts drive every reading of the drawn shape now that
-  // the address-preview panel has left the draw step. Once the route
-  // step commits, the paid `POST /door-knocking/turfs` runs its own
-  // exact evaluation server-side and freezes the list; the draw step's
-  // counts stay pack-derived because they are still ephemeral answers
-  // about a boundary the candidate may yet adjust.
+  // Stops are what the router and its 150-stop cap are denominated in, so
+  // this is what the drawing surface's pill prints and what `overCap` below
+  // is measured in. Doors and people belong to a turf rather than to the
+  // gesture drawing one, and the per-draft figures in `draftStats` are where
+  // both now come from: this flow cuts several turfs, and a single `people`
+  // off the active ring would have described whichever one happened to be
+  // under the cursor while reading as the campaign's.
+  //
+  // Pack-derived, and ephemeral on purpose. Once the route step commits, the
+  // paid `POST /door-knocking/turfs` runs its own exact evaluation
+  // server-side and freezes the list.
   const stops = turfStats?.stops ?? 0
-  const doors = turfStats?.households ?? 0
-  const people = turfStats?.people ?? 0
 
   // Derived rather than seeded into state: the pack decodes on its own
   // schedule, so a suggestion that arrives after the route step is on screen
@@ -981,7 +1051,7 @@ export default function CreateListFlow({
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!ring) throw new Error('no polygon')
+      if (turfDrafts.length === 0) throw new Error('no turfs')
       // A list picked on the who step ALREADY is a `voter-file/filter`, and
       // its id is the same one the turf attaches by — `TurfDetailsDrawer`
       // resolves a turf's list by matching them. So the turf reuses it rather
@@ -1050,73 +1120,186 @@ export default function CreateListFlow({
         }
       }
       if (savedListId === null) createdFilterIdRef.current = filterId
-      const closedRing: PolygonRing =
-        ring[0]?.[0] !== ring[ring.length - 1]?.[0] ||
-        ring[0]?.[1] !== ring[ring.length - 1]?.[1]
-          ? [...ring, ring[0] as [number, number]]
-          : ring
-      // The one paid call in the feature, and the only write that persists
-      // anything from this flow. It creates the turf, buys the Geoapify route
-      // and writes the outreach envelope in a single transaction, so a
-      // failure here leaves nothing behind and the flow stays exactly as it
-      // is — polygon, filters, name, colour, mode and loop all intact — for a
-      // retry or a step back.
-      //
-      // Two endpoints for one call, because creation is the only place the
-      // Win/Serve scope of the envelope is chosen and it must not be re-derived
-      // server-side from whatever the org happens to hold (ENG-10976). The rail
-      // this list will appear on is the one that is already on screen — same
-      // `serveMode`, from the same context.
-      const body = {
+
+      // One turf's create body. Every field but the four per-turf ones is
+      // the campaign's and identical across the batch: they share an
+      // audience, a purpose, a talking-points card and a travel mode,
+      // because all of that was settled before the map was ever drawn on.
+      const bodyFor = (draft: TurfDraft, anchorId: number | undefined) => ({
         voterFileFilterId: filterId,
-        name: name.trim(),
-        color,
-        geoPoly: { type: 'Polygon' as const, coordinates: [closedRing] },
+        name: draft.name.trim(),
+        color: draft.color,
+        geoPoly: {
+          type: 'Polygon' as const,
+          coordinates: [closeRing(draft.polygon)],
+        },
         mode,
         loop,
         // Why this list is being walked, and the card its canvassers read —
-        // frozen with the route for the same reason the door list is: everyone
-        // works from the same plan. Both optional server-side, so a flow that
-        // skipped the points step still creates a turf.
+        // frozen with the route for the same reason the door list is:
+        // everyone works from the same plan. Both optional server-side, so a
+        // flow that skipped the points step still creates a turf.
         ...(purpose ? { purpose } : {}),
         ...(hasPoints ? { talkingPoints: serializeTalkingPoints(points) } : {}),
-        // Solo turf → omitted → server treats this row as its own campaign
-        // anchor. Set → this row joins that anchor's campaign and the
-        // server validates the id is a door-knocking Outreach in the same
-        // Win/Serve scope before writing.
-        ...(campaignOutreachId !== undefined ? { campaignOutreachId } : {}),
-      }
-      const { data } = await (serveMode
-        ? clientRequest('POST /v1/door-knocking/serve/turfs', body)
-        : clientRequest('POST /v1/door-knocking/turfs', body))
-      createdFilterIdRef.current = null
-      return data
-    },
-    onSuccess: (turf) => {
-      // One event, because creating the list and building its route are one
-      // transaction.
-      trackEvent(EVENTS.DoorKnocking.ListCreated, {
-        stops,
-        people,
-        // Without shipping which filters — the demographics themselves stay
-        // out of the analytics payload.
-        filterCount: activeFilterCount,
-        mode,
-        loop,
-        // Beside `mode`, the only read on whether the geometry-derived default
-        // is any good: equal means it was accepted, different means it was
-        // deliberately overruled, null means there was nothing to suggest from.
-        suggestedMode,
+        // Absent on the very first turf of a new campaign, which is what
+        // makes that row the anchor; set on every other, which is what makes
+        // them its siblings. The server validates the id is a door-knocking
+        // Outreach in the same Win/Serve scope before writing.
+        ...(anchorId !== undefined ? { campaignOutreachId: anchorId } : {}),
+        // What the campaign is called, as against what this turf is called.
+        // Sent on every turf: the server ignores it for one joining an
+        // existing campaign (that campaign owns its own name), and writes it
+        // on every envelope otherwise.
+        campaignName: name.trim(),
       })
+
+      // The paid call, once per turf. It creates the turf, buys the Geoapify
+      // route and writes the outreach envelope in a single transaction, so a
+      // failure leaves that turf's half of the work undone and nothing else.
+      //
+      // Two endpoints for one call, because creation is the only place the
+      // Win/Serve scope of the envelope is chosen and it must not be
+      // re-derived server-side from whatever the org happens to hold
+      // (ENG-10976). The rail this campaign appears on is the one already on
+      // screen — same `serveMode`, from the same context.
+      const createTurf = (draft: TurfDraft, anchorId: number | undefined) => {
+        const body = bodyFor(draft, anchorId)
+        return serveMode
+          ? clientRequest('POST /v1/door-knocking/serve/turfs', body)
+          : clientRequest('POST /v1/door-knocking/turfs', body)
+      }
+
+      // The anchor has to exist before anything can point at it, so the
+      // first turf of a NEW campaign is bought on its own and the rest go
+      // together behind it. Arriving through "Add another turf" skips that
+      // wait entirely: the anchor is already bought, so every draft is a
+      // sibling and they all go at once.
+      //
+      // `createdAnchorRef` is what makes a retry safe. A batch that lost its
+      // siblings to a vendor timeout has already paid for its anchor, and a
+      // retry that re-minted one would leave the candidate with two campaigns
+      // holding one turf each and no way to merge them. Same shape, and the
+      // same reason, as `createdFilterIdRef` above.
+      let anchorId = campaignOutreachId ?? createdAnchorRef.current ?? undefined
+      const created: CreatedTurf[] = []
+      const failures: unknown[] = []
+      let pending = turfDrafts
+      if (anchorId === undefined) {
+        const [first, ...rest] = turfDrafts
+        // Narrowing only — the length was checked at the top of the
+        // mutation, so there is always a first draft here.
+        if (!first) throw new Error('no turfs')
+        const { data } = await createTurf(first, undefined)
+        anchorId = data.outreachId
+        createdAnchorRef.current = data.outreachId
+        created.push({ draft: first, turf: data })
+        pending = rest
+      }
+
+      // Everything left goes at once. `allSettled` rather than `all`: these
+      // are independent purchases, and a vendor 502 on the third turf must
+      // not throw away two routes that were bought and billed. Each result
+      // is sorted into kept or retryable below.
+      const anchor = anchorId
+      const results = await Promise.allSettled(
+        pending.map((draft) =>
+          createTurf(draft, anchor).then(({ data }) => ({
+            draft,
+            turf: data,
+          })),
+        ),
+      )
+      for (const result of results) {
+        if (result.status === 'fulfilled') created.push(result.value)
+        else failures.push(result.reason)
+      }
+
+      // Assignments ride after the turfs, never inside them: an assignment is
+      // a cheap, reversible row on an envelope that already exists, while a
+      // turf is a billed route. Folding the two together would mean a failed
+      // assign could look like a failed purchase, and the candidate would
+      // retry a create that had already been paid for.
+      //
+      // Failures here are swallowed for the same reason the roster's are: an
+      // assignee is optional, the outreach drawer can set one afterwards, and
+      // a campaign that is fully routed must not report itself as failed
+      // because one volunteer could not be attached to one turf.
+      await Promise.allSettled(
+        created
+          .filter((row) => row.draft.assigneeId !== null)
+          .map((row) =>
+            clientRequest('POST /v1/outreach/:id/assignments', {
+              id: String(row.turf.outreachId),
+              assigneeUserId: row.draft.assigneeId as number,
+            }),
+          ),
+      )
+
+      // Only once every turf landed. A partial batch keeps the filter id,
+      // because the turfs still owed will attach to that same audience on
+      // the retry — clearing it here would file a second, identical list.
+      if (failures.length === 0) createdFilterIdRef.current = null
+      return { created, failures }
+    },
+    onSuccess: ({ created, failures }) => {
+      // One event per turf, because one turf is one route bought in one
+      // transaction — that is what the door-knocking activation metric
+      // counts, and collapsing a four-turf campaign into a single event
+      // would under-report it by three.
+      for (const row of created) {
+        const stats = draftStats.get(row.draft.clientId)
+        trackEvent(EVENTS.DoorKnocking.ListCreated, {
+          // This turf's own figures, not the campaign's: the event is about
+          // a route, and a shared total would make every turf of a campaign
+          // look the same size as the whole of it.
+          stops: stats?.stops ?? 0,
+          people: stats?.people ?? 0,
+          // Without shipping which filters — the demographics themselves
+          // stay out of the analytics payload.
+          filterCount: activeFilterCount,
+          mode,
+          loop,
+          // Beside `mode`, the only read on whether the geometry-derived
+          // default is any good: equal means it was accepted, different
+          // means it was deliberately overruled, null means there was
+          // nothing to suggest from.
+          suggestedMode,
+        })
+      }
+      // A turf that did not build, reported the same way a whole failed
+      // press is. `onError` only fires when the ANCHOR throws, which is the
+      // one failure that buys nothing — every sibling that 502s resolves
+      // this mutation, so without this the activation metric's failure
+      // counterpart would miss every one of them.
+      for (const error of failures) {
+        trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
+          mode,
+          loop,
+          status: error instanceof FetchError ? error.status : undefined,
+        })
+      }
+      // Dropped here rather than in the mutation body so a draft is only
+      // ever forgotten once its route is real. What is left in the list is
+      // exactly what still has to be bought, which is what makes the retry
+      // on a partial failure buy each turf once.
+      for (const row of created) onRemoveDraft(row.draft.clientId)
+
       void queryClient.invalidateQueries({ queryKey: ['door-knocking-turfs'] })
       void queryClient.invalidateQueries({
         queryKey: ['door-knocking-saved-lists'],
       })
-      // Both daily allowances just moved — this turf spent one campaign and
-      // its stops — and the next press reads them to decide whether to open
-      // the flow at all.
+      // Both daily allowances just moved — this campaign spent one campaign
+      // and its stops — and the next press reads them to decide whether to
+      // open the flow at all.
       void queryClient.invalidateQueries({ queryKey: ['door-knocking-quota'] })
-      onListCreated(turf)
+
+      // A partial batch stays on the route step with its unsold turfs still
+      // in the list, so the same Build route press finishes the job. Handing
+      // over to a walk here would strand the turfs that failed on a screen
+      // with no way back to them.
+      if (failures.length > 0) return
+      const first = created[0]
+      if (first) onListCreated(first.turf)
     },
     onError: (error) => {
       trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
@@ -1129,6 +1312,21 @@ export default function CreateListFlow({
       })
     },
   })
+
+  // What the route step says went wrong.
+  //
+  // A thrown error is the anchor failing, which bought nothing; a resolved
+  // result carrying failures is a batch that bought some of its turfs and
+  // not the rest. The two read differently on purpose — "nothing was saved"
+  // is the wrong thing to tell someone who has just been billed for two
+  // routes, and the retry they are being offered is not the same retry.
+  const partialFailure =
+    save.data && save.data.failures.length > 0 ? save.data.failures[0] : null
+  const saveErrorMessage = save.isError
+    ? toCreateErrorMessage(save.error)
+    : partialFailure
+      ? `${toCreateErrorMessage(partialFailure)} The turfs that did build are saved — press Build route again to finish the rest.`
+      : null
 
   const overCap = stops > HARD_STOP_LIMIT
   // The per-list stop cap above is the only thing the drawing surface
@@ -1177,22 +1375,43 @@ export default function CreateListFlow({
     return (
       <DrawFullScreen
         pointCount={drawPointCount}
-        // The design's bare word, in every state. What the button is
-        // waiting for is said by the surface rather than by the button:
-        // the centred hint names the gesture until the first point lands,
-        // and the count pill (in the drawing surface itself, once a point
-        // is placed) reads the shape from there. A button that renames
-        // itself three times is three controls to read where the design
-        // draws one.
-        continueDisabled={!ring || stops === 0 || overCap}
-        onContinue={() => {
-          onDrawFullScreenChange(false)
-          goToStage('route')
-        }}
+        // Enabled once there is at least one turf worth keeping, which is
+        // not the same question as "is the shape under the cursor valid".
+        // A candidate who cut two turfs and then tapped New turf has an
+        // empty ring and two turfs to save; gating on the ring alone would
+        // trap them on this surface with no way back but Back.
+        //
+        // The over-cap term stays on the ring, because the cap is about the
+        // shape being drawn RIGHT NOW: a committed turf was under it when
+        // it committed, and the one in progress is what can still be fixed.
+        continueDisabled={turfDrafts.length === 0 || overCap}
+        // Back to the step that lists the turfs — NOT on to the route step.
+        // Drawing is a place a candidate goes several times before the
+        // campaign is cut the way they want it, so the way out of it is the
+        // list of what they have cut, with "Draw more turfs" on it.
+        onContinue={() => onDrawFullScreenChange(false)}
         onClose={leaveFullScreen}
         onUndoPoint={onUndoPoint}
         drawStopCount={stops}
         drawStopsOverCap={overCap}
+        toolbar={
+          <DrawToolbar
+            drafts={turfDrafts}
+            active={activeDraft}
+            pendingName={nextTurfName(
+              (siblingTurfs?.length ?? 0) + turfDrafts.length,
+            )}
+            drawColor={color}
+            onSelectDraft={onSelectDraft}
+            onStartNewTurf={onStartNewTurf}
+            onPickColor={onPickColor}
+            onAssign={(assigneeId) => {
+              if (!activeDraft) return
+              onUpdateDraft(activeDraft.clientId, { assigneeId })
+            }}
+            team={teamOptions}
+          />
+        }
       />
     )
   }
@@ -1299,12 +1518,16 @@ export default function CreateListFlow({
                 : stage === 'draw'
                   ? {
                       // Bare word — the shape's own count sits on the
-                      // drawing surface, and the disclosure sentence and
-                      // cap warnings are below this step's preview card,
-                      // so a count in the CTA would be the third place
-                      // saying the same number.
+                      // drawing surface, and the cap warnings are there
+                      // too, so a count in the CTA would be a third place
+                      // saying the same number. With several turfs on the
+                      // step there is no single number it could carry
+                      // anyway.
                       label: 'Continue',
-                      disabled: !ring || stops === 0 || overCap,
+                      // One turf is the whole requirement: a campaign with
+                      // no boundary has nothing to route, and the per-turf
+                      // validity was settled when each was committed.
+                      disabled: turfDrafts.length === 0,
                       onClick: () => goToStage('route'),
                     }
                   : {
@@ -1313,8 +1536,16 @@ export default function CreateListFlow({
                       // label — same treatment the design calls for on the
                       // one CTA whose click starts a paid multi-second
                       // request.
-                      label: save.isPending ? 'Building route' : 'Build route',
-                      disabled: save.isPending,
+                      // Plural once the campaign holds more than one turf:
+                      // the press buys a route per turf, and a singular
+                      // label on a four-turf campaign understates what is
+                      // about to be spent.
+                      label: save.isPending
+                        ? 'Building routes'
+                        : turfDrafts.length > 1
+                          ? `Build ${turfDrafts.length} routes`
+                          : 'Build route',
+                      disabled: save.isPending || turfDrafts.length === 0,
                       loading: save.isPending,
                       onClick: () => save.mutate(),
                     }
@@ -1453,9 +1684,18 @@ export default function CreateListFlow({
         {stage === 'draw' && (
           <DrawStep
             districtBounds={districtBounds}
-            matchingHouseholds={districtHouseholds}
-            selectedHouseholds={doors}
+            drafts={turfDrafts}
+            draftStats={draftStats}
+            assigneeLabels={assigneeLabels}
             onOpenFullScreen={() => onDrawFullScreenChange(true)}
+            // Editing a turf from its card opens the drawing surface with
+            // that boundary already under the cursor, which is the only
+            // place its corners can be moved.
+            onEditDraft={(clientId) => {
+              onSelectDraft(clientId)
+              onDrawFullScreenChange(true)
+            }}
+            onRemoveDraft={onRemoveDraft}
           />
         )}
 
@@ -1516,9 +1756,9 @@ export default function CreateListFlow({
               onLoopChange={setLoop}
               suggested={suggestedMode}
             />
-            {save.isError && (
+            {saveErrorMessage && (
               <p role="alert" className="text-sm text-destructive">
-                {toCreateErrorMessage(save.error)}
+                {saveErrorMessage}
               </p>
             )}
           </>

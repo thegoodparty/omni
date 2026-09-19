@@ -232,6 +232,8 @@ export default function VolunteerWalkPage({
           // surface here, so every token stays at its rest value.
           startDrawToken={0}
           resumeDrawToken={0}
+          loadDrawToken={0}
+          loadDrawRing={null}
           clearDrawToken={0}
           undoDrawToken={0}
           drawColor={INERT_DRAW_COLOR}

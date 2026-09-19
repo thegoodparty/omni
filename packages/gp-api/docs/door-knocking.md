@@ -40,6 +40,39 @@ The chain is a `CHECK` rather than a convention:
 Route → turf is the route's `@unique doorKnockingTurfId`, so no column was
 added in either direction.
 
+The turf response carries its envelope's id as `outreachId`. It is the only
+way a client can learn it — the chain's FKs all point the other way, so there
+is no turf column to read it off — and the multi-turf create needs it: the
+first turf it buys becomes the anchor every later one points at, and until
+this field existed the client had just paid for that anchor and had no way to
+name it.
+
+### A campaign is a grouping, not a row
+
+Many turfs make one campaign, and the campaign has no table. The anchor's
+`Outreach.campaignOutreachId` is null and every sibling carries the anchor's
+id; `collapseDoorKnockingCampaigns.util.ts` folds them for every history
+surface, which reads the anchor and never a sibling.
+
+So a campaign's NAME is a column on an envelope, and `CreateDoorKnockingTurf`
+carries two names for two different things: `name` titles the turf, and
+`campaignName` titles the campaign. The create writes
+`anchorCampaignName ?? input.campaignName ?? turf.name` onto every envelope
+it makes, narrowest first:
+
+- A turf **joining** an existing campaign inherits that campaign's title,
+  read off the anchor row the create already fetches to validate the scope.
+  A late "Add another turf" therefore cannot rename a campaign it is only
+  joining, whatever it sends.
+- A turf **starting** one takes `campaignName`.
+- A client that sends neither is the single-turf flow, where the turf's name
+  IS the campaign's.
+
+Every sibling gets the name even though only the anchor's is displayed.
+Deleting the anchor promotes the earliest surviving sibling, and a campaign
+that silently renamed itself to whatever that sibling's turf was called is
+the failure this avoids.
+
 ## Tables (all in this package's Prisma schema)
 
 | Table                            | Role                                                                  | Key invariants                                                                                                                                                                                                                                                                                                                                                                                                                                             |

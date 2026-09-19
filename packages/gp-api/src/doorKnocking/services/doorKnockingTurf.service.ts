@@ -65,6 +65,7 @@ const toResponse = (
   counts: DoorKnockingTurfCounts = NO_COUNTS,
 ): DoorKnockingTurf => ({
   id: turf.id,
+  outreachId: turf.route.outreach.id,
   voterFileFilterId: turf.voterFileFilterId,
   name: turf.name,
   color: turf.color,

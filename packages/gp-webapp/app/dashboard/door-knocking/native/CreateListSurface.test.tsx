@@ -194,6 +194,14 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     isServeOrg={false}
     unpreviewableKeys={[]}
     orgSlug="campaign-9"
+    turfDrafts={[]}
+    draftStats={new Map()}
+    activeDraftId={null}
+    onSelectDraft={vi.fn()}
+    onStartNewTurf={vi.fn()}
+    onRemoveDraft={vi.fn()}
+    onUpdateDraft={vi.fn()}
+    onPickColor={vi.fn()}
     {...overrides}
   />
 )

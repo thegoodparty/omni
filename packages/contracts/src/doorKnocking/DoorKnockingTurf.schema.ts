@@ -93,6 +93,21 @@ export const CreateDoorKnockingTurfSchema = z
     // absent from a legacy client) means the new turf is its own
     // campaign anchor, matching how a solo campaign already looks.
     campaignOutreachId: z.number().int().positive().optional(),
+    // What the CAMPAIGN is called, as opposed to `name` above, which is what
+    // this one turf is called. A campaign has no row of its own — it is the
+    // anchor Outreach plus every sibling pointing at it — so its title has to
+    // live on an envelope, and history surfaces read the anchor's.
+    //
+    // Written onto EVERY turf's envelope in the campaign, not just the
+    // anchor's, even though only the anchor's is ever displayed. Deleting the
+    // anchor makes `collapseDoorKnockingCampaigns` fall back to the earliest
+    // surviving sibling, and a campaign that silently renames itself to
+    // whatever that sibling's turf was called is the failure this avoids.
+    //
+    // Optional, and absent falls back to the turf's own name: a client that
+    // predates the multi-turf flow sends one turf and means it to title the
+    // campaign, which is exactly what the fallback does.
+    campaignName: z.string().min(1).max(120).optional(),
   })
   .strict()
 
@@ -143,6 +158,17 @@ export type UpdateDoorKnockingTurf = z.infer<
 // `peopleCount`, so the overline's two halves count the same noun.
 export const DoorKnockingTurfSchema = z.object({
   id: z.number().int(),
+  // This turf's own Outreach envelope. Every turf has exactly one (the
+  // 1:1:1 chain the schema comment above describes), and it is the id the
+  // campaign grouping is expressed in: `campaignOutreachId` on a create
+  // names one of these, never a turf id.
+  //
+  // Exposed because the multi-turf create needs it and can get it nowhere
+  // else. It cuts several turfs into one campaign, which means the first
+  // turf it creates has to become the anchor the rest point at — and until
+  // this field existed the client had just bought that anchor and had no
+  // way to learn what to call it.
+  outreachId: z.number().int(),
   voterFileFilterId: z.number().int(),
   name: z.string(),
   color: z.string(),

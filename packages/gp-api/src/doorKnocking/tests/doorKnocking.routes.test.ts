@@ -1625,6 +1625,79 @@ describe('door-knocking routes', () => {
         status: OutreachStatus.in_progress,
       })
     })
+
+    // A campaign has no row of its own — it is the anchor envelope plus
+    // every sibling pointing at it — so what a campaign is CALLED is a
+    // column on Outreach, while what a turf is called is a column on the
+    // turf. The multi-turf wizard asks for both, and these are the four
+    // ways the two can be told apart.
+    describe('campaign naming', () => {
+      it('titles the campaign from campaignName, not from the turf', async () => {
+        const res = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        expect(res.status).toBe(201)
+
+        expect(res.data.name).toBe('Turf 1')
+        const envelope = await envelopeFor(res.data.id)
+        expect(envelope.name).toBe('Fall canvass')
+      })
+
+      it('falls back to the turf name when no campaignName is sent', async () => {
+        // The single-turf flow, and every client that predates the field:
+        // one turf whose name IS the campaign's.
+        const turf = await createTurf('Elm St turf')
+
+        const envelope = await envelopeFor(turf.id)
+        expect(envelope.name).toBe('Elm St turf')
+      })
+
+      it('gives every turf in one campaign the same envelope name', async () => {
+        const anchorRes = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        expect(anchorRes.status).toBe(201)
+        const anchor = await envelopeFor(anchorRes.data.id)
+
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+        })
+        expect(siblingRes.status).toBe(201)
+
+        // Only the anchor's name is ever displayed, but the sibling carries
+        // it too: deleting the anchor promotes the earliest survivor, and a
+        // campaign that renamed itself to that survivor's turf name is the
+        // failure this avoids.
+        const sibling = await envelopeFor(siblingRes.data.id)
+        expect(sibling.name).toBe('Fall canvass')
+        expect(siblingRes.data.name).toBe('Turf 2')
+      })
+
+      it('refuses to let a joining turf rename the campaign', async () => {
+        const anchorRes = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        const anchor = await envelopeFor(anchorRes.data.id)
+
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+          campaignName: 'Something else entirely',
+        })
+        expect(siblingRes.status).toBe(201)
+
+        // The anchor's own name wins over anything on the wire, so a late
+        // "Add another turf" cannot retitle a campaign it is only joining.
+        const sibling = await envelopeFor(siblingRes.data.id)
+        expect(sibling.name).toBe('Fall canvass')
+        const anchorAfter = await envelopeFor(anchorRes.data.id)
+        expect(anchorAfter.name).toBe('Fall canvass')
+      })
+    })
   })
   describe('serve', () => {
     const PERSON_1 = '00000001-1111-1111-1111-111111111111'

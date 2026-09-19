@@ -8,6 +8,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CreateListFlow from './CreateListFlow'
 import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
+import type { TurfDraft } from '../turfDrafts'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -22,6 +23,17 @@ const OPEN_RING: PolygonRing = [
   [-87.65, 41.92],
   [-87.65, 41.93],
 ]
+
+// The one turf every test's campaign holds, unless the test says otherwise.
+// Its polygon is `OPEN_RING`, the same shape `baseProps.ring` carries, so a
+// create posts exactly the geometry these tests have always asserted on.
+const DRAFT: TurfDraft = {
+  clientId: 'draft-1',
+  polygon: OPEN_RING,
+  color: '#2563eb',
+  name: 'Turf 1',
+  assigneeId: null,
+}
 
 const turfStats = (stops: number, households: number) => ({
   stops,
@@ -79,6 +91,19 @@ const baseProps = {
   onShowAddresses: vi.fn(),
   onHideAddresses: vi.fn(),
   onRetryAddresses: vi.fn(),
+  turfDrafts: [DRAFT],
+  draftStats: new Map([
+    [
+      DRAFT.clientId,
+      { stops: 14, people: 22, households: 9, partyMix: [], ageMix: [] },
+    ],
+  ]),
+  activeDraftId: null as string | null,
+  onSelectDraft: vi.fn(),
+  onStartNewTurf: vi.fn(),
+  onRemoveDraft: vi.fn(),
+  onUpdateDraft: vi.fn(),
+  onPickColor: vi.fn(),
 }
 
 // What gp-api hands back for a created turf. Every count is a real number
@@ -86,6 +111,7 @@ const baseProps = {
 // transaction buys it — so there is no shape of turf with nothing to report.
 const savedTurf = {
   id: 5,
+  outreachId: 900,
   voterFileFilterId: 21,
   name: 'Tuesday evening',
   color: '#2563eb',
@@ -115,8 +141,7 @@ const advanceToRoute = (
 ) => {
   // The campaign is named BEFORE the polygon is drawn now, so the name
   // step advances to draw, and draw advances to route. Two Continues, and
-  // baseProps already carries the ring + turfStats that gate draw's own
-  // Continue.
+  // baseProps already carries the one turf that gates draw's own Continue.
   fireEvent.change(screen.getByLabelText('Campaign name'), {
     target: { value: campaignName },
   })
@@ -293,7 +318,12 @@ describe('CreateListFlow', () => {
     })
     expect(calls[1]?.body).toMatchObject({
       voterFileFilterId: 77,
-      name: 'Lakeview blitz',
+      // The TURF's name, which is not the campaign's: one campaign holds
+      // many turfs, and what the candidate typed on the name step titles
+      // the campaign. gp-api writes `campaignName` onto the envelope, which
+      // is what every history surface reads.
+      name: 'Turf 1',
+      campaignName: 'Lakeview blitz',
       // The route options this step exists to collect, sent with the turf
       // rather than to a second endpoint: they are what the vendor is paid to
       // plan, so they cannot arrive after the purchase.
@@ -311,7 +341,8 @@ describe('CreateListFlow', () => {
         ],
       },
     })
-    // One event for one transaction.
+    // One event per turf, because one turf is one route bought in one
+    // transaction — and the figures are that turf's own.
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
       stops: 14,
       people: 22,
@@ -598,22 +629,40 @@ describe('CreateListFlow', () => {
     expect(filterPosts).toBe(0)
   })
 
-  it('gates the drawing surface on a drawn shape under the cap', () => {
+  it('gates Save turf(s) on having a turf, and on the one being cut', () => {
+    // Two different questions, and the surface asks both. An empty campaign
+    // has nothing to save; a campaign with turfs in it can still be holding
+    // an over-cap shape that would not route.
     const { rerender } = render(
-      drawingSurface({ ring: null, turfStats: null, drawPointCount: 0 }),
+      drawingSurface({
+        turfDrafts: [],
+        ring: null,
+        turfStats: null,
+        drawPointCount: 0,
+      }),
     )
     dismissDrawInstructions()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeDisabled()
 
     rerender(drawingSurface({ turfStats: turfStats(151, 140) }))
     // The cap is on stops (the router's unit), so 151 stops holding 140
     // doors is over it. The count pill itself lives in VoterMapCanvas's
     // control cluster now (see VoterMapCanvas for pill assertions); this
-    // suite covers only what DrawFullScreen still renders — Continue.
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    // suite covers only what DrawFullScreen still renders.
+    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeDisabled()
 
     rerender(drawingSurface({ turfStats: turfStats(14, 9) }))
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeEnabled()
+  })
+
+  // A candidate who has cut two turfs and then pressed New turf is standing
+  // on an empty ring with two turfs to save. Gating on the ring alone would
+  // trap them on this surface with no way out but Back.
+  it('keeps Save turf(s) live on an empty ring once a turf exists', () => {
+    render(drawingSurface({ ring: null, turfStats: null, drawPointCount: 0 }))
+    dismissDrawInstructions()
+
+    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeEnabled()
   })
 
   // Removed: draw step body no longer prints cap warnings (design change —
@@ -626,29 +675,35 @@ describe('CreateListFlow', () => {
   // the one control on the surface. What it is waiting for is said around it
   // instead: the centred hint names the gesture until the first point lands,
   // and the count pill reads the shape from there.
-  it('keeps the drawing surface’s button on one word through every dead state', () => {
-    const unfinished = (drawPointCount: number) =>
-      drawingSurface({ ring: null, turfStats: null, drawPointCount })
-    const { rerender } = render(unfinished(1))
+  it('keeps the drawing surface’s button on one phrase through every state', () => {
+    const empty = (drawPointCount: number) =>
+      drawingSurface({
+        turfDrafts: [],
+        ring: null,
+        turfStats: null,
+        drawPointCount,
+      })
+    const { rerender } = render(empty(1))
     dismissDrawInstructions()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeDisabled()
 
-    rerender(unfinished(2))
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-
-    // Three points down but nothing inside them: still Continue, still dead.
-    rerender(drawingSurface({ turfStats: turfStats(0, 0) }))
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    rerender(empty(2))
+    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeDisabled()
 
     rerender(drawingSurface({ turfStats: turfStats(14, 9), drawPointCount: 3 }))
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeEnabled()
   })
 
   // The regression this line shipped with: two counts side by side, one
   // district-wide and one in-polygon, with nothing saying which was which. The
   // step still reports both — a candidate cutting turf needs to know how much
   // of the audience the boundary has taken — so each carries its own noun.
-  it('names the district total and the in-polygon count apart on the draw step', () => {
+  it('drops the household pair the step opened with', () => {
+    // It used to read "N matching households · M selected households", and
+    // both halves were about ONE boundary — which is the thing this step
+    // stopped being about. A single "selected" figure on a step that cuts
+    // several turfs describes whichever turf is under the cursor while
+    // reading as the campaign's total. The per-turf figures are on the cards.
     render(
       <CreateListFlow
         {...baseProps}
@@ -658,16 +713,50 @@ describe('CreateListFlow', () => {
       />,
     )
 
-    // The counts sit in their own spans, so this matches the paragraph's whole
-    // text rather than a single node.
+    expect(screen.queryByText(/matching households/)).toBeNull()
+    expect(screen.queryByText(/selected households/)).toBeNull()
+  })
+
+  it('stacks one card per turf under the preview, with that turf’s own counts', () => {
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        turfDrafts={[
+          DRAFT,
+          { ...DRAFT, clientId: 'draft-2', name: 'Turf 2', color: '#16a34a' },
+        ]}
+        draftStats={
+          new Map([
+            [DRAFT.clientId, turfStats(14, 9)],
+            ['draft-2', turfStats(40, 31)],
+          ])
+        }
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Turf 1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Turf 2' })).toBeInTheDocument()
+    // Softened, for the reason every other pre-route figure here is: the
+    // pack cannot shade every way a list narrows, so the number is a
+    // superset of who actually gets knocked.
+    expect(screen.getByText(/About 28/)).toBeInTheDocument()
+    expect(screen.getByText(/About 80/)).toBeInTheDocument()
+  })
+
+  // The CTA opens the drawing surface, and it says which of the two jobs it
+  // is about to do — start the campaign's first turf, or add another.
+  it('names the draw CTA for whether the campaign already holds a turf', () => {
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="draw" turfDrafts={[]} />,
+    )
     expect(
-      screen.getByText(
-        (_, element) =>
-          element?.tagName === 'P' &&
-          /12,000 matching households · 61 selected households/.test(
-            element.textContent ?? '',
-          ),
-      ),
+      screen.getByRole('button', { name: 'Draw turfs' }),
+    ).toBeInTheDocument()
+
+    rerender(<CreateListFlow {...baseProps} step="draw" />)
+    expect(
+      screen.getByRole('button', { name: 'Draw more turfs' }),
     ).toBeInTheDocument()
   })
 
@@ -675,11 +764,11 @@ describe('CreateListFlow', () => {
   // (N)"), and the product owner asked for it out on 2026-08-26. It can go
   // because it was never the only place the number was said: the pill sits
   // right above it and counts the same shape, in the unit the cap is stated in.
-  it('leaves the count to the pill rather than the drawing surface’s Continue', () => {
+  it('leaves the count to the pill rather than the drawing surface’s CTA', () => {
     render(drawingSurface({ turfStats: turfStats(14, 9) }))
     dismissDrawInstructions()
 
-    const advance = screen.getByRole('button', { name: 'Continue' })
+    const advance = screen.getByRole('button', { name: 'Save turf(s)' })
     expect(advance).toBeEnabled()
     expect(advance.textContent).not.toMatch(/\d/)
     // Pill text lives on VoterMapCanvas's control cluster now (see that
@@ -707,9 +796,6 @@ describe('CreateListFlow', () => {
       />,
     )
 
-    expect(
-      screen.getByText('matching households', { exact: false }),
-    ).toBeInTheDocument()
     expect(screen.queryByText(/of knocking/)).toBeNull()
     expect(screen.queryByText(/50 Democratic/)).toBeNull()
   })
@@ -1023,7 +1109,7 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
     const building = await screen.findByRole('button', {
-      name: 'Building route',
+      name: 'Building routes',
     })
     expect(building).toBeDisabled()
 
@@ -1046,19 +1132,26 @@ describe('CreateListFlow', () => {
       return { status: 200, data: savedTurf }
     })
     const onListCreated = vi.fn()
-    const props = { color: '#16a34a', onListCreated }
+    const props = {
+      onListCreated,
+      turfDrafts: [{ ...DRAFT, color: '#16a34a' }],
+    }
 
     const { rerender } = render(
       <CreateListFlow {...baseProps} {...props} step="name" />,
     )
 
+    // The name step asks about the CAMPAIGN, so no colour is offered on it:
+    // a colour belongs to one turf, and the picker that sets it is on the
+    // drawing surface where the ring wearing it is visible.
     expect(screen.queryByRole('button', { name: 'Green' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Blue' })).toBeNull()
 
     advanceToRoute(rerender, props)
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
     await waitFor(() => expect(onListCreated).toHaveBeenCalled())
-    // The colour the map was tinted with is the colour the turf is filed under.
+    // The turf is filed under its own colour, which is the one the map was
+    // tinted with while it was being cut.
     expect(turfBody).toMatchObject({ color: '#16a34a' })
   })
 
@@ -1546,7 +1639,8 @@ describe('CreateListFlow steps', () => {
     expect(filterPosts).toBe(0)
     expect(turfBody).toMatchObject({
       voterFileFilterId: 9,
-      name: 'Tuesday evening',
+      name: 'Turf 1',
+      campaignName: 'Tuesday evening',
     })
     expect(deletes).not.toHaveBeenCalled()
   })
@@ -1973,4 +2067,217 @@ describe('CreateListFlow on the Serve surface', () => {
   // per-door people count in the create flow). The Serve-vs-Win constituent
   // wording still runs everywhere DoorsPanel is used (person sheet, walk
   // view).
+})
+
+// One campaign, many turfs, one press. The anchor has to exist before
+// anything can point at it, so the batch is not a flat `Promise.all` — and
+// the failure modes below are the reason it is not a `Promise.all` at all.
+describe('CreateListFlow multi-turf save', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+    // The toolbar's assignee control reads the org roster. Empty is the
+    // ordinary answer for these tests — they are about the purchase — and
+    // mocking it keeps the unhandled-request warning out of the run.
+    api.mock('GET /v1/organizations/team', {
+      status: 200,
+      data: { members: [], pendingInvites: [] },
+    })
+  })
+
+  const SECOND: TurfDraft = {
+    clientId: 'draft-2',
+    polygon: [
+      [-87.7, 41.9],
+      [-87.69, 41.9],
+      [-87.69, 41.91],
+    ],
+    color: '#16a34a',
+    name: 'Turf 2',
+    assigneeId: 42,
+  }
+
+  const twoTurfs = { turfDrafts: [DRAFT, SECOND] }
+
+  // Distinct envelope ids, so a body carrying `campaignOutreachId` can only
+  // have got it from the turf that was actually bought first.
+  const mockBatch = (
+    overrides: { failSecond?: boolean } = {},
+  ): { turfs: Record<string, unknown>[]; assignments: unknown[] } => {
+    const turfs: Record<string, unknown>[] = []
+    const assignments: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 77 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      const sent = body as Record<string, unknown>
+      turfs.push(sent)
+      if (overrides.failSecond && sent.name === 'Turf 2') {
+        return { status: 502 as const, data: {} }
+      }
+      const index = turfs.length
+      return {
+        status: 200 as const,
+        data: {
+          ...savedTurf,
+          id: 100 + index,
+          outreachId: 900 + index,
+          name: String(sent.name),
+        },
+      }
+    })
+    api.mock('POST /v1/outreach/:id/assignments', ({ body, params }) => {
+      assignments.push({ ...(body as object), ...(params as object) })
+      return {
+        status: 200 as const,
+        data: {
+          userId: 42,
+          name: 'Alex Rivera',
+          role: 'volunteer' as const,
+          createdAt: '2026-09-18T00:00:00.000Z',
+          assignedByUserId: null,
+          assignedByName: null,
+          loggedCount: 0,
+        },
+      }
+    })
+    return { turfs, assignments }
+  }
+
+  const buildRoutes = async (
+    props: Partial<ComponentProps<typeof CreateListFlow>>,
+  ) => {
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToRoute(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Build 2 routes' }))
+  }
+
+  it('buys the anchor first, then hangs every other turf off it', async () => {
+    const onListCreated = vi.fn()
+    const { turfs } = mockBatch()
+
+    await buildRoutes({ ...twoTurfs, onListCreated })
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+
+    expect(turfs).toHaveLength(2)
+    // The anchor names no campaign to join, which is what makes it one.
+    expect(turfs[0]).toMatchObject({
+      name: 'Turf 1',
+      campaignName: 'Fall canvass',
+    })
+    expect(turfs[0]).not.toHaveProperty('campaignOutreachId')
+    // And the sibling points at the envelope the anchor's response named —
+    // an id the client can learn nowhere else.
+    expect(turfs[1]).toMatchObject({
+      name: 'Turf 2',
+      campaignName: 'Fall canvass',
+      campaignOutreachId: 901,
+    })
+    // The handover is to the first turf's walk, which is the campaign's
+    // anchor and the only turf this page can open.
+    expect(onListCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 101 }),
+    )
+  })
+
+  it('fires one creation event per turf, each with its own figures', async () => {
+    const onListCreated = vi.fn()
+    mockBatch()
+
+    await buildRoutes({
+      ...twoTurfs,
+      onListCreated,
+      draftStats: new Map([
+        [DRAFT.clientId, turfStats(14, 9)],
+        [SECOND.clientId, turfStats(40, 31)],
+      ]),
+    })
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+
+    const created = (trackEvent as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call) => call[0] === EVENTS.DoorKnocking.ListCreated,
+    )
+    expect(created).toHaveLength(2)
+    expect(created[0]?.[1]).toMatchObject({ stops: 14, people: 28 })
+    expect(created[1]?.[1]).toMatchObject({ stops: 40, people: 80 })
+  })
+
+  it('assigns each turf after its route, against its own envelope', async () => {
+    const onListCreated = vi.fn()
+    const { assignments } = mockBatch()
+
+    await buildRoutes({ ...twoTurfs, onListCreated })
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+
+    // Only the turf that was given a canvasser, and against the envelope
+    // that turf's own create returned.
+    expect(assignments).toEqual([{ id: '902', assigneeUserId: 42 }])
+  })
+
+  it('keeps the turfs it bought when one of them fails', async () => {
+    const onListCreated = vi.fn()
+    const onRemoveDraft = vi.fn()
+    mockBatch({ failSecond: true })
+
+    await buildRoutes({ ...twoTurfs, onListCreated, onRemoveDraft })
+
+    // The anchor was bought and billed, so its draft is spent; the one that
+    // failed stays in the list for the retry.
+    await waitFor(() =>
+      expect(onRemoveDraft).toHaveBeenCalledWith(DRAFT.clientId),
+    )
+    expect(onRemoveDraft).not.toHaveBeenCalledWith(SECOND.clientId)
+    // And the flow stays on the route step rather than handing over to a
+    // walk, which would strand the turf that still has to be bought.
+    expect(onListCreated).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText(/The turfs that did build are saved/),
+    ).toBeInTheDocument()
+    // Reported like any other failed build. `onError` never fires for a
+    // sibling — the mutation resolves — so without this the failure metric
+    // would only ever count anchors.
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.DoorKnocking.RouteBuildFailed,
+      expect.objectContaining({ status: 502 }),
+    )
+  })
+
+  it('does not mint a second anchor when the retry runs', async () => {
+    const onListCreated = vi.fn()
+    const { turfs } = mockBatch({ failSecond: true })
+
+    await buildRoutes({ ...twoTurfs, onListCreated, onRemoveDraft: vi.fn() })
+    await waitFor(() => expect(turfs).toHaveLength(2))
+
+    // Press again with the same drafts still on screen, which is what a
+    // parent that has not re-rendered yet hands back.
+    fireEvent.click(screen.getByRole('button', { name: 'Build 2 routes' }))
+    await waitFor(() => expect(turfs).toHaveLength(4))
+
+    // Every turf in the retry names the anchor the first press paid for.
+    // Without the ref the retry would create a second campaign, and nothing
+    // in the product can merge two.
+    expect(turfs[2]).toMatchObject({ campaignOutreachId: 901 })
+    expect(turfs[3]).toMatchObject({ campaignOutreachId: 901 })
+  })
+
+  it('joins an existing campaign without buying an anchor of its own', async () => {
+    const onListCreated = vi.fn()
+    const { turfs } = mockBatch()
+
+    await buildRoutes({
+      ...twoTurfs,
+      onListCreated,
+      // "Add another turf" arrives with the campaign already anchored.
+      campaignOutreachId: 555,
+    })
+    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+
+    // Both are siblings, and neither renames the campaign they are joining
+    // — the server reads the anchor's own name over anything on the wire.
+    expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
+  })
 })

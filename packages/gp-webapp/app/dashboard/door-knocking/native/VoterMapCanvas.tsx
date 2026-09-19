@@ -185,6 +185,21 @@ interface VoterMapCanvasProps {
   // Continue must keep the boundary that is already drawn. Only the caller
   // knows which it is.
   resumeDrawToken: number
+  // Bump to enter polygon-draw mode on a ring that is already finished —
+  // `loadDrawRing` below becomes the in-progress shape, vertices and all.
+  //
+  // The third way into drawing mode, and the only one that puts a shape the
+  // canvas did not draw onto the canvas. `startDrawToken` empties the ring
+  // and `resumeDrawToken` leaves whatever is there alone; both assume the
+  // in-progress shape is the only shape there has ever been. The multi-turf
+  // drawing surface breaks that assumption: a candidate cuts several turfs in
+  // one sitting, and picking an earlier one out of the toolbar has to put its
+  // boundary back under the cursor so its corners can be moved again.
+  loadDrawToken: number
+  // The ring `loadDrawToken` installs. Read at the bump only, never watched:
+  // the ring changes on every vertex the candidate then moves, and a canvas
+  // that reinstalled it on each change would fight the drag that produced it.
+  loadDrawRing: PolygonRing | null
   // Bump to clear the in-progress drawing AND leave draw mode (e.g. after a
   // turf is saved, or when the flow closes).
   clearDrawToken: number
@@ -549,6 +564,8 @@ export default function VoterMapCanvas({
   initialZoom,
   startDrawToken,
   resumeDrawToken,
+  loadDrawToken,
+  loadDrawRing,
   clearDrawToken,
   undoDrawToken,
   drawColor,
@@ -629,6 +646,10 @@ export default function VoterMapCanvas({
   onPolygonChangeRef.current = onPolygonChange
   const onDrawPointCountRef = useRef(onDrawPointCount)
   onDrawPointCountRef.current = onDrawPointCount
+  // Read at the token bump, never depended on — see `loadDrawRing` on the
+  // props above for why watching it would fight the candidate's own drag.
+  const loadDrawRingRef = useRef(loadDrawRing)
+  loadDrawRingRef.current = loadDrawRing
   const onRoutePinClickRef = useRef(onRoutePinClick)
   onRoutePinClickRef.current = onRoutePinClick
   // Read when a framing is asked for, never depended on: dragging the sheet
@@ -1377,6 +1398,27 @@ export default function VoterMapCanvas({
     if (resumeDrawToken === 0) return
     armDrawing()
   }, [resumeDrawToken, armDrawing])
+
+  // Putting a finished boundary back under the cursor: the multi-turf surface
+  // hands back a turf the candidate cut earlier so its corners can be moved
+  // again.
+  //
+  // The undo stack is emptied rather than carried, and that is the point
+  // rather than a shortcut. Its entries are indexes into `drawPoints` from a
+  // DIFFERENT shape's history, so replaying one would drop or move a vertex
+  // of this ring at an index that meant something else — and undoing past the
+  // load would silently unbuild a turf the candidate has already committed.
+  // The loaded ring is the floor: undo can walk back to it and no further.
+  useEffect(() => {
+    if (loadDrawToken === 0) return
+    armDrawing()
+    const ring = loadDrawRingRef.current ?? []
+    drawPointsRef.current = ring
+    undoStackRef.current = []
+    setDrawPoints(ring)
+    onDrawPointCountRef.current?.(ring.length)
+    onPolygonChangeRef.current(ring.length >= 3 ? ring : null)
+  }, [loadDrawToken, armDrawing])
 
   useEffect(() => {
     if (undoDrawToken === 0) return

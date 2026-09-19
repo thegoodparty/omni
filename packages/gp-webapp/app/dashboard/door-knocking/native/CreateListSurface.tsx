@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   transformVoterFileFiltersForBackend,
@@ -60,16 +60,23 @@ const NO_RECOMMENDED_CRITERIA: RecommendedCriteria = {
 export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [resumeDrawToken, setResumeDrawToken] = useState(0)
+  const [loadDrawToken, setLoadDrawToken] = useState(0)
+  const [loadDrawRing, setLoadDrawRing] = useState<PolygonRing | null>(null)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [frameDrawToken, setFrameDrawToken] = useState(0)
   const [pointCount, setPointCount] = useState(0)
-  // The colour of the in-progress ring, always the seed for now. When the
-  // draw step grows its own per-turf picker (a follow-up), a `pickColor`
-  // action can move into this hook and gate re-seeding against a candidate
-  // choice — until then, the assigner's answer wins on every update.
+  // The colour of the in-progress ring. Two writers, and which of them wins
+  // is the whole reason `colorPicked` exists beside it: the seed is the
+  // palette's next free slot, recomputed whenever the campaign's turfs
+  // change, and it must not overwrite a hue the candidate chose by hand on
+  // the toolbar's picker. So the seed effect stands down once a turf has been
+  // picked for, and `startNewTurf` below is what puts the assigner back in
+  // charge — a NEW turf has no candidate choice behind it yet.
   const [drawColor, setDrawColor] = useState<string>(seedColor)
+  const colorPicked = useRef(false)
   useEffect(() => {
+    if (colorPicked.current) return
     setDrawColor(seedColor)
   }, [seedColor])
   // Whether the map is uncovered and being drawn on. It belongs here rather
@@ -83,6 +90,8 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
   return {
     startDrawToken,
     resumeDrawToken,
+    loadDrawToken,
+    loadDrawRing,
     clearDrawToken,
     undoDrawToken,
     frameDrawToken,
@@ -90,12 +99,8 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
     onPointCount: setPointCount,
     // The colour the in-progress ring is drawn in. Defaults to the seed
     // (palette[0] for a solo turf; the assigner's next-slot answer when
-    // joining a campaign). No picker is wired to override it today — the
-    // one on the name step was removed, and a per-turf picker on the draw
-    // step is a follow-up (each turf on a multi-turf map picks its own
-    // slot). Kept as a state pair so that hook is ready when the picker
-    // lands: seed changes still re-tint the ring while `colorPicked` is
-    // false, and a future `pickColor` press would flip the guard.
+    // joining a campaign) and is overridden by the drawing surface's own
+    // picker through `pickColor` below.
     drawColor,
     // Nothing covers the map on the drawing surface, so the ring is fitted
     // into the whole of it.
@@ -125,6 +130,37 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
     // that decided for itself by looking at the ring would get one of the two
     // callers right and quietly break the other the day it comes back.
     resumeDrawing: () => setResumeDrawToken((token) => token + 1),
+    // Putting a turf the candidate already cut back under the cursor, so its
+    // corners can be moved again. The colour rides along because the ring is
+    // drawn in it: loading Turf 2's boundary while the canvas is still tinted
+    // for Turf 3 would put one turf's shape on screen in another's hue, which
+    // is the one thing the palette exists to prevent.
+    //
+    // `colorPicked` is set because a loaded turf HAS a colour — the assigner's
+    // next-free-slot answer is about the next NEW turf and must not repaint
+    // one that already exists.
+    loadRing: (ring: PolygonRing, color: string) => {
+      colorPicked.current = true
+      setDrawColor(color)
+      setLoadDrawRing(ring)
+      setLoadDrawToken((token) => token + 1)
+    },
+    // Starting the next turf of a multi-turf campaign: an empty session, and
+    // the assigner back in charge of the hue. Distinct from `startDrawing`
+    // only in that it releases the candidate's pick — the seed is recomputed
+    // from the turfs that now exist, so consecutive turfs walk the palette.
+    startNewTurf: (color: string) => {
+      colorPicked.current = false
+      setDrawColor(color)
+      setStartDrawToken((token) => token + 1)
+    },
+    // The toolbar's colour picker. Marks the hue as the candidate's so the
+    // seed effect stops overwriting it — without the guard, committing a
+    // draft recomputes the seed and repaints the ring they just chose for.
+    pickColor: (color: string) => {
+      colorPicked.current = true
+      setDrawColor(color)
+    },
     undoPoint: () => setUndoDrawToken((token) => token + 1),
     // Leaving the flow entirely: empty the shape rather than restart a session.
     // The colour and the drawing surface reset with it, which a component that
@@ -136,7 +172,13 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
       // create should start on whichever slot the assigner recommends
       // right now — a solo campaign gets palette[0], a candidate opening
       // "Add another turf" on a two-turf campaign gets palette[2].
+      //
+      // The candidate's pick is released with it. This is the end of a
+      // create, so the hue they chose for the last turf of it has no claim
+      // on the first turf of the next one.
+      colorPicked.current = false
       setDrawColor(seedColor)
+      setLoadDrawRing(null)
       setFullScreen(false)
     },
   }
@@ -259,21 +301,35 @@ export interface CreateListSurfaceProps {
   // "Add another turf" opens the flow with `?campaignOutreachId=`. Threaded
   // straight through — the surface never resolves it.
   campaignOutreachId?: number
-  // Multi-turf drafts: polygons the candidate has committed on the drawing
-  // surface but not yet paid for. Lives at the page (the canvas draws
-  // them), threaded down so the flow can render draft cards on the draw
-  // step body and batch-POST them on save.
+  // The turfs cut in this sitting but not yet paid for. Owned by the page
+  // because the canvas draws them; threaded down so the draw step can list
+  // them and the save can buy a route for each.
   //
-  // Optional during the multi-turf refactor — see the note on the same
-  // group in CreateListFlow.tsx.
-  turfDrafts?: TurfDraft[]
-  onCommitDraft?: (draft: Omit<TurfDraft, 'clientId'>) => void
-  onRemoveDraft?: (clientId: string) => void
-  onUpdateDraft?: (
+  // Nothing here COMMITS one. A turf becomes a draft the moment its ring is
+  // valid, which only the page can see (it is the page the canvas reports
+  // the ring to), so the flow's part is to name, colour, assign, reorder and
+  // drop them — never to decide one exists.
+  turfDrafts: TurfDraft[]
+  // The pack's stops/doors/people for each draft, keyed by `clientId`. From
+  // the orchestrator because the pack is: this surface never decodes one.
+  // A draft missing from the map has no answer yet and prints as such.
+  draftStats: Map<string, PolygonStats>
+  // The draft whose boundary is currently under the cursor, or null while a
+  // brand-new turf is being drawn. The toolbar's colour and assignee
+  // controls act on this one.
+  activeDraftId: string | null
+  onSelectDraft: (clientId: string) => void
+  // "+ New turf": let go of the active turf and hand the canvas a clean
+  // session on the palette's next slot.
+  onStartNewTurf: () => void
+  onRemoveDraft: (clientId: string) => void
+  onUpdateDraft: (
     clientId: string,
     patch: Partial<Omit<TurfDraft, 'clientId'>>,
   ) => void
-  onClearDrafts?: () => void
+  // The colour picker. Separate from `onUpdateDraft` because a colour has to
+  // reach the live ring as well as the draft, and only the page holds both.
+  onPickColor: (color: string) => void
 }
 
 export default function CreateListSurface({
@@ -308,10 +364,13 @@ export default function CreateListSurface({
   siblingTurfs,
   campaignOutreachId,
   turfDrafts,
-  onCommitDraft,
+  draftStats,
+  activeDraftId,
+  onSelectDraft,
+  onStartNewTurf,
   onRemoveDraft,
   onUpdateDraft,
-  onClearDrafts,
+  onPickColor,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
   // so this costs nothing: the saved lists are already warm (the rail resolves
@@ -507,10 +566,13 @@ export default function CreateListSurface({
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}
       turfDrafts={turfDrafts}
-      onCommitDraft={onCommitDraft}
+      draftStats={draftStats}
+      activeDraftId={activeDraftId}
+      onSelectDraft={onSelectDraft}
+      onStartNewTurf={onStartNewTurf}
       onRemoveDraft={onRemoveDraft}
       onUpdateDraft={onUpdateDraft}
-      onClearDrafts={onClearDrafts}
+      onPickColor={onPickColor}
     />
   )
 }

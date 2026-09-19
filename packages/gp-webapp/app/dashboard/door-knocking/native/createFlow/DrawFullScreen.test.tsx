@@ -16,6 +16,10 @@ const baseProps = {
   onUndoPoint: vi.fn(),
   drawStopCount: 0,
   drawStopsOverCap: false,
+  // The toolbar is the caller's, and these tests are about the hint/Undo/
+  // pill slot below it. A stub keeps the two independent — a change to the
+  // turf chip has no business failing a test about the count pill.
+  toolbar: null,
 }
 
 // Dismiss the instructions AlertDialog seeded open on every mount. It inerts

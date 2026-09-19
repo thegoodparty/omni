@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +31,11 @@ interface DrawFullScreenProps {
   // Whether the shape is over the 150-stop cap; the pill turns red and shakes
   // on a new tap that keeps it over.
   drawStopsOverCap: boolean
+  // The top strip: which turf is being cut, its colour, its canvasser, and
+  // the way to start the next one. Rendered by the caller so this surface
+  // stays the map plus its own chrome, and every question about WHICH turf
+  // is answered in one file above it.
+  toolbar: ReactNode
 }
 
 // The canvas's `dkDrawFullScreen`: the map, uncovered, with chrome floating
@@ -63,6 +68,7 @@ export const DrawFullScreen = ({
   onUndoPoint,
   drawStopCount,
   drawStopsOverCap,
+  toolbar,
 }: DrawFullScreenProps) => {
   const [instructionsOpen, setInstructionsOpen] = useState(true)
   const pillRef = useRef<HTMLSpanElement>(null)
@@ -87,6 +93,7 @@ export const DrawFullScreen = ({
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
+      {toolbar}
       {/* Same slot for both states, so switching between them is a swap of
           contents rather than a layout shift. Bottom edge aligned with the
           Locate button (the bottom of the map controls cluster, which sits
@@ -138,6 +145,13 @@ export const DrawFullScreen = ({
           gap was the container padding. */}
       <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-10 border-t border-border bg-background px-6 py-4">
         <div className="mx-auto flex w-full max-w-[608px] flex-row-reverse items-center justify-between gap-3">
+          {/* "Save turf(s)" and not "Continue": this press ends the
+              drawing session for EVERY turf cut in it, and hands back to
+              the step that lists them. Nothing is bought here — the paid
+              press is still Build route, two steps on — so the word is
+              about putting the work down, not about spending. The plural
+              is parenthesised because one turf is the ordinary case and
+              "Save turfs" would read as a demand for more than one. */}
           <Button
             type="button"
             size="large"
@@ -145,7 +159,7 @@ export const DrawFullScreen = ({
             disabled={continueDisabled}
             onClick={onContinue}
           >
-            Continue
+            Save turf(s)
           </Button>
           <Button
             type="button"

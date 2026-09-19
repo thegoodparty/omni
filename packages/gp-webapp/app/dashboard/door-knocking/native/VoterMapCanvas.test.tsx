@@ -195,6 +195,7 @@ const filterResult: FilterResult = {
 // archive stamp matter to the canvas; the rest is the row's own shape.
 const turfFixture: DoorKnockingTurf = {
   id: 1,
+  outreachId: 900,
   voterFileFilterId: 7,
   name: 'Elm St & 5th',
   color: '#2563eb',
@@ -292,6 +293,8 @@ describe('VoterMapCanvas drawing', () => {
     focusTurf: null,
     startDrawToken: 1,
     resumeDrawToken: 0,
+    loadDrawToken: 0,
+    loadDrawRing: null,
     clearDrawToken: 0,
     undoDrawToken: 0,
     drawColor: '#2563eb',
@@ -402,6 +405,88 @@ describe('VoterMapCanvas drawing', () => {
     expect(onDrawPointCount).toHaveBeenLastCalledWith(3)
     expect(onPolygonChange).toHaveBeenLastCalledWith(POINTS.slice(0, 3))
     expect(layerData('draw-vertices')).toEqual(POINTS.slice(0, 3))
+  })
+
+  // The third way into drawing mode, and the only one that puts a shape the
+  // canvas did not draw onto the canvas. It is how the multi-turf toolbar
+  // hands an earlier turf back for its corners to be moved again.
+  it('installs a finished ring as the shape being drawn', () => {
+    const onPolygonChange = vi.fn()
+    const onDrawPointCount = vi.fn()
+    const loaded = POINTS.slice(0, 3)
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        loadDrawToken={1}
+        loadDrawRing={loaded}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+
+    // On screen with grabbable handles, and reported up as the ring — so the
+    // page's counts and its Save gate read the loaded turf immediately.
+    expect(layerData('draw-vertices')).toEqual(loaded)
+    expect(onPolygonChange).toHaveBeenLastCalledWith(loaded)
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(3)
+
+    // And it is live: a further tap edits the loaded shape rather than
+    // starting a new one beside it.
+    clickMap(POINTS[3] as [number, number])
+    expect(layerData('draw-vertices')).toHaveLength(4)
+  })
+
+  // Undo's entries are indexes into the shape the canvas was drawing before
+  // the load. Replaying one against a different ring would move a vertex at
+  // an index that meant something else — and walking back past the load
+  // would unbuild a turf the candidate has already committed.
+  it('makes the loaded ring the floor that undo cannot go under', () => {
+    const onPolygonChange = vi.fn()
+    const loaded = POINTS.slice(0, 3)
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    // Four taps of history on the shape being replaced.
+    POINTS.slice(0, 4).forEach(clickMap)
+    expect(layerData('draw-vertices')).toHaveLength(4)
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        loadDrawToken={1}
+        loadDrawRing={loaded}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        loadDrawToken={1}
+        loadDrawRing={loaded}
+        undoDrawToken={1}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // Nothing to undo: the stack was emptied with the load, so the ring is
+    // exactly what was handed in.
+    expect(layerData('draw-vertices')).toEqual(loaded)
   })
 
   // Appending every tap meant a point placed between two existing vertices sent
@@ -1592,6 +1677,8 @@ describe('VoterMapCanvas label ordering', () => {
     focusTurf: null,
     startDrawToken: 0,
     resumeDrawToken: 0,
+    loadDrawToken: 0,
+    loadDrawRing: null,
     clearDrawToken: 0,
     undoDrawToken: 0,
     drawColor: '#2563eb',

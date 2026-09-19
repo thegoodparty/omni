@@ -82,6 +82,25 @@ const baseProps = {
   onShowAddresses: vi.fn(),
   onHideAddresses: vi.fn(),
   onRetryAddresses: vi.fn(),
+  // One turf, so the route step's Build route is live. These tests are
+  // about the card, not the campaign, so the draft is the minimum that
+  // gets them past the draw step.
+  turfDrafts: [
+    {
+      clientId: 'draft-1',
+      polygon: OPEN_RING,
+      color: '#2563eb',
+      name: 'Turf 1',
+      assigneeId: null,
+    },
+  ],
+  draftStats: new Map(),
+  activeDraftId: null as string | null,
+  onSelectDraft: vi.fn(),
+  onStartNewTurf: vi.fn(),
+  onRemoveDraft: vi.fn(),
+  onUpdateDraft: vi.fn(),
+  onPickColor: vi.fn(),
 }
 
 const POINTS = {
@@ -433,6 +452,7 @@ describe('freezing the card with the list', () => {
         status: 200,
         data: {
           id: 5,
+          outreachId: 900,
           voterFileFilterId: 77,
           name: 'Westside turnout',
           color: '#2563eb',

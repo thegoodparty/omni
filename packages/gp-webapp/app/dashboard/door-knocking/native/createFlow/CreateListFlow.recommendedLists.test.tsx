@@ -7,6 +7,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
+import type { TurfDraft } from '../turfDrafts'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -19,6 +20,16 @@ const OPEN_RING: PolygonRing = [
   [-87.65, 41.92],
   [-87.65, 41.93],
 ]
+
+// The single turf every campaign here holds. Its polygon is `OPEN_RING`,
+// so a create posts the geometry these tests already assert on.
+const DRAFT: TurfDraft = {
+  clientId: 'draft-1',
+  polygon: OPEN_RING,
+  color: '#2563eb',
+  name: 'Turf 1',
+  assigneeId: null,
+}
 
 const baseProps = {
   filters: {},
@@ -70,10 +81,19 @@ const baseProps = {
   onShowAddresses: vi.fn(),
   onHideAddresses: vi.fn(),
   onRetryAddresses: vi.fn(),
+  turfDrafts: [DRAFT],
+  draftStats: new Map(),
+  activeDraftId: null as string | null,
+  onSelectDraft: vi.fn(),
+  onStartNewTurf: vi.fn(),
+  onRemoveDraft: vi.fn(),
+  onUpdateDraft: vi.fn(),
+  onPickColor: vi.fn(),
 }
 
 const savedTurf = {
   id: 5,
+  outreachId: 900,
   voterFileFilterId: 21,
   name: 'Tuesday evening',
   color: '#2563eb',

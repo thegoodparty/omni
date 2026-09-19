@@ -27,6 +27,21 @@ export interface TurfDraft {
   assigneeId: number | null
 }
 
+// What the next turf cut into this campaign is called. Numbered across the
+// campaign's WHOLE membership — the siblings already bought plus the drafts
+// committed this session — because the number is what tells them apart on a
+// map where every one of them is drawn at once. Counting only the drafts
+// would hand a second "Turf 1" to a candidate who arrived through "Add
+// another turf".
+//
+// A plain count rather than a scan for the highest existing number: renaming
+// is coming to this toolbar, and a campaign holding "Downtown" and "Turf 2"
+// should offer "Turf 3" rather than re-offering a name the candidate has
+// already used. Collisions are possible and harmless — the name is a label,
+// the `clientId` is the identity.
+export const nextTurfName = (existingCount: number): string =>
+  `Turf ${existingCount + 1}`
+
 // Renders a draft on the canvas by shape-adapting it to `DoorKnockingTurf`.
 // Only the fields the `saved-turfs` PolygonLayer actually reads are honest
 // (`id`, `color`, `geoPoly`); the count and lifecycle fields are placeholder
@@ -41,7 +56,12 @@ export interface TurfDraft {
 export const draftAsTurfLike = (draft: TurfDraft): DoorKnockingTurf => {
   const now = new Date()
   return {
-    id: draftClientIdToNegativeInt(draft.clientId),
+    id: draftTurfId(draft.clientId),
+    // A draft has no envelope — nothing is bought until the route step's
+    // press — so this is a placeholder of the same kind as the zero counts
+    // below. Negative for the same reason the id is: a real envelope id is
+    // always positive, so nothing can mistake this for one.
+    outreachId: -1,
     voterFileFilterId: -1,
     name: draft.name,
     color: draft.color,
@@ -62,7 +82,7 @@ export const draftAsTurfLike = (draft: TurfDraft): DoorKnockingTurf => {
 // on this turf does not change render-to-render. A real turf id is always
 // positive, so any handler receiving a negative id knows it is a draft
 // (though today no handler on this surface cares).
-const draftClientIdToNegativeInt = (clientId: string): number => {
+export const draftTurfId = (clientId: string): number => {
   let hash = 0
   for (let i = 0; i < clientId.length; i++) {
     hash = (hash * 31 + clientId.charCodeAt(i)) | 0

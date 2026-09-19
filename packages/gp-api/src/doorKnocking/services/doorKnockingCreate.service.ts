@@ -189,6 +189,12 @@ export class DoorKnockingCreateService extends createPrismaBase(
         // door-knocking envelope, so a client can't glue a new turf onto a
         // stranger's campaign or an archived one. Any legacy solo turf
         // remains its own anchor by leaving campaignOutreachId null.
+        //
+        // The anchor's own name comes back with it: a turf joining an
+        // existing campaign inherits that campaign's title rather than
+        // trusting one off the wire, so a late-added turf cannot rename a
+        // campaign it is only joining.
+        let anchorCampaignName: string | null = null
         if (input.campaignOutreachId !== undefined) {
           const anchor = await tx.outreach.findFirst({
             where: {
@@ -202,13 +208,14 @@ export class DoorKnockingCreateService extends createPrismaBase(
                     organizationSlug: scope.organizationSlug,
                   }),
             },
-            select: { id: true },
+            select: { id: true, name: true },
           })
           if (!anchor) {
             throw new BadRequestException(
               'Campaign anchor outreach not found in this scope',
             )
           }
+          anchorCampaignName = anchor.name
         }
 
         // The turf is inserted before the vendor call so the spend ledger can
@@ -343,7 +350,17 @@ export class DoorKnockingCreateService extends createPrismaBase(
             ...scope,
             outreachType: OutreachType.nativeDoorKnocking,
             status: OutreachStatus.in_progress,
-            name: turf.name,
+            // The CAMPAIGN's title, not this turf's — history surfaces read
+            // the anchor envelope and never a sibling, so this column is
+            // where a campaign is named. Written on every sibling too, so
+            // that deleting the anchor (which promotes the earliest survivor)
+            // cannot rename the campaign out from under the candidate.
+            //
+            // Three sources, narrowest first: a campaign being joined owns
+            // its name already, a campaign being created takes the one the
+            // wizard asked for, and a client that sends neither is the
+            // single-turf flow, where the turf's name IS the campaign's.
+            name: anchorCampaignName ?? input.campaignName ?? turf.name,
             voterFileFilterId: filter.id,
             doorKnockingRouteId: route.id,
             date: new Date(),

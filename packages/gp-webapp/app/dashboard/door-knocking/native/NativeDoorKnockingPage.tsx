@@ -20,15 +20,23 @@ import {
   applyLoggedKnocks,
   polygonStats,
   runFilter,
+  type DimSelections,
   type FilterResult,
+  type PolygonStats,
 } from './filterEngine'
+import type { DecodedPack } from './packDecoder'
 import {
   campaignTurfsQueryOptions,
   quotaQueryOptions,
   turfsQueryOptions,
 } from './turfQueries'
 import { assignNextColor } from './turfColors'
-import { draftAsTurfLike, type TurfDraft } from './turfDrafts'
+import {
+  draftAsTurfLike,
+  draftTurfId,
+  nextTurfName,
+  type TurfDraft,
+} from './turfDrafts'
 import { DoorKnockingSurface } from './doorKnockingSurface'
 import {
   HARD_STOP_LIMIT,
@@ -241,18 +249,52 @@ export default function NativeDoorKnockingPage({
   // on save. Empty on a fresh campaign, populated as the candidate presses
   // "+ New turf" / "Save turf(s)" on the drawing surface.
   const [turfDrafts, setTurfDrafts] = useState<TurfDraft[]>([])
+  // Which committed draft the canvas is currently holding open for edits, or
+  // null when the ring being drawn is a brand-new turf nobody has committed.
+  //
+  // Up here with the drafts because the CANVAS reads it: the turf being
+  // edited is drawn by the drawing session rather than by `saved-turfs`, so
+  // `visibleTurfs` below has to leave it out or the same boundary renders
+  // twice — once frozen at the shape it had when it was committed, once live
+  // under the candidate's cursor. During a vertex drag those two disagree,
+  // and the frozen one reads as a ghost of the shape being moved.
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null)
+  // The same answer as `activeDraftId`, readable synchronously.
+  //
+  // It has to be a ref as well as state, and the reason is the order the
+  // canvas reports in. Switching from Turf A to Turf B sets the active turf
+  // and asks the canvas to load B's ring; the canvas answers on its own
+  // schedule, after paint. In the window between the two, `ring` still holds
+  // A's boundary — so anything that decided where to write that boundary by
+  // reading state would write A's shape onto B. The ref is moved at the
+  // switch, before the load is asked for, so the answer is already B by the
+  // time B's ring arrives.
+  const activeDraftRef = useRef<string | null>(null)
   // Actions the drawing surface and the draw-step body call to grow, edit
   // or drop drafts. Wrapped in useCallback so the flow's own memoized
   // derivations do not churn on every render — the drafts array itself is
   // what changes.
+  // Returns the id it minted, so the caller can make the new draft the active
+  // one in the same tick. The id is generated here rather than inside the
+  // updater because an updater runs twice under StrictMode, and a caller that
+  // read its result from a second invocation would be holding an id no draft
+  // in the list carries.
   const commitDraft = useCallback((draft: Omit<TurfDraft, 'clientId'>) => {
     const clientId = `draft-${crypto.randomUUID()}`
     setTurfDrafts((current) => [...current, { ...draft, clientId }])
+    return clientId
   }, [])
   const removeDraft = useCallback((clientId: string) => {
     setTurfDrafts((current) =>
       current.filter((draft) => draft.clientId !== clientId),
     )
+    // Dropping the turf that is open for edits leaves the drawing session
+    // holding a boundary with nothing behind it. Letting go of it here is
+    // what makes the next valid ring commit a fresh draft instead of writing
+    // its shape onto a draft that no longer exists.
+    if (activeDraftRef.current !== clientId) return
+    activeDraftRef.current = null
+    setActiveDraftId(null)
   }, [])
   const updateDraft = useCallback(
     (clientId: string, patch: Partial<Omit<TurfDraft, 'clientId'>>) => {
@@ -264,7 +306,11 @@ export default function NativeDoorKnockingPage({
     },
     [],
   )
-  const clearDrafts = useCallback(() => setTurfDrafts([]), [])
+  const clearDrafts = useCallback(() => {
+    setTurfDrafts([])
+    activeDraftRef.current = null
+    setActiveDraftId(null)
+  }, [])
   // "Add another turf" arrives with `?campaignOutreachId=`. Two things
   // read the resolved sibling list: the create flow (default name + colour
   // picker default), and `useCreateListDraw` below (seed colour). Only
@@ -290,13 +336,116 @@ export default function NativeDoorKnockingPage({
   // The palette-next slot for the drawn ring. `undefined` on a solo create
   // resolves to the assigner's default (`TURF_COLORS[0]`), so a candidate
   // opening the flow with no siblings still lands on blue.
+  // Every colour already spoken for in this campaign, so the next turf lands
+  // on the next free slot. The drafts count as much as the bought siblings do
+  // — they are drawn on the same map at the same time, and a campaign whose
+  // second and third turfs came out the same blue is exactly what the palette
+  // exists to prevent.
   const seedColor = useMemo(
-    () => assignNextColor((siblingTurfs ?? []).map((turf) => turf.color)),
-    [siblingTurfs],
+    () =>
+      assignNextColor([
+        ...(siblingTurfs ?? []).map((turf) => turf.color),
+        ...turfDrafts.map((draft) => draft.color),
+      ]),
+    [siblingTurfs, turfDrafts],
   )
   // The create-list surface's half of the canvas: draw tokens, the point count
   // and the coach mark. Called here because the canvas outlives the flow.
   const draw = useCreateListDraw(seedColor)
+  // How many turfs this campaign will hold once the one being drawn is
+  // counted — the numbering the toolbar's "Turf N" reads.
+  const campaignTurfCount = (siblingTurfs?.length ?? 0) + turfDrafts.length
+  // What the in-progress ring is drawn in, and the one answer the toolbar's
+  // swatch and the canvas both read.
+  //
+  // A committed turf owns its colour; only a turf that does not exist yet
+  // takes the palette's next free slot. Reading `draw.drawColor` directly
+  // here was wrong in a way the flow makes immediate: committing a draft
+  // adds its colour to the campaign, which moves the seed on, which
+  // repainted the very ring that had just been committed — so the shape on
+  // screen went green while its draft stayed blue, and the card on the step
+  // behind disagreed with the map.
+  const activeDraft =
+    turfDrafts.find((draft) => draft.clientId === activeDraftId) ?? null
+  const ringColor = activeDraft?.color ?? draw.drawColor
+  // The canvas reporting the boundary under the cursor, and the one place a
+  // draft's geometry is ever written.
+  //
+  // A turf becomes a draft the moment its ring is valid, rather than at some
+  // later "commit" press. That is what gives the toolbar something real to
+  // hang a colour, a name and an assignee off: a candidate who draws three
+  // corners and then picks an assignee is talking about a turf, and a turf
+  // that only exists as loose page state until they press something else has
+  // nowhere to put the answer.
+  // What a NEW draft is stamped with, read at the moment one is committed
+  // rather than closed over. Both change as turfs are cut — a new draft moves
+  // the palette on and the numbering up — and the handler below has to stay
+  // one object for the life of the mount: the canvas keeps it in a ref, so a
+  // fresh identity buys nothing, and anything that keys an effect on it
+  // instead re-runs on every turf.
+  const newDraftDefaults = useRef({ color: draw.drawColor, count: 0 })
+  newDraftDefaults.current = {
+    color: draw.drawColor,
+    count: campaignTurfCount,
+  }
+  const handlePolygonChange = useCallback(
+    (next: PolygonRing | null) => {
+      setRing(next)
+      // Fewer than three points is not a shape yet. Nothing is dropped by
+      // ignoring it: the draft keeps whatever it last had, and a brand-new
+      // turf simply isn't one until its third corner lands.
+      if (!next) return
+      const active = activeDraftRef.current
+      if (active !== null) {
+        updateDraft(active, { polygon: next })
+        return
+      }
+      const { color, count } = newDraftDefaults.current
+      const clientId = commitDraft({
+        polygon: next,
+        color,
+        name: nextTurfName(count),
+        assigneeId: null,
+      })
+      activeDraftRef.current = clientId
+      setActiveDraftId(clientId)
+    },
+    [commitDraft, updateDraft],
+  )
+  // Starting the next turf: let go of the active one and hand the canvas an
+  // empty session. The turf just finished keeps its draft — this is "I'm done
+  // with that one", not "throw it away".
+  const startNextTurf = useCallback(() => {
+    activeDraftRef.current = null
+    setActiveDraftId(null)
+    setRing(null)
+    draw.startNewTurf(seedColor)
+  }, [draw, seedColor])
+  // Picking an existing turf out of the toolbar: its boundary goes back under
+  // the cursor in its own colour. The ref moves first — see its declaration
+  // for why the order is load-bearing.
+  const selectDraft = useCallback(
+    (clientId: string) => {
+      const draft = turfDrafts.find((entry) => entry.clientId === clientId)
+      if (!draft) return
+      activeDraftRef.current = clientId
+      setActiveDraftId(clientId)
+      draw.loadRing(draft.polygon, draft.color)
+    },
+    [turfDrafts, draw],
+  )
+  // The toolbar's colour picker. Both halves are needed and neither is
+  // redundant: the canvas tints the live ring from `drawColor`, and the draft
+  // is what the ring will be saved as, so a hue written to only one of them
+  // survives exactly until the candidate switches turfs.
+  const pickActiveColor = useCallback(
+    (color: string) => {
+      draw.pickColor(color)
+      const active = activeDraftRef.current
+      if (active !== null) updateDraft(active, { color })
+    },
+    [draw, updateDraft],
+  )
   // The walk surface's half of the canvas: pins, the path, and a tapped pin as
   // a request to open that door.
   const walkMap = useWalkMapSession(walkTurf)
@@ -394,10 +543,17 @@ export default function NativeDoorKnockingPage({
     // layer renders them with their colour, no new layer required. When
     // neither is present (a fresh campaign, no draws yet), the array is
     // empty and the map draws clean.
+    // The turf currently open for edits is left out: the drawing session is
+    // already drawing it, live, with its corners grabbable. Drawn here too it
+    // would appear twice — and during a vertex drag the frozen copy holds the
+    // shape the ring had before the drag, which reads as a ghost trailing the
+    // boundary being moved.
     const siblings = siblingTurfs ?? []
-    const drafts = turfDrafts.map(draftAsTurfLike)
+    const drafts = turfDrafts
+      .filter((draft) => draft.clientId !== activeDraftId)
+      .map(draftAsTurfLike)
     return [...siblings, ...drafts]
-  }, [turfsQuery.data, walkTurf, siblingTurfs, turfDrafts])
+  }, [turfsQuery.data, walkTurf, siblingTurfs, turfDrafts, activeDraftId])
   // The pack's bounding box, framed by the create flow's draw step as a
   // static-map preview card. Null while the pack decodes; the card omits
   // the image in that window rather than rendering against no rect.
@@ -472,6 +628,49 @@ export default function NativeDoorKnockingPage({
         : null,
     [packQuery.data, selections, ring],
   )
+  // The same three figures for every turf cut this session, so the draw
+  // step's cards can say how the campaign is divided up. Cutting several
+  // turfs is how one evening's work is split between people, and a card
+  // that only carried a name would leave the candidate no way to see that
+  // one volunteer got 200 doors and another got 40.
+  //
+  // Cached per draft on the identity of its polygon, which is what keeps
+  // this affordable. `polygonStats` ray-casts the whole pack — up to a few
+  // hundred thousand dots — and the draft being edited has its polygon
+  // rewritten on every vertex the candidate drags. Without the cache each
+  // of those frames would re-stat every OTHER turf too, for answers that
+  // cannot have changed. `updateDraft` replaces only the draft it touches,
+  // so an untouched draft keeps its polygon reference and its cache entry.
+  const draftStatsCache = useRef({
+    pack: null as DecodedPack | null,
+    selections: null as DimSelections | null,
+    entries: new Map<string, { polygon: PolygonRing; stats: PolygonStats }>(),
+  })
+  const draftStats = useMemo(() => {
+    const pack = packQuery.data
+    const stats = new Map<string, PolygonStats>()
+    if (!pack || !selections) return stats
+    const cache = draftStatsCache.current
+    // The audience is what these counts are OF, so a walk back to the who
+    // step invalidates every one of them. Cheaper to notice here than to
+    // key each entry on a filter draft.
+    if (cache.pack !== pack || cache.selections !== selections) {
+      cache.pack = pack
+      cache.selections = selections
+      cache.entries.clear()
+    }
+    for (const draft of turfDrafts) {
+      const cached = cache.entries.get(draft.clientId)
+      if (cached && cached.polygon === draft.polygon) {
+        stats.set(draft.clientId, cached.stats)
+        continue
+      }
+      const next = polygonStats(pack, selections, draft.polygon)
+      cache.entries.set(draft.clientId, { polygon: draft.polygon, stats: next })
+      stats.set(draft.clientId, next)
+    }
+    return stats
+  }, [packQuery.data, selections, turfDrafts])
   // Leaving the walk is the only way out of it. Doors logged along the way
   // mean the landing map's dots are stale.
   const endWalk = () => {
@@ -675,6 +874,12 @@ export default function NativeDoorKnockingPage({
     setFlowStep(null)
     setFilters({})
     setPrecincts([])
+    // Every turf cut this session goes with the flow that cut them. None of
+    // them was paid for, and leaving is the candidate saying so — a draft
+    // that outlived the close would reappear on the next create as a
+    // boundary nobody drew for it.
+    clearDrafts()
+    setRing(null)
     draw.clearDrawing()
     setLeaving(true)
     // Pressed the tile, changed their mind. `back()` rather than a path,
@@ -704,6 +909,7 @@ export default function NativeDoorKnockingPage({
     setFlowStep(null)
     setFilters({})
     setPrecincts([])
+    clearDrafts()
     draw.clearDrawing()
     walkOrigin.current = { kind: 'hub' }
     walk.start({ id: turf.id, name: turf.name }, 'newRoute')
@@ -869,6 +1075,19 @@ export default function NativeDoorKnockingPage({
                   pack={packQuery.data}
                   filterResult={filterResult}
                   turfs={visibleTurfs}
+                  // Every other turf recedes while one is being edited, so
+                  // the boundary under the cursor reads as the foreground.
+                  //
+                  // The id handed over is the turf being edited, and it is
+                  // deliberately one `turfs` does not contain — that turf is
+                  // drawn by the drawing session instead (see `visibleTurfs`).
+                  // `turfInteractiveAlpha` reads this as "a selection is live
+                  // and this turf is not it" and pulls every ring back, which
+                  // is exactly the backdrop wanted. Null off the flow leaves
+                  // the layer at rest, byte-identical to before.
+                  selectedTurfId={
+                    activeDraftId === null ? null : draftTurfId(activeDraftId)
+                  }
                   routePins={walkMap.routePins}
                   // The other half of the walk's one selection: the list marks
                   // the row, the canvas rings the pin, and both read this.
@@ -886,11 +1105,15 @@ export default function NativeDoorKnockingPage({
                   initialZoom={16}
                   startDrawToken={draw.startDrawToken}
                   resumeDrawToken={draw.resumeDrawToken}
+                  // Picking an earlier turf out of the drawing surface's
+                  // toolbar puts its boundary back under the cursor.
+                  loadDrawToken={draw.loadDrawToken}
+                  loadDrawRing={draw.loadDrawRing}
                   clearDrawToken={draw.clearDrawToken}
                   undoDrawToken={draw.undoDrawToken}
                   // The colour a new list is drawn in, on the boundary being cut
                   // — state the map reads, so it lives up here.
-                  drawColor={draw.drawColor}
+                  drawColor={ringColor}
                   // Same overCap the create flow gates Continue on. Swaps the
                   // boundary's hue to destructive red so the map itself says
                   // this shape won't route — matching the count pill's error
@@ -945,7 +1168,7 @@ export default function NativeDoorKnockingPage({
                   // a refused OS permission is indistinguishable from a working
                   // switch, which is exactly how it was reported.
                   locationNotice={Boolean(flowStep)}
-                  onPolygonChange={setRing}
+                  onPolygonChange={handlePolygonChange}
                   onDrawPointCount={draw.onPointCount}
                   onRoutePinClick={walkMap.onPinTap}
                 />
@@ -994,7 +1217,7 @@ export default function NativeDoorKnockingPage({
                 drawFullScreen={draw.fullScreen}
                 onDrawFullScreenChange={draw.setFullScreen}
                 onRestartDrawing={draw.startDrawing}
-                color={draw.drawColor}
+                color={ringColor}
                 drawnStops={drawnStops}
                 onListCreated={handleListCreated}
                 isServeOrg={isServeOrg}
@@ -1007,10 +1230,13 @@ export default function NativeDoorKnockingPage({
                 siblingTurfs={siblingTurfs}
                 campaignOutreachId={campaignOutreachId}
                 turfDrafts={turfDrafts}
-                onCommitDraft={commitDraft}
+                draftStats={draftStats}
+                activeDraftId={activeDraftId}
+                onSelectDraft={selectDraft}
+                onStartNewTurf={startNextTurf}
                 onRemoveDraft={removeDraft}
                 onUpdateDraft={updateDraft}
-                onClearDrafts={clearDrafts}
+                onPickColor={pickActiveColor}
               />
             )}
           </div>
