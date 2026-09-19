@@ -27,11 +27,35 @@ outcome is whatever the park primitive actually stamps (`feedback_parked`);
 "deploy pending" is the state you're telling a human in the parking comment,
 not a separate outcome this stage invents.
 
-### 2. Log in
+### 2. Provision a test user and log in
 
-Redeem a Clerk sign-in ticket for the provisioned dev test user to get an
-authenticated session. Never put credentials in a prompt or a comment — the
-ticket flow is the only login path this stage uses.
+Provision your own dev test user through gp-api's test-fixtures API
+(`packages/gp-api/src/testFixtures/AGENTS.md` documents the endpoints and
+states). Authenticate with a short-lived Clerk M2M token minted from
+`AUTOPILOT_MACHINE_SECRET` — Clerk caps M2M token lifetimes, so mint fresh
+each run rather than expecting a stored token:
+
+    TOKEN=$(curl -sf -X POST https://api.clerk.com/v1/m2m_tokens \
+        -H "Authorization: Bearer $AUTOPILOT_MACHINE_SECRET" \
+        -H "Content-Type: application/json" \
+        -d '{"seconds_until_expiration": 7200}' | jq -r .token)
+
+    curl -sf -X POST "$GP_API_DEV_BASE_URL/v1/test-fixtures/users" \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"state": "<the product state the story needs>"}'
+
+The create response carries a single-use Clerk `signInToken`: redeem it in
+the browser on a public page
+(`window.Clerk.client.signIn.create({ strategy: 'ticket', ticket })` then
+`setActive`) to get an authenticated session — the fixture doc above has the
+full recipe. If you need to log in again (retry, expired ticket), re-mint the
+session with `POST /v1/test-fixtures/users/<id>/session` instead of creating
+a second fixture user. Never put credentials — the token, the machine
+secret, the `signInToken`, or fixture passwords — in a prompt, a comment, a
+screenshot, or any output; and clean up with
+`DELETE /v1/test-fixtures/users` (body `{"userIds": [<ids>]}`) before you end
+your turn, pass or fail.
 
 ### 3. Flag-on: walk the acceptance criteria
 

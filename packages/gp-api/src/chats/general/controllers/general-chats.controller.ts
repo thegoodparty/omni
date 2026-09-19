@@ -25,11 +25,19 @@ import type {
   ChatHistoryResponse,
   ChatMessageFeedback as ChatMessageFeedbackResponse,
   CreateChatResponse,
+  PresignResponse,
 } from '@goodparty_org/contracts'
 import {
   ChatAttachmentDownloadResponseSchema,
   ChatAttachmentListResponseSchema,
+  ChatAttachmentSchema,
+  FinalizeRequest,
+  FinalizeRequestSchema,
+  PresignRequest,
+  PresignRequestSchema,
+  PresignResponseSchema,
 } from '@goodparty_org/contracts'
+import { z } from 'zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
@@ -52,6 +60,8 @@ import {
   SendChatMessageDto,
   SetChatMessageFeedbackDto,
 } from '../schemas/GeneralChat.schema'
+
+type ChatAttachmentDTO = z.infer<typeof ChatAttachmentSchema>
 
 const SSE_HEADERS: Record<string, string> = {
   'content-type': 'text/event-stream',
@@ -305,23 +315,45 @@ export class GeneralChatsController {
   }
 
   @Post(':conversationId/attachments/presign')
-  async presignAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(PresignResponseSchema)
+  async presignAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Body(new ZodValidationPipe(PresignRequestSchema)) body: PresignRequest,
+  ): Promise<PresignResponse> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.attachments.presign(
+      conversationId,
+      user.id,
+      organizationSlug,
+      body,
+    )
   }
 
   @Post(':conversationId/attachments')
-  async finalizeAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(ChatAttachmentSchema)
+  async finalizeAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Body(new ZodValidationPipe(FinalizeRequestSchema)) body: FinalizeRequest,
+  ): Promise<ChatAttachmentDTO> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.attachments.finalize(
+      conversationId,
+      user.id,
+      organizationSlug,
+      body,
+    )
   }
 
   @Post(':conversationId/attachments/link')
@@ -338,15 +370,21 @@ export class GeneralChatsController {
   @ResponseSchema(ChatAttachmentListResponseSchema)
   async listAttachments(
     @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
   ): Promise<ChatAttachmentListResponse> {
-    return this.attachments.listAttachments(conversationId, user.id)
+    return this.attachments.listAttachments(
+      conversationId,
+      user.id,
+      organizationSlug,
+    )
   }
 
   @Get(':conversationId/attachments/:attachmentId/download')
   @ResponseSchema(ChatAttachmentDownloadResponseSchema)
   async downloadAttachment(
     @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Param('attachmentId') attachmentId: string,
   ): Promise<ChatAttachmentDownloadResponse> {
@@ -354,6 +392,7 @@ export class GeneralChatsController {
       conversationId,
       attachmentId,
       user.id,
+      organizationSlug,
     )
   }
 
@@ -361,6 +400,7 @@ export class GeneralChatsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAttachment(
     @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Param('attachmentId') attachmentId: string,
   ): Promise<void> {
@@ -368,6 +408,7 @@ export class GeneralChatsController {
       conversationId,
       attachmentId,
       user.id,
+      organizationSlug,
     )
   }
 
