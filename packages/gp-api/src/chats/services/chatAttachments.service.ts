@@ -163,7 +163,13 @@ export class ChatAttachmentsService extends createPrismaBase(
         storageKey: created.storageKey,
       }
     } catch (err) {
-      await this.markFailed(created.id, 'presign_failed')
+      await this.markFailed(created.id, 'presign_failed').catch(
+        (markErr: Error) =>
+          this.logger.error(
+            { err: markErr, attachmentId: created.id },
+            'markFailed after presign error failed; attachment may remain pending',
+          ),
+      )
       throw err
     }
   }
@@ -264,7 +270,7 @@ export class ChatAttachmentsService extends createPrismaBase(
           type: QueueType.EXTRACT_CHAT_ATTACHMENT,
           data: { attachmentId: attachment.id },
         },
-        MessageGroup.default,
+        MessageGroup.extractChatAttachment,
         {
           deduplicationId: `extract-${attachment.id}`,
           throwOnError: true,

@@ -181,6 +181,7 @@ export enum MessageGroup {
   agenticComplianceKickoff = 'agenticComplianceKickoff',
   nightly10DlcReport = 'nightly10DlcReport',
   cvStatusPoll = 'cvStatusPoll',
+  extractChatAttachment = 'extractChatAttachment',
 }
 
 const PollResponseJsonRowSchema = z.object({
