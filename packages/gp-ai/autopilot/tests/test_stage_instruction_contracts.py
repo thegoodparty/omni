@@ -94,6 +94,9 @@ def test_story_covers_its_load_bearing_directives():
     assert "MERGE" in text, "must require the confirmation command to print MERGE"
 
     assert "delegate review" in text, "must re-trigger delegate after every push"
+    # The exact trigger form is load-bearing: a live PR stalled for hours on
+    # "/delegate review" comments the reviewer never answered.
+    assert "no leading slash" in text, "must pin the exact trigger form — slash-prefixed triggers are silently dead"
     assert "reviewDecision" in text, "must check reviewDecision before pushing more"
     assert "approved and auto-merge armed" in text, "exit condition is approved + armed, not merely opened"
 
