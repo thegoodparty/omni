@@ -1087,6 +1087,14 @@ export class ContactsService {
     organization: Organization,
     geoPoly: GeoJsonPolygon,
   ): Promise<string[]> {
+    // The only Databricks fan-out on this service that was reachable without
+    // one. `filterAccessCheck`, the guard upstream on the voter-file route,
+    // only throws for a non-Pro `campaign-` slug, and `isProAccess` answers
+    // false for any slug that is neither `campaign-` nor `eo-` — so such an
+    // org passed the upstream check and reached a full bbox scan here.
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
     return this.withOrgDistrictResolution(
       organization,
       async ({ districtId }) => {

@@ -77,6 +77,32 @@ describe('saved list boundaries', () => {
       .findMany({ where: { voterFileFilterId }, select: { personId: true } })
       .then((rows) => rows.map((r) => r.personId).sort())
 
+  // The scan that freezes a shape's membership is a full Databricks bbox
+  // read, and it was the one such read on this service with no Pro gate:
+  // `filterAccessCheck` on the route above only throws for a non-Pro
+  // `campaign-` slug, so an org whose slug is neither `campaign-` nor `eo-`
+  // passed it and reached the warehouse.
+  it('refuses to freeze a boundary for an organization without pro access', async () => {
+    const slug = `org-geo-nonpro-${Date.now()}`
+    await service.prisma.organization.create({
+      data: {
+        slug,
+        ownerId: service.user.id,
+        overrideDistrictId: randomUUID(),
+      },
+    })
+    const evaluateSpy = spyOnEvaluate([person(randomUUID(), 0.5, 0.5)])
+
+    const response = await createFilter(slug, {
+      name: 'Boundary list',
+      genderFemale: true,
+      geoPoly: SQUARE,
+    })
+
+    expect(response.status).toBe(403)
+    expect(evaluateSpy).not.toHaveBeenCalled()
+  })
+
   it('freezes the enclosed people when a list is created with a boundary', async () => {
     const slug = await setupServeOrg('create')
     const inside = randomUUID()
