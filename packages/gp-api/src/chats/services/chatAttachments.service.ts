@@ -308,12 +308,9 @@ export class ChatAttachmentsService extends createPrismaBase(
       pageCount = pages
       mimeType = MimeTypes.APPLICATION_PDF
       sizeBytes = fetched.body.byteLength
-      await this.s3.uploadFile(
-        this.bucket,
-        fetched.body,
-        storageKey,
-        { contentType: MimeTypes.APPLICATION_PDF },
-      )
+      await this.s3.uploadFile(this.bucket, fetched.body, storageKey, {
+        contentType: MimeTypes.APPLICATION_PDF,
+      })
     } else {
       const raw = fetched.body.toString('utf-8')
       const full = isHtml ? markdownFromHtml(raw) : raw
