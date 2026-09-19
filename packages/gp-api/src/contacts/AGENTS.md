@@ -546,13 +546,8 @@ answer to a question its own canvassers never asked. `findPerson` includes
 ### Saved-filter lifecycle
 
 Create/edit via the wizard (or the assistant's `crud_saved_filters`) →
-`voters/voter-file` CRUD. The assistant is told to disclose when a
-candidate's ask has no real filter behind it (a county, city, or zip, for
-example) and to confirm with them before counting or saving under that
-wording. As a last-resort backstop, `crud_saved_filters` also silently
-refuses to create or rename a list under a name the filter cannot back up
-(a place word with no precinct narrowing behind it). At first outreach
-launch `stampFirstUsedForOutreach` claims the lock atomically
+`voters/voter-file` CRUD. At first outreach launch
+`stampFirstUsedForOutreach` claims the lock atomically
 (`updateMany WHERE first_used_for_outreach_at IS NULL`) — after that,
 PUT/DELETE 409 ("duplicate to edit"; the webapp reposts criteria as a
 copy). The stamp happens **before** the channel guard in materialization,

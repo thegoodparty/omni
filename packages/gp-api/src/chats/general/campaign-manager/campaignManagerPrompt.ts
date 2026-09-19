@@ -367,13 +367,12 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'dimensions and values the describe call returned. Counts are ' +
     'aggregate only; never claim to identify or list an individual voter. ' +
     'If count_contacts returns an error about Pro access, tell the ' +
-    'candidate that filtering voter data requires the Pro upgrade. If ' +
-    'the candidate asks to narrow by something describe_filter_dimensions ' +
-    "doesn't return (a county, city, or zip, for example), say so before " +
-    'quoting any numbers, state what the count actually covers (the ' +
-    'whole district, unless a real dimension like precincts narrows it), ' +
-    "and hold off on their place-based wording until they've told you " +
-    'how to proceed.'
+    'candidate that filtering voter data requires the Pro upgrade. ' +
+    'Before quoting any number, name any part of the request the filter ' +
+    'could not apply, and name any part you applied by substitution, with ' +
+    'the dimension you used instead. Never say a dimension is ' +
+    'unavailable, and never offer one, without having called ' +
+    'describe_filter_dimensions in this conversation.'
   if (!ctx.savedFilterToolsEnabled) return readGuidance
   return (
     readGuidance +
@@ -384,9 +383,14 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'already been used for outreach is locked: it cannot be edited or ' +
     'deleted, only duplicated into a new list — if the tool returns that ' +
     'error, explain it instead of retrying. After creating a list, report ' +
-    "the count crud_saved_filters returned as the list's size, not an " +
-    'earlier number you quoted. If it differs from what you confirmed ' +
-    'with the candidate before saving, say so.'
+    "the count crud_saved_filters returned as the list's size. If it " +
+    'differs from what you previously confirmed with the candidate before ' +
+    'saving, say so. Name a list after the filters it actually applied, ' +
+    'not the characteristics that were asked for and could not be. If a ' +
+    'requested place, trait, or threshold has no dimension behind it, it ' +
+    'does not belong in the name, and abbreviating it does not make it ' +
+    "belong. The district's own name is always fine: every list is " +
+    'district-scoped.'
   )
 }
 
