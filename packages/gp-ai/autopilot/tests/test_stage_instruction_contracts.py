@@ -192,9 +192,7 @@ def test_qa_covers_its_load_bearing_directives():
     # re-verifies; resume.md's QA-failed carve-out must uphold both halves.
     resume_text = _read("resume")
     assert '"QA failed"' in resume_text, "resume must carve QA-failed parks out of the status-note shortcut"
-    assert "never" in resume_text.lower() and "auto-resolve" in resume_text, (
-        "a QA-failed park must not be auto-resolved by the deploy check"
-    )
+    assert "never auto-resolve" in resume_text.lower(), "a QA-failed park must not be auto-resolved by the deploy check"
     assert "re-run the QA walk" in resume_text, (
         "a human-initiated resume of a QA-failed park re-verifies — the human was promised a drag suffices"
     )
