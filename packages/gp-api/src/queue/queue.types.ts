@@ -17,6 +17,7 @@ export enum QueueType {
   NIGHTLY_10DLC_REPORT = 'nightly10DlcReport',
   CV_STATUS_POLL = 'cvStatusPoll',
   ORDINANCE_QUALITY_LOOP = 'ordinanceQualityLoop',
+  EXTRACT_CHAT_ATTACHMENT = 'extractChatAttachment',
 }
 
 export type QueueMessage =
@@ -66,6 +67,10 @@ export type QueueMessage =
   | {
       type: QueueType.ORDINANCE_QUALITY_LOOP
       data: OrdinanceQualityLoopMessage
+    }
+  | {
+      type: QueueType.EXTRACT_CHAT_ATTACHMENT
+      data: ExtractChatAttachmentMessage
     }
 
 export type GenerateAiContentMessageData = {
@@ -176,6 +181,7 @@ export enum MessageGroup {
   agenticComplianceKickoff = 'agenticComplianceKickoff',
   nightly10DlcReport = 'nightly10DlcReport',
   cvStatusPoll = 'cvStatusPoll',
+  extractChatAttachment = 'extractChatAttachment',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -246,4 +252,11 @@ export const OrdinanceQualityLoopMessageSchema = z.object({
 })
 export type OrdinanceQualityLoopMessage = z.infer<
   typeof OrdinanceQualityLoopMessageSchema
+>
+
+export const ExtractChatAttachmentMessageSchema = z.object({
+  attachmentId: z.string(),
+})
+export type ExtractChatAttachmentMessage = z.infer<
+  typeof ExtractChatAttachmentMessageSchema
 >

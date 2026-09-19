@@ -25,11 +25,19 @@ import type {
   ChatMessageFeedback as ChatMessageFeedbackResponse,
   CreateChatResponse,
   LinkAttachResponse,
+  PresignResponse,
 } from '@goodparty_org/contracts'
 import {
+  ChatAttachmentSchema,
+  FinalizeRequest,
+  FinalizeRequestSchema,
   LinkAttachRequestSchema,
   LinkAttachResponseSchema,
+  PresignRequest,
+  PresignRequestSchema,
+  PresignResponseSchema,
 } from '@goodparty_org/contracts'
+import { z } from 'zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
@@ -52,6 +60,8 @@ import {
   SendChatMessageDto,
   SetChatMessageFeedbackDto,
 } from '../schemas/GeneralChat.schema'
+
+type ChatAttachmentDTO = z.infer<typeof ChatAttachmentSchema>
 
 const SSE_HEADERS: Record<string, string> = {
   'content-type': 'text/event-stream',
@@ -305,23 +315,33 @@ export class GeneralChatsController {
   }
 
   @Post(':conversationId/attachments/presign')
-  async presignAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(PresignResponseSchema)
+  async presignAttachment(
+    @ReqUser() user: User,
+    @Param('conversationId') conversationId: string,
+    @Body(new ZodValidationPipe(PresignRequestSchema)) body: PresignRequest,
+  ): Promise<PresignResponse> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.attachments.presign(conversationId, user.id, body)
   }
 
   @Post(':conversationId/attachments')
-  async finalizeAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(ChatAttachmentSchema)
+  async finalizeAttachment(
+    @ReqUser() user: User,
+    @Param('conversationId') conversationId: string,
+    @Body(new ZodValidationPipe(FinalizeRequestSchema)) body: FinalizeRequest,
+  ): Promise<ChatAttachmentDTO> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.attachments.finalize(conversationId, user.id, body)
   }
 
   @Post(':conversationId/attachments/link')
@@ -338,7 +358,7 @@ export class GeneralChatsController {
     })
     if (!enabled) throw new NotFoundException()
     const parsed = LinkAttachRequestSchema.safeParse(rawBody)
-    if (!parsed.success) throw new BadRequestException(parsed.error.errors)
+    if (!parsed.success) throw new BadRequestException(parsed.error.issues)
     return this.attachments.attachLink(
       conversationId,
       user.id,

@@ -78,7 +78,11 @@ const makeService = (
   fetchResult: FetchBytesResult,
   conv: typeof mockConversation | null = mockConversation,
 ): ChatAttachmentsService => {
-  const svc = new ChatAttachmentsService(mockS3 as never, fakeHttp(fetchResult))
+  const svc = new ChatAttachmentsService(
+    mockS3 as never,
+    {} as never,
+    fakeHttp(fetchResult),
+  )
   const mockPrisma = makeMockPrisma(conv)
   Object.defineProperty(svc, '_prisma', { get: () => mockPrisma })
   Object.defineProperty(svc, 'model', {
@@ -107,7 +111,7 @@ describe('ChatAttachmentsService.attachLink', () => {
   it('throws NotFoundException when conversation does not exist', async () => {
     const svc = makeService(okFetch(), null)
     await expect(
-      svc.attachLink(CONV_ID, USER_ID, 'https://example.com'),
+      svc.attachLink(CONV_ID, USER_ID, 'org-slug-stub', 'https://example.com'),
     ).rejects.toThrow(NotFoundException)
   })
 
@@ -116,6 +120,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'http://192.168.1.1/admin',
     )
     expect(result).toEqual({ ok: false, error: 'blocked_url' })
@@ -126,6 +131,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'http://127.0.0.1/secret',
     )
     expect(result).toEqual({ ok: false, error: 'blocked_url' })
@@ -136,6 +142,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://rebind.example.com/x',
     )
     expect(result).toEqual({ ok: false, error: 'blocked_url' })
@@ -146,6 +153,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://slow.example.com',
     )
     expect(result).toEqual({ ok: false, error: 'timeout' })
@@ -156,6 +164,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://big.example.com/file',
     )
     expect(result).toEqual({ ok: false, error: 'too_large' })
@@ -166,6 +175,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://down.example.com',
     )
     expect(result).toEqual({ ok: false, error: 'unreachable' })
@@ -176,6 +186,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://example.com/missing',
     )
     expect(result).toEqual({ ok: false, error: 'unreachable' })
@@ -191,6 +202,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://example.com/file.bin',
     )
     expect(result).toEqual({ ok: false, error: 'unsupported_content_type' })
@@ -201,6 +213,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://example.com/page',
     )
     expect(result.ok).toBe(true)
@@ -217,6 +230,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://example.com/doc.txt',
     )
     expect(result.ok).toBe(true)
@@ -230,6 +244,7 @@ describe('ChatAttachmentsService.attachLink', () => {
     const result = await svc.attachLink(
       CONV_ID,
       USER_ID,
+      'org-slug-stub',
       'https://example.com/page',
     )
     expect(result).toEqual({ ok: false, error: 'too_large' })

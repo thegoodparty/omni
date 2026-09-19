@@ -63,14 +63,23 @@ pending: ...") instead of a real question. Don't wait for a human reply to
 view` / `gh pr checks` for a pending merge, or the deployed commit for a
 pending deploy.
 
+A pending condition that has gone RED is not "still pending" — it is your
+work. Failing checks or delegate blockers on the story's own PR are the
+story stage's job, and parking to ask permission to fix your own PR stalls
+the epic (the first live epic stalled three stories exactly this way). Fix
+them, push, re-trigger delegate, and only then either finish the handoff or
+park again with an honest status note. The same applies when the conductor
+auto-resumed you onto a stranded-run park with no human reply: the card is
+where a safety net put it, the PR state is the work, do it.
+
 This shortcut applies ONLY to those status-note parks. A qa park whose
 question starts "QA failed" is a real question about real findings — never
 auto-resolve it with the deploy check above, because "the commit is live on
 dev" resolves nothing: the findings were produced against that same live
-commit. But you don't wait for a reply here either. Every resume dispatch is
-human-initiated by construction (the conductor drops the bot's own comments,
-and only a human can drag through the gate), so being in this run at all
-means a human acted. Acted is not the same as authorized: read what they
+commit. But you don't wait for a reply here either. A resume of a QA-failed
+park is always human-initiated (the conductor drops the bot's own comments,
+never auto-resumes "QA failed" parks, and only a human can drag through the
+gate), so being in this run at all means a human acted. Acted is not the same as authorized: read what they
 actually did first. A drag with no comment, or a reply that answers a
 finding, names a fix, or asks for a re-check, means re-run the QA walk with
 that context. A reply that signals something else — cancelling the story,
