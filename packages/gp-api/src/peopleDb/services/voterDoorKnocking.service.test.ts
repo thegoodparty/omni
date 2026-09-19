@@ -144,6 +144,60 @@ describe('VoterDoorKnockingService', () => {
     })
   })
 
+  // The same read with the opposite answer to the same question. `evaluate`
+  // must reject a partial roster; a map must not refuse to draw.
+  describe('evaluatePoints', () => {
+    const dto = {
+      districtId: DISTRICT_ID,
+      bbox: { minLat: -90, maxLat: 90, minLng: -180, maxLng: 180 },
+      filters: { filters: [], filterValues: {}, filterOperators: {} },
+      maxPeople: 3,
+    }
+
+    it('returns everyone under the cap, untruncated', async () => {
+      databricks.doorKnockingEvaluateRows.mockResolvedValueOnce([
+        evaluateRow(TARGET_ID),
+        evaluateRow(OTHER_ID),
+      ])
+
+      const result = await service.evaluatePoints(dto as never)
+
+      expect(result.truncated).toBe(false)
+      expect(result.people).toHaveLength(2)
+      expect(result.people[0]).toMatchObject({ id: TARGET_ID, lat: 41.8781 })
+    })
+
+    it('truncates to the cap rather than rejecting, and says so', async () => {
+      databricks.doorKnockingEvaluateRows.mockResolvedValueOnce([
+        evaluateRow(TARGET_ID),
+        evaluateRow(OTHER_ID),
+        evaluateRow('33333333-3333-3333-3333-333333333333'),
+        evaluateRow('44444444-4444-4444-4444-444444444444'),
+      ])
+
+      const result = await service.evaluatePoints(dto as never)
+
+      expect(result.truncated).toBe(true)
+      // The cap, not the cap + 1 the query LIMITs to. Returning the probe row
+      // would put one more dot on the map than the caller asked for.
+      expect(result.people).toHaveLength(3)
+    })
+
+    it('measures separately from evaluate and forwards the accuracy gate', async () => {
+      await service.evaluatePoints(dto as never, {
+        requireRooftopAccuracy: false,
+      })
+
+      expect(readLog.measure.mock.calls[0]?.[0]).toMatchObject({
+        op: 'dk-evaluate-points',
+        districtId: DISTRICT_ID,
+      })
+      expect(databricks.doorKnockingEvaluateRows).toHaveBeenCalledWith(dto, {
+        requireRooftopAccuracy: false,
+      })
+    })
+  })
+
   describe('residents', () => {
     const dto = {
       districtId: DISTRICT_ID,

@@ -34,17 +34,19 @@ vi.mock('../map/ContactListMap', () => ({
   __esModule: true,
   default: function ContactListMapStub({
     people,
+    contactPoints,
     drawRing,
     onDrawRingChange,
   }: {
-    people: unknown[]
+    people?: unknown[]
+    contactPoints?: unknown[]
     drawRing?: Array<[number, number]>
     onDrawRingChange?: (ring: Array<[number, number]>) => void
   }) {
     return (
       <div
         data-testid="contact-map-stub"
-        data-people={people.length}
+        data-people={(contactPoints ?? people ?? []).length}
         data-ring={JSON.stringify(drawRing ?? [])}
         data-draw-enabled={String(Boolean(onDrawRingChange))}
       >
@@ -62,8 +64,16 @@ vi.mock('../map/ContactListMap', () => ({
   },
 }))
 
-// The boundary step draws the district as a backdrop, so the wizard reaches
-// the contacts route once it is entered.
+// The boundary step's dots: the list being built, from POST
+// /v1/contacts/points. Answered in the shared beforeEach because the step
+// renders "Loading map…" in place of the map until it resolves, and several
+// tests reach the step and then look for the map.
+const mockBoundaryPoints = () =>
+  api.mock('POST /v1/contacts/points', {
+    status: 200,
+    data: { points: [], truncated: false },
+  })
+
 const mockDistrictPeople = () =>
   api.mock('GET /v1/contacts', {
     status: 200,
@@ -167,6 +177,7 @@ beforeEach(() => {
     data: { options: [], truncated: false },
   })
   mockDistrictPeople()
+  mockBoundaryPoints()
   api.mock('POST /v1/contacts/polygon-preview', {
     status: 200,
     data: { count: 120, audienceEmpty: false },
@@ -313,6 +324,42 @@ describe('CreateListWizard — step navigation', () => {
     expect(
       screen.getByRole('heading', { name: 'Name your list' }),
     ).toBeInTheDocument()
+  })
+
+  // The whole point of POST /v1/contacts/points. The step used to draw
+  // ALL_SEGMENTS — the district's entire contactable universe — under a pill
+  // counting only the filtered audience, so a shape around visible dots came
+  // back holding fewer people than it enclosed.
+  it('draws the list being built, asking for it with the same filters the count uses', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    const bodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/contacts/points', ({ body }) => {
+      bodies.push(body as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          points: [
+            { id: 'a', lat: 44.76, lng: -85.62 },
+            { id: 'b', lat: 44.77, lng: -85.63 },
+          ],
+          truncated: false,
+        },
+      }
+    })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+
+    const map = await screen.findByTestId('contact-map-stub')
+    expect(map).toHaveAttribute('data-people', '2')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toMatchObject({
+      filters: expect.objectContaining({ genderFemale: true }),
+    })
   })
 
   it('advances Serve to the name step as Step 3 of 3, with Back returning through the boundary', async () => {

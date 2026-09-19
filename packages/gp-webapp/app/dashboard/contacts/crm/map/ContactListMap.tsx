@@ -33,6 +33,10 @@ const EMPTY_STYLE: maplibregl.StyleSpecification = {
 // chain (--primary -> --color-brand-blue-500 -> #1e63ec) is written out and
 // the test is what keeps it honest.
 const PRIMARY_BLUE: [number, number, number] = [30, 99, 236]
+// Stable identity, so a caller that passes no `people` does not remount the
+// dots on every render through a fresh [] default.
+const EMPTY_PEOPLE: Person[] = []
+
 const DOT: [number, number, number, number] = [...PRIMARY_BLUE, 200]
 const DOT_SELECTED: [number, number, number, number] = [255, 255, 255, 255]
 
@@ -61,7 +65,12 @@ const VERTEX_RADIUS_PX = 6
 const VERTEX_PICK_RADIUS_PX = 10
 
 interface ContactListMapProps {
-  people: Person[]
+  // Exactly one of `people` and `contactPoints` is given. Person records are
+  // what every surface with an overlay behind its dots has in hand; the draw
+  // step does not, so it asks gp-api for bare coordinates instead of pulling
+  // thirty columns per constituent it will never read.
+  people?: Person[]
+  contactPoints?: ContactPoint[]
   selectedPersonId?: string | null
   // Omitted where the dots are markers rather than an index into anything.
   // The Chief of Staff chat is that case: there is no person overlay in a
@@ -84,7 +93,8 @@ interface ContactListMapProps {
 }
 
 export default function ContactListMap({
-  people,
+  people = EMPTY_PEOPLE,
+  contactPoints,
   selectedPersonId,
   onSelectPerson,
   truncated = false,
@@ -120,10 +130,13 @@ export default function ContactListMap({
   // just moved.
   const justDraggedRef = useRef(false)
 
-  const { points, unmappable } = useMemo(
-    () => toContactPoints(people),
-    [people],
-  )
+  const derived = useMemo(() => toContactPoints(people), [people])
+  // Coordinates given directly carry no unmappable count: the query behind
+  // them cannot return a row without a location, so there is nothing to
+  // report as missing.
+  const { points, unmappable } = contactPoints
+    ? { points: contactPoints, unmappable: 0 }
+    : derived
 
   // Switching lists inside an open sheet re-renders this component rather
   // than remounting it, so an open popover would survive the swap and its

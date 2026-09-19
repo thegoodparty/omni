@@ -800,6 +800,7 @@ export default function CreateListWizard({
           ring={boundaryRing}
           onRingChange={setBoundaryRing}
           labels={labels}
+          filters={backendPayload}
           count={polygonCount}
           audienceEmpty={audienceEmpty}
           isCounting={isPolygonLoading || isPolygonStale}

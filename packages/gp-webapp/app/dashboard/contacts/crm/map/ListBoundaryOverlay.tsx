@@ -69,7 +69,7 @@ export default function ListBoundaryOverlay({
       data-testid="boundary-overlay"
     >
       <BoundaryDrawPanel
-        people={people}
+        points={points}
         truncated={truncated}
         ring={ring}
         onRingChange={setRing}

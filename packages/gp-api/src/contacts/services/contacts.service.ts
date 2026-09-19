@@ -20,6 +20,7 @@ import {
   type PeoplePrecinctsResponse,
   type DoorKnockingEvaluateResponse,
   type GeoJsonPolygon,
+  MAX_RESULTS_PER_PAGE,
 } from '@goodparty_org/contracts'
 import {
   ContactStatusField,
@@ -77,6 +78,7 @@ import {
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
 import { PolygonPreviewContactsDTO } from '../schemas/polygonPreviewContacts.schema'
+import { FilterPointsContactsDTO } from '../schemas/filterPointsContacts.schema'
 import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
 import type { VoterFileFilter } from '../../generated/prisma'
 import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
@@ -121,6 +123,24 @@ export const PRO_FILTERING_REQUIRED_MESSAGE =
 // rather than reused from door knocking's 20,000: that number is sized from
 // a 150-stop walk route, and a constituent list is not a walk route.
 const POLYGON_PREVIEW_MAX_PEOPLE = 50_000
+
+// Everywhere. The district is the boundary for a points read, and the SQL
+// scopes to it already — the bbox in that query exists to prefilter for a
+// drawn shape, and with no shape to prefilter for, a predicate that excludes
+// nothing is the correct one.
+const DISTRICT_WIDE_BBOX: Bbox = {
+  minLat: -90,
+  maxLat: 90,
+  minLng: -180,
+  maxLng: 180,
+}
+
+// Matched to MAX_RESULTS_PER_PAGE on purpose: the saved-list map draws its
+// dots through GET /v1/contacts under exactly this ceiling, so a list looks
+// the same on the draw step as it does the moment after it is saved. A
+// different number here would move dots on screen at save time for no
+// reason the holder could see.
+const MAP_POINTS_MAX = MAX_RESULTS_PER_PAGE
 
 // The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
 // `eo-` org's download drops this column from the projection instead
@@ -880,16 +900,7 @@ export class ContactsService {
   async polygonPreview(
     { geoPoly, filters: filterInput }: PolygonPreviewContactsDTO,
     organization: Organization,
-    // TEMPORARY `debug` field. The shape returns zero over visibly dense
-    // dots and the server log is not reachable from where this is being
-    // diagnosed, so the two numbers that separate "the query matched
-    // nobody" from "the ray-cast rejected everybody" ride the response
-    // instead. Remove with the log line above once answered.
-  ): Promise<{
-    count: number
-    audienceEmpty: boolean
-    debug?: { evaluated: number; insidePolygon: number; bbox: Bbox }
-  }> {
+  ): Promise<{ count: number; audienceEmpty: boolean }> {
     if (!(await this.isProAccess(organization))) {
       throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
@@ -920,20 +931,76 @@ export class ContactsService {
       async ({ districtId }) => {
         const { people } = await this.evaluateWithinBbox(
           districtId,
-          geoPoly,
+          polygonBbox(geoPoly),
           resolved,
         )
         const inside = people.filter((person) =>
           pointInPolygon(person.lng, person.lat, geoPoly),
         )
+        return { count: inside.length, audienceEmpty: false }
+      },
+    )
+  }
+
+  // The dots the draw step draws on: everyone the in-progress filters match,
+  // across the whole district, as bare coordinates.
+  //
+  // This exists because the step used to draw `ALL_SEGMENTS` — the district's
+  // entire contactable universe — under a pill counting only the filtered
+  // audience. Drawing a shape around visible dots then returned a number
+  // smaller than the dots enclosed, because most of them were never in the
+  // list being built. The map now shows the list, so the shape and the count
+  // are answering about one population.
+  //
+  // Names and addresses are deliberately absent. The step has no person
+  // overlay behind its dots, so the only thing it needs is where they are,
+  // and a district-wide read of a draft filter is the widest query in the
+  // CRM — the narrowest response it can serve is the right one.
+  async filterPoints(
+    { filters: filterInput }: FilterPointsContactsDTO,
+    organization: Organization,
+  ): Promise<{
+    points: { id: string; lat: number; lng: number }[]
+    truncated: boolean
+  }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const resolved = await this.resolveSavedFilterForQuery(
+      organization,
+      filterInput,
+    )
+
+    // Filters that match nobody: an empty map, not an error, and not a
+    // district round trip. Mirrors polygonPreview's own short circuit,
+    // including its placement before the district gate — emptiness does not
+    // need a district to be true.
+    if (resolved.empty) {
+      return { points: [], truncated: false }
+    }
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId }) => {
+        const { people, truncated } =
+          await this.voterDoorKnockingService.evaluatePoints(
+            DoorKnockingEvaluateDTO.create({
+              districtId,
+              bbox: DISTRICT_WIDE_BBOX,
+              filters: resolved.filters,
+              idOverrides: resolved.idOverrides,
+              contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+              maxPeople: MAP_POINTS_MAX,
+            }),
+            // Same reason polygonPreview drops it: the rooftop gate is door
+            // knocking's routing rule, and a dot the holder is about to draw
+            // a shape around must be one the count will find.
+            { requireRooftopAccuracy: false },
+          )
         return {
-          count: inside.length,
-          audienceEmpty: false,
-          debug: {
-            evaluated: people.length,
-            insidePolygon: inside.length,
-            bbox: polygonBbox(geoPoly),
-          },
+          points: people.map(({ id, lat, lng }) => ({ id, lat, lng })),
+          truncated,
         }
       },
     )
@@ -954,9 +1021,11 @@ export class ContactsService {
     return this.withOrgDistrictResolution(
       organization,
       async ({ districtId }) => {
-        const { people } = await this.evaluateWithinBbox(districtId, geoPoly, {
-          filters: {},
-        })
+        const { people } = await this.evaluateWithinBbox(
+          districtId,
+          polygonBbox(geoPoly),
+          { filters: {} },
+        )
         return people
           .filter((person) => pointInPolygon(person.lng, person.lat, geoPoly))
           .map((person) => person.id)
@@ -966,7 +1035,7 @@ export class ContactsService {
 
   private async evaluateWithinBbox(
     districtId: string,
-    geoPoly: GeoJsonPolygon,
+    bbox: Bbox,
     resolved: {
       filters: FilterObject
       idOverrides?: IdOverrides
@@ -977,7 +1046,7 @@ export class ContactsService {
       return await this.voterDoorKnockingService.evaluate(
         DoorKnockingEvaluateDTO.create({
           districtId,
-          bbox: polygonBbox(geoPoly),
+          bbox,
           filters: resolved.filters,
           idOverrides: resolved.idOverrides,
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,

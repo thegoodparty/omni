@@ -1206,6 +1206,29 @@ export type APIEndpoints = {
     }
     Response: { count: number; audienceEmpty: boolean }
   }
+  // The dots the draw step draws on: everyone the in-progress filters match,
+  // across the whole district, as bare coordinates.
+  //
+  // Sibling of polygon-preview and takes the same draft payload minus the
+  // shape, because the map has to show the list before there is a shape to
+  // narrow it with. Names and addresses are deliberately not in the
+  // response — the step has no person overlay behind its dots.
+  //
+  // `truncated` rather than a refusal: past the cap this returns the first
+  // page of dots and says so, the way every other map in the CRM does. A map
+  // that declines to draw teaches the holder less than a partial one.
+  'POST /v1/contacts/points': {
+    Request: {
+      filters: {
+        activityConditions?: ActivityConditionInput[]
+        supportStatus?: SupportStatusRollup[]
+      } & Record<string, unknown>
+    }
+    Response: {
+      points: { id: string; lat: number; lng: number }[]
+      truncated: boolean
+    }
+  }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob

@@ -1,7 +1,7 @@
 import dynamic from 'next/dynamic'
 import { IconButton, Trash2Icon, Undo2Icon } from '@styleguide'
 import type { PolygonRing } from 'app/dashboard/shared/ringGeometry'
-import type { Person } from '../shared/contacts-types'
+import type { ContactPoint } from './contactListPoints'
 
 // maplibre-gl touches `window` at module scope, so the canvas cannot be part
 // of the server bundle — the same reason ListMapSection loads it this way.
@@ -15,7 +15,9 @@ const ContactListMap = dynamic(() => import('./ContactListMap'), {
 })
 
 interface BoundaryDrawPanelProps {
-  people: Person[]
+  // Coordinates, not people. The panel has no person overlay behind its
+  // dots, so it never needs the records they came from.
+  points: ContactPoint[]
   truncated: boolean
   ring: PolygonRing
   onRingChange: (ring: PolygonRing) => void
@@ -34,7 +36,7 @@ interface BoundaryDrawPanelProps {
 // that surface carries a stop cap, a shake animation and an instructions
 // dialog this one has no use for, and the two are free to diverge.
 export default function BoundaryDrawPanel({
-  people,
+  points,
   truncated,
   ring,
   onRingChange,
@@ -45,7 +47,7 @@ export default function BoundaryDrawPanel({
   return (
     <div className={`relative overflow-hidden ${className}`}>
       <ContactListMap
-        people={people}
+        contactPoints={points}
         truncated={truncated}
         drawRing={ring}
         onDrawRingChange={onRingChange}

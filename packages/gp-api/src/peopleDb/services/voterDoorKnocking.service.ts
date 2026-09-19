@@ -175,6 +175,32 @@ export class VoterDoorKnockingService {
     return shapeEvaluate(rows, dto)
   }
 
+  // The same read, for a map backdrop rather than a route. `evaluate` rejects
+  // past its cap because a truncated roster would walk a canvasser down half
+  // a street; nobody is routed off this one. Refusing to draw teaches the
+  // holder nothing, so an oversized district comes back as its first
+  // `maxPeople` dots with `truncated` set, which is what every other map in
+  // the CRM already does.
+  async evaluatePoints(
+    dto: DoorKnockingEvaluateDTO,
+    opts?: { requireRooftopAccuracy?: boolean },
+  ): Promise<{
+    people: DoorKnockingEvaluateResponse['people']
+    truncated: boolean
+  }> {
+    const rows = await this.readLog.measure({
+      op: 'dk-evaluate-points',
+      districtId: dto.districtId,
+      read: () => this.databricks.doorKnockingEvaluateRows(dto, opts),
+    })
+    // The query LIMITs cap + 1, so overflow is known without counting past it.
+    const truncated = rows.length > dto.maxPeople
+    const { people } = DoorKnockingEvaluateResponseSchema.parse({
+      people: truncated ? rows.slice(0, dto.maxPeople) : rows,
+    })
+    return { people, truncated }
+  }
+
   async residents(
     dto: DoorKnockingResidentsDTO,
   ): Promise<DoorKnockingResidentsResponse> {

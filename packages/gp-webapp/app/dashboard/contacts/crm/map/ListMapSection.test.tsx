@@ -34,17 +34,19 @@ vi.mock('./ContactListMap', () => ({
   __esModule: true,
   default: function ContactListMapStub({
     people,
+    contactPoints,
     drawRing,
     onDrawRingChange,
   }: {
-    people: unknown[]
+    people?: unknown[]
+    contactPoints?: unknown[]
     drawRing?: Array<[number, number]>
     onDrawRingChange?: (ring: Array<[number, number]>) => void
   }) {
     return (
       <div
         data-testid="contact-map-stub"
-        data-people={people.length}
+        data-people={(contactPoints ?? people ?? []).length}
         data-ring={JSON.stringify(drawRing ?? [])}
         data-draw-enabled={String(Boolean(onDrawRingChange))}
       >

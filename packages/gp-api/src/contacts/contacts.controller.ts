@@ -33,6 +33,7 @@ import { CountContactsDTO } from './schemas/countContacts.schema'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
 import { ListDetailContactsDTO } from './schemas/listDetailContacts.schema'
 import { PolygonPreviewContactsDTO } from './schemas/polygonPreviewContacts.schema'
+import { FilterPointsContactsDTO } from './schemas/filterPointsContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -105,6 +106,17 @@ export class ContactsController {
     @ReqOrganization() organization: Organization,
   ) {
     return this.contactsService.polygonPreview(dto, organization)
+  }
+
+  // The dots the draw step draws on. Sibling of polygon-preview: same draft
+  // payload, minus the shape — the map has to show the list before there is
+  // a shape to narrow it with.
+  @Post('points')
+  async filterPoints(
+    @Body() dto: FilterPointsContactsDTO,
+    @ReqOrganization() organization: Organization,
+  ) {
+    return this.contactsService.filterPoints(dto, organization)
   }
 
   @Get('list-detail')
