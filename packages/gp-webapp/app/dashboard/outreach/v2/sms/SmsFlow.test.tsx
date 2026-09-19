@@ -955,6 +955,28 @@ describe('SmsFlow', () => {
       expect(onClose).toHaveBeenCalled()
     })
 
+    // The row is already gone once DELETE returns, so a history refetch that
+    // fails afterwards must still close the sheet instead of leaving the
+    // candidate on a spinner over a draft that no longer exists.
+    it('still closes the flow when the history refetch fails after a delete', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
+      const { onClose, onScheduled } = openFlow()
+      onScheduled
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('refetch failed'))
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+      await waitFor(() => expect(onClose).toHaveBeenCalled())
+      expect(onScheduled).toHaveBeenCalledTimes(2)
+    })
+
     // Free tier loses the in-flow builder, and the custom purpose asks for
     // no recommendations: with no saved lists either there is nothing to
     // pick, so the step has to say what to do instead of sitting on a

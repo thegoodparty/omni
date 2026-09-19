@@ -175,8 +175,14 @@ export const useDraftGate = ({
       return
     }
     trackEvent(EVENTS.Outreach.Draft.Deleted, { channel })
-    await onDraftSaved()
-    onClose()
+    // The row is already gone server-side, so a failed history refetch must
+    // not strand the candidate on a spinner over a draft that no longer exists.
+    try {
+      await onDraftSaved()
+    } finally {
+      setDeletingDraft(false)
+      onClose()
+    }
   }
 
   // Finishing the gate means whatever the gesture that opened it was about.
