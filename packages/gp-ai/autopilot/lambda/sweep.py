@@ -174,9 +174,13 @@ def list_executing_feature_cards() -> list[dict]:
     return _feature_cards_in_status(router.STATUS_EXECUTING)
 
 
-# A story that keeps re-parking needs a human, not more paid laps. Three is
-# generous: park -> auto-resume -> re-park -> auto-resume -> re-park stops.
-AUTO_RESUME_MAX_PARKS = 3
+# A story that keeps re-parking eventually needs a human, not more paid laps
+# — but the count is per THREAD LIFETIME, not per relapse streak, and a
+# normal story legitimately accrues markers along the way (a merge-pending
+# park, a deploy-pending park, a stranded-run park). The first live epic hit
+# a cap of 3 on a healthy story before its qa park was ever auto-resumed
+# once, so the ceiling sits well above routine accrual.
+AUTO_RESUME_MAX_PARKS = 10
 
 
 def _parked_stories() -> list[dict]:
