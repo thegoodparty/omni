@@ -23,14 +23,27 @@ import type {
   ChatHistoryResponse,
   ChatMessageFeedback as ChatMessageFeedbackResponse,
   CreateChatResponse,
+  PresignResponse,
 } from '@goodparty_org/contracts'
+import {
+  ChatAttachmentSchema,
+  FinalizeRequest,
+  FinalizeRequestSchema,
+  PresignRequest,
+  PresignRequestSchema,
+  PresignResponseSchema,
+} from '@goodparty_org/contracts'
+import { z } from 'zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
-import { SERVE_CHAT_ATTACHMENTS_FLAG } from '@/chats/services/chatAttachments.service'
+import {
+  ChatAttachmentsService,
+  SERVE_CHAT_ATTACHMENTS_FLAG,
+} from '@/chats/services/chatAttachments.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
@@ -43,6 +56,8 @@ import {
   SendChatMessageDto,
   SetChatMessageFeedbackDto,
 } from '../schemas/GeneralChat.schema'
+
+type ChatAttachmentDTO = z.infer<typeof ChatAttachmentSchema>
 
 const SSE_HEADERS: Record<string, string> = {
   'content-type': 'text/event-stream',
@@ -90,6 +105,7 @@ export class GeneralChatsController {
     private readonly chats: GeneralChatsService,
     private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
+    private readonly chatAttachments: ChatAttachmentsService,
   ) {
     this.logger.setContext(GeneralChatsController.name)
   }
@@ -295,23 +311,33 @@ export class GeneralChatsController {
   }
 
   @Post(':conversationId/attachments/presign')
-  async presignAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(PresignResponseSchema)
+  async presignAttachment(
+    @ReqUser() user: User,
+    @Param('conversationId') conversationId: string,
+    @Body(new ZodValidationPipe(PresignRequestSchema)) body: PresignRequest,
+  ): Promise<PresignResponse> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.chatAttachments.presign(conversationId, user.id, body)
   }
 
   @Post(':conversationId/attachments')
-  async finalizeAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(ChatAttachmentSchema)
+  async finalizeAttachment(
+    @ReqUser() user: User,
+    @Param('conversationId') conversationId: string,
+    @Body(new ZodValidationPipe(FinalizeRequestSchema)) body: FinalizeRequest,
+  ): Promise<ChatAttachmentDTO> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.chatAttachments.finalize(conversationId, user.id, body)
   }
 
   @Post(':conversationId/attachments/link')
