@@ -25,7 +25,7 @@ const seedOrg = async () => {
 
 const seedConversation = async (
   userId: number,
-  scope = ChatScope.chief_of_staff,
+  scope: ChatScope = ChatScope.chief_of_staff,
 ) =>
   service.prisma.chatConversation.create({
     data: { ownerUserId: userId, scope },
