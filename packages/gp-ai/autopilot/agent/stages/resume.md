@@ -63,6 +63,24 @@ pending: ...") instead of a real question. Don't wait for a human reply to
 view` / `gh pr checks` for a pending merge, or the deployed commit for a
 pending deploy.
 
+This shortcut applies ONLY to those status-note parks. A qa park whose
+question starts "QA failed" is a real question about real findings — never
+auto-resolve it with the deploy check above, because "the commit is live on
+dev" resolves nothing: the findings were produced against that same live
+commit. But you don't wait for a reply here either. Every resume dispatch is
+human-initiated by construction (the conductor drops the bot's own comments,
+and only a human can drag through the gate), so being in this run at all
+means a human acted. Acted is not the same as authorized: read what they
+actually did first. A drag with no comment, or a reply that answers a
+finding, names a fix, or asks for a re-check, means re-run the QA walk with
+that context. A reply that signals something else — cancelling the story,
+an unrelated question — is not permission to re-verify: park again with a
+clarifying question instead, because a re-run that passes would move the
+ticket to `done` against what the human actually asked for. The re-run's outcome is qa.md's to decide, not the bullets below —
+everything passed moves the ticket to `done`, anything failed posts fresh
+findings and parks again with a new "QA failed" question; the
+Resolved/Still-not-resolved bullets apply only to status-note parks.
+
 - **Resolved** (the PR has since merged; the commit is now live on dev):
   continue straight into that stage's remaining handoff steps — moving the
   ticket to `qa`, or running the QA walk — you don't need a reply in the
