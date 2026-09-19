@@ -83,6 +83,13 @@ model VoterFileFilter {
   contactsMade3              Boolean?                           @default(false) @map("contacts_made_3")
   contactsMade4              Boolean?                           @default(false) @map("contacts_made_4")
   contactsMade5Plus          Boolean?                           @default(false) @map("contacts_made_5_plus")
+  /// Serve only, and the mirror of the contactsMade block above (which is
+  /// Win only). Not a voter-file column at all: it resolves against the
+  /// `follow_up` field in contact_current_status, so it selects people whose
+  /// standing flag is STILL `requested` — not everyone who ever answered yes
+  /// on a call or at a door. That difference is the point; it is what lets an
+  /// official work the list down.
+  followUpRequested          Boolean?                           @default(false) @map("follow_up_requested")
   outreaches                 Outreach[]
   doorKnockingTurfs          DoorKnockingTurf[]
   phoneBankingLists          PhoneBankingList[]

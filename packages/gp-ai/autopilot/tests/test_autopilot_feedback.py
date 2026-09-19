@@ -24,6 +24,7 @@ from autopilot.agent.feedback import (
     new_questions,
     notify_slack,
     park_for_feedback,
+    park_if_stranded,
     parse_parked_stage,
     previously_asked_questions,
     read_park_sentinel,
@@ -45,12 +46,20 @@ class FakeClickUpClient:
     """Records writes in call order. Constructed via a factory, used as a
     context manager (matches engineer_agent/tests/test_escalation.py)."""
 
-    def __init__(self, comments=None, task_url="https://app.clickup.com/t/TEST-1", raise_on=None):
+    def __init__(
+        self, comments=None, task_url="https://app.clickup.com/t/TEST-1", raise_on=None, task_status="in progress"
+    ):
         self._comments = comments if comments is not None else []
         self._task_url = task_url
         self._raise_on = raise_on or {}
+        self._task_status = task_status
         self.writes: list[tuple] = []
         self.closed = False
+
+    def get_task(self, task_id, include_subtasks=False):
+        if "get_task" in self._raise_on:
+            raise self._raise_on["get_task"]
+        return ClickUpTask(id=task_id, name="a card", url=self._task_url, status={"status": self._task_status})
 
     def get_task_comments(self, task_id):
         if "get_task_comments" in self._raise_on:
@@ -636,3 +645,104 @@ def test_cli_notify_exits_nonzero_when_slack_fails(monkeypatch, capsys):
 
     assert exit_code == 1
     assert "Failed to notify" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Stranded-run guard (the harness's deterministic park)
+# ---------------------------------------------------------------------------
+
+
+def test_park_if_stranded_parks_a_success_left_in_progress(tmp_path):
+    clickup = FakeClickUpClient(task_status="in progress")
+    slack = FakeSlackClient()
+    result = {"status": "success"}
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    # The park ran: comment, status move to feedback needed, Slack ping, and
+    # the result now reports the park so the metric line says feedback_parked.
+    assert ("status", TASK_ID, FEEDBACK_NEEDED_STATUS) in clickup.writes
+    assert len(slack.client.posted) == 1
+    assert result["parked_stage"] == "story"
+
+
+def test_park_if_stranded_leaves_a_card_that_ended_elsewhere_alone(tmp_path):
+    clickup = FakeClickUpClient(task_status="qa")
+    slack = FakeSlackClient()
+    result = {"status": "success"}
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert clickup.writes == []
+    assert slack.client.posted == []
+    assert "parked_stage" not in result
+
+
+def test_park_if_stranded_skips_an_already_parked_result(tmp_path):
+    clickup = FakeClickUpClient(task_status="in progress")
+    result = {"status": "success", "parked_stage": "story"}
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert clickup.writes == []
+
+
+def test_park_if_stranded_skips_errored_runs(tmp_path):
+    # A run that errored or hit a ceiling did not cleanly end — the card's
+    # state is whatever the crash left, and the sweep/stall alerts own it.
+    clickup = FakeClickUpClient(task_status="in progress")
+    result = {"status": "error", "error": "boom"}
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert clickup.writes == []
+    assert result == {"status": "error", "error": "boom"}
+
+
+def test_park_if_stranded_guard_failure_never_masks_the_run_result(tmp_path):
+    clickup = FakeClickUpClient(task_status="in progress", raise_on={"get_task": RuntimeError("down")})
+    result = {"status": "success"}
+
+    returned = park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert returned == {"status": "success"}

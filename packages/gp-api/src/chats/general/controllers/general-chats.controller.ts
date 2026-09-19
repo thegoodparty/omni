@@ -19,18 +19,35 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import type {
+  ChatAttachmentDownloadResponse,
+  ChatAttachmentListResponse,
   ChatConversation as ChatConversationResponse,
   ChatHistoryResponse,
   ChatMessageFeedback as ChatMessageFeedbackResponse,
   CreateChatResponse,
+  PresignResponse,
 } from '@goodparty_org/contracts'
+import {
+  ChatAttachmentDownloadResponseSchema,
+  ChatAttachmentListResponseSchema,
+  ChatAttachmentSchema,
+  FinalizeRequest,
+  FinalizeRequestSchema,
+  PresignRequest,
+  PresignRequestSchema,
+  PresignResponseSchema,
+} from '@goodparty_org/contracts'
+import { z } from 'zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
-import { SERVE_CHAT_ATTACHMENTS_FLAG } from '@/chats/services/chatAttachments.service'
+import {
+  ChatAttachmentsService,
+  SERVE_CHAT_ATTACHMENTS_FLAG,
+} from '@/chats/services/chatAttachments.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
@@ -43,6 +60,8 @@ import {
   SendChatMessageDto,
   SetChatMessageFeedbackDto,
 } from '../schemas/GeneralChat.schema'
+
+type ChatAttachmentDTO = z.infer<typeof ChatAttachmentSchema>
 
 const SSE_HEADERS: Record<string, string> = {
   'content-type': 'text/event-stream',
@@ -89,6 +108,7 @@ export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
     private readonly features: FeaturesService,
+    private readonly attachments: ChatAttachmentsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(GeneralChatsController.name)
@@ -295,23 +315,45 @@ export class GeneralChatsController {
   }
 
   @Post(':conversationId/attachments/presign')
-  async presignAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(PresignResponseSchema)
+  async presignAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Body(new ZodValidationPipe(PresignRequestSchema)) body: PresignRequest,
+  ): Promise<PresignResponse> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.attachments.presign(
+      conversationId,
+      user.id,
+      organizationSlug,
+      body,
+    )
   }
 
   @Post(':conversationId/attachments')
-  async finalizeAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(ChatAttachmentSchema)
+  async finalizeAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Body(new ZodValidationPipe(FinalizeRequestSchema)) body: FinalizeRequest,
+  ): Promise<ChatAttachmentDTO> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.attachments.finalize(
+      conversationId,
+      user.id,
+      organizationSlug,
+      body,
+    )
   }
 
   @Post(':conversationId/attachments/link')
@@ -322,6 +364,52 @@ export class GeneralChatsController {
     })
     if (!enabled) throw new NotFoundException()
     throw new NotImplementedException()
+  }
+
+  @Get(':conversationId/attachments')
+  @ResponseSchema(ChatAttachmentListResponseSchema)
+  async listAttachments(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+  ): Promise<ChatAttachmentListResponse> {
+    return this.attachments.listAttachments(
+      conversationId,
+      user.id,
+      organizationSlug,
+    )
+  }
+
+  @Get(':conversationId/attachments/:attachmentId/download')
+  @ResponseSchema(ChatAttachmentDownloadResponseSchema)
+  async downloadAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<ChatAttachmentDownloadResponse> {
+    return this.attachments.getDownloadUrl(
+      conversationId,
+      attachmentId,
+      user.id,
+      organizationSlug,
+    )
+  }
+
+  @Delete(':conversationId/attachments/:attachmentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteAttachment(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Param('attachmentId') attachmentId: string,
+  ): Promise<void> {
+    await this.attachments.deleteAttachment(
+      conversationId,
+      attachmentId,
+      user.id,
+      organizationSlug,
+    )
   }
 
   @Delete(':conversationId')

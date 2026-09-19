@@ -187,6 +187,19 @@ locals {
     {
       name      = "AMPLITUDE_MANAGEMENT_API_KEY"
       valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AMPLITUDE_MANAGEMENT_API_KEY::"
+    },
+    {
+      # Clerk machine secret (ak_...) for the "autopilot-qa" machine in the
+      # DEV Clerk instance, scoped to the gp-api machine. The qa stage mints a
+      # short-TTL mt_ token from it at run start (gp-api's
+      # ElectionApiTokenService pattern — Clerk caps m2m token TTLs, so a
+      # static long-lived token is not an option) to call the
+      # AdminOrM2MGuard-protected test-fixtures API for QA users. Same
+      # dev-instance value in both AWS envs: qa always verifies against the
+      # dev deploy (test-fixtures 404s outside dev/preview), so prod rollout
+      # changes nothing here.
+      name      = "AUTOPILOT_MACHINE_SECRET"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_MACHINE_SECRET::"
     }
   ]
 
@@ -223,6 +236,13 @@ locals {
     {
       name  = "AMPLITUDE_PROD_DEPLOYMENT_IDS"
       value = "13485,53792"
+    },
+    # Where the qa stage's test-fixtures calls go. Deliberately the dev API in
+    # both AWS envs, same as the Amplitude ids above: qa verifies stories on
+    # the dev deploy, and the fixtures endpoints only exist there.
+    {
+      name  = "GP_API_DEV_BASE_URL"
+      value = "https://gp-api-dev.goodparty.org"
     }
   ]
 }
@@ -240,6 +260,14 @@ resource "aws_ecs_task_definition" "agent" {
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "ARM64"
+  }
+
+  # Fargate's 20 GiB default is not enough for a story run: an omni clone
+  # plus a worktree's npm ci, workspace builds, and Prisma engines overflowed
+  # it live (ENOSPC ~37 minutes into the first Story 2 run, killing the run
+  # mid-implementation with nothing parked on the card).
+  ephemeral_storage {
+    size_in_gib = 60
   }
 
   container_definitions = jsonencode([
@@ -281,6 +309,12 @@ resource "aws_ecs_task_definition" "agent_playwright" {
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "ARM64"
+  }
+
+  # Same ENOSPC reasoning as the base task definition above; qa runs clone
+  # the same repo and additionally carry the browser install.
+  ephemeral_storage {
+    size_in_gib = 60
   }
 
   container_definitions = jsonencode([

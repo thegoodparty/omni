@@ -397,7 +397,14 @@ import { dirname, join, relative } from 'node:path'
 // toggle. It owns a React Query mutation with an optimistic write, rollback
 // and a snackbar on failure, and reads the org from context — all client
 // state, and all of it inside an already-client overlay.
-const BASELINE = 570
+// 2026-09-18: 568 -> 569 for FollowUpOutstandingSection, the closed-campaign
+// follow-up results block. It fetches its own outstanding count, saves the
+// audience as a list on click, and reports failure through the snackbar —
+// all client state, inside an already-client drawer.
+// 568 + 2 (the boundary surfaces above) + 1 (FollowUpOutstandingSection):
+// both sides of this merge raised the ratchet from the same base, so the
+// count is the sum of the two, not either one of them.
+const BASELINE = 571
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

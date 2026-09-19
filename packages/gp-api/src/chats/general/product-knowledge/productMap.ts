@@ -308,6 +308,7 @@ const SERVE_AREAS: ProductArea[] = [
       'The create-list flow asks for that area too, between the filters and the name, and it can be skipped',
       'An area can be changed or removed until the list has been used for outreach',
       'A constituent’s record carries an "Asked for follow-up" toggle, and the record’s activity history shows who set it and when',
+      'A finished phone banking campaign’s results show how many constituents are still owed a follow-up, and can turn them into a call list or a saved list',
       'Party is not a filter in this product',
     ],
   },

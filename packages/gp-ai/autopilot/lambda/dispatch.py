@@ -160,7 +160,13 @@ def claim_transition(task_id: str, stage: str, transitioned_at: str, ttl_seconds
 def launch_fargate_stage(envelope: StageEnvelope) -> dict:
     cluster_arn = os.environ.get("ECS_CLUSTER_ARN")
 
-    if envelope.stage == QA_STAGE:
+    # A resume OF the qa stage re-runs the QA browser walk, so it needs the
+    # browsers exactly as much as a fresh qa dispatch does — the first live
+    # resume-of-qa launched on the base image and had nothing to drive
+    # Playwright with (ENG-11144).
+    needs_playwright = QA_STAGE in (envelope.stage, envelope.resume_stage)
+
+    if needs_playwright:
         # qa runs Playwright E2E against the deployed dev stack; the base
         # autopilot-agent image has no browsers installed, so qa MUST launch
         # on the Playwright family, never fall back to the base one.
@@ -213,7 +219,7 @@ def launch_fargate_stage(envelope: StageEnvelope) -> dict:
                         # family's container is named after its own family —
                         # a hardcoded "autopilot-agent" here fails every qa
                         # dispatch at launch.
-                        "name": "autopilot-agent-playwright" if envelope.stage == QA_STAGE else "autopilot-agent",
+                        "name": "autopilot-agent-playwright" if needs_playwright else "autopilot-agent",
                         "environment": envelope.to_environment(),
                     }
                 ]

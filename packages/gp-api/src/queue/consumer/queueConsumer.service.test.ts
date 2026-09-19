@@ -10,6 +10,7 @@ import { AnnotationAttachmentService } from '@/annotations/services/annotationAt
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
+import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
@@ -264,6 +265,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       hubspotSingleSend as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1099,6 +1101,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1280,6 +1283,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       contactsService as never,
       s3Service as never,
       usersService as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1476,6 +1480,7 @@ describe('QueueConsumerService - message type routing', () => {
           provide: HubspotSingleSendService,
           useValue: { sendSingleSend: vi.fn() },
         },
+        { provide: ChatAttachmentsService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -1903,6 +1908,7 @@ describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
         { provide: OrdinanceQualityLoopService, useValue: {} },
         { provide: AnnotationAttachmentService, useValue: {} },
         { provide: HubspotSingleSendService, useValue: {} },
+        { provide: ChatAttachmentsService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -2109,6 +2115,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
           provide: HubspotSingleSendService,
           useValue: { sendSingleSend: vi.fn() },
         },
+        { provide: ChatAttachmentsService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
     }).compile()
@@ -2229,6 +2236,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       { handleStep } as never,
+      {} as never,
       {} as never,
       createMockLogger(),
     )

@@ -14,6 +14,12 @@ const ContactListMap = dynamic(() => import('./ContactListMap'), {
   ),
 })
 
+// The control bar's own height plus its bottom offset and a dot's worth of
+// clearance, handed to the map so the fit frames every point above it. Kept
+// here rather than in the map because this is the component that covers that
+// strip; the map only reserves what a caller says it is covering.
+const CONTROL_BAR_INSET_PX = 76
+
 interface BoundaryDrawPanelProps {
   // Coordinates, not people. The panel has no person overlay behind its
   // dots, so it never needs the records they came from.
@@ -49,11 +55,16 @@ export default function BoundaryDrawPanel({
       <ContactListMap
         contactPoints={points}
         truncated={truncated}
+        bottomInsetPx={CONTROL_BAR_INSET_PX}
         drawRing={ring}
         onDrawRingChange={onRingChange}
       />
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-4">
+      {/* z-10 because the deck.gl canvas paints into its own stacking
+          context and otherwise draws dots straight over these controls —
+          a constituent rendered on top of the Clear button reads as a dot
+          you can tap and is not one. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
         {ring.length === 0 ? (
           <span className="inline-flex h-10 items-center rounded-full border border-border bg-card px-4 text-center text-sm font-medium text-foreground shadow-sm">
             {hint}

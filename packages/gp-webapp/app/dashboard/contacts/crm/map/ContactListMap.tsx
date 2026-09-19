@@ -84,6 +84,12 @@ interface ContactListMapProps {
   // the rows actually fetched, so on a truncated list it describes the page
   // and not the list, and the wording has to say so.
   truncated?: boolean
+  // Screen space at the bottom of the canvas that something else is covering
+  // — the draw panel's control bar. Added to the framing padding so the fit
+  // puts every dot ABOVE the chrome rather than centring the list and leaving
+  // the southernmost people underneath it, which on a north-south district is
+  // most of a neighbourhood.
+  bottomInsetPx?: number
   // The boundary narrowing this list, as an open ring. Given without
   // `onDrawRingChange` it is a saved outline drawn read-only — a locked list
   // still shows the geography it was cut with. Given with it, the map is the
@@ -98,6 +104,7 @@ export default function ContactListMap({
   selectedPersonId,
   onSelectPerson,
   truncated = false,
+  bottomInsetPx = 0,
   drawRing,
   onDrawRingChange,
 }: ContactListMapProps) {
@@ -360,9 +367,18 @@ export default function ContactListMap({
         [bounds.minLng, bounds.minLat],
         [bounds.maxLng, bounds.maxLat],
       ],
-      { padding: FIT_PADDING_PX, duration: 0, maxZoom: 16 },
+      {
+        padding: {
+          top: FIT_PADDING_PX,
+          left: FIT_PADDING_PX,
+          right: FIT_PADDING_PX,
+          bottom: FIT_PADDING_PX + bottomInsetPx,
+        },
+        duration: 0,
+        maxZoom: 16,
+      },
     )
-  }, [points])
+  }, [points, bottomInsetPx])
 
   if (!hasTilesKey) {
     return (

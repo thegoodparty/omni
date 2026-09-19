@@ -749,6 +749,35 @@ export {
 } from './chats/ChiefOfStaffWidgets.schema'
 
 export {
+  CHAT_ATTACHMENT_MAX_BYTES,
+  CHAT_ATTACHMENT_MAX_PAGES,
+  CHAT_ATTACHMENTS_PER_CONVERSATION,
+  CHAT_ATTACHMENT_ALLOWED_MIME_TYPES,
+  CHAT_ATTACHMENT_SOURCE_VALUES,
+  ChatAttachmentSourceSchema,
+  type ChatAttachmentSource,
+  CHAT_ATTACHMENT_STATUS_VALUES,
+  ChatAttachmentStatusSchema,
+  type ChatAttachmentStatus,
+  ChatAttachmentSchema,
+  type ChatAttachment,
+  PresignRequestSchema,
+  type PresignRequest,
+  PresignResponseSchema,
+  type PresignResponse,
+  FinalizeRequestSchema,
+  type FinalizeRequest,
+  LinkAttachRequestSchema,
+  type LinkAttachRequest,
+  ChatAttachmentListResponseSchema,
+  type ChatAttachmentListResponse,
+  ChatAttachmentDownloadResponseSchema,
+  type ChatAttachmentDownloadResponse,
+  ChatMessageSegmentCitationPayloadSchema,
+  type ChatMessageSegmentCitationPayload,
+} from './chats/ChatAttachment.schema'
+
+export {
   MeetingAgentDispatchKindSchema,
   type MeetingAgentDispatchKind,
   DispatchMeetingAgentRequestSchema,

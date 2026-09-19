@@ -5,6 +5,7 @@ import { Organization, User } from '../../../generated/prisma'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import type { FeaturesService } from '@/features/services/features.service'
+import type { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
 import type { GeneralChatsService } from '../services/general-chats.service'
 import type {
   ChatHistoryQueryDto,
@@ -60,6 +61,8 @@ const FEATURES = {
   isFeatureEnabled: async () => false,
 } as unknown as FeaturesService
 
+const ATTACHMENTS = {} as unknown as ChatAttachmentsService
+
 const run = (
   controller: GeneralChatsController,
   req: FastifyRequest,
@@ -76,6 +79,7 @@ describe('GeneralChatsController.streamMessage', () => {
         buildIterable([{ type: 'text', delta: 'hello' }, { type: 'done' }]),
       ),
       FEATURES,
+      ATTACHMENTS,
       createMockLogger(),
     )
 
@@ -99,6 +103,7 @@ describe('GeneralChatsController.streamMessage', () => {
     const controller = new GeneralChatsController(
       buildService(throwing),
       FEATURES,
+      ATTACHMENTS,
       logger,
     )
 
@@ -129,6 +134,7 @@ describe('GeneralChatsController.streamMessage', () => {
         signalRef.signal = args.signal
       }),
       FEATURES,
+      ATTACHMENTS,
       createMockLogger(),
     )
     const { req, emitter } = buildReq()
@@ -164,6 +170,7 @@ describe('GeneralChatsController.streamMessage', () => {
         ]),
       ),
       FEATURES,
+      ATTACHMENTS,
       createMockLogger(),
     )
 

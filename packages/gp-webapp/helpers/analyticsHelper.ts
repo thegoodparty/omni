@@ -523,6 +523,11 @@ export const EVENTS = {
     // change with { from, to } — never on a failed PATCH. Serve-only
     // surface, the mirror of VoterData.ContactStatusChanged below.
     FollowUpChanged: 'Constituent Data - Follow Up Changed',
+    // The closed-campaign follow-up block's two actions. Fires once per
+    // successful list save with { action: 'call' | 'save', outstanding },
+    // never on a failed save. Answers whether officials actually work the
+    // follow-ups a campaign produces, or only read the count.
+    FollowUpListCreated: 'Constituent Data - Follow Up List Created',
   },
   VoterData: {
     ContactSearched: 'Voter Data - Contact Searched',

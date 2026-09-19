@@ -44,7 +44,10 @@ history_items gives for free:
 Scoped to statusUpdated-shaped transitions only — a card's CURRENT status is
 all a poll can see. commentPosted's resume trigger (a feedback-needed card
 that got a new comment) has no board-state signature to reconstruct from a
-poll and is out of scope here; the webhook remains its only path.
+poll and is out of scope here; the webhook remains its only path. Parked
+stories with NO reply are a different matter: auto_resume_actionable_parks
+drives the ones whose park is obvious work rather than a question, so a
+stalled PR never waits on a human typing "fix your own CI".
 
 Idempotent by construction, same as clickup_bot's: every candidate goes
 through dispatch.claim_transition (via the same router.route -> dispatch
@@ -169,6 +172,100 @@ def _feature_cards_in_status(status: str) -> list[dict]:
 
 def list_executing_feature_cards() -> list[dict]:
     return _feature_cards_in_status(router.STATUS_EXECUTING)
+
+
+# A story that keeps re-parking eventually needs a human, not more paid laps
+# — but the count is per THREAD LIFETIME, not per relapse streak, and a
+# normal story legitimately accrues markers along the way (a merge-pending
+# park, a deploy-pending park, a stranded-run park). The first live epic hit
+# a cap of 3 on a healthy story before its qa park was ever auto-resumed
+# once, so the ceiling sits well above routine accrual.
+AUTO_RESUME_MAX_PARKS = 10
+
+
+def _parked_stories() -> list[dict]:
+    """Every story currently in feedback needed across the scoped lists —
+    the same unconditional statuses[] query shape as _feature_cards_in_status,
+    but WITH subtasks (stories are subtasks) and keeping only subtasks."""
+    tasks: list[dict] = []
+    for list_id in sorted(handler.in_scope_list_ids()):
+        query = urlencode(
+            {"statuses[]": router.STATUS_FEEDBACK_NEEDED, "subtasks": "true", "include_closed": "false"},
+            quote_via=quote,
+            safe="[]",
+        )
+        try:
+            result = supervisor.clickup_request("GET", f"/list/{list_id}/task?{query}")
+        except Exception as e:
+            print(f"ERROR: sweep failed to list parked stories for list {list_id}: {type(e).__name__}")
+            continue
+        raw_tasks = result.get("tasks")
+        if isinstance(raw_tasks, list):
+            tasks.extend(t for t in raw_tasks if isinstance(t, dict) and isinstance(t.get("parent"), str))
+    return tasks
+
+
+def auto_resume_actionable_parks(cap: int) -> int:
+    """Dispatches ONE resume per park instance for parks that are obvious
+    work, not questions: a status note (merge/deploy pending), or a
+    stranded-run park — states where the story's own PR carries whatever
+    needs doing (failing checks, delegate blockers, a completed merge) and
+    asking a human "may I fix my own PR?" just stalls the epic (the first
+    live epic stalled three stories this way). Skipped, and left to a human:
+
+    - "QA failed" parks — deciding whether findings mean a code fix, an
+      answer, or a cancellation is the human call resume.md's intent check
+      exists for.
+    - Any park with a comment after it: a reply already dispatched (or will
+      dispatch) the comment-resume route; racing it would double-dispatch.
+    - Threads carrying AUTO_RESUME_MAX_PARKS or more park markers: a story
+      relapsing that often needs a human, and each park already pinged Slack.
+
+    Dedup: the park comment's own id keys the claim, so each park instance
+    gets exactly one auto-resume, and a fresh re-park (new comment) earns
+    exactly one more, up to the marker cap."""
+    resumed = 0
+    for task in _parked_stories():
+        if resumed >= cap:
+            print(f"Auto-resume cap reached ({cap}); remaining parked stories wait for the next pass")
+            break
+        task_id = task.get("id")
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        try:
+            comments = supervisor.get_task_comments(task_id)
+        except Exception as e:
+            print(f"ERROR: sweep failed to read comments for parked story {task_id}: {type(e).__name__}")
+            continue
+        park = router.latest_park(comments)
+        if park is None or park.comment_id is None:
+            continue
+        if park.question.lower().startswith("qa failed"):
+            continue
+        if any(router._comment_date_ms(c) > park.date_ms for c in comments if c.get("id") != park.comment_id):
+            continue
+        if router.park_marker_count(comments) >= AUTO_RESUME_MAX_PARKS:
+            print(
+                f"Story {task_id} has re-parked {router.park_marker_count(comments)} times; "
+                "leaving it for a human instead of another auto-resume lap"
+            )
+            continue
+
+        ceiling = router.STAGE_CEILINGS[router.STAGE_RESUME]
+        envelope = dispatch.StageEnvelope(
+            stage=router.STAGE_RESUME,
+            task_id=task_id,
+            epic_task_id=None,
+            model=router.DEFAULT_AGENT_MODEL,
+            max_budget_usd=ceiling.max_budget_usd,
+            deadline_seconds=ceiling.deadline_seconds,
+            resume_stage=park.stage,
+        )
+        result = dispatch.dispatch_stage(task_id, router.STAGE_RESUME, f"auto-resume-{park.comment_id}", envelope)
+        if result.get("dispatched"):
+            print(f"Auto-resumed parked story {task_id} (stage {park.stage!r}, park {park.comment_id})")
+            resumed += 1
+    return resumed
 
 
 def alert_stalled_in_progress_feature_cards() -> int:
@@ -371,11 +468,24 @@ def handle_sweep(event: dict) -> dict:
     if cap_hit:
         print(f"ERROR: sweep hit its cap of {cap} triggers; remainder deferred to the next pass")
 
+    # After the lookback pass so reconstruction gets first claim at the cap:
+    # an undelivered transition is lost work, an unparked resume is deferred
+    # work — the next pass reaches it.
+    auto_resumed = auto_resume_actionable_parks(max(cap - triggered, 0))
+
     print(
         f"Sweep complete: {ticked} epics ticked, {alerted} stall alerts, "
-        f"{scanned} candidates scanned, {triggered} triggered"
+        f"{scanned} candidates scanned, {triggered} triggered, {auto_resumed} auto-resumed"
     )
     return {
         "statusCode": 200,
-        "body": json.dumps({"ticked": ticked, "alerted": alerted, "scanned": scanned, "triggered": triggered}),
+        "body": json.dumps(
+            {
+                "ticked": ticked,
+                "alerted": alerted,
+                "scanned": scanned,
+                "triggered": triggered,
+                "auto_resumed": auto_resumed,
+            }
+        ),
     }

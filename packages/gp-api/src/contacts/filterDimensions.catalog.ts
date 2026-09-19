@@ -213,6 +213,18 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     })),
   },
   {
+    // The standing follow-up flag, not the follow-up answer on any one call
+    // or knock: it selects who is STILL owed, so a request already met drops
+    // out. Serve-only, the mirror of contactsMade above. `observed` because
+    // a person or a canvasser asserted it — nothing models or infers it.
+    key: 'followUp',
+    label: 'Follow-Up',
+    kind: 'boolean-group',
+    modes: 'serve',
+    provenance: 'observed',
+    values: [{ key: 'followUpRequested', label: 'Asked For Follow-Up' }],
+  },
+  {
     key: 'age',
     label: 'Age',
     kind: 'boolean-group',
