@@ -37,6 +37,8 @@ const p2pStatusLabels: { [K in StatusKey]: string } = {
   pending_payment: 'Pending payment',
   canceled: 'Canceled',
   failed: "Couldn't send",
+  // Unreachable: getHistoryStatusLabel intercepts `draft` before either map.
+  // Kept so the record stays total over StatusKey.
   draft: 'Pro needed',
 }
 
@@ -55,6 +57,7 @@ const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   // A robocall the send chain could not deliver (CallHub failure). The candidate
   // was not charged; see OutreachRobocall.settleState (send_failed).
   failed: "Couldn't send",
+  // Unreachable, same as the p2p map's entry above: kept for totality.
   draft: 'Pro needed',
 }
 
