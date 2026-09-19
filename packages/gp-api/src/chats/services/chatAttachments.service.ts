@@ -302,7 +302,7 @@ export class ChatAttachmentsService extends createPrismaBase(
       } catch {
         return { ok: false, error: 'too_large' }
       }
-      if (pages !== null && pages > CHAT_ATTACHMENT_MAX_PAGES) {
+      if (pages === null || pages > CHAT_ATTACHMENT_MAX_PAGES) {
         return { ok: false, error: 'too_large' }
       }
       pageCount = pages
@@ -511,7 +511,7 @@ export class ChatAttachmentsService extends createPrismaBase(
         throw new BadRequestException('object_missing')
       }
       const { pages } = await parsePdfText(new Uint8Array(bytes))
-      if (pages !== null && pages > CHAT_ATTACHMENT_MAX_PAGES) {
+      if (pages === null || pages > CHAT_ATTACHMENT_MAX_PAGES) {
         await this.markFailed(attachment.id, 'too_many_pages')
         throw new BadRequestException('too_many_pages')
       }

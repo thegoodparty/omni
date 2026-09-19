@@ -81,7 +81,6 @@ describe('GeneralChatsController.streamMessage', () => {
       ATTACHMENTS,
       FEATURES,
       createMockLogger(),
-      {} as never,
     )
 
     await run(controller, buildReq().req, reply)
@@ -106,7 +105,6 @@ describe('GeneralChatsController.streamMessage', () => {
       ATTACHMENTS,
       FEATURES,
       logger,
-      {} as never,
     )
 
     await run(controller, buildReq().req, reply)
@@ -138,7 +136,6 @@ describe('GeneralChatsController.streamMessage', () => {
       ATTACHMENTS,
       FEATURES,
       createMockLogger(),
-      {} as never,
     )
     const { req, emitter } = buildReq()
 
@@ -172,9 +169,9 @@ describe('GeneralChatsController.streamMessage', () => {
           { type: 'done' },
         ]),
       ),
+      ATTACHMENTS,
       FEATURES,
       createMockLogger(),
-      {} as never,
     )
 
     const p = run(controller, buildReq().req, reply)
