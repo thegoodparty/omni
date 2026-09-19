@@ -926,20 +926,6 @@ export class ContactsService {
         const inside = people.filter((person) =>
           pointInPolygon(person.lng, person.lat, geoPoly),
         )
-        // Temporary, and deliberately at info: a drawn shape over visibly
-        // dense dots is returning zero, and the bbox read is the one link in
-        // this chain no test covers (every route test mocks `evaluate`).
-        // Which of the two numbers is zero says whether the query or the
-        // ray-cast is at fault. Remove once that is answered.
-        this.logger.info(
-          {
-            bbox: polygonBbox(geoPoly),
-            ringPoints: geoPoly.coordinates[0]?.length ?? 0,
-            evaluated: people.length,
-            insidePolygon: inside.length,
-          },
-          'polygon-preview diagnostic',
-        )
         return {
           count: inside.length,
           audienceEmpty: false,
