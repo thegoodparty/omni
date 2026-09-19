@@ -108,7 +108,7 @@ export class ChatAttachmentsService extends createPrismaBase(
     body: PresignRequest,
   ): Promise<PresignResponse> {
     const conversation = await this.client.chatConversation.findFirst({
-      where: { id: conversationId, ownerUserId: userId },
+      where: { id: conversationId, ownerUserId: userId, deletedAt: null },
     })
     if (!conversation || conversation.scope !== ChatScope.chief_of_staff) {
       throw new NotFoundException()
@@ -117,7 +117,10 @@ export class ChatAttachmentsService extends createPrismaBase(
     const created = await this.client.$transaction(
       async (tx) => {
         const count = await tx.chatAttachment.count({
-          where: { conversationId },
+          where: {
+            conversationId,
+            status: { not: ChatAttachmentStatus.failed },
+          },
         })
         if (count >= CHAT_ATTACHMENTS_PER_CONVERSATION) {
           throw new BadRequestException('attachment_limit_reached')
@@ -145,18 +148,23 @@ export class ChatAttachmentsService extends createPrismaBase(
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
 
-    const { url: uploadUrl, fields: uploadFields } =
-      await this.s3.createPresignedUpload(this.bucket, created.storageKey, {
-        maxBytes: body.sizeBytes,
-        contentType: body.mimeType,
-        expiresIn: PRESIGN_EXPIRES_IN,
-      })
+    try {
+      const { url: uploadUrl, fields: uploadFields } =
+        await this.s3.createPresignedUpload(this.bucket, created.storageKey, {
+          maxBytes: body.sizeBytes,
+          contentType: body.mimeType,
+          expiresIn: PRESIGN_EXPIRES_IN,
+        })
 
-    return {
-      attachmentId: created.id,
-      uploadUrl,
-      uploadFields,
-      storageKey: created.storageKey,
+      return {
+        attachmentId: created.id,
+        uploadUrl,
+        uploadFields,
+        storageKey: created.storageKey,
+      }
+    } catch (err) {
+      await this.markFailed(created.id, 'presign_failed')
+      throw err
     }
   }
 
@@ -241,14 +249,23 @@ export class ChatAttachmentsService extends createPrismaBase(
       where: { id: attachment.id },
       data: { status: ChatAttachmentStatus.processing },
     })
-    await this.queue.sendMessage(
-      {
-        type: QueueType.EXTRACT_CHAT_ATTACHMENT,
-        data: { attachmentId: attachment.id },
-      },
-      MessageGroup.default,
-      { deduplicationId: `extract-${attachment.id}` },
-    )
+
+    try {
+      await this.queue.sendMessage(
+        {
+          type: QueueType.EXTRACT_CHAT_ATTACHMENT,
+          data: { attachmentId: attachment.id },
+        },
+        MessageGroup.default,
+        {
+          deduplicationId: `extract-${attachment.id}`,
+          throwOnError: true,
+        },
+      )
+    } catch (err) {
+      await this.markFailed(attachment.id, 'enqueue_failed')
+      throw err
+    }
 
     const row = await this.client.chatAttachment.findUniqueOrThrow({
       where: { id: attachment.id },
