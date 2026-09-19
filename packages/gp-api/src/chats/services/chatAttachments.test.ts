@@ -28,11 +28,12 @@ describe('serve-chat-attachments flag gate', () => {
 
   const conversationId = 'conv-stub-123'
 
-  const routes = [
+  const stubRoutes = [
     ['POST', `/v1/chats/${conversationId}/attachments/presign`],
     ['POST', `/v1/chats/${conversationId}/attachments`],
-    ['POST', `/v1/chats/${conversationId}/attachments/link`],
   ] as const
+
+  const linkPath = `/v1/chats/${conversationId}/attachments/link`
 
   describe('flag off → 404', () => {
     let flagSpy: ReturnType<typeof vi.spyOn>
@@ -49,7 +50,7 @@ describe('serve-chat-attachments flag gate', () => {
       flagSpy.mockRestore()
     })
 
-    for (const [method, path] of routes) {
+    for (const [method, path] of [...stubRoutes, ['POST', linkPath] as const]) {
       it(`${method} ${path} → 404`, async () => {
         const res = await service.client.post(path, {}, header)
         expect(res.status).toBe(404)
@@ -57,13 +58,38 @@ describe('serve-chat-attachments flag gate', () => {
     }
   })
 
-  describe('flag on → 501', () => {
-    for (const [method, path] of routes) {
+  describe('flag on → 501 (stub endpoints)', () => {
+    for (const [method, path] of stubRoutes) {
       it(`${method} ${path} → 501`, async () => {
         // Placeholder key defaults to true in test env; no spy needed.
         const res = await service.client.post(path, {}, header)
         expect(res.status).toBe(501)
       })
     }
+  })
+
+  describe('POST /attachments/link — flag on', () => {
+    it('rejects a body with no url field → 400', async () => {
+      const res = await service.client.post(linkPath, {}, header)
+      expect(res.status).toBe(400)
+    })
+
+    it('rejects unknown body fields → 400', async () => {
+      const res = await service.client.post(
+        linkPath,
+        { url: 'https://example.com', storageKey: 'hacked' },
+        header,
+      )
+      expect(res.status).toBe(400)
+    })
+
+    it('returns 404 when conversation does not exist', async () => {
+      const res = await service.client.post(
+        linkPath,
+        { url: 'https://example.com' },
+        header,
+      )
+      expect(res.status).toBe(404)
+    })
   })
 })

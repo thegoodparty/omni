@@ -769,6 +769,8 @@ export {
   type FinalizeRequest,
   LinkAttachRequestSchema,
   type LinkAttachRequest,
+  LinkAttachResponseSchema,
+  type LinkAttachResponse,
   ChatMessageSegmentCitationPayloadSchema,
   type ChatMessageSegmentCitationPayload,
 } from './chats/ChatAttachment.schema'

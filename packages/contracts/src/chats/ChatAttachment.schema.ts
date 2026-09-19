@@ -70,6 +70,21 @@ export const LinkAttachRequestSchema = z
   .strict()
 export type LinkAttachRequest = z.infer<typeof LinkAttachRequestSchema>
 
+export const LinkAttachResponseSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), attachment: ChatAttachmentSchema }),
+  z.object({
+    ok: z.literal(false),
+    error: z.enum([
+      'unreachable',
+      'blocked_url',
+      'unsupported_content_type',
+      'too_large',
+      'timeout',
+    ]),
+  }),
+])
+export type LinkAttachResponse = z.infer<typeof LinkAttachResponseSchema>
+
 export const ChatMessageSegmentCitationPayloadSchema = z.object({
   attachmentId: z.string(),
   page: z.number().int().optional(),

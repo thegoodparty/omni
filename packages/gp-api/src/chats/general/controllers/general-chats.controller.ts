@@ -23,14 +23,19 @@ import type {
   ChatHistoryResponse,
   ChatMessageFeedback as ChatMessageFeedbackResponse,
   CreateChatResponse,
+  LinkAttachResponse,
 } from '@goodparty_org/contracts'
+import { LinkAttachResponseSchema } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
-import { SERVE_CHAT_ATTACHMENTS_FLAG } from '@/chats/services/chatAttachments.service'
+import {
+  ChatAttachmentsService,
+  SERVE_CHAT_ATTACHMENTS_FLAG,
+} from '@/chats/services/chatAttachments.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
@@ -40,6 +45,7 @@ import {
   ChatMessageFeedbackSchema,
   CreateChatDto,
   CreateChatResponseSchema,
+  LinkAttachDto,
   SendChatMessageDto,
   SetChatMessageFeedbackDto,
 } from '../schemas/GeneralChat.schema'
@@ -88,6 +94,7 @@ const formatChunk = (chunk: ChatStreamChunk): string =>
 export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
+    private readonly attachments: ChatAttachmentsService,
     private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
@@ -315,13 +322,18 @@ export class GeneralChatsController {
   }
 
   @Post(':conversationId/attachments/link')
-  async linkAttachment(@ReqUser() user: User): Promise<void> {
+  @ResponseSchema(LinkAttachResponseSchema)
+  async linkAttachment(
+    @ReqUser() user: User,
+    @Param('conversationId') conversationId: string,
+    @Body(ZodValidationPipe) body: LinkAttachDto,
+  ): Promise<LinkAttachResponse> {
     const enabled = await this.features.isFeatureEnabled({
       user,
       feature: SERVE_CHAT_ATTACHMENTS_FLAG,
     })
     if (!enabled) throw new NotFoundException()
-    throw new NotImplementedException()
+    return this.attachments.attachLink(conversationId, user.id, body.url)
   }
 
   @Delete(':conversationId')
