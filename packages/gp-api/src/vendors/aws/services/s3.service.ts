@@ -214,6 +214,31 @@ export class S3Service extends AwsService {
     }, 'getFileBytes')
   }
 
+  async getRangeBytes(
+    bucket: string,
+    key: string,
+    start: number,
+    end: number,
+  ): Promise<Buffer | undefined> {
+    return this.executeAwsOperation(async () => {
+      try {
+        const response = await this.s3Client.send(
+          new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Range: `bytes=${start}-${end}`,
+          }),
+        )
+        const bytes = await response.Body?.transformToByteArray()
+        return bytes ? Buffer.from(bytes) : undefined
+      } catch (error) {
+        if (error instanceof NoSuchKey) return undefined
+        if (isHttpStatusError(error, 404)) return undefined
+        throw error
+      }
+    }, 'getRangeBytes')
+  }
+
   async getFileBytesWithContentType(
     bucket: string,
     key: string,

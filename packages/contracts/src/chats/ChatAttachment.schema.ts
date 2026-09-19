@@ -52,6 +52,7 @@ export type PresignRequest = z.infer<typeof PresignRequestSchema>
 export const PresignResponseSchema = z.object({
   attachmentId: z.string(),
   uploadUrl: z.string(),
+  uploadFields: z.record(z.string(), z.string()),
   storageKey: z.string(),
 })
 export type PresignResponse = z.infer<typeof PresignResponseSchema>
