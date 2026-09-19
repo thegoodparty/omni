@@ -153,7 +153,7 @@ export const FollowUpOutstandingSection = ({
         action: 'save',
         outstanding,
       })
-      successSnackbar(`Saved "${list.name}" to your lists.`)
+      successSnackbar(SERVE_FOLLOW_UP_COPY.saved(list.name))
     }
   }
 

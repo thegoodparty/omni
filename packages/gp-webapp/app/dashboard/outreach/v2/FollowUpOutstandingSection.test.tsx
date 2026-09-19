@@ -136,6 +136,9 @@ describe('<FollowUpOutstandingSection>', () => {
     await waitFor(() =>
       expect(onCallList).toHaveBeenCalledWith(77, 'Tuesday calls — follow-ups'),
     )
+    expect(successSnackbar).toHaveBeenCalledWith(
+      'Saved "Tuesday calls — follow-ups" to your lists.',
+    )
     // The saved list carries the same audience the count was taken over, so
     // the call sheet cannot disagree with the number that prompted it.
     expect(savedBody).toMatchObject({
@@ -176,6 +179,12 @@ describe('<FollowUpOutstandingSection>', () => {
     await waitFor(() => expect(successSnackbar).toHaveBeenCalled())
 
     expect(createCalls).toBe(1)
+    // Both paths report the save with the SAME string, from the one copy
+    // object — an inline literal here would drift and, worse, would be
+    // invisible to the vocabulary gate.
+    expect(successSnackbar).toHaveBeenCalledWith(
+      'Saved "Tuesday calls — follow-ups" to your lists.',
+    )
   })
 
   // Both clicks dispatched in ONE tick, which is what a double-tap does and
