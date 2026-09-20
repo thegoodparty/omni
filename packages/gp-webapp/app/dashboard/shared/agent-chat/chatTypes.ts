@@ -85,6 +85,7 @@ export interface ChatClient {
     conversationId: string
     content: string
     clientMessageId?: string
+    attachmentIds?: string[]
     signal?: AbortSignal
   }): AsyncIterable<ChatStreamEvent>
   softDelete(conversationId: string): Promise<void>

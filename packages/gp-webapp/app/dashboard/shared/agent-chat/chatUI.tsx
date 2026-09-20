@@ -1,18 +1,23 @@
 'use client'
 
 import type { Ref, ReactNode } from 'react'
+import { useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, GoodPartyOrgLogo, IconButton, Textarea } from '@styleguide'
 import {
+  FolderOpenIcon,
+  PaperclipIcon,
   SearchIcon,
   SendIcon,
   SparklesIcon,
+  XMarkIcon,
 } from '@styleguide/components/ui/icons'
 import type { LiveSegment } from './streaming'
 import ChatPill from '../ai-chat/ChatPill'
 import { DictationMicButton } from '../dictation/DictationMicButton'
 import type { UseDictationAppendResult } from '../dictation/useDictationAppend'
+import type { ChatAttachmentState } from './chatAttachments-api'
 
 // Module-level so react-markdown gets a stable plugins identity across the
 // per-tick re-renders of a streaming turn (a fresh [remarkGfm] each render
@@ -282,6 +287,113 @@ export function ThinkingRow({
   )
 }
 
+// A single attachment chip shown above the textarea while awaiting send.
+function AttachmentChip({
+  attachment,
+  onRemove,
+}: {
+  attachment: ChatAttachmentState
+  onRemove: (id: string) => void
+}): React.JSX.Element {
+  const statusLine =
+    attachment.status === 'processing'
+      ? attachment.pageCount !== null
+        ? `Reading, ${attachment.pageCount} pages`
+        : 'Reading...'
+      : attachment.status === 'failed'
+        ? `Failed: ${attachment.failureReason ?? 'unknown error'}`
+        : null
+
+  return (
+    <span className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs text-muted-foreground">
+      <PaperclipIcon className="size-3 shrink-0" aria-hidden />
+      <span className="truncate">{statusLine ?? attachment.fileName}</span>
+      <button
+        type="button"
+        aria-label={`Remove ${attachment.fileName}`}
+        onClick={() => onRemove(attachment.id)}
+        className="ml-0.5 shrink-0 rounded-full hover:text-foreground"
+      >
+        <XMarkIcon className="size-3" aria-hidden />
+      </button>
+    </span>
+  )
+}
+
+// Inline URL input shown when the user picks "link" from the paperclip menu.
+function AttachLinkInput({
+  onSubmit,
+  onCancel,
+  onChooseFile,
+}: {
+  onSubmit: (url: string) => void
+  onCancel: () => void
+  // When provided, renders a "Choose file" button that opens the file picker.
+  onChooseFile?: () => void
+}): React.JSX.Element {
+  const [url, setUrl] = useState('')
+  const isValidUrl = (u: string): boolean => {
+    try {
+      const { protocol } = new URL(u)
+      return protocol === 'http:' || protocol === 'https:'
+    } catch {
+      return false
+    }
+  }
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter' && isValidUrl(url.trim())) {
+      e.preventDefault()
+      onSubmit(url.trim())
+    } else if (e.key === 'Escape') {
+      onCancel()
+    }
+  }
+  return (
+    <div className="flex items-center gap-1 px-1 py-1">
+      {onChooseFile ? (
+        <IconButton
+          type="button"
+          aria-label="Choose file"
+          onClick={onChooseFile}
+          className="shrink-0 rounded-full"
+          size="small"
+        >
+          <FolderOpenIcon className="size-4" aria-hidden />
+        </IconButton>
+      ) : null}
+      <input
+        autoFocus
+        type="url"
+        placeholder="Paste a URL..."
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        onKeyDown={handleKeyDown}
+        className="min-w-0 flex-1 rounded-full border border-border bg-transparent px-3 py-1 text-sm focus:outline-none"
+        aria-label="Attachment URL"
+      />
+      <IconButton
+        type="button"
+        aria-label="Attach link"
+        disabled={!isValidUrl(url.trim())}
+        onClick={() => isValidUrl(url.trim()) && onSubmit(url.trim())}
+        className="shrink-0 rounded-full"
+        size="small"
+      >
+        <SendIcon className="size-4" aria-hidden />
+      </IconButton>
+      <IconButton
+        type="button"
+        aria-label="Cancel link"
+        onClick={onCancel}
+        className="shrink-0 rounded-full"
+        size="small"
+      >
+        <XMarkIcon className="size-4" aria-hidden />
+      </IconButton>
+    </div>
+  )
+}
+
 // The message composer: a pill-shaped input with a send button. The consumer
 // owns the value and clears it on submit; `onSubmit` fires on Enter or the
 // button, and the button is disabled while empty. Pass `dictation` (from
@@ -289,6 +401,11 @@ export function ThinkingRow({
 // it adds a voice-input mic, the branded AI send icon, and the animated
 // gradient border shared with Chief of Staff and the draft launcher. Omit it
 // and the composer is plain — no mic, send arrow, simple border.
+//
+// Pass `attachments`, `onAttachFile`, `onAttachLink`, and `onRemoveAttachment`
+// to enable the paperclip affordance (chief_of_staff scope only, gated by the
+// serve-chat-attachments flag). `guardAcknowledged`/`onGuardAcknowledge`
+// control the one-time safety notice shown above the form.
 export function ChatComposer({
   value,
   onChange,
@@ -299,6 +416,12 @@ export function ChatComposer({
   dictation,
   leadingSlot,
   ariaLabel,
+  attachments,
+  onAttachFile,
+  onAttachLink,
+  onRemoveAttachment,
+  guardAcknowledged,
+  onGuardAcknowledge,
 }: {
   value: string
   onChange: (value: string) => void
@@ -312,7 +435,21 @@ export function ChatComposer({
   leadingSlot?: ReactNode
   // Accessible name for the input. Omit to fall back to the placeholder.
   ariaLabel?: string
+  // Attachment props — omit entirely to hide the paperclip affordance.
+  attachments?: ChatAttachmentState[]
+  onAttachFile?: (file: File) => void
+  onAttachLink?: (url: string) => void
+  onRemoveAttachment?: (attachmentId: string) => void
+  // Guard copy notice. Show when `false`; hide permanently after acknowledge.
+  guardAcknowledged?: boolean
+  onGuardAcknowledge?: () => void
 }): React.JSX.Element {
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  // linkMode: false = closed, 'link' = URL input open
+  const [linkMode, setLinkMode] = useState(false)
+
+  const attachmentsEnabled = attachments !== undefined && !!onAttachFile
+
   // A textarea keeps Enter for newlines, so submit is wired by hand: Enter
   // sends, Shift+Enter inserts a break, and the Enter that commits an IME
   // candidate (CJK and other composed input) must not send. The guard mirrors
@@ -322,6 +459,7 @@ export function ChatComposer({
   // guards an empty send).
   const submit = (): void => {
     if (disabled || dictation?.active || value.trim().length === 0) return
+    setLinkMode(false)
     onSubmit()
   }
   const onComposerKeyDown = (
@@ -331,6 +469,34 @@ export function ChatComposer({
     e.preventDefault()
     submit()
   }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const file = e.target.files?.[0]
+    if (file && onAttachFile) {
+      onAttachFile(file)
+      // Reset so the same file can be re-selected after removal.
+      e.target.value = ''
+    }
+  }
+
+  const handleLinkSubmit = (url: string): void => {
+    setLinkMode(false)
+    onAttachLink?.(url)
+  }
+
+  const chipRow =
+    attachments && attachments.length > 0 ? (
+      <div className="flex flex-wrap gap-1 px-1 pt-1">
+        {attachments.map((a) => (
+          <AttachmentChip
+            key={a.id}
+            attachment={a}
+            onRemove={onRemoveAttachment ?? (() => undefined)}
+          />
+        ))}
+      </div>
+    ) : null
+
   const controls = (
     <>
       {leadingSlot}
@@ -347,6 +513,17 @@ export function ChatComposer({
         disabled={disabled}
         className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm leading-snug shadow-none focus-visible:ring-0"
       />
+      {attachmentsEnabled ? (
+        <IconButton
+          type="button"
+          aria-label="Attach file or link"
+          disabled={disabled}
+          onClick={() => setLinkMode((m) => !m)}
+          className="static shrink-0 rounded-full"
+        >
+          <PaperclipIcon className="size-5" aria-hidden />
+        </IconButton>
+      ) : null}
       {dictation ? (
         <DictationMicButton
           dictation={dictation}
@@ -375,21 +552,92 @@ export function ChatComposer({
     e.preventDefault()
     submit()
   }
+
+  const guardBanner =
+    attachmentsEnabled && guardAcknowledged === false ? (
+      <div
+        role="note"
+        className="mb-1 flex items-center justify-between gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+      >
+        <span>
+          Don&apos;t upload closed-session, privileged, or active-litigation
+          material.
+        </span>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={onGuardAcknowledge}
+          className="shrink-0 rounded-full hover:text-foreground"
+        >
+          <XMarkIcon className="size-3.5" aria-hidden />
+        </button>
+      </div>
+    ) : null
+
+  const fileInput = attachmentsEnabled ? (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept=".pdf,.docx,.txt,image/jpeg,image/png"
+      className="hidden"
+      onChange={handleFileChange}
+      aria-hidden
+      tabIndex={-1}
+    />
+  ) : null
+
   // rounded-3xl reads as a pill at the one-line min height and stays a sane
   // rounded rectangle once the composer grows; items-end keeps the send button
   // on the last line of a multiline draft.
-  return dictation ? (
-    <form onSubmit={handleSubmit}>
-      <ChatPill rounded="3xl" innerClassName="items-end gap-1 py-1 pr-1 pl-4">
-        {controls}
-      </ChatPill>
-    </form>
-  ) : (
-    <form
-      className="flex min-h-12 items-end gap-1 rounded-3xl border border-border bg-card py-1 pr-1 pl-4"
-      onSubmit={handleSubmit}
-    >
-      {controls}
-    </form>
+  if (dictation) {
+    return (
+      <>
+        {guardBanner}
+        {fileInput}
+        <form onSubmit={handleSubmit}>
+          <ChatPill
+            rounded="3xl"
+            innerClassName="flex-col gap-0 py-1 pr-1 pl-4"
+          >
+            {chipRow}
+            {linkMode ? (
+              <AttachLinkInput
+                onSubmit={handleLinkSubmit}
+                onCancel={() => setLinkMode(false)}
+                onChooseFile={() => {
+                  setLinkMode(false)
+                  fileInputRef.current?.click()
+                }}
+              />
+            ) : null}
+            <div className="flex w-full items-end gap-1">{controls}</div>
+          </ChatPill>
+        </form>
+      </>
+    )
+  }
+
+  return (
+    <>
+      {guardBanner}
+      {fileInput}
+      <form
+        className="flex min-h-12 flex-col gap-0 rounded-3xl border border-border bg-card py-1 pr-1 pl-4"
+        onSubmit={handleSubmit}
+      >
+        {chipRow}
+        {linkMode ? (
+          <AttachLinkInput
+            onSubmit={handleLinkSubmit}
+            onCancel={() => setLinkMode(false)}
+            onChooseFile={() => {
+              setLinkMode(false)
+              fileInputRef.current?.click()
+            }}
+          />
+        ) : null}
+        <div className="flex items-end gap-1">{controls}</div>
+      </form>
+    </>
   )
 }
