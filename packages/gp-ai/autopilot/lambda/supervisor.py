@@ -130,6 +130,13 @@ def create_task_comment(task_id: str, comment_text: str) -> dict:
     return clickup_request("POST", f"/task/{task_id}/comment", {"comment_text": comment_text})
 
 
+def add_task_tag(task_id: str, tag_name: str) -> None:
+    """Used by sweep.py to mark a story `dead-letter` when it exhausts
+    automation (see sweep._escalate_dead_letter). Idempotent — re-adding a
+    tag ClickUp already has on the task is a no-op on their side."""
+    clickup_request("POST", f"/task/{task_id}/tag/{tag_name}")
+
+
 # ---------------------------------------------------------------------------
 # Slack HTTP (plain, dependency-light — same posture as clickup_request
 # above and post_slack_message below).

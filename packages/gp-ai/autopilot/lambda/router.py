@@ -110,6 +110,31 @@ def merge_pending_pr_number(question: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+# ClickUp tag applied when a parked story exhausts automation (sweep.py's
+# park cap — see sweep._escalate_dead_letter). A board-visible, human-
+# removable "I've got it" signal, not a status: a status change would need a
+# routing-table entry (see the README's board contract), while a tag is
+# API-manageable and board-filterable with zero routing changes. Named
+# lowercase-with-hyphen to match this board's other tags (e.g.
+# engineer_agent's "gpbot-work").
+DEAD_LETTER_TAG_NAME = "dead-letter"
+
+
+def has_dead_letter_tag(task: dict) -> bool:
+    """Whether a task dict (as ClickUp's list/task-get endpoints return it)
+    already carries DEAD_LETTER_TAG_NAME — mirrors engineer_agent's
+    escalation.already_queued (same shape check, different tag; precedent,
+    not shared code — see that module's docstring for why the two Lambdas
+    don't share it)."""
+    tags = task.get("tags")
+    if not isinstance(tags, list):
+        return False
+    for tag in tags:
+        if isinstance(tag, dict) and isinstance(tag.get("name"), str) and tag["name"].lower() == DEAD_LETTER_TAG_NAME:
+            return True
+    return False
+
+
 def park_marker_count(comments: list[dict]) -> int:
     """How many park comments the thread carries, across stages — the sweep's
     loop bound: a story that keeps re-parking needs a human, not more laps."""
