@@ -4,6 +4,7 @@ import { encodePrecinctPair } from '@goodparty_org/contracts'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import {
+  PRO_FEATURE_REQUIRED_MESSAGE,
   PRO_FILTERING_REQUIRED_MESSAGE,
   type ContactsService,
 } from '@/contacts/services/contacts.service'
@@ -24,14 +25,25 @@ export type ListPrecinctsOutput =
 // there is nothing for the model to choose and nothing it could get wrong.
 const listPrecinctsInputSchema = z.object({}).strict()
 
+// getPrecincts gates through assertProAccess, which words its refusal
+// differently from the filtering gate the sibling tools hit. Matching only
+// the filtering one meant a non-Pro caller got the refusal with no upgrade
+// suggestion attached — the branch this tool was written to take never ran.
+// Both are matched, and both come from the constants rather than a literal
+// so neither can drift away from what actually throws.
+const PRO_GATE_MESSAGES: readonly string[] = [
+  PRO_FEATURE_REQUIRED_MESSAGE,
+  PRO_FILTERING_REQUIRED_MESSAGE,
+]
+
 const toToolError = (
   error: BadRequestException | ForbiddenException,
 ): { error: string } =>
-  error.message === PRO_FILTERING_REQUIRED_MESSAGE
+  PRO_GATE_MESSAGES.includes(error.message)
     ? {
         error:
-          `${PRO_FILTERING_REQUIRED_MESSAGE}. Suggest upgrading to Pro ` +
-          'to unlock voter data filtering.',
+          `${error.message}. Suggest upgrading to Pro to unlock voter ` +
+          'data filtering.',
       }
     : { error: error.message }
 

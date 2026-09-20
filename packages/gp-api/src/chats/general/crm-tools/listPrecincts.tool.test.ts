@@ -1,7 +1,7 @@
 import { ForbiddenException, BadRequestException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
-import { PRO_FILTERING_REQUIRED_MESSAGE } from '@/contacts/services/contacts.service'
+import { PRO_FEATURE_REQUIRED_MESSAGE } from '@/contacts/services/contacts.service'
 import { buildListPrecinctsTool } from './listPrecincts.tool'
 
 const ORGANIZATION = { slug: 'eo-council' } as Organization
@@ -93,9 +93,13 @@ describe('buildListPrecinctsTool', () => {
     expect(result).toEqual({ precincts: [], truncated: true })
   })
 
+  // The message assertProAccess ACTUALLY throws, imported rather than
+  // written out. An earlier version of this test constructed the filtering
+  // gate's message instead, which getPrecincts never raises — so it passed
+  // while the upgrade branch it claimed to cover could not run.
   it('relays the pro gate as a structured error with an upgrade suggestion', async () => {
     const getPrecincts = vi.fn(() =>
-      Promise.reject(new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)),
+      Promise.reject(new ForbiddenException(PRO_FEATURE_REQUIRED_MESSAGE)),
     )
 
     const result = await buildTool(getPrecincts).execute({})
@@ -103,6 +107,18 @@ describe('buildListPrecinctsTool', () => {
     expect(result).toEqual({
       error: expect.stringContaining('Suggest upgrading to Pro'),
     })
+  })
+
+  // The other side of that: a refusal which is not a pro gate must not
+  // acquire an upgrade pitch, or every failure starts selling.
+  it('does not attach an upgrade suggestion to an unrelated refusal', async () => {
+    const getPrecincts = vi.fn(() =>
+      Promise.reject(new ForbiddenException('Some other refusal')),
+    )
+
+    const result = await buildTool(getPrecincts).execute({})
+
+    expect(result).toEqual({ error: 'Some other refusal' })
   })
 
   // An org whose office has no linked district cannot enumerate anything,

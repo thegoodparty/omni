@@ -40,6 +40,7 @@ export const getAssistantChat = (
 const CRM_TOOL_LABELS: Record<string, string> = {
   describe_filter_dimensions: 'Checking available filters',
   count_contacts: 'Counting matches',
+  list_precincts: 'Looking up precincts',
   [SAVED_FILTERS_TOOL]: 'Working on your lists',
 }
 
