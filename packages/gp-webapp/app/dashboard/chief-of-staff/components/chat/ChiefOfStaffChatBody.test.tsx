@@ -38,6 +38,11 @@ vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 // deck.gl and maplibre don't run in jsdom. The stub reports how many people
 // the card handed the canvas, so the wiring from a tool payload through to the
 // map can be checked without pulling the real one in.
+// Populated by the map stub below. `var` because vi.mock is hoisted above
+// const/let initialisation and the factory closes over this.
+// eslint-disable-next-line no-var
+var drawRingRefs: Array<Array<[number, number]> | undefined> = []
+
 // The boundary drawer reports save outcomes through the snackbar, and this
 // suite renders no provider — only reached once the overlay opens, which is
 // why every test here passed before the drawer existed.
@@ -58,6 +63,10 @@ vi.mock('../../../contacts/crm/map/ContactListMap', () => ({
     people?: unknown[]
     drawRing?: Array<[number, number]>
   }) {
+    // Recorded by REFERENCE. ContactListMap rebuilds its deck.gl layers
+    // whenever drawRing changes identity, so an unmemoised ring is a real
+    // regression that no value assertion can see.
+    drawRingRefs.push(drawRing)
     return (
       <div
         data-testid="contact-map-stub"
@@ -1256,6 +1265,57 @@ describe('<ChiefOfStaffChatBody>', () => {
       expect(
         screen.queryByRole('button', { name: /draw an area|edit area/i }),
       ).not.toBeInTheDocument()
+    })
+
+    // A transcript re-renders on every streaming token, and
+    // ringFromGeoJsonPolygon allocates a fresh array each call — the empty
+    // one included, so a list with no boundary is not exempt. ContactListMap
+    // lists drawRing among the dependencies of the effect that rebuilds its
+    // deck.gl layers, so a bare call rebuilt polygon and vertex layers
+    // continuously mid-reply.
+    it('hands the map a stable ring across re-renders', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList({
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+              [0, 0],
+            ],
+          ],
+        },
+      })
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_ring',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_ring" />)
+      await screen.findByTestId('contact-map-stub')
+
+      drawRingRefs.length = 0
+      // Any state change in the body re-renders the card, the way a
+      // streaming token does.
+      await user.type(screen.getByLabelText(/ask a question/i), 'hello')
+
+      expect(drawRingRefs.length).toBeGreaterThan(1)
+      const [first] = drawRingRefs
+      expect(first).toBeDefined()
+      for (const ref of drawRingRefs) {
+        expect(ref).toBe(first)
+      }
     })
 
     // An absent row reads as unlocked, so gating on the lock alone showed

@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { Button, CropIcon } from '@styleguide'
@@ -43,7 +44,17 @@ export default function ChatListMap({
   // Serve-only surface, so the labels are the constituent ones.
   const labels = getContactsLabels(false)
   const { list } = useSavedList(listId)
-  const savedRing = ringFromGeoJsonPolygon(list?.geoPoly)
+  // Memoised for the same reason both sibling callers memoise it, and more
+  // sharply here: ringFromGeoJsonPolygon allocates a fresh array every call
+  // — including the empty one, so a list with no boundary is not exempt —
+  // and ContactListMap lists drawRing among the dependencies of the effect
+  // that rebuilds its deck.gl layers. A transcript re-renders on every
+  // streaming token, so a bare call rebuilt the polygon and vertex layers
+  // continuously while the assistant was mid-reply.
+  const savedRing = useMemo(
+    () => ringFromGeoJsonPolygon(list?.geoPoly),
+    [list?.geoPoly],
+  )
   // Requires the row to have ARRIVED, not merely to be unlocked. An absent
   // row reads as unlocked, so gating on the lock alone offered the button
   // while the list was still loading — and the overlay behind it seeds its
