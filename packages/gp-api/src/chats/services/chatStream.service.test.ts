@@ -355,6 +355,7 @@ const baseStreamArgs = (
     signal: AbortSignal
     clientMessageId: string
     maxSteps: number
+    attachmentIds: string[]
   }> = {},
 ) => ({
   conversationId: overrides.conversationId ?? CONVERSATION_ID,
@@ -367,6 +368,9 @@ const baseStreamArgs = (
     clientMessageId: overrides.clientMessageId,
   }),
   ...(overrides.maxSteps !== undefined && { maxSteps: overrides.maxSteps }),
+  ...(overrides.attachmentIds !== undefined && {
+    attachmentIds: overrides.attachmentIds,
+  }),
 })
 
 const expectErrorChunk = (chunks: ChatStreamChunk[]) => {
@@ -1757,9 +1761,17 @@ describe('ChatStreamService', () => {
           findMany: ({
             where,
           }: {
-            where: { conversationId: string; status: ChatAttachmentStatus }
+            where: {
+              conversationId: string
+              status: ChatAttachmentStatus
+              id?: { in: string[] }
+            }
           }) => {
-            const filtered = this.rows.filter((r) => r.status === where.status)
+            const filtered = this.rows.filter(
+              (r) =>
+                r.status === where.status &&
+                (where.id == null || where.id.in.includes(r.id)),
+            )
             return Promise.resolve(filtered)
           },
         }
@@ -1900,7 +1912,7 @@ describe('ChatStreamService', () => {
       const filePart = parts.find((p) => p.type === 'file')
       expect(filePart).toBeDefined()
       expect(filePart?.mediaType).toBe('application/pdf')
-      expect(filePart?.filename).toBe('report.pdf')
+      expect(filePart?.filename).toBe('att-pdf')
       const textPart = parts.find((p) => p.type === 'text')
       expect(textPart).toBeDefined()
     })
@@ -1941,7 +1953,7 @@ describe('ChatStreamService', () => {
       }>
       const filePart = parts.find((p) => p.type === 'file')
       expect(filePart?.mediaType).toBe('text/plain')
-      expect(filePart?.filename).toBe('budget.docx')
+      expect(filePart?.filename).toBe('att-docx')
       expect(filePart?.citationsEnabled).toBe(true)
       const decoded = new TextDecoder().decode(filePart?.data)
       expect(decoded).toContain('Total budget: $1.2M for FY2026')
@@ -2046,7 +2058,7 @@ describe('ChatStreamService', () => {
           kind: 'source',
           sourceType: 'document',
           id: 'src-1',
-          filename: 'resolution.txt',
+          filename: 'att-cite',
           providerMetadata: {
             anthropic: {
               citedText: 'allocate $500K',
@@ -2085,6 +2097,54 @@ describe('ChatStreamService', () => {
       expect(payload.attachmentId).toBe('att-cite')
       expect(payload.quotedText).toBe('allocate $500K')
       expect(payload.charRange).toEqual([28, 42])
+    })
+
+    it('injects only the requested attachment IDs when attachmentIds is set', async () => {
+      const { fakeLlmSrc, svc } = buildAttachmentService({
+        flagEnabled: true,
+        rows: [
+          {
+            id: 'att-included',
+            storageKey: 'key-included',
+            fileName: 'included.txt',
+            mimeType: 'text/plain',
+            pageCount: null,
+            source: ChatAttachmentSource.UPLOAD,
+            sourceUrl: null,
+            status: ChatAttachmentStatus.ready,
+            extractedText: 'included content',
+          },
+          {
+            id: 'att-excluded',
+            storageKey: 'key-excluded',
+            fileName: 'excluded.txt',
+            mimeType: 'text/plain',
+            pageCount: null,
+            source: ChatAttachmentSource.UPLOAD,
+            sourceUrl: null,
+            status: ChatAttachmentStatus.ready,
+            extractedText: 'excluded content',
+          },
+        ],
+      })
+
+      fakeLlmSrc.setScript([{ kind: 'text', delta: 'ok' }])
+      await collect(
+        svc.stream(baseStreamArgs({ attachmentIds: ['att-included'] })),
+      )
+
+      const { messages } = firstOrThrow(fakeLlmSrc.calls).options
+      const lastUser = messages.findLast((m) => m.role === 'user')
+      const parts = lastUser?.content as Array<{
+        type: string
+        data?: Uint8Array
+      }>
+      const fileParts = parts.filter((p) => p.type === 'file')
+      // Only the requested attachment is injected; the excluded one is not
+      expect(fileParts).toHaveLength(1)
+      const decoded = new TextDecoder().decode(fileParts[0]?.data)
+      expect(decoded).toContain('included content')
+      expect(decoded).not.toContain('excluded content')
     })
 
     it('preserves greeting fold when attachments are present', async () => {
