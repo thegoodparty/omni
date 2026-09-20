@@ -459,6 +459,7 @@ export function ChatComposer({
   // guards an empty send).
   const submit = (): void => {
     if (disabled || dictation?.active || value.trim().length === 0) return
+    setLinkMode(false)
     onSubmit()
   }
   const onComposerKeyDown = (
