@@ -12,12 +12,18 @@ export interface LlmImageUrlPart {
 
 // A raw file (e.g. a PDF) handed to the model as a document part. The
 // Anthropic provider reads PDFs with vision, scanned pages included — this
-// is deliberately narrower than the AI SDK's own FilePart (no URL variant,
-// no filename) since every current caller has the bytes in hand already.
+// is deliberately narrower than the AI SDK's own FilePart (no URL variant)
+// since every current caller has the bytes in hand already.
 export interface LlmFilePart {
   type: 'file'
   data: Uint8Array
   mediaType: string
+  filename?: string
+  // When true, maps to providerOptions.anthropic.citations.enabled on the
+  // Anthropic document block. Text-based documents (DOCX, plaintext, link
+  // snapshots) set this; PDF/image blocks use native vision and do not need
+  // citation enablement at the API level.
+  citationsEnabled?: boolean
 }
 
 export type LlmUserContentPart = LlmTextPart | LlmImageUrlPart | LlmFilePart

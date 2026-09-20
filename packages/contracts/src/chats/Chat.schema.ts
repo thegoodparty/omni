@@ -217,6 +217,13 @@ export const ChatStreamEventSchema = z.discriminatedUnion('type', [
     result: z.unknown(),
   }),
   z.object({
+    type: z.literal('citation'),
+    attachmentId: z.string(),
+    page: z.number().int().optional(),
+    charRange: z.tuple([z.number().int(), z.number().int()]).optional(),
+    quotedText: z.string(),
+  }),
+  z.object({
     type: z.literal('done'),
     assistantMessageId: z.string().optional(),
   }),
