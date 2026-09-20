@@ -106,6 +106,7 @@ class FakeClickUp:
         self.time_in_status_since: dict[str, int] = {}
         self.task_queries: list[str] = []
         self.status_updates: dict[str, list[str]] = {}
+        self.status_update_failures: dict[str, int] = {}
 
     def request(self, method, endpoint, data=None):
         if method == "GET" and endpoint.startswith("/list/") and "/task?" in endpoint:
@@ -129,6 +130,9 @@ class FakeClickUp:
             return {"current_status": {"since": str(since)}} if since is not None else {}
         if method == "PUT" and endpoint.startswith("/task/") and "/" not in endpoint[len("/task/") :]:
             task_id = endpoint[len("/task/") :]
+            if self.status_update_failures.get(task_id, 0) > 0:
+                self.status_update_failures[task_id] -= 1
+                raise RuntimeError("transient ClickUp 500")
             self.status_updates.setdefault(task_id, []).append((data or {}).get("status"))
             return {"id": task_id}
         raise AssertionError(f"no fake response registered for {method} {endpoint}")
@@ -622,16 +626,37 @@ def test_merged_pr_moves_story_to_qa_and_dispatches_once(fake_clickup, fake_ecs,
     first = sweep.handle_sweep({"autopilot_sweep": True})
     second = sweep.handle_sweep({"autopilot_sweep": True})
 
-    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA]
+    assert fake_clickup.status_updates["story-9"][0] == router.STATUS_QA
     qa_dispatches = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_QA]
     assert len(qa_dispatches) == 1
     assert env_vars(qa_dispatches[0])["EPIC_TASK_ID"] == "epic-1"
     assert json.loads(first["body"])["merge_resolved"] == 1
     # Second pass still sees the park (fake ClickUp doesn't actually move the
-    # story out of feedback-needed) but the claim on PR #42 holds, so it
-    # never moves the status or launches a second QA run.
+    # story out of feedback-needed) and re-issues the idempotent qa move, but
+    # the claim on PR #42 holds, so it never launches a second QA run.
     assert json.loads(second["body"])["merge_resolved"] == 0
+    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA, router.STATUS_QA]
+
+
+def test_transient_move_failure_does_not_strand_the_story(fake_clickup, fake_ecs, fake_pull_requests, capsys):
+    # The claim is taken only after the ClickUp move succeeds: a transient
+    # ClickUp error on the move must leave nothing claimed, so the very next
+    # sweep tick retries and resolves — not stranded until the claim TTL.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_clickup.status_update_failures["story-9"] = 1
+    fake_pull_requests[42] = {"merged": True, "state": "closed"}
+
+    first = sweep.handle_sweep({"autopilot_sweep": True})
+    assert json.loads(first["body"])["merge_resolved"] == 0
+    assert fake_ecs.run_task_calls == []
+    assert "failed to move story-9 to qa" in capsys.readouterr().out
+
+    second = sweep.handle_sweep({"autopilot_sweep": True})
+    assert json.loads(second["body"])["merge_resolved"] == 1
     assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA]
+    qa_dispatches = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_QA]
+    assert len(qa_dispatches) == 1
 
 
 def test_still_open_pr_leaves_the_park_untouched(fake_clickup, fake_ecs, fake_pull_requests):

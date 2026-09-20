@@ -335,25 +335,28 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
     there is no real transition to derive one from yet (same reasoning as
     supervisor.dispatch_story's identical comment), and the PR number is
     stable across however many sweep ticks discover the same merge — a claim
-    keyed on it, taken BEFORE the ClickUp write, is what stops two
-    overlapping ticks from launching two QA runs for one merge.
+    keyed on it is what stops two overlapping ticks from launching two QA
+    runs for one merge.
 
-    The move happens BEFORE the launch, never after: a normal qa dispatch
-    only ever fires once its triggering webhook already reflects the card in
-    `qa` (the write happens first, then the webhook), and qa.md's
-    stranded-run guard (feedback.STRANDED_STATUSES) depends on that being
-    true the moment the container starts.
+    Ordering is move, then claim, then launch. The ClickUp move is idempotent
+    (qa -> qa is a no-op), so claiming only after it succeeds means a failed
+    move leaves nothing claimed and the next tick retries freely — claiming
+    first would strand the story for the claim's full TTL on one transient
+    ClickUp error. The move also must precede the launch: a normal qa
+    dispatch only ever fires once its triggering webhook already reflects the
+    card in `qa`, and qa.md's stranded-run guard (feedback.STRANDED_STATUSES)
+    depends on that being true the moment the container starts.
     """
-    ceiling = router.STAGE_CEILINGS[router.STAGE_QA]
-    ttl = ceiling.deadline_seconds + dispatch.DEDUP_TTL_GRACE_SECONDS
-    reason = dispatch.claim_transition(task_id, router.STAGE_QA, f"merge-{pr_number}", ttl)
-    if reason is not None:
-        return False
-
     try:
         supervisor.move_task_status(task_id, router.STATUS_QA)
     except Exception as e:
         print(f"ERROR: sweep failed to move {task_id} to qa after PR #{pr_number} merged: {type(e).__name__}")
+        return False
+
+    ceiling = router.STAGE_CEILINGS[router.STAGE_QA]
+    ttl = ceiling.deadline_seconds + dispatch.DEDUP_TTL_GRACE_SECONDS
+    reason = dispatch.claim_transition(task_id, router.STAGE_QA, f"merge-{pr_number}", ttl)
+    if reason is not None:
         return False
 
     envelope = dispatch.StageEnvelope(
