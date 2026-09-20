@@ -29,10 +29,17 @@ GitHub Actions ───┘   (also: sweep.py) ──────┴─→ super
     one (`ECS_TASK_DEFINITION`); an unset `ECS_TASK_DEFINITION_PLAYWRIGHT` at
     a `qa` dispatch refuses loudly rather than falling back to the base image.
   - `supervisor.py` — the epic conductor: reads an epic's stories from
-    ClickUp, dispatches the next unblocked one (one in flight per epic, via
-    its own `epic#{epic_task_id}` DynamoDB claim), closes the epic out once
-    every story is done, and alerts (once) on Slack when a story stalls past
-    its per-status TTL. Never auto-retries a stall.
+    ClickUp and dispatches every currently-unblocked one, up to
+    `AUTOPILOT_MAX_CONCURRENT_STORIES` in flight at once per epic (default
+    **2**, env-configurable, read fresh each tick — see the module
+    docstring). Each dispatched story holds its own `story#{story_task_id}`
+    DynamoDB claim, so N stories under the same epic can each be safely
+    in flight; a story with any unmet ClickUp dependency link never
+    launches, whatever cap headroom exists. Closes the epic out once every
+    story is done, and alerts (once per story) on Slack when a story stalls
+    past its per-status TTL. Never auto-retries a stall. Per-epic BUDGET (a
+    cost ceiling across the whole run, distinct from this concurrency cap)
+    is not built — a later phase.
   - `sweep.py` — the reconciliation backstop, invoked on a GitHub Actions
     cron (`.github/workflows/autopilot-sweep.yml`, not Terraform — see that
     workflow for why). Re-derives missed transitions from ClickUp's current
@@ -126,7 +133,8 @@ Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`,
 | `SLACK_BOT_TOKEN` | Bot token for the supervisor's `chat.postMessage` calls (stall alerts, close-out summaries). |
 | `AUTOPILOT_SLACK_CHANNEL` | Channel id those messages post to. |
 | `SWEEP_LOOKBACK_MINUTES` | How far back the sweep scans for missed transitions (default 45). |
-| `SWEEP_MAX_TRIGGERS` | Cap on real dispatches per sweep pass, logged loudly when hit (default 10). Does not bound the unconditional per-executing-card supervisor tick, which is bounded by the one-story-per-epic invariant instead — nor the merge-pending resolution pass, bounded the same way. |
+| `SWEEP_MAX_TRIGGERS` | Cap on real dispatches per sweep pass, logged loudly when hit (default 10). Does not bound the unconditional per-executing-card supervisor tick, which is bounded by `AUTOPILOT_MAX_CONCURRENT_STORIES` instead — nor the merge-pending resolution pass, bounded the same way. |
+| `AUTOPILOT_MAX_CONCURRENT_STORIES` | How many stories the supervisor will run in flight at once per epic (default **2**). Read fresh at tick time, not at Lambda cold start, so raising or lowering it takes effect on the very next tick with no redeploy. A story with an unmet ClickUp dependency link never launches regardless of this cap. |
 | `GITHUB_APP_PRIVATE_KEY` | Same Delegate App key `agent/github_auth.py` uses, from `AI_SECRETS_<ENV>`. `lambda/github_auth.py` mints its own short-lived installation token from it (stdlib-only RS256 signing — no pyjwt/cryptography in this Lambda's zip) to read a story's PR state for merge-pending resolution. |
 
 ## Testing
