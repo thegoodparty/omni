@@ -1,17 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessageSegment } from './chatClient'
 
-// A live assistant turn as interleaved blocks: streamed text and tool-call
-// pills in the order they arrived. Shared by every agent-chat scope so the
-// streaming/reveal behavior is one implementation (Chief of Staff, ordinance
-// flow, ...). Feature-specific structured widgets stay in the scope and render
-// after the reached segment.
+// A live assistant turn as interleaved blocks: streamed text, tool-call pills,
+// and inline citation chips in the order they arrived. Shared by every
+// agent-chat scope so the streaming/reveal behavior is one implementation.
+// Feature-specific structured widgets stay in the scope and render after the
+// reached segment.
 export type LiveSegment =
   | { kind: 'text'; text: string }
   // `running` shimmers the pill while the tool is in flight (set on tool_call,
   // cleared on tool_result). Absent on persisted history, so reloaded pills are
   // always static.
   | { kind: 'tool'; toolName: string; running?: boolean }
+  // Inline citation chip rendered at the position where the model cited a
+  // source attachment. `ordinal` is 1-based and assigned in stream order.
+  | {
+      kind: 'citation'
+      ordinal: number
+      attachmentId: string
+      page?: number | null
+      quotedText?: string | null
+    }
 
 // Project a persisted assistant message into interleaved LiveSegments, so a
 // reloaded turn renders identically to how it streamed: stored segments in order
@@ -21,19 +30,28 @@ export function segmentsToLive(
   segments: ChatMessageSegment[],
   content: string,
 ): LiveSegment[] {
-  return segments.length > 0
-    ? segments.flatMap((s): LiveSegment[] =>
-        s.kind === 'text'
-          ? s.text
-            ? [{ kind: 'text', text: s.text }]
-            : []
-          : s.toolName
-            ? [{ kind: 'tool', toolName: s.toolName }]
-            : [],
-      )
-    : content
-      ? [{ kind: 'text', text: content }]
-      : []
+  if (segments.length === 0) {
+    return content ? [{ kind: 'text', text: content }] : []
+  }
+  let citationOrdinal = 0
+  return segments.flatMap((s): LiveSegment[] => {
+    if (s.kind === 'text') {
+      return s.text ? [{ kind: 'text', text: s.text }] : []
+    }
+    if (s.kind === 'citation' && s.attachmentId) {
+      citationOrdinal += 1
+      return [
+        {
+          kind: 'citation',
+          ordinal: citationOrdinal,
+          attachmentId: s.attachmentId,
+          page: s.page ?? null,
+          quotedText: s.quotedText ?? null,
+        },
+      ]
+    }
+    return s.toolName ? [{ kind: 'tool', toolName: s.toolName }] : []
+  })
 }
 
 // Revealed-able characters in a turn (text only; pills reveal with the text

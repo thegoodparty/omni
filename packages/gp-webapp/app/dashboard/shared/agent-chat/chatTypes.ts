@@ -6,7 +6,7 @@ import type { ChatAnchor } from '@goodparty_org/contracts'
 
 export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
-export type ChatMessageSegmentKind = 'text' | 'tool'
+export type ChatMessageSegmentKind = 'text' | 'tool' | 'citation'
 
 export interface ChatMessageSegment {
   kind: ChatMessageSegmentKind
@@ -15,6 +15,10 @@ export interface ChatMessageSegment {
   // Structured tool-call args for widget tool calls (e.g.
   // ask_clarify_question), so the widget replays from the transcript on reload.
   payload?: unknown
+  // Citation fields — present only when kind === 'citation'.
+  attachmentId?: string | null
+  page?: number | null
+  quotedText?: string | null
 }
 
 // A rating the CALLER left on one assistant turn, and the kinds it can take.
@@ -52,12 +56,21 @@ export type ChatErrorCode =
 // SSE union streamed by the chat message endpoints. `done`/`error` are
 // terminal. `tool_input_start` and `ping` are transient signals a consumer may
 // ignore (a per-tool "generating" indicator and an idle keep-alive).
+// `citation` marks an inline source reference at the position in the text
+// where the model cited an attachment.
 export type ChatStreamEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool_input_start'; toolName: string }
   | { type: 'tool_call'; toolName: string; args?: unknown }
   | { type: 'tool_result'; toolName: string; result?: unknown }
   | { type: 'ping' }
+  | {
+      type: 'citation'
+      attachmentId: string
+      page?: number
+      charRange?: [number, number]
+      quotedText: string
+    }
   | { type: 'done'; assistantMessageId?: string }
   | { type: 'error'; code: ChatErrorCode; message: string; retryable: boolean }
 

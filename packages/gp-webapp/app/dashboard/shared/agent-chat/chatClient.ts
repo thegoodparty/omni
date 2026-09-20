@@ -90,6 +90,7 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
     type === 'tool_call' ||
     type === 'tool_result' ||
     type === 'ping' ||
+    type === 'citation' ||
     type === 'done' ||
     type === 'error'
   )

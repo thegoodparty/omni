@@ -4,9 +4,94 @@ import { act, renderHook } from '@testing-library/react'
 import {
   type LiveSegment,
   segmentsTextLength,
+  segmentsToLive,
   sliceRevealed,
   useSmoothReveal,
 } from './streaming'
+import type { ChatMessageSegment } from './chatTypes'
+
+// ---------------------------------------------------------------------------
+// segmentsToLive
+// ---------------------------------------------------------------------------
+
+describe('segmentsToLive', () => {
+  it('falls back to a single text segment when segments array is empty', () => {
+    const result = segmentsToLive([], 'hello world')
+    expect(result).toEqual([{ kind: 'text', text: 'hello world' }])
+  })
+
+  it('returns empty array when segments is empty and content is empty', () => {
+    expect(segmentsToLive([], '')).toEqual([])
+  })
+
+  it('assigns 1-based ordinals to citation segments in stream order', () => {
+    const segments: ChatMessageSegment[] = [
+      { kind: 'citation', attachmentId: 'att-1', page: 3, quotedText: 'foo' },
+      { kind: 'citation', attachmentId: 'att-2', page: null, quotedText: null },
+    ]
+    const result = segmentsToLive(segments, '')
+    expect(result).toEqual([
+      {
+        kind: 'citation',
+        ordinal: 1,
+        attachmentId: 'att-1',
+        page: 3,
+        quotedText: 'foo',
+      },
+      {
+        kind: 'citation',
+        ordinal: 2,
+        attachmentId: 'att-2',
+        page: null,
+        quotedText: null,
+      },
+    ])
+  })
+
+  it('interleaves text and citation segments in segment order', () => {
+    const segments: ChatMessageSegment[] = [
+      { kind: 'text', text: 'Before ' },
+      { kind: 'citation', attachmentId: 'att-1', page: 1, quotedText: 'q' },
+      { kind: 'text', text: ' after' },
+    ]
+    const result = segmentsToLive(segments, '')
+    expect(result).toEqual([
+      { kind: 'text', text: 'Before ' },
+      {
+        kind: 'citation',
+        ordinal: 1,
+        attachmentId: 'att-1',
+        page: 1,
+        quotedText: 'q',
+      },
+      { kind: 'text', text: ' after' },
+    ])
+  })
+
+  it('skips citation segments with no attachmentId', () => {
+    const segments: ChatMessageSegment[] = [
+      { kind: 'citation', attachmentId: null, page: null, quotedText: null },
+      { kind: 'citation', attachmentId: 'att-1', page: null, quotedText: null },
+    ]
+    const result = segmentsToLive(segments, '')
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({
+      kind: 'citation',
+      ordinal: 1,
+      attachmentId: 'att-1',
+    })
+  })
+
+  it('resets ordinal counter independently per call', () => {
+    const segments: ChatMessageSegment[] = [
+      { kind: 'citation', attachmentId: 'att-a', page: null, quotedText: null },
+    ]
+    const first = segmentsToLive(segments, '')
+    const second = segmentsToLive(segments, '')
+    expect((first[0] as { ordinal: number }).ordinal).toBe(1)
+    expect((second[0] as { ordinal: number }).ordinal).toBe(1)
+  })
+})
 
 // The reveal must be paced by WALL-CLOCK, not by how often its timer fires.
 // Browsers throttle setInterval to ~1s in a hidden/backgrounded tab (measured
