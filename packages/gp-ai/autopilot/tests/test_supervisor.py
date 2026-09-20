@@ -577,6 +577,86 @@ def test_concurrent_completion_order_b_then_a_advances(fake_clickup, fake_ecs, m
 
 
 # ---------------------------------------------------------------------------
+# Flag-key parsing (ENG-11152)
+# ---------------------------------------------------------------------------
+
+
+def test_flag_cleanup_ticket_carries_the_parsed_flag_key(fake_clickup):
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = {
+        "comments": [
+            {
+                "comment_text": ("Stories: s1 Do the thing.\n\nflag-key: win-new-thing\n\nNo open questions."),
+                "date": "1000",
+            }
+        ]
+    }
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    cleanup_task_id = supervisor.file_flag_cleanup_ticket(EPIC_ID)
+
+    assert cleanup_task_id == "cleanup-1"
+    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert len(create_calls) == 1
+    assert "flag-key: win-new-thing" in create_calls[0][2]["description"]
+
+
+def test_flag_cleanup_ticket_prefers_the_most_recently_posted_flag_key(fake_clickup):
+    # A resumed epic-create run can post a second breakdown summary — the
+    # most recently posted line wins, same "latest wins" discipline as
+    # router.latest_park / router.latest_run_summary.
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = {
+        "comments": [
+            {"comment_text": "flag-key: win-old-thing", "date": "1000"},
+            {"comment_text": "flag-key: win-new-thing", "date": "2000"},
+        ]
+    }
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    supervisor.file_flag_cleanup_ticket(EPIC_ID)
+
+    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert "flag-key: win-new-thing" in create_calls[0][2]["description"]
+    assert "win-old-thing" not in create_calls[0][2]["description"]
+
+
+def test_flag_cleanup_ticket_files_without_a_key_when_unparseable(fake_clickup, capsys):
+    # Never guess: a summary that only names the key in prose (not the
+    # required machine-readable line) must still file the ticket, just
+    # without a flag-key line — sweep.py's ramp pass will skip it forever
+    # rather than acting on a guessed key.
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = {
+        "comments": [{"comment_text": "The flag key is win-new-thing, chosen from the feature slug.", "date": "1000"}]
+    }
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    cleanup_task_id = supervisor.file_flag_cleanup_ticket(EPIC_ID)
+
+    assert cleanup_task_id == "cleanup-1"
+    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert "flag-key:" not in create_calls[0][2]["description"]
+    assert "no parseable" in capsys.readouterr().out
+
+
+def test_flag_cleanup_ticket_files_without_a_key_when_comments_unreadable(fake_clickup):
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+
+    def failing_comments(method, endpoint, data):
+        raise RuntimeError("ClickUp unavailable")
+
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = failing_comments
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    cleanup_task_id = supervisor.file_flag_cleanup_ticket(EPIC_ID)
+
+    assert cleanup_task_id == "cleanup-1"
+    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert "flag-key:" not in create_calls[0][2]["description"]
+
+
+# ---------------------------------------------------------------------------
 # Close-out
 # ---------------------------------------------------------------------------
 

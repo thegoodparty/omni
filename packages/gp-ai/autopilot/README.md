@@ -257,6 +257,51 @@ Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`,
 | `SWEEP_MAX_TRIGGERS` | Cap on real dispatches per sweep pass, logged loudly when hit (default 10). Does not bound the unconditional per-executing-card supervisor tick, which is bounded by `AUTOPILOT_MAX_CONCURRENT_STORIES` instead — nor the merge-pending resolution pass, bounded the same way. |
 | `AUTOPILOT_MAX_CONCURRENT_STORIES` | How many stories the supervisor will run in flight at once per epic (default **2**). Read fresh at tick time, not at Lambda cold start, so raising or lowering it takes effect on the very next tick with no redeploy. A story with an unmet ClickUp dependency link never launches regardless of this cap. |
 | `GITHUB_APP_PRIVATE_KEY` | Same Delegate App key `agent/github_auth.py` uses, from `AI_SECRETS_<ENV>`. `lambda/github_auth.py` mints its own short-lived installation token from it (stdlib-only RS256 signing — no pyjwt/cryptography in this Lambda's zip) to read a story's PR state for merge-pending resolution. |
+| `AMPLITUDE_MANAGEMENT_API_KEY` | Same key `agent/amplitude_flags.py` uses, from `AI_SECRETS_<ENV>`. The sweep's flag-cleanup ramp pass (`lambda/sweep.py`'s own stdlib `_read_prod_flag_rollout` — not a shared import) uses it as a Bearer header to read a flag's prod rollout. |
+| `AMPLITUDE_PROD_PROJECT_ID` | Which Amplitude project the ramp pass reads from — always prod, since only a prod rollout drives the promote decision. Plain value (not a secret), hardcoded the same way `autopilot-agent-fargate`'s `agent_environment` carries it. |
+| `FLAG_CLEANUP_RAMP_DAYS` | How long a prod flag must sit at 100% (all users, no partial targeting) before its flag-cleanup ticket (see below) is promoted to the story queue. Default 7 days; lower it to accelerate the first real use. |
+
+## Flag-cleanup ramp pickup (ENG-11152)
+
+`supervisor.file_flag_cleanup_ticket` files a cleanup ticket at epic
+close-out, born in `done` so the pipeline never dispatches it before a human
+has actually ramped the flag. That ticket's own description carries a
+machine-readable `flag-key: <key>` line, parsed at filing time from the
+epic's breakdown summary comment (`epic-create.md` step 5 now requires that
+exact line) — unparseable, the ticket is still filed, just without the line,
+and this pass silently skips it forever rather than guessing a key.
+
+Every sweep tick, `sweep.check_flag_cleanup_ramps` finds every closed feature
+card whose flag-cleanup subtask is still sitting in `done` with a parseable
+flag key (`sweep._flag_cleanup_candidates` — the `flag-key:` line is itself
+the signal that a `done` subtask is the cleanup ticket, not an ordinary
+finished story), and for up to `FLAG_CLEANUP_AMPLITUDE_READ_CAP` (5) of them
+reads the flag's PROD rollout with a small stdlib HTTP client of its own
+(never a shared import from `agent/amplitude_flags.py` — this Lambda's zip
+carries no pip-installed dependencies, the same reason `lambda/github_auth.py`
+re-implements RS256 instead of importing `agent/github_auth.py`). A flag
+seen fully ramped gets a first-seen timestamp recorded in DynamoDB (own key
+family, `flagramp#<flag_key>`) if it doesn't already have one; a flag seen
+NOT fully ramped clears that timestamp, resetting the clock. Once the
+timestamp is at least `FLAG_CLEANUP_RAMP_DAYS` old, the ticket is promoted
+to the story queue (`approved tdd`) under its own one-time dedup claim
+(`flagcleanup-promoted#<cleanup_task_id>`), guarding against two overlapping
+sweep invocations promoting it twice.
+
+The promotion alone dispatches nothing: the ticket's parent feature card is
+`done`, not `executing`, so no other sweep pass or webhook would ever drive
+it. `check_flag_cleanup_ramps` ticks the supervisor directly for that one
+epic right after promoting — `run_supervisor_tick` doesn't gate on the
+feature card's own status at all, only on story state under it, so this
+reaches the newly-queued cleanup story the same way any other story dispatch
+does, complete with its own per-story in-flight claim. When that story later
+reaches `done`, the epic's close-out claim (already held from the original
+close-out) makes `close_out_epic` a no-op the second time through — no
+duplicate cleanup ticket, no duplicate Slack summary.
+
+An Amplitude read failure (network error, non-2xx, unparseable JSON, no
+matching flag) skips that flag for the tick without touching its timer or
+failing the sweep — the next tick tries again.
 
 ## Testing
 

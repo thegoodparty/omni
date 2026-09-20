@@ -42,6 +42,7 @@ spend.
 import importlib.util
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -775,6 +776,45 @@ def release_epic_close_out_claim(epic_task_id: str) -> None:
         print(f"ERROR: failed to release epic close-out claim for {epic_task_id}: {type(e).__name__}")
 
 
+# The machine-readable line epic-create.md step 5 now requires on the epic's
+# breakdown summary comment (ENG-11152) — parsed here at close-out time into
+# the flag-cleanup ticket's own description, so it doubles as sweep.py's
+# signal for "this subtask IS a flag-cleanup ticket, not an ordinary
+# finished story sitting in done": an ordinary story would never carry this
+# exact line, so no separate marker is needed to tell them apart.
+FLAG_KEY_LINE_PATTERN = re.compile(r"^\s*flag-key:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def parse_flag_key(text: str | None) -> str | None:
+    if not isinstance(text, str):
+        return None
+    match = FLAG_KEY_LINE_PATTERN.search(text)
+    return match.group(1) if match else None
+
+
+def parse_flag_key_from_comments(comments: list[dict]) -> str | None:
+    """The flag key out of the most recently posted `flag-key: <key>` line
+    across a comment thread. epic-create.md step 5 posts it exactly once, on
+    the breakdown summary comment, but "latest wins" matches every other
+    marker-in-comments lookup this codebase already has (router.latest_park,
+    router.latest_run_summary) in case a resumed epic-create run ever posts a
+    second one."""
+    best: str | None = None
+    best_date = -1
+    for comment in comments:
+        text = comment.get("comment_text")
+        if not isinstance(text, str):
+            continue
+        flag_key = parse_flag_key(text)
+        if flag_key is None:
+            continue
+        date_ms = router._comment_date_ms(comment)
+        if date_ms >= best_date:
+            best_date = date_ms
+            best = flag_key
+    return best
+
+
 def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
     try:
         epic = get_task(epic_task_id)
@@ -789,25 +829,52 @@ def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
         return None
 
     epic_name = epic.get("name") if isinstance(epic.get("name"), str) else epic_task_id
+
+    try:
+        comments = get_task_comments(epic_task_id)
+    except Exception as e:
+        print(
+            f"ERROR: failed to read comments for epic {epic_task_id} before filing its flag-cleanup ticket: {type(e).__name__}"
+        )
+        comments = []
+    flag_key = parse_flag_key_from_comments(comments)
+    if flag_key is None:
+        # Never guess: sweep.py's ramp-cleanup pass identifies a flag-cleanup
+        # ticket BY this line, so one filed without it simply never gets
+        # picked up automatically — the ticket itself still exists for a
+        # human to pick up manually, this just forgoes automation for it.
+        print(
+            f"WARNING: epic {epic_task_id}'s breakdown summary comment carries no parseable "
+            "'flag-key: <key>' line; filing its flag-cleanup ticket without one"
+        )
+
+    description = (
+        f"{epic_name} shipped dark behind a feature flag. A human ramps it to 100% in prod when ready; "
+        "once it has stayed there for the configured window (see FLAG_CLEANUP_RAMP_DAYS), autopilot's "
+        "sweep picks this ticket up on its own and dispatches it as a story. That story's job is to "
+        "retire the flag via the Amplitude management API path epic-create used to create it (disable "
+        "it and stamp its description RETIRED — the API has no delete). (Filed by autopilot at epic "
+        "close-out; created in done so the pipeline never dispatches it before the flag is ready.)"
+    )
+    if flag_key is not None:
+        description += f"\n\nflag-key: {flag_key}"
+
     try:
         created = clickup_request(
             "POST",
             f"/list/{list_id}/task",
             {
                 "name": f"Flag cleanup: {epic_name}",
-                "description": (
-                    f"{epic_name} shipped dark behind a feature flag. Follow up to flip it on "
-                    "in prod, or clean it up if the experiment did not land. (Filed by autopilot "
-                    "at epic close-out; created in done so the pipeline never dispatches it — "
-                    "reopen it when a human picks it up.)"
-                ),
+                "description": description,
                 "parent": epic_task_id,
                 # Born done, deliberately: as a subtask of the epic it IS a
                 # story to the supervisor, and the list default status is the
                 # story queue — a later tick (a story-done webhook redelivery
                 # racing close-out) would select it and burn a story-agent
                 # run on an administrative ticket. is_done excludes it from
-                # every candidate/all-done computation.
+                # every candidate/all-done computation. sweep.py's ramp
+                # sweep is what eventually moves it back to the queue, once
+                # the flag has earned it.
                 "status": router.STATUS_DONE,
             },
         )
