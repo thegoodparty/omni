@@ -446,7 +446,7 @@ def _alert_closed_unmerged_pr(task_id: str, pr_number: int) -> bool:
     return True
 
 
-def resolve_merge_pending_parks() -> dict[str, int]:
+def resolve_merge_pending_parks(parked_stories: list[dict]) -> dict[str, int]:
     """Runs BEFORE auto_resume_actionable_parks (see handle_sweep): for every
     story parked on a "Merge pending: PR #<n>" status note, one GitHub read
     decides the outcome — merged moves the story to `qa` and launches QA
@@ -455,10 +455,13 @@ def resolve_merge_pending_parks() -> dict[str, int]:
     Not bounded by the sweep's own trigger cap: like the executing-feature-
     card tick, the actions here are cheap and self-limiting (bounded by how
     many stories are ever simultaneously parked on a pending merge, never by
-    dispatch fan-out)."""
+    dispatch fan-out). `parked_stories` is handle_sweep's single per-tick
+    fetch, shared with auto_resume_actionable_parks — safe even though this
+    pass moves resolved stories to `qa`, because auto-resume's own
+    merge-pending skip drops those same entries."""
     resolved = 0
     alerted = 0
-    for task in _parked_stories():
+    for task in parked_stories:
         task_id = task.get("id")
         if not isinstance(task_id, str) or not task_id:
             continue
@@ -700,16 +703,18 @@ def handle_sweep(event: dict) -> dict:
     if cap_hit:
         print(f"ERROR: sweep hit its cap of {cap} triggers; remainder deferred to the next pass")
 
+    # One parked-stories fetch per tick, shared by both passes below.
+    parked_stories = _parked_stories()
+
     # Before auto-resume, and uncapped (see resolve_merge_pending_parks): every
     # merge-pending park it finds is EXCLUDED from the auto-resume pass below
     # (auto_resume_actionable_parks' own skip), so a paid resume can never
     # race this free GitHub-backed resolution for the same park.
-    merge_pending_result = resolve_merge_pending_parks()
+    merge_pending_result = resolve_merge_pending_parks(parked_stories)
 
     # After the lookback pass so reconstruction gets first claim at the cap:
     # an undelivered transition is lost work, an unparked resume is deferred
     # work — the next pass reaches it.
-    parked_stories = _parked_stories()
     auto_resumed = auto_resume_actionable_parks(max(cap - triggered, 0), parked_stories)
 
     # Status-card failures are lost visibility, never a failed tick: every
