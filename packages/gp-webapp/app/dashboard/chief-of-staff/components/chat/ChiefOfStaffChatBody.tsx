@@ -586,9 +586,17 @@ export default function ChiefOfStaffChatBody({
       try {
         const result = await linkChatAttachment(cid, url)
         if (result.ok) {
-          setAttachments((prev) =>
-            prev.map((a) => (a.id === tempId ? result.attachment : a)),
-          )
+          setAttachments((prev) => {
+            const mapped = prev.map((a) =>
+              a.id === tempId ? result.attachment : a,
+            )
+            const seen = new Set<string>()
+            return mapped.filter((a) => {
+              if (seen.has(a.id)) return false
+              seen.add(a.id)
+              return true
+            })
+          })
         } else {
           setAttachments((prev) =>
             prev.map((a) =>
