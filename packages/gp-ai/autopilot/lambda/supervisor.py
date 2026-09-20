@@ -35,12 +35,14 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from botocore.exceptions import ClientError
 
 CLICKUP_BASE_URL = "https://api.clickup.com/api/v2"
 SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
+SLACK_CONVERSATIONS_REPLIES_URL = "https://slack.com/api/conversations.replies"
 
 # Plain env var, not Secrets Manager — same posture as
 # AUTOPILOT_CLICKUP_WEBHOOK_SECRET (see handler.py's module docstring): this
@@ -115,6 +117,47 @@ def clickup_task_url(task_id: str) -> str:
 
 def move_task_status(task_id: str, status: str) -> None:
     clickup_request("PUT", f"/task/{task_id}", {"status": status})
+
+
+def create_task_comment(task_id: str, comment_text: str) -> dict:
+    """Used by handler.py's Slack ingress to relay a thread reply onto the
+    card as an ordinary comment — deliberately just another ClickUp write,
+    not a special path: ClickUp's own webhook fires for it and drives the
+    resume through the same hardened commentPosted route a human's own
+    ClickUp comment takes (see router.route()'s is_slack_relay_comment)."""
+    return clickup_request("POST", f"/task/{task_id}/comment", {"comment_text": comment_text})
+
+
+# ---------------------------------------------------------------------------
+# Slack HTTP (plain, dependency-light — same posture as clickup_request
+# above and post_slack_message below).
+# ---------------------------------------------------------------------------
+
+
+def slack_conversations_replies(channel: str, thread_ts: str | None) -> list[dict]:
+    """The messages in a Slack thread, oldest first — index 0 is the thread
+    root, which is what handler.py's Slack ingress needs to confirm a reply
+    landed on one of our own park/notify pings (see router.slack_ping_task_id).
+    Needs the bot's channels:history scope; chat:write (already granted for
+    park/notify) does NOT imply it — see autopilot/README.md's ops note."""
+    token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
+    if not token:
+        raise RuntimeError("SLACK_BOT_TOKEN not configured; cannot read Slack thread")
+    if not thread_ts:
+        raise ValueError("thread_ts is required to read a Slack thread")
+
+    query = urlencode({"channel": channel, "ts": thread_ts})
+    req = Request(
+        f"{SLACK_CONVERSATIONS_REPLIES_URL}?{query}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    with urlopen(req, timeout=10) as response:
+        result = json.loads(response.read().decode())
+    if not result.get("ok"):
+        raise RuntimeError(f"Slack conversations.replies returned an error: {result.get('error')}")
+    messages = result.get("messages")
+    return [m for m in messages if isinstance(m, dict)] if isinstance(messages, list) else []
 
 
 # ---------------------------------------------------------------------------

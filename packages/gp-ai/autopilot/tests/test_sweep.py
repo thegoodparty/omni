@@ -545,6 +545,24 @@ def test_park_with_a_reply_after_it_is_left_to_the_comment_route(fake_clickup, f
     assert json.loads(result["body"])["auto_resumed"] == 0
 
 
+def test_park_with_a_relayed_slack_answer_after_it_is_left_to_the_comment_route(fake_clickup, fake_ecs):
+    # ENG-11150: a relayed Slack answer is just another ClickUp comment
+    # (handler.py's Slack ingress posts it with no special sweep handling —
+    # see router.format_slack_answer_comment). It must count as "a reply
+    # after the park" exactly like a human's own ClickUp comment does, so
+    # auto-resume defers to the comment-resume route instead of double-firing.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [
+        parked_comment("story", "Merge pending: PR #42 armed but not merged.", date="2000"),
+        {"id": "reply-1", "comment_text": "[autopilot:slack-answer from U-HUMAN] merged it, go ahead", "date": "3000"},
+    ]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+
+
 def test_relapsing_story_stops_getting_auto_resumes(fake_clickup, fake_ecs, capsys):
     fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
     fake_clickup.comments["story-9"] = [
