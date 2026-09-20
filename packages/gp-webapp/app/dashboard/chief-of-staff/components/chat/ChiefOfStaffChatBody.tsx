@@ -666,9 +666,9 @@ export default function ChiefOfStaffChatBody({
           },
         ])
       }
-      const readyAttachmentIds = attachments
-        .filter((a) => a.status === 'ready')
-        .map((a) => a.id)
+      const readyAttachmentIds = !opts?.hidden
+        ? attachments.filter((a) => a.status === 'ready').map((a) => a.id)
+        : []
       await send(id, trimmed, {
         hidden: true,
         ...(readyAttachmentIds.length > 0 && {
@@ -677,7 +677,7 @@ export default function ChiefOfStaffChatBody({
       })
       // Clear chips after send — the conversation's server-side attachment
       // list persists; the chip row resets so the user starts fresh.
-      setAttachments([])
+      if (!opts?.hidden) setAttachments([])
       return true
     },
     [sending, playback, ensureConversationId, send, setMessages, attachments],
