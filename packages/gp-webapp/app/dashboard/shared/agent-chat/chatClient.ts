@@ -223,7 +223,13 @@ export function createAgentChatClient(
       })
     },
 
-    async *streamMessage({ conversationId, content, clientMessageId, signal }) {
+    async *streamMessage({
+      conversationId,
+      content,
+      clientMessageId,
+      attachmentIds,
+      signal,
+    }) {
       let res: Response
       try {
         res = await fetch(
@@ -236,7 +242,11 @@ export function createAgentChatClient(
               Accept: 'text/event-stream',
               ...orgHeaders(),
             },
-            body: JSON.stringify({ content, clientMessageId }),
+            body: JSON.stringify({
+              content,
+              clientMessageId,
+              ...(attachmentIds?.length && { attachmentIds }),
+            }),
             signal,
           },
         )

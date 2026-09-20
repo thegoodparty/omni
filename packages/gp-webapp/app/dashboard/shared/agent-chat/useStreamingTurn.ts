@@ -92,7 +92,11 @@ export interface StreamingTurn {
   send: (
     conversationId: string,
     content: string,
-    opts?: { hidden?: boolean; clientMessageId?: string },
+    opts?: {
+      hidden?: boolean
+      clientMessageId?: string
+      attachmentIds?: string[]
+    },
   ) => Promise<void>
   // Synchronous "a turn is actively streaming" check (false once the stream is
   // done and the turn is merely settling). Consumers that push their own
@@ -168,7 +172,11 @@ export function useStreamingTurn(
     async (
       conversationId: string,
       content: string,
-      opts?: { hidden?: boolean; clientMessageId?: string },
+      opts?: {
+        hidden?: boolean
+        clientMessageId?: string
+        attachmentIds?: string[]
+      },
     ): Promise<void> => {
       const trimmed = content.trim()
       if (!conversationId || !trimmed) return
@@ -250,6 +258,7 @@ export function useStreamingTurn(
             // Replay the caller's id on retry so the server's partial unique
             // index on (conversation_id, client_message_id) dedupes the turn.
             clientMessageId: opts?.clientMessageId ?? crypto.randomUUID(),
+            attachmentIds: opts?.attachmentIds,
             signal: abortController.signal,
           })
           [Symbol.asyncIterator]()

@@ -1,14 +1,16 @@
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import type { ChatScope } from '../chatClient'
 
 export const SERVE_CHAT_ATTACHMENTS_FLAG = 'serve-chat-attachments'
 
-// Returns false for all scopes until Story 7 wires the chief_of_staff gate.
-export const useAttachmentsEnabled = (): {
+export const useAttachmentsEnabled = (
+  scope: ChatScope,
+): {
   ready: boolean
   enabled: boolean
 } => {
-  const { ready } = useFlagOn(SERVE_CHAT_ATTACHMENTS_FLAG, {
+  const { ready, on } = useFlagOn(SERVE_CHAT_ATTACHMENTS_FLAG, {
     trackExposure: false,
   })
-  return { ready, enabled: false }
+  return { ready, enabled: on && scope === 'chief_of_staff' }
 }

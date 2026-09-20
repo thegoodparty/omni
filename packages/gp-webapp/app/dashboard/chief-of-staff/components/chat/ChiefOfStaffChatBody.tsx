@@ -36,6 +36,15 @@ import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import { ShowListMapSchema, type ShowListMap } from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
+import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
+import {
+  uploadChatAttachment,
+  linkChatAttachment,
+  deleteChatAttachment,
+  listChatAttachments,
+  linkErrorMessage,
+  type ChatAttachmentState,
+} from '../../../shared/agent-chat/chatAttachments-api'
 
 interface Props {
   /**
@@ -226,6 +235,28 @@ export default function ChiefOfStaffChatBody({
     [composerRef],
   )
 
+  const attachmentsEnabled = useAttachmentsEnabled('chief_of_staff')
+
+  const [attachments, setAttachments] = useState<ChatAttachmentState[]>([])
+
+  const GUARD_KEY = 'serve-chat-attachments-guard'
+  const [guardAcknowledged, setGuardAcknowledged] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(GUARD_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  const handleGuardAcknowledge = useCallback((): void => {
+    try {
+      window.localStorage.setItem(GUARD_KEY, '1')
+    } catch {
+      // private mode / storage disabled
+    }
+    setGuardAcknowledged(true)
+  }, [])
+
   const toolLabel = useCallback(
     (name: string): string => toolDisplayName(name),
     [],
@@ -261,6 +292,41 @@ export default function ChiefOfStaffChatBody({
     })
 
   const busy = sending || loading
+
+  // Poll for attachment status updates while any are pending/processing.
+  useEffect(() => {
+    if (!attachmentsEnabled.enabled) return
+    if (!conversationId) return
+    const hasPending = attachments.some(
+      (a) => a.status === 'pending' || a.status === 'processing',
+    )
+    if (!hasPending) return
+    const id = setInterval(() => {
+      void listChatAttachments(conversationId).then((updated) => {
+        setAttachments(updated)
+      })
+    }, 3000)
+    return () => clearInterval(id)
+  }, [attachmentsEnabled.enabled, conversationId, attachments])
+
+  const handleRemoveAttachment = useCallback(
+    async (id: string): Promise<void> => {
+      // Optimistically remove from UI
+      setAttachments((prev) => prev.filter((a) => a.id !== id))
+      // Only call DELETE if the id is a real server id (not a temp-* optimistic entry)
+      if (conversationId && !id.startsWith('temp-')) {
+        try {
+          await deleteChatAttachment(conversationId, id)
+        } catch (err) {
+          reportErrorToSentry(err, {
+            surface: 'chief-of-staff-chat',
+            phase: 'attachment-delete',
+          })
+        }
+      }
+    },
+    [conversationId],
+  )
 
   // Contents whose persisted USER turn is hidden from the transcript: the
   // caller's reload sentinels plus anything sent hidden this session.
@@ -448,6 +514,98 @@ export default function ChiefOfStaffChatBody({
     }
   }, [conversationId, chatApi, onConversationCreated, queryClient, historyKey])
 
+  const handleAttachFile = useCallback(
+    async (file: File): Promise<void> => {
+      const cid = conversationId ?? (await ensureConversationId())
+      if (!cid) return
+      const tempId = `temp-${crypto.randomUUID()}`
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          fileName: file.name,
+          status: 'pending',
+          pageCount: null,
+          failureReason: null,
+        },
+      ])
+      try {
+        const result = await uploadChatAttachment(cid, file)
+        setAttachments((prev) =>
+          prev.map((a) => (a.id === tempId ? result : a)),
+        )
+      } catch (err) {
+        reportErrorToSentry(err, {
+          surface: 'chief-of-staff-chat',
+          phase: 'attachment-upload',
+        })
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === tempId
+              ? { ...a, status: 'failed', failureReason: 'Upload failed' }
+              : a,
+          ),
+        )
+      }
+    },
+    [conversationId, ensureConversationId],
+  )
+
+  const handleAttachLink = useCallback(
+    async (url: string): Promise<void> => {
+      const cid = conversationId ?? (await ensureConversationId())
+      if (!cid) return
+      const tempId = `temp-${crypto.randomUUID()}`
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          fileName: url,
+          status: 'pending',
+          pageCount: null,
+          failureReason: null,
+        },
+      ])
+      try {
+        const result = await linkChatAttachment(cid, url)
+        if (result.ok) {
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === tempId ? result.attachment : a)),
+          )
+        } else {
+          setAttachments((prev) =>
+            prev.map((a) =>
+              a.id === tempId
+                ? {
+                    ...a,
+                    status: 'failed',
+                    failureReason: linkErrorMessage(result.error),
+                  }
+                : a,
+            ),
+          )
+        }
+      } catch (err) {
+        reportErrorToSentry(err, {
+          surface: 'chief-of-staff-chat',
+          phase: 'attachment-link',
+        })
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === tempId
+              ? {
+                  ...a,
+                  status: 'failed',
+                  failureReason: "Couldn't attach that link. Try again.",
+                }
+              : a,
+          ),
+        )
+      }
+    },
+    [conversationId, ensureConversationId],
+  )
+
   // The shared send path. `hidden` skips the optimistic user bubble AND drops
   // the persisted user turn from the rendered transcript, so a kickoff streams a
   // reply without ever showing the prompt that triggered it.
@@ -491,10 +649,21 @@ export default function ChiefOfStaffChatBody({
           },
         ])
       }
-      await send(id, trimmed, { hidden: true })
+      const readyAttachmentIds = attachments
+        .filter((a) => a.status === 'ready')
+        .map((a) => a.id)
+      await send(id, trimmed, {
+        hidden: true,
+        ...(readyAttachmentIds.length > 0 && {
+          attachmentIds: readyAttachmentIds,
+        }),
+      })
+      // Clear chips after send — the conversation's server-side attachment
+      // list persists; the chip row resets so the user starts fresh.
+      setAttachments([])
       return true
     },
-    [sending, playback, ensureConversationId, send, setMessages],
+    [sending, playback, ensureConversationId, send, setMessages, attachments],
   )
 
   const sendContent = useCallback(
@@ -851,8 +1020,28 @@ export default function ChiefOfStaffChatBody({
                 />
               ) : undefined
             }
+            {...(attachmentsEnabled.enabled
+              ? {
+                  attachments,
+                  onAttachFile: (file) => void handleAttachFile(file),
+                  onAttachLink: (url) => void handleAttachLink(url),
+                  onRemoveAttachment: (id) => void handleRemoveAttachment(id),
+                  guardAcknowledged,
+                  onGuardAcknowledge: handleGuardAcknowledge,
+                }
+              : {})}
           />
         </div>
+        {attachmentsEnabled.enabled &&
+          attachments.filter((a) => a.status === 'ready').length > 0 && (
+            <p className="mx-auto mt-1 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">
+              Reading:{' '}
+              {attachments
+                .filter((a) => a.status === 'ready')
+                .map((a) => a.fileName)
+                .join(', ')}
+            </p>
+          )}
         {disclaimer && (
           <p className="mx-auto mt-2 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">
             {disclaimer}

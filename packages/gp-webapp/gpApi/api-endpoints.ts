@@ -953,6 +953,90 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'POST /v1/chats/:conversationId/attachments/presign': {
+    Request: {
+      conversationId: string
+      fileName: string
+      mimeType: string
+      sizeBytes: number
+    }
+    Response: {
+      attachmentId: string
+      uploadUrl: string
+      uploadFields: Record<string, string>
+      storageKey: string
+    }
+  }
+
+  'POST /v1/chats/:conversationId/attachments': {
+    Request: { conversationId: string; storageKey: string }
+    Response: {
+      id: string
+      source: 'upload' | 'link'
+      sourceUrl: string | null
+      fileName: string
+      mimeType: string
+      sizeBytes: number
+      pageCount: number | null
+      status: 'pending' | 'processing' | 'ready' | 'failed'
+      failureReason: string | null
+      createdAt: string
+    }
+  }
+
+  'POST /v1/chats/:conversationId/attachments/link': {
+    Request: { conversationId: string; url: string }
+    Response:
+      | {
+          ok: true
+          attachment: {
+            id: string
+            source: 'upload' | 'link'
+            sourceUrl: string | null
+            fileName: string
+            mimeType: string
+            sizeBytes: number
+            pageCount: number | null
+            status: 'pending' | 'processing' | 'ready' | 'failed'
+            failureReason: string | null
+            createdAt: string
+          }
+        }
+      | {
+          ok: false
+          error:
+            | 'unreachable'
+            | 'blocked_url'
+            | 'unsupported_content_type'
+            | 'too_large'
+            | 'timeout'
+            | 'attachment_limit_reached'
+        }
+  }
+
+  'GET /v1/chats/:conversationId/attachments': {
+    Request: { conversationId: string }
+    Response: {
+      attachments: Array<{
+        id: string
+        source: 'upload' | 'link'
+        sourceUrl: string | null
+        fileName: string
+        mimeType: string
+        sizeBytes: number
+        pageCount: number | null
+        status: 'pending' | 'processing' | 'ready' | 'failed'
+        failureReason: string | null
+        createdAt: string
+      }>
+    }
+  }
+
+  'DELETE /v1/chats/:conversationId/attachments/:attachmentId': {
+    Request: { conversationId: string; attachmentId: string }
+    Response: void
+  }
+
   'GET /v1/ordinances': {
     Request: {}
     Response: OrdinanceListResponse
