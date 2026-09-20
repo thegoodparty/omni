@@ -157,6 +157,8 @@ export const linkErrorMessage = (error: string): string => {
       return 'Reading that URL timed out. Try again.'
     case 'attachment_limit_reached':
       return "You've reached the attachment limit for this conversation."
+    case 'unsupported_content_type':
+      return "That link's content type isn't supported. Try a PDF or plain-text URL."
     default:
       return "Couldn't attach that link. Try again."
   }

@@ -303,7 +303,12 @@ export default function ChiefOfStaffChatBody({
     if (!hasPending) return
     const id = setInterval(() => {
       void listChatAttachments(conversationId).then((updated) => {
-        setAttachments(updated)
+        setAttachments((prev) => {
+          const temps = prev.filter((a) => a.id.startsWith('temp-'))
+          if (temps.length === 0) return updated
+          const updatedIds = new Set(updated.map((a) => a.id))
+          return [...updated, ...temps.filter((t) => !updatedIds.has(t.id))]
+        })
       })
     }, 3000)
     return () => clearInterval(id)

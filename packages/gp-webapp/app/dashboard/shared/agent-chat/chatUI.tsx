@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, GoodPartyOrgLogo, IconButton, Textarea } from '@styleguide'
 import {
+  FolderOpenIcon,
   PaperclipIcon,
   SearchIcon,
   SendIcon,
@@ -323,9 +324,12 @@ function AttachmentChip({
 function AttachLinkInput({
   onSubmit,
   onCancel,
+  onChooseFile,
 }: {
   onSubmit: (url: string) => void
   onCancel: () => void
+  // When provided, renders a "Choose file" button that opens the file picker.
+  onChooseFile?: () => void
 }): React.JSX.Element {
   const [url, setUrl] = useState('')
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -338,6 +342,17 @@ function AttachLinkInput({
   }
   return (
     <div className="flex items-center gap-1 px-1 py-1">
+      {onChooseFile ? (
+        <IconButton
+          type="button"
+          aria-label="Choose file"
+          onClick={onChooseFile}
+          className="shrink-0 rounded-full"
+          size="small"
+        >
+          <FolderOpenIcon className="size-4" aria-hidden />
+        </IconButton>
+      ) : null}
       <input
         autoFocus
         type="url"
@@ -494,13 +509,7 @@ export function ChatComposer({
           type="button"
           aria-label="Attach file or link"
           disabled={disabled}
-          onClick={() => {
-            if (linkMode) {
-              setLinkMode(false)
-            } else {
-              fileInputRef.current?.click()
-            }
-          }}
+          onClick={() => setLinkMode((m) => !m)}
           className="static shrink-0 rounded-full"
         >
           <PaperclipIcon className="size-5" aria-hidden />
@@ -586,6 +595,10 @@ export function ChatComposer({
               <AttachLinkInput
                 onSubmit={handleLinkSubmit}
                 onCancel={() => setLinkMode(false)}
+                onChooseFile={() => {
+                  setLinkMode(false)
+                  fileInputRef.current?.click()
+                }}
               />
             ) : null}
             <div className="flex w-full items-end gap-1">{controls}</div>
@@ -608,6 +621,10 @@ export function ChatComposer({
           <AttachLinkInput
             onSubmit={handleLinkSubmit}
             onCancel={() => setLinkMode(false)}
+            onChooseFile={() => {
+              setLinkMode(false)
+              fileInputRef.current?.click()
+            }}
           />
         ) : null}
         <div className="flex items-end gap-1">{controls}</div>
