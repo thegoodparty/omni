@@ -208,7 +208,11 @@ async def run_agent(config: AgentConfig) -> dict:
         allowed_tools=CAPABILITIES["sdk_tools"],
         permission_mode="bypassPermissions",
         cwd=config.workspace_dir,
-        max_turns=200,
+        # Budget and deadline are the real ceilings; this only backstops a
+        # pathological tight loop. 200 killed a legitimate Story 6 run at 201
+        # turns with $8.80/$15 and 35/45 min still unspent, discarding all of
+        # its work (max-turns errors leave nothing pushed and nothing parked).
+        max_turns=400,
         model=config.model,
         # Enforced by the SDK, which ends the run with an error_max_budget_usd
         # result rather than us policing cost between messages — the cost of
