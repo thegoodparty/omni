@@ -72,6 +72,7 @@ fixes track under ENG-10744.
   overlay — and one null fixes both plus whatever reads it next. Precinct
   is NOT in that set — it is offered to both, because a precinct is an
   administrative subdivision of the district an official already serves.
+- **Precinct is the one filter with no fixed vocabulary, and the assistant reaches it through a tool rather than the catalog.** `list_precincts` (crm-tools, registered beside `count_contacts` on both handlers) reads `GET /v1/contacts/precincts` and returns the ENCODED `county|precinct` values to pass straight into the `precincts` filter field. It exists because the catalog publishes each dimension's complete vocabulary and precinct's is per-district, so precinct stays absent from `filterDimensions.catalog.ts` and the tool's own description is what tells the model the dimension exists — the two must stay registered together. Before it, the assistant told holders their own precinct was not a dimension it could filter on while the wizard beside it offered exactly that filter; the filter plumbing was always there (`voterFilterBaseSchema.precincts`, which both `count_contacts` and `crud_saved_filters` inherit), only the discovery was missing.
 - **Precinct is the one filter with no fixed vocabulary.** Every other
   dimension declares its values in `filterDimensions.catalog.ts`; precinct's
   are enumerated per district, so it is deliberately absent from that catalog

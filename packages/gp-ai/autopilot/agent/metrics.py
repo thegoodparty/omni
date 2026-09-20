@@ -104,7 +104,7 @@ def _pr_url(result: dict) -> str | None:
     return match.group(0) if match else None
 
 
-def run_summary(result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None) -> dict:
+def run_summary(result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None, setup_s: Any = None) -> dict:
     """The one dict a run reports about itself — fed to BOTH sinks (the
     CloudWatch metric line and the ClickUp run-summary comment) so they can
     never drift into disagreeing about what a run's own outcome/cost/duration
@@ -113,6 +113,12 @@ def run_summary(result: Any, stage: Any, duration_s: Any = None, epic_task_id: A
     Every field is always present, `null` when it does not apply — so a
     reader can tell "this run had no epic" from "this line predates the
     field", which need different responses.
+
+    `setup_s` is separate from `duration_s` (ENG-11149): `duration_s` only
+    ever timed `run_agent`, and setup — the omni checkout plus, on a warm
+    image, its conditional npm ci — runs before that, in main.py, unpaid. A
+    single combined number would hide the exact before/after this field
+    exists to measure.
 
     Total over any input, deliberately: this runs after the stage's own work
     is already done, so an exception here would turn a useful run into a
@@ -126,18 +132,21 @@ def run_summary(result: Any, stage: Any, duration_s: Any = None, epic_task_id: A
         "outcome": _outcome(result),
         "cost_usd": _number(result.get("cost_usd"), COST_DECIMAL_PLACES),
         "duration_s": _number(duration_s, DURATION_DECIMAL_PLACES),
+        "setup_s": _number(setup_s, DURATION_DECIMAL_PLACES),
         "epic_task_id": _text(epic_task_id),
         "pr_url": _pr_url(result),
     }
 
 
-def format_metric_line(result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None) -> str:
+def format_metric_line(
+    result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None, setup_s: Any = None
+) -> str:
     """The one line a run emits about itself.
 
     One line, no indentation, prefix first — filter-log-events returns whole
     messages, so the consumer splits on the prefix and parses the remainder.
     """
-    return f"{METRIC_PREFIX} {json.dumps(run_summary(result, stage, duration_s, epic_task_id))}"
+    return f"{METRIC_PREFIX} {json.dumps(run_summary(result, stage, duration_s, epic_task_id, setup_s))}"
 
 
 def format_run_summary_marker(stage: str, outcome: str, cost_usd: float | None) -> str:

@@ -116,6 +116,13 @@ const ALL_CONTACTS_SEGMENT = 'all'
 // the route error-count rules counted 400 and excluded 403, so one free-tier
 // user hitting the gate paged the on-call — and the rules now exclude 400 too,
 // so the reason to keep it is the plain one: 403 is what "not entitled" means.
+// assertProAccess's refusal, which is NOT the filtering one above: the two
+// gates word themselves for different features and a caller recognising the
+// wrong string silently falls through to its generic branch. Named rather
+// than inlined so anything matching on it cannot drift from what throws it.
+export const PRO_FEATURE_REQUIRED_MESSAGE =
+  'This feature is only available for pro campaigns'
+
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
 
@@ -727,9 +734,7 @@ export class ContactsService {
   // off an individual person but, unlike findPerson, never call people-api.
   async assertProAccess(organization: Organization): Promise<void> {
     if (!(await this.isProAccess(organization))) {
-      throw new ForbiddenException(
-        'This feature is only available for pro campaigns',
-      )
+      throw new ForbiddenException(PRO_FEATURE_REQUIRED_MESSAGE)
     }
   }
 

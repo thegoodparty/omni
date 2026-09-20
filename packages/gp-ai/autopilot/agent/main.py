@@ -39,7 +39,7 @@ from .config import CAPABILITIES, AgentConfig, UnknownStageError
 from .feedback import apply_park_outcome, park_if_stranded
 from .github_auth import setup_github_auth
 from .metrics import format_metric_line, format_run_summary_comment, run_summary
-from .workspace import WorkspaceCloneError, clone_omni, point_playwright_mcp_at_chromium
+from .workspace import WorkspaceCloneError, point_playwright_mcp_at_chromium, prepare_omni_workspace
 
 logger = get_logger(__name__)
 
@@ -287,21 +287,22 @@ async def main():
         logger.error("GitHub App key present but token minting failed and no fallback PAT — aborting before agent run")
         sys.exit(1)
 
+    # monotonic, not wall clock: reported as durations below, and an NTP
+    # correction mid-run would otherwise be able to make one negative.
+    setup_started = time.monotonic()
     try:
         # Reassigned onto workspace_dir (rather than a separate field) because
         # that is exactly what run_agent hands the SDK as `cwd` — the stage
         # works inside the omni checkout, not its parent directory.
-        config.workspace_dir = clone_omni(config.workspace_dir, os.environ.get("GITHUB_TOKEN", ""))
+        config.workspace_dir = prepare_omni_workspace(config.workspace_dir, os.environ.get("GITHUB_TOKEN", ""))
         # This container has no branded Chrome (none exists for ARM64 Linux);
         # the repo's .mcp.json default would break the first browser call.
         point_playwright_mcp_at_chromium(config.workspace_dir)
     except WorkspaceCloneError as e:
-        logger.error(f"omni clone failed: {e}")
+        logger.error(f"omni workspace setup failed: {e}")
         sys.exit(1)
+    setup_duration_s = time.monotonic() - setup_started
 
-    # monotonic, not wall clock: this number is reported as the run's duration
-    # and an NTP correction mid-run would otherwise be able to make it
-    # negative.
     started = time.monotonic()
     result = await run_agent(config)
     duration_s = time.monotonic() - started
@@ -328,10 +329,10 @@ async def main():
     # Built once and handed to both sinks — see metrics.run_summary — so the
     # comment below and the metric line logged after it can never disagree
     # about what this run's own outcome/cost/duration were.
-    summary = run_summary(result, config.stage, duration_s, config.epic_task_id)
+    summary = run_summary(result, config.stage, duration_s, config.epic_task_id, setup_s=setup_duration_s)
     post_run_summary_comment(summary, config.task_id)
 
-    logger.info(format_metric_line(result, config.stage, duration_s, config.epic_task_id))
+    logger.info(format_metric_line(result, config.stage, duration_s, config.epic_task_id, setup_s=setup_duration_s))
 
     if result["status"] == "error":
         sys.exit(1)

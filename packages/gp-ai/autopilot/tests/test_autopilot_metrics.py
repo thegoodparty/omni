@@ -126,9 +126,26 @@ class TestUnknownIsNotZero:
         assert parsed(format_metric_line(SUCCESS_RESULT, "story", 1.0)).get("epic_task_id") is None
 
 
+class TestSetupDuration:
+    # ENG-11149: setup (the omni checkout, plus a warm image's conditional
+    # npm ci) runs before run_agent and is never paid, so it needs its own
+    # field rather than folding into duration_s — a reader must be able to
+    # tell "the run was slow" from "setup was slow" apart.
+    def test_setup_duration_is_reported_alongside_run_duration(self):
+        fields = parsed(format_metric_line(SUCCESS_RESULT, "story", 361.24, "EPIC-1", setup_s=4.567))
+
+        assert fields["setup_s"] == 4.6
+        assert fields["duration_s"] == 361.2
+
+    def test_a_missing_setup_duration_is_null_rather_than_zero(self):
+        fields = parsed(format_metric_line(SUCCESS_RESULT, "story", 361.24))
+
+        assert fields["setup_s"] is None
+
+
 class TestTheContract:
     def test_every_field_is_present_even_when_it_does_not_apply(self):
-        expected = {"task_id", "stage", "outcome", "cost_usd", "duration_s", "epic_task_id", "pr_url"}
+        expected = {"task_id", "stage", "outcome", "cost_usd", "duration_s", "setup_s", "epic_task_id", "pr_url"}
 
         assert set(parsed(format_metric_line(None, None)).keys()) == expected
 
