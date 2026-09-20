@@ -85,6 +85,9 @@ export interface StreamArgs {
   // disclaimer) or null. Streamed as the final text chunk and included in the
   // persisted turn; a throw is logged, never fails the turn.
   finalizeText?: (fullText: string) => string | null
+  // Subset of attachment IDs the client wants injected on this turn. When
+  // omitted all ready attachments for the conversation are injected.
+  attachmentIds?: string[]
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -386,6 +389,7 @@ export class ChatStreamService {
   private async loadAttachmentBlocks(
     conversationId: string,
     ownerUserId: number,
+    attachmentIds?: string[],
   ): Promise<{
     fileParts: LlmFilePart[]
     attachments: AttachedDocMeta[]
@@ -401,6 +405,7 @@ export class ChatStreamService {
       where: {
         conversationId,
         status: ChatAttachmentStatus.ready,
+        ...(attachmentIds && { id: { in: attachmentIds } }),
       },
       orderBy: { createdAt: Prisma.SortOrder.asc },
       select: {
@@ -420,7 +425,13 @@ export class ChatStreamService {
       return { fileParts: [], attachments: [] }
     }
 
-    const bucket = process.env.CHAT_ATTACHMENTS_BUCKET ?? ''
+    const bucket = process.env.CHAT_ATTACHMENTS_BUCKET
+    if (!bucket) {
+      this.logger.error(
+        'CHAT_ATTACHMENTS_BUCKET is not configured; skipping attachment fetch',
+      )
+      return null
+    }
     const fileParts: LlmFilePart[] = []
     const attachments: AttachedDocMeta[] = []
 
@@ -450,7 +461,7 @@ export class ChatStreamService {
           type: 'file',
           data: new Uint8Array(bytes),
           mediaType: row.mimeType,
-          filename: row.fileName,
+          filename: row.id,
         })
       } else {
         const text = row.extractedText
@@ -460,7 +471,7 @@ export class ChatStreamService {
           type: 'file',
           data: new TextEncoder().encode(sanitized),
           mediaType: 'text/plain',
-          filename: row.fileName,
+          filename: row.id,
           citationsEnabled: true,
         })
       }
@@ -494,6 +505,7 @@ export class ChatStreamService {
     const attachmentResult = await this.loadAttachmentBlocks(
       args.conversationId,
       args.ownerUserId,
+      args.attachmentIds,
     )
 
     let effectiveMessages = messages
@@ -685,7 +697,7 @@ export class ChatStreamService {
           if (!quotedText) return
           const filename = source.filename ?? source.title ?? ''
           const attachment = attachmentResult?.attachments.find(
-            (a) => a.filename === filename,
+            (a) => a.id === filename,
           )
           if (!attachment) return
 
