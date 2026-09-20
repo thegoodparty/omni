@@ -210,6 +210,12 @@ export default function ChiefOfStaffChatBody({
   // new key the moment it commits, so an overlay mounted inside the card
   // would unmount mid-draw and take the ring with it. The card asks; the
   // body holds.
+  // While one is open, every OTHER card's button goes away. A transcript
+  // can hold several maps, and switching lists remounts the overlay, which
+  // seeds its ring at mount and never again — so the second click would
+  // silently discard whatever the holder had drawn for the first. The
+  // overlay covers the viewport, so this is not reachable by mouse; it is
+  // reachable by keyboard, because the overlay traps no focus.
   const [refiningList, setRefiningList] = useState<ShowListMap | null>(null)
   const [introProgress, setIntroProgress] = useState(0)
   // True once anything has been sent this session (visible OR hidden). Gates the
@@ -962,7 +968,10 @@ export default function ChiefOfStaffChatBody({
                 }
               />
               {m.listMap ? (
-                <ChatListMap {...m.listMap} onRefineArea={setRefiningList} />
+                <ChatListMap
+                  {...m.listMap}
+                  onRefineArea={refiningList ? undefined : setRefiningList}
+                />
               ) : null}
               {showMessageActions && conversationId && m.content ? (
                 <MessageActionBar
@@ -993,7 +1002,10 @@ export default function ChiefOfStaffChatBody({
               }
             />
             {liveListMap ? (
-              <ChatListMap {...liveListMap} onRefineArea={setRefiningList} />
+              <ChatListMap
+                {...liveListMap}
+                onRefineArea={refiningList ? undefined : setRefiningList}
+              />
             ) : null}
           </AssistantRow>
         ) : null}

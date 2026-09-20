@@ -1318,6 +1318,59 @@ describe('<ChiefOfStaffChatBody>', () => {
       }
     })
 
+    // A transcript can hold several maps. Switching lists remounts the
+    // overlay, which seeds its ring at mount and never again, so a second
+    // card's button would silently discard whatever the holder had drawn
+    // for the first. Not reachable by mouse — the overlay covers the
+    // viewport — but reachable by keyboard, since it traps no focus.
+    it("withdraws every other map's draw button while one is open", async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      const other = { listId: 21, name: 'Kenilworth over 65' }
+      api.mock('GET /v1/voters/voter-file/filters', {
+        status: 200,
+        data: [
+          { id: LIST.listId, name: LIST.name },
+          { id: other.listId, name: other.name },
+        ] as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map one'),
+        msg('assistant', 'First.', {
+          id: 'a_one',
+          segments: [
+            { kind: 'text', text: 'First.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+        msg('user', 'and the other'),
+        msg('assistant', 'Second.', {
+          id: 'a_two',
+          segments: [
+            { kind: 'text', text: 'Second.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: other },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_two" />)
+
+      const buttons = await screen.findAllByRole('button', {
+        name: /draw an area/i,
+      })
+      expect(buttons).toHaveLength(2)
+
+      await user.click(buttons[0]!)
+      expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
+
+      // Both, including the one that opened it: re-clicking its own card
+      // would remount the overlay just as readily.
+      expect(
+        screen.queryAllByRole('button', { name: /draw an area/i }),
+      ).toHaveLength(0)
+    })
+
     // An absent row reads as unlocked, so gating on the lock alone showed
     // the button while the list was still in flight — and the overlay seeds
     // its ring into useState once, at mount. Opened in that window it came

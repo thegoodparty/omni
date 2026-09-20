@@ -68,10 +68,14 @@ export const useSaveListBoundary = (
       // gives that race, not an error toast.
       if (error instanceof FetchError && error.status === 409) {
         errorSnackbar(LOCKED_LIST_MESSAGE, { autoHideDuration: 6000 })
-        onSaved?.()
+        // Refresh BEFORE closing. The surfaces that draw decide whether to
+        // offer the button from this cache, and the row in it still says
+        // unlocked — so closing first hands the holder back a card that
+        // invites them to draw on the list they were just refused.
         await queryClient.invalidateQueries({
           queryKey: ['custom-segments', orgSlug],
         })
+        onSaved?.()
         return
       }
       // The cap refusal reaches this surface too — a saved list's boundary
