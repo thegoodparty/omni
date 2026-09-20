@@ -640,13 +640,21 @@ export default function ChiefOfStaffChatBody({
       page: number | null | undefined,
     ): Promise<void> => {
       if (!conversationId) return
+      // Open the tab immediately while the user gesture is still live so browsers
+      // don't block the popup. Navigate it to the presigned URL once fetched.
+      const tab = window.open('', '_blank')
       const result = await downloadChatAttachment(conversationId, attachmentId)
       if (!result) {
+        tab?.close()
         toast.error('Source unavailable')
         return
       }
       const url = page != null ? `${result.url}#page=${page}` : result.url
-      window.open(url, '_blank')
+      if (tab) {
+        tab.location.href = url
+      } else {
+        window.open(url, '_blank')
+      }
     },
     [conversationId],
   )

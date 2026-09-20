@@ -90,7 +90,9 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
     type === 'tool_call' ||
     type === 'tool_result' ||
     type === 'ping' ||
-    type === 'citation' ||
+    (type === 'citation' &&
+      typeof (value as { attachmentId?: unknown }).attachmentId === 'string' &&
+      typeof (value as { quotedText?: unknown }).quotedText === 'string') ||
     type === 'done' ||
     type === 'error'
   )
