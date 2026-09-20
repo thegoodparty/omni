@@ -100,16 +100,14 @@ def test_story_covers_its_load_bearing_directives():
     assert "reviewDecision" in text, "must check reviewDecision before pushing more"
     assert "approved and auto-merge armed" in text, "exit condition is approved + armed, not merely opened"
 
-    assert "wait for the merge" in text.lower(), "must wait for the merge, not the dev deploy"
-    assert "move" in text.lower() and "`qa`" in text, "must move the ticket to qa once merged"
-
-    # The first real story run ended its turn with "background watchers" on
-    # the merge — which die with the container, stranding the card in
-    # `in progress` with no marker, no comment, and nothing to resume.
-    assert "dies with the container" in text, (
-        "must state that backgrounded waits die with the container when the turn ends"
+    # ENG-11147: the run ends at approved+armed, verified directly rather than
+    # assumed — it must never wait out the merge itself (that idle Fargate
+    # time moved to the free conductor sweep).
+    assert "gh pr view <n> --json autoMergeRequest,reviewDecision" in text, (
+        "must quote the exact command that verifies the gate before parking"
     )
-    assert "in-turn wait" in text, "must require the merge wait to happen inside the turn"
+    assert "reviewDecision` must read `APPROVED`" in text, "must require reviewDecision APPROVED, not just armed"
+    assert "never wait for the merge" in text.lower(), "must forbid waiting out the merge in this run"
 
     # The same run shipped past a verify that errored out before typechecking
     # (broken worktree install) — an unrunnable verify must read as red.

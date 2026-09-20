@@ -345,6 +345,11 @@ resource "aws_lambda_function" "autopilot_bot" {
       AUTOPILOT_CLICKUP_WEBHOOK_SECRET = try(local.ai_secrets["AUTOPILOT_CLICKUP_WEBHOOK_SECRET"], "")
       AUTOPILOT_CLICKUP_API_KEY        = try(local.ai_secrets["AUTOPILOT_CLICKUP_API_KEY"], "")
       SLACK_BOT_TOKEN                  = try(local.ai_secrets["SLACK_BOT_TOKEN"], "")
+      # Same Delegate App key the autopilot-agent-fargate task definitions
+      # already carry (see that module's agent_secrets local) — the sweep's
+      # merge-pending resolution pass (lambda/github_auth.py) mints its own
+      # short-lived installation token from it to read PR merge state.
+      GITHUB_APP_PRIVATE_KEY = try(local.ai_secrets["GITHUB_APP_PRIVATE_KEY"], "")
 
       AUTOPILOT_SLACK_CHANNEL = var.autopilot_slack_channel
       SWEEP_LOOKBACK_MINUTES  = var.sweep_lookback_minutes

@@ -105,6 +105,7 @@ class FakeClickUp:
         self.comments: dict[str, list[dict]] = {}
         self.time_in_status_since: dict[str, int] = {}
         self.task_queries: list[str] = []
+        self.status_updates: dict[str, list[str]] = {}
 
     def request(self, method, endpoint, data=None):
         if method == "GET" and endpoint.startswith("/list/") and "/task?" in endpoint:
@@ -126,6 +127,10 @@ class FakeClickUp:
             task_id = endpoint.split("/task/", 1)[1].split("/time_in_status", 1)[0]
             since = self.time_in_status_since.get(task_id)
             return {"current_status": {"since": str(since)}} if since is not None else {}
+        if method == "PUT" and endpoint.startswith("/task/") and "/" not in endpoint[len("/task/") :]:
+            task_id = endpoint[len("/task/") :]
+            self.status_updates.setdefault(task_id, []).append((data or {}).get("status"))
+            return {"id": task_id}
         raise AssertionError(f"no fake response registered for {method} {endpoint}")
 
 
@@ -491,15 +496,17 @@ def parked_comment(stage, question, comment_id="park-1", date="2000"):
 
 
 def test_actionable_park_gets_exactly_one_auto_resume(fake_clickup, fake_ecs):
+    # "Deploy pending" (qa.md), not "Merge pending" — the latter is excluded
+    # from auto-resume entirely (see test_merge_pending_park_is_never_auto_resumed).
     fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
-    fake_clickup.comments["story-9"] = [parked_comment("story", "Merge pending: PR #42 armed but not merged.")]
+    fake_clickup.comments["story-9"] = [parked_comment("qa", "Deploy pending: commit abc123 isn't live on dev yet.")]
 
     first = sweep.handle_sweep({"autopilot_sweep": True})
     second = sweep.handle_sweep({"autopilot_sweep": True})
 
     resumes = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_RESUME]
     assert len(resumes) == 1
-    assert env_vars(resumes[0])["RESUME_STAGE"] == "story"
+    assert env_vars(resumes[0])["RESUME_STAGE"] == "qa"
     assert json.loads(first["body"])["auto_resumed"] == 1
     # Same park instance: the dedup claim on the park comment id holds.
     assert json.loads(second["body"])["auto_resumed"] == 0
@@ -508,12 +515,14 @@ def test_actionable_park_gets_exactly_one_auto_resume(fake_clickup, fake_ecs):
 def test_fresh_repark_earns_one_more_auto_resume(fake_clickup, fake_ecs):
     fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
     fake_clickup.comments["story-9"] = [
-        parked_comment("story", "Merge pending: PR #42 armed but not merged.", comment_id="park-1", date="2000")
+        parked_comment(
+            "story", "Deploy pending: commit abc123 isn't live on dev yet.", comment_id="park-1", date="2000"
+        )
     ]
     sweep.handle_sweep({"autopilot_sweep": True})
 
     fake_clickup.comments["story-9"].append(
-        parked_comment("story", "Merge pending: still waiting.", comment_id="park-2", date="3000")
+        parked_comment("story", "Deploy pending: still waiting.", comment_id="park-2", date="3000")
     )
     result = sweep.handle_sweep({"autopilot_sweep": True})
 
@@ -535,7 +544,7 @@ def test_qa_failed_park_is_left_for_a_human(fake_clickup, fake_ecs):
 def test_park_with_a_reply_after_it_is_left_to_the_comment_route(fake_clickup, fake_ecs):
     fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
     fake_clickup.comments["story-9"] = [
-        parked_comment("story", "Merge pending: PR #42 armed but not merged.", date="2000"),
+        parked_comment("story", "Deploy pending: commit abc123 isn't live on dev yet.", date="2000"),
         {"id": "reply-1", "comment_text": "on it - resume please", "date": "3000"},
     ]
 
@@ -548,7 +557,7 @@ def test_park_with_a_reply_after_it_is_left_to_the_comment_route(fake_clickup, f
 def test_relapsing_story_stops_getting_auto_resumes(fake_clickup, fake_ecs, capsys):
     fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
     fake_clickup.comments["story-9"] = [
-        parked_comment("story", "Merge pending: lap 1.", comment_id=f"park-{i}", date=str(1000 + i))
+        parked_comment("story", "Deploy pending: lap 1.", comment_id=f"park-{i}", date=str(1000 + i))
         for i in range(sweep.AUTO_RESUME_MAX_PARKS)
     ]
 
@@ -568,3 +577,171 @@ def test_top_level_card_in_feedback_needed_is_never_auto_resumed(fake_clickup, f
 
     assert fake_ecs.run_task_calls == []
     assert json.loads(result["body"])["auto_resumed"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Merge-pending resolution (ENG-11147) — the conductor-side replacement for
+# story.md waiting out the merge in-turn.
+# ---------------------------------------------------------------------------
+
+
+class FakePullRequests(dict):
+    """A dict of {pr_number: response} that also records every pr_number
+    fetch_pull_request was actually called with, so a test can assert a
+    non-merge-pending park never triggers a GitHub read at all."""
+
+    def __init__(self):
+        super().__init__()
+        self.calls: list[int] = []
+
+
+@pytest.fixture
+def fake_pull_requests(monkeypatch):
+    """Stubs sweep.fetch_pull_request (never the real GitHub call) keyed by PR
+    number — the read itself (token minting, urllib, JSON parsing) is covered
+    by test_lambda_github_auth.py and test_fetch_pull_request_* below."""
+    responses = FakePullRequests()
+
+    def fake_fetch(pr_number):
+        responses.calls.append(pr_number)
+        return responses.get(pr_number)
+
+    monkeypatch.setattr(sweep, "fetch_pull_request", fake_fetch)
+    return responses
+
+
+def merge_pending_park(pr_number, comment_id="park-1", date="2000", stage="story"):
+    return parked_comment(stage, f"Merge pending: PR #{pr_number} is approved but hasn't merged yet.", comment_id, date)
+
+
+def test_merged_pr_moves_story_to_qa_and_dispatches_once(fake_clickup, fake_ecs, fake_pull_requests):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_pull_requests[42] = {"merged": True, "state": "closed"}
+
+    first = sweep.handle_sweep({"autopilot_sweep": True})
+    second = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA]
+    qa_dispatches = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_QA]
+    assert len(qa_dispatches) == 1
+    assert env_vars(qa_dispatches[0])["EPIC_TASK_ID"] == "epic-1"
+    assert json.loads(first["body"])["merge_resolved"] == 1
+    # Second pass still sees the park (fake ClickUp doesn't actually move the
+    # story out of feedback-needed) but the claim on PR #42 holds, so it
+    # never moves the status or launches a second QA run.
+    assert json.loads(second["body"])["merge_resolved"] == 0
+    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA]
+
+
+def test_still_open_pr_leaves_the_park_untouched(fake_clickup, fake_ecs, fake_pull_requests):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_pull_requests[42] = {"merged": False, "state": "open"}
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert "story-9" not in fake_clickup.status_updates
+    body = json.loads(result["body"])
+    assert body["merge_resolved"] == 0
+    assert body["merge_closed_alerted"] == 0
+
+
+def test_closed_unmerged_pr_alerts_exactly_once(fake_clickup, fake_ecs, fake_pull_requests, slack_posts):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_pull_requests[42] = {"merged": False, "state": "closed"}
+
+    first = sweep.handle_sweep({"autopilot_sweep": True})
+    second = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert "story-9" not in fake_clickup.status_updates
+    assert len(slack_posts) == 1
+    assert "#42" in slack_posts[0] and "story-9" in slack_posts[0]
+    assert json.loads(first["body"])["merge_closed_alerted"] == 1
+    assert json.loads(second["body"])["merge_closed_alerted"] == 0
+
+
+def test_github_read_failure_leaves_the_park_untouched_and_logs(fake_clickup, fake_ecs, fake_pull_requests, capsys):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    # No entry registered for PR #42 in fake_pull_requests -> fetch_pull_request
+    # returns None, the same shape a real GitHub outage produces.
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert "story-9" not in fake_clickup.status_updates
+    assert json.loads(result["body"])["merge_resolved"] == 0
+    assert "could not confirm PR #42" in capsys.readouterr().out
+
+
+def test_merge_pending_park_is_never_auto_resumed(fake_clickup, fake_ecs, fake_pull_requests):
+    # Still open — resolve_merge_pending_parks leaves it alone — but it must
+    # ALSO never fall through to the generic auto-resume path: that would
+    # spend a paid resume run re-doing the identical GitHub check for free.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_pull_requests[42] = {"merged": False, "state": "open"}
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    resumes = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_RESUME]
+    assert resumes == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+
+
+def test_non_merge_pending_park_is_unaffected_by_the_resolution_pass(fake_clickup, fake_ecs, fake_pull_requests):
+    # A real question, or "QA failed", or "Deploy pending" must never even
+    # trigger a GitHub read.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [parked_comment("story", "Should this endpoint require an admin role?")]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_pull_requests.calls == []
+
+
+# ---------------------------------------------------------------------------
+# fetch_pull_request — the GitHub read itself
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_pull_request_none_without_a_token(monkeypatch):
+    monkeypatch.setattr(sweep.github_auth, "installation_token", lambda: None)
+
+    assert sweep.fetch_pull_request(42) is None
+
+
+def test_fetch_pull_request_returns_parsed_json(monkeypatch):
+    monkeypatch.setattr(sweep.github_auth, "installation_token", lambda: "ghs_test")
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+        def read(self):
+            return json.dumps({"merged": True, "state": "closed"}).encode()
+
+    monkeypatch.setattr(sweep, "urlopen", lambda req, timeout=10: FakeResponse())
+
+    assert sweep.fetch_pull_request(42) == {"merged": True, "state": "closed"}
+
+
+def test_fetch_pull_request_none_and_logs_on_network_failure(monkeypatch, capsys):
+    monkeypatch.setattr(sweep.github_auth, "installation_token", lambda: "ghs_test")
+
+    def failing_urlopen(req, timeout=10):
+        raise TimeoutError("connection timed out")
+
+    monkeypatch.setattr(sweep, "urlopen", failing_urlopen)
+
+    assert sweep.fetch_pull_request(42) is None
+    assert "ERROR: sweep failed to read PR #42" in capsys.readouterr().out

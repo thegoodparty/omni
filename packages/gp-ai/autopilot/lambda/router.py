@@ -94,6 +94,22 @@ def latest_park(comments: list[dict]) -> Park | None:
     return None
 
 
+# The status note stages/story.md parks with once a PR is approved and
+# auto-merge armed but hasn't merged yet (stages/story.md step 6). Scoped to
+# THIS status note only: "Deploy pending" (qa.md) and stranded-run parks stay
+# on the existing auto-resume/human path — the conductor can cheaply check a
+# PR's merge state, but deploy verification stays agent work (see sweep.py's
+# resolve_merge_pending_parks).
+MERGE_PENDING_QUESTION_PATTERN = re.compile(r"^merge pending:\s*pr\s*#(\d+)", re.IGNORECASE)
+
+
+def merge_pending_pr_number(question: str) -> int | None:
+    """The PR number out of a Park's question text, or None if this park is
+    some other status note (e.g. "Deploy pending") or a real question."""
+    match = MERGE_PENDING_QUESTION_PATTERN.match(question.strip())
+    return int(match.group(1)) if match else None
+
+
 def park_marker_count(comments: list[dict]) -> int:
     """How many park comments the thread carries, across stages — the sweep's
     loop bound: a story that keeps re-parking needs a human, not more laps."""
@@ -170,7 +186,13 @@ STAGE_CEILINGS: dict[str, StageCeiling] = {
 # STORY rows landing in "in progress" (kickoff and resume) are a known,
 # deliberate ambiguity: a mid-run story must never be re-dispatched off a
 # board poll, and both of those transitions are alert-backed if their
-# webhook is lost (the supervisor's stall TTLs).
+# webhook is lost (the supervisor's stall TTLs). "qa" deliberately stays
+# UNAMBIGUOUS (a single row): sweep.resolve_merge_pending_parks reaches `qa`
+# straight from a merge-pending park without a second row here, launching the
+# stage itself (dispatch.claim_transition + dispatch.launch_fargate_stage)
+# rather than relying on the resulting bot-authored webhook to route it —
+# adding a second to_status="qa" row would blind the lookback reconstruction
+# below to a lost "in progress -> qa" webhook, today's only entry point here.
 ROUTING_TABLE: dict[tuple[CardType, str | None, str], str] = {
     (FEATURE_CARD, STATUS_APPROVED_TDD, STATUS_IN_PROGRESS): STAGE_EPIC_CREATE,
     # A human has reviewed epic-create's story breakdown (posted to "feedback

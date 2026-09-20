@@ -38,7 +38,15 @@ GitHub Actions ───┘   (also: sweep.py) ──────┴─→ super
     workflow for why). Re-derives missed transitions from ClickUp's current
     board state through the exact same `router.route()` + dispatch path the
     webhook uses, and unconditionally ticks the supervisor for every card
-    currently sitting in "executing".
+    currently sitting in "executing". Also resolves every story parked on a
+    "Merge pending: PR #n" note (see `story.md` step 6): one GitHub read
+    (`github_auth.py` mints a short-lived installation token from the
+    Delegate App key, stdlib-only — this Lambda ships no pip-installed
+    dependencies) decides whether to move the story to `qa` and launch its QA
+    run, alert Slack once if the PR closed unmerged, or leave an open PR's
+    park untouched. This is what lets a story stage end at "approved,
+    auto-merge armed" instead of waiting out the merge and the release train
+    in a paid Fargate run.
 - `agent/` — the stage runner that acts on routed events (Claude Agent SDK).
 
 Deliberately isolated from `clickup_bot/`: the webhook and sweep mechanics
@@ -118,7 +126,8 @@ Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`,
 | `SLACK_BOT_TOKEN` | Bot token for the supervisor's `chat.postMessage` calls (stall alerts, close-out summaries). |
 | `AUTOPILOT_SLACK_CHANNEL` | Channel id those messages post to. |
 | `SWEEP_LOOKBACK_MINUTES` | How far back the sweep scans for missed transitions (default 45). |
-| `SWEEP_MAX_TRIGGERS` | Cap on real dispatches per sweep pass, logged loudly when hit (default 10). Does not bound the unconditional per-executing-card supervisor tick, which is bounded by the one-story-per-epic invariant instead. |
+| `SWEEP_MAX_TRIGGERS` | Cap on real dispatches per sweep pass, logged loudly when hit (default 10). Does not bound the unconditional per-executing-card supervisor tick, which is bounded by the one-story-per-epic invariant instead — nor the merge-pending resolution pass, bounded the same way. |
+| `GITHUB_APP_PRIVATE_KEY` | Same Delegate App key `agent/github_auth.py` uses, from `AI_SECRETS_<ENV>`. `lambda/github_auth.py` mints its own short-lived installation token from it (stdlib-only RS256 signing — no pyjwt/cryptography in this Lambda's zip) to read a story's PR state for merge-pending resolution. |
 
 ## Testing
 

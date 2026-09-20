@@ -63,9 +63,27 @@ import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
+from urllib.request import Request, urlopen
 
 DEFAULT_LOOKBACK_MINUTES = 45.0
 DEFAULT_MAX_TRIGGERS = 10
+
+GITHUB_API_BASE_URL = "https://api.github.com"
+# The one repo autopilot ever opens a story PR against — a bare constant, not
+# an env var, for the same reason the rest of this module hardcodes ClickUp's
+# base URL: there is exactly one value this has ever needed or is expected to.
+GITHUB_REPO = "thegoodparty/omni"
+
+# Claim-key namespace for the "PR closed without merging" Slack alert (see
+# resolve_merge_pending_parks) — never a real dispatched stage, just a second
+# key family sharing dispatch.claim_transition's table so the alert fires
+# exactly once per PR, the same "claim first, alert second" shape
+# supervisor.try_claim_stall_alert uses for its own once-only Slack posts.
+CLOSED_PR_ALERT_STAGE = "merge-closed-alert"
+# Long-lived, like supervisor.EPIC_CLOSE_OUT_TTL_SECONDS: this alert is a
+# one-time event for a given PR, not a per-run transition with a natural
+# deadline to size a shorter TTL against.
+CLOSED_PR_ALERT_TTL_SECONDS = 30 * 24 * 60 * 60
 
 
 def _load_sibling_module(stem: str) -> Any:
@@ -85,6 +103,7 @@ def _load_sibling_module(stem: str) -> Any:
 router = _load_sibling_module("router")
 dispatch = _load_sibling_module("dispatch")
 supervisor = _load_sibling_module("supervisor")
+github_auth = _load_sibling_module("github_auth")
 # Only for _normalize_ts / _status_label / in_scope_list_ids — safe to load
 # back even though handler.py loads this module: see the comment at the
 # bottom of handler.py for why the ordering makes that safe.
@@ -242,6 +261,13 @@ def auto_resume_actionable_parks(cap: int) -> int:
             continue
         if park.question.lower().startswith("qa failed"):
             continue
+        if router.merge_pending_pr_number(park.question) is not None:
+            # resolve_merge_pending_parks (run earlier this same tick) owns
+            # every merge-pending park, resolved or not: a paid resume here
+            # would just re-run the identical GitHub check that pass already
+            # made for free, and racing the two on the same park risks a
+            # double qa-move if both land in the same tick.
+            continue
         if any(router._comment_date_ms(c) > park.date_ms for c in comments if c.get("id") != park.comment_id):
             continue
         if router.park_marker_count(comments) >= AUTO_RESUME_MAX_PARKS:
@@ -266,6 +292,148 @@ def auto_resume_actionable_parks(cap: int) -> int:
             print(f"Auto-resumed parked story {task_id} (stage {park.stage!r}, park {park.comment_id})")
             resumed += 1
     return resumed
+
+
+def fetch_pull_request(pr_number: int) -> dict | None:
+    """One read of a story's PR (GET /repos/{repo}/pulls/{n}) — just the
+    `merged` / `state` fields callers need. None on ANY failure: no token
+    minted, a network error, a non-2xx response, or unparseable JSON. Every
+    caller treats None identically to "leave the park untouched" (see
+    resolve_merge_pending_parks) — a GitHub outage must never move a story or
+    alert on a PR nobody actually confirmed the state of."""
+    token = github_auth.installation_token()
+    if token is None:
+        return None
+    req = Request(
+        f"{GITHUB_API_BASE_URL}/repos/{GITHUB_REPO}/pulls/{pr_number}",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=10) as response:
+            if response.status >= 300:
+                print(f"ERROR: GitHub returned {response.status} reading PR #{pr_number}")
+                return None
+            return json.loads(response.read().decode())
+    except Exception as e:
+        print(f"ERROR: sweep failed to read PR #{pr_number}: {type(e).__name__}")
+        return None
+
+
+def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: int) -> bool:
+    """Moves a merge-pending story straight to `qa` and launches its QA stage
+    run directly — never through ROUTING_TABLE. A second to_status="qa" row
+    there (reachable from `feedback needed`, alongside the existing
+    `in progress` one) would make sweep._from_status_for_current's
+    reconstruction pass treat EVERY story landing in `qa` as ambiguous and
+    skip it, blinding the sweep to a lost `in progress -> qa` webhook — today
+    the sweep's only entry point there. Dispatching here directly, the same
+    way supervisor.dispatch_story does for story kickoff, reaches `qa`
+    without ever adding that row.
+
+    Claimed on the PR number, not a ClickUp-delivered transition timestamp:
+    there is no real transition to derive one from yet (same reasoning as
+    supervisor.dispatch_story's identical comment), and the PR number is
+    stable across however many sweep ticks discover the same merge — a claim
+    keyed on it, taken BEFORE the ClickUp write, is what stops two
+    overlapping ticks from launching two QA runs for one merge.
+
+    The move happens BEFORE the launch, never after: a normal qa dispatch
+    only ever fires once its triggering webhook already reflects the card in
+    `qa` (the write happens first, then the webhook), and qa.md's
+    stranded-run guard (feedback.STRANDED_STATUSES) depends on that being
+    true the moment the container starts.
+    """
+    ceiling = router.STAGE_CEILINGS[router.STAGE_QA]
+    ttl = ceiling.deadline_seconds + dispatch.DEDUP_TTL_GRACE_SECONDS
+    reason = dispatch.claim_transition(task_id, router.STAGE_QA, f"merge-{pr_number}", ttl)
+    if reason is not None:
+        return False
+
+    try:
+        supervisor.move_task_status(task_id, router.STATUS_QA)
+    except Exception as e:
+        print(f"ERROR: sweep failed to move {task_id} to qa after PR #{pr_number} merged: {type(e).__name__}")
+        return False
+
+    envelope = dispatch.StageEnvelope(
+        stage=router.STAGE_QA,
+        task_id=task_id,
+        epic_task_id=epic_task_id,
+        model=router.DEFAULT_AGENT_MODEL,
+        max_budget_usd=ceiling.max_budget_usd,
+        deadline_seconds=ceiling.deadline_seconds,
+    )
+    result = dispatch.launch_fargate_stage(envelope)
+    if not result["launched"]:
+        print(
+            "ERROR: moved to qa but failed to launch its stage run; claim left in place for the sweep to recover: "
+            f"task_id={task_id} pr=#{pr_number}"
+        )
+    return bool(result["launched"])
+
+
+def _alert_closed_unmerged_pr(task_id: str, pr_number: int) -> bool:
+    """Posts ONE Slack alert for a merge-pending story whose PR closed
+    without merging — claimed on the PR number so a relapsing sweep tick
+    (the PR stays closed forever) never posts a second one, the same
+    claim-first-post-second shape supervisor.try_claim_stall_alert uses."""
+    reason = dispatch.claim_transition(task_id, CLOSED_PR_ALERT_STAGE, str(pr_number), CLOSED_PR_ALERT_TTL_SECONDS)
+    if reason is not None:
+        return False
+    supervisor.post_slack_message(
+        f":warning: Autopilot story {supervisor.clickup_task_url(task_id)} parked waiting on PR #{pr_number}, "
+        "which closed without merging. It will not resolve on its own — comment on the card to resume once "
+        "you've decided what happens next."
+    )
+    return True
+
+
+def resolve_merge_pending_parks() -> dict[str, int]:
+    """Runs BEFORE auto_resume_actionable_parks (see handle_sweep): for every
+    story parked on a "Merge pending: PR #<n>" status note, one GitHub read
+    decides the outcome — merged moves the story to `qa` and launches QA
+    (see _dispatch_qa_after_merge), closed-unmerged posts one Slack alert,
+    and still-open (or an unreadable PR) leaves the park exactly where it is.
+    Not bounded by the sweep's own trigger cap: like the executing-feature-
+    card tick, the actions here are cheap and self-limiting (bounded by how
+    many stories are ever simultaneously parked on a pending merge, never by
+    dispatch fan-out)."""
+    resolved = 0
+    alerted = 0
+    for task in _parked_stories():
+        task_id = task.get("id")
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        try:
+            comments = supervisor.get_task_comments(task_id)
+        except Exception as e:
+            print(f"ERROR: sweep failed to read comments for parked story {task_id}: {type(e).__name__}")
+            continue
+        park = router.latest_park(comments)
+        if park is None:
+            continue
+        pr_number = router.merge_pending_pr_number(park.question)
+        if pr_number is None:
+            continue  # some other status note, or a real question — not ours
+
+        pull_request = fetch_pull_request(pr_number)
+        if pull_request is None:
+            print(f"ERROR: sweep could not confirm PR #{pr_number}'s state for {task_id}; leaving it parked")
+            continue
+
+        if pull_request.get("merged"):
+            parent_id = task.get("parent")
+            epic_task_id = parent_id if isinstance(parent_id, str) else None
+            if _dispatch_qa_after_merge(task_id, epic_task_id, pr_number):
+                resolved += 1
+            continue
+
+        if pull_request.get("state") == "closed" and _alert_closed_unmerged_pr(task_id, pr_number):
+            alerted += 1
+        # else: still open — leave it exactly where it is.
+
+    return {"merge_resolved": resolved, "merge_closed_alerted": alerted}
 
 
 def alert_stalled_in_progress_feature_cards() -> int:
@@ -468,6 +636,12 @@ def handle_sweep(event: dict) -> dict:
     if cap_hit:
         print(f"ERROR: sweep hit its cap of {cap} triggers; remainder deferred to the next pass")
 
+    # Before auto-resume, and uncapped (see resolve_merge_pending_parks): every
+    # merge-pending park it finds is EXCLUDED from the auto-resume pass below
+    # (auto_resume_actionable_parks' own skip), so a paid resume can never
+    # race this free GitHub-backed resolution for the same park.
+    merge_pending_result = resolve_merge_pending_parks()
+
     # After the lookback pass so reconstruction gets first claim at the cap:
     # an undelivered transition is lost work, an unparked resume is deferred
     # work — the next pass reaches it.
@@ -475,7 +649,9 @@ def handle_sweep(event: dict) -> dict:
 
     print(
         f"Sweep complete: {ticked} epics ticked, {alerted} stall alerts, "
-        f"{scanned} candidates scanned, {triggered} triggered, {auto_resumed} auto-resumed"
+        f"{scanned} candidates scanned, {triggered} triggered, "
+        f"{merge_pending_result['merge_resolved']} merges resolved, "
+        f"{merge_pending_result['merge_closed_alerted']} closed-PR alerts, {auto_resumed} auto-resumed"
     )
     return {
         "statusCode": 200,
@@ -485,6 +661,8 @@ def handle_sweep(event: dict) -> dict:
                 "alerted": alerted,
                 "scanned": scanned,
                 "triggered": triggered,
+                "merge_resolved": merge_pending_result["merge_resolved"],
+                "merge_closed_alerted": merge_pending_result["merge_closed_alerted"],
                 "auto_resumed": auto_resumed,
             }
         ),

@@ -450,3 +450,32 @@ def test_parked_stage_from_comments_survives_bad_dates_and_missing_text():
     ]
 
     assert router.parked_stage_from_comments(comments) == "qa"
+
+
+# ---------------------------------------------------------------------------
+# Merge-pending park classifier (ENG-11147)
+# ---------------------------------------------------------------------------
+
+
+def test_merge_pending_pr_number_extracts_the_pr_number():
+    question = "Merge pending: PR #123 is approved with auto-merge armed but hasn't merged yet."
+
+    assert router.merge_pending_pr_number(question) == 123
+
+
+def test_merge_pending_pr_number_is_case_insensitive_and_tolerates_spacing():
+    assert router.merge_pending_pr_number("merge pending:  pr  #7 armed but not merged.") == 7
+
+
+def test_merge_pending_pr_number_none_for_a_real_question():
+    assert router.merge_pending_pr_number("Should this endpoint require an admin role?") is None
+
+
+def test_merge_pending_pr_number_none_for_deploy_pending():
+    # Scoped to merge-pending only — qa.md's status note keeps the existing
+    # auto-resume/human path (see sweep.py's resolve_merge_pending_parks).
+    assert router.merge_pending_pr_number("Deploy pending: commit abc123 isn't live on dev yet.") is None
+
+
+def test_merge_pending_pr_number_none_when_pr_number_missing():
+    assert router.merge_pending_pr_number("Merge pending: not sure which PR, check the thread.") is None
