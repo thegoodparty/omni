@@ -6,6 +6,7 @@ import {
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 
 const service = useTestService()
 
@@ -101,6 +102,91 @@ describe('saved list boundaries', () => {
 
     expect(response.status).toBe(403)
     expect(evaluateSpy).not.toHaveBeenCalled()
+  })
+
+  // The edit wizard counts a saved list by spreading its fields inline, and
+  // an inline filter carries neither an id nor a geoPoly — so the boundary
+  // was invisible to it and "Save changes (5,356)" sat one click from a list
+  // whose own detail sheet read 339. `boundaryFromSegmentId` is how the
+  // count goes and finds the shape it is not being given.
+  describe('counting a list that carries a boundary', () => {
+    const spyOnFindPeople = () =>
+      vi
+        .spyOn(service.app.get(VoterQueryService), 'findPeople')
+        .mockClear()
+        .mockResolvedValue({
+          people: [],
+          pagination: {
+            totalResults: 0,
+            currentPage: 1,
+            pageSize: 1,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+        } as never)
+
+    const countWith = (slug: string, body: Record<string, unknown>) =>
+      service.client.post('/v1/contacts/count', body, {
+        headers: { [ORG_SLUG_HEADER]: slug },
+      })
+
+    const seedBoundariedList = async (suffix: string) => {
+      const slug = await setupServeOrg(suffix)
+      const inside = randomUUID()
+      spyOnEvaluate([person(inside, 0.5, 0.5)])
+      const created = await createFilter(slug, {
+        name: 'Boundary list',
+        genderFemale: true,
+        geoPoly: SQUARE,
+      })
+      return { slug, listId: created.data.id as number, inside }
+    }
+
+    it('narrows the count to the frozen members when given the list id', async () => {
+      const { slug, listId, inside } = await seedBoundariedList('count-with')
+      const findPeople = spyOnFindPeople()
+
+      const response = await countWith(slug, {
+        genderFemale: true,
+        boundaryFromSegmentId: listId,
+      })
+
+      expect(response.status).toBe(201)
+      expect(findPeople.mock.calls[0]?.[0]?.filters).toMatchObject({
+        filterOperators: { id: { operator: 'in', values: [inside] } },
+      })
+    })
+
+    // The other half of the same assertion: without the id the count is the
+    // pre-boundary one. Pinned so the fix cannot be quietly reverted into
+    // "it was always narrowed anyway".
+    it('does not narrow when the list id is absent', async () => {
+      const { slug } = await seedBoundariedList('count-without')
+      const findPeople = spyOnFindPeople()
+
+      await countWith(slug, { genderFemale: true })
+
+      expect(findPeople.mock.calls[0]?.[0]?.filters?.filters).not.toContain(
+        'id',
+      )
+    })
+
+    // A bare id off the wire, so it is resolved through the org-scoped
+    // segment lookup rather than trusted.
+    it('refuses a list id belonging to another organization', async () => {
+      const { listId } = await seedBoundariedList('count-owner')
+      const otherSlug = await setupServeOrg('count-other')
+      const findPeople = spyOnFindPeople()
+
+      const response = await countWith(otherSlug, {
+        genderFemale: true,
+        boundaryFromSegmentId: listId,
+      })
+
+      expect(response.status).toBe(404)
+      expect(findPeople).not.toHaveBeenCalled()
+    })
   })
 
   it('freezes the enclosed people when a list is created with a boundary', async () => {

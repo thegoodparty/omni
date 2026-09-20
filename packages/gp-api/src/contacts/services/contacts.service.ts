@@ -544,6 +544,24 @@ export class ContactsService {
       : { kind: 'filter', idFilter: { in: personIds } }
   }
 
+  // The frozen members of a saved list's drawn boundary, for a caller
+  // counting that list's criteria inline (the edit wizard). Scoped through
+  // resolveCustomSegment, which 404s an id this organization does not own,
+  // so a client-supplied id cannot reach another org's membership.
+  private async resolveBoundaryFromSegment(
+    organization: Organization,
+    filterInput: CountContactsDTO,
+  ): Promise<IdFilterResolution> {
+    if (filterInput.boundaryFromSegmentId === undefined) {
+      return { kind: 'none' }
+    }
+    const segment = await this.resolveCustomSegment(
+      String(filterInput.boundaryFromSegmentId),
+      organization,
+    )
+    return this.resolveGeoIdFilter(segment)
+  }
+
   private async resolveIdFilterWithContactsMade(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -927,8 +945,18 @@ export class ContactsService {
       filterInput,
     )
 
-    const { idResolution, contactsMadeIdOverrides } =
+    const { idResolution: filterResolution, contactsMadeIdOverrides } =
       await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    // The edited list's own boundary, intersected with the criteria the
+    // holder is editing. The boundary is not part of the inline payload and
+    // is not being edited here — the wizard's update never sends geoPoly, so
+    // a partial PUT leaves it alone — which is exactly why the count has to
+    // go and find it. Counting without it promised a list 16x the size of
+    // the one the save would produce.
+    const idResolution = intersectIdFilterResolutions(
+      filterResolution,
+      await this.resolveBoundaryFromSegment(organization, filterInput),
+    )
     if (idResolution.kind === 'empty') {
       return this.withOrgDistrictResolution(organization, async () => ({
         count: 0,
@@ -958,6 +986,60 @@ export class ContactsService {
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
+  }
+
+  // How many people a SAVED list holds right now, by id.
+  //
+  // Takes a segment rather than a filter, which is the point: it resolves
+  // through segmentToFilters, exactly as every other read of a saved list
+  // does, so the frozen geo members of a drawn boundary and the list's own
+  // stored search are both applied without the caller having to know they
+  // exist. countContacts would also honour a boundary if handed the whole
+  // row — resolveGeoIdFilter reads `id` and `geoPoly` off whatever it is
+  // given — but the caller here holds an id, and casting a Prisma row into
+  // a DTO-shaped parameter to reach that path is a silent break waiting for
+  // either shape to move.
+  //
+  // The Chief of Staff's `crud_saved_filters` is the caller: an assistant
+  // quoting a number the list does not hold is the same defect as a map
+  // drawing people the count would miss.
+  async countSegment(
+    segment: string,
+    organization: Organization,
+  ): Promise<{ count: number }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const { filters, empty, idOverrides, contactsMadeIdOverrides } =
+      await this.segmentToFilters(segment, organization)
+    if (empty) {
+      return { count: 0 }
+    }
+
+    // A saved list's own stored search narrows it on every other read
+    // (ENG-10518), so a count that ignored it would overstate the list the
+    // holder actually sees.
+    const search = await this.segmentToSearch(segment, organization)
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async (districtParams) => {
+        const response = await this.voterQueryService.findPeople(
+          ListPeopleDTO.create({
+            ...districtParams,
+            resultsPerPage: 1,
+            page: 1,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            search: search || undefined,
+            groupByHousehold: false,
+          }),
+        )
+        return { count: response.pagination.totalResults }
+      },
+    )
   }
 
   // The draw step's answer to "how many of these are inside the shape?",

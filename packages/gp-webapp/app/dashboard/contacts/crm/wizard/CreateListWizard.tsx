@@ -282,9 +282,24 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
+  // The edited list's drawn boundary rides the COUNT payload only, never
+  // backendPayload — that object is also the save payload, and the wizard's
+  // update deliberately never sends geoPoly so a partial PUT leaves the
+  // shape alone. The number still has to account for it: an inline filter
+  // carries no id and no geoPoly, so without this the count answered with
+  // the list's pre-boundary size and offered "Save changes (5,356)" on a
+  // list whose own detail sheet read 339.
+  const countPayload = useMemo(
+    () =>
+      isEditing && editingSegment
+        ? { ...backendPayload, boundaryFromSegmentId: editingSegment.id }
+        : backendPayload,
+    [backendPayload, isEditing, editingSegment],
+  )
+
   const { count, isLoading, isStale, isError, isCapError, errorMessage } =
     useListWizardCount(
-      backendPayload,
+      countPayload,
       // The voter-file count fires on every pill toggle, so an org with no
       // resolvable district produced one 400 per keystroke-debounced change.
       !voterDataUnavailable &&
