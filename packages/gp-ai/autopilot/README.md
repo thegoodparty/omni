@@ -258,6 +258,109 @@ Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`,
 | `AUTOPILOT_MAX_CONCURRENT_STORIES` | How many stories the supervisor will run in flight at once per epic (default **2**). Read fresh at tick time, not at Lambda cold start, so raising or lowering it takes effect on the very next tick with no redeploy. A story with an unmet ClickUp dependency link never launches regardless of this cap. |
 | `GITHUB_APP_PRIVATE_KEY` | Same Delegate App key `agent/github_auth.py` uses, from `AI_SECRETS_<ENV>`. `lambda/github_auth.py` mints its own short-lived installation token from it (stdlib-only RS256 signing — no pyjwt/cryptography in this Lambda's zip) to read a story's PR state for merge-pending resolution. |
 
+## Retry budget, end to end (ENG-11154)
+
+What actually retries a missed or failed transition, in the order a card
+hits them, and where it ends if nothing does:
+
+1. **Webhook delivery has zero platform retries.** `handler.py`'s async
+   self-invoke (both the ClickUp path and the Slack ingress) is configured
+   with `aws_lambda_function_event_invoke_config.maximum_retry_attempts = 0`
+   (`infrastructure/modules/autopilot-bot/main.tf`) — a failure inside that
+   invocation is not retried by AWS. ClickUp itself does redeliver a slow-
+   acked webhook, which `dispatch.claim_transition`'s dedup absorbs (see
+   `handler.py`'s module docstring), but a webhook that never arrives, or
+   whose async worker dies mid-flight, has no platform-level second try.
+   That gap is what everything below exists to close.
+
+2. **The sweep is the retry**, on a 15-minute GitHub Actions cron
+   (`.github/workflows/autopilot-sweep.yml`, not Terraform). Every tick
+   (`sweep.handle_sweep`) re-derives what a lost webhook would have
+   delivered from ClickUp's current board state and feeds it through the
+   same `router.route()` + `dispatch.claim_transition` path — see the
+   module docstring for the full mechanism. Two things bound how much a
+   single tick can redo:
+   - `SWEEP_LOOKBACK_MINUTES` (default 45, `sweep.sweep_lookback_ms`) — how
+     far back `list_recently_updated_tasks` scans for a card whose status
+     changed with no matching dispatch.
+   - `SWEEP_MAX_TRIGGERS` (default 10, `sweep.sweep_max_triggers`) — a cap
+     on real dispatches from that scan per tick (`sweep.handle_sweep`'s
+     `cap_hit` logging); the remainder waits for the next tick. It does not
+     bound the unconditional executing-card ticks, the stall alerts, merge-
+     pending resolution, or auto-resume below — each of those is
+     self-limiting by board shape instead (see their own docstrings).
+   - **Ambiguous-pair skip**: `sweep._from_status_for_current` reverse-looks-up
+     `router.ROUTING_TABLE` for the one `from_status` that reaches a card's
+     current status; when more than one row could (e.g. a story reaching "in
+     progress" from both kickoff and a feedback-resume), the transition is
+     skipped rather than guessed — reconstructing the wrong one against a
+     legitimately mid-run story would dispatch a duplicate. A feature card
+     sitting in "in progress" is skipped outright for the same reason (a
+     comment or rename bumps `date_updated` without a real transition). Skips
+     here are not silent: `alert_stalled_in_progress_feature_cards` covers the
+     feature-card case with a one-time Slack alert past
+     `supervisor.STATUS_TTL_SECONDS[router.STATUS_IN_PROGRESS]`, and a stuck
+     story surfaces the same way via its own status TTL below.
+
+3. **Stall alerts are the backstop for what the sweep can't re-drive** — never
+   an auto-retry, always exactly one Slack post. `supervisor.STATUS_TTL_SECONDS`
+   sets the ceiling per status a story can sit in before it counts as stalled:
+   `STATUS_IN_PROGRESS` 2h, `STATUS_QA` 1h, `STATUS_EXECUTING` 30min (a manual
+   drag only — stories don't reach it in the normal pipeline). `feedback
+   needed` carries no TTL: waiting on a human isn't a stall. Claimed once via
+   `supervisor.try_claim_stall_alert` (an epic-scoped claim) for stories inside
+   an executing epic, and via the same claim item for the feature-card case in
+   `alert_stalled_in_progress_feature_cards`.
+
+4. **Merge-pending resolution** (`sweep.resolve_merge_pending_parks`) is a
+   free retry, not a paid one: a story parked on "Merge pending: PR #n" gets
+   one GitHub read (`sweep.fetch_pull_request`) per tick, uncapped by
+   `SWEEP_MAX_TRIGGERS`. Merged moves it straight to `qa` and launches QA
+   (`sweep._dispatch_qa_after_merge`, claimed on the PR number so two ticks
+   discovering the same merge only launch once); closed-unmerged posts one
+   Slack alert (`sweep._alert_closed_unmerged_pr`, claimed the same way,
+   `CLOSED_PR_ALERT_TTL_SECONDS` = 30 days); still open leaves the park
+   untouched. Runs BEFORE auto-resume in the same tick, and every merge-pending
+   park it finds is excluded from auto-resume regardless of outcome — a paid
+   resume must never race this free check for the same park.
+
+5. **Auto-resume** (`sweep.auto_resume_actionable_parks`) retries a parked
+   story whose park is a status note or a stranded run, not a question — see
+   its own docstring for the exact skip list (QA-failed parks, any park with a
+   reply already posted, merge-pending parks). Deduped per park instance on
+   the park comment's own id, so a fresh re-park always earns exactly one more
+   try. Bounded by `AUTO_RESUME_MAX_PARKS` (10) — a count of park markers on
+   the thread, not a relapse streak, because a healthy story legitimately
+   accrues several along the way (merge-pending, deploy-pending, a stranded
+   run).
+
+6. **Dead-letter tag: what happens when the retry budget runs out.**
+   Hitting `AUTO_RESUME_MAX_PARKS` on a story does not retry again — it ends
+   the automated retry budget for that park cycle and hands the story to a
+   human, board-visibly (`sweep._escalate_dead_letter`):
+   - Tags the story `router.DEAD_LETTER_TAG_NAME` (`dead-letter`) via
+     `supervisor.add_task_tag`, and posts exactly one Slack escalation.
+     Claimed on the park comment's own id (`sweep.DEAD_LETTER_ALERT_STAGE`,
+     `sweep.DEAD_LETTER_ALERT_TTL_SECONDS` = 30 days) — the SAME unit
+     `auto_resume_actionable_parks` dedups auto-resumes on, so "one park
+     cycle" means the same thing on both sides of this feature.
+   - The claim is taken BEFORE the tag write, not after: a human who removes
+     the tag to take ownership does not stop the story from still sitting
+     past the cap on the very next 15-minute tick (nothing else about the
+     park changes when they remove it), so tagging first would silently
+     re-tag it right back. Claiming first means every tick after the winning
+     one finds the claim already taken and returns before ever touching the
+     tag — the removal sticks until a genuinely new park (a new comment id,
+     a fresh unclaimed key) comes along.
+   - `router.has_dead_letter_tag` excludes a tagged story from
+     `auto_resume_actionable_parks` entirely, checked off the task dict the
+     sweep already fetched (no extra ClickUp read) — a dead-lettered story
+     stays a human's until they remove the tag.
+   - No new status and no new AWS infra: a status change would need a
+     `router.ROUTING_TABLE` entry on both the feature-card and story sides
+     (see "Board contract for humans" above); a tag is API-manageable and
+     board-filterable without touching routing at all.
+
 ## Testing
 
 `lambda` is a Python keyword, so `lambda/handler.py` cannot be reached with a

@@ -92,6 +92,17 @@ CLOSED_PR_ALERT_TTL_SECONDS = 30 * 24 * 60 * 60
 # per-transition claim, so it carries no expires_at and never self-expires.
 STATUS_CARD_PK = "status_card"
 
+# Claim-key namespace for the dead-letter escalation Slack post (see
+# _escalate_dead_letter) — same "claim first, act second" shape
+# CLOSED_PR_ALERT_STAGE uses above, but keyed on the PARK COMMENT ID rather
+# than a PR number: that is the unit of "one park cycle" this feature must
+# escalate at most once for (see AUTO_RESUME_MAX_PARKS and
+# router.has_dead_letter_tag).
+DEAD_LETTER_ALERT_STAGE = "dead-letter-alert"
+# Long-lived, like CLOSED_PR_ALERT_TTL_SECONDS: this is a one-time event for
+# a given park comment, not a per-run transition with a natural deadline.
+DEAD_LETTER_ALERT_TTL_SECONDS = 30 * 24 * 60 * 60
+
 
 def _load_sibling_module(stem: str) -> Any:
     """See handler.py's own copy for why this can't be a normal import."""
@@ -245,7 +256,12 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
     - Any park with a comment after it: a reply already dispatched (or will
       dispatch) the comment-resume route; racing it would double-dispatch.
     - Threads carrying AUTO_RESUME_MAX_PARKS or more park markers: a story
-      relapsing that often needs a human, and each park already pinged Slack.
+      relapsing that often needs a human, and each park already pinged Slack
+      (see _escalate_dead_letter) instead of another auto-resume lap.
+    - Any story already carrying the `dead-letter` tag (router.has_dead_letter_tag):
+      once a story hits the park cap it stays a human's until they remove the
+      tag, at which point a genuinely new park (see _escalate_dead_letter)
+      can escalate it again.
 
     Dedup: the park comment's own id keys the claim, so each park instance
     gets exactly one auto-resume, and a fresh re-park (new comment) earns
@@ -262,6 +278,10 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
             break
         task_id = task.get("id")
         if not isinstance(task_id, str) or not task_id:
+            continue
+        if router.has_dead_letter_tag(task):
+            # Human-owned until they remove the tag — checked off the task
+            # dict `parked_stories` already carries, no extra ClickUp read.
             continue
         try:
             comments = supervisor.get_task_comments(task_id)
@@ -298,6 +318,7 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
                 f"Story {task_id} has re-parked {router.park_marker_count(comments)} times; "
                 "leaving it for a human instead of another auto-resume lap"
             )
+            _escalate_dead_letter(task_id, park)
             continue
 
         ceiling = router.STAGE_CEILINGS[router.STAGE_RESUME]
@@ -315,6 +336,82 @@ def auto_resume_actionable_parks(cap: int, parked_stories: list[dict]) -> int:
             print(f"Auto-resumed parked story {task_id} (stage {park.stage!r}, park {park.comment_id})")
             resumed += 1
     return resumed
+
+
+def _release_dead_letter_claim(task_id: str, comment_id: str) -> None:
+    """Deletes the exact claim _escalate_dead_letter just won — safe to
+    scope to the bare key because the caller holds it (nothing else can have
+    claimed the same (task, dead-letter-alert, park comment) triple while it
+    exists). Mirrors _release_qa_dispatch_claim below."""
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        return
+    pk = dispatch.claim_pk(task_id, DEAD_LETTER_ALERT_STAGE, comment_id)
+    try:
+        dispatch.get_dynamodb_client().delete_item(
+            TableName=table_name,
+            Key={"pk": {"S": pk}},
+        )
+    except Exception as e:
+        # A stranded claim here has NO automated backstop (unlike the qa
+        # counterpart's stall-TTL alert): the park cycle stays claimed but
+        # untagged and unalerted until the claim's 30-day TTL. Name the key
+        # so an operator can delete the item and unblock escalation.
+        print(
+            f"ERROR: releasing dead-letter claim for {task_id} comment {comment_id} failed: {type(e).__name__}; "
+            f"claim key={pk!r} is now stranded for up to 30 days — manually delete this DynamoDB item to unblock escalation"
+        )
+
+
+def _escalate_dead_letter(task_id: str, park: Any) -> None:
+    """Tags a story that just hit the park cap `dead-letter` and posts ONE
+    Slack escalation ("automation exhausted, needs a human") — see the
+    README's retry-budget section for the full contract.
+
+    Ordering is CLAIM, then tag, then alert — not tag-first. The claim is
+    what makes the tag write itself happen at most once per park cycle: a
+    human who removes the tag to take ownership does not stop the story from
+    still sitting past the park cap on the very next 15-minute sweep tick
+    (nothing else about the park changes when they remove it), so a
+    tag-first order would silently re-tag it right back on that next tick.
+    Claiming on `park.comment_id` FIRST means every tick after the first
+    winning one finds the claim already taken and returns immediately,
+    before ever touching the tag — the removal sticks until a genuinely new
+    park (a new comment id, and therefore a fresh, unclaimed key) comes
+    along, which is exactly the "fresh park cycle can escalate again"
+    contract.
+
+    If the tag write itself fails after the claim is won, the claim is
+    rolled back (_release_dead_letter_claim, mirroring
+    _release_qa_dispatch_claim) so the next tick retries the whole
+    escalation — otherwise this park cycle would be claimed-but-never-tagged
+    forever, which is worse than the transient failure it was trying to
+    survive. A failed Slack post AFTER a successful tag is NOT rolled back:
+    the tag is the durable, board-visible signal (and what
+    auto_resume_actionable_parks' exclusion check reads), and retrying the
+    claim there would trade a rare missed ping for a guaranteed risk of
+    posting the escalation twice — the same residue try_claim_stall_alert
+    and _alert_closed_unmerged_pr already accept for their own once-only
+    Slack posts.
+    """
+    comment_id = str(park.comment_id)
+    reason = dispatch.claim_transition(task_id, DEAD_LETTER_ALERT_STAGE, comment_id, DEAD_LETTER_ALERT_TTL_SECONDS)
+    if reason is not None:
+        return  # already escalated for this park cycle (or a concurrent tick just won it)
+
+    try:
+        supervisor.add_task_tag(task_id, router.DEAD_LETTER_TAG_NAME)
+    except Exception as e:
+        print(f"ERROR: sweep failed to tag {task_id} dead-letter; rolling back claim for retry: {type(e).__name__}")
+        _release_dead_letter_claim(task_id, comment_id)
+        return
+
+    supervisor.post_slack_message(
+        f":skull: Autopilot story {supervisor.clickup_task_url(task_id)} hit its park cap "
+        f"({AUTO_RESUME_MAX_PARKS} parks) and is now tagged `{router.DEAD_LETTER_TAG_NAME}` — automation is "
+        "exhausted, this one needs a human. Remove the tag once you've got it; a fresh park cycle after that "
+        "can escalate again."
+    )
 
 
 def fetch_pull_request(pr_number: int) -> dict | None:

@@ -143,6 +143,14 @@ class FakeClickUp:
         self.task_queries: list[str] = []
         self.status_updates: dict[str, list[str]] = {}
         self.status_update_failures: dict[str, int] = {}
+        # Dead-letter tag state (ENG-11154): a set of tag names per task id,
+        # separate from any "tags" key a test seeds a task dict with — real
+        # ClickUp task dicts carry `tags`, but this registry is what
+        # `/task/{id}/tag/{name}` POSTs actually mutate, so a tag applied
+        # mid-test shows up on every SUBSEQUENT query for that task.
+        self.tags: dict[str, set[str]] = {}
+        self.tag_calls: list[tuple[str, str]] = []
+        self.tag_failures: dict[str, int] = {}
         # Backs supervisor.load_epic_stories, which the status card
         # (ENG-11151) now calls per executing epic to find its in-flight
         # stories under bounded concurrency (ENG-11148) — subtasks maps an
@@ -152,6 +160,24 @@ class FakeClickUp:
         # unregistered-endpoint AssertionError.
         self.subtasks: dict[str, list[str]] = {}
         self.tasks: dict[str, dict] = {}
+
+    def _with_current_tags(self, tasks):
+        result = []
+        for t in tasks:
+            task_id = t.get("id")
+            current = self.tags.get(task_id)
+            if current is None and isinstance(t.get("tags"), list):
+                # First time this task is seen: seed the registry from
+                # whatever "tags" the test's task dict was built with.
+                current = {
+                    tag["name"] for tag in t["tags"] if isinstance(tag, dict) and isinstance(tag.get("name"), str)
+                }
+                self.tags[task_id] = current
+            if current:
+                result.append({**t, "tags": [{"name": name} for name in sorted(current)]})
+            else:
+                result.append(t)
+        return result
 
     def request(self, method, endpoint, data=None):
         if method == "GET" and endpoint.startswith("/list/") and "/task?" in endpoint:
@@ -164,8 +190,16 @@ class FakeClickUp:
                     registry = self.in_progress_tasks
                 else:
                     registry = self.executing_tasks
-                return {"tasks": registry.get(list_id, [])}
-            return {"tasks": self.list_tasks.get(list_id, [])}
+                return {"tasks": self._with_current_tags(registry.get(list_id, []))}
+            return {"tasks": self._with_current_tags(self.list_tasks.get(list_id, []))}
+        if method == "POST" and endpoint.startswith("/task/") and "/tag/" in endpoint:
+            task_id, tag_name = endpoint[len("/task/") :].split("/tag/", 1)
+            if self.tag_failures.get(task_id, 0) > 0:
+                self.tag_failures[task_id] -= 1
+                raise RuntimeError("transient ClickUp 500")
+            self.tag_calls.append((task_id, tag_name))
+            self.tags.setdefault(task_id, set()).add(tag_name)
+            return {}
         if method == "GET" and endpoint.endswith("/comment"):
             task_id = endpoint.split("/task/", 1)[1].split("/comment", 1)[0]
             return {"comments": self.comments.get(task_id, [])}
@@ -639,6 +673,96 @@ def test_relapsing_story_stops_getting_auto_resumes(fake_clickup, fake_ecs, caps
     assert fake_ecs.run_task_calls == []
     assert json.loads(result["body"])["auto_resumed"] == 0
     assert "leaving it for a human" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Dead-letter tag + escalation at the park cap (ENG-11154)
+# ---------------------------------------------------------------------------
+
+
+def _relapsed_story(comment_id_prefix="park", count=None):
+    count = sweep.AUTO_RESUME_MAX_PARKS if count is None else count
+    return [
+        parked_comment("story", "Deploy pending: lap 1.", comment_id=f"{comment_id_prefix}-{i}", date=str(1000 + i))
+        for i in range(count)
+    ]
+
+
+def test_park_cap_tags_and_alerts_exactly_once(fake_clickup, fake_ecs, slack_posts):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = _relapsed_story()
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_clickup.tag_calls == [("story-9", router.DEAD_LETTER_TAG_NAME)]
+    assert len(slack_posts) == 1
+    assert "story-9" in slack_posts[0] and router.DEAD_LETTER_TAG_NAME in slack_posts[0]
+
+
+def test_dead_letter_tag_removed_same_park_cycle_does_not_realert_or_retag(fake_clickup, fake_ecs, slack_posts):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = _relapsed_story()
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+    assert len(slack_posts) == 1
+
+    # Human removes the tag (takes ownership) — the park itself is unchanged,
+    # so the story is still sitting past the cap on the very next tick.
+    fake_clickup.tags["story-9"].discard(router.DEAD_LETTER_TAG_NAME)
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(slack_posts) == 1  # no re-alert
+    assert fake_clickup.tag_calls == [("story-9", router.DEAD_LETTER_TAG_NAME)]  # not re-tagged either
+    assert router.DEAD_LETTER_TAG_NAME not in fake_clickup.tags["story-9"]  # removal stuck
+
+
+def test_fresh_park_cycle_after_dead_letter_can_reescalate(fake_clickup, fake_ecs, slack_posts):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = _relapsed_story()
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+    fake_clickup.tags["story-9"].discard(router.DEAD_LETTER_TAG_NAME)
+
+    # A brand-new park (fresh comment id) after the human rescued it.
+    fake_clickup.comments["story-9"].append(
+        parked_comment("story", "Deploy pending: still going.", comment_id="park-fresh", date="9999")
+    )
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(slack_posts) == 2
+    assert fake_clickup.tag_calls.count(("story-9", router.DEAD_LETTER_TAG_NAME)) == 2
+
+
+def test_dead_letter_tagged_story_is_excluded_from_auto_resume(fake_clickup, fake_ecs):
+    # Even an otherwise-actionable park (deploy pending, not qa-failed, no
+    # reply) must not auto-resume once tagged — the tag is the human's claim.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.tags["story-9"] = {router.DEAD_LETTER_TAG_NAME}
+    fake_clickup.comments["story-9"] = [parked_comment("qa", "Deploy pending: commit abc123 isn't live on dev yet.")]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+
+
+def test_dead_letter_tag_write_failure_rolls_back_claim_for_retry(fake_clickup, fake_ecs, slack_posts):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = _relapsed_story()
+    fake_clickup.tag_failures["story-9"] = 1  # first tag write fails; second succeeds
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert slack_posts == []
+    assert fake_clickup.tags.get("story-9", set()) == set()
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(slack_posts) == 1
+    assert router.DEAD_LETTER_TAG_NAME in fake_clickup.tags["story-9"]
 
 
 def test_top_level_card_in_feedback_needed_is_never_auto_resumed(fake_clickup, fake_ecs):
