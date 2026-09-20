@@ -151,6 +151,15 @@ class FakeClickUp:
         self.tags: dict[str, set[str]] = {}
         self.tag_calls: list[tuple[str, str]] = []
         self.tag_failures: dict[str, int] = {}
+        # Backs supervisor.load_epic_stories, which the status card
+        # (ENG-11151) now calls per executing epic to find its in-flight
+        # stories under bounded concurrency (ENG-11148) — subtasks maps an
+        # epic id to its story ids, tasks answers the per-story GET each one
+        # triggers. Empty by default so a test that never registers an
+        # epic's stories gets "no story in flight" rather than an
+        # unregistered-endpoint AssertionError.
+        self.subtasks: dict[str, list[str]] = {}
+        self.tasks: dict[str, dict] = {}
 
     def _with_current_tags(self, tasks):
         result = []
@@ -198,6 +207,12 @@ class FakeClickUp:
             task_id = endpoint.split("/task/", 1)[1].split("/time_in_status", 1)[0]
             since = self.time_in_status_since.get(task_id)
             return {"current_status": {"since": str(since)}} if since is not None else {}
+        if method == "GET" and "include_subtasks=true" in endpoint:
+            task_id = endpoint.split("/task/", 1)[1].split("?", 1)[0]
+            return {"subtasks": [{"id": sid} for sid in self.subtasks.get(task_id, [])]}
+        if method == "GET" and endpoint.startswith("/task/") and "/" not in endpoint[len("/task/") :]:
+            task_id = endpoint[len("/task/") :]
+            return self.tasks.get(task_id, task(task_id, router.STATUS_DONE))
         if method == "PUT" and endpoint.startswith("/task/") and "/" not in endpoint[len("/task/") :]:
             task_id = endpoint[len("/task/") :]
             if self.status_update_failures.get(task_id, 0) > 0:
@@ -1086,13 +1101,17 @@ def test_status_card_skips_gracefully_without_a_configured_channel(fake_clickup,
 def test_status_card_reports_in_flight_story_outcome_and_cost_from_active_claim(
     fake_clickup, fake_slack_status_card, monkeypatch
 ):
-    # "In-flight stories (from board state + active claims)": the epic is
-    # executing (board state) and the supervisor's own DynamoDB claim (not a
-    # new ClickUp query) names the story it is protecting.
+    # "In-flight stories (from board state + active per-story claims)": the
+    # epic is executing (board state), its one subtask is still formally
+    # queued on the board (the race window before the stage runner's own
+    # first ClickUp status write lands), and the supervisor's own per-story
+    # DynamoDB claim is what names it as in flight.
     monkeypatch.setattr(sweep.supervisor, "run_supervisor_tick", lambda epic_task_id: None)
     fake_clickup.executing_tasks[FEATURE_LIST_ID] = [task("epic-9", router.STATUS_EXECUTING)]
+    fake_clickup.subtasks["epic-9"] = ["story-42"]
+    fake_clickup.tasks["story-42"] = task("story-42", router.STATUS_APPROVED_TDD)
     fake_clickup.comments["story-42"] = [run_summary_comment("story", "success", cost_usd=3.71)]
-    sweep.supervisor.claim_epic_in_flight("epic-9", "story-42", ttl_seconds=3600)
+    sweep.supervisor.claim_story_in_flight("epic-9", "story-42", ttl_seconds=3600)
 
     sweep.handle_sweep({"autopilot_sweep": True})
 
@@ -1108,6 +1127,7 @@ def test_status_card_reports_no_story_in_flight_when_the_claim_is_empty(
 ):
     monkeypatch.setattr(sweep.supervisor, "run_supervisor_tick", lambda epic_task_id: None)
     fake_clickup.executing_tasks[FEATURE_LIST_ID] = [task("epic-9", router.STATUS_EXECUTING)]
+    fake_clickup.subtasks["epic-9"] = []
 
     sweep.handle_sweep({"autopilot_sweep": True})
 
