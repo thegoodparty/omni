@@ -756,15 +756,21 @@ def handle_sweep(event: dict) -> dict:
 # run-summary comment main.post_run_summary_comment posts on every stage run
 # (see metrics.format_run_summary_comment / router.latest_run_summary).
 #
-# Built PURELY from board state this tick already has (executing_cards,
-# in_progress_cards, parked_stories — all passed in from handle_sweep, never
-# re-queried) plus the supervisor's own epic-in-flight DynamoDB claims
-# ("active claims") and a per-in-flight-story comments read (the same
-# /task/{id}/comment endpoint the sweep already calls elsewhere) — no new
-# ClickUp query family, and no log/CloudWatch access: cost is derivable by a
-# human from the card's own comment thread, and this reads the exact same
-# comment. Eventually consistent by design, same as the rest of the sweep —
-# a 15-minute-old number here is expected, not a bug.
+# Built from board state this tick already has for the two "cards by
+# status" sections (executing_cards, in_progress_cards, parked_stories — all
+# passed in from handle_sweep, never re-queried), plus one
+# supervisor.load_epic_stories call per EXECUTING epic to find which
+# stories are actually in flight (supervisor.in_flight_story_ids — board
+# status union active per-story DynamoDB claims, since a bounded-concurrency
+# epic can have more than one story running at once; see supervisor.py) and
+# a per-in-flight-story comments read (the same /task/{id}/comment endpoint
+# the sweep already calls elsewhere) for that story's last-run outcome/cost.
+# The load_epic_stories call is the same one run_supervisor_tick already
+# makes for this exact epic a few lines up in handle_sweep — reused for a
+# second purpose here, not a new query family. No log/CloudWatch access:
+# cost is derivable by a human from the card's own comment thread, and this
+# reads the exact same comment. Eventually consistent by design, same as the
+# rest of the sweep — a 15-minute-old number here is expected, not a bug.
 # ---------------------------------------------------------------------------
 
 
@@ -822,17 +828,7 @@ def _card_link(task: dict) -> str:
     return f"<{supervisor.clickup_task_url(task_id)}|{_slack_escape(name)}>"
 
 
-def _in_flight_story_line(epic_task_id: str) -> str:
-    """What's actually running under one executing epic: the story its own
-    DynamoDB claim currently protects ("active claims" — supervisor.py's
-    one-in-flight-story invariant, not a new ClickUp query), and that
-    story's own last-run outcome/cost, read off the newest run-summary
-    comment on its thread."""
-    claim = supervisor.get_epic_claim_item(epic_task_id)
-    story_task_id = supervisor.claimed_story_task_id(claim)
-    if story_task_id is None:
-        return "no story in flight"
-
+def _story_status_line(story_task_id: str) -> str:
     story_link = f"<{supervisor.clickup_task_url(story_task_id)}|{story_task_id}>"
     try:
         comments = supervisor.get_task_comments(story_task_id)
@@ -846,6 +842,20 @@ def _in_flight_story_line(epic_task_id: str) -> str:
 
     cost = f"${summary['cost_usd']:.2f}" if summary["cost_usd"] is not None else "cost unknown"
     return f"{story_link} ({summary['stage']}): last run {summary['outcome']}, {cost}"
+
+
+def _in_flight_story_line(epic_task_id: str) -> str:
+    """What's actually running under one executing epic: every story
+    currently in flight (board status union an active per-story DynamoDB
+    claim — see supervisor.in_flight_story_ids; a bounded-concurrency epic
+    can have more than one), each with its own last-run outcome/cost read
+    off the newest run-summary comment on its thread."""
+    stories = supervisor.load_epic_stories(epic_task_id)
+    in_flight_ids = supervisor.in_flight_story_ids(stories)
+    if not in_flight_ids:
+        return "no story in flight"
+
+    return "; ".join(_story_status_line(story_task_id) for story_task_id in sorted(in_flight_ids))
 
 
 def _status_timestamp() -> str:
