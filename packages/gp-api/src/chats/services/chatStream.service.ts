@@ -554,7 +554,15 @@ export class ChatStreamService {
         attachmentResult.attachments,
       )
       if (attachedBlock) {
-        effectiveSystemPrompt = `${args.systemPrompt}\n\n${attachedBlock}`
+        // Use the already-folded system content (which may include the
+        // leading-greeting fold from toLlmMessages) as the base, not the
+        // raw systemPrompt, so the fold is not discarded.
+        const baseSystem =
+          effectiveMessages.length > 0 &&
+          effectiveMessages[0]!.role === 'system'
+            ? String(effectiveMessages[0]!.content)
+            : args.systemPrompt
+        effectiveSystemPrompt = `${baseSystem}\n\n${attachedBlock}`
         if (
           effectiveMessages.length > 0 &&
           effectiveMessages[0]!.role === 'system'
