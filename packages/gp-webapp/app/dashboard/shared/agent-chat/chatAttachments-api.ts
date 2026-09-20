@@ -144,6 +144,26 @@ export const deleteChatAttachment = async (
   )
 }
 
+/**
+ * Fetch a presigned download URL for a citation click-through.
+ * Returns `{ url, expiresAt }` on success, or null when the attachment is
+ * unavailable (deleted, S3 error, or any non-2xx).
+ */
+export const downloadChatAttachment = async (
+  conversationId: string,
+  attachmentId: string,
+): Promise<{ url: string; expiresAt: string } | null> => {
+  try {
+    const { data } = await clientRequest(
+      'GET /v1/chats/:conversationId/attachments/:attachmentId/download',
+      { conversationId, attachmentId },
+    )
+    return data
+  } catch {
+    return null
+  }
+}
+
 /** Human-readable label for a link error code. */
 export const linkErrorMessage = (error: string): string => {
   switch (error) {
