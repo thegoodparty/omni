@@ -19,6 +19,7 @@ group.
 
 import json
 import math
+import re
 from typing import Any
 
 # What the CloudWatch filter pattern matches. A DIFFERENT token from
@@ -26,6 +27,23 @@ from typing import Any
 # substring anywhere in the message, and these two systems' runs must never be
 # summed into one count.
 METRIC_PREFIX = "AUTOPILOT_METRIC"
+
+# The only repo autopilot ever clones or opens a PR against (see main.py's
+# BASE_PROMPT) — scoped rather than a bare "any github.com/.../pull/N", so an
+# unrelated PR link a stage's final message happens to mention (a linked
+# issue, a cited fix from another repo) is never mistaken for this run's own.
+PR_URL_PATTERN = re.compile(r"https://github\.com/thegoodparty/omni/pull/\d+")
+
+# First line of every run-summary comment (ENG-11151) — duplicated in
+# lambda/router.py, which cannot import this module (see that module's
+# RUN_SUMMARY_MARKER_PATTERN for why); a contract test pins the two
+# character-identical. Cost is the ONLY field the sweep's status card needs
+# back out of it (outcome and stage it already has from board state / the
+# claim); duration and the PR link are for a human reading the thread, never
+# re-parsed, so they stay out of the marker line.
+RUN_SUMMARY_MARKER_PATTERN = re.compile(
+    r"\[autopilot:run-summary stage=([a-z0-9][a-z0-9-]*) outcome=([a-z_]+)(?: cost_usd=([0-9]*\.?[0-9]+))?\]"
+)
 
 # Cost is reported to the hundredth of a cent because that is what the SDK
 # hands over and rounding it further would make a $0.23 run and a $0.234 run
@@ -78,10 +96,19 @@ def _outcome(result: dict) -> str:
     return "error"
 
 
-def format_metric_line(
-    result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None, setup_s: Any = None
-) -> str:
-    """The one line a run emits about itself.
+def _pr_url(result: dict) -> str | None:
+    text = result.get("result")
+    if not isinstance(text, str):
+        return None
+    match = PR_URL_PATTERN.search(text)
+    return match.group(0) if match else None
+
+
+def run_summary(result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None, setup_s: Any = None) -> dict:
+    """The one dict a run reports about itself — fed to BOTH sinks (the
+    CloudWatch metric line and the ClickUp run-summary comment) so they can
+    never drift into disagreeing about what a run's own outcome/cost/duration
+    were. See format_metric_line and main.format_run_summary_comment.
 
     Every field is always present, `null` when it does not apply — so a
     reader can tell "this run had no epic" from "this line predates the
@@ -99,7 +126,7 @@ def format_metric_line(
     """
     result = result if isinstance(result, dict) else {}
 
-    fields = {
+    return {
         "task_id": _text(result.get("task_id")),
         "stage": _text(stage),
         "outcome": _outcome(result),
@@ -107,8 +134,60 @@ def format_metric_line(
         "duration_s": _number(duration_s, DURATION_DECIMAL_PLACES),
         "setup_s": _number(setup_s, DURATION_DECIMAL_PLACES),
         "epic_task_id": _text(epic_task_id),
+        "pr_url": _pr_url(result),
     }
 
-    # One line, no indentation, prefix first — filter-log-events returns whole
-    # messages, so the consumer splits on the prefix and parses the remainder.
-    return f"{METRIC_PREFIX} {json.dumps(fields)}"
+
+def format_metric_line(
+    result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None, setup_s: Any = None
+) -> str:
+    """The one line a run emits about itself.
+
+    One line, no indentation, prefix first — filter-log-events returns whole
+    messages, so the consumer splits on the prefix and parses the remainder.
+    """
+    return f"{METRIC_PREFIX} {json.dumps(run_summary(result, stage, duration_s, epic_task_id, setup_s))}"
+
+
+def format_run_summary_marker(stage: str, outcome: str, cost_usd: float | None) -> str:
+    marker = f"[autopilot:run-summary stage={stage} outcome={outcome}"
+    if cost_usd is not None:
+        marker += f" cost_usd={cost_usd}"
+    return marker + "]"
+
+
+def _format_usd(value: float | None) -> str:
+    return f"${value:.2f}" if value is not None else "unknown"
+
+
+def _format_duration(value: float | None) -> str:
+    return f"{value:.1f}s" if value is not None else "unknown"
+
+
+def format_run_summary_comment(summary: dict) -> str:
+    """The ClickUp comment a run posts about itself at the end of every stage
+    run (main.post_run_summary_comment). The marker line is the ONLY part
+    another reader (sweep.py's status card, via router.latest_run_summary)
+    parses back; everything below it is prose for a human in the thread.
+
+    MUST NEVER carry a `[autopilot:parked ...]` or
+    `[autopilot:slack-answer ...]` marker of its own — both the self-resume
+    guard (router.route()'s commentPosted handling) and the sweep's
+    reply-after-park check (sweep.auto_resume_actionable_parks) key off those
+    exact markers to tell a genuine human answer from the bot's own writes,
+    and a run-summary comment landing after a park is always the latter (see
+    router.RUN_SUMMARY_MARKER_PATTERN's docstring for the reading half of
+    this contract).
+    """
+    stage = summary.get("stage") or "unknown"
+    outcome = summary.get("outcome") or "unknown"
+    lines = [
+        format_run_summary_marker(stage, outcome, summary.get("cost_usd")),
+        "",
+        f"**Outcome:** {outcome}",
+        f"**Cost:** {_format_usd(summary.get('cost_usd'))}",
+        f"**Duration:** {_format_duration(summary.get('duration_s'))}",
+    ]
+    if summary.get("pr_url"):
+        lines.append(f"**PR:** {summary['pr_url']}")
+    return "\n".join(lines)

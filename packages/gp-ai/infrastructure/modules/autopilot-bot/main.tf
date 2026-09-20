@@ -350,6 +350,13 @@ resource "aws_lambda_function" "autopilot_bot" {
       # merge-pending resolution pass (lambda/github_auth.py) mints its own
       # short-lived installation token from it to read PR merge state.
       GITHUB_APP_PRIVATE_KEY = try(local.ai_secrets["GITHUB_APP_PRIVATE_KEY"], "")
+      # ENG-11150: verifies the Slack Events API POSTs to /autopilot/slack
+      # (v0 HMAC over the raw body, same try(...) degrade-safe posture as the
+      # ClickUp secret above — an empty value makes verify_slack_signature
+      # reject every request rather than fail plan/apply on a key AI_SECRETS
+      # doesn't carry yet). Value is added to AI_SECRETS_<ENV> out-of-band
+      # (see docs/secrets.md); this only wires the reference.
+      AUTOPILOT_SLACK_SIGNING_SECRET = try(local.ai_secrets["AUTOPILOT_SLACK_SIGNING_SECRET"], "")
 
       AUTOPILOT_SLACK_CHANNEL = var.autopilot_slack_channel
       SWEEP_LOOKBACK_MINUTES  = var.sweep_lookback_minutes
