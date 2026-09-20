@@ -57,6 +57,7 @@ export interface SendMessageArgs {
   userMessage: string
   signal?: AbortSignal
   clientMessageId?: string
+  attachmentIds?: string[]
 }
 
 const toTitle = (message: string): string => {
@@ -320,6 +321,7 @@ export class GeneralChatsService {
         ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(args.attachmentIds && { attachmentIds: args.attachmentIds }),
         ...(handler.onTurnUsage && {
           onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
         }),

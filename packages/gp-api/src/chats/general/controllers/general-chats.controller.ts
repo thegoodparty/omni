@@ -184,6 +184,7 @@ export class GeneralChatsController {
       userMessage: body.content,
       signal: abortController.signal,
       ...(body.clientMessageId && { clientMessageId: body.clientMessageId }),
+      ...(body.attachmentIds && { attachmentIds: body.attachmentIds }),
     })
 
     let errored = false
