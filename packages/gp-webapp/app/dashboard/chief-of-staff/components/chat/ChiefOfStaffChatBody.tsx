@@ -653,7 +653,7 @@ export default function ChiefOfStaffChatBody({
       if (tab) {
         tab.location.href = url
       } else {
-        window.open(url, '_blank')
+        toast.error('Allow pop-ups in your browser to open sources')
       }
     },
     [conversationId],
