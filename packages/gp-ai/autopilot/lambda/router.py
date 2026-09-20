@@ -142,6 +142,63 @@ def is_slack_relay_comment(text: str | None) -> bool:
     return bool(text) and bool(SLACK_ANSWER_MARKER_PATTERN.search(text))
 
 
+# The marker main.post_run_summary_comment stamps as the FIRST LINE of the
+# run-summary comment every stage run posts on end (ENG-11151). Deliberately
+# duplicated from autopilot/agent/metrics.py for the same dependency-light
+# reason PARK_MARKER_PATTERN is duplicated above — a contract test asserts
+# the two patterns stay character-identical.
+#
+# Consulted in exactly two places:
+#   - sweep.py's status card reads outcome/cost back off it (latest_run_summary)
+#     for the "last-run outcome per in-flight card" line.
+#   - sweep.auto_resume_actionable_parks excludes it from the "any comment
+#     after the park" reply check: EVERY run — including a run that itself
+#     just parked — posts this comment at the end, so it always lands with a
+#     later date than the park it describes. Treating it like a genuine human
+#     reply would permanently wedge that park: the comment-resume route
+#     already (and correctly) ignores it too (bot-authored, carries neither
+#     PARK_MARKER nor SLACK_ANSWER_MARKER), so no other path would ever wake
+#     the story. Scoped to the marker, not the comment's author, on purpose —
+#     a blanket "ignore every bot-authored comment" would ALSO swallow a
+#     relayed Slack answer (also bot-authored, via the same ClickUp API key),
+#     which genuinely must count as an answer (see
+#     is_slack_relay_comment's own callers and the sweep test pinning that).
+RUN_SUMMARY_MARKER_PATTERN = re.compile(
+    r"\[autopilot:run-summary stage=([a-z0-9][a-z0-9-]*) outcome=([a-z_]+)(?: cost_usd=([0-9]*\.?[0-9]+))?\]"
+)
+
+
+def is_run_summary_comment(text: str | None) -> bool:
+    return bool(text) and bool(RUN_SUMMARY_MARKER_PATTERN.search(text))
+
+
+def latest_run_summary(comments: list[dict]) -> dict | None:
+    """The most recently posted run-summary marker's fields (stage, outcome,
+    cost_usd — cost_usd is None when the run reported none), or None if the
+    thread carries no run-summary comment. Latest wins by the comment's own
+    date, same discipline as latest_park, for a story that has run and
+    reported more than once."""
+    best: dict | None = None
+    best_date = -1
+    for comment in comments:
+        text = comment.get("comment_text")
+        if not isinstance(text, str):
+            continue
+        match = RUN_SUMMARY_MARKER_PATTERN.search(text)
+        if not match:
+            continue
+        date_ms = _comment_date_ms(comment)
+        if date_ms >= best_date:
+            best_date = date_ms
+            cost_raw = match.group(3)
+            best = {
+                "stage": match.group(1).lower(),
+                "outcome": match.group(2).lower(),
+                "cost_usd": float(cost_raw) if cost_raw is not None else None,
+            }
+    return best
+
+
 # The ClickUp card link a park/notify ping's Slack message embeds (see
 # agent/feedback.py's _slack_message/_notify_message) — the signal that a
 # Slack thread root is really one of OUR pings, not some unrelated message a

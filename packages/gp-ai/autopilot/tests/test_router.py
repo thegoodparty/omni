@@ -615,6 +615,72 @@ def test_parked_stage_from_comments_none_without_a_marker():
     assert router.parked_stage_from_comments([]) is None
 
 
+# ---------------------------------------------------------------------------
+# Run-summary marker (ENG-11151) — the conductor's copy
+# ---------------------------------------------------------------------------
+
+
+def test_run_summary_marker_pattern_matches_the_agent_side_pattern_exactly():
+    # Same drift alarm as PARK_MARKER_PATTERN above: duplicated because the
+    # Lambda bundle can't import autopilot.agent.metrics.
+    from autopilot.agent.metrics import RUN_SUMMARY_MARKER_PATTERN as agent_pattern
+
+    assert router.RUN_SUMMARY_MARKER_PATTERN.pattern == agent_pattern.pattern
+    assert router.RUN_SUMMARY_MARKER_PATTERN.flags == agent_pattern.flags
+
+
+def test_is_run_summary_comment_matches_only_the_run_summary_marker():
+    assert router.is_run_summary_comment("[autopilot:run-summary stage=story outcome=success cost_usd=3.71]") is True
+    assert router.is_run_summary_comment("[autopilot:parked stage=story]\n\n1. Q?") is False
+    assert router.is_run_summary_comment("[autopilot:slack-answer from U123] yes") is False
+    assert router.is_run_summary_comment("just a reply") is False
+    assert router.is_run_summary_comment(None) is False
+
+
+def test_latest_run_summary_parses_stage_outcome_and_cost():
+    comments = [{"comment_text": "[autopilot:run-summary stage=story outcome=success cost_usd=3.71]", "date": "1000"}]
+
+    summary = router.latest_run_summary(comments)
+
+    assert summary == {"stage": "story", "outcome": "success", "cost_usd": 3.71}
+
+
+def test_latest_run_summary_without_cost_reports_none_not_zero():
+    comments = [{"comment_text": "[autopilot:run-summary stage=qa outcome=error]", "date": "1000"}]
+
+    assert router.latest_run_summary(comments) == {"stage": "qa", "outcome": "error", "cost_usd": None}
+
+
+def test_latest_run_summary_latest_marker_wins_by_date():
+    comments = [
+        {"comment_text": "[autopilot:run-summary stage=story outcome=feedback_parked cost_usd=1.0]", "date": "1000"},
+        {"comment_text": "[autopilot:run-summary stage=story outcome=success cost_usd=4.5]", "date": "5000"},
+    ]
+
+    assert router.latest_run_summary(comments) == {"stage": "story", "outcome": "success", "cost_usd": 4.5}
+
+
+def test_latest_run_summary_none_without_a_marker():
+    assert router.latest_run_summary([{"comment_text": "just a reply", "date": "1"}]) is None
+
+
+def test_bot_run_summary_comment_is_not_exempted_by_the_marker_check(capsys):
+    # A run-summary comment is bot-authored (posted via the same ClickUp API
+    # key) and carries neither PARK_MARKER nor SLACK_ANSWER_MARKER — it must
+    # be ignored exactly like a re-park comment (test_bot_park_comment_is_
+    # not_exempted_by_the_marker_check above), never treated as a human answer.
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        event_ts="1700000400000",
+        event_actor_id=BOT_USER_ID,
+        latest_comment_text="[autopilot:run-summary stage=story outcome=success cost_usd=3.71]",
+    )
+
+    assert router.route(e) == []
+    assert "Ignoring the bot's own comment" in capsys.readouterr().out
+
+
 def test_parked_stage_from_comments_survives_bad_dates_and_missing_text():
     comments = [
         {"comment_text": "[autopilot:parked stage=story]", "date": "not-a-number"},

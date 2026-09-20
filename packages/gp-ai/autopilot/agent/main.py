@@ -17,7 +17,9 @@ import asyncio
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -30,12 +32,13 @@ from claude_agent_sdk import (
     query,
 )
 
+from shared.clickup_client import ClickUpClient
 from shared.logger import get_logger
 
 from .config import CAPABILITIES, AgentConfig, UnknownStageError
 from .feedback import apply_park_outcome, park_if_stranded
 from .github_auth import setup_github_auth
-from .metrics import format_metric_line
+from .metrics import format_metric_line, format_run_summary_comment, run_summary
 from .workspace import WorkspaceCloneError, clone_omni, point_playwright_mcp_at_chromium
 
 logger = get_logger(__name__)
@@ -242,6 +245,31 @@ async def run_agent(config: AgentConfig) -> dict:
         }
 
 
+def post_run_summary_comment(
+    summary: dict,
+    task_id: str,
+    *,
+    clickup_client_factory: Callable[[], Any] = ClickUpClient,
+) -> None:
+    """Posts the run summary (stage, outcome, cost, duration, PR link) as a
+    ClickUp comment on the worked card — the phase 2 status surface's
+    per-card half (see sweep.py for the pinned Slack half, which reads this
+    same comment back).
+
+    Log-and-continue, never raise: a comment is strictly additive
+    observability, and a failure here (a ClickUp outage, a bad task id) must
+    never turn an already-decided run result into a failure it wasn't. The
+    caller passes `summary` in, rather than this function computing it, so a
+    failure here can never mutate the dict format_metric_line has already
+    used (or is about to).
+    """
+    try:
+        with clickup_client_factory() as clickup:
+            clickup.create_task_comment(task_id, format_run_summary_comment(summary))
+    except Exception as e:
+        logger.error(f"Failed to post run-summary comment on {task_id}: {type(e).__name__}: {e}")
+
+
 async def main():
     try:
         config = AgentConfig.from_env()
@@ -296,6 +324,12 @@ async def main():
         config.task_id,
         workspace_dir=os.environ.get("WORKSPACE_DIR", "/workspace"),
     )
+
+    # Built once and handed to both sinks — see metrics.run_summary — so the
+    # comment below and the metric line logged after it can never disagree
+    # about what this run's own outcome/cost/duration were.
+    summary = run_summary(result, config.stage, duration_s, config.epic_task_id)
+    post_run_summary_comment(summary, config.task_id)
 
     logger.info(format_metric_line(result, config.stage, duration_s, config.epic_task_id))
 
