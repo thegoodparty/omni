@@ -346,13 +346,21 @@ def _release_dead_letter_claim(task_id: str, comment_id: str) -> None:
     table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
     if not table_name:
         return
+    pk = dispatch.claim_pk(task_id, DEAD_LETTER_ALERT_STAGE, comment_id)
     try:
         dispatch.get_dynamodb_client().delete_item(
             TableName=table_name,
-            Key={"pk": {"S": dispatch.claim_pk(task_id, DEAD_LETTER_ALERT_STAGE, comment_id)}},
+            Key={"pk": {"S": pk}},
         )
     except Exception as e:
-        print(f"ERROR: releasing dead-letter claim for {task_id} comment {comment_id} failed: {type(e).__name__}")
+        # A stranded claim here has NO automated backstop (unlike the qa
+        # counterpart's stall-TTL alert): the park cycle stays claimed but
+        # untagged and unalerted until the claim's 30-day TTL. Name the key
+        # so an operator can delete the item and unblock escalation.
+        print(
+            f"ERROR: releasing dead-letter claim for {task_id} comment {comment_id} failed: {type(e).__name__}; "
+            f"claim key={pk!r} is now stranded for up to 30 days — manually delete this DynamoDB item to unblock escalation"
+        )
 
 
 def _escalate_dead_letter(task_id: str, park: Any) -> None:
