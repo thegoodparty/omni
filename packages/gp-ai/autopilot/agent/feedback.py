@@ -58,9 +58,12 @@ PARK_MARKER_PATTERN = re.compile(r"\[autopilot:parked stage=([a-z0-9][a-z0-9-]*)
 # writes and the shape a human is expected to answer inline against.
 _QUESTION_LINE_PATTERN = re.compile(r"^\s*\d+\.\s+(.+?)\s*$", re.MULTILINE)
 
-# Sibling to the omni clone (config.workspace_dir becomes "{this}/omni" once
-# main.clone_omni runs), not inside it — a git checkout is the wrong place for
-# a run-scoped sentinel, and this file has no reason to ever be committed.
+# Written under the container-wide WORKSPACE_DIR, never under the omni
+# checkout itself (config.workspace_dir is reassigned to that checkout —
+# baked or freshly cloned — by main.py's workspace.prepare_omni_workspace,
+# but WORKSPACE_DIR is not): a git checkout is the wrong place for a
+# run-scoped sentinel, since `git reset --hard` (the warm path) would wipe it
+# and it has no reason to ever be committed.
 PARK_SENTINEL_FILENAME = ".autopilot-parked.json"
 
 
