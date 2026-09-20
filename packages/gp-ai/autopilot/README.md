@@ -164,6 +164,66 @@ console for `gp_ai_bot`):**
 - `gp_ai_bot` must be a member of `#autopilot` for `chat.postMessage` (it was
   invited 2026-09-19); Events API delivery does not require membership, but
   `conversations.replies` does.
+- Confirm the bot's OAuth scopes include `pins:write` — needed to pin the
+  status card message below. The pin itself is cosmetic (a failed pin never
+  blocks the card from updating), so a missing scope degrades to an
+  unpinned-but-still-current message rather than breaking anything.
+
+## Pipeline status surface (ENG-11151)
+
+Two cheap, board-and-Slack-only surfaces answer "what is running, cost,
+logs" without any new infra — deliberately NOT a Postgres/CloudWatch
+dashboard (that's phase 3):
+
+1. **Run summaries on the card.** Every stage run — `agent/main.py`'s
+   epilogue, after the run has already finished and its `parked_stage` (if
+   any) is known — posts a ClickUp comment on its own card: stage, outcome,
+   cost, duration, and the PR link if the run's own final message mentions
+   one (`metrics.run_summary` / `metrics.format_run_summary_comment`, fed by
+   the same dict `format_metric_line` logs, so the two can never disagree).
+   Comment-post failure is logged and swallowed — it must never turn an
+   already-decided run result into a different one (`main.post_run_summary_comment`).
+
+   The comment's first line carries a machine-readable marker,
+   `[autopilot:run-summary stage=<stage> outcome=<outcome> cost_usd=<cost>]`
+   — duplicated in `lambda/router.py` as `RUN_SUMMARY_MARKER_PATTERN` (same
+   dependency-light reason `PARK_MARKER_PATTERN` is duplicated there; a
+   contract test pins the two character-identical).
+
+   **The one interaction this marker exists to solve:** every run — INCLUDING
+   a run that itself just parked — posts this comment at the end, so it
+   always lands with a later timestamp than the park it describes. Treating
+   "any comment after a park" as a human reply (the sweep's
+   `auto_resume_actionable_parks`) would therefore wrongly mark that park
+   "answered" and permanently wedge it: the comment-resume route already (and
+   correctly) drops the same comment too, as a bot-authored write carrying
+   neither `PARK_MARKER` nor `SLACK_ANSWER_MARKER`. The fix excludes a
+   run-summary comment from that check BY MARKER, not by author — a blanket
+   "ignore every bot-authored comment" would also swallow a genuine relayed
+   Slack answer, which is bot-authored via the same ClickUp API key and must
+   still count as an answer.
+
+2. **A pinned #autopilot status card**, maintained by the sweep
+   (`lambda/sweep.py`'s `update_status_card`, ticked every 15 minutes same as
+   the rest of the sweep — eventually consistent by design, not made fresher
+   with extra queries): feature cards executing / in progress, each
+   executing epic's in-flight story (from the supervisor's own
+   epic-in-flight DynamoDB claim — "active claims" — not a new ClickUp
+   query) with that story's last-run outcome/cost read straight off its
+   newest run-summary comment (`router.latest_run_summary`), and stories
+   awaiting feedback. Built purely from board reads + comment reads the
+   sweep already makes elsewhere; no new ClickUp query family and no log
+   access — cost is exactly what a human would read off the card's own
+   comment thread.
+
+   The message's Slack ts is stored under the fixed DynamoDB key
+   `status_card` (same table as every other autopilot claim, a separate key
+   family) so the next tick edits it in place via `chat.update` instead of
+   posting a fresh message every 15 minutes. If that edit fails (most likely
+   the message was deleted), the sweep posts fresh, re-pins, and stores the
+   new ts — self-healing within one tick. The pin is best-effort and never
+   fails the tick; the sweep always finds its message by the stored ts, never
+   by scanning pins.
 
 ### Environment variables
 

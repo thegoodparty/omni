@@ -12,7 +12,14 @@ import pytest
 
 from autopilot.agent import main as agent_main
 from autopilot.agent.config import AgentConfig, UnknownStageError
-from autopilot.agent.main import build_system_prompt, build_task_prompt, load_stage_instruction, run_agent
+from autopilot.agent.main import (
+    build_system_prompt,
+    build_task_prompt,
+    load_stage_instruction,
+    post_run_summary_comment,
+    run_agent,
+)
+from autopilot.agent.metrics import run_summary
 
 
 def _configured(monkeypatch, **env):
@@ -132,3 +139,69 @@ def test_task_prompt_omits_epic_id_when_unset(monkeypatch):
     prompt = build_task_prompt(config)
 
     assert "Epic task ID" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# Run-summary comment posting (ENG-11151) — the run's own end-of-turn
+# observability write, which must never turn a decided run result into a
+# different one.
+# ---------------------------------------------------------------------------
+
+
+class FakeClickUpClient:
+    def __init__(self, raise_on_comment: Exception | None = None):
+        self._raise_on_comment = raise_on_comment
+        self.comments: list[tuple[str, str]] = []
+        self.closed = False
+
+    def create_task_comment(self, task_id, comment_text):
+        if self._raise_on_comment is not None:
+            raise self._raise_on_comment
+        self.comments.append((task_id, comment_text))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.closed = True
+        return False
+
+
+def test_post_run_summary_comment_posts_the_formatted_summary():
+    client = FakeClickUpClient()
+    summary = run_summary({"status": "success", "task_id": "T-1", "cost_usd": 3.71, "result": "done"}, "story", 90.0)
+
+    post_run_summary_comment(summary, "T-1", clickup_client_factory=lambda: client)
+
+    assert len(client.comments) == 1
+    task_id, text = client.comments[0]
+    assert task_id == "T-1"
+    assert text.startswith("[autopilot:run-summary stage=story outcome=success cost_usd=3.71]")
+    assert client.closed
+
+
+def test_a_comment_post_failure_does_not_raise_or_alter_the_result_dict():
+    client = FakeClickUpClient(raise_on_comment=RuntimeError("ClickUp is down"))
+    result = {"status": "success", "task_id": "T-1", "cost_usd": 3.71, "result": "done"}
+    summary = run_summary(result, "story", 90.0)
+    summary_before = dict(summary)
+    result_before = dict(result)
+
+    post_run_summary_comment(summary, "T-1", clickup_client_factory=lambda: client)
+
+    assert summary == summary_before
+    assert result == result_before
+
+
+def test_a_comment_post_failure_never_masks_an_already_failed_run(monkeypatch):
+    # The comment-post call sits in main()'s epilogue, after result["status"]
+    # is already decided — a ClickUp outage while posting the summary must
+    # never turn a genuine run failure into anything else, and must not raise
+    # past this call (main() would then never reach its own exit-code check).
+    client = FakeClickUpClient(raise_on_comment=RuntimeError("ClickUp is down"))
+    result = {"status": "error", "task_id": "T-1", "error": "boom"}
+    summary = run_summary(result, "story", 5.0)
+
+    post_run_summary_comment(summary, "T-1", clickup_client_factory=lambda: client)  # must not raise
+
+    assert result["status"] == "error"
