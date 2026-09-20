@@ -485,4 +485,110 @@ describe('useStreamingTurn', () => {
       vi.useRealTimers()
     }
   })
+
+  it('adds a citation live segment at the correct ordinal in the normal stream path', async () => {
+    // Gate the stream after the citation so the live turn is still up and we can
+    // observe liveSegments before the commit clears them.
+    let releaseStream!: () => void
+    const streamGate = new Promise<void>((r) => {
+      releaseStream = r
+    })
+    const api = {
+      streamMessage: async function* (): AsyncGenerator<ChatStreamEvent> {
+        yield { type: 'text', delta: 'See source' }
+        yield {
+          type: 'citation',
+          attachmentId: 'att-1',
+          quotedText: 'key passage',
+          page: 2,
+        }
+        await streamGate
+      },
+      listMessages: vi.fn().mockResolvedValue([]),
+    }
+
+    const { result } = renderHook(() =>
+      useStreamingTurn(api, { toolLabel: () => null }),
+    )
+
+    act(() => {
+      void result.current.send('c1', 'cite it')
+    })
+
+    await waitFor(() => {
+      expect(
+        result.current.liveSegments.some((s) => s.kind === 'citation'),
+      ).toBe(true)
+    })
+
+    expect(result.current.liveSegments).toContainEqual({
+      kind: 'citation',
+      ordinal: 1,
+      attachmentId: 'att-1',
+      quotedText: 'key passage',
+      page: 2,
+    })
+
+    // Release the gate so the hook can clean up properly.
+    act(() => {
+      releaseStream()
+    })
+  })
+
+  it('keeps a consumed citation in a locally rebuilt turn but pushes no live segment', async () => {
+    vi.useFakeTimers()
+    try {
+      // Persistence never lands, so the rebuild is the only thing on screen.
+      const listMessages = vi.fn().mockResolvedValue([])
+      const api = {
+        streamMessage: () =>
+          streamOf([
+            { type: 'text' as const, delta: 'Here is a source.' },
+            {
+              type: 'citation' as const,
+              attachmentId: 'att-2',
+              quotedText: 'The relevant passage',
+              page: 5,
+            },
+            { type: 'done' as const },
+          ]),
+        listMessages,
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, {
+          toolLabel: () => null,
+          // Consumed: the citation drives a custom widget, not an inline chip.
+          onEvent: (event) => event.type === 'citation',
+        }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'cite something')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200_000)
+        await sendPromise
+      })
+
+      const rebuilt = result.current.messages.find((m) =>
+        m.id.startsWith('local-'),
+      )
+      expect(rebuilt).toBeDefined()
+      // The citation appears in persisted segments (for replay on reload) even
+      // though it was consumed and no live chip was pushed.
+      expect(rebuilt?.segments).toEqual([
+        { kind: 'text', text: 'Here is a source.' },
+        {
+          kind: 'citation',
+          attachmentId: 'att-2',
+          page: 5,
+          quotedText: 'The relevant passage',
+        },
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -1037,6 +1037,11 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'GET /v1/chats/:conversationId/attachments/:attachmentId/download': {
+    Request: { conversationId: string; attachmentId: string }
+    Response: { url: string; expiresAt: string }
+  }
+
   'GET /v1/ordinances': {
     Request: {}
     Response: OrdinanceListResponse

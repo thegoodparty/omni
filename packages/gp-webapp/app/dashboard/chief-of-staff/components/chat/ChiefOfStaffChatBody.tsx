@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button } from '@styleguide'
+import { Badge, Button, toast } from '@styleguide'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
@@ -42,6 +42,7 @@ import {
   linkChatAttachment,
   deleteChatAttachment,
   listChatAttachments,
+  downloadChatAttachment,
   linkErrorMessage,
   type ChatAttachmentState,
 } from '../../../shared/agent-chat/chatAttachments-api'
@@ -633,6 +634,31 @@ export default function ChiefOfStaffChatBody({
     [conversationId, ensureConversationId],
   )
 
+  const handleCitationClick = useCallback(
+    async (
+      attachmentId: string,
+      page: number | null | undefined,
+    ): Promise<void> => {
+      if (!conversationId) return
+      // Open the tab immediately while the user gesture is still live so browsers
+      // don't block the popup. Navigate it to the presigned URL once fetched.
+      const tab = window.open('', '_blank')
+      const result = await downloadChatAttachment(conversationId, attachmentId)
+      if (!result) {
+        tab?.close()
+        toast.error('Source unavailable')
+        return
+      }
+      const url = page != null ? `${result.url}#page=${page}` : result.url
+      if (tab) {
+        tab.location.href = url
+      } else {
+        toast.error('Allow pop-ups in your browser to open sources')
+      }
+    },
+    [conversationId],
+  )
+
   // The shared send path. `hidden` skips the optimistic user bubble AND drops
   // the persisted user turn from the rendered transcript, so a kickoff streams a
   // reply without ever showing the prompt that triggered it.
@@ -919,7 +945,15 @@ export default function ChiefOfStaffChatBody({
             <UserBubble key={m.id}>{m.content}</UserBubble>
           ) : (
             <AssistantRow key={m.id} fullWidth={Boolean(m.listMap)}>
-              <InlineSegments segments={m.live} toolLabel={toolLabel} />
+              <InlineSegments
+                segments={m.live}
+                toolLabel={toolLabel}
+                onCitationClick={
+                  attachmentsEnabled.enabled && conversationId
+                    ? handleCitationClick
+                    : undefined
+                }
+              />
               {m.listMap ? <ChatListMap {...m.listMap} /> : null}
               {showMessageActions && conversationId && m.content ? (
                 <MessageActionBar
@@ -940,7 +974,15 @@ export default function ChiefOfStaffChatBody({
             segments alone hid the map until the transcript reloaded. */}
         {visibleSegments.length > 0 || liveListMap ? (
           <AssistantRow fullWidth={Boolean(liveListMap)}>
-            <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
+            <InlineSegments
+              segments={visibleSegments}
+              toolLabel={toolLabel}
+              onCitationClick={
+                attachmentsEnabled.enabled && conversationId
+                  ? handleCitationClick
+                  : undefined
+              }
+            />
             {liveListMap ? <ChatListMap {...liveListMap} /> : null}
           </AssistantRow>
         ) : null}
