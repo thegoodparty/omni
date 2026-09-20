@@ -478,8 +478,8 @@ def _load_supervisor_module() -> Any:
 def dispatch_to_supervisor(decision: RoutingDecision) -> None:
     """Hands an epic-supervisor-scoped decision (the breakdown-approval gate,
     or a story reaching done) to supervisor.py's per-epic conductor tick. See
-    supervisor.py's module docstring for the one-in-flight-story invariant,
-    next-story selection, and stall detection this triggers."""
+    supervisor.py's module docstring for the bounded-concurrency dispatch
+    cap, unblocked-story selection, and stall detection this triggers."""
     _load_supervisor_module().handle_routed_event(decision)
 
 
