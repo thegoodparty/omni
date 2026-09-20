@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { screen } from '@testing-library/react'
@@ -86,6 +86,10 @@ const voterFileSegment: SegmentResponse = {
   incomeUnknown: false,
   supportStatus: ['supporter'],
 }
+
+afterEach(() => {
+  vi.clearAllTimers()
+})
 
 beforeEach(() => {
   api.reset()
