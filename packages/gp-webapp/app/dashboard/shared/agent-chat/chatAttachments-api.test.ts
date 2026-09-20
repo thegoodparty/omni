@@ -4,6 +4,8 @@ import {
   linkErrorMessage,
   uploadChatAttachment,
   linkChatAttachment,
+  listChatAttachments,
+  deleteChatAttachment,
 } from './chatAttachments-api'
 
 // ---------------------------------------------------------------------------
@@ -217,5 +219,80 @@ describe('linkChatAttachment', () => {
       'https://gone.example.com',
     )
     expect(result).toEqual({ ok: false, error: 'unreachable' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// listChatAttachments
+// ---------------------------------------------------------------------------
+
+describe('listChatAttachments', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('calls the list endpoint and maps returned attachments', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        attachments: [
+          {
+            id: 'att-3',
+            fileName: 'brief.pdf',
+            status: 'ready',
+            pageCount: 5,
+            failureReason: null,
+          },
+        ],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await listChatAttachments('conv-1')
+
+    expect(result).toEqual([
+      {
+        id: 'att-3',
+        fileName: 'brief.pdf',
+        status: 'ready',
+        pageCount: 5,
+        failureReason: null,
+      },
+    ])
+    const [target] = fetchMock.mock.calls[0] as [string | Request]
+    const calledUrl = typeof target === 'string' ? target : target.url
+    expect(calledUrl).toContain('/v1/chats/conv-1/attachments')
+  })
+
+  it('returns an empty array when no attachments exist', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ attachments: [] })),
+    )
+
+    const result = await listChatAttachments('conv-1')
+    expect(result).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deleteChatAttachment
+// ---------------------------------------------------------------------------
+
+describe('deleteChatAttachment', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('calls the delete endpoint with the correct conversation and attachment ids', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await deleteChatAttachment('conv-1', 'att-4')
+
+    const [target] = fetchMock.mock.calls[0] as [string | Request]
+    const calledUrl = typeof target === 'string' ? target : target.url
+    expect(calledUrl).toContain('/v1/chats/conv-1/attachments/att-4')
   })
 })

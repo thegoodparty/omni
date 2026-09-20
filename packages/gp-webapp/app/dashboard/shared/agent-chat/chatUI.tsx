@@ -332,8 +332,16 @@ function AttachLinkInput({
   onChooseFile?: () => void
 }): React.JSX.Element {
   const [url, setUrl] = useState('')
+  const isValidUrl = (u: string): boolean => {
+    try {
+      const { protocol } = new URL(u)
+      return protocol === 'http:' || protocol === 'https:'
+    } catch {
+      return false
+    }
+  }
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter' && url.trim()) {
+    if (e.key === 'Enter' && isValidUrl(url.trim())) {
       e.preventDefault()
       onSubmit(url.trim())
     } else if (e.key === 'Escape') {
@@ -366,8 +374,8 @@ function AttachLinkInput({
       <IconButton
         type="button"
         aria-label="Attach link"
-        disabled={!url.trim()}
-        onClick={() => url.trim() && onSubmit(url.trim())}
+        disabled={!isValidUrl(url.trim())}
+        onClick={() => isValidUrl(url.trim()) && onSubmit(url.trim())}
         className="shrink-0 rounded-full"
         size="small"
       >

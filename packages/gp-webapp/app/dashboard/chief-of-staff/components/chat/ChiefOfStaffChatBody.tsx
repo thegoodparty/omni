@@ -307,6 +307,7 @@ export default function ChiefOfStaffChatBody({
         .then((updated) => {
           if (cancelled) return
           setAttachments((prev) => {
+            if (prev.length === 0) return prev
             const temps = prev.filter((a) => a.id.startsWith('temp-'))
             if (temps.length === 0) return updated
             const updatedIds = new Set(updated.map((a) => a.id))
