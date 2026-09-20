@@ -222,6 +222,7 @@ export default function ChiefOfStaffChatBody({
   const creatingRef = useRef(false)
   const loadRequestedRef = useRef(false)
   const lastUserContentRef = useRef('')
+  const lastAttachmentIdsRef = useRef<string[]>([])
   // Tracks the pendingKickoff value that has already fired (not a boolean): the
   // parent clears pendingKickoff on close and re-sets the same sentinel on
   // reopen with the body still mounted, so a value guard lets that reopen fire.
@@ -636,7 +637,10 @@ export default function ChiefOfStaffChatBody({
   // the persisted user turn from the rendered transcript, so a kickoff streams a
   // reply without ever showing the prompt that triggered it.
   const deliver = useCallback(
-    async (content: string, opts?: { hidden?: boolean }): Promise<boolean> => {
+    async (
+      content: string,
+      opts?: { hidden?: boolean; attachmentIds?: string[] },
+    ): Promise<boolean> => {
       const trimmed = content.trim()
       if (!trimmed || sending || creatingRef.current) return false
       setStreamError(null)
@@ -676,8 +680,10 @@ export default function ChiefOfStaffChatBody({
         ])
       }
       const readyAttachmentIds = !opts?.hidden
-        ? attachments.filter((a) => a.status === 'ready').map((a) => a.id)
+        ? (opts?.attachmentIds ??
+          attachments.filter((a) => a.status === 'ready').map((a) => a.id))
         : []
+      if (!opts?.hidden) lastAttachmentIdsRef.current = readyAttachmentIds
       await send(id, trimmed, {
         hidden: true,
         ...(readyAttachmentIds.length > 0 && {
@@ -708,12 +714,16 @@ export default function ChiefOfStaffChatBody({
   const onRetry = useCallback((): void => {
     setStreamError(null)
     const content = lastUserContentRef.current
+    const attachmentIds = lastAttachmentIdsRef.current
     if (content && conversationId) {
-      void send(conversationId, content, { hidden: true })
+      void send(conversationId, content, {
+        hidden: true,
+        ...(attachmentIds.length > 0 && { attachmentIds }),
+      })
       return
     }
     if (content) {
-      void deliver(content, { hidden: false })
+      void deliver(content, { hidden: false, attachmentIds })
       return
     }
     // No user turn to replay — a load error. Reload the conversation.
