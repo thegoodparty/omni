@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { ChatComposer } from './chatUI'
 import type { UseDictationAppendResult } from '../dictation/useDictationAppend'
+import type { ChatAttachmentState } from './chatAttachments-api'
 
 const makeDictation = (
   over: Partial<UseDictationAppendResult> = {},
@@ -192,5 +194,163 @@ describe('ChatComposer', () => {
 
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatComposer — attachment affordance', () => {
+  const makeAttachment = (
+    over: Partial<ChatAttachmentState> = {},
+  ): ChatAttachmentState => ({
+    id: 'att-1',
+    fileName: 'doc.pdf',
+    status: 'ready',
+    pageCount: null,
+    failureReason: null,
+    ...over,
+  })
+
+  it('renders the paperclip button when attachments are enabled', () => {
+    render(
+      <ChatComposer {...baseProps} attachments={[]} onAttachFile={vi.fn()} />,
+    )
+    expect(
+      screen.getByRole('button', { name: 'Attach file or link' }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not render the paperclip button when attachments are not enabled', () => {
+    render(<ChatComposer {...baseProps} />)
+    expect(
+      screen.queryByRole('button', { name: 'Attach file or link' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('calls onAttachLink with the entered URL and closes the input', async () => {
+    const user = userEvent.setup()
+    const onAttachLink = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        onAttachLink={onAttachLink}
+      />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Attach file or link' }),
+    )
+    const urlInput = screen.getByRole('textbox', { name: 'Attachment URL' })
+    expect(urlInput).toBeInTheDocument()
+
+    await user.type(urlInput, 'https://example.com')
+    await user.click(screen.getByRole('button', { name: 'Attach link' }))
+
+    expect(onAttachLink).toHaveBeenCalledWith('https://example.com')
+    expect(
+      screen.queryByRole('textbox', { name: 'Attachment URL' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('closes the link input on Escape without calling onAttachLink', async () => {
+    const user = userEvent.setup()
+    const onAttachLink = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        onAttachLink={onAttachLink}
+      />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Attach file or link' }),
+    )
+    expect(
+      screen.getByRole('textbox', { name: 'Attachment URL' }),
+    ).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    expect(onAttachLink).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('textbox', { name: 'Attachment URL' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders AttachmentChip with the file name and calls onRemoveAttachment on remove', async () => {
+    const user = userEvent.setup()
+    const onRemove = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[makeAttachment()]}
+        onAttachFile={vi.fn()}
+        onRemoveAttachment={onRemove}
+      />,
+    )
+
+    expect(screen.getByText('doc.pdf')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Remove doc.pdf' }))
+    expect(onRemove).toHaveBeenCalledWith('att-1')
+  })
+
+  it('shows processing status text on an in-flight attachment chip', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[makeAttachment({ status: 'processing', pageCount: 12 })]}
+        onAttachFile={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Reading, 12 pages')).toBeInTheDocument()
+  })
+
+  it('shows the guard banner when guardAcknowledged is false', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        guardAcknowledged={false}
+        onGuardAcknowledge={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('note')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Don't upload closed-session, privileged, or active-litigation material/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('does not show the guard banner when guardAcknowledged is true', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        guardAcknowledged={true}
+        onGuardAcknowledge={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  it('calls onGuardAcknowledge when the banner dismiss button is clicked', async () => {
+    const user = userEvent.setup()
+    const onGuardAcknowledge = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        guardAcknowledged={false}
+        onGuardAcknowledge={onGuardAcknowledge}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(onGuardAcknowledge).toHaveBeenCalledTimes(1)
   })
 })
