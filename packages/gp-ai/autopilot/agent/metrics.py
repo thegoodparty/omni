@@ -78,12 +78,20 @@ def _outcome(result: dict) -> str:
     return "error"
 
 
-def format_metric_line(result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None) -> str:
+def format_metric_line(
+    result: Any, stage: Any, duration_s: Any = None, epic_task_id: Any = None, setup_s: Any = None
+) -> str:
     """The one line a run emits about itself.
 
     Every field is always present, `null` when it does not apply — so a
     reader can tell "this run had no epic" from "this line predates the
     field", which need different responses.
+
+    `setup_s` is separate from `duration_s` (ENG-11149): `duration_s` only
+    ever timed `run_agent`, and setup — the omni checkout plus, on a warm
+    image, its conditional npm ci — runs before that, in main.py, unpaid. A
+    single combined number would hide the exact before/after this field
+    exists to measure.
 
     Total over any input, deliberately: this runs after the stage's own work
     is already done, so an exception here would turn a useful run into a
@@ -97,6 +105,7 @@ def format_metric_line(result: Any, stage: Any, duration_s: Any = None, epic_tas
         "outcome": _outcome(result),
         "cost_usd": _number(result.get("cost_usd"), COST_DECIMAL_PLACES),
         "duration_s": _number(duration_s, DURATION_DECIMAL_PLACES),
+        "setup_s": _number(setup_s, DURATION_DECIMAL_PLACES),
         "epic_task_id": _text(epic_task_id),
     }
 
