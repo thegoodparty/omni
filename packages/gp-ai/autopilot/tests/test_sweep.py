@@ -692,6 +692,39 @@ def test_merged_pr_moves_story_to_qa_and_dispatches_once(fake_clickup, fake_ecs,
     assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA, router.STATUS_QA]
 
 
+def test_failed_qa_launch_rolls_back_claim_and_status_for_a_full_retry(
+    fake_clickup, fake_ecs, fake_pull_requests, monkeypatch, capsys
+):
+    # A launch failure after the qa move must undo BOTH the claim and the
+    # move: once in qa the story leaves _parked_stories' sight, so a held
+    # claim or a stuck qa status would strand it until a TTL/stall alert.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_pull_requests[42] = {"merged": True, "state": "closed"}
+
+    real_launch = dispatch.launch_fargate_stage
+    launch_attempts = {"n": 0}
+
+    def flaky_launch(envelope):
+        launch_attempts["n"] += 1
+        if launch_attempts["n"] == 1:
+            return {"launched": False, "error": "ECS capacity failure"}
+        return real_launch(envelope)
+
+    monkeypatch.setattr(dispatch, "launch_fargate_stage", flaky_launch)
+
+    first = sweep.handle_sweep({"autopilot_sweep": True})
+    assert json.loads(first["body"])["merge_resolved"] == 0
+    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA, router.STATUS_FEEDBACK_NEEDED]
+    assert fake_ecs.run_task_calls == []
+    assert "rolling back for sweep retry" in capsys.readouterr().out
+
+    second = sweep.handle_sweep({"autopilot_sweep": True})
+    assert json.loads(second["body"])["merge_resolved"] == 1
+    qa_dispatches = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_QA]
+    assert len(qa_dispatches) == 1
+
+
 def test_transient_move_failure_does_not_strand_the_story(fake_clickup, fake_ecs, fake_pull_requests, capsys):
     # The claim is taken only after the ClickUp move succeeds: a transient
     # ClickUp error on the move must leave nothing claimed, so the very next

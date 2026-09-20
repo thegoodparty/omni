@@ -368,7 +368,9 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
     ClickUp error. The move also must precede the launch: a normal qa
     dispatch only ever fires once its triggering webhook already reflects the
     card in `qa`, and qa.md's stranded-run guard (feedback.STRANDED_STATUSES)
-    depends on that being true the moment the container starts.
+    depends on that being true the moment the container starts. A failed
+    launch undoes both earlier writes (claim first, then the move) so the
+    next tick retries the whole dispatch — see the inline comment below.
     """
     try:
         supervisor.move_task_status(task_id, router.STATUS_QA)
@@ -392,11 +394,40 @@ def _dispatch_qa_after_merge(task_id: str, epic_task_id: str | None, pr_number: 
     )
     result = dispatch.launch_fargate_stage(envelope)
     if not result["launched"]:
+        # Undo both writes so the next tick retries the whole dispatch: once
+        # a story sits in `qa`, no sweep path re-attempts this launch
+        # (_parked_stories only sees feedback-needed). The claim is released
+        # FIRST — a rolled-back park with a live claim would re-enter here
+        # next tick, re-move to qa, lose the claim, and strand the story
+        # unlaunched. If a rollback step itself fails, the story sits in qa
+        # and the supervisor's stall TTL alerts — the same backstop as
+        # before, now only on a double failure instead of every one.
         print(
-            "ERROR: moved to qa but failed to launch its stage run; claim left in place for the sweep to recover: "
+            "ERROR: moved to qa but failed to launch its stage run; rolling back for sweep retry: "
             f"task_id={task_id} pr=#{pr_number}"
         )
+        _release_qa_dispatch_claim(task_id, pr_number)
+        try:
+            supervisor.move_task_status(task_id, router.STATUS_FEEDBACK_NEEDED)
+        except Exception as e:
+            print(f"ERROR: rollback of {task_id} to feedback-needed failed: {type(e).__name__}")
     return bool(result["launched"])
+
+
+def _release_qa_dispatch_claim(task_id: str, pr_number: int) -> None:
+    """Deletes the exact claim _dispatch_qa_after_merge just won — safe to
+    scope to the bare key because the caller holds it (nothing else can have
+    claimed the same (task, qa, merge-PR) triple while it exists)."""
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        return
+    try:
+        dispatch.get_dynamodb_client().delete_item(
+            TableName=table_name,
+            Key={"pk": {"S": dispatch.claim_pk(task_id, router.STAGE_QA, f"merge-{pr_number}")}},
+        )
+    except Exception as e:
+        print(f"ERROR: releasing qa dispatch claim for {task_id} PR #{pr_number} failed: {type(e).__name__}")
 
 
 def _alert_closed_unmerged_pr(task_id: str, pr_number: int) -> bool:

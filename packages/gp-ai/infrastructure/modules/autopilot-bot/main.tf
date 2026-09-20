@@ -81,6 +81,18 @@ variable "sweep_max_triggers" {
   default     = "10"
 }
 
+variable "github_app_id" {
+  description = "GitHub App id (not a secret) the sweep's merge-pending PR reads mint tokens as — the Delegate App, same identity agent/github_auth.py uses."
+  type        = string
+  default     = "3107048"
+}
+
+variable "github_app_installation_id" {
+  description = "The Delegate App's installation id on thegoodparty (not a secret)."
+  type        = string
+  default     = "117364330"
+}
+
 variable "shared_slack_notifier_lambda_arn" {
   description = "ARN of the shared Slack notifier Lambda to subscribe to failure notifications (empty disables)"
   type        = string
@@ -348,8 +360,12 @@ resource "aws_lambda_function" "autopilot_bot" {
       # Same Delegate App key the autopilot-agent-fargate task definitions
       # already carry (see that module's agent_secrets local) — the sweep's
       # merge-pending resolution pass (lambda/github_auth.py) mints its own
-      # short-lived installation token from it to read PR merge state.
-      GITHUB_APP_PRIVATE_KEY = try(local.ai_secrets["GITHUB_APP_PRIVATE_KEY"], "")
+      # short-lived installation token from it to read PR merge state. The
+      # two ids are REQUIRED by that module (no in-code fallback): a missing
+      # value fails soft to "no PR read this tick", never a stale identity.
+      GITHUB_APP_PRIVATE_KEY     = try(local.ai_secrets["GITHUB_APP_PRIVATE_KEY"], "")
+      GITHUB_APP_ID              = var.github_app_id
+      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
       # ENG-11150: verifies the Slack Events API POSTs to /autopilot/slack
       # (v0 HMAC over the raw body, same try(...) degrade-safe posture as the
       # ClickUp secret above — an empty value makes verify_slack_signature
