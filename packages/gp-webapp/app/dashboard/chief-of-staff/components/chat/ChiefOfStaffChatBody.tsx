@@ -294,12 +294,12 @@ export default function ChiefOfStaffChatBody({
   const busy = sending || loading
 
   // Poll for attachment status updates while any are pending/processing.
+  const hasPending = attachments.some(
+    (a) => a.status === 'pending' || a.status === 'processing',
+  )
   useEffect(() => {
     if (!attachmentsEnabled.enabled) return
     if (!conversationId) return
-    const hasPending = attachments.some(
-      (a) => a.status === 'pending' || a.status === 'processing',
-    )
     if (!hasPending) return
     const id = setInterval(() => {
       void listChatAttachments(conversationId).then((updated) => {
@@ -312,7 +312,7 @@ export default function ChiefOfStaffChatBody({
       })
     }, 3000)
     return () => clearInterval(id)
-  }, [attachmentsEnabled.enabled, conversationId, attachments])
+  }, [attachmentsEnabled.enabled, conversationId, hasPending])
 
   const handleRemoveAttachment = useCallback(
     async (id: string): Promise<void> => {
