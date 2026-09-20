@@ -1258,6 +1258,40 @@ describe('<ChiefOfStaffChatBody>', () => {
       ).not.toBeInTheDocument()
     })
 
+    // An absent row reads as unlocked, so gating on the lock alone showed
+    // the button while the list was still in flight — and the overlay seeds
+    // its ring into useState once, at mount. Opened in that window it came
+    // up blank over a list that already had a shape, and saving from there
+    // wiped the shape the holder opened it to edit.
+    it('withholds the draw CTA until the list row has actually arrived', async () => {
+      mockListPeople(2)
+      // Never resolves: the window between the card rendering and the row
+      // landing, held open.
+      const neverSettles = new Promise<never>(() => {
+        // Intentionally never resolved — see above.
+      })
+      api.mock('GET /v1/voters/voter-file/filters', () => neverSettles)
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_pending',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_pending" />)
+
+      // The card itself renders — only the button waits.
+      expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+      ).not.toBeInTheDocument()
+    })
+
     // The reason the overlay is mounted by this component and not by the
     // card. The live row is dropped and rebuilt under a history key the
     // moment the turn settles, so an overlay owned by the card would unmount

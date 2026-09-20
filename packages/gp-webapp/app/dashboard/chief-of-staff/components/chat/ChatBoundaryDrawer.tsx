@@ -24,12 +24,20 @@ export default function ChatBoundaryDrawer({
 }) {
   const { people, truncated } = useListPeople(list.listId)
   const { list: saved } = useSavedList(list.listId)
+  // In practice the row is already cached — the button that opens this only
+  // appears once it has arrived — but the overlay reads its ring into
+  // useState at mount and never again, so mounting it before the row exists
+  // is unrecoverable rather than merely early. Cheap to refuse outright
+  // instead of depending on the caller's gate staying correct.
+  const hasRow = Boolean(saved)
   const labels = getContactsLabels(false)
   const savedRing = useMemo(
     () => ringFromGeoJsonPolygon(saved?.geoPoly),
     [saved?.geoPoly],
   )
   const saveMutation = useSaveListBoundary(list.listId, 'chat', onClose)
+
+  if (!hasRow) return null
 
   return (
     <ListBoundaryOverlay

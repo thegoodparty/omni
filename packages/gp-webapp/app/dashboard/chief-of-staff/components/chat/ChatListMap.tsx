@@ -44,11 +44,15 @@ export default function ChatListMap({
   const labels = getContactsLabels(false)
   const { list } = useSavedList(listId)
   const savedRing = ringFromGeoJsonPolygon(list?.geoPoly)
-  // Outreach locks a list permanently, and the write behind this button
-  // 409s once that happens. Hidden rather than disabled, matching the list
-  // detail sheet: there is nothing the holder can do here, and the place
-  // that explains duplicating is the list itself.
-  const canRefine = Boolean(onRefineArea) && !list?.firstUsedForOutreachAt
+  // Requires the row to have ARRIVED, not merely to be unlocked. An absent
+  // row reads as unlocked, so gating on the lock alone offered the button
+  // while the list was still loading — and the overlay behind it seeds its
+  // ring into useState once, at mount. Opened in that window it came up
+  // blank over a list that already had a shape, and saving from there wiped
+  // the shape the holder came to edit. A list the org does not own leaves
+  // `list` undefined too, and gets no button for the same reason.
+  const canRefine =
+    Boolean(onRefineArea) && Boolean(list) && !list?.firstUsedForOutreachAt
 
   return (
     <div className="my-3 w-full overflow-hidden rounded-lg border">
