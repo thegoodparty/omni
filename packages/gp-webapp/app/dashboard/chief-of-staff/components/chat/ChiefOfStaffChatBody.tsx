@@ -301,17 +301,29 @@ export default function ChiefOfStaffChatBody({
     if (!attachmentsEnabled.enabled) return
     if (!conversationId) return
     if (!hasPending) return
+    let cancelled = false
     const id = setInterval(() => {
-      void listChatAttachments(conversationId).then((updated) => {
-        setAttachments((prev) => {
-          const temps = prev.filter((a) => a.id.startsWith('temp-'))
-          if (temps.length === 0) return updated
-          const updatedIds = new Set(updated.map((a) => a.id))
-          return [...updated, ...temps.filter((t) => !updatedIds.has(t.id))]
+      void listChatAttachments(conversationId)
+        .then((updated) => {
+          if (cancelled) return
+          setAttachments((prev) => {
+            const temps = prev.filter((a) => a.id.startsWith('temp-'))
+            if (temps.length === 0) return updated
+            const updatedIds = new Set(updated.map((a) => a.id))
+            return [...updated, ...temps.filter((t) => !updatedIds.has(t.id))]
+          })
         })
-      })
+        .catch((err) => {
+          reportErrorToSentry(err, {
+            surface: 'chief-of-staff-chat',
+            phase: 'attachment-poll',
+          })
+        })
     }, 3000)
-    return () => clearInterval(id)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
   }, [attachmentsEnabled.enabled, conversationId, hasPending])
 
   const handleRemoveAttachment = useCallback(
