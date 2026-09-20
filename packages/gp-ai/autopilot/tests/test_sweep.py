@@ -801,3 +801,20 @@ def test_status_card_failure_never_fails_the_sweep_tick(fake_clickup, fake_slack
     result = sweep.handle_sweep({"autopilot_sweep": True})
 
     assert result["statusCode"] == 200
+
+
+def test_status_card_state_save_failure_skips_the_pin_and_fails_no_tick(
+    fake_clickup, fake_slack_status_card, monkeypatch
+):
+    # If the ts never persisted, the next tick can't find this message and
+    # will post a fresh one — pinning here would accumulate one pinned
+    # duplicate per tick for the whole DynamoDB outage.
+    def boom(*args, **kwargs):
+        raise RuntimeError("DynamoDB is down")
+
+    monkeypatch.setattr(sweep, "save_status_card_state", boom)
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert result["statusCode"] == 200
+    assert fake_slack_status_card["pinned"] == []

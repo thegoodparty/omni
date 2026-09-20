@@ -581,7 +581,13 @@ def save_status_card_state(channel: str, ts: str) -> None:
             Item={"pk": {"S": STATUS_CARD_PK}, "channel": {"S": channel}, "ts": {"S": ts}},
         )
     except Exception as e:
+        # Re-raise into handle_sweep's status-card guard: swallowing here
+        # would let the pin below run on a ts the next tick can't find,
+        # accumulating one more pinned duplicate per tick until DynamoDB
+        # recovers. Skipping the pin leaves one unpinned orphan the next
+        # successful tick's repost supersedes.
         print(f"ERROR: failed to persist status card state: {type(e).__name__}")
+        raise
 
 
 def _slack_escape(text: str) -> str:
