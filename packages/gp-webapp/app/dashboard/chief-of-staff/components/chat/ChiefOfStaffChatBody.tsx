@@ -36,6 +36,7 @@ import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import { ShowListMapSchema, type ShowListMap } from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
+import ChatBoundaryDrawer from './ChatBoundaryDrawer'
 import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
 import {
   uploadChatAttachment,
@@ -203,6 +204,12 @@ export default function ChiefOfStaffChatBody({
     retryable: boolean
   } | null>(null)
   const [liveListMap, setLiveListMap] = useState<ShowListMap | null>(null)
+  // Which list the holder is drawing on, if any. Owned HERE rather than by
+  // the map card that opens it: a streaming turn's row is rebuilt under a
+  // new key the moment it commits, so an overlay mounted inside the card
+  // would unmount mid-draw and take the ring with it. The card asks; the
+  // body holds.
+  const [refiningList, setRefiningList] = useState<ShowListMap | null>(null)
   const [introProgress, setIntroProgress] = useState(0)
   // True once anything has been sent this session (visible OR hidden). Gates the
   // with-greeting starter chips off after a hidden kickoff (which adds no user
@@ -920,7 +927,9 @@ export default function ChiefOfStaffChatBody({
           ) : (
             <AssistantRow key={m.id} fullWidth={Boolean(m.listMap)}>
               <InlineSegments segments={m.live} toolLabel={toolLabel} />
-              {m.listMap ? <ChatListMap {...m.listMap} /> : null}
+              {m.listMap ? (
+                <ChatListMap {...m.listMap} onRefineArea={setRefiningList} />
+              ) : null}
               {showMessageActions && conversationId && m.content ? (
                 <MessageActionBar
                   conversationId={conversationId}
@@ -941,7 +950,9 @@ export default function ChiefOfStaffChatBody({
         {visibleSegments.length > 0 || liveListMap ? (
           <AssistantRow fullWidth={Boolean(liveListMap)}>
             <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
-            {liveListMap ? <ChatListMap {...liveListMap} /> : null}
+            {liveListMap ? (
+              <ChatListMap {...liveListMap} onRefineArea={setRefiningList} />
+            ) : null}
           </AssistantRow>
         ) : null}
 
@@ -1084,6 +1095,16 @@ export default function ChiefOfStaffChatBody({
           </p>
         )}
       </div>
+
+      {/* Outside the transcript on purpose. It is full-bleed anyway, but the
+          placement is what keeps a ring alive when the streaming row that
+          opened it is rebuilt under a history key. */}
+      {refiningList && (
+        <ChatBoundaryDrawer
+          list={refiningList}
+          onClose={() => setRefiningList(null)}
+        />
+      )}
     </div>
   )
 }

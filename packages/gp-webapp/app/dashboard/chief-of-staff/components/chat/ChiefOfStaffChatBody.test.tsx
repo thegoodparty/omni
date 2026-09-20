@@ -38,10 +38,33 @@ vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 // deck.gl and maplibre don't run in jsdom. The stub reports how many people
 // the card handed the canvas, so the wiring from a tool payload through to the
 // map can be checked without pulling the real one in.
+// The boundary drawer reports save outcomes through the snackbar, and this
+// suite renders no provider — only reached once the overlay opens, which is
+// why every test here passed before the drawer existed.
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
 vi.mock('../../../contacts/crm/map/ContactListMap', () => ({
   __esModule: true,
-  default: function ContactListMapStub({ people }: { people: unknown[] }) {
-    return <div data-testid="contact-map-stub" data-people={people.length} />
+  default: function ContactListMapStub({
+    people,
+    drawRing,
+  }: {
+    people?: unknown[]
+    drawRing?: Array<[number, number]>
+  }) {
+    return (
+      <div
+        data-testid="contact-map-stub"
+        data-people={(people ?? []).length}
+        data-ring={JSON.stringify(drawRing ?? [])}
+      />
+    )
   },
 }))
 
@@ -1172,6 +1195,115 @@ describe('<ChiefOfStaffChatBody>', () => {
       await waitFor(() =>
         expect(screen.getAllByTestId('contact-map-stub')).toHaveLength(1),
       )
+    })
+
+    const mockSavedList = (
+      over: Record<string, unknown> = {},
+    ): Record<string, unknown> => {
+      const row = { id: LIST.listId, name: LIST.name, ...over }
+      api.mock('GET /v1/voters/voter-file/filters', {
+        status: 200,
+        data: [row] as never,
+      })
+      return row
+    }
+
+    it('offers the draw CTA on the card and opens the overlay', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList()
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_map',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_map" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: /draw an area/i }),
+      )
+
+      expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
+    })
+
+    // Outreach locks a list permanently and the write behind this button
+    // 409s once it has. Offering it anyway sends the holder to a refusal.
+    it('hides the draw CTA once the list is locked by outreach', async () => {
+      mockListPeople(2)
+      mockSavedList({ firstUsedForOutreachAt: '2026-09-01T00:00:00.000Z' })
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_locked',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_locked" />)
+
+      expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+      ).not.toBeInTheDocument()
+    })
+
+    // The reason the overlay is mounted by this component and not by the
+    // card. The live row is dropped and rebuilt under a history key the
+    // moment the turn settles, so an overlay owned by the card would unmount
+    // mid-draw and take the holder's ring with it.
+    it('keeps the drawing surface open when the streaming turn commits', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList()
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_draw' })
+      let endTurn: () => void
+      const turnEnded = new Promise<void>((resolve) => {
+        endTurn = resolve
+      })
+      streamMessageMock.mockReturnValue(
+        (async function* () {
+          yield { type: 'tool_call', toolName: 'show_list_map', args: LIST }
+          await turnEnded
+          yield { type: 'done' }
+        })(),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here they are.', {
+          id: 'a_commit',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active />)
+      await user.type(screen.getByLabelText(/ask a question/i), 'map it')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      // Opened while the turn is still streaming, off the live card.
+      await user.click(
+        await screen.findByRole('button', { name: /draw an area/i }),
+      )
+      expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
+
+      endTurn!()
+      await screen.findByText('Here they are.')
+
+      expect(screen.getByTestId('boundary-overlay')).toBeInTheDocument()
     })
 
     // And again from the transcript, which is the case the args-not-results
