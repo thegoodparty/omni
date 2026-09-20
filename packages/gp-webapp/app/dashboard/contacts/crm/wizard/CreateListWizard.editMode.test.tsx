@@ -118,6 +118,53 @@ beforeEach(() => {
   })
 })
 
+// A list narrowed by a drawn boundary reads its post-boundary size
+// everywhere it is displayed, and read its PRE-boundary size on the one
+// screen offering to save it: the wizard spreads the saved row's fields
+// inline, and the inline count carries neither an id nor a geoPoly, so the
+// boundary was invisible to it. Observed as a list whose detail sheet said
+// 339 offering "Save changes (5,356)".
+describe('CreateListWizard — edit mode counts the saved boundary', () => {
+  it('tells the count which list it is editing, without changing the save payload', async () => {
+    const countBodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/contacts/count', ({ body }) => {
+      countBodies.push(body as Record<string, unknown>)
+      return { status: 200, data: { count: 339 } }
+    })
+    const savedBodies: Record<string, unknown>[] = []
+    api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
+      savedBodies.push(body as Record<string, unknown>)
+      return { status: 200, data: { id: 42, name: 'West Asheville - 18-24' } }
+    })
+    const user = userEvent.setup()
+
+    render(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={voterFileSegment}
+      />,
+    )
+
+    const save = await screen.findByRole(
+      'button',
+      { name: /save changes \(339\)/i },
+      { timeout: 10_000 },
+    )
+    expect(countBodies.at(-1)).toMatchObject({
+      boundaryFromSegmentId: voterFileSegment.id,
+    })
+
+    // The save payload is the same object the count is built from, and the
+    // wizard's update deliberately never sends geoPoly — so the hint the
+    // count needs must not ride along into the PUT and become a filter
+    // field on the saved row.
+    await user.click(save)
+    await vi.waitFor(() => expect(savedBodies).toHaveLength(1))
+    expect(savedBodies[0]).not.toHaveProperty('boundaryFromSegmentId')
+  })
+})
+
 describe('CreateListWizard — edit mode chrome', () => {
   it('opens on the conditions step with no branch chooser, stepper, or Back', async () => {
     render(

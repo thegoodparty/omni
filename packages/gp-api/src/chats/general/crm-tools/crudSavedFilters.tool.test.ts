@@ -18,6 +18,7 @@ type ToolDeps = Parameters<typeof buildCrudSavedFiltersTool>[0]
 const buildDeps = (over: {
   voterFileFilters?: Partial<ToolDeps['voterFileFilters']>
   countContacts?: ToolDeps['contacts']['countContacts']
+  countSegment?: ToolDeps['contacts']['countSegment']
 }): ToolDeps => ({
   voterFileFilters: {
     create: vi.fn(),
@@ -28,7 +29,10 @@ const buildDeps = (over: {
     filterAccessCheck: vi.fn(() => Promise.resolve()),
     ...over.voterFileFilters,
   } as ToolDeps['voterFileFilters'],
-  contacts: { countContacts: over.countContacts ?? vi.fn() },
+  contacts: {
+    countContacts: over.countContacts ?? vi.fn(),
+    countSegment: over.countSegment ?? vi.fn(),
+  },
   organization: ORGANIZATION,
 })
 

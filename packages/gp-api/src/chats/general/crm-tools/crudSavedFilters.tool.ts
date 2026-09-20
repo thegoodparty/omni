@@ -33,7 +33,7 @@ export const MAX_SAVED_FILTER_NAME_LENGTH = 40
 const crudSavedFiltersInputSchema = voterFilterBaseSchema
   .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
   .extend({
-    action: z.enum(['list', 'create', 'update', 'delete']),
+    action: z.enum(['list', 'get', 'create', 'update', 'delete']),
     id: z.number().int().positive().optional(),
     name: z.string().min(1).max(MAX_SAVED_FILTER_NAME_LENGTH).optional(),
   })
@@ -85,12 +85,17 @@ export const buildCrudSavedFiltersTool = (deps: {
     | 'findByIdAndOrganizationSlug'
     | 'filterAccessCheck'
   >
-  contacts: Pick<ContactsService, 'countContacts'>
+  contacts: Pick<ContactsService, 'countContacts' | 'countSegment'>
   organization: Organization
 }): LlmStreamTool<typeof crudSavedFiltersInputSchema> => ({
   description:
     "Manage this organization's saved contact lists (saved filters). " +
-    "action='list' returns { id, name } for every saved list; 'create' " +
+    "action='list' returns { id, name } for every saved list; 'get' " +
+    'returns { id, name, count } for ONE list by id and is the only way to ' +
+    "read a saved list's current size — ask it whenever you need that " +
+    'number, including when the list was discussed earlier in this ' +
+    'conversation, because a list can be narrowed after it is saved and an ' +
+    "earlier figure goes stale; 'create' " +
     'saves a new list from the same filter shape count_contacts uses ' +
     '(requires name, max 40 characters; compose filter fields from ' +
     "describe_filter_dimensions) and returns { id, name, count }; 'update' " +
@@ -110,7 +115,39 @@ export const buildCrudSavedFiltersTool = (deps: {
       const filters = await voterFileFilters.findByOrganizationSlug(
         organization.slug,
       )
+      // Deliberately no counts here. One count per saved list is the per-row
+      // N+1 that 504'd the lists index in prod; `get` answers for the one
+      // list the model actually needs.
       return { filters: filters.map(({ id, name }) => ({ id, name })) }
+    }
+    if (action === 'get') {
+      if (id === undefined) return { error: 'get requires id' }
+      const existing = await voterFileFilters.findByIdAndOrganizationSlug(
+        id,
+        organization.slug,
+      )
+      if (!existing) {
+        return {
+          error: `No saved list with id ${id} exists for this organization`,
+        }
+      }
+      try {
+        // By id, so a drawn boundary and the list's stored search both
+        // apply. Spreading this row's FILTER FIELDS into count_contacts
+        // instead would drop the boundary and quote the list's pre-boundary
+        // size — the inline count's schema carries neither `id` nor
+        // `geoPoly`, which is the same defect the edit wizard had.
+        const { count } = await contacts.countSegment(String(id), organization)
+        return { id: existing.id, name: existing.name, count }
+      } catch (error) {
+        if (
+          error instanceof BadRequestException ||
+          error instanceof ForbiddenException
+        ) {
+          return toToolError(error)
+        }
+        throw error
+      }
     }
     try {
       await voterFileFilters.filterAccessCheck(organization.slug)
