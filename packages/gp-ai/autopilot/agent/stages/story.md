@@ -90,30 +90,25 @@ outside this story's scope), park instead of deciding alone. Your exit
 condition for this phase is the PR **approved and auto-merge armed** — not
 merely opened.
 
-### 6. Wait for the merge, then hand off
+### 6. Confirm the gate, then park — never wait out the merge yourself
 
-Once delegate has approved and auto-merge is armed, wait for the merge
-itself (branch protection gates it on delegate approval plus a green `E2E`)
-within your deadline — not for the dev deploy that follows it; the merge is
-the event this stage waits on. Once it merges, move `CLICKUP_TASK_ID` to
-`qa` — the conductor treats that move as a legitimate trigger for the next
-stage, not a gate you're bypassing.
+This run's exit condition is the PR **approved and auto-merge armed**, not
+the merge itself. Confirm both facts directly, never assume the state you
+last saw in step 5 still holds:
 
-Waiting means an in-turn wait: check the PR's state in a loop (an
-`until`-loop Monitor, or a plain check between other work) and keep your
-turn open until it merges or your deadline arrives. Never start a
-background watcher and end your turn "while it waits" — everything you
-launch dies with the container the moment your turn ends, nothing is left
-watching, no comment or marker is on the card, and the ticket strands in
-`in progress` until a stall alert fires hours later. This stage's first
-real run ended exactly that way. There are only two legitimate ways out of
-this phase: the card moved to `qa` after the merge, or a park.
+    gh pr view <n> --json autoMergeRequest,reviewDecision
 
-If your deadline arrives while you're still waiting on the merge, don't just
-end your turn — that leaves nothing on the card for `parked-stage` to find,
-and nothing to trigger picking this wait back up later. Park instead, the
-same primitive you'd use for a real question, with a status note in place of
-one:
+`reviewDecision` must read `APPROVED` and `autoMergeRequest.mergeMethod`
+must read `MERGE`. If either isn't true yet, you're still in step 5 — keep
+driving delegate to approval, don't park early.
+
+Once both are confirmed, park immediately — an in-turn wait for the actual
+merge (branch protection gates it on that approval plus a green `E2E`, then
+the release train) is exactly what this step used to do, and it bought
+nothing but 30-45 idle paid Fargate minutes per story waiting on CI and the
+deploy train. The conductor's own sweep now does that waiting for free: it
+checks the PR's merge state on a cheap GitHub read, moves the ticket to `qa`
+itself once the PR merges, and alerts Slack if it closes unmerged instead.
 
     python -m autopilot.agent.feedback park --task-id <CLICKUP_TASK_ID> \
         --stage story \
@@ -121,7 +116,7 @@ one:
 
 This writes the same `[autopilot:parked stage=story]` marker `resume` looks
 for, moves the card to `feedback needed`, and pings Slack — never move the
-ticket to `qa` on a hunch instead. The run's reported outcome is whatever the
-park primitive actually stamps (`feedback_parked`); "merge pending" is the
-state you're telling a human in the parking comment, not a separate outcome
-this stage invents.
+ticket to `qa` yourself, and never wait for the merge in this run. The run's
+reported outcome is whatever the park primitive actually stamps
+(`feedback_parked`); "merge pending" is the state you're telling the
+conductor and any human watching, not a separate outcome this stage invents.
