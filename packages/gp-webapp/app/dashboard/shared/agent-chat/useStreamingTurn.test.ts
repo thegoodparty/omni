@@ -516,7 +516,9 @@ describe('useStreamingTurn', () => {
     })
 
     await waitFor(() => {
-      return result.current.liveSegments.some((s) => s.kind === 'citation')
+      expect(
+        result.current.liveSegments.some((s) => s.kind === 'citation'),
+      ).toBe(true)
     })
 
     expect(result.current.liveSegments).toContainEqual({

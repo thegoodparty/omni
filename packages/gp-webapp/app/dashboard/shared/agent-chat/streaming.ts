@@ -38,15 +38,25 @@ export function segmentsToLive(
     if (s.kind === 'text') {
       return s.text ? [{ kind: 'text', text: s.text }] : []
     }
-    if (s.kind === 'citation' && s.attachmentId) {
+    if (s.kind === 'citation') {
+      // The history API returns citation data nested under `payload` (gp-api
+      // stores it there); live in-memory segments carry it at top-level. Fall
+      // back to payload so reload renders the same chips as streaming.
+      const p = s.payload as {
+        attachmentId?: string
+        page?: number | null
+        quotedText?: string | null
+      } | null
+      const attachmentId = s.attachmentId ?? p?.attachmentId ?? null
+      if (!attachmentId) return []
       citationOrdinal += 1
       return [
         {
           kind: 'citation',
           ordinal: citationOrdinal,
-          attachmentId: s.attachmentId,
-          page: s.page ?? null,
-          quotedText: s.quotedText ?? null,
+          attachmentId,
+          page: s.page ?? p?.page ?? null,
+          quotedText: s.quotedText ?? p?.quotedText ?? null,
         },
       ]
     }

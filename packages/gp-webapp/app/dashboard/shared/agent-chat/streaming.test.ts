@@ -82,6 +82,28 @@ describe('segmentsToLive', () => {
     })
   })
 
+  it('reads citation fields from payload when top-level fields are absent (history reload)', () => {
+    // gp-api persists citation data nested under `payload`; the history API
+    // returns segments in that shape. Live in-memory segments carry the same
+    // fields at top-level. segmentsToLive must handle both.
+    const segments: ChatMessageSegment[] = [
+      {
+        kind: 'citation',
+        payload: { attachmentId: 'att-1', page: 4, quotedText: 'sourced text' },
+      },
+    ]
+    const result = segmentsToLive(segments, '')
+    expect(result).toEqual([
+      {
+        kind: 'citation',
+        ordinal: 1,
+        attachmentId: 'att-1',
+        page: 4,
+        quotedText: 'sourced text',
+      },
+    ])
+  })
+
   it('resets ordinal counter independently per call', () => {
     const segments: ChatMessageSegment[] = [
       { kind: 'citation', attachmentId: 'att-a', page: null, quotedText: null },
