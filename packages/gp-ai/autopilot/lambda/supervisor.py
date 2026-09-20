@@ -47,12 +47,16 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from botocore.exceptions import ClientError
 
 CLICKUP_BASE_URL = "https://api.clickup.com/api/v2"
 SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage"
+SLACK_CONVERSATIONS_REPLIES_URL = "https://slack.com/api/conversations.replies"
+SLACK_UPDATE_MESSAGE_URL = "https://slack.com/api/chat.update"
+SLACK_PINS_ADD_URL = "https://slack.com/api/pins.add"
 
 # Plain env var, not Secrets Manager — same posture as
 # AUTOPILOT_CLICKUP_WEBHOOK_SECRET (see handler.py's module docstring): this
@@ -137,6 +141,47 @@ def clickup_task_url(task_id: str) -> str:
 
 def move_task_status(task_id: str, status: str) -> None:
     clickup_request("PUT", f"/task/{task_id}", {"status": status})
+
+
+def create_task_comment(task_id: str, comment_text: str) -> dict:
+    """Used by handler.py's Slack ingress to relay a thread reply onto the
+    card as an ordinary comment — deliberately just another ClickUp write,
+    not a special path: ClickUp's own webhook fires for it and drives the
+    resume through the same hardened commentPosted route a human's own
+    ClickUp comment takes (see router.route()'s is_slack_relay_comment)."""
+    return clickup_request("POST", f"/task/{task_id}/comment", {"comment_text": comment_text})
+
+
+# ---------------------------------------------------------------------------
+# Slack HTTP (plain, dependency-light — same posture as clickup_request
+# above and post_slack_message below).
+# ---------------------------------------------------------------------------
+
+
+def slack_conversations_replies(channel: str, thread_ts: str | None) -> list[dict]:
+    """The messages in a Slack thread, oldest first — index 0 is the thread
+    root, which is what handler.py's Slack ingress needs to confirm a reply
+    landed on one of our own park/notify pings (see router.slack_ping_task_id).
+    Needs the bot's channels:history scope; chat:write (already granted for
+    park/notify) does NOT imply it — see autopilot/README.md's ops note."""
+    token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
+    if not token:
+        raise RuntimeError("SLACK_BOT_TOKEN not configured; cannot read Slack thread")
+    if not thread_ts:
+        raise ValueError("thread_ts is required to read a Slack thread")
+
+    query = urlencode({"channel": channel, "ts": thread_ts})
+    req = Request(
+        f"{SLACK_CONVERSATIONS_REPLIES_URL}?{query}",
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    with urlopen(req, timeout=10) as response:
+        result = json.loads(response.read().decode())
+    if not result.get("ok"):
+        raise RuntimeError(f"Slack conversations.replies returned an error: {result.get('error')}")
+    messages = result.get("messages")
+    return [m for m in messages if isinstance(m, dict)] if isinstance(messages, list) else []
 
 
 # ---------------------------------------------------------------------------
@@ -553,12 +598,11 @@ def _seconds_in_current_status(task_id: str) -> float | None:
     return time.time() - int(since) / 1000.0
 
 
-def post_slack_message(text: str) -> None:
+def _post_slack_message_raw(channel: str, text: str) -> dict | None:
     token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
-    channel = os.environ.get(SLACK_CHANNEL_ENV, "")
     if not token or not channel:
-        print("ERROR: SLACK_BOT_TOKEN or AUTOPILOT_SLACK_CHANNEL not configured; dropping Slack message")
-        return
+        print("ERROR: SLACK_BOT_TOKEN or channel not configured; dropping Slack message")
+        return None
 
     body = json.dumps({"channel": channel, "text": text}).encode()
     req = Request(
@@ -572,9 +616,83 @@ def post_slack_message(text: str) -> None:
             result = json.loads(response.read().decode())
     except Exception as e:
         print(f"ERROR: failed to post Slack message: {type(e).__name__}")
-        return
+        return None
     if not result.get("ok"):
         print(f"ERROR: Slack chat.postMessage returned an error: {result.get('error')}")
+        return None
+    return result
+
+
+def post_slack_message(text: str) -> None:
+    _post_slack_message_raw(os.environ.get(SLACK_CHANNEL_ENV, ""), text)
+
+
+def post_slack_message_with_ts(channel: str, text: str) -> str | None:
+    """Like post_slack_message, but to an explicit channel and returning the
+    posted message's ts. Needed by the status card (sweep.py, ENG-11151),
+    which must remember where its own message lives in order to edit it in
+    place on the next tick instead of posting a fresh one every 15 minutes."""
+    result = _post_slack_message_raw(channel, text)
+    ts = result.get("ts") if result is not None else None
+    return ts if isinstance(ts, str) else None
+
+
+def update_slack_message(channel: str, ts: str, text: str) -> bool:
+    """Edits a previously posted message in place via chat.update. Returns
+    False on any failure — most notably message_not_found, when the status
+    card's own message was deleted out from under it — so the caller can fall
+    back to posting a fresh message rather than treating a stale ts as fatal.
+    """
+    token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
+    if not token:
+        print("ERROR: SLACK_BOT_TOKEN not configured; cannot update Slack message")
+        return False
+
+    body = json.dumps({"channel": channel, "ts": ts, "text": text}).encode()
+    req = Request(
+        SLACK_UPDATE_MESSAGE_URL,
+        data=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=10) as response:
+            result = json.loads(response.read().decode())
+    except Exception as e:
+        print(f"ERROR: failed to update Slack message {ts}: {type(e).__name__}")
+        return False
+    if not result.get("ok"):
+        print(f"Slack chat.update could not update {ts} ({result.get('error')}); will repost")
+        return False
+    return True
+
+
+def pin_slack_message(channel: str, ts: str) -> bool:
+    """Pins the status card message. Best-effort and never fatal — the pin is
+    cosmetic (sweep.py finds its own message by the ts stored in DynamoDB,
+    not by scanning pins), so a failure here must never fail the sweep tick."""
+    token = os.environ.get(SLACK_BOT_TOKEN_ENV, "")
+    if not token:
+        print("ERROR: SLACK_BOT_TOKEN not configured; cannot pin status card message")
+        return False
+
+    body = json.dumps({"channel": channel, "timestamp": ts}).encode()
+    req = Request(
+        SLACK_PINS_ADD_URL,
+        data=body,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=10) as response:
+            result = json.loads(response.read().decode())
+    except Exception as e:
+        print(f"ERROR: failed to pin status card message {ts}: {type(e).__name__}")
+        return False
+    if not result.get("ok"):
+        print(f"ERROR: Slack pins.add could not pin {ts}: {result.get('error')}")
+        return False
+    return True
 
 
 def post_stall_alert(epic_task_id: str, story: Story) -> None:

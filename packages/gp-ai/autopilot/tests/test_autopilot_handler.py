@@ -9,6 +9,7 @@ module itself is loaded without colliding with clickup_bot's.
 import hashlib
 import hmac
 import json
+import time
 
 import autopilot_conductor_handler as handler
 import pytest
@@ -648,6 +649,102 @@ def test_comment_posted_without_parent_hydrates_even_when_list_and_status_are_se
     assert routed[0].epic_task_id == "epic-9"
 
 
+def test_hydration_reads_latest_comment_for_bot_authored_comment_posted(monkeypatch, fake_lambda):
+    # The self-resume guard's Slack-relay exemption (router.is_slack_relay_comment)
+    # is the ONLY consumer of latest_comment_text — it only matters when the
+    # actor IS the bot, so this is the one case that pays the extra read.
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    monkeypatch.setattr(
+        handler.supervisor,
+        "get_task",
+        lambda task_id: {"id": task_id, "list": {"id": IN_SCOPE_LIST_ID}, "status": {"status": "feedback needed"}},
+    )
+    comment_reads = []
+
+    def fake_get_task_comments(task_id):
+        comment_reads.append(task_id)
+        return [{"comment_text": "[autopilot:slack-answer from U123] fix it", "date": "1700000099000"}]
+
+    monkeypatch.setattr(handler.supervisor, "get_task_comments", fake_get_task_comments)
+    monkeypatch.setenv("AUTOPILOT_BOT_USER_ID", "bot-42")
+    payload = handler.AutopilotEvent(
+        kind="commentPosted",
+        task_id="story-abc",
+        list_id=None,
+        transitions=[],
+        event_ts="1700000099000",
+        event_actor_id="bot-42",
+    ).to_payload()
+
+    handler.handler(payload, None)
+
+    assert comment_reads == ["story-abc"]
+    assert len(routed) == 1
+    assert routed[0].latest_comment_text == "[autopilot:slack-answer from U123] fix it"
+
+
+def test_hydration_skips_the_comment_read_for_a_human_actor(monkeypatch, fake_lambda):
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    monkeypatch.setattr(
+        handler.supervisor,
+        "get_task",
+        lambda task_id: {"id": task_id, "list": {"id": IN_SCOPE_LIST_ID}, "status": {"status": "feedback needed"}},
+    )
+
+    def boom(task_id):
+        raise AssertionError("a human comment never needs the latest-comment-text read")
+
+    monkeypatch.setattr(handler.supervisor, "get_task_comments", boom)
+    monkeypatch.setenv("AUTOPILOT_BOT_USER_ID", "bot-42")
+    payload = handler.AutopilotEvent(
+        kind="commentPosted",
+        task_id="story-abc",
+        list_id=None,
+        transitions=[],
+        event_ts="1700000099000",
+        event_actor_id="human-7",
+    ).to_payload()
+
+    resp = handler.handler(payload, None)
+
+    assert resp["statusCode"] == 200
+    assert len(routed) == 1
+    assert routed[0].latest_comment_text is None
+
+
+def test_hydration_raises_when_the_comment_read_fails_for_a_bot_actor(monkeypatch, fake_lambda, capsys):
+    # Same retry contract as the task read: silently dropping this would
+    # permanently drop a real relayed Slack answer with no retry path.
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    monkeypatch.setattr(
+        handler.supervisor,
+        "get_task",
+        lambda task_id: {"id": task_id, "list": {"id": IN_SCOPE_LIST_ID}, "status": {"status": "feedback needed"}},
+    )
+
+    def boom(task_id):
+        raise RuntimeError("clickup down")
+
+    monkeypatch.setattr(handler.supervisor, "get_task_comments", boom)
+    monkeypatch.setenv("AUTOPILOT_BOT_USER_ID", "bot-42")
+    payload = handler.AutopilotEvent(
+        kind="commentPosted",
+        task_id="story-abc",
+        list_id=None,
+        transitions=[],
+        event_ts="1700000099000",
+        event_actor_id="bot-42",
+    ).to_payload()
+
+    with pytest.raises(RuntimeError, match="clickup down"):
+        handler.handler(payload, None)
+
+    assert routed == []
+
+
 def test_async_worker_raises_when_hydrated_task_has_no_readable_list(monkeypatch, fake_lambda, capsys):
     # A successful read whose list field is unreadable must not fall through
     # to the scope gate — None reads as "not in scope" and the event would be
@@ -762,3 +859,406 @@ def test_lambda_client_is_cached_across_invocations(boto3_factory):
 
     lambda_calls = [kwargs for service, kwargs in boto3_factory.client_calls if service == "lambda"]
     assert len(lambda_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# ENG-11150 — Slack ingress edge: signature verification, challenge, fast-ack
+# ---------------------------------------------------------------------------
+
+SLACK_SECRET = "test-slack-signing-secret"
+SLACK_CHANNEL_ID = "C-AUTOPILOT"
+
+
+@pytest.fixture(autouse=True)
+def slack_signing_secret_env(monkeypatch):
+    monkeypatch.setenv("AUTOPILOT_SLACK_SIGNING_SECRET", SLACK_SECRET)
+
+
+@pytest.fixture(autouse=True)
+def slack_channel_env(monkeypatch):
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", SLACK_CHANNEL_ID)
+
+
+def sign_slack(raw_body: str, timestamp: str, secret: str = SLACK_SECRET) -> str:
+    basestring = f"v0:{timestamp}:{raw_body}"
+    return "v0=" + hmac.new(secret.encode(), basestring.encode(), hashlib.sha256).hexdigest()
+
+
+def slack_message_body(
+    channel=SLACK_CHANNEL_ID,
+    ts="1700000100.000100",
+    thread_ts="1700000000.000000",
+    user="U-HUMAN",
+    text="use option B",
+    event_id="Ev123",
+    bot_id=None,
+):
+    inner: dict = {"type": "message", "channel": channel, "ts": ts, "text": text, "user": user}
+    if thread_ts is not None:
+        inner["thread_ts"] = thread_ts
+    if bot_id is not None:
+        inner["bot_id"] = bot_id
+    return {"type": "event_callback", "event_id": event_id, "event": inner}
+
+
+def make_slack_event(body_dict: dict, timestamp: str | None = None, signature: str | None = None) -> dict:
+    body = json.dumps(body_dict)
+    if timestamp is None:
+        timestamp = str(int(time.time()))
+    if signature is None:
+        signature = sign_slack(body, timestamp)
+    return {
+        "path": "/autopilot/slack",
+        "headers": {"x-slack-request-timestamp": timestamp, "x-slack-signature": signature},
+        "body": body,
+    }
+
+
+def test_slack_url_verification_is_answered_in_path(fake_lambda):
+    body = {"type": "url_verification", "challenge": "abc123"}
+    event = make_slack_event(body)
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["challenge"] == "abc123"
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_valid_signature_relayable_reply_acks_fast_and_self_invokes_once(fake_lambda):
+    event = make_slack_event(slack_message_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["status"] == "accepted"
+    assert len(fake_lambda.invoke_calls) == 1
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["autopilot_slack_async"] is True
+    assert payload["channel"] == SLACK_CHANNEL_ID
+    assert payload["text"] == "use option B"
+    assert payload["event_id"] == "Ev123"
+
+
+def test_slack_missing_signature_returns_401_and_no_self_invoke(fake_lambda):
+    event = make_slack_event(slack_message_body())
+    del event["headers"]["x-slack-signature"]
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 401
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_wrong_signature_returns_401_and_no_self_invoke(fake_lambda):
+    body = json.dumps(slack_message_body())
+    timestamp = "1700000100"
+    event = {
+        "path": "/autopilot/slack",
+        "headers": {"x-slack-request-timestamp": timestamp, "x-slack-signature": "v0=" + "0" * 64},
+        "body": body,
+    }
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 401
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_stale_timestamp_returns_401(fake_lambda):
+    body = json.dumps(slack_message_body())
+    stale_timestamp = str(int(time.time()) - 10 * 60)
+    event = {
+        "path": "/autopilot/slack",
+        "headers": {
+            "x-slack-request-timestamp": stale_timestamp,
+            "x-slack-signature": sign_slack(body, stale_timestamp),
+        },
+        "body": body,
+    }
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 401
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_missing_signing_secret_returns_401(monkeypatch, fake_lambda):
+    monkeypatch.delenv("AUTOPILOT_SLACK_SIGNING_SECRET", raising=False)
+    event = make_slack_event(slack_message_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 401
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_invalid_json_body_returns_400(fake_lambda):
+    timestamp = str(int(time.time()))
+    event = {
+        "path": "/autopilot/slack",
+        "headers": {"x-slack-request-timestamp": timestamp, "x-slack-signature": sign_slack("not json", timestamp)},
+        "body": "not json",
+    }
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 400
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_bot_message_is_dropped_at_the_edge_without_a_self_invoke(fake_lambda):
+    event = make_slack_event(slack_message_body(bot_id="B-SELF"))
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "not a relayable Slack reply"
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_non_thread_message_is_dropped_at_the_edge(fake_lambda):
+    event = make_slack_event(slack_message_body(thread_ts=None))
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "not a relayable Slack reply"
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_message_in_another_channel_is_dropped_at_the_edge(fake_lambda):
+    event = make_slack_event(slack_message_body(channel="C-SOME-OTHER"))
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "not a relayable Slack reply"
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_message_edit_subtype_is_ignored(fake_lambda):
+    body = slack_message_body()
+    body["event"]["subtype"] = "message_changed"
+    event = make_slack_event(body)
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "not a triggering Slack event"
+    assert fake_lambda.invoke_calls == []
+
+
+def test_slack_thread_broadcast_reply_is_still_relayable(fake_lambda):
+    # "Also send to #channel" sets subtype=thread_broadcast on an otherwise
+    # ordinary human thread reply — it must not be dropped like a real
+    # edit/deletion/bot subtype is.
+    body = slack_message_body()
+    body["event"]["subtype"] = "thread_broadcast"
+    event = make_slack_event(body)
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["status"] == "accepted"
+    assert len(fake_lambda.invoke_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# ENG-11150 — Slack async worker: dedup, thread-root check, relay
+# ---------------------------------------------------------------------------
+
+
+def _slack_async_payload(**overrides):
+    payload = {
+        "autopilot_slack_async": True,
+        "channel": SLACK_CHANNEL_ID,
+        "ts": "1700000100.000100",
+        "thread_ts": "1700000000.000000",
+        "user_id": "U-HUMAN",
+        "bot_id": None,
+        "text": "use option B",
+        "event_id": "Ev123",
+    }
+    payload.update(overrides)
+    return payload
+
+
+@pytest.fixture(autouse=True)
+def dedup_table_env(monkeypatch):
+    monkeypatch.setenv("AUTOPILOT_DEDUP_TABLE", "autopilot-dedup-test")
+
+
+@pytest.fixture(autouse=True)
+def no_relay_retry_backoff(monkeypatch):
+    # _retry_relay_call sleeps between attempts in production; tests that
+    # exercise the exhausted-retries path would otherwise burn several real
+    # seconds for no reason.
+    monkeypatch.setattr(handler.time, "sleep", lambda seconds: None)
+
+
+class FakeDynamoDBForSlack:
+    def __init__(self):
+        self.items: dict[str, dict] = {}
+
+    def put_item(self, **kwargs):
+        from botocore.exceptions import ClientError
+
+        pk = kwargs["Item"]["pk"]["S"]
+        if pk in self.items:
+            raise ClientError({"Error": {"Code": "ConditionalCheckFailedException"}}, "PutItem")
+        self.items[pk] = kwargs["Item"]
+
+
+@pytest.fixture
+def fake_dynamodb(monkeypatch):
+    fake = FakeDynamoDBForSlack()
+    monkeypatch.setattr(handler.dispatch, "get_dynamodb_client", lambda: fake)
+    return fake
+
+
+def test_slack_async_worker_relays_a_reply_to_a_known_ping(monkeypatch, fake_dynamodb):
+    monkeypatch.setattr(
+        handler.supervisor,
+        "slack_conversations_replies",
+        lambda channel, thread_ts: [{"text": "Autopilot parked <https://app.clickup.com/t/task-abc|a card>: q?"}],
+    )
+    relayed = []
+    monkeypatch.setattr(
+        handler.supervisor, "create_task_comment", lambda task_id, text: relayed.append((task_id, text))
+    )
+
+    resp = handler.handle_slack_async_processing(_slack_async_payload())
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["task_id"] == "task-abc"
+    assert relayed == [("task-abc", "[autopilot:slack-answer from U-HUMAN] use option B")]
+
+
+def test_slack_async_worker_ignores_a_reply_whose_thread_root_is_not_a_ping(monkeypatch, fake_dynamodb):
+    monkeypatch.setattr(
+        handler.supervisor, "slack_conversations_replies", lambda channel, thread_ts: [{"text": "just chatting"}]
+    )
+    relayed = []
+    monkeypatch.setattr(handler.supervisor, "create_task_comment", lambda task_id, text: relayed.append(task_id))
+
+    resp = handler.handle_slack_async_processing(_slack_async_payload())
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "thread root is not an autopilot ping"
+    assert relayed == []
+
+
+def test_slack_async_worker_redelivery_of_the_same_event_relays_once(monkeypatch, fake_dynamodb):
+    monkeypatch.setattr(
+        handler.supervisor,
+        "slack_conversations_replies",
+        lambda channel, thread_ts: [{"text": "Autopilot parked <https://app.clickup.com/t/task-abc|a card>: q?"}],
+    )
+    relayed = []
+    monkeypatch.setattr(handler.supervisor, "create_task_comment", lambda task_id, text: relayed.append(task_id))
+
+    handler.handle_slack_async_processing(_slack_async_payload())
+    handler.handle_slack_async_processing(_slack_async_payload())
+
+    assert relayed == ["task-abc"]
+
+
+def test_slack_async_worker_thread_read_failure_returns_500_and_does_not_relay(monkeypatch, fake_dynamodb):
+    calls = []
+
+    def boom(channel, thread_ts):
+        calls.append(1)
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(handler.supervisor, "slack_conversations_replies", boom)
+    relayed = []
+    monkeypatch.setattr(handler.supervisor, "create_task_comment", lambda task_id, text: relayed.append(task_id))
+
+    resp = handler.handle_slack_async_processing(_slack_async_payload())
+
+    assert resp["statusCode"] == 500
+    assert relayed == []
+    # A SUSTAINED failure (every attempt raises) exhausts the bounded retry
+    # and still gives up — this is the "not a blip" case, distinct from the
+    # transient-blip-then-succeeds case below.
+    assert len(calls) == handler.SLACK_RELAY_RETRY_ATTEMPTS
+
+
+def test_slack_async_worker_survives_one_transient_thread_read_failure(monkeypatch, fake_dynamodb):
+    # ENG-11150 fix: a single transient blip on conversations.replies must
+    # not permanently drop the answer — this Lambda's async invocations get
+    # ZERO platform retries (maximum_retry_attempts = 0) and Slack already
+    # has its 200 from the fast-ack edge, so a bounded retry inside THIS
+    # invocation is the only thing that can recover it.
+    calls = []
+
+    def flaky(channel, thread_ts):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("transient slack 5xx")
+        return [{"text": "Autopilot parked <https://app.clickup.com/t/task-abc|a card>: q?"}]
+
+    monkeypatch.setattr(handler.supervisor, "slack_conversations_replies", flaky)
+    relayed = []
+    monkeypatch.setattr(
+        handler.supervisor, "create_task_comment", lambda task_id, text: relayed.append((task_id, text))
+    )
+
+    resp = handler.handle_slack_async_processing(_slack_async_payload())
+
+    assert resp["statusCode"] == 200
+    assert len(calls) == 2
+    assert relayed == [("task-abc", "[autopilot:slack-answer from U-HUMAN] use option B")]
+
+
+def test_slack_async_worker_survives_one_transient_comment_post_failure(monkeypatch, fake_dynamodb):
+    monkeypatch.setattr(
+        handler.supervisor,
+        "slack_conversations_replies",
+        lambda channel, thread_ts: [{"text": "Autopilot parked <https://app.clickup.com/t/task-abc|a card>: q?"}],
+    )
+    calls = []
+
+    def flaky(task_id, text):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("transient clickup 5xx")
+
+    monkeypatch.setattr(handler.supervisor, "create_task_comment", flaky)
+
+    resp = handler.handle_slack_async_processing(_slack_async_payload())
+
+    assert resp["statusCode"] == 200
+    assert len(calls) == 2
+
+
+def test_slack_async_worker_comment_post_failure_exhausted_returns_500(monkeypatch, fake_dynamodb):
+    monkeypatch.setattr(
+        handler.supervisor,
+        "slack_conversations_replies",
+        lambda channel, thread_ts: [{"text": "Autopilot parked <https://app.clickup.com/t/task-abc|a card>: q?"}],
+    )
+
+    def boom(task_id, text):
+        raise RuntimeError("clickup down for good")
+
+    monkeypatch.setattr(handler.supervisor, "create_task_comment", boom)
+
+    resp = handler.handle_slack_async_processing(_slack_async_payload())
+
+    assert resp["statusCode"] == 500
+
+
+def test_slack_async_worker_never_logs_the_reply_text(monkeypatch, fake_dynamodb, capsys):
+    monkeypatch.setattr(
+        handler.supervisor,
+        "slack_conversations_replies",
+        lambda channel, thread_ts: [{"text": "Autopilot parked <https://app.clickup.com/t/task-abc|a card>: q?"}],
+    )
+    monkeypatch.setattr(handler.supervisor, "create_task_comment", lambda task_id, text: None)
+    secret_text = "super-secret-reply-content-xyz"
+
+    handler.handle_slack_async_processing(_slack_async_payload(text=secret_text))
+
+    assert secret_text not in capsys.readouterr().out

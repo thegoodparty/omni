@@ -130,6 +130,144 @@ def parked_stage_from_comments(comments: list[dict]) -> str | None:
     return park.stage if park is not None else None
 
 
+def latest_comment_text(comments: list[dict]) -> str | None:
+    """The text of the most recently posted comment in a thread, by date —
+    the ONE piece of comment content the self-resume guard below needs, to
+    tell a genuine park/notify write from a Slack-answer relay when both
+    share the same bot actor id (see is_slack_relay_comment)."""
+    if not comments:
+        return None
+    newest = max(comments, key=_comment_date_ms)
+    text = newest.get("comment_text")
+    return text if isinstance(text, str) else None
+
+
+# The marker handler.py's Slack ingress stamps onto every relayed comment
+# (format_slack_answer_comment) — the ONLY thing that exempts a bot-authored
+# commentPosted delivery from the self-resume guard in route() below. Not
+# duplicated anywhere else (unlike PARK_MARKER_PATTERN): the relay that writes
+# it and the guard that reads it both live in this same Lambda package.
+SLACK_ANSWER_MARKER_PATTERN = re.compile(r"\[autopilot:slack-answer from ([^\]]+)\]")
+
+
+def format_slack_answer_comment(slack_user_id: str, text: str) -> str:
+    return f"[autopilot:slack-answer from {slack_user_id}] {text}"
+
+
+def is_slack_relay_comment(text: str | None) -> bool:
+    return bool(text) and bool(SLACK_ANSWER_MARKER_PATTERN.search(text))
+
+
+# The marker main.post_run_summary_comment stamps as the FIRST LINE of the
+# run-summary comment every stage run posts on end (ENG-11151). Deliberately
+# duplicated from autopilot/agent/metrics.py for the same dependency-light
+# reason PARK_MARKER_PATTERN is duplicated above — a contract test asserts
+# the two patterns stay character-identical.
+#
+# Consulted in exactly two places:
+#   - sweep.py's status card reads outcome/cost back off it (latest_run_summary)
+#     for the "last-run outcome per in-flight card" line.
+#   - sweep.auto_resume_actionable_parks excludes it from the "any comment
+#     after the park" reply check: EVERY run — including a run that itself
+#     just parked — posts this comment at the end, so it always lands with a
+#     later date than the park it describes. Treating it like a genuine human
+#     reply would permanently wedge that park: the comment-resume route
+#     already (and correctly) ignores it too (bot-authored, carries neither
+#     PARK_MARKER nor SLACK_ANSWER_MARKER), so no other path would ever wake
+#     the story. Scoped to the marker, not the comment's author, on purpose —
+#     a blanket "ignore every bot-authored comment" would ALSO swallow a
+#     relayed Slack answer (also bot-authored, via the same ClickUp API key),
+#     which genuinely must count as an answer (see
+#     is_slack_relay_comment's own callers and the sweep test pinning that).
+RUN_SUMMARY_MARKER_PATTERN = re.compile(
+    r"\[autopilot:run-summary stage=([a-z0-9][a-z0-9-]*) outcome=([a-z_]+)(?: cost_usd=([0-9]*\.?[0-9]+))?\]"
+)
+
+
+def is_run_summary_comment(text: str | None) -> bool:
+    return bool(text) and bool(RUN_SUMMARY_MARKER_PATTERN.search(text))
+
+
+def latest_run_summary(comments: list[dict]) -> dict | None:
+    """The most recently posted run-summary marker's fields (stage, outcome,
+    cost_usd — cost_usd is None when the run reported none), or None if the
+    thread carries no run-summary comment. Latest wins by the comment's own
+    date, same discipline as latest_park, for a story that has run and
+    reported more than once."""
+    best: dict | None = None
+    best_date = -1
+    for comment in comments:
+        text = comment.get("comment_text")
+        if not isinstance(text, str):
+            continue
+        match = RUN_SUMMARY_MARKER_PATTERN.search(text)
+        if not match:
+            continue
+        date_ms = _comment_date_ms(comment)
+        if date_ms >= best_date:
+            best_date = date_ms
+            cost_raw = match.group(3)
+            best = {
+                "stage": match.group(1).lower(),
+                "outcome": match.group(2).lower(),
+                "cost_usd": float(cost_raw) if cost_raw is not None else None,
+            }
+    return best
+
+
+# The ClickUp card link a park/notify ping's Slack message embeds (see
+# agent/feedback.py's _slack_message/_notify_message) — the signal that a
+# Slack thread root is really one of OUR pings, not some unrelated message a
+# human happened to reply to in the same channel.
+CARD_URL_PATTERN = re.compile(r"https://app\.clickup\.com/t/([A-Za-z0-9-]+)")
+
+
+def slack_ping_task_id(text: str | None) -> str | None:
+    """The ClickUp task id embedded in a park/notify ping's Slack message, or
+    None if `text` carries no card link — the case where a thread root is NOT
+    one of our pings and a reply in it must not be relayed."""
+    if not isinstance(text, str):
+        return None
+    match = CARD_URL_PATTERN.search(text)
+    return match.group(1) if match else None
+
+
+@dataclass(frozen=True)
+class SlackReplyEvent:
+    channel: str
+    ts: str
+    thread_ts: str | None
+    user_id: str | None
+    bot_id: str | None
+    text: str
+    # Slack's own event_id, when the delivery carries one — the dedup key
+    # handler.py's async worker claims before relaying (falls back to
+    # channel+ts if a payload ever lacks it; see handle_slack_async_processing).
+    event_id: str | None = None
+
+
+def is_relayable_slack_reply(event: SlackReplyEvent, *, expected_channel: str) -> bool:
+    """True iff this Slack `message` event is a CANDIDATE to relay onto a
+    ClickUp card: a genuine thread reply (not a bare channel message) from a
+    human (no bot_id — Slack sets this on every message an app/bot posts,
+    including this conductor's own relay and its park/notify pings), in the
+    autopilot channel.
+
+    Deliberately does NOT check whether the thread it replies to is actually
+    one of our pings — that needs the thread root's text, fetched with a
+    conversations.replies call the async worker makes (slack_ping_task_id),
+    never this pure, I/O-free check."""
+    if event.channel != expected_channel:
+        return False
+    if event.bot_id is not None:
+        return False
+    if not event.user_id:
+        return False
+    if not event.thread_ts or event.thread_ts == event.ts:
+        return False
+    return bool(event.text and event.text.strip())
+
+
 # --- Status names --------------------------------------------------------
 # The real board (ENG-11104): ONE ClickUp list holds both feature cards and
 # stories (a story is a subtask of its feature card), with these statuses.
@@ -236,6 +374,13 @@ class RoutableEvent:
     # breakdown-approval gate the epic IS the card itself, so route() derives
     # RoutingDecision.epic_task_id from task_id instead.
     epic_task_id: str | None = None
+    # The text of the comment that triggered a commentPosted delivery (the
+    # most recently posted comment in the thread at hydration time — see
+    # handler._hydrate_from_clickup and router.latest_comment_text). The ONLY
+    # thing that can exempt a bot-authored comment from the self-resume guard
+    # below (is_slack_relay_comment); None for every other kind, and left
+    # unconsulted for a commentPosted delivery whose actor is not the bot.
+    latest_comment_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -362,7 +507,16 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
             if not bot_user_id:
                 print("ERROR: AUTOPILOT_BOT_USER_ID not configured; refusing comment-resume dispatch")
                 return []
-            if event.event_actor_id == bot_user_id:
+            is_bot_actor = event.event_actor_id == bot_user_id
+            # EXACTLY one exemption from the bot-author filter: a comment
+            # this conductor itself relayed from a Slack thread reply (see
+            # is_slack_relay_comment / handler.py's Slack ingress). Nothing
+            # else bypasses it — the bot never posts that marker except from
+            # the relay path, and a park/notify ping never carries it, so a
+            # relayed answer can trigger at most one resume: the run it wakes
+            # may itself re-park, but a re-park comment carries PARK_MARKER,
+            # never SLACK_ANSWER_MARKER, so it hits this same filter unexempted.
+            if is_bot_actor and not is_slack_relay_comment(event.latest_comment_text):
                 print(
                     f"Ignoring the bot's own comment on story {event.task_id}: "
                     "a parking comment must not resume the stage that parked"

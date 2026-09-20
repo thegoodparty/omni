@@ -35,6 +35,7 @@ import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDi
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
+import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
@@ -201,6 +202,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         organization: ctx.organization,
       })
       tools.count_contacts = buildCountContactsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+      })
+      // Beside describe_filter_dimensions rather than with the saved-list
+      // tools: it IS the vocabulary read for the one dimension the catalog
+      // cannot carry, and a count is as entitled to a precinct as a saved
+      // list is.
+      tools.list_precincts = buildListPrecinctsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })

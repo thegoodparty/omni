@@ -6,6 +6,7 @@ import {
   linkChatAttachment,
   listChatAttachments,
   deleteChatAttachment,
+  downloadChatAttachment,
 } from './chatAttachments-api'
 
 // ---------------------------------------------------------------------------
@@ -294,5 +295,69 @@ describe('deleteChatAttachment', () => {
     const [target] = fetchMock.mock.calls[0] as [string | Request]
     const calledUrl = typeof target === 'string' ? target : target.url
     expect(calledUrl).toContain('/v1/chats/conv-1/attachments/att-4')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// downloadChatAttachment
+// ---------------------------------------------------------------------------
+
+describe('downloadChatAttachment', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns { url, expiresAt } on a successful download response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          url: 'https://s3.example.com/signed/doc.pdf?token=abc',
+          expiresAt: '2026-09-20T12:00:00Z',
+        }),
+      ),
+    )
+
+    const result = await downloadChatAttachment('conv-1', 'att-5')
+    expect(result).toEqual({
+      url: 'https://s3.example.com/signed/doc.pdf?token=abc',
+      expiresAt: '2026-09-20T12:00:00Z',
+    })
+  })
+
+  it('returns null when the server returns a non-2xx status', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(null, { status: 404 })),
+    )
+
+    const result = await downloadChatAttachment('conv-1', 'att-missing')
+    expect(result).toBeNull()
+  })
+
+  it('returns null when the request throws (network error)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('network failure')),
+    )
+
+    const result = await downloadChatAttachment('conv-1', 'att-5')
+    expect(result).toBeNull()
+  })
+
+  it('hits the correct endpoint path', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        url: 'https://s3.example.com/signed/doc.pdf',
+        expiresAt: '2026-09-20T12:00:00Z',
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await downloadChatAttachment('conv-1', 'att-5')
+
+    const [target] = fetchMock.mock.calls[0] as [string | Request]
+    const calledUrl = typeof target === 'string' ? target : target.url
+    expect(calledUrl).toContain('/v1/chats/conv-1/attachments/att-5/download')
   })
 })

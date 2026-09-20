@@ -41,6 +41,14 @@ def reset_token_cache():
     github_auth._cached_token = None
 
 
+@pytest.fixture(autouse=True)
+def github_app_env(monkeypatch):
+    # Required env in production (wired by the autopilot-bot Terraform
+    # module) — no in-code fallback, so every mint test needs them set.
+    monkeypatch.setenv("GITHUB_APP_ID", "3107048")
+    monkeypatch.setenv("GITHUB_APP_INSTALLATION_ID", "117364330")
+
+
 # ---------------------------------------------------------------------------
 # DER parsing
 # ---------------------------------------------------------------------------
@@ -178,6 +186,18 @@ def test_installation_token_none_when_key_not_configured(monkeypatch, capsys):
 
     assert github_auth.installation_token() is None
     assert "GITHUB_APP_PRIVATE_KEY not configured" in capsys.readouterr().out
+
+
+def test_installation_token_none_when_an_app_id_is_missing(monkeypatch, rsa_keypair, capsys):
+    # The ids are required env with no in-code fallback: a deployment that
+    # forgot to wire them fails soft (no read) and loud (logged), never a
+    # stale hardcoded identity 401ing against GitHub.
+    _, pem, _ = rsa_keypair
+    monkeypatch.setenv("GITHUB_APP_PRIVATE_KEY", pem)
+    monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+
+    assert github_auth.installation_token() is None
+    assert "failed to mint" in capsys.readouterr().out
 
 
 def test_installation_token_none_and_logs_on_github_failure(monkeypatch, rsa_keypair, capsys):

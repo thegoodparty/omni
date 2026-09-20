@@ -397,6 +397,18 @@ describe('ChiefOfStaffHandler', () => {
       expect(toolNames).toContain('count_contacts')
     })
 
+    // Precinct is the one filter dimension describe_filter_dimensions
+    // cannot carry — its values are per-district — so this tool is the only
+    // route to it. Without it registered the assistant tells an office
+    // holder their own precinct is not a dimension it can filter on, while
+    // the wizard beside it offers exactly that filter.
+    it('registers list_precincts alongside the other aggregate reads', async () => {
+      const handler = buildCrmHandler({ contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).toContain('list_precincts')
+    })
+
     it('registers CRM tools whose descriptions carry the shared routing rules', async () => {
       const handler = buildCrmHandler({ contacts: buildContacts() })
       const ctx = await handler.loadContext('c1', USER_ID)

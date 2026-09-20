@@ -27,8 +27,6 @@ import os
 import time
 from urllib.request import Request, urlopen
 
-GITHUB_APP_ID = "3107048"
-GITHUB_APP_INSTALLATION_ID = "117364330"
 GITHUB_API_BASE_URL = "https://api.github.com"
 
 PEM_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
@@ -134,8 +132,13 @@ def _build_app_jwt(app_id: str, n: int, d: int) -> str:
 
 
 def _mint_installation_token(private_key_pem: str) -> str:
-    app_id = os.environ.get("GITHUB_APP_ID", GITHUB_APP_ID)
-    installation_id = os.environ.get("GITHUB_APP_INSTALLATION_ID", GITHUB_APP_INSTALLATION_ID)
+    # Required env, wired by infrastructure/modules/autopilot-bot — no
+    # hardcoded fallback to silently drift against agent/github_auth.py's
+    # copy of these identifiers. A missing var raises KeyError here, which
+    # installation_token turns into None (= no read this tick), never a
+    # stale identity minting 401s.
+    app_id = os.environ["GITHUB_APP_ID"]
+    installation_id = os.environ["GITHUB_APP_INSTALLATION_ID"]
     n, d = _load_private_key(private_key_pem)
     app_jwt = _build_app_jwt(app_id, n, d)
     req = Request(

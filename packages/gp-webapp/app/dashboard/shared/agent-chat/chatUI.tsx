@@ -208,20 +208,53 @@ export function ToolPillRow({
   )
 }
 
+// A superscript citation chip rendered inline in the assistant text. Clicking
+// opens the cited attachment via the presigned download URL. When no click
+// handler is provided the chip renders as non-interactive static text.
+export function CitationChip({
+  ordinal,
+  onCitationClick,
+}: {
+  ordinal: number
+  onCitationClick?: () => void
+}): React.JSX.Element {
+  if (onCitationClick) {
+    return (
+      <button
+        type="button"
+        onClick={onCitationClick}
+        className="relative -top-0.5 inline-flex cursor-pointer items-center justify-center rounded px-0.5 py-0 text-[10px] font-semibold leading-none text-primary hover:underline"
+        aria-label={`Open source ${ordinal}`}
+      >
+        [{ordinal}]
+      </button>
+    )
+  }
+  return (
+    <sup className="text-[10px] font-semibold text-muted-foreground">
+      [{ordinal}]
+    </sup>
+  )
+}
+
 // Render a turn's segments in stream order: text as markdown bubbles, tool
-// calls as inline pills, so a search/read pill sits between the sentences it
-// interrupted instead of stacked in a row above the whole reply. `toolLabel`
-// maps a tool name to its pill label (return null to hide a tool, e.g. a
-// bookkeeping tool or one rendered as its own widget). Consecutive tool
-// segments coalesce into one pill row, which shimmers while any tool in it is
-// still `running`. Shared by the live turn (running set/cleared as tools fly)
-// and reloaded history (persisted segments, never running).
+// calls as inline pills, and citation chips at the positions where the model
+// cited a source. `toolLabel` maps a tool name to its pill label (return null
+// to hide a tool). Consecutive tool segments coalesce into one pill row.
+// `onCitationClick` is called with `(attachmentId, page)` when a chip is
+// clicked — the caller resolves the presigned URL and handles errors.
+// Shared by the live turn and reloaded history (persisted segments).
 export function InlineSegments({
   segments,
   toolLabel,
+  onCitationClick,
 }: {
   segments: LiveSegment[]
   toolLabel: (toolName: string) => string | null
+  onCitationClick?: (
+    attachmentId: string,
+    page: number | null | undefined,
+  ) => void
 }): React.JSX.Element {
   const blocks: ReactNode[] = []
   let pendingPills: string[] = []
@@ -246,6 +279,22 @@ export function InlineSegments({
         pendingPills.push(label)
         if (seg.running) pendingRunning = true
       }
+      return
+    }
+    if (seg.kind === 'citation') {
+      flushPills(String(i))
+      const { ordinal, attachmentId, page } = seg
+      blocks.push(
+        <CitationChip
+          key={`citation-${i}`}
+          ordinal={ordinal}
+          onCitationClick={
+            onCitationClick
+              ? () => onCitationClick(attachmentId, page)
+              : undefined
+          }
+        />,
+      )
       return
     }
     flushPills(String(i))

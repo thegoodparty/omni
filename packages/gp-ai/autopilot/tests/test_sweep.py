@@ -78,6 +78,42 @@ def boto3_clients(monkeypatch, fake_dynamodb, fake_ecs):
 
 
 @pytest.fixture(autouse=True)
+def fake_slack_status_card(monkeypatch):
+    """Every handle_sweep() call now also updates the pinned status card
+    (ENG-11151), which would otherwise make a real Slack HTTP call from every
+    single test in this file. Autouse, harmless fakes by default; tests that
+    care about the status card itself inspect the returned lists/dict."""
+    messages: dict[str, str] = {}
+    posted: list[tuple[str, str]] = []
+    updated: list[tuple[str, str]] = []
+    pinned: list[tuple[str, str]] = []
+    counter = {"n": 0}
+
+    def fake_post_with_ts(channel, text):
+        counter["n"] += 1
+        ts = f"ts-{counter['n']}"
+        messages[ts] = text
+        posted.append((channel, text))
+        return ts
+
+    def fake_update(channel, ts, text):
+        if ts not in messages:
+            return False
+        messages[ts] = text
+        updated.append((channel, text))
+        return True
+
+    def fake_pin(channel, ts):
+        pinned.append((channel, ts))
+        return True
+
+    monkeypatch.setattr(sweep.supervisor, "post_slack_message_with_ts", fake_post_with_ts)
+    monkeypatch.setattr(sweep.supervisor, "update_slack_message", fake_update)
+    monkeypatch.setattr(sweep.supervisor, "pin_slack_message", fake_pin)
+    return {"messages": messages, "posted": posted, "updated": updated, "pinned": pinned}
+
+
+@pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_BOT_USER_ID", BOT_USER_ID)
     monkeypatch.setenv("AUTOPILOT_LIST_IDS", f"{STORY_LIST_ID},{FEATURE_LIST_ID}")
@@ -558,6 +594,24 @@ def test_park_with_a_reply_after_it_is_left_to_the_comment_route(fake_clickup, f
     assert json.loads(result["body"])["auto_resumed"] == 0
 
 
+def test_park_with_a_relayed_slack_answer_after_it_is_left_to_the_comment_route(fake_clickup, fake_ecs):
+    # ENG-11150: a relayed Slack answer is just another ClickUp comment
+    # (handler.py's Slack ingress posts it with no special sweep handling —
+    # see router.format_slack_answer_comment). It must count as "a reply
+    # after the park" exactly like a human's own ClickUp comment does, so
+    # auto-resume defers to the comment-resume route instead of double-firing.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [
+        parked_comment("story", "Merge pending: PR #42 armed but not merged.", date="2000"),
+        {"id": "reply-1", "comment_text": "[autopilot:slack-answer from U-HUMAN] merged it, go ahead", "date": "3000"},
+    ]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert json.loads(result["body"])["auto_resumed"] == 0
+
+
 def test_relapsing_story_stops_getting_auto_resumes(fake_clickup, fake_ecs, capsys):
     fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
     fake_clickup.comments["story-9"] = [
@@ -636,6 +690,39 @@ def test_merged_pr_moves_story_to_qa_and_dispatches_once(fake_clickup, fake_ecs,
     # the claim on PR #42 holds, so it never launches a second QA run.
     assert json.loads(second["body"])["merge_resolved"] == 0
     assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA, router.STATUS_QA]
+
+
+def test_failed_qa_launch_rolls_back_claim_and_status_for_a_full_retry(
+    fake_clickup, fake_ecs, fake_pull_requests, monkeypatch, capsys
+):
+    # A launch failure after the qa move must undo BOTH the claim and the
+    # move: once in qa the story leaves _parked_stories' sight, so a held
+    # claim or a stuck qa status would strand it until a TTL/stall alert.
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [merge_pending_park(42)]
+    fake_pull_requests[42] = {"merged": True, "state": "closed"}
+
+    real_launch = dispatch.launch_fargate_stage
+    launch_attempts = {"n": 0}
+
+    def flaky_launch(envelope):
+        launch_attempts["n"] += 1
+        if launch_attempts["n"] == 1:
+            return {"launched": False, "error": "ECS capacity failure"}
+        return real_launch(envelope)
+
+    monkeypatch.setattr(dispatch, "launch_fargate_stage", flaky_launch)
+
+    first = sweep.handle_sweep({"autopilot_sweep": True})
+    assert json.loads(first["body"])["merge_resolved"] == 0
+    assert fake_clickup.status_updates["story-9"] == [router.STATUS_QA, router.STATUS_FEEDBACK_NEEDED]
+    assert fake_ecs.run_task_calls == []
+    assert "rolling back for sweep retry" in capsys.readouterr().out
+
+    second = sweep.handle_sweep({"autopilot_sweep": True})
+    assert json.loads(second["body"])["merge_resolved"] == 1
+    qa_dispatches = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_QA]
+    assert len(qa_dispatches) == 1
 
 
 def test_transient_move_failure_does_not_strand_the_story(fake_clickup, fake_ecs, fake_pull_requests, capsys):
@@ -770,3 +857,202 @@ def test_fetch_pull_request_none_and_logs_on_network_failure(monkeypatch, capsys
 
     assert sweep.fetch_pull_request(42) is None
     assert "ERROR: sweep failed to read PR #42" in capsys.readouterr().out
+
+
+def run_summary_comment(stage, outcome, cost_usd=None, comment_id="summary-1", date="3000"):
+    marker = f"[autopilot:run-summary stage={stage} outcome={outcome}"
+    if cost_usd is not None:
+        marker += f" cost_usd={cost_usd}"
+    marker += "]"
+    return {"id": comment_id, "comment_text": f"{marker}\n\n**Outcome:** {outcome}", "date": date}
+
+
+def test_bot_run_summary_after_a_park_does_not_falsely_mark_it_answered(fake_clickup, fake_ecs):
+    # ENG-11151's critical interaction: main.py posts a run-summary comment at
+    # the end of EVERY run, including a run that itself just parked. That
+    # comment always lands with a LATER date than the park it describes, so
+    # naively treating "any comment after the park" as a human answer would
+    # permanently wedge this park — no other path would ever wake it, since
+    # the comment-resume route already (and correctly) drops the same
+    # comment as a bot-authored, non-slack-answer write (see half 2 below).
+    # A "Deploy pending" park: still auto-resume's domain after ENG-11147
+    # (merge-pending parks moved to the sweep's own resolution pass, so a
+    # merge-pending fixture here would test that skip, not this exclusion).
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [
+        parked_comment("story", "Deploy pending: PR #42 merged, dev deploy not yet verified.", date="2000"),
+        run_summary_comment("story", "feedback_parked", cost_usd=3.71, date="3000"),
+    ]
+
+    # Half 1: the sweep's auto-resume still fires — the run-summary comment
+    # must not read as "answered".
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    resumes = [c for c in fake_ecs.run_task_calls if env_vars(c)["AUTOPILOT_STAGE"] == router.STAGE_RESUME]
+    assert len(resumes) == 1
+    assert json.loads(result["body"])["auto_resumed"] == 1
+
+    # Half 2: if ClickUp's own webhook also fires for that same comment (a
+    # real commentPosted delivery, independent of the sweep), the self-resume
+    # guard drops it too — the bot's own narration must never be the thing
+    # that wakes a resume.
+    event = router.RoutableEvent(
+        kind="commentPosted",
+        task_id="story-9",
+        list_id=STORY_LIST_ID,
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        transitions=[],
+        event_ts="1700000000000",
+        event_actor_id=BOT_USER_ID,
+        epic_task_id="epic-1",
+        latest_comment_text=fake_clickup.comments["story-9"][-1]["comment_text"],
+    )
+    assert router.route(event) == []
+
+
+# ---------------------------------------------------------------------------
+# Pinned #autopilot status card (ENG-11151)
+# ---------------------------------------------------------------------------
+
+
+def test_status_card_is_posted_fresh_on_the_first_tick(fake_clickup, fake_slack_status_card):
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(fake_slack_status_card["posted"]) == 1
+    assert len(fake_slack_status_card["pinned"]) == 1
+    state = sweep.get_status_card_state()
+    assert state is not None
+    assert state["channel"] == "#autopilot-test"
+
+
+def test_status_card_is_edited_in_place_on_the_next_tick(fake_clickup, fake_slack_status_card):
+    sweep.handle_sweep({"autopilot_sweep": True})
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(fake_slack_status_card["posted"]) == 1
+    assert len(fake_slack_status_card["updated"]) == 1
+    assert len(fake_slack_status_card["pinned"]) == 1  # never re-pinned on an in-place edit
+
+
+def test_status_card_self_heals_when_the_message_was_deleted(fake_clickup, fake_slack_status_card):
+    sweep.handle_sweep({"autopilot_sweep": True})
+    first_state = sweep.get_status_card_state()
+    # Simulate the message having been deleted out from under the card: the
+    # fake's chat.update fails for a ts it no longer knows about.
+    del fake_slack_status_card["messages"][first_state["ts"]]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert len(fake_slack_status_card["posted"]) == 2
+    assert len(fake_slack_status_card["pinned"]) == 2
+    second_state = sweep.get_status_card_state()
+    assert second_state["ts"] != first_state["ts"]
+
+
+def test_status_card_skips_gracefully_without_a_configured_channel(fake_clickup, fake_slack_status_card, monkeypatch):
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "")
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert result["statusCode"] == 200
+    assert fake_slack_status_card["posted"] == []
+    assert sweep.get_status_card_state() is None
+
+
+def test_status_card_reports_in_flight_story_outcome_and_cost_from_active_claim(
+    fake_clickup, fake_slack_status_card, monkeypatch
+):
+    # "In-flight stories (from board state + active claims)": the epic is
+    # executing (board state) and the supervisor's own DynamoDB claim (not a
+    # new ClickUp query) names the story it is protecting.
+    monkeypatch.setattr(sweep.supervisor, "run_supervisor_tick", lambda epic_task_id: None)
+    fake_clickup.executing_tasks[FEATURE_LIST_ID] = [task("epic-9", router.STATUS_EXECUTING)]
+    fake_clickup.comments["story-42"] = [run_summary_comment("story", "success", cost_usd=3.71)]
+    sweep.supervisor.claim_epic_in_flight("epic-9", "story-42", ttl_seconds=3600)
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    text = fake_slack_status_card["posted"][0][1]
+    assert "epic-9" in text
+    assert "story-42" in text
+    assert "success" in text
+    assert "$3.71" in text
+
+
+def test_status_card_reports_no_story_in_flight_when_the_claim_is_empty(
+    fake_clickup, fake_slack_status_card, monkeypatch
+):
+    monkeypatch.setattr(sweep.supervisor, "run_supervisor_tick", lambda epic_task_id: None)
+    fake_clickup.executing_tasks[FEATURE_LIST_ID] = [task("epic-9", router.STATUS_EXECUTING)]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    text = fake_slack_status_card["posted"][0][1]
+    assert "no story in flight" in text
+
+
+def test_status_card_lists_parked_stories_awaiting_feedback(fake_clickup, fake_slack_status_card):
+    fake_clickup.parked_tasks[STORY_LIST_ID] = [task("story-9", router.STATUS_FEEDBACK_NEEDED, parent="epic-1")]
+    fake_clickup.comments["story-9"] = [parked_comment("story", "Merge pending: PR #42 armed but not merged.")]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    text = fake_slack_status_card["posted"][0][1]
+    assert "story-9" in text
+    assert "Awaiting feedback" in text
+
+
+def test_status_card_escapes_slack_markdown_in_task_names(fake_clickup, fake_slack_status_card):
+    # A ClickUp task titled with '<', '>', or '&' must not break the Slack
+    # mrkdwn link syntax (`<url|label>`) the status card builds around it.
+    fake_clickup.in_progress_tasks[FEATURE_LIST_ID] = [
+        {**task("epic-1", router.STATUS_IN_PROGRESS), "name": "Fix <select> & <Foo> component"}
+    ]
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    text = fake_slack_status_card["posted"][0][1]
+    assert "Fix &lt;select&gt; &amp; &lt;Foo&gt; component" in text
+    assert "Fix <select>" not in text
+
+
+def test_status_card_skips_a_malformed_task_without_a_valid_id(fake_clickup, fake_slack_status_card):
+    # Defensive against ClickUp's untrusted response shape, same as every
+    # other task-id check in this module — one bad row must not crash the
+    # whole status-card build (which would otherwise lose the update for
+    # every OTHER, well-formed card this same tick).
+    fake_clickup.in_progress_tasks[FEATURE_LIST_ID] = [{"status": {"status": router.STATUS_IN_PROGRESS}}]
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert result["statusCode"] == 200
+    text = fake_slack_status_card["posted"][0][1]
+    assert "*Planning (in progress)* (0)" in text
+
+
+def test_status_card_failure_never_fails_the_sweep_tick(fake_clickup, fake_slack_status_card, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("Slack is down")
+
+    monkeypatch.setattr(sweep.supervisor, "post_slack_message_with_ts", boom)
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert result["statusCode"] == 200
+
+
+def test_status_card_state_save_failure_skips_the_pin_and_fails_no_tick(
+    fake_clickup, fake_slack_status_card, monkeypatch
+):
+    # If the ts never persisted, the next tick can't find this message and
+    # will post a fresh one — pinning here would accumulate one pinned
+    # duplicate per tick for the whole DynamoDB outage.
+    def boom(*args, **kwargs):
+        raise RuntimeError("DynamoDB is down")
+
+    monkeypatch.setattr(sweep, "save_status_card_state", boom)
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert result["statusCode"] == 200
+    assert fake_slack_status_card["pinned"] == []
