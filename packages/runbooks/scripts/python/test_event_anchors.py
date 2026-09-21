@@ -421,11 +421,18 @@ def test_find_call_sites_fails_toward_not_declaring_when_block_not_found(capsys)
     assert "EVENTS block not locatable" in captured.err
 
 
-def test_find_call_sites_four_live_repo_cases_verified():
-    """Verify the four key live-repo cases from the real-repo check still work.
+def test_find_call_sites_live_repo_cases_verified():
+    """Verify the key live-repo cases from the real-repo check still work.
     These are integration tests that scan real files to ensure the fixes don't
     regress on actual data. Uses the real read_repo_files (not a hand-rolled scan) so this
-    test exercises the actual test-file/generated-output exclusion, not a stale copy of it."""
+    test exercises the actual test-file/generated-output exclusion, not a stale copy of it.
+
+    Each case asserts unconditionally once the repo is present. They used to be wrapped in
+    `if hits:`, which meant a retired subject made the case pass while verifying nothing —
+    exactly what happened when DATA-2424 retired the fourth case's event. A named subject
+    that disappears must fail loudly and say so, and the presence assertion is what does
+    that. The subject cannot be derived from the registry instead: selecting it by the
+    property under test makes every following assertion tautological."""
     import pathlib
 
     repo = pathlib.Path("../../../..").resolve()
@@ -457,50 +464,28 @@ def test_find_call_sites_four_live_repo_cases_verified():
         f"{test_file_primaries[:5]}"
     )
 
-    # Case 1: Onboarding - Registration Completed (has declaration + call sites)
-    hits = ea.find_call_sites(
-        "Onboarding - Registration Completed",
-        reg.get("Onboarding - Registration Completed"),
-        files
-    )
-    kinds = {h["kind"] for h in hits}
-    if hits:
-        assert "declaration" in kinds, "Should have declaration in registry file"
-        assert "key_path" in kinds, "Should have key_path call sites"
+    # Case 1: declaration plus key-path call sites.
+    subject = "Onboarding - Registration Completed"
+    assert subject in reg, f"{subject} left the registry — repoint this case"
+    kinds = {h["kind"] for h in ea.find_call_sites(subject, reg[subject], files)}
+    assert "declaration" in kinds, "Should have declaration in registry file"
+    assert "key_path" in kinds, "Should have key_path call sites"
 
-    # Case 2: Dashboard - Path to Victory: Click Learn More (declaration-only)
-    hits = ea.find_call_sites(
-        "Dashboard - Path to Victory: Click Learn More",
-        reg.get("Dashboard - Path to Victory: Click Learn More"),
-        files
-    )
-    if hits:
-        kinds = {h["kind"] for h in hits}
-        assert "declaration" in kinds or not kinds, "Should be declaration-only or empty"
+    # Case 2: declaration-only, i.e. dispatched dynamically or genuinely unreferenced.
+    subject = "Dashboard - Path to Victory: Click Learn More"
+    assert subject in reg, f"{subject} left the registry — repoint this case"
+    kinds = {h["kind"] for h in ea.find_call_sites(subject, reg[subject], files)}
+    assert kinds == {"declaration"}, f"Should be declaration-only, got {sorted(kinds)}"
 
-    # Case 3: Voter Outreach - Campaign Approved (raw string literal)
-    hits = ea.find_call_sites("Voter Outreach - Campaign Approved", None, files)
-    if hits:
-        assert all(h["kind"] == "literal" for h in hits), "Should be literal hits"
+    # Case 3: a raw string literal with no registry entry, found by the literal search.
+    subject = "Voter Outreach - Campaign Approved"
+    hits = ea.find_call_sites(subject, None, files)
+    assert hits, f"{subject} should still be found by literal search — repoint this case"
+    assert all(h["kind"] == "literal" for h in hits), "Should be literal hits"
 
-    # Case 4: a declaration-only event resolves to exactly its declaration and nothing
-    # else. The subject is derived from the registry rather than named: this case used to
-    # name `Navigation - Dashboard: Click Door Knocking`, and retiring that event
-    # (DATA-2424) made `reg.get` return None, `find_call_sites` return [], and the
-    # `if hits:` guard skip every assertion — a green test verifying nothing. Deriving the
-    # subject means retiring any single event can no longer hollow the case out.
-    declaration_only = sorted(
-        name for name, key_path in reg.items()
-        if (found := ea.find_call_sites(name, key_path, files))
-        and all(h["kind"] == "declaration" for h in found)
-    )
-    assert declaration_only, "expected at least one declaration-only event in the registry"
-    subject = declaration_only[0]
-    hits = ea.find_call_sites(subject, reg.get(subject), files)
-    assert hits, f"{subject} should resolve to its declaration"
-    assert {h["kind"] for h in hits} == {"declaration"}, (
-        f"{subject} should be declaration-only, got {[h['kind'] for h in hits]}"
-    )
+    # The fourth case named `Navigation - Dashboard: Click Door Knocking`, retired by
+    # DATA-2424. It is gone rather than repointed: it asserted declaration-only, which is
+    # Case 2's property on a second example, so the coverage it carried is already here.
 
 
 PAGES = [
