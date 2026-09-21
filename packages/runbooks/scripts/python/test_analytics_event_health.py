@@ -10,6 +10,7 @@ import json
 from datetime import date, datetime, timedelta
 
 import analytics_event_health as eh
+import sem_anchors as sa
 
 TODAY = date(2026, 6, 25)  # a Thursday; current (in-progress) week starts Mon 2026-06-22
 MONDAY = date(2026, 6, 22)
@@ -1218,3 +1219,31 @@ def test_build_slack_triage_runs_on_changes(monkeypatch):
     changes = {"new": ["A"], "escalated": [], "resolved": [], "still_open": []}
     triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
     assert triage is not None and triage["items"][0]["event_type"] == "A"
+
+
+# --- path-qualified legs (DATA-2421 Part B) -----------------------------------
+
+
+def test_path_weekly_sql_filters_the_page_path_not_just_the_event():
+    legs = [sa.Leg("Viewed", "/dashboard", None)]
+    sql = eh.build_path_weekly_sql(legs)
+    assert "event_properties:path::string = '/dashboard'" in sql
+    assert "event_type = 'Viewed'" in sql
+    assert "mart_analytics.amplitude_events" in sql
+
+
+def test_build_path_weekly_sql_escapes_single_quotes():
+    # An apostrophe in a declared event name must not break out of the literal.
+    legs = [sa.Leg("Wizard's View", "/x", None)]
+    assert "'Wizard''s View'" in eh.build_path_weekly_sql(legs)
+
+
+def test_build_path_weekly_sql_is_empty_for_no_path_legs():
+    assert eh.build_path_weekly_sql([sa.Leg("Viewed", None, None)]) == ""
+
+
+def test_path_rows_key_into_the_series_under_the_leg_key():
+    rows = [{"event_type": "Viewed", "page_path": "/dashboard",
+             "week_start": MONDAY - timedelta(days=7), "n": 500}]
+    keyed = eh.key_path_rows(rows)
+    assert keyed[0]["event_type"] == "Viewed[path=/dashboard]"

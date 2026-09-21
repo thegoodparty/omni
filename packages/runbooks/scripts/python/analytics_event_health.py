@@ -44,6 +44,8 @@ from typing import Any
 
 import yaml
 
+import sem_anchors
+
 # --- locations ---------------------------------------------------------------
 
 CATALOG = "goodparty_data_catalog"
@@ -118,6 +120,63 @@ where cast(event_time as date) >= date_sub(current_date(), 63)
   and event_type is not null
 group by event_type, date_trunc('week', cast(event_time as date))
 """
+
+
+def _sql_quote(value: str) -> str:
+    """Single-quoted SQL literal with embedded quotes doubled. Event names are declared
+    upstream in the semantic layer, not user input, but an apostrophe in a declared name
+    would silently corrupt the predicate — the same class of bug as DATA-2427."""
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"
+
+
+def build_path_weekly_sql(legs: Sequence[Any]) -> str:
+    """Weekly counts for path-qualified legs, or "" when there are none.
+
+    A separate query from WEEKLY_SQL because the site-wide page event is 4.46M rows and
+    only its '/dashboard' slice is the instrument; grouping the whole event would drown
+    the signal it exists to watch.
+    """
+    pathed = [leg for leg in legs if leg.path]
+    if not pathed:
+        return ""
+    predicates = " or ".join(
+        f"(event_type = {_sql_quote(leg.event)} "
+        f"and event_properties:path::string = {_sql_quote(leg.path)})"
+        for leg in pathed
+    )
+    return f"""
+select event_type,
+       event_properties:path::string as page_path,
+       date_trunc('week', cast(event_time as date)) as week_start,
+       count(*) as n
+from {STREAM_TABLE}
+where cast(event_time as date) >= date_sub(current_date(), 63)
+  and ({predicates})
+group by event_type, event_properties:path::string,
+         date_trunc('week', cast(event_time as date))
+"""
+
+
+def key_path_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict]:
+    """Rewrite path-qualified rows onto their leg key so they flow through
+    ``weekly_series`` and ``detect_anomaly`` with no special-casing downstream."""
+    return [
+        {
+            "event_type": sem_anchors.Leg(row["event_type"], row["page_path"]).key,
+            "week_start": row["week_start"],
+            "n": row["n"],
+        }
+        for row in rows
+    ]
+
+
+def fetch_path_weekly(run_query: Callable[[str], Any], legs: Sequence[Any]) -> list[dict]:
+    sql = build_path_weekly_sql(legs)
+    if not sql:
+        return []
+    return key_path_rows(_records_from_df(run_query(sql)))
+
 
 # Provenance CSV column carrying the code-removed date (empty = code still present).
 RETIRED_COL = "retired_date"
