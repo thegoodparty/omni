@@ -1,4 +1,5 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
+import { CheckIcon } from '../components/ui/icons'
 import { PAGE_STYLE, PageHeader, STORY_PARAMS } from './_storyShell'
 
 const meta = {
@@ -65,6 +66,21 @@ const IndeterminateSample = () => (
   </div>
 )
 
+const PopInSample = () => {
+  // Key bump remounts the icon, which is what restarts the animation.
+  const [runId, setRunId] = useState(0)
+  return (
+    <button
+      type="button"
+      onClick={() => setRunId((id) => id + 1)}
+      className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground hover:bg-muted"
+    >
+      <CheckIcon key={runId} className="h-5 w-5 animate-pop-in text-primary" />
+      Trigger pop-in
+    </button>
+  )
+}
+
 const SpinGradientSample = () => (
   <span
     className="inline-block size-16 rounded-full animate-spin-gradient"
@@ -81,6 +97,12 @@ const UTILITIES = [
     sample: <ShakeSample />,
     useWhen:
       'An inline error alert when the user attempts something they cannot — the tap did reach the control and the app deliberately did nothing. Shake the element the action was aimed at (the disabled Undo, the required field, the pill that can\'t be removed), pair it with a toast or inline message that names the reason, and it reads as "no, and here\'s why" rather than a UI that seems broken. Attach the class, remove it in onAnimationEnd, and force reflow between removes and adds so a rapid re-trigger restarts.',
+  },
+  {
+    token: 'animate-pop-in',
+    sample: <PopInSample />,
+    useWhen:
+      'Something that has just become true and deserves to be noticed — the check on a step that completed, a badge that just earned its count. The overshoot to 1.2 is the whole effect; a plain 0→1 fade reads as the element having always been there. Remount the element (a key bump is enough) to replay. For the celebratory version with a particle burst around it, use ConfettiBurst instead.',
   },
   {
     token: 'animate-caret-blink',

@@ -633,6 +633,16 @@
    * Use: className="animate-shake"
    * ========================================================================== */
   --animate-shake: shake 0.4s ease-in-out;
+
+  /* ==========================================================================
+   * POP-IN
+   * An overshoot entrance for something that has just become true — the check
+   * on a completed step, a badge that just earned its count. The 1.2 scale at
+   * 60% is what reads as "arrived" rather than "faded in"; a monotonic 0→1
+   * loses the whole effect.
+   * Use: className="animate-pop-in"
+   * ========================================================================== */
+  --animate-pop-in: pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @property --gradient-angle {
@@ -730,6 +740,160 @@
   40%,
   80% {
     transform: translateX(3px);
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    transform: scale(0);
+  }
+  60% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Confetti burst (ConfettiBurst). Ported from the designer's Lottie export
+ * rather than shipping the Lottie runtime: the motion is ten polygons doing
+ * translate/rotate/scale plus one expanding ring, which CSS covers, and the
+ * JSON baked its colors in as float arrays — unthemeable, where these read
+ * real tokens and follow dark mode.
+ *
+ * One shared keyframe drives all ten particles. Each one sets its own
+ * --confetti-dx/dy/rot inline, so the alternative would have been ten
+ * near-identical keyframe blocks. Deltas are authored in the Lottie's
+ * 64-unit burst box and multiplied by --confetti-scale, which the component
+ * sets from its `size` prop, so the spread tracks the icon it surrounds. */
+/* Transform and opacity are deliberately two animations rather than one set of
+ * keyframes. A keyframe timing function applies to the interval that starts at
+ * it, and intervals are cut by EVERY keyframe regardless of which property it
+ * declares — so a lone opacity stop in the middle silently splits the transform
+ * interval and discards its easing. Separating the tracks is what lets each one
+ * keep the source's own per-segment curves.
+ *
+ * Percentages are ms of the 1s timeline. Particles do not scale: nine of the
+ * ten have a static scale in the source (the tenth shrinks slightly), and they
+ * are clipped until 167ms, by which point they are already a fifth of the way
+ * out. They enter mid-flight rather than growing from the middle. */
+@keyframes confetti-fly {
+  0%,
+  8.3% {
+    transform: translate(0, 0) rotate(var(--confetti-rot-start));
+    animation-timing-function: cubic-bezier(0.333, 0, 0.833, 0.833);
+  }
+  /* The source's own mid keyframe, per particle, rather than a fraction of the
+   * end value. This is what makes the paths arc and the particles tumble — see
+   * the PARTICLES table for why both only exist in the middle. */
+  31.7% {
+    transform: translate(var(--confetti-mx), var(--confetti-my))
+      rotate(var(--confetti-rot-mid));
+    animation-timing-function: cubic-bezier(0.167, 0.167, 0.667, 1);
+  }
+  63.3%,
+  100% {
+    transform: translate(var(--confetti-dx), var(--confetti-dy))
+      rotate(var(--confetti-rot-end));
+  }
+}
+
+/* Hard cut in at 167ms (the source clips the layer rather than fading it), hold
+ * to 383ms, then out by 650ms — so they are still travelling as they fade. */
+@keyframes confetti-particle-fade {
+  0%,
+  16.6% {
+    opacity: 0;
+  }
+  16.7%,
+  38.3% {
+    opacity: 1;
+  }
+  65%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* The ring pulse, timed off the Lottie's own keyframes (percentages are ms of
+ * the 1s timeline). Three things here are easy to get wrong and all three
+ * matter to how it reads:
+ *
+ * - It expands to 148%, not 100%. The element is sized to the ring's base
+ *   diameter and the transform overshoots past it, so the ring ends up nearly
+ *   filling the burst box. Stopping at scale(1) turns a shockwave into a halo.
+ * - The expansion is two-stage: a hard snap to 77% in 100ms, then a longer
+ *   ease out to 148%. The punch lives entirely in that first segment, which is
+ *   why each stage carries its own timing function rather than sharing one.
+ * - The stroke holds thick until 250ms before thinning to 0. Thinning from the
+ *   start loses the leading edge.
+ *
+ * Border scales with the transform, so the width is authored at scale(1) and
+ * renders thinner early, which is what the source does too. */
+@keyframes confetti-ring {
+  0%,
+  15% {
+    transform: scale(0);
+    border-width: calc(5.76px * var(--confetti-scale));
+    animation-timing-function: cubic-bezier(1, 0, 0, 1);
+  }
+  25% {
+    transform: scale(0.77);
+    border-width: calc(5.76px * var(--confetti-scale));
+    animation-timing-function: cubic-bezier(0.66, -0.023, 0.667, 1);
+  }
+  51.7%,
+  100% {
+    transform: scale(1.48);
+    border-width: 0;
+  }
+}
+
+/* In over 67ms, out over 300ms, peaking at 50% — the source's layer opacity is
+ * 50, so the ring never reaches full strength. */
+@keyframes confetti-ring-fade {
+  0%,
+  15% {
+    opacity: 0;
+  }
+  21.7% {
+    opacity: 0.5;
+  }
+  51.7%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* linear on both, because the keyframes declare their own per-segment easing —
+ * a curve here would apply to the segments that don't and flatten the snap. */
+[data-slot='confetti-burst-particle'] {
+  animation:
+    confetti-fly 1s linear forwards,
+    confetti-particle-fade 1s linear forwards;
+}
+
+[data-slot='confetti-burst-ring'] {
+  animation:
+    confetti-ring 1s linear forwards,
+    confetti-ring-fade 1s linear forwards;
+}
+
+/* A celebration is the one motion with no information in it, so reduced-motion
+ * drops it entirely rather than shortening it. The center content still
+ * renders — it carries the meaning — but neither the burst nor its pop plays.
+ * The `animate-pop-in` token itself stays unguarded, like every other token in
+ * this file: a caller who wants it suppressed opts in. What the component
+ * applies on its own behalf is the component's call to make. */
+@media (prefers-reduced-motion: reduce) {
+  [data-slot='confetti-burst-particle'],
+  [data-slot='confetti-burst-ring'] {
+    animation: none;
+    opacity: 0;
+  }
+
+  [data-slot='confetti-burst-center'] {
+    animation: none;
   }
 }
 
