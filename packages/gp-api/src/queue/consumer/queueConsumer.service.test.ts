@@ -1528,6 +1528,24 @@ describe('QueueConsumerService - message type routing', () => {
     expect(mockSlackService.message).not.toHaveBeenCalled()
   })
 
+  // The whole point of the OUTREACH_TEXT_SEND case is that it must NOT behave
+  // like the default branch below. Without this test, a future refactor
+  // replacing the throw with `return true` would silently delete real sends
+  // instead of letting them age to the DLQ, and nothing would catch it.
+  it('refuses to acknowledge outreachTextSend until it has a handler', async () => {
+    const message: Message = {
+      MessageId: 'msg-outreach-text-send',
+      Body: JSON.stringify({
+        type: QueueType.OUTREACH_TEXT_SEND,
+        data: { outreachId: 1, sendSeq: 1 },
+      }),
+    }
+
+    await expect(service.processMessage(message)).rejects.toThrow(
+      /no handler yet/i,
+    )
+  })
+
   it('acknowledges unknown message types via default branch', async () => {
     const message: Message = {
       MessageId: 'msg-unknown',

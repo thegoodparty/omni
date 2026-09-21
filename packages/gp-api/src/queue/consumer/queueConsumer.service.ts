@@ -478,6 +478,17 @@ export class QueueConsumerService {
           await this.chatAttachments.runExtraction(attachmentId)
           return true
         })
+      case QueueType.OUTREACH_TEXT_SEND:
+        // Deliberate placeholder until the delivery slice lands its handler.
+        // It THROWS rather than returning true: the default branch below acks,
+        // which would silently delete a real send instead of letting it age to
+        // the DLQ where someone would see it. A type with no handler must fail
+        // loudly, not disappear.
+        throw new Error(
+          `${QueueType.OUTREACH_TEXT_SEND} has no handler yet; ` +
+            'refusing to ack so the message ages to the DLQ',
+        )
+
       default:
         this.logger.warn(
           { messageId: message.MessageId, body: message.Body },

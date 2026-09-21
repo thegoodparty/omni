@@ -132,6 +132,9 @@ describe('ContactEngagementService', () => {
         where: {
           electedOfficeId: 'office-123',
           personId: 'person-123',
+          // poll_individual_message also holds text-outreach messages now;
+          // this reader is poll-only.
+          pollId: { not: null },
         },
         include: {
           poll: true,
@@ -366,6 +369,7 @@ describe('ContactEngagementService', () => {
         where: {
           electedOfficeId: 'office-123',
           personId: 'person-123',
+          pollId: { not: null },
         },
         include: { poll: true },
         orderBy: { sentAt: 'desc' },
@@ -419,6 +423,7 @@ describe('ContactEngagementService', () => {
         where: {
           electedOfficeId: 'office-123',
           personId: 'person-123',
+          pollId: { not: null },
         },
         include: { poll: true },
         orderBy: { sentAt: 'desc' },
@@ -915,6 +920,7 @@ describe('ContactEngagementService', () => {
             electedOfficeId,
             sender: 'CONSTITUENT',
             pollIssues: { some: {} },
+            pollId: { not: null },
           },
           include: {
             pollIssues: true,
