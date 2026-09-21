@@ -28,11 +28,25 @@ def test_historical_legs_are_not_watched():
     assert sa.Leg("Campaign Plan - Campaign Tracker Viewed", None, None).watched is True
 
 
-def test_load_anchors_returns_empty_and_says_why_without_a_token():
+def test_load_anchors_returns_empty_and_says_why_without_a_token(monkeypatch):
+    # load_anchors(None) means "fall back to the environment" by design, so without
+    # clearing the real env var this test would pass or fail on ambient shell state
+    # (and start making a live GitHub call) rather than on the code under test.
+    monkeypatch.delenv(sa.TOKEN_ENV, raising=False)
     anchors, problems = sa.load_anchors(None)
     assert anchors == {}
     # The read disabling itself must never be silent — that is the original bug's shape.
     assert problems and "DISABLED" in problems[0]
+
+
+def test_load_anchors_reports_when_reads_succeed_but_find_no_anchors(monkeypatch):
+    # The live condition right now: gp-data-platform's Part A PR hasn't merged, so a
+    # real, successful read finds zero anchored_on blocks. That must not come back as
+    # a quiet ({}, []) — this is the exact silent-disable shape the ticket targets.
+    monkeypatch.setattr(sa, "_fetch", lambda path, token: "metrics: []\n")
+    anchors, problems = sa.load_anchors("fake-token")
+    assert anchors == {}
+    assert problems and "no anchored_on declarations" in problems[0]
 
 
 def test_parse_anchors_rejects_a_leg_with_no_event():

@@ -12,7 +12,6 @@ weekly digest is more valuable degraded than not posted at all.
 
 from __future__ import annotations
 
-import json
 import os
 import urllib.error
 import urllib.request
@@ -95,6 +94,10 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
 
     A malformed declaration is NOT swallowed. That is a real defect in the kernel and
     must raise.
+
+    A read that succeeds but finds zero anchored_on blocks is ALSO not swallowed: that
+    is the live condition while gp-data-platform's Part A PR is unmerged, and reporting
+    nothing here would recreate the exact silent-disable bug this ticket exists to fix.
     """
     token = token if token is not None else os.environ.get(TOKEN_ENV)
     if not token:
@@ -114,4 +117,11 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
             )
             continue
         anchors.update(parse_anchors(text))
+    if not problems and not anchors:
+        problems.append(
+            f"Read every governed sem file from {REPO} successfully but found no "
+            "anchored_on declarations in any of them. Either the declaration has not "
+            "merged into main yet, or it was removed from the sem files. Every OKR "
+            "dormancy check is DISABLED this run."
+        )
     return anchors, problems
