@@ -583,9 +583,9 @@ export class QueueConsumerService {
           sendKey: result.sendKey,
           terminalReason: result.terminalReason,
         },
-        result.terminalReason === 'empty_audience'
-          ? 'outreachTextSend: nothing was sent — the audience resolved to ' +
-              'nobody after the opt-out scrub; the row is now failed'
+        result.terminalReason === 'send_failed'
+          ? 'outreachTextSend: nothing was sent — the send cannot be made ' +
+              'at all; the row is now failed'
           : 'outreachTextSend: nothing was sent — the outreach was not ' +
               'pending, or a previous attempt already handed off this send',
       )

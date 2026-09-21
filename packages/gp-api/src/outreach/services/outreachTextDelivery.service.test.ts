@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common'
 import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -520,12 +519,14 @@ describe('OutreachTextDeliveryService', () => {
     expect(result).toMatchObject({
       audienceResolved: false,
       recipientCount: 0,
-      terminalReason: 'empty_audience',
+      terminalReason: 'send_failed',
     })
     expect(await statusOf(outreach.id)).toBe(OutreachStatus.failed)
   })
 
-  it('rejects a saved list that belongs to another organization', async () => {
+  // Same terminal rule as the empty audience: a list this org cannot see is
+  // not going to become visible on a redelivery.
+  it('fails the row for a saved list that belongs to another organization', async () => {
     const { outreach } = await seedSend()
     await service.prisma.organization.create({
       data: { slug: 'eo-other', ownerId: service.user.id },
@@ -534,14 +535,35 @@ describe('OutreachTextDeliveryService', () => {
       data: { organizationSlug: 'eo-other', name: 'not yours' },
     })
 
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: otherFilter.id },
+      }),
+    )
+
+    expect(handoffPort.send).not.toHaveBeenCalled()
+    expect(result.terminalReason).toBe('send_failed')
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.failed)
+  })
+
+  // The other side of the rule: a handoff that fell over is not a statement
+  // about the data, so the claim goes back and the queue gets to retry.
+  it('keeps the retry for a transient fault rather than failing the row', async () => {
+    const { outreach, filter } = await seedSend()
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([person('p-1', '5551230001')]),
+    )
+    vi.mocked(handoffPort.send).mockRejectedValueOnce(new Error('slack down'))
+
     await expect(
       delivery.requestSend(
         input(outreach.id, {
-          audience: { kind: 'savedFilter', voterFileFilterId: otherFilter.id },
+          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
         }),
       ),
-    ).rejects.toThrow(BadRequestException)
-    expect(handoffPort.send).not.toHaveBeenCalled()
+    ).rejects.toThrow('slack down')
+
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.pending)
   })
 
   it('still scrubs, loudly, when the opt-out set hits the query limit', async () => {

@@ -1636,10 +1636,10 @@ describe('QueueConsumerService - message type routing', () => {
     expect(result).toBe(true)
   })
 
-  // An audience that scrubs down to nobody is terminal too: the same filter
-  // resolves to the same nobody on every redelivery, so a throw here would
-  // spend the whole redrive budget before reaching the DLQ.
-  it('acknowledges a send whose audience resolved to nobody', async () => {
+  // A send that cannot be made at all — an empty audience, a deleted saved
+  // list, a missing organization — is terminal too: every redelivery reads
+  // the same rows and fails the same way.
+  it('acknowledges a send that failed permanently', async () => {
     mockOutreachService.model.findUnique.mockResolvedValue({
       message: 'Budget hearing Tuesday.',
       imageUrl: null,
@@ -1652,7 +1652,7 @@ describe('QueueConsumerService - message type routing', () => {
       excludedOptedOutCount: 0,
       excludedDuplicateCount: 0,
       sendKey: '9-1.csv',
-      terminalReason: 'empty_audience',
+      terminalReason: 'send_failed',
     })
 
     const result = await service.processMessage(
