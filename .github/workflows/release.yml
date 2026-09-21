@@ -672,6 +672,12 @@ jobs:
           CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          # The @dev-only poll spec used to regex these out of the poll Slack
+          # message's `aws s3 cp` line. That line is being retired, so the
+          # values are named here instead. Plain config, not credentials — the
+          # train always runs against dev, same as BASE_URL above.
+          SERVE_ANALYZE_S3_BUCKET: serve-analyze-data-dev
+          E2E_SQS_QUEUE_NAME: develop-Queue.fifo
           PLAYWRIGHT_BLOB_OUTPUT_DIR: ${{ github.workspace }}/packages/gp-webapp/e2e-tests/blob-report
       - name: Upload shard blob report
         if: ${{ !cancelled() }}
