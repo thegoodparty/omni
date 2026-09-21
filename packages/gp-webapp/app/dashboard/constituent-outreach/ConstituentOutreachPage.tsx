@@ -113,11 +113,35 @@ const ConstituentOutreachContent = () => {
   // Mirrors OutreachHubPage's refetchOutreaches, org-scoped. A paid SMS send
   // only exists after the server finalizes it, so there is no create response
   // to seed a row from the way social and phone banking have — the list is
-  // re-read instead. `GET /v1/outreach/serve` answers an empty array rather
-  // than 404ing a fresh org, so no ignoreResponseError is needed here.
+  // re-read instead.
+  //
+  // Best-effort, deliberately, and on two levels. `ignoreResponseError`
+  // mirrors `page.tsx` on this same route: `ofetch.raw` throws on any non-2xx
+  // and the `ElectedOffice` can go away between the access check and the
+  // read, so without it a 4xx becomes an exception rather than `ok: false`.
+  // The try/catch then covers the network level, which no flag reaches.
+  //
+  // Both matter because of where this runs. It is awaited by `SmsFlow`'s
+  // `handleScheduled`, which is awaited by `SmsReviewStep`'s completion
+  // handler, whose rejection path is the checkout form's `onError` — an
+  // error snackbar and a payment-failure state. The money has already moved
+  // by then. A stale history list is strictly better than telling someone
+  // their successful payment failed.
   const refetchOutreaches = async () => {
-    const { data } = await clientRequest('GET /v1/outreach/serve', {})
-    setOutreaches(data ?? [])
+    try {
+      const { ok, data } = await clientRequest(
+        'GET /v1/outreach/serve',
+        {},
+        { ignoreResponseError: true },
+      )
+      if (ok) {
+        setOutreaches(data ?? [])
+      }
+    } catch {
+      // Intentionally empty: a failed refresh leaves the previously loaded
+      // rows in place, and the next page load reads the list again. Nothing
+      // here is worth failing a completed send over. See above.
+    }
   }
 
   return (
