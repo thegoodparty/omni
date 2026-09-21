@@ -38,6 +38,18 @@ export const composeFooter = (committeeName?: string | null): string =>
 // the dev end-to-end pass before GA.
 export const SMS_GREETING = 'Hello {first_name},'
 
+// Serve's greeting differs by exactly one pair of braces, and the braces are
+// the whole point: Peerly merges the single-brace form, while Serve is
+// fulfilled by a human through the sending tool polls already uses, which
+// merges the DOUBLE-brace form. `polls/create/CreatePoll.tsx` converts its
+// authored `[Name]` to `{{first_name}}` on submit for the same reason. Get
+// this wrong and the constituent is texted the token verbatim.
+//
+// Nothing authors this token on either surface — the greeting is a system
+// region and the compose step shows it as a "Greeting First Name" chip — so
+// there is no `[Name]` affordance to convert here, only an emitted token.
+export const SERVE_SMS_GREETING = 'Hello {{first_name}},'
+
 // Compliance: every SMS opens with a candidate identification. Per the
 // design, it is the first sentence of the EDITABLE message: fresh AI drafts
 // are prepended with it, and checkSmsStandards blocks the CTA when an edit
@@ -65,16 +77,22 @@ export const identificationIntro = (
 // The footer (paid-for-by + opt-out) sits after a blank line (design parity
 // in the preview bubble; SMS newlines are legal and Peerly gets the script
 // verbatim).
-export const composeScript = (
+const composeWithGreeting = (
+  greeting: string,
   body: string,
   committeeName?: string | null,
 ): string =>
   [
-    [SMS_GREETING, body.trim()].filter(Boolean).join(' '),
+    [greeting, body.trim()].filter(Boolean).join(' '),
     composeFooter(committeeName),
   ]
     .filter(Boolean)
     .join('\n\n')
+
+export const composeScript = (
+  body: string,
+  committeeName?: string | null,
+): string => composeWithGreeting(SMS_GREETING, body, committeeName)
 
 // Serve's composed message. The opt-out footer stays: honoring STOP follows
 // the message, not the sender, and a Serve send is squarely a repeat-send
@@ -84,7 +102,7 @@ export const composeScript = (
 // there is simply nothing to disclose (docs/features/serve-sms.md,
 // "Opt-out").
 export const composeServeScript = (body: string): string =>
-  composeScript(body, null)
+  composeWithGreeting(SERVE_SMS_GREETING, body, null)
 
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'

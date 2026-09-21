@@ -4,8 +4,13 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { ServeSmsDraftRequest } from '@goodparty_org/contracts'
+import { checkSmsStandards } from '@goodparty_org/contracts'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
-import { OPT_OUT_FOOTER } from './smsCompose.util'
+import {
+  OPT_OUT_FOOTER,
+  SERVE_SMS_GREETING,
+  SMS_GREETING,
+} from './smsCompose.util'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -259,6 +264,38 @@ describe('SERVE_SMS_SURFACE', () => {
     )
     expect(composed).toContain(OPT_OUT_FOOTER)
     expect(composed).not.toContain('Paid for by')
+  })
+
+  // Peerly merges the single-brace token; the Slack fulfilment path Serve
+  // rides merges the double-brace one, the same form polls converts its
+  // authored [Name] into. Emitting Win's token here would text a constituent
+  // the literal characters.
+  it('greets with the double-brace merge token, not Peerly’s', () => {
+    const composed = SERVE_SMS_SURFACE.composeMessage(
+      'Oak St is repaved.',
+      null,
+    )
+    expect(composed).toContain(SERVE_SMS_GREETING)
+    expect(composed).toContain('{{first_name}}')
+    // Win's greeting is untouched and keeps the single-brace form.
+    expect(SMS_GREETING).toBe('Hello {first_name},')
+  })
+
+  // Why the double brace needs no second ignoredStandardsRules entry: the
+  // rule is a substring test, and the inner twelve characters of
+  // "{{first_name}}" are exactly "{first_name}". Asserted rather than
+  // reasoned about, because the whole Serve compose CTA hangs off it.
+  it('still satisfies the first_name_token standards rule', () => {
+    expect('{{first_name}}'.includes('{first_name}')).toBe(true)
+    const composed = SERVE_SMS_SURFACE.composeMessage(
+      'this is Jane, your council member. Oak St is repaved.',
+      null,
+    )
+    const verdict = checkSmsStandards(composed, { candidateNames: ['Jane'] })
+    expect(verdict.failures).not.toContain('first_name_token')
+    // paid_for_by stays the one and only override.
+    expect(verdict.failures).toEqual(['paid_for_by'])
+    expect(SERVE_SMS_SURFACE.ignoredStandardsRules).toEqual(['paid_for_by'])
   })
 
   it('suggests an outreach campaign name per purpose', () => {
