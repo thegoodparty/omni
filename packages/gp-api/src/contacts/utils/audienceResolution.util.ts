@@ -24,6 +24,13 @@ import {
 // it (or any other per-caller row requirement) has to pass it as isEligible.
 // P2pPhoneListUploadService.hasGeoTargetableAddress is the worked example.
 //
+// What is NEW here, and so has no equivalent in that loop: the no-progress
+// guard. The loop has three circuit breakers and they cover three different
+// shapes of runaway, so read them together — the cap stops a filter that
+// resolves too many people, the no-progress guard stops a full page that
+// resolved nobody, and the page guard is the hard ceiling on fetches when
+// pages do progress but only barely.
+//
 // A plain function rather than an injectable service, deliberately: callers
 // hand it the ContactsService they already inject, so adding a second consumer
 // needs no provider registration in any module.
@@ -93,8 +100,14 @@ export async function* resolveFilterAudience(
     limitExceededMessage,
   } = options
 
-  // Guard against a runaway loop; the recipient cap below is the real
-  // bound. One page past the cap is the most a valid list can need.
+  // The hard ceiling on fetches, for pages that do make progress but too
+  // little of it to reach the cap. Reaching the cap itself costs
+  // ceil(maxRecipients / pageSize) pages, and the recipient PAST the cap —
+  // the one that trips it — can only arrive on the page after those, hence
+  // the +1. `page > maxPages` then permits exactly maxPages fetches, which
+  // is that allowance and not one more: at the defaults, page 101 is
+  // fetched and page 102 throws. Tightening the comparison would 400 a list
+  // that legitimately resolves exactly maxRecipients people.
   const maxPages = Math.ceil(maxRecipients / pageSize) + 1
 
   // Spans every page: two voters sharing a cell phone must dedupe even
@@ -124,6 +137,8 @@ export async function* resolveFilterAudience(
       excludePersonIds,
     )
 
+    const resolvedBeforePage = resolvedCount
+
     for (const person of people) {
       // hasCellPhone: true is forced above; cellPhone is nullable on the
       // Person contract regardless, so skip a row people-api can't
@@ -136,25 +151,45 @@ export async function* resolveFilterAudience(
       }
       seenPhones.add(person.cellPhone)
       resolvedCount += 1
-      yield person
-    }
 
-    // The cap counts resolved recipients, not the raw filter match — people
-    // skipped above for a missing phone or by isEligible don't use up the
-    // budget. Checked per page so an oversized filter stops paging as
-    // soon as it exceeds the cap instead of resolving millions of rows.
-    if (resolvedCount > maxRecipients) {
-      throw new BadRequestException(
-        limitExceededMessage ??
-          `This filter matches over the ${maxRecipients} recipient ` +
-            `limit — narrow the filter and try again.`,
-      )
+      // The cap counts resolved recipients, not the raw filter match —
+      // people skipped above for a missing phone or by isEligible don't use
+      // up the budget. Checked here rather than at the end of the page so
+      // the person past the cap is never emitted: a caller consuming this
+      // generator acts on each person as it arrives, and handing it a whole
+      // page beyond the limit before throwing would defeat the limit for
+      // anything that writes as it reads.
+      if (resolvedCount > maxRecipients) {
+        throw new BadRequestException(
+          limitExceededMessage ??
+            `This filter matches over the ${maxRecipients} recipient ` +
+              `limit — narrow the filter and try again.`,
+        )
+      }
+
+      yield person
     }
 
     // A short (or empty) page is the last one — replaces the old
     // pagination.hasNextPage check, which came from the total count and
     // truncated the send whenever that count was floored.
     if (people.length < pageSize) break
+
+    // A FULL page that resolved nobody means paging further is unbounded
+    // work for an audience that is not growing: the cap can never fire
+    // (resolvedCount is stuck) so only the page guard would stop it, after
+    // maxPages full-size warehouse queries. Throws rather than breaking,
+    // because breaking would silently hand back a truncated audience, and a
+    // send that quietly reaches fewer people than the filter promised is
+    // worse than one that fails loudly. It cannot fire on a legitimate tail
+    // (a short page has already broken above).
+    if (resolvedCount === resolvedBeforePage) {
+      throw new BadRequestException(
+        `A full page of ${pageSize} contacts resolved no new recipients ` +
+          `— aborting`,
+      )
+    }
+
     page += 1
   }
 
