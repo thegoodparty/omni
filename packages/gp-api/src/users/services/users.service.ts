@@ -27,6 +27,7 @@ import {
   WrapperType,
 } from 'src/shared/types/utility.types'
 import { AnalyticsService } from '../../analytics/analytics.service'
+import { MarketingRevalidationService } from '../../personProfiles/services/marketing-revalidation.service'
 import { toLowerAndTrim, trimMany } from '../../shared/util/strings.util'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import {
@@ -77,6 +78,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
     private readonly userAvatar: UserAvatarService,
+    private readonly marketingRevalidation: MarketingRevalidationService,
   ) {
     super()
   }
@@ -631,6 +633,15 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       // deleted.
       { timeout: DELETE_USER_TX_TIMEOUT_MS },
     )
+
+    // The delete cascades the person_profile overlay away, so the public
+    // /people page must be re-rendered as unclaimed — without this the
+    // marketing site keeps serving the deleted owner's content from ISR cache
+    // until the page's own revalidate window expires. Best-effort by the
+    // service's contract; never throws.
+    if (user?.personId) {
+      await this.marketingRevalidation.revalidatePerson(user.personId)
+    }
 
     await this.trackUserDeletion(id, initiatedByUserId, user)
   }

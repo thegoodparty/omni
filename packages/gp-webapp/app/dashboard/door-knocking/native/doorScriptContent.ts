@@ -97,6 +97,39 @@ export const buildIntro = (
   return ''
 }
 
+// "Hi, I'm Sam Reed, and I'm with Jane Doe's campaign for City Council."
+//
+// The opener for a team member who is not a volunteer — a Campaign Manager
+// walking a route (ENG-11139). `buildIntro` above has them claim to be
+// running for the office, and `buildVolunteerIntro` below would introduce
+// them as a volunteer, which they are not either; the affiliation clause is
+// the one honest sentence left. Win-only: managers cannot reach the Serve
+// rail, so there is no isServe branch to write.
+//
+// `subject` is the campaign OWNER, read off the campaign payload's
+// `ownerName` — the manager's session has no route `representing` to lean
+// on, because they walk the candidate branch. Same clause-dropping rule as
+// every builder here; with no owner name to state, this degrades to the
+// walker's own name, which is what the candidate branch already said.
+export const buildTeamMemberIntro = (
+  user: User | null,
+  subject: { name: string; office: string } | null,
+): string => {
+  const speaker = speakerName(user)
+  const subjectName = clean(subject?.name)
+  const office = clean(subject?.office)
+
+  if (!subjectName) return speaker ? `Hi, I'm ${speaker}.` : ''
+
+  const affiliation = office
+    ? `with ${subjectName}'s campaign for ${office}`
+    : `with ${subjectName}'s campaign`
+
+  return speaker
+    ? `Hi, I'm ${speaker}, and I'm ${affiliation}.`
+    : `Hi, I'm ${affiliation}.`
+}
+
 // "Hi, I'm Sam Reed, and I'm a volunteer with Jane Doe's campaign for City
 // Council."
 //

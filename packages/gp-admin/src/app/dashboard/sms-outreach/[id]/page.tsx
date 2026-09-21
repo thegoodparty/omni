@@ -16,7 +16,7 @@ import { PERMISSIONS } from '@/lib/permissions'
 import {
   formatDate,
   formatDateTime,
-  formatLocalDateString,
+  formatLocalSendTime,
   formatLocalTimeString,
 } from '@/lib/utils/date'
 import { getSmsDetail } from '../actions'
@@ -109,6 +109,7 @@ export default async function Page({ params }: PageProps) {
                       item.sendAt ? new Date(item.sendAt).toISOString() : null
                     }
                     scheduledLocalDate={item.scheduledLocalDate}
+                    scheduledLocalTime={item.scheduledLocalTime}
                   />
                 </Flex>
               </Box>
@@ -164,16 +165,20 @@ export default async function Page({ params }: PageProps) {
                 </DataList.Value>
               </DataList.Item>
               <DataList.Item>
-                <DataList.Label>Requested send time</DataList.Label>
+                <DataList.Label>Send time</DataList.Label>
                 <DataList.Value>
                   <Flex direction="column">
-                    <Text size="2">{formatDateTime(item.sendAt)}</Text>
+                    <Text size="2">
+                      {formatLocalSendTime(
+                        item.scheduledLocalDate,
+                        item.scheduledLocalTime
+                      ) ?? formatDateTime(item.sendAt)}
+                    </Text>
                     <Text size="1" color="gray">
-                      Peerly books a{' '}
-                      {formatLocalTimeString(item.scheduledLocalTime) ?? '9am'}
-                      –9pm window local to each contact on{' '}
-                      {formatLocalDateString(item.scheduledLocalDate)} — not a
-                      guaranteed exact time.
+                      Each contact&apos;s local time, the same as Peerly. Texts
+                      go out between{' '}
+                      {formatLocalTimeString(item.scheduledLocalTime) ?? '9am'}{' '}
+                      and 9pm, not at an exact minute.
                     </Text>
                   </Flex>
                 </DataList.Value>

@@ -404,14 +404,14 @@ import { dirname, join, relative } from 'node:path'
 // 568 + 2 (the boundary surfaces above) + 1 (FollowUpOutstandingSection):
 // both sides of this merge raised the ratchet from the same base, so the
 // count is the sum of the two, not either one of them.
-// 2026-09-21: 571 -> 572 for CampaignTurfList, the drawer's per-campaign
-// sibling list. It reads `GET /v1/door-knocking/campaigns/:anchorId` through
-// React Query on its own cache key, deliberately separate from the drawer's
-// outreach-detail fetch so a rename or archive can invalidate the turf list
-// without repainting the header and progress bar. Same arithmetic as the
-// note above, for the same reason: this branch raised 568 -> 569 while main
-// raised 568 -> 571, so the merge is the sum and not either side.
-const BASELINE = 572
+// 2026-09-21: main's own removals took this to 566 while this branch sat at
+// 572 (571 + CampaignTurfList, the drawer's per-campaign sibling list). The
+// merge is main's number plus this branch's own net addition, not either
+// side — and the turf-panel work that followed was net-neutral: it added
+// TurfPanel, TurfCard, removeTurfDialog, draftCounts, useDrawExpand and
+// useTeamOptions while deleting DrawToolbar, DrawFullScreen and
+// TurfDraftCard, and none of the new files carry the directive.
+const BASELINE = 567
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

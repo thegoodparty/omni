@@ -542,3 +542,36 @@ describe('CrmTeamMembersService', () => {
     })
   })
 })
+
+describe('CrmTeamMembersService test-user guard', () => {
+  const doSearch = vi.fn()
+  const create = vi.fn()
+  const update = vi.fn()
+  const hubspot = {
+    isConfigured: true,
+    client: {
+      crm: {
+        contacts: { searchApi: { doSearch }, basicApi: { create, update } },
+      },
+    },
+  }
+
+  it('skips the sync for a test-user email', async () => {
+    const service = new CrmTeamMembersService(
+      hubspot as never,
+      {} as never,
+      createMockLogger(),
+    )
+
+    await service.syncTeamMember({
+      email: 'test-1790009-abcde@test.goodparty.org',
+      name: 'Test User',
+      role: OrganizationRole.volunteer,
+      crmCompanyId: 'company-1',
+    })
+
+    expect(doSearch).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+})
