@@ -77,6 +77,10 @@ export default function ListBoundaryOverlay({
   return (
     <Dialog open onOpenChange={(next) => !next && onCancel()}>
       {/* Full-bleed rather than the centred card DialogContent defaults to:
+          `sm:max-w-none` is NOT redundant beside `max-w-none` — the base
+          component carries `sm:max-w-lg`, and a responsive variant wins over
+          a plain utility in the cascade, so without it this renders 512px
+          wide on every screen above the sm breakpoint.
           the whole point of this surface is a map big enough to aim at.
           z-[1400] because it opens from inside the list detail sheet, which
           is itself a drawer. The last-child hide is the styleguide's own
@@ -84,7 +88,7 @@ export default function ListBoundaryOverlay({
           Cancel is the close here, and two of them invite the holder to
           guess which one discards their ring. */}
       <DialogContent
-        className="flex h-dvh w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 p-0 top-0 left-0 z-[1400] [&>button:last-child]:hidden"
+        className="flex h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 p-0 top-0 left-0 z-[1400] sm:max-w-none [&>button:last-child]:hidden"
         data-testid="boundary-overlay"
       >
         <DialogTitle className="sr-only">{labels.boundaryDrawCta}</DialogTitle>
