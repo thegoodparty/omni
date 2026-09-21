@@ -1,5 +1,15 @@
-import { Body, Controller, Post, UseInterceptors } from '@nestjs/common'
 import {
+  Body,
+  Controller,
+  NotFoundException,
+  Post,
+  UseInterceptors,
+} from '@nestjs/common'
+import {
+  ServeSmsCreateRequest,
+  ServeSmsCreateRequestSchema,
+  ServeSmsCreateResponse,
+  ServeSmsCreateResponseSchema,
   ServeSmsDraftRequest,
   ServeSmsDraftRequestSchema,
   ServeSmsDraftResponse,
@@ -9,6 +19,7 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
+import { FeaturesService } from '@/features/services/features.service'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -16,10 +27,24 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { ElectedOffice, User } from '../generated/prisma'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
+import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
 import { SERVE_SMS_VOICE } from './util/serveSmsVoice.util'
 
 const electedOfficialName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+
+// The whole Serve SMS feature ships behind one flag. Both routes here are
+// gated because between them they are the only way into the flow: compose
+// and create. The delivery service, the reply ingest, the purchase handler
+// and the results readers are deliberately NOT gated — none is reachable
+// without an `Outreach` row, and the create route below is the only thing
+// that writes one, so gating the writer makes the rest inert. Same reasoning
+// `win-team-accounts` records for gating only its create route
+// (outreachAssignment.controller.ts).
+//
+// This gates ROLLOUT, not authorization. @UseElectedOffice() is the real
+// access check on both routes and stays that way whatever the flag says.
+const SERVE_SMS_FLAG = 'serve-sms-outreach'
 
 // Serve counterpart to OutreachSmsController: org-scoped, stateless
 // draft/improve for the body of one text to constituents.
@@ -37,6 +62,8 @@ export class OutreachServeSmsController {
     private readonly generationService: OutreachSmsGenerationService,
     private readonly profileContext: OutreachServeComposeContextService,
     private readonly organizations: OrganizationsService,
+    private readonly createService: OutreachServeSmsCreateService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachServeSmsController.name)
@@ -81,6 +108,18 @@ export class OutreachServeSmsController {
     return { office, context }
   }
 
+  // 404 rather than 403 when the flag is off: a surface the user has not been
+  // rolled out to should not advertise that it exists.
+  private async assertFeatureEnabled(user: User): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_SMS_FLAG,
+    })
+    if (!enabled) {
+      throw new NotFoundException()
+    }
+  }
+
   @Post('sms/draft')
   @ResponseSchema(ServeSmsDraftResponseSchema)
   async draft(
@@ -89,6 +128,7 @@ export class OutreachServeSmsController {
     @Body(new ZodValidationPipe(ServeSmsDraftRequestSchema))
     input: ServeSmsDraftRequest,
   ): Promise<ServeSmsDraftResponse> {
+    await this.assertFeatureEnabled(user)
     const { office, context } = await this.buildServeContext(electedOffice)
     return {
       draft: await this.generationService.generateDraftWithVoice(
@@ -100,5 +140,27 @@ export class OutreachServeSmsController {
         SERVE_SMS_VOICE,
       ),
     }
+  }
+
+  // Draft-first create. The row exists BEFORE checkout because the composed
+  // message can reach SMS_COMPOSED_MAX_LENGTH (1000) and a Stripe metadata
+  // value caps at 500, so the poll pattern of carrying content through
+  // checkout metadata cannot work here — checkout carries two ids instead.
+  //
+  // No matching PATCH: a draft is immutable while pending_payment, so
+  // re-entering the flow creates a fresh draft. That is what keeps the
+  // priced count and the row the purchase handler re-reads the same thing.
+  @Post('sms')
+  @ResponseSchema(ServeSmsCreateResponseSchema)
+  async create(
+    @ReqUser() user: User,
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body(new ZodValidationPipe(ServeSmsCreateRequestSchema))
+    input: ServeSmsCreateRequest,
+  ): Promise<ServeSmsCreateResponse> {
+    await this.assertFeatureEnabled(user)
+    // The org comes from the ElectedOffice row the guard resolved, never from
+    // the body — the same posture every route on this controller takes.
+    return this.createService.createDraft(electedOffice.organizationSlug, input)
   }
 }
