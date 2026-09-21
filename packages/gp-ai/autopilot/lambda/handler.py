@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -149,6 +150,12 @@ class AutopilotEvent:
     # own parking comment: without the distinction, every park would resume
     # itself the moment its own comment webhook lands.
     event_actor_id: str | None = None
+    # The most recently posted comment's text — hydrated ONLY for a
+    # commentPosted delivery whose actor is the bot (see
+    # _hydrate_from_clickup), since that is the only case route()'s
+    # self-resume guard needs it for (the Slack-answer-relay exemption).
+    # Real deliveries never carry it.
+    latest_comment_text: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         # autopilot_async is the internal-dispatch marker handler() checks for
@@ -164,6 +171,7 @@ class AutopilotEvent:
             "epic_task_id": self.epic_task_id,
             "event_ts": self.event_ts,
             "event_actor_id": self.event_actor_id,
+            "latest_comment_text": self.latest_comment_text,
         }
 
     @classmethod
@@ -177,6 +185,7 @@ class AutopilotEvent:
             epic_task_id=payload.get("epic_task_id"),
             event_ts=payload.get("event_ts"),
             event_actor_id=payload.get("event_actor_id"),
+            latest_comment_text=payload.get("latest_comment_text"),
         )
 
 
@@ -206,6 +215,50 @@ def verify_webhook_signature(body: str, signature: str) -> bool:
 
     if not is_valid:
         print("ERROR: Webhook signature verification failed: signature mismatch")
+    return is_valid
+
+
+# The ALB path the Slack Events API is registered against (see
+# infrastructure/modules/autopilot-bot and the environment roots' listener
+# rule) — distinct from /autopilot/webhook, which stays ClickUp-only. Both
+# paths forward to this same Lambda/target group.
+SLACK_INGRESS_PATH = "/autopilot/slack"
+
+# Slack's own recommended replay window: a request whose timestamp is older
+# than this is rejected even if the signature verifies, so a captured
+# request can't be replayed indefinitely.
+SLACK_SIGNATURE_TOLERANCE_SECONDS = 5 * 60
+
+
+def verify_slack_signature(raw_body: str, timestamp: str, signature: str) -> bool:
+    secret = os.environ.get("AUTOPILOT_SLACK_SIGNING_SECRET", "")
+    if not secret:
+        print("ERROR: No AUTOPILOT_SLACK_SIGNING_SECRET configured, rejecting request")
+        return False
+
+    try:
+        request_time = int(timestamp)
+    except (TypeError, ValueError):
+        print("ERROR: Slack signature verification failed: missing or malformed timestamp")
+        return False
+
+    if abs(time.time() - request_time) > SLACK_SIGNATURE_TOLERANCE_SECONDS:
+        print("ERROR: Slack signature verification failed: stale timestamp")
+        return False
+
+    basestring = f"v0:{timestamp}:{raw_body}"
+    expected = "v0=" + hmac.new(secret.encode(), basestring.encode(), hashlib.sha256).hexdigest()
+    try:
+        is_valid = hmac.compare_digest(expected, signature)
+    except TypeError:
+        # Same non-ASCII-header defense as verify_webhook_signature: a
+        # malformed signature header is an invalid signature (401), never a
+        # crash.
+        print("ERROR: Slack signature verification failed: malformed signature header")
+        return False
+
+    if not is_valid:
+        print("ERROR: Slack signature verification failed: signature mismatch")
     return is_valid
 
 
@@ -366,6 +419,7 @@ def route_event(event: AutopilotEvent) -> None:
         event_ts=event.event_ts,
         event_actor_id=event.event_actor_id,
         epic_task_id=event.epic_task_id,
+        latest_comment_text=event.latest_comment_text,
         transitions=[
             router.Transition(
                 actor_user_id=t.actor_user_id,
@@ -467,6 +521,252 @@ def enqueue_async_processing(autopilot_event: AutopilotEvent) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Slack ingress: a thread reply to a park/notify ping resumes the parked run.
+#
+# Mirrors the ClickUp path's discipline exactly: verify in-path, do ZERO
+# Slack/ClickUp API calls on the internet-facing edge, fast-ack, and hand the
+# parsed event to an async self-invoke. The async worker does the one thing
+# the edge can't (fetch the thread root to confirm it's really one of our
+# pings) and then RELAYS the reply onto the card as an ordinary ClickUp
+# comment — it never dispatches a resume itself. ClickUp's own webhook fires
+# for that new comment and drives it through the EXACT SAME hardened
+# commentPosted path a human's own reply takes (see router.route()'s
+# is_slack_relay_comment exemption); this file must never grow a second,
+# parallel comment-hydration path to short-circuit that.
+# ---------------------------------------------------------------------------
+
+# Slack redelivers a "message" event it believes wasn't handled; claiming
+# this key before relaying (through the same DynamoDB table dispatch.py's
+# per-transition claims live in) makes a redelivery of the same event a
+# no-op. TTL only needs to outlive Slack's own retry window, not a whole
+# stage run.
+SLACK_RELAY_DEDUP_TTL_SECONDS = 15 * 60
+
+# The claim above is taken BEFORE the two API calls below (conversations.replies,
+# then create_task_comment) so a genuine Slack redelivery of the same event
+# can't relay twice — but that means a transient failure in either call, with
+# the claim already held, would otherwise drop the human's answer for good:
+# this Lambda's async self-invoke has ZERO platform retries
+# (aws_lambda_function_event_invoke_config sets maximum_retry_attempts = 0,
+# function-wide), and Slack already got its 200 from the fast-ack edge, so it
+# won't redeliver either. A short bounded retry inside THIS invocation is the
+# only thing standing between an ordinary transient blip and a silently lost
+# answer — there is no Slack-side reconciliation sweep to fall back on.
+SLACK_RELAY_RETRY_ATTEMPTS = 3
+SLACK_RELAY_RETRY_BACKOFF_SECONDS = 1.0
+
+
+def _retry_relay_call(fn: Any) -> Any:
+    last_exc: Exception | None = None
+    for attempt in range(SLACK_RELAY_RETRY_ATTEMPTS):
+        try:
+            return fn()
+        except Exception as e:
+            last_exc = e
+            if attempt < SLACK_RELAY_RETRY_ATTEMPTS - 1:
+                time.sleep(SLACK_RELAY_RETRY_BACKOFF_SECONDS * (attempt + 1))
+    assert last_exc is not None
+    raise last_exc
+
+
+# Subtypes a genuine human thread reply may still carry. "thread_broadcast"
+# is what Slack sets when a user checks "Also send to #channel" on a thread
+# reply — the message is otherwise ordinary (real user, real thread_ts, real
+# text). Every OTHER subtype (message_changed, message_deleted, bot_message,
+# channel_join, ...) is an edit/deletion/system message/bot post, never an
+# answer to relay, so anything not in this set is dropped.
+ALLOWED_SLACK_MESSAGE_SUBTYPES = frozenset({"thread_broadcast"})
+
+
+def parse_slack_message_event(body: dict) -> Any:
+    """Parses a verified Slack Events API body into a typed reply event, or
+    None if this is not a shape autopilot acts on: anything but a real
+    `message` event (a URL-verification body is handled by the caller before
+    this is ever reached), and a `message` whose `subtype` isn't in
+    ALLOWED_SLACK_MESSAGE_SUBTYPES — failing closed here rather than relying
+    on the bot_id/user checks below to catch every unwanted subtype shape.
+    """
+    if body.get("type") != "event_callback":
+        return None
+    inner = body.get("event")
+    if not isinstance(inner, dict) or inner.get("type") != "message":
+        return None
+    subtype = inner.get("subtype")
+    if subtype is not None and subtype not in ALLOWED_SLACK_MESSAGE_SUBTYPES:
+        return None
+
+    channel = inner.get("channel")
+    ts = inner.get("ts")
+    text = inner.get("text")
+    if not isinstance(channel, str) or not isinstance(ts, str) or not isinstance(text, str):
+        return None
+
+    thread_ts = inner.get("thread_ts")
+    user_id = inner.get("user")
+    bot_id = inner.get("bot_id")
+    event_id = body.get("event_id")
+    return router.SlackReplyEvent(
+        channel=channel,
+        ts=ts,
+        thread_ts=thread_ts if isinstance(thread_ts, str) else None,
+        user_id=user_id if isinstance(user_id, str) else None,
+        bot_id=bot_id if isinstance(bot_id, str) else None,
+        text=text,
+        event_id=event_id if isinstance(event_id, str) else None,
+    )
+
+
+def enqueue_slack_async_processing(slack_event: Any) -> bool:
+    function_name = os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+    if not function_name:
+        print("Failed to enqueue Slack async processing: AWS_LAMBDA_FUNCTION_NAME not set")
+        return False
+    try:
+        get_lambda_client().invoke(
+            FunctionName=function_name,
+            InvocationType="Event",
+            Payload=json.dumps(
+                {
+                    "autopilot_slack_async": True,
+                    "channel": slack_event.channel,
+                    "ts": slack_event.ts,
+                    "thread_ts": slack_event.thread_ts,
+                    "user_id": slack_event.user_id,
+                    "bot_id": slack_event.bot_id,
+                    "text": slack_event.text,
+                    "event_id": slack_event.event_id,
+                }
+            ),
+        )
+        return True
+    except Exception as e:
+        print(f"Failed to enqueue Slack async processing: {type(e).__name__}")
+        return False
+
+
+def handle_slack_request(event: dict) -> dict:
+    """Webhook-facing half of the Slack ingress. Same ordering as the
+    ClickUp path above: parse first (so a malformed body always gets a clean
+    400 regardless of its signature), verify against the ORIGINAL raw body
+    string, THEN branch on content — never the other way around."""
+    headers = event.get("headers", {})
+    timestamp = get_header_case_insensitive(headers, "x-slack-request-timestamp")
+    signature = get_header_case_insensitive(headers, "x-slack-signature")
+    raw_body = event.get("body", "{}")
+
+    body: Any = raw_body
+    if isinstance(body, str):
+        try:
+            body = json.loads(body)
+        except json.JSONDecodeError:
+            print("Invalid JSON in Slack request body")
+            return {"statusCode": 400, "body": json.dumps({"error": "invalid JSON body"})}
+
+    if not isinstance(body, dict):
+        print("Invalid JSON in Slack request body")
+        return {"statusCode": 400, "body": json.dumps({"error": "invalid JSON body"})}
+
+    if not isinstance(raw_body, str):
+        raw_body = json.dumps(raw_body)
+
+    if not verify_slack_signature(raw_body, timestamp, signature):
+        return {"statusCode": 401, "body": json.dumps({"error": "Unauthorized"})}
+
+    if body.get("type") == "url_verification":
+        # Answered in-path: this is the one-time app-setup handshake, not a
+        # recurring delivery, and involves no Slack/ClickUp API calls, so
+        # there's no fast-ack budget to protect here.
+        return {"statusCode": 200, "body": json.dumps({"challenge": body.get("challenge")})}
+
+    slack_event = parse_slack_message_event(body)
+    if slack_event is None:
+        return {"statusCode": 200, "body": json.dumps({"skipped": "not a triggering Slack event"})}
+
+    channel = os.environ.get("AUTOPILOT_SLACK_CHANNEL", "").strip()
+    # Filtered at the edge, same spirit as the ClickUp path's list-id scope
+    # check: obviously-irrelevant deliveries (the bot's own messages, a
+    # non-thread message, a message in some other channel) are dropped
+    # WITHOUT paying a self-invoke. Whether the thread is actually one of our
+    # pings is the one question only the async worker can answer.
+    if not channel or not router.is_relayable_slack_reply(slack_event, expected_channel=channel):
+        return {"statusCode": 200, "body": json.dumps({"skipped": "not a relayable Slack reply"})}
+
+    if not enqueue_slack_async_processing(slack_event):
+        return {"statusCode": 500, "body": json.dumps({"error": "failed to enqueue async processing"})}
+
+    return {"statusCode": 200, "body": json.dumps({"status": "accepted"})}
+
+
+def handle_slack_async_processing(event: dict) -> dict:
+    """Worker half of the Slack ingress. Reached only through the
+    unspoofable-through-ALB dispatch check in handler() — see there and
+    handle_async_processing's docstring for why the payload can be trusted
+    without re-verifying anything."""
+    try:
+        slack_event = router.SlackReplyEvent(
+            channel=event["channel"],
+            ts=event["ts"],
+            thread_ts=event.get("thread_ts"),
+            user_id=event.get("user_id"),
+            bot_id=event.get("bot_id"),
+            text=event["text"],
+            event_id=event.get("event_id"),
+        )
+    except KeyError as e:
+        print(f"ERROR: Slack async processing failed: invalid internal payload ({type(e).__name__})")
+        return {"statusCode": 400, "body": json.dumps({"error": "invalid async payload"})}
+
+    channel = os.environ.get("AUTOPILOT_SLACK_CHANNEL", "").strip()
+    if not channel or not router.is_relayable_slack_reply(slack_event, expected_channel=channel):
+        # Re-checked here, not just trusted from the edge: the payload is
+        # self-generated, but AUTOPILOT_SLACK_CHANNEL could differ between
+        # the edge invocation and this one (a mid-flight config change), and
+        # the worker must apply the same gate the edge did, not assume it.
+        return {"statusCode": 200, "body": json.dumps({"skipped": "not a relayable Slack reply"})}
+
+    dedup_key = slack_event.event_id or f"{slack_event.channel}:{slack_event.ts}"
+    reason = dispatch.claim_transition(
+        f"slack-reply:{slack_event.channel}", "slack-relay", dedup_key, SLACK_RELAY_DEDUP_TTL_SECONDS
+    )
+    if reason is not None:
+        # "already claimed" is a genuine Slack redelivery of the same event —
+        # relay exactly once. The other reasons (table unconfigured/
+        # unavailable) fail closed, same posture as dispatch.claim_transition
+        # everywhere else it's called.
+        return {"statusCode": 200, "body": json.dumps({"skipped": reason})}
+
+    try:
+        thread = _retry_relay_call(
+            lambda: supervisor.slack_conversations_replies(slack_event.channel, slack_event.thread_ts)
+        )
+    except Exception as e:
+        print(f"ERROR: failed to read Slack thread for channel {slack_event.channel}: {type(e).__name__}")
+        return {"statusCode": 500, "body": json.dumps({"error": "failed to read slack thread"})}
+
+    root_text = thread[0].get("text") if thread and isinstance(thread[0], dict) else None
+    task_id = router.slack_ping_task_id(root_text)
+    if task_id is None:
+        print(f"Slack reply in channel {slack_event.channel} is not on one of our pings; ignoring")
+        return {"statusCode": 200, "body": json.dumps({"skipped": "thread root is not an autopilot ping"})}
+
+    comment_text = router.format_slack_answer_comment(slack_event.user_id, slack_event.text)
+    try:
+        _retry_relay_call(lambda: supervisor.create_task_comment(task_id, comment_text))
+    except Exception as e:
+        # The retries above are what stand between an ordinary transient
+        # blip and losing this answer for good (see SLACK_RELAY_RETRY_ATTEMPTS'
+        # comment) — this is the exhausted-retries case: a SUSTAINED ClickUp
+        # outage, not a blip. Logged loudly (feeds the handler-errors alarm);
+        # the claim above is not rolled back, same posture as a claimed-but-
+        # failed Fargate launch in dispatch.dispatch_stage.
+        print(f"ERROR: failed to relay a Slack reply onto {task_id}: {type(e).__name__}")
+        return {"statusCode": 500, "body": json.dumps({"error": "failed to relay comment"})}
+
+    print(f"Relayed a Slack reply onto {task_id}")
+    return {"statusCode": 200, "body": json.dumps({"status": "relayed", "task_id": task_id})}
+
+
 def _hydrate_from_clickup(event: AutopilotEvent) -> AutopilotEvent:
     """Fills the fields a real ClickUp delivery doesn't carry — the task's
     list (scope gate), current status (comment routing), and parent (card
@@ -490,6 +790,20 @@ def _hydrate_from_clickup(event: AutopilotEvent) -> AutopilotEvent:
     task_list = task.get("list")
     list_id = task_list.get("id") if isinstance(task_list, dict) else None
     parent = task.get("parent")
+
+    latest_text = event.latest_comment_text
+    bot_user_id = os.environ.get("AUTOPILOT_BOT_USER_ID")
+    # Only the self-resume guard's Slack-relay exemption (router.
+    # is_slack_relay_comment) needs comment content, and only when the actor
+    # IS the bot — a human comment never needs this read, so paying it on
+    # every commentPosted delivery would double this hydration step's
+    # ClickUp calls for no reason. A read failure is NOT caught here: it
+    # propagates out of _hydrate_from_clickup exactly like the task read
+    # above, for the same reason (see this function's docstring) — losing it
+    # silently would drop a real relayed answer with no retry.
+    if event.kind == "commentPosted" and bot_user_id and event.event_actor_id == bot_user_id:
+        latest_text = router.latest_comment_text(supervisor.get_task_comments(event.task_id))
+
     return AutopilotEvent(
         kind=event.kind,
         task_id=event.task_id,
@@ -503,6 +817,7 @@ def _hydrate_from_clickup(event: AutopilotEvent) -> AutopilotEvent:
         # the comment-resume bot filter with None and the park self-resume
         # loop comes back.
         event_actor_id=event.event_actor_id,
+        latest_comment_text=latest_text,
     )
 
 
@@ -587,6 +902,21 @@ def handler(event: dict, context: Any) -> dict:
     # containing autopilot_async falls through to normal signature verification.
     if event.get("autopilot_async") and "headers" not in event and "requestContext" not in event:
         return handle_async_processing(event)
+
+    # Same unspoofable-through-ALB reasoning as the two markers above, for
+    # the Slack ingress's own self-invoke.
+    if event.get("autopilot_slack_async") and "headers" not in event and "requestContext" not in event:
+        return handle_slack_async_processing(event)
+
+    # Path-based routing: the ALB forwards both /autopilot/webhook (ClickUp)
+    # and /autopilot/slack (Slack Events API) to this one Lambda/target group
+    # (see infrastructure/modules/autopilot-bot). Only the ALB can invoke this
+    # function (its Lambda permission is scoped to the
+    # elasticloadbalancing.amazonaws.com principal), so `path` here reflects
+    # whichever listener rule actually matched the request. Absent or any
+    # other value falls through to the ClickUp logic below, unchanged.
+    if event.get("path") == SLACK_INGRESS_PATH:
+        return handle_slack_request(event)
 
     headers = event.get("headers", {})
     signature = get_header_case_insensitive(headers, "x-signature")

@@ -80,6 +80,112 @@ const stubCountEligibility = () => {
 }
 
 describe('crud_saved_filters against the real service pipeline', () => {
+  // The assistant had no way to read a saved list's size at all: 'list'
+  // returns ids and names, 'create' counts the filter it was handed, and
+  // nothing answered "how big is list 7 now". So it quoted whatever number
+  // appeared earlier in the conversation, which goes stale the moment a
+  // boundary is drawn on that list.
+  describe("action='get'", () => {
+    it('returns the live count for one saved list by id', async () => {
+      const { organization } = await seedWinOrg('campaign-crud-get')
+      stubCountEligibility()
+      const created = await service.prisma.voterFileFilter.create({
+        data: {
+          organizationSlug: organization.slug,
+          name: 'Downtown',
+          genderFemale: true,
+        },
+      })
+      stubPeopleApi(417)
+
+      const result = await buildTool(organization).execute({
+        action: 'get',
+        id: created.id,
+      } as never)
+
+      expect(result).toEqual({
+        id: created.id,
+        name: 'Downtown',
+        count: 417,
+      })
+    })
+
+    // The one that separates countSegment from "spread the saved row's
+    // fields into countContacts", which is the implementation that looks
+    // right and silently drops the boundary. A stubbed total cannot tell
+    // them apart — both return it — so this asserts on what reached the
+    // query instead.
+    it("applies the list's drawn boundary, not just its filter fields", async () => {
+      const { organization } = await seedWinOrg('campaign-crud-get-geo')
+      stubCountEligibility()
+      const enclosed = '00000000-0000-0000-0000-0000000000aa'
+      const created = await service.prisma.voterFileFilter.create({
+        data: {
+          organizationSlug: organization.slug,
+          name: 'Downtown, redrawn',
+          genderFemale: true,
+          geoPoly: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [0, 0],
+                [1, 0],
+                [1, 1],
+                [0, 1],
+                [0, 0],
+              ],
+            ],
+          },
+          geoMembersResolvedAt: new Date(),
+        },
+      })
+      await service.prisma.voterFileFilterGeoMember.create({
+        data: { voterFileFilterId: created.id, personId: enclosed },
+      })
+      const findPeople = stubPeopleApi(1)
+
+      await buildTool(organization).execute({
+        action: 'get',
+        id: created.id,
+      } as never)
+
+      expect(findPeople.mock.calls[0]?.[0]?.filters).toMatchObject({
+        filterOperators: { id: { operator: 'in', values: [enclosed] } },
+      })
+    })
+
+    it('errors without an id rather than counting something else', async () => {
+      const { organization } = await seedWinOrg('campaign-crud-get-noid')
+
+      const result = await buildTool(organization).execute({
+        action: 'get',
+      } as never)
+
+      expect(result).toEqual({ error: 'get requires id' })
+    })
+
+    it("refuses another organization's list", async () => {
+      const { organization: owner } = await seedWinOrg('campaign-crud-get-a')
+      const { organization: other } = await seedWinOrg('campaign-crud-get-b')
+      const created = await service.prisma.voterFileFilter.create({
+        data: {
+          organizationSlug: owner.slug,
+          name: 'Theirs',
+          genderFemale: true,
+        },
+      })
+
+      const result = await buildTool(other).execute({
+        action: 'get',
+        id: created.id,
+      } as never)
+
+      expect(result).toEqual({
+        error: `No saved list with id ${created.id} exists for this organization`,
+      })
+    })
+  })
+
   it('create persists the filter + activity-condition rows and returns the live count', async () => {
     const { organization, campaign } = await seedWinOrg('campaign-crud-create')
     const completedText = await service.prisma.outreach.create({

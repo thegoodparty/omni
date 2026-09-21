@@ -73,6 +73,12 @@ const convertUserMessage = (m: LlmUserMessage): UserModelMessage => {
           type: 'file',
           data: part.data,
           mediaType: part.mediaType,
+          ...(part.filename && { filename: part.filename }),
+          ...(part.citationsEnabled && {
+            providerOptions: {
+              anthropic: { citations: { enabled: true } },
+            },
+          }),
         })
         break
       case 'image_url':

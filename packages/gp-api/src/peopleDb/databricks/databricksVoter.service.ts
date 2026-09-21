@@ -491,6 +491,7 @@ export class DatabricksVoterService {
   // implementation across both engines rather than two that can drift.
   async doorKnockingEvaluateRows(
     dto: DoorKnockingEvaluateDTO,
+    opts?: { requireRooftopAccuracy?: boolean },
   ): Promise<DbxEvaluateRow[]> {
     const district = await this.resolveDistrict(dto.districtId)
     const { columns, rows } = await this.run(
@@ -502,6 +503,7 @@ export class DatabricksVoterService {
         bbox: dto.bbox,
         maxPeople: dto.maxPeople,
         excludePersonIds: dto.excludePersonIds,
+        requireRooftopAccuracy: opts?.requireRooftopAccuracy,
       }),
     )
     return rows.map((row) => {

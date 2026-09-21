@@ -10,6 +10,7 @@ import type {
   DoorKnockConstituentActivity,
   FollowUpStatus,
   FollowUpStatusResponse,
+  GeoJsonPolygon,
   GetIndividualActivitiesResponse,
   ListDetailContactsResponse,
   ListDetailOutreachHistoryEntry,
@@ -49,6 +50,10 @@ export interface SegmentResponse {
   activityConditions?: ActivityConditionInput[]
   supportStatus?: SupportStatusRollup[]
   firstUsedForOutreachAt?: string | null
+  // The drawn boundary narrowing the list, Serve only. Declared here rather
+  // than taken from contracts because the saved-list shape has never lived
+  // there — the index signature below would otherwise type it `unknown`.
+  geoPoly?: GeoJsonPolygon | null
   // Recommended-lists provenance (Task 7): null on a hand-built list, or
   // when accepted, whether the candidate edited it before submitting.
   recommendedModified?: boolean | null

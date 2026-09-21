@@ -1,3 +1,24 @@
+## 2026-09-21
+
+### Potential instrumentation gaps
+
+Coverage: 36 tracked — 17 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step-flow-URL-stable | At which step of the outreach flow (robocall/sms/social) do users drop off, and does the Viewed/Completed pattern fire per stage? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-stage | Where do users drop off across the Robocall outreach wizard (purpose, audience, review, pay) stages? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit | form_submit | payment-outcome | How many robocall campaign payments succeed vs. fail at the authorize step? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-stage | Where do users drop off across the SMS/text outreach wizard stages (audience, review, schedule)? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-stage | Where do users drop off across the Social outreach wizard stages (purpose, compose, share) and how often is the outcome (assets saved) produced? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit | form_submit | multi-step-flow-stage-completion | How many users complete the Candidate Profile step of the Pro upgrade flow, and where do they drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx |
+| 0 | packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit | form_submit | payment-confirmation-backend | How many checkout submissions result in successful payment/subscription confirmation vs failure? | packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx#form_submit | form_submit | ai-chat-engagement | How many users who open the Chief of Staff chat actually send a message (open-to-send drop-off)? | packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off in the door-knocking create flow (purpose/who/draw/confirm/route)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx#form_submit | form_submit | ai-chat-engagement | How many users send a message in the ordinance draft chat, and what is the open-to-send drop-off? | packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx |
+
+(7 more new gaps — see the state file.)
+
 ## 2026-09-17
 
 ### Potential instrumentation gaps

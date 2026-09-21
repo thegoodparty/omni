@@ -1,9 +1,20 @@
 import type { Person } from '../shared/contacts-types'
 
+// Everything the map reads off a resident: an id to select by, and a name to
+// label the popover row with. Narrower than Person deliberately — a caller
+// holding bare coordinates can group them without inventing thirty empty
+// columns, and Person satisfies this structurally so the list map is
+// unaffected.
+export interface ContactPointResident {
+  id: string
+  firstName?: string | null
+  lastName?: string | null
+}
+
 export interface ContactPoint {
   lng: number
   lat: number
-  residents: Person[]
+  residents: ContactPointResident[]
 }
 
 export interface ContactPoints {
@@ -87,4 +98,26 @@ export const boundsOf = (points: ContactPoint[]): Bounds | null => {
       maxLat: first.lat,
     },
   )
+}
+
+// The same grouping for a caller whose rows are coordinates rather than
+// people — the draw step, which has no person overlay behind its dots and so
+// asks gp-api for points instead of records. Separate from toContactPoints
+// because there is nothing to parse or reject here: a coordinate that
+// arrived as a number is already a coordinate, so there is no unmappable
+// bucket and no blank-vs-zero question to get wrong.
+export const groupCoordinates = (
+  coordinates: { id: string; lat: number; lng: number }[],
+): ContactPoint[] => {
+  const byCoordinate = new Map<string, ContactPoint>()
+  for (const { id, lat, lng } of coordinates) {
+    const key = `${lat},${lng}`
+    const existing = byCoordinate.get(key)
+    if (existing) {
+      existing.residents.push({ id })
+      continue
+    }
+    byCoordinate.set(key, { lat, lng, residents: [{ id }] })
+  }
+  return [...byCoordinate.values()]
 }

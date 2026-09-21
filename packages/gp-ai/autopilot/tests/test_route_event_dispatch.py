@@ -310,7 +310,7 @@ def test_container_overrides_carry_full_envelope_and_ceiling(fake_ecs):
         "CLICKUP_TASK_ID": TASK_ID,
         "AGENT_MODEL": router.DEFAULT_AGENT_MODEL,
         "AGENT_MAX_BUDGET_USD": "8.0",
-        "AGENT_DEADLINE_SECONDS": str(30 * 60),
+        "AGENT_DEADLINE_SECONDS": str(45 * 60),
         "EPIC_TASK_ID": "epic-9",
         "AUTOPILOT_SLACK_CHANNEL": "#autopilot-test",
     }

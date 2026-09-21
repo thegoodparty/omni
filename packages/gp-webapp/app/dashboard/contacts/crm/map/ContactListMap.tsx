@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
-import { ScatterplotLayer } from '@deck.gl/layers'
+import { PolygonLayer, ScatterplotLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Button } from '@styleguide'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
+import {
+  ringInsertIndex,
+  type PolygonRing,
+} from 'app/dashboard/shared/ringGeometry'
 import type { Person } from '../shared/contacts-types'
 import {
   boundsOf,
@@ -29,6 +33,10 @@ const EMPTY_STYLE: maplibregl.StyleSpecification = {
 // chain (--primary -> --color-brand-blue-500 -> #1e63ec) is written out and
 // the test is what keeps it honest.
 const PRIMARY_BLUE: [number, number, number] = [30, 99, 236]
+// Stable identity, so a caller that passes no `people` does not remount the
+// dots on every render through a fresh [] default.
+const EMPTY_PEOPLE: Person[] = []
+
 const DOT: [number, number, number, number] = [...PRIMARY_BLUE, 200]
 const DOT_SELECTED: [number, number, number, number] = [255, 255, 255, 255]
 
@@ -46,8 +54,23 @@ const radiusFor = (count: number): number =>
 const PICK_RADIUS_PX = 6
 const FIT_PADDING_PX = 48
 
+// The drawn boundary, in the same blue as the dots it encloses — one shape on
+// one map rather than two things that happen to be on screen together. The
+// fill is weak enough to read the streets and the dots through, because what
+// is inside the boundary is the whole question being asked of it.
+const BOUNDARY_LINE: [number, number, number, number] = [...PRIMARY_BLUE, 255]
+const BOUNDARY_FILL: [number, number, number, number] = [...PRIMARY_BLUE, 40]
+const VERTEX_FILL: [number, number, number, number] = [255, 255, 255, 255]
+const VERTEX_RADIUS_PX = 6
+const VERTEX_PICK_RADIUS_PX = 10
+
 interface ContactListMapProps {
-  people: Person[]
+  // Exactly one of `people` and `contactPoints` is given. Person records are
+  // what every surface with an overlay behind its dots has in hand; the draw
+  // step does not, so it asks gp-api for bare coordinates instead of pulling
+  // thirty columns per constituent it will never read.
+  people?: Person[]
+  contactPoints?: ContactPoint[]
   selectedPersonId?: string | null
   // Omitted where the dots are markers rather than an index into anything.
   // The Chief of Staff chat is that case: there is no person overlay in a
@@ -61,13 +84,29 @@ interface ContactListMapProps {
   // the rows actually fetched, so on a truncated list it describes the page
   // and not the list, and the wording has to say so.
   truncated?: boolean
+  // Screen space at the bottom of the canvas that something else is covering
+  // — the draw panel's control bar. Added to the framing padding so the fit
+  // puts every dot ABOVE the chrome rather than centring the list and leaving
+  // the southernmost people underneath it, which on a north-south district is
+  // most of a neighbourhood.
+  bottomInsetPx?: number
+  // The boundary narrowing this list, as an open ring. Given without
+  // `onDrawRingChange` it is a saved outline drawn read-only — a locked list
+  // still shows the geography it was cut with. Given with it, the map is the
+  // drawing surface: a click places a vertex and a handle can be dragged.
+  drawRing?: PolygonRing
+  onDrawRingChange?: (ring: PolygonRing) => void
 }
 
 export default function ContactListMap({
-  people,
+  people = EMPTY_PEOPLE,
+  contactPoints,
   selectedPersonId,
   onSelectPerson,
   truncated = false,
+  bottomInsetPx = 0,
+  drawRing,
+  onDrawRingChange,
 }: ContactListMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -84,10 +123,28 @@ export default function ContactListMap({
   const [openPoint, setOpenPoint] = useState<ContactPoint | null>(null)
   const [basemapBlocked, setBasemapBlocked] = useState(false)
 
-  const { points, unmappable } = useMemo(
-    () => toContactPoints(people),
-    [people],
-  )
+  // The map instance is built once and outlives every prop, so the handlers
+  // registered on it read the current ring and writer through refs rather
+  // than closing over the render that mounted it.
+  const isDrawing = Boolean(onDrawRingChange)
+  const ringRef = useRef<PolygonRing>(drawRing ?? [])
+  ringRef.current = drawRing ?? []
+  const onDrawRingChangeRef = useRef(onDrawRingChange)
+  onDrawRingChangeRef.current = onDrawRingChange
+  const dragIndexRef = useRef<number | null>(null)
+  // A vertex drag that ends inside the browser's click tolerance still fires
+  // a click; without this it would place a second vertex on top of the one
+  // just moved.
+  const justDraggedRef = useRef(false)
+
+  const derived = useMemo(() => toContactPoints(people), [people])
+  // Coordinates given directly carry no unmappable count. The query behind
+  // them selects lat/lng, so every row it returns has a location and the
+  // response cannot describe the ones it dropped — a caller that needs to
+  // say "N have no location on file" has to count them itself.
+  const { points, unmappable } = contactPoints
+    ? { points: contactPoints, unmappable: 0 }
+    : derived
 
   // Switching lists inside an open sheet re-renders this component rather
   // than remounting it, so an open popover would survive the swap and its
@@ -141,6 +198,70 @@ export default function ContactListMap({
       pickingRadius: PICK_RADIUS_PX,
     })
     map.addControl(overlay)
+
+    // Drawing. Every handler below no-ops unless a writer is present, so a
+    // caller that never passes one gets the map it always had.
+    const pickVertex = (x: number, y: number): number | null => {
+      const info = overlayRef.current?.pickObject({
+        x,
+        y,
+        radius: VERTEX_PICK_RADIUS_PX,
+        layerIds: ['boundary-vertices'],
+      })
+      return info && info.index >= 0 ? info.index : null
+    }
+    map.on('click', (event) => {
+      const write = onDrawRingChangeRef.current
+      if (!write) return
+      if (justDraggedRef.current) {
+        justDraggedRef.current = false
+        return
+      }
+      const point: [number, number] = [event.lngLat.lng, event.lngLat.lat]
+      // A double-click arrives as two clicks at one spot. Checked against
+      // every vertex, not just the last: the second click now lands ON the
+      // one the first placed and would splice a twin beside it.
+      if (
+        ringRef.current.some(
+          (vertex) => vertex[0] === point[0] && vertex[1] === point[1],
+        )
+      ) {
+        return
+      }
+      const next = [...ringRef.current]
+      next.splice(ringInsertIndex(ringRef.current, point), 0, point)
+      write(next)
+    })
+    map.on('mousedown', (event) => {
+      justDraggedRef.current = false
+      if (!onDrawRingChangeRef.current) return
+      const index = pickVertex(event.point.x, event.point.y)
+      if (index === null) return
+      dragIndexRef.current = index
+      map.dragPan.disable()
+      map.getCanvas().style.cursor = 'grabbing'
+      event.preventDefault()
+    })
+    map.on('mousemove', (event) => {
+      const write = onDrawRingChangeRef.current
+      const index = dragIndexRef.current
+      if (!write || index === null) return
+      const next = [...ringRef.current]
+      next[index] = [event.lngLat.lng, event.lngLat.lat]
+      write(next)
+      // maplibre's own handlers reset the cursor to 'grab' on every
+      // mousemove even with dragPan disabled, so one set in mousedown does
+      // not survive the drag.
+      map.getCanvas().style.cursor = 'grabbing'
+    })
+    map.on('mouseup', () => {
+      if (dragIndexRef.current === null) return
+      dragIndexRef.current = null
+      justDraggedRef.current = true
+      map.dragPan.enable()
+      map.getCanvas().style.cursor = ''
+    })
+
     mapRef.current = map
     overlayRef.current = overlay
     return () => {
@@ -154,12 +275,15 @@ export default function ContactListMap({
     const overlay = overlayRef.current
     if (!overlay) return
     const selectedKey = selectedPersonId ?? null
+    const ring = drawRing ?? []
     overlay.setProps({
       layers: [
         new ScatterplotLayer<ContactPoint>({
           id: 'contacts',
           data: points,
-          pickable: Boolean(onSelectPerson),
+          // A dot that opened a person mid-draw would take the boundary's
+          // click and turn a vertex into a navigation.
+          pickable: Boolean(onSelectPerson) && !isDrawing,
           radiusUnits: 'pixels',
           lineWidthUnits: 'pixels',
           stroked: true,
@@ -189,9 +313,47 @@ export default function ContactListMap({
             return true
           },
         }),
+        // Appended rather than always present: with no boundary to draw the
+        // overlay gets exactly the one layer it has always had.
+        ...(ring.length >= 3
+          ? [
+              new PolygonLayer<PolygonRing>({
+                id: 'boundary',
+                data: [ring],
+                getPolygon: (r) => r,
+                getFillColor: BOUNDARY_FILL,
+                getLineColor: BOUNDARY_LINE,
+                lineWidthMinPixels: 2.5,
+                pickable: false,
+              }),
+            ]
+          : []),
+        // Handles only while the boundary is editable — a saved outline on a
+        // locked list has nothing to grab.
+        ...(isDrawing && ring.length > 0
+          ? [
+              new ScatterplotLayer<[number, number]>({
+                id: 'boundary-vertices',
+                data: ring,
+                getPosition: (point) => point,
+                // Hollow: a filled disc reads as another placed dot rather
+                // than as something to grab, which at the density a block is
+                // drawn at is indistinguishable from the people underneath.
+                getFillColor: VERTEX_FILL,
+                getLineColor: BOUNDARY_LINE,
+                stroked: true,
+                filled: true,
+                lineWidthMinPixels: 2.5,
+                radiusUnits: 'pixels',
+                getRadius: VERTEX_RADIUS_PX,
+                radiusMinPixels: 5,
+                pickable: true,
+              }),
+            ]
+          : []),
       ],
     })
-  }, [points, selectedPersonId, onSelectPerson])
+  }, [points, selectedPersonId, onSelectPerson, drawRing, isDrawing])
 
   // Frame the list once it is known, and again whenever the list changes
   // underneath (a re-cut segment is a different set of people, and leaving the
@@ -205,9 +367,18 @@ export default function ContactListMap({
         [bounds.minLng, bounds.minLat],
         [bounds.maxLng, bounds.maxLat],
       ],
-      { padding: FIT_PADDING_PX, duration: 0, maxZoom: 16 },
+      {
+        padding: {
+          top: FIT_PADDING_PX,
+          left: FIT_PADDING_PX,
+          right: FIT_PADDING_PX,
+          bottom: FIT_PADDING_PX + bottomInsetPx,
+        },
+        duration: 0,
+        maxZoom: 16,
+      },
     )
-  }, [points])
+  }, [points, bottomInsetPx])
 
   if (!hasTilesKey) {
     return (

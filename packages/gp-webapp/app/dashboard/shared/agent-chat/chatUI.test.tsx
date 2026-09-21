@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen, fireEvent } from '@testing-library/react'
-import { ChatComposer } from './chatUI'
+import userEvent from '@testing-library/user-event'
+import { ChatComposer, extractHttpUrls } from './chatUI'
 import type { UseDictationAppendResult } from '../dictation/useDictationAppend'
+import type { ChatAttachmentState } from './chatAttachments-api'
 
 const makeDictation = (
   over: Partial<UseDictationAppendResult> = {},
@@ -192,5 +194,199 @@ describe('ChatComposer', () => {
 
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatComposer — attachment affordance', () => {
+  const makeAttachment = (
+    over: Partial<ChatAttachmentState> = {},
+  ): ChatAttachmentState => ({
+    id: 'att-1',
+    fileName: 'doc.pdf',
+    status: 'ready',
+    pageCount: null,
+    failureReason: null,
+    ...over,
+  })
+
+  it('renders the paperclip button when attachments are enabled', () => {
+    render(
+      <ChatComposer {...baseProps} attachments={[]} onAttachFile={vi.fn()} />,
+    )
+    expect(
+      screen.getByRole('button', { name: 'Attach a file' }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not render the paperclip button when attachments are not enabled', () => {
+    render(<ChatComposer {...baseProps} />)
+    expect(
+      screen.queryByRole('button', { name: 'Attach a file' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens the file picker directly on paperclip click', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <ChatComposer {...baseProps} attachments={[]} onAttachFile={vi.fn()} />,
+    )
+    const fileInput = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement
+    const clickSpy = vi.spyOn(fileInput, 'click')
+
+    await user.click(screen.getByRole('button', { name: 'Attach a file' }))
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByRole('textbox', { name: 'Attachment URL' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('attaches each URL found in pasted text', () => {
+    const onAttachLink = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        onAttachLink={onAttachLink}
+      />,
+    )
+
+    fireEvent.paste(screen.getByRole('textbox'), {
+      clipboardData: {
+        getData: () =>
+          'see https://example.com/agenda.pdf and http://example.org/minutes.',
+      },
+    })
+
+    expect(onAttachLink).toHaveBeenCalledTimes(2)
+    expect(onAttachLink).toHaveBeenCalledWith('https://example.com/agenda.pdf')
+    expect(onAttachLink).toHaveBeenCalledWith('http://example.org/minutes')
+  })
+
+  it('does not call onAttachLink when pasted text has no URL', () => {
+    const onAttachLink = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        onAttachLink={onAttachLink}
+      />,
+    )
+
+    fireEvent.paste(screen.getByRole('textbox'), {
+      clipboardData: { getData: () => 'plain text, no links here' },
+    })
+
+    expect(onAttachLink).not.toHaveBeenCalled()
+  })
+
+  it('renders AttachmentChip with the file name and calls onRemoveAttachment on remove', async () => {
+    const user = userEvent.setup()
+    const onRemove = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[makeAttachment()]}
+        onAttachFile={vi.fn()}
+        onRemoveAttachment={onRemove}
+      />,
+    )
+
+    expect(screen.getByText('doc.pdf')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Remove doc.pdf' }))
+    expect(onRemove).toHaveBeenCalledWith('att-1')
+  })
+
+  it('shows processing status text on an in-flight attachment chip', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[makeAttachment({ status: 'processing', pageCount: 12 })]}
+        onAttachFile={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Reading, 12 pages')).toBeInTheDocument()
+  })
+
+  it('shows the guard banner when guardAcknowledged is false', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        guardAcknowledged={false}
+        onGuardAcknowledge={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('note')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Don't upload closed-session, privileged, or active-litigation material/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('does not show the guard banner when guardAcknowledged is true', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        guardAcknowledged={true}
+        onGuardAcknowledge={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  it('calls onGuardAcknowledge when the banner dismiss button is clicked', async () => {
+    const user = userEvent.setup()
+    const onGuardAcknowledge = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        guardAcknowledged={false}
+        onGuardAcknowledge={onGuardAcknowledge}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(onGuardAcknowledge).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('extractHttpUrls', () => {
+  it('extracts multiple http(s) URLs from prose', () => {
+    expect(
+      extractHttpUrls(
+        'read https://a.example/x then http://b.example/y?z=1 today',
+      ),
+    ).toEqual(['https://a.example/x', 'http://b.example/y?z=1'])
+  })
+
+  it('strips trailing sentence punctuation', () => {
+    expect(extractHttpUrls('see https://a.example/doc.pdf.')).toEqual([
+      'https://a.example/doc.pdf',
+    ])
+    expect(extractHttpUrls('really? https://a.example/page!')).toEqual([
+      'https://a.example/page',
+    ])
+  })
+
+  it('ignores non-http schemes and plain text', () => {
+    expect(extractHttpUrls('ftp://a.example file:///etc/hosts hello')).toEqual(
+      [],
+    )
+  })
+
+  it('dedupes a URL pasted twice', () => {
+    expect(
+      extractHttpUrls('https://a.example/x and again https://a.example/x'),
+    ).toEqual(['https://a.example/x'])
   })
 })

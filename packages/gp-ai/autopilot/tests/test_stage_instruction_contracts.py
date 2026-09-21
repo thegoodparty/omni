@@ -51,6 +51,11 @@ def test_epic_create_covers_its_load_bearing_directives():
 
     assert "feedback loop" in text.lower() or "park" in text.lower(), "questions must go through the park primitive"
 
+    # ENG-11152: the flag-cleanup ramp sweep parses this exact line back out
+    # of the breakdown summary comment at epic close-out — a key only named
+    # in prose can't be picked up automatically.
+    assert "flag-key: <key>" in text, "must require the machine-readable `flag-key: <key>` line in the summary comment"
+
     assert "`feedback needed`" in text, "must move the card to feedback needed on handoff (breakdown review column)"
     assert "feedback notify" in text, (
         "must ping Slack on handoff via the notify primitive — the TDD promises every card "
@@ -94,19 +99,20 @@ def test_story_covers_its_load_bearing_directives():
     assert "MERGE" in text, "must require the confirmation command to print MERGE"
 
     assert "delegate review" in text, "must re-trigger delegate after every push"
+    # The exact trigger form is load-bearing: a live PR stalled for hours on
+    # "/delegate review" comments the reviewer never answered.
+    assert "no leading slash" in text, "must pin the exact trigger form — slash-prefixed triggers are silently dead"
     assert "reviewDecision" in text, "must check reviewDecision before pushing more"
     assert "approved and auto-merge armed" in text, "exit condition is approved + armed, not merely opened"
 
-    assert "wait for the merge" in text.lower(), "must wait for the merge, not the dev deploy"
-    assert "move" in text.lower() and "`qa`" in text, "must move the ticket to qa once merged"
-
-    # The first real story run ended its turn with "background watchers" on
-    # the merge — which die with the container, stranding the card in
-    # `in progress` with no marker, no comment, and nothing to resume.
-    assert "dies with the container" in text, (
-        "must state that backgrounded waits die with the container when the turn ends"
+    # ENG-11147: the run ends at approved+armed, verified directly rather than
+    # assumed — it must never wait out the merge itself (that idle Fargate
+    # time moved to the free conductor sweep).
+    assert "gh pr view <n> --json autoMergeRequest,reviewDecision" in text, (
+        "must quote the exact command that verifies the gate before parking"
     )
-    assert "in-turn wait" in text, "must require the merge wait to happen inside the turn"
+    assert "reviewDecision` must read `APPROVED`" in text, "must require reviewDecision APPROVED, not just armed"
+    assert "never wait for the merge" in text.lower(), "must forbid waiting out the merge in this run"
 
     # The same run shipped past a verify that errored out before typechecking
     # (broken worktree install) — an unrunnable verify must read as red.

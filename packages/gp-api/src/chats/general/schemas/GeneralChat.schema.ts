@@ -5,6 +5,7 @@ import {
   ChatMessageFeedbackSchema,
   CreateChatRequestSchema,
   CreateChatResponseSchema,
+  LinkAttachRequestSchema,
   SendChatMessageRequestSchema,
   SetChatMessageFeedbackRequestSchema,
 } from '@goodparty_org/contracts'
@@ -18,6 +19,7 @@ export class ChatHistoryQueryDto extends createZodDto(ChatHistoryQuerySchema) {}
 export class SetChatMessageFeedbackDto extends createZodDto(
   SetChatMessageFeedbackRequestSchema,
 ) {}
+export class LinkAttachDto extends createZodDto(LinkAttachRequestSchema) {}
 
 export {
   ChatConversationSchema,

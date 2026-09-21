@@ -58,9 +58,12 @@ PARK_MARKER_PATTERN = re.compile(r"\[autopilot:parked stage=([a-z0-9][a-z0-9-]*)
 # writes and the shape a human is expected to answer inline against.
 _QUESTION_LINE_PATTERN = re.compile(r"^\s*\d+\.\s+(.+?)\s*$", re.MULTILINE)
 
-# Sibling to the omni clone (config.workspace_dir becomes "{this}/omni" once
-# main.clone_omni runs), not inside it — a git checkout is the wrong place for
-# a run-scoped sentinel, and this file has no reason to ever be committed.
+# Written under the container-wide WORKSPACE_DIR, never under the omni
+# checkout itself (config.workspace_dir is reassigned to that checkout —
+# baked or freshly cloned — by main.py's workspace.prepare_omni_workspace,
+# but WORKSPACE_DIR is not): a git checkout is the wrong place for a
+# run-scoped sentinel, since `git reset --hard` (the warm path) would wipe it
+# and it has no reason to ever be committed.
 PARK_SENTINEL_FILENAME = ".autopilot-parked.json"
 
 
@@ -310,10 +313,18 @@ def park_for_feedback(
     }
 
 
-# The one status a cleanly-ended run must never leave a card in: every
-# legitimate success ends elsewhere (story -> qa, epic-create/qa parks or
-# hands off to feedback needed, qa pass -> done).
+# Statuses a run of each stage must never leave its card in when it ends:
+# every legitimate ending lands elsewhere (story -> qa or a park,
+# epic-create -> a park/handoff, qa -> done or a park). A qa run's card also
+# starts IN "qa" — a status the conductor routes nothing out of — so a qa run
+# that dies mid-walk (the first live deadline-exceeded run did, at 1800s,
+# stranding ENG-11132) leaves it exactly where it began.
 IN_PROGRESS_STATUS = "in progress"
+QA_STATUS = "qa"
+STRANDED_STATUSES: dict[str, frozenset[str]] = {
+    "qa": frozenset({IN_PROGRESS_STATUS, QA_STATUS}),
+}
+DEFAULT_STRANDED_STATUSES = frozenset({IN_PROGRESS_STATUS})
 
 
 def park_if_stranded(
@@ -326,39 +337,57 @@ def park_if_stranded(
     env: Mapping[str, str] | None = None,
     workspace_dir: str | None = None,
 ) -> dict:
-    """The harness's stranded-run guard: if a run reports success but left
-    its card in `in progress` without parking, park it deterministically.
+    """The harness's stranded-run guard: if a run ends — success OR error —
+    with its card still in a status the conductor cannot route out of and no
+    park on the thread, park it deterministically.
 
-    Both live story runs ended their turn "watching the merge in the
-    background" — watchers that die with the container — despite the stage
-    instruction forbidding exactly that. An instruction is a request; this is
-    the invariant: a successful run never leaves its card in `in progress`.
-    Runs only on an already-successful, not-already-parked result. Guard
-    failures are logged, never raised — the run's real outcome must not be
-    masked by a failure of its safety net (a park that got as far as the
-    comment + status move has still rescued the card, even if the Slack ping
-    or sentinel step then failed).
+    Two live failure shapes drove this. Both early story runs ended their
+    turn "watching the merge in the background" — watchers that die with the
+    container — despite the stage instruction forbidding exactly that. Then
+    the first live qa deadline kill (asyncio.wait_for at 1800s) exited with
+    an error result and no park, stranding the card in "qa" where nothing
+    routes. An instruction is a request; this is the invariant: no run ends
+    with its card stranded. Guard failures are logged, never raised — the
+    run's real outcome must not be masked by a failure of its safety net (a
+    park that got as far as the comment + status move has still rescued the
+    card, even if the Slack ping or sentinel step then failed).
     """
-    if not isinstance(result, dict) or result.get("status") != "success" or result.get("parked_stage"):
+    if not isinstance(result, dict) or result.get("parked_stage"):
         return result
 
     try:
         with clickup_client_factory() as clickup:
             current = clickup.get_task(task_id).get_status_name()
-        if current.strip().lower() != IN_PROGRESS_STATUS:
+        stranded = STRANDED_STATUSES.get(stage, DEFAULT_STRANDED_STATUSES)
+        current_normalized = current.strip().lower()
+        if current_normalized not in stranded:
             return result
-        logger.error(
-            f"Run for {task_id} (stage {stage!r}) ended successfully with the card still in "
-            f"'{IN_PROGRESS_STATUS}' and no park — parking it now so the card cannot strand"
+        ended_how = (
+            "successfully"
+            if result.get("status") == "success"
+            else f"in an error ({result.get('error') or result.get('status') or 'unknown'})"
         )
+        logger.error(
+            f"Run for {task_id} (stage {stage!r}) ended {ended_how} with the card still in "
+            f"'{current_normalized}' and no park — parking it now so the card cannot strand"
+        )
+        if result.get("status") == "success":
+            question = (
+                f"This run ended while the card was still in '{current_normalized}' — most likely "
+                "waiting on something in a background watcher that died with the run, or ending "
+                "without finishing its handoff. Check the PR/deploy state, then comment here (or "
+                "move the card back) to resume."
+            )
+        else:
+            question = (
+                f"This run ended {ended_how} without parking, leaving the card in "
+                f"'{current_normalized}'. Its work is abandoned mid-flight — comment here (or move "
+                "the card back) to re-run the stage from the top."
+            )
         park_result = park_for_feedback(
             task_id,
             stage,
-            [
-                "This run ended while the card was still in progress — most likely waiting on a PR "
-                "merge in a background watcher that died with the run. Check the PR's state, then "
-                "comment here (or move the card back to in progress) to resume."
-            ],
+            [question],
             clickup_client_factory=clickup_client_factory,
             slack_client_factory=slack_client_factory,
             env=env,
