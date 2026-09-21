@@ -1,5 +1,6 @@
 import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
+import { HttpAdapterHost } from '@nestjs/core'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
@@ -25,6 +26,9 @@ import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachAssignmentController } from './outreachAssignment.controller'
 import { OutreachSmsAdminController } from './outreachSmsAdmin.controller'
+import { OutreachResultsAdminController } from './outreachResultsAdmin.controller'
+import { OutreachResultsAdminService } from './services/outreachResultsAdmin.service'
+import { registerResultsUploadBodyLimit } from './util/outreachResultsBodyLimit.util'
 import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
 import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
@@ -137,6 +141,9 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachRobocallController,
     OutreachRobocallAudioController,
     OutreachSmsAdminController,
+    // The staff results surface: the awaiting-results queue and the per-send
+    // upload that replaces fulfilment's `aws s3 cp` line for SMS.
+    OutreachResultsAdminController,
   ],
   providers: [
     OutreachService,
@@ -165,6 +172,11 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
       }),
     },
     OutreachSmsAdminService,
+    // Depends only on OutreachTextIngestService (provided above) and Prisma,
+    // so registering it cannot unbind the module. That matters: a provider
+    // with an unbindable dependency takes down every suite that builds
+    // OutreachModule, not just this one.
+    OutreachResultsAdminService,
     OutreachSocialService,
     OutreachSocialGenerationService,
     OutreachPhoneBankingGenerationService,
@@ -221,7 +233,15 @@ export class OutreachModule {
     private readonly purchaseService: PurchaseService,
     private readonly outreachPurchaseHandler: OutreachPurchaseHandlerService,
     private readonly serveSmsPurchaseHandler: OutreachServeSmsPurchaseHandlerService,
+    private readonly httpAdapterHost: HttpAdapterHost,
   ) {
+    // The staff results upload takes a CSV as a string in a JSON body, and
+    // Fastify's 1 MiB default would refuse a real results file with an opaque
+    // 413 before the endpoint could say anything useful. This raises the limit
+    // for that ONE route rather than for the whole API — see the util for why
+    // it has to happen in a constructor rather than in a lifecycle hook.
+    registerResultsUploadBodyLimit(this.httpAdapterHost)
+
     this.purchaseService.registerPurchaseHandler(
       PurchaseType.TEXT,
       this.outreachPurchaseHandler,

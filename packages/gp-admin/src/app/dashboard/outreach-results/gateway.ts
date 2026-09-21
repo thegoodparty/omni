@@ -2,6 +2,7 @@ import type {
   OutreachAwaitingResultsResponse,
   OutreachResultsParseReport,
 } from '@goodparty_org/contracts'
+import { gpAction } from '@/shared/util/gpClient.util'
 import { fixtureGateway, fixturesEnabled } from './gateway.fixtures'
 import type {
   OutreachResultsTarget,
@@ -10,12 +11,10 @@ import type {
 
 // The single seam between this page and gp-api.
 //
-// The endpoints are task B2, which lands after module wiring. Nothing else in
-// this route talks to the network, so pointing the page at the real routes is
-// one edit to `liveGateway` below plus an SDK resource — no page, component or
-// action changes.
+// Task B2 built these endpoints and the SDK resource, so `liveGateway` below
+// now calls them. No page, component or action changed.
 //
-// What B2 must provide (see the PR body for the same list):
+// What it provides:
 //
 //   GET  /v1/outreach/admin/results/queue        -> OutreachAwaitingResultsResponse
 //   GET  /v1/outreach/admin/results/:outreachId  -> OutreachResultsTarget
@@ -44,6 +43,11 @@ export interface OutreachResultsGateway {
 // Thrown when the endpoints are not deployed. Distinguished from a real
 // failure so the pages can say "not built yet" rather than "something went
 // wrong", which is a different instruction to the person reading it.
+//
+// Nothing throws it now that the routes exist. It stays because the pages
+// still branch on it, and because an environment that is behind on gp-api
+// deploys is exactly when a caller wants that sentence back; deleting it
+// would mean editing two pages to gain nothing.
 export class OutreachResultsEndpointsUnavailableError extends Error {
   constructor() {
     super(
@@ -61,22 +65,15 @@ export const isEndpointsUnavailable = (error: unknown): boolean =>
   (error instanceof Error &&
     error.name === 'OutreachResultsEndpointsUnavailableError')
 
-const unavailable = (): never => {
-  throw new OutreachResultsEndpointsUnavailableError()
-}
-
-// Replace each body with the SDK call once B2 and its SDK resource exist:
-//
-//   listAwaiting: () => gpAction((client) => client.outreachResultsAdmin.getQueue()),
-//   getTarget: (id) => gpAction((client) => client.outreachResultsAdmin.getTarget(id)),
-//   upload: (id, input) => gpAction((client) => client.outreachResultsAdmin.upload(id, input)),
-//
-// `gpAction` (`@/shared/util/gpClient.util`) already resolves the Clerk org to
-// the right environment and carries the M2M token.
+// `gpAction` resolves the Clerk org to the right environment and carries the
+// M2M token, so each body is just the route.
 const liveGateway: OutreachResultsGateway = {
-  listAwaiting: unavailable,
-  getTarget: unavailable,
-  upload: unavailable,
+  listAwaiting: () =>
+    gpAction((client) => client.outreachResultsAdmin.getQueue()),
+  getTarget: (outreachId) =>
+    gpAction((client) => client.outreachResultsAdmin.getTarget(outreachId)),
+  upload: (outreachId, input) =>
+    gpAction((client) => client.outreachResultsAdmin.upload(outreachId, input)),
 }
 
 export function getOutreachResultsGateway(): OutreachResultsGateway {
