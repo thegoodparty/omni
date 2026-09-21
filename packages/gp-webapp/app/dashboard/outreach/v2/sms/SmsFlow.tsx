@@ -66,6 +66,12 @@ import {
   SMS_PURPOSES,
   type SmsFlowPurpose,
 } from './smsCompose.util'
+import {
+  createServeSms,
+  useServeSmsIdentification,
+  useServeSmsSend,
+  type ServeSmsCreateFn,
+} from './useServeSmsSend'
 
 type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
 const STEP_ORDER: StepId[] = [
@@ -166,6 +172,11 @@ export interface SmsFlowSurface {
   ignoredStandardsRules: readonly SmsStandardsRule[]
   endpoints: {
     draft: (input: SmsFlowDraftInput) => Promise<string>
+    // Serve only. Win's create is `createOutreach` inside the flow's own
+    // review-step effect and is not routed through the surface -- the two
+    // send paths diverge completely below compose, so there is nothing for
+    // a shared signature to buy. See useServeSmsSend.ts.
+    create?: ServeSmsCreateFn
   }
 }
 
@@ -215,6 +226,7 @@ export const SERVE_SMS_SURFACE: SmsFlowSurface = {
       )
       return data.draft
     },
+    create: createServeSms,
   },
 }
 
@@ -523,12 +535,17 @@ export const SmsFlow = ({
       ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
       : '')
   const candidateFirstName = candidateFullName.split(' ')[0] ?? ''
+  // Serve's office comes from the org's position name, not from a campaign
+  // row it does not have; the hook owns that derivation.
+  const serveIntroFor = useServeSmsIdentification(candidateFirstName)
   const introFor = (t: SocialTone) =>
-    identificationIntro(
-      t,
-      candidateFirstName,
-      campaign?.details?.normalizedOffice ?? '',
-    )
+    surface.isServe
+      ? serveIntroFor(t)
+      : identificationIntro(
+          t,
+          candidateFirstName,
+          campaign?.details?.normalizedOffice ?? '',
+        )
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
   // committee, which a Serve org does not have. Nulled at the source rather
   // than only inside composeMessage so the submitted script, the preview
@@ -596,6 +613,32 @@ export const SmsFlow = ({
         scheduledAt.getHours() > 20 ||
         (scheduledAt.getHours() === 20 && scheduledAt.getMinutes() > 0)
       : false
+
+  // Serve's entire send sequence: no Peerly phone list, one org-scoped
+  // create, SERVE_TEXT at checkout. Mounted unconditionally (rules of
+  // hooks) and inert on Win -- every callback below is reached only through
+  // an `if (surface.isServe)` guard, and its create effect returns at its
+  // own first line. See useServeSmsSend.ts for why the Win lines under each
+  // guard are left exactly where they are.
+  const serveSend = useServeSmsSend({
+    isServe: surface.isServe,
+    open,
+    stepId,
+    scheduled,
+    name,
+    composedMessage,
+    scheduledAt,
+    image,
+    draftOutreachId,
+    audience,
+    create: surface.endpoints.create,
+    setStepId,
+    setDraftOutreachId,
+    setDraftCreateError,
+    setRecipientCounts: setPhoneList,
+    isDraftCreatingRef,
+    draftGenerationRef,
+  })
 
   // Auto-name from list + date until the user edits the name.
   const lastAutoName = useRef('')
@@ -709,6 +752,7 @@ export const SmsFlow = ({
   // both list caches), derive its phone list, and land on the schedule step —
   // the prototype's build-and-keep-going path.
   const handleCreateListContinue = async () => {
+    if (surface.isServe) return serveSend.createListContinue()
     if (audience.builderName.trim().length === 0 || audience.createListPending)
       return
     setPhoneListError(false)
@@ -744,6 +788,8 @@ export const SmsFlow = ({
     recommendation: RecommendedList,
     name: string,
   ) => {
+    if (surface.isServe)
+      return serveSend.continueWithRecommendation(recommendation, name)
     const created = await audience.createRecommendedList(recommendation, name)
     // Same reset as onSelect: a token left over from a previously picked
     // list would let a retry skip straight to schedule with the wrong
@@ -778,6 +824,7 @@ export const SmsFlow = ({
   // Audience advance: derive the Peerly phone list from the saved filter.
   // The status poll runs across the later steps; the pay step waits on it.
   const handleAudienceContinue = async () => {
+    if (surface.isServe) return serveSend.audienceContinue()
     if (!selectedList) return
     if (phoneListToken) {
       setStepId('schedule')
@@ -807,6 +854,7 @@ export const SmsFlow = ({
   // pending_payment draft once the phone list is ready — the draft id gates
   // the checkout session (legacy TaskFlow sequence, relocated).
   useEffect(() => {
+    if (surface.isServe) return
     if (stepId !== 'review' || !open || scheduled) return
     if (draftOutreachId || isDraftCreatingRef.current) return
     if (!campaign?.id || !phoneList?.phoneListId || !scheduledAt) return
@@ -1173,11 +1221,15 @@ export const SmsFlow = ({
       ) : (
         <CheckoutSessionProvider
           key={draftOutreachId ?? 'pending'}
-          type={PURCHASE_TYPES.TEXT}
+          type={
+            surface.isServe ? PURCHASE_TYPES.SERVE_TEXT : PURCHASE_TYPES.TEXT
+          }
           purchaseMetaData={{
             contactCount: phoneList?.leadsLoaded ?? 0,
             pricePerContact: dollarsToCents(PRICE_PER_MESSAGE) || 0,
-            outreachType: OUTREACH_TYPES.p2p,
+            outreachType: surface.isServe
+              ? OUTREACH_TYPES.text
+              : OUTREACH_TYPES.p2p,
             campaignId: campaign?.id,
             outreachId: draftOutreachId ?? undefined,
             phoneListToken: phoneListToken ?? undefined,

@@ -44,6 +44,8 @@ import type {
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServeSmsCreateRequest,
+  ServeSmsCreateResponse,
   ServeSmsDraftRequest,
   ServeSmsDraftResponse,
   ServeSocialDraftRequest,
@@ -400,6 +402,16 @@ export type APIEndpoints = {
   'POST /v1/outreach/serve/sms/draft': {
     Request: ServeSmsDraftRequest
     Response: ServeSmsDraftResponse
+  }
+
+  // Draft-first create for a Serve SMS send. Org-scoped: there is no
+  // campaign and no Peerly phone list, so the audience is resolved
+  // server-side from `voterFileFilterId` and the response carries the
+  // recipient count the pay step quotes. The controller is registered by the
+  // module-wiring ticket; until then this key types a route that 404s.
+  'POST /v1/outreach/serve/sms': {
+    Request: ServeSmsCreateRequest
+    Response: ServeSmsCreateResponse
   }
 
   // Persists the social campaign atomically (spine row + satellite +
