@@ -404,7 +404,7 @@ import { dirname, join, relative } from 'node:path'
 // 568 + 2 (the boundary surfaces above) + 1 (FollowUpOutstandingSection):
 // both sides of this merge raised the ratchet from the same base, so the
 // count is the sum of the two, not either one of them.
-const BASELINE = 571
+const BASELINE = 566
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
