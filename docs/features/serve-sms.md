@@ -25,7 +25,7 @@ results anatomy below is transcribed from the `polls` channel: `pollData`,
 `renderGatherFlow`.
 
 Build plan: `docs/features/serve-sms-implementation-plan.md` (waves, file
-ownership per task, and the pre-work PR).
+ownership per task, the pre-work PR, and a retrospective).
 
 Related: `packages/gp-api/src/outreach/AGENTS.md`,
 `packages/gp-webapp/app/dashboard/constituent-outreach/AGENTS.md`,
@@ -339,10 +339,34 @@ knows there are two paths:
   chain changes.** gp-api simply becomes the thing that puts the object there
   instead of a person's terminal.
 
-The `aws s3 cp` line is removed from the Slack message in the same slice.
-Uploading results was its only purpose, so nothing else depends on it, and
-leaving it beside the button would reintroduce exactly the choice this design
-removes.
+**Reversed 2026-09-21: the `aws s3 cp` line stays, and polls does not move
+onto the upload surface in slice 2.** Slice 2 becomes SMS-only.
+
+The earlier plan removed the line and routed poll uploads through the page in
+the same slice, so fulfilment would learn one thing once. That is still the
+right end state, but it made slice 2 the one piece of the customer's path that
+changed a live workflow, which meant it could not ship without a scheduled
+conversation. Deferring it takes that dependency off the critical path
+entirely.
+
+What this costs: fulfilment temporarily has two return paths — the CLI command
+for polls, the button for Serve SMS. That is precisely the cognitive overhead
+this design set out to remove, so it is a debt, not a simplification. It is
+tolerable only because the split is per product rather than per message, and
+because Serve SMS starts with one customer.
+
+**Agreed follow-up (2026-09-21): once Serve SMS has been tested end to end,
+move polls onto the upload surface and delete the `aws s3 cp` line.** That is
+its own change, sequenced after the customer is live rather than bundled into
+their path. It is the only slice that alters fulfilment's existing workflow,
+so it is the one that gets scheduled with them. Nothing blocks it technically:
+PR #2024 already decoupled the poll e2e from that line.
+
+Two things make the deferral cheap. A5's handoff helper is used only by the
+delivery layer, so the button already appears solely on Serve SMS messages and
+polls' Slack message is untouched as things stand. And PR #2024 already
+decoupled the poll e2e from the CLI line, so keeping the line is now a free
+choice rather than something the test depends on.
 
 **This is gated on a pre-work PR to main, and the reason is that no PR will
 catch it.** `@dev-only` Playwright specs are grepped out of pull request runs
@@ -699,6 +723,67 @@ expansion.** Every theme-shaped item below is a polls-layer question in slice
 * Whether polls' opt-out gap is fixed inside slice 4 or tracked separately.
 
 **Settled (all 2026-09-21 unless noted):**
+
+* *All slices* — **the whole feature ships behind `serve-sms-outreach`**, an
+  Amplitude Experiment flag resolved server-side by gp-api
+  (`packages/gp-webapp/docs/feature-flags.md`). Two gates, not ten:
+  * **gp-api**: both Serve SMS routes on `outreachServeSms.controller.ts`
+    (`sms/draft` and `sms`) check `FeaturesService.isFeatureEnabled` and 404
+    when off, the same shape `outreachAssignment.controller.ts` uses for
+    `win-team-accounts`.
+  * **webapp**: a wrapper hook in `app/shared/experiments/serveSmsFlag.ts`,
+    consumed where the channel card mounts.
+
+  **Everything downstream is deliberately ungated.** Delivery, ingest, the
+  purchase handler and the results readers are all unreachable without an
+  `Outreach` row, and the create route is the only writer — so gating the
+  writer makes the rest inert. This is the reasoning `win-team-accounts`
+  records for gating only its create route, and gate-everywhere would be
+  churn that protects nothing extra.
+
+  The flag gates rollout, not authorization. `@UseElectedOffice()` remains the
+  real access check on every route, per the docs' own anti-pattern note.
+
+  **One surface the flag cannot reach: the gp-admin results page.** Flags
+  resolve for an authenticated product user through gp-api; gp-admin runs on
+  Clerk staff auth and has no provider. It is staff-only and lists nothing
+  until sends exist, so the exposure is acceptable — but it is not covered,
+  and pretending otherwise would be worse than saying so.
+
+  Open, related: whether B2's poll-upload move should also sit behind a flag.
+  It changes fulfilment's workflow rather than a candidate-facing surface, so
+  it is a coordination question more than a flag one.
+
+* *SMS, slice 0* — **merge tokens follow polls, not Peerly.** Use
+  `{{first_name}}` (double braces), the format fulfilment's tool already
+  merges for poll messages, with `[Name]` as the authoring affordance the way
+  `CreatePoll.tsx` offers it. Win keeps Peerly's single-brace `{first_name}`,
+  so this is surface-specific and belongs on the flow's `composeMessage`.
+  Without this a constituent receives the literal token: the Win greeting is a
+  Peerly merge token and nothing on the Slack path substitutes it.
+  Convenient side effect: `checkSmsStandards`' `first_name_token` rule tests
+  `script.includes('{first_name}')`, which `{{first_name}}` satisfies as a
+  substring, so the rule passes unchanged and `paid_for_by` is the only rule
+  needing a Serve override.
+* *SMS, slice 0* — **minimum audience is 25 recipients**, enforced server-side
+  on create and surfaced on the audience step, not only in the picker.
+  Arithmetic floor is 15: `textPricing.util.ts` charges 35 tenth-cents each,
+  so 14 recipients is 49 cents and Stripe's minimum is 50. 25 sits above the
+  edge with headroom if pricing moves, and a 14-person list is not a campaign.
+  Polls does not transfer here — its only floor is 500 constituents in the
+  *district* to use the feature at all, which is meaningless for a saved list
+  that is deliberately narrower. The free-texts offer does not rescue a small
+  send either: that is a Win campaign benefit and a zero-amount purchase takes
+  the separate free path without touching Stripe.
+* *Delivery* — **fulfilment already filters opt-outs on their side and tracks
+  them separately; the product records them anyway.** Two consequences. The
+  in-product scrub is defense in depth rather than the only gate, which is
+  what makes A6's deliberately strict predicate the right trade: a false
+  positive scrubs someone org-wide and permanently, a false negative is caught
+  downstream. And the results CSV **must include STOP replies rather than
+  excluding them** — if fulfilment filters before returning results, the
+  product can never learn who opted out. That is a requirement to confirm in
+  the slice 2 conversation, not an implementation detail.
 
 * *SMS, slice 0* — send timing mimics the live polls rule: 11am local fixed,
   2 business days minimum, 30 days maximum, no weekends, completion at

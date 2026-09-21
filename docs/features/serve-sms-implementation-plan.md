@@ -80,8 +80,13 @@ name. Both throw when the line goes.
 it would add unrelated diff noise.
 
 Harmless on main today: the CLI line still exists, and the env vars resolve to
-exactly what the parsers produced. Once this lands, the base branch can remove
-the line whenever it likes.
+exactly what the parsers produced.
+
+Worth noting after the 2026-09-21 scope cut, which keeps the CLI line for now:
+PR-0 is no longer a prerequisite for anything on the customer's path. It still
+earned its place — it turned removing that line from a release-train hazard
+into a free choice, which is exactly what let the line be kept without anyone
+weighing a broken test against a workflow change.
 
 ## What is actually serial
 
@@ -133,7 +138,25 @@ Smoke: create a poll locally, confirm its message rows still write with
 
 ## Wave 1: fan out
 
-**Eight tasks, no shared files, all forked from the merged W0.**
+**Eight tasks, no shared files. None of them waits for W0 to merge.**
+
+W0 has to be *stable*, not merged. Six tasks branch off `ssms-w0-contract-lock`
+directly and GitHub retargets them to `serve-sms` when W0 lands; that is the
+same stacking used for A4-on-A3. Merging first would only protect against
+review changing W0 under them, and that risk does not disappear on merge — a
+problem found later is a follow-up commit and the same rebase. Blocking the
+fan-out on a review cycle is the worse trade.
+
+Two tasks do not touch W0 at all and branch straight off `serve-sms`:
+
+| Base | Tasks |
+|---|---|
+| `serve-sms` | A3 (pure refactor of existing Peerly code), A5 (new file) |
+| `ssms-w0-contract-lock` | A1, A2, A4, A6, A7, A8 |
+
+**Start A3 first.** It is the head of the critical path (A3 → A4 → B1 → B2),
+it edits a live Win file so everyone else rebases onto it, and it needed
+nothing from W0 in the first place.
 
 The file-ownership column is the contract between agents. If a task needs to
 touch a file it does not own, it stops and says so rather than editing it.
@@ -214,11 +237,16 @@ not edit module files.
 
 **B2.** The admin upload endpoint, `AdminOrM2MGuard`, and the server-side route:
 SMS parses straight to `ingestReplies`, a poll's file is written to
-`input/<pollId>.csv` so the existing pipeline runs untouched. Also retires the
-`aws s3 cp` line from the poll Slack message, which **requires PR-0 to have
-landed on main first**. This is the one slice that is not invisible: it moves
-fulfillment's upload path, so it needs timing with them rather than just a
-merge.
+`input/<pollId>.csv` so the existing pipeline runs untouched.
+
+**Scope cut 2026-09-21: B2 is SMS-only.** Polls is out — no write to
+`input/<pollId>.csv`, no routing by outreach type, and the `aws s3 cp` line
+stays in the poll Slack message. That cut is what makes B2 inert: previously
+it was the one piece of the customer's path that changed a live workflow and
+so could not merge without a scheduled conversation with fulfilment. Now it
+adds a button to a product they have never handled and changes nothing they do
+today. The unification is deferred, not dropped — the TDD's Inbound section
+records the debt and why slice 4 is its natural home.
 
 **B3.** Org-scope `getSmsResults` (parametrize the campaign predicate the way
 `findByScope` already does), the Serve results endpoint, the Statistics card,
@@ -243,8 +271,14 @@ dashboard surface without it.
   than editing. A five-minute handoff beats a merge conflict in a money path.
 - Every wave 1 task rebases onto `serve-sms` before opening its PR, and again
   after A3 lands.
-- Docs are part of the change, not a follow-up: whoever changes behavior
-  updates the nearest `AGENTS.md` in the same PR.
+- **`AGENTS.md` files are hot files too, and wave 1 does not touch them.** The
+  repo rule is that docs ship with the change, and it holds — but
+  `src/outreach/AGENTS.md` is a single 270KB table with very long lines, and
+  eight agents appending to it concurrently is the conflict the ownership
+  contract exists to prevent. Wave 1 tasks describe their doc change in the PR
+  body instead; **B1 makes one doc pass** covering every slice it wires. (A1
+  and A6 independently reached opposite conclusions here, which is a defect in
+  the brief rather than in either of them.)
 
 ## Smoke tests, and where they have to run
 
@@ -329,3 +363,62 @@ A5, A6, A7, A8 together, then the wave 2 chain.
 The thing that actually determines throughput is whether W0 is right. If the
 contracts or the migration need a second pass, every wave 1 task rebases. Spend
 the extra half hour on W0.
+
+## Retrospective: what this plan got wrong
+
+Written during the build, not after, so it is specific rather than tidy. The
+plan above is left as it was; this records where reality diverged.
+
+**Two tasks fell between slices.** The wave-1 breakdown had eight tasks and
+slice 0 needed four: nobody owned `POST /v1/outreach/serve/sms` (added as A9)
+or the flow's send path below compose (added as B5). Both fell on the seam
+between "build the piece" and "wire it up" — work too substantial to be
+wiring, but not given its own task. When slicing by component, walk the user's
+journey afterwards and check every step has an owner. Two of seven steps did
+not.
+
+**Squash-merging a PR with branches stacked on it breaks them.** The squash
+creates a commit with no shared history, so all five children went
+`CONFLICTING` at once. Recovery was to reset the base branch, redo the merges
+as merge commits, and verify the resulting tree was byte-identical — which
+preserved five approvals that a rebase would have invalidated. Use merge
+commits on a branch anything is stacked on.
+
+**Registering a provider before its dependencies are bindable takes down
+everything.** W0 registered `OutreachTextDeliveryService` (a review finding,
+made so parallel slices could inject it); A4 then gave it a port whose binding
+was B1's job; B1 had not started. Nest could not instantiate `OutreachModule`,
+and **190 unrelated test files failed**. Every individual PR was green, because
+each ran a subset. Run the full suite on the *merged* branch — that is the only
+place this class of failure is visible.
+
+**CI green is not reviewed.** An empty `reviewDecision` can mean the reviewer
+looked and declined to approve. Five PRs carried substantive blockers while
+being reported as green. Check the review state, not the checks.
+
+**A force-push after approval reopens review.** A3's rebase turned an approved
+PR back into two new blockers. Worth knowing before pushing a cosmetic fix to
+something already approved.
+
+**Reviews go stale under concurrency.** One "new" blocker described code fixed
+26 minutes earlier. Compare the review timestamp against the commit before
+acting on a finding.
+
+**Briefs must carry the repo's own gates.** Agents tripped `check:use-client`
+and nearly missed the product-map requirement because the briefs did not
+mention them. The gates are documented; the briefs simply did not relay them.
+
+### What worked and is worth repeating
+
+- **File ownership as an explicit contract.** Nine agents, fifteen PRs, zero
+  collisions. "Stop and report rather than edit a file you do not own" was
+  obeyed every time, and several stop-and-reports surfaced real gaps.
+- **One task owning every hot file.** No `AGENTS.md` or module-file conflicts,
+  except where the rule was stated too late (A1 and A6 reached opposite
+  conclusions before it was written down).
+- **Typed stubs in the contract lock.** Later PRs filled a signature that
+  already existed and was already type-exercised, which kept their diffs small.
+- **Agents disagreeing with the reviewer, with evidence.** A3 refused an
+  off-by-one finding and proved the arithmetic with a call-count assertion. A6
+  and A8 both improved on fixes suggested to them. A brief that invites
+  judgement gets better work than one that dictates.
