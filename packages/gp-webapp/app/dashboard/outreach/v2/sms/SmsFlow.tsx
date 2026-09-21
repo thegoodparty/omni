@@ -7,8 +7,10 @@ import type {
   OutreachReceipt,
   RecommendedList,
   RecommendedListVariant,
+  ServeSmsDraftRequest,
   SmsDraftRequest,
   SmsPurpose,
+  SmsStandardsRule,
   SocialTone,
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
@@ -48,11 +50,22 @@ import {
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
-import { SmsPurposeStep } from './SmsPurposeStep'
+import {
+  SERVE_SMS_PURPOSES,
+  serveSmsPurposeNameSuggestion,
+} from '../serveSmsPurposes'
+import { SMS_PURPOSE_INTRO_BODY, SmsPurposeStep } from './SmsPurposeStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
+import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
-import { composeScript, identificationIntro } from './smsCompose.util'
+import {
+  composeScript,
+  composeServeScript,
+  identificationIntro,
+  SMS_PURPOSES,
+  type SmsFlowPurpose,
+} from './smsCompose.util'
 
 type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
 const STEP_ORDER: StepId[] = [
@@ -80,7 +93,7 @@ const PRICE_PER_MESSAGE =
 // useOutreachAudience).
 const SMS_COUNT_OVERLAY = { hasCellPhone: true }
 
-const SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
+const WIN_SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
   pickerTitle: 'Who do you want to reach?',
   pickerBody:
     'Select a list or create a new one. Lists include all voters with a mobile number.',
@@ -93,10 +106,123 @@ const SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
   unitCostLabel: 'Each message costs',
 }
 
+// Serve's constituent-framed variant, the same spread-over-the-Win-object
+// shape SERVE_PHONE_BANKING_AUDIENCE_COPY uses. Only the four voter- and
+// candidacy-framed strings are overridden: pickerTitle, nameTitle, nameBody
+// and the reach verb/unit-cost lines are channel framing, true on both
+// surfaces, so they are shared as-is.
+const SERVE_SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
+  ...WIN_SMS_AUDIENCE_COPY,
+  pickerBody:
+    'Select a list or create a new one. Lists include all constituents with a mobile number.',
+  filtersTitle: 'Build a constituent list',
+  filtersBody: 'Pick filters to define who this list reaches.',
+  reachNoun: 'constituents',
+}
+
+// The fallback name part when no list is picked yet. Purpose-independent on
+// Win — the auto-name is list-and-date driven there, and no Win SMS purpose
+// carries a name suggestion.
+const WIN_SMS_NAME_FALLBACK = 'Text campaign'
+
+// Win picks a date AND an hourly slot inside a 48-hour floor and a 9am-8pm
+// window, because Peerly enforces exactly that. Serve picks a date only and
+// sends at a fixed 11am local: a human works a CSV, so an hour is a promise
+// the product cannot keep. See docs/features/serve-sms.md, "Send timing".
+type SmsFlowScheduleMode = 'winHourlySlots' | 'serveFixedMorning'
+
+interface SmsFlowDraftInput {
+  purpose: SmsFlowPurpose
+  tone: SocialTone
+  currentDraft?: string
+}
+
+// A caller-supplied surface parametrizes the purpose cards and their intro,
+// the no-list name fallback, the audience-step copy, how the schedule step
+// asks for a send time, what the system appends to the composed message, and
+// which network the draft mutation hits. Everything else -- the steps, the
+// shell, tone/Improve, the audience picker's reachabilityKey/countOverlay --
+// is shared. Mirrors SocialFlowSurface and PhoneBankingFlowSurface.
+export interface SmsFlowSurface {
+  // Which product this surface belongs to. Read only for copy the
+  // per-surface records below don't reach -- the shared steps' own strings.
+  isServe: boolean
+  purposes: { id: SmsFlowPurpose; label: string }[]
+  purposeIntroBody: string
+  nameSuggestion: (purpose: string) => string
+  audienceCopy: OutreachAudienceCopy
+  scheduleMode: SmsFlowScheduleMode
+  // The system-owned regions around the typed body. Win appends paid-for-by
+  // plus the opt-out line; Serve appends the opt-out line alone, because an
+  // elected official has no candidate committee to disclose.
+  composeMessage: (body: string, committeeName: string | null) => string
+  // Standards rules that do not apply on this surface. checkSmsStandards is
+  // the shared contract the server-side verdict also runs, and its
+  // paid_for_by rule demands the phrase unconditionally -- correct for Win,
+  // where a campaign cannot schedule an SMS without a registered committee.
+  // A Serve org has no committee, so the rule could only ever fail and would
+  // block Continue forever. Dropped here rather than loosened in contracts,
+  // so Win's verdict keeps demanding it on both client and server.
+  ignoredStandardsRules: readonly SmsStandardsRule[]
+  endpoints: {
+    draft: (input: SmsFlowDraftInput) => Promise<string>
+  }
+}
+
+// The default surface -- Win's campaign-scoped endpoint, unchanged from the
+// flow's pre-parametrization behavior. The cast on the draft call is safe
+// because this surface's `purposes` only ever contains SmsPurpose members,
+// and the flow only ever drafts with a purpose drawn from them.
+const WIN_SMS_SURFACE: SmsFlowSurface = {
+  isServe: false,
+  purposes: SMS_PURPOSES,
+  purposeIntroBody: SMS_PURPOSE_INTRO_BODY,
+  nameSuggestion: () => WIN_SMS_NAME_FALLBACK,
+  audienceCopy: WIN_SMS_AUDIENCE_COPY,
+  scheduleMode: 'winHourlySlots',
+  composeMessage: composeScript,
+  ignoredStandardsRules: [],
+  endpoints: {
+    draft: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/sms/draft',
+        input as SmsDraftRequest,
+      )
+      return data.draft
+    },
+  },
+}
+
+// Serve's org-scoped surface. Not yet mounted by any page -- the hub wiring
+// ticket passes this as SmsFlow's `surface` prop on the Serve SMS card, and
+// owns the rest of the Serve send path (there is no Peerly phone list, and
+// create-and-pay needs its own purchase type).
+export const SERVE_SMS_SURFACE: SmsFlowSurface = {
+  isServe: true,
+  purposes: SERVE_SMS_PURPOSES,
+  purposeIntroBody:
+    'This helps us draft the right message for your constituents.',
+  nameSuggestion: serveSmsPurposeNameSuggestion,
+  audienceCopy: SERVE_SMS_AUDIENCE_COPY,
+  scheduleMode: 'serveFixedMorning',
+  composeMessage: (body) => composeServeScript(body),
+  ignoredStandardsRules: ['paid_for_by'],
+  endpoints: {
+    draft: async (input) => {
+      const { data } = await clientRequest(
+        'POST /v1/outreach/serve/sms/draft',
+        input as ServeSmsDraftRequest,
+      )
+      return data.draft
+    },
+  },
+}
+
 interface SmsFlowProps {
   open: boolean
   tcrCompliance?: TcrCompliance
   onClose: () => void
+  surface?: SmsFlowSurface
   // Fired after payment (or free redemption) completes server-side; the hub
   // refetches the outreach list there.
   onScheduled: () => Promise<void>
@@ -254,6 +380,7 @@ export const SmsFlow = ({
   onClose,
   onScheduled,
   tcrCompliance,
+  surface = WIN_SMS_SURFACE,
   campaignPlanDueDate,
   initialScript,
   preselectedListId,
@@ -263,7 +390,7 @@ export const SmsFlow = ({
   const [user] = useUser()
 
   const [stepId, setStepId] = useState<StepId>('purpose')
-  const [purpose, setPurpose] = useState<SmsPurpose | null>(null)
+  const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
   const [tone, setTone] = useState<SocialTone>('warm')
   const [body, setBody] = useState('')
   const [manuallyEdited, setManuallyEdited] = useState(false)
@@ -302,9 +429,15 @@ export const SmsFlow = ({
 
   const draftRequestRef = useRef(0)
 
-  const recommendedListIntent = purpose
-    ? intentForOutreachPurpose(purpose)
-    : null
+  // Reference equality against the Win singleton, not a purpose check:
+  // recommended lists are Win-only (the endpoint 400s an eo- org outright),
+  // and Serve's purpose vocabulary reuses three of the same slugs
+  // (introduce_myself, event_invite, custom) for an unrelated, non-electoral
+  // meaning, so the purpose string alone can't tell the two apart. Same
+  // guard as PhoneBankingFlow.
+  const isWinSms = surface === WIN_SMS_SURFACE
+  const recommendedListIntent =
+    isWinSms && purpose ? intentForOutreachPurpose(purpose as SmsPurpose) : null
 
   const audience = useOutreachAudience({
     open,
@@ -320,10 +453,7 @@ export const SmsFlow = ({
   const reachableCount = audience.reachableCount
 
   const draftMutation = useMutation({
-    mutationFn: async (input: SmsDraftRequest) => {
-      const { data } = await clientRequest('POST /v1/outreach/sms/draft', input)
-      return data.draft
-    },
+    mutationFn: (input: SmsFlowDraftInput) => surface.endpoints.draft(input),
   })
   const { reset: resetDraftMutation } = draftMutation
 
@@ -399,15 +529,30 @@ export const SmsFlow = ({
       candidateFirstName,
       campaign?.details?.normalizedOffice ?? '',
     )
-  const committeeName = tcrCompliance?.committeeName ?? null
-  const composedMessage = composeScript(body, committeeName)
+  // Paid-for-by is a campaign-finance disclaimer naming a candidate
+  // committee, which a Serve org does not have. Nulled at the source rather
+  // than only inside composeMessage so the submitted script, the preview
+  // bubble and checkSmsStandards cannot disagree about whether there is a
+  // committee.
+  const committeeName = surface.isServe
+    ? null
+    : (tcrCompliance?.committeeName ?? null)
+  const composedMessage = surface.composeMessage(body, committeeName)
   const composedLength = composedMessage.length
-  const standards = checkSmsStandards(composedMessage, {
+  const rawStandards = checkSmsStandards(composedMessage, {
     candidateNames: [candidateFullName, tcrCompliance?.candidateName].filter(
       (name): name is string => !!name,
     ),
     committeeName,
   })
+  // Win ignores nothing, so this is the raw verdict there.
+  const standardsFailures = rawStandards.failures.filter(
+    (rule) => !surface.ignoredStandardsRules.includes(rule),
+  )
+  const standards = {
+    passed: standardsFailures.length === 0,
+    failures: standardsFailures,
+  }
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -418,8 +563,13 @@ export const SmsFlow = ({
     [open],
   )
 
+  // Serve has no slot to resolve: its step stamps the fixed 11am send hour
+  // onto the day it hands back, so the picked date IS the scheduled moment.
+  const fixedMorningSchedule = surface.scheduleMode === 'serveFixedMorning'
+
   const scheduledAt = useMemo(() => {
     if (!date) return null
+    if (fixedMorningSchedule) return date
     const slot = TIME_OPTIONS.find((t) => t.id === timeSlot)
     const timeStr = timeSlot === 'custom' ? customTime : slot?.time
     if (!timeStr) return null
@@ -428,23 +578,32 @@ export const SmsFlow = ({
     const d = new Date(date)
     d.setHours(hh, mm, 0, 0)
     return d
-  }, [date, timeSlot, customTime])
+  }, [date, timeSlot, customTime, fixedMorningSchedule])
 
-  const violates48h = scheduledAt ? scheduledAt.getTime() < earliestSend : false
+  // Both windows are Peerly's, so both are Win-only. Serve's calendar
+  // disables every date it will not accept (2 business days out, 30-day
+  // ceiling, weekends), which leaves no invalid selection to explain.
+  const violates48h =
+    !fixedMorningSchedule && scheduledAt
+      ? scheduledAt.getTime() < earliestSend
+      : false
   // 8 PM cap, not the 9 PM compliance cutoff: the chosen time opens Peerly's
   // send window and the window always closes at 9 PM, so a later start
   // would leave a zero-width window (server clamps too).
-  const outsideWindow = scheduledAt
-    ? scheduledAt.getHours() < 9 ||
-      scheduledAt.getHours() > 20 ||
-      (scheduledAt.getHours() === 20 && scheduledAt.getMinutes() > 0)
-    : false
+  const outsideWindow =
+    !fixedMorningSchedule && scheduledAt
+      ? scheduledAt.getHours() < 9 ||
+        scheduledAt.getHours() > 20 ||
+        (scheduledAt.getHours() === 20 && scheduledAt.getMinutes() > 0)
+      : false
 
   // Auto-name from list + date until the user edits the name.
   const lastAutoName = useRef('')
   useEffect(() => {
     if (nameEdited) return
-    const listPart = selectedList?.name ?? 'Text campaign'
+    // Purpose-independent on Win (the surface ignores the argument and
+    // returns the same fallback), purpose-keyed on Serve.
+    const listPart = selectedList?.name ?? surface.nameSuggestion(purpose ?? '')
     const datePart = date
       ? `, ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
       : ''
@@ -453,10 +612,10 @@ export const SmsFlow = ({
       setName(auto)
       lastAutoName.current = auto
     }
-  }, [selectedList, date, name, nameEdited])
+  }, [selectedList, date, name, nameEdited, surface, purpose])
 
   const requestDraft = (
-    nextPurpose: SmsPurpose | null,
+    nextPurpose: SmsFlowPurpose | null,
     nextTone: SocialTone,
     priorBody: string,
     priorManuallyEdited: boolean,
@@ -492,7 +651,7 @@ export const SmsFlow = ({
     )
   }
 
-  const handleSelectPurpose = (selected: SmsPurpose) => {
+  const handleSelectPurpose = (selected: SmsFlowPurpose) => {
     setPurpose(selected)
     setTone('warm')
     setManuallyEdited(false)
@@ -877,12 +1036,17 @@ export const SmsFlow = ({
           onDone={onClose}
         />
       ) : stepId === 'purpose' ? (
-        <SmsPurposeStep selected={purpose} onSelect={handleSelectPurpose} />
+        <SmsPurposeStep
+          selected={purpose}
+          onSelect={handleSelectPurpose}
+          purposes={surface.purposes}
+          introBody={surface.purposeIntroBody}
+        />
       ) : stepId === 'audience' ? (
         <>
           <OutreachAudienceStep
             channel="text"
-            copy={SMS_AUDIENCE_COPY}
+            copy={surface.audienceCopy}
             mode={audience.mode}
             lists={audience.lists}
             listsLoading={audience.listsLoading}
@@ -952,23 +1116,35 @@ export const SmsFlow = ({
           )}
         </>
       ) : stepId === 'schedule' ? (
-        <SmsScheduleStep
-          name={name}
-          onNameChange={(value) => {
-            setName(value)
-            setNameEdited(true)
-          }}
-          date={date}
-          onDateChange={setDate}
-          timeSlot={timeSlot}
-          onTimeSlotChange={setTimeSlot}
-          customTime={customTime}
-          onCustomTimeChange={setCustomTime}
-          earliestSend={earliestSend}
-          calendarFloor={earliestSend}
-          violates48h={violates48h}
-          outsideWindow={outsideWindow}
-        />
+        fixedMorningSchedule ? (
+          <ServeSmsScheduleStep
+            name={name}
+            onNameChange={(value) => {
+              setName(value)
+              setNameEdited(true)
+            }}
+            date={date}
+            onDateChange={setDate}
+          />
+        ) : (
+          <SmsScheduleStep
+            name={name}
+            onNameChange={(value) => {
+              setName(value)
+              setNameEdited(true)
+            }}
+            date={date}
+            onDateChange={setDate}
+            timeSlot={timeSlot}
+            onTimeSlotChange={setTimeSlot}
+            customTime={customTime}
+            onCustomTimeChange={setCustomTime}
+            earliestSend={earliestSend}
+            calendarFloor={earliestSend}
+            violates48h={violates48h}
+            outsideWindow={outsideWindow}
+          />
+        )
       ) : stepId === 'compose' ? (
         <SmsComposeStep
           tone={tone}

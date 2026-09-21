@@ -44,6 +44,8 @@ import type {
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServeSmsDraftRequest,
+  ServeSmsDraftResponse,
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
   ServeSocialSaveRequest,
@@ -389,6 +391,15 @@ export type APIEndpoints = {
   'POST /v1/outreach/sms/draft': {
     Request: SmsDraftRequest
     Response: SmsDraftResponse
+  }
+
+  // Serve sibling of the SMS draft endpoint above: same shape with the
+  // purpose field swapped to the serve vocabulary, org-scoped rather than
+  // campaign-scoped, and grounded in a serve voice config. Not yet mounted
+  // by any flow — the wiring ticket points SmsFlow's serve surface at this.
+  'POST /v1/outreach/serve/sms/draft': {
+    Request: ServeSmsDraftRequest
+    Response: ServeSmsDraftResponse
   }
 
   // Persists the social campaign atomically (spine row + satellite +

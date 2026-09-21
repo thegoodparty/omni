@@ -1,10 +1,20 @@
-import type { SmsPurpose, SocialTone } from '@goodparty_org/contracts'
+import type {
+  ServeOutreachPurpose,
+  SmsPurpose,
+  SocialTone,
+} from '@goodparty_org/contracts'
 import { SMS_PURPOSE_VALUES } from '@goodparty_org/contracts'
 import { SOCIAL_PURPOSE_LABELS } from '../socialPurposes'
 
 // SMS purposes are the social slugs minus issue_update; labels shared.
 export const SMS_PURPOSES: { id: SmsPurpose; label: string }[] =
   SMS_PURPOSE_VALUES.map((id) => ({ id, label: SOCIAL_PURPOSE_LABELS[id] }))
+
+// Every purpose slug the SMS flow can carry, across both surfaces — same
+// convention as SocialFlowPurpose and PhoneBankingFlowPurpose. Lives here
+// rather than in SmsFlow so the step components can name it without
+// importing the flow back.
+export type SmsFlowPurpose = SmsPurpose | ServeOutreachPurpose
 
 export const smsPurposeLabel = (purpose: string): string =>
   SOCIAL_PURPOSE_LABELS[purpose as SmsPurpose] ?? 'Text message'
@@ -65,6 +75,16 @@ export const composeScript = (
   ]
     .filter(Boolean)
     .join('\n\n')
+
+// Serve's composed message. The opt-out footer stays: honoring STOP follows
+// the message, not the sender, and a Serve send is squarely a repeat-send
+// product. Paid-for-by does not: it is a campaign-finance disclaimer naming
+// a candidate committee, and an elected official texting constituents has no
+// committee to name. So this is not a copy choice with a Serve wording —
+// there is simply nothing to disclose (docs/features/serve-sms.md,
+// "Opt-out").
+export const composeServeScript = (body: string): string =>
+  composeScript(body, null)
 
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
