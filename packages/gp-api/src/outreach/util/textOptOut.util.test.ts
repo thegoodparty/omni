@@ -12,14 +12,34 @@ describe('isOptOutMessage', () => {
     'UNSUBSCRIBE',
     'Unsubscribe please',
     'please stop',
-    'CANCEL',
-    'End',
     'quit',
     'opt out',
     'OPTOUT',
-    'remove',
   ])('treats the standalone keyword %j as an opt-out', (content) => {
     expect(isOptOutMessage(content)).toBe(true)
+  })
+
+  // The CTIA floor: these are ordinary verbs, so a whole message of just
+  // the keyword counts and a sentence inside a longer message does not.
+  it.each(['CANCEL', 'End', 'remove', 'Cancel.', 'please cancel'])(
+    'treats the whole message %j as an opt-out',
+    (content) => {
+      expect(isOptOutMessage(content)).toBe(true)
+    },
+  )
+
+  it.each([
+    // The exact false positive the tiering exists to prevent: the trailing
+    // word of a multi-sentence message normalizes to a bare keyword.
+    'I support the budget. End.',
+    'Great news about the park. End.',
+    'The session will end. Thanks for the update.',
+    'We should cancel. The timing is wrong.',
+    'Can you remove the sign? Thanks.',
+    'Fund the library. Cancel the stadium.',
+    'That contract should end.',
+  ])('does not read the trailing-verb message %j as an opt-out', (content) => {
+    expect(isOptOutMessage(content)).toBe(false)
   })
 
   it.each([

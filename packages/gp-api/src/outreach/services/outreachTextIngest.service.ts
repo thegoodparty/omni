@@ -279,21 +279,25 @@ export class OutreachTextIngestService extends createPrismaBase(
     }
 
     // --- 5. CRM write-back ----------------------------------------------
-    await this.applyInboundEvents(outreachId, messages)
-
-    // --- 6. Spine status, CAS-guarded ------------------------------------
-    // Only on an ingest that actually recorded something. An upload whose
-    // every row failed to match is a mis-parse or the wrong file, and the
-    // CAS is one-way: completing on zero rows would leave the send reading
-    // "completed" with no data and no way for a corrected re-upload to fix
-    // it, because the guard would never match again.
-    const advanced =
-      messages.length > 0
-        ? await this.model.updateMany({
-            where: { id: outreachId, status: OutreachStatus.in_progress },
-            data: { status: OutreachStatus.completed },
-          })
-        : { count: 0 }
+    // Step 6 runs in a `finally`. By this point the message rows are
+    // committed, so a write-back that fails partway still leaves the send
+    // holding its results, and the spine must say so — otherwise the only
+    // way out is a staff re-upload performed purely to clear a status.
+    //
+    // The failure itself is NOT swallowed. A missed reply or opt-out event
+    // is a compliance miss (the opt-out chip and the next send's scrub both
+    // read these rows), and unlike an unattributable phone it is fixable by
+    // retrying: every step here is idempotent, so a redelivered message or
+    // a re-upload re-applies exactly the events that were missed and
+    // nothing else. That makes the retry the recovery path, which is why
+    // there is no work-queue row to reconcile later — such a row would be a
+    // second, weaker copy of a guarantee the ingest already has.
+    let statusAdvanced = false
+    try {
+      await this.applyInboundEvents(outreachId, messages)
+    } finally {
+      statusAdvanced = await this.advanceToCompleted(outreachId, messages)
+    }
 
     this.logger.info(
       {
@@ -304,7 +308,7 @@ export class OutreachTextIngestService extends createPrismaBase(
         unmatched,
         optOuts,
         messagesWritten: messages.length,
-        statusAdvanced: advanced.count > 0,
+        statusAdvanced,
       },
       '[Outreach Ingest] replies committed',
     )
@@ -316,6 +320,25 @@ export class OutreachTextIngestService extends createPrismaBase(
       optOuts,
       committed: true,
     }
+  }
+
+  /**
+   * Step 6. Only on an ingest that actually recorded something: an upload
+   * whose every row failed to match is a mis-parse or the wrong file, and
+   * the CAS is one-way, so completing on zero rows would leave the send
+   * reading "completed" with no data and no way for a corrected re-upload
+   * to fix it — the guard would never match again.
+   */
+  private async advanceToCompleted(
+    outreachId: number,
+    messages: Prisma.PollIndividualMessageCreateManyInput[],
+  ): Promise<boolean> {
+    if (messages.length === 0) return false
+    const advanced = await this.model.updateMany({
+      where: { id: outreachId, status: OutreachStatus.in_progress },
+      data: { status: OutreachStatus.completed },
+    })
+    return advanced.count > 0
   }
 
   // A reply that arrives without a timestamp still needs a stable id, or a

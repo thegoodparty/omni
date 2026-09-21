@@ -35,6 +35,7 @@ const resolveProAccess = vi.fn()
 
 let ingest: OutreachTextIngestService
 let outreach: Outreach
+let textInteractions: ContactInteractionTextService
 
 const row = (
   phone: string,
@@ -93,14 +94,13 @@ beforeEach(async () => {
     })),
   })
 
+  textInteractions = service.app.get(ContactInteractionTextService)
+
   const module = await Test.createTestingModule({
     providers: [
       OutreachTextIngestService,
       { provide: PrismaService, useValue: service.prisma },
-      {
-        provide: ContactInteractionTextService,
-        useValue: service.app.get(ContactInteractionTextService),
-      },
+      { provide: ContactInteractionTextService, useValue: textInteractions },
       {
         provide: ContactsService,
         useValue: { findPersonByPhone, resolveProAccess },
@@ -483,6 +483,42 @@ describe('OutreachTextIngestService.ingestReplies', () => {
       where: { id: outreach.id },
     })
     expect(after.status).toBe(OutreachStatus.completed)
+  })
+
+  it('still completes the send when the CRM write-back fails, and rethrows', async () => {
+    // The message rows commit before step 5, so a write-back failure must
+    // not leave the send stranded in_progress with its data already there.
+    vi.spyOn(textInteractions, 'applyInboundEvent').mockRejectedValueOnce(
+      new Error('connection terminated'),
+    )
+
+    await expect(
+      ingest.ingestReplies({
+        outreachId: outreach.id,
+        sourceLabel: 'staff_upload',
+        rows: [row('3035550101', 'STOP')],
+      }),
+    ).rejects.toThrow('connection terminated')
+
+    // The rows are there, so the spine says so.
+    expect(await messagesForOutreach()).toHaveLength(1)
+    const after = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreach.id },
+    })
+    expect(after.status).toBe(OutreachStatus.completed)
+    // ...but the event genuinely did not land, which is why it rethrew.
+    expect((await interactionFor('person-1')).optedOutAt).toBeNull()
+
+    // The retry is the recovery path: everything is idempotent, so a
+    // redelivery applies exactly the events that were missed.
+    const retry = await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows: [row('3035550101', 'STOP')],
+    })
+    expect(retry.committed).toBe(true)
+    expect(await messagesForOutreach()).toHaveLength(1)
+    expect((await interactionFor('person-1')).optedOutAt).toEqual(RECEIVED_AT)
   })
 
   it('throws for an outreach that does not exist', async () => {

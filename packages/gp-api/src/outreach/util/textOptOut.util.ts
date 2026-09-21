@@ -16,12 +16,14 @@
 //  - Inventing an opt-out silences a constituent permanently, since
 //    findOptedOutPersonIds scrubs org-wide and forever.
 //
-// So: exact match on a standalone keyword *sentence*, plus an explicit
-// revocation phrase. Deliberately NOT the pipeline's looser rule, which
-// treats any message whose last word is "stop" as an opt-out — "the noise
-// from the site needs to stop" is constituent feedback, not a revocation.
-// Splitting on sentence boundaries keeps the case that rule was reaching
-// for ("I hate the noise. STOP") without the case it gets wrong.
+// So: an unambiguous keyword as a standalone *sentence*, an ordinary-verb
+// keyword only as the WHOLE message, or an explicit revocation phrase.
+// Deliberately NOT the pipeline's looser rule, which treats any message
+// whose last word is "stop" as an opt-out — "the noise from the site needs
+// to stop" is constituent feedback, not a revocation. Splitting on sentence
+// boundaries keeps the case that rule was reaching for ("I hate the noise.
+// STOP") without the case it gets wrong, and the whole-message tier keeps
+// "I support the budget. End." from scrubbing a supporter.
 
 // Sentence and line boundaries. A standalone keyword anywhere in the message
 // counts; a keyword used as an ordinary verb inside a clause does not.
@@ -32,23 +34,34 @@ const SEGMENT_BOUNDARY = /[.!?;\n\r]+/
 const LEADING_POLITENESS = /^(?:please|pls|plz)\s+/
 const TRAILING_POLITENESS = /\s+(?:please|pls|plz)$/
 
-// The six CTIA keywords carriers require be honored on an exact match,
-// plus the spellings people actually send. Matched against a whole
-// segment, never a substring.
-const OPT_OUT_KEYWORDS = new Set([
+// Keywords with no neutral use as an ordinary sentence. "Stop." and
+// "Quit." are imperatives; "stopall", "unsub" and "optout" are not English
+// words at all. These are safe to match on any SENTENCE of a longer
+// message, which is what catches "I hate the noise. STOP".
+const SEGMENT_KEYWORDS = new Set([
   'stop',
   'stopall',
   'stop all',
+  'quit',
   'unsubscribe',
   'unsub',
-  'cancel',
-  'end',
-  'quit',
   'optout',
   'opt out',
-  'remove',
-  'revoke',
 ])
+
+// Keywords that are also ordinary verbs, so they count only when they are
+// the ENTIRE message. "I support the budget. End." merely ends a sentence;
+// a message whose whole body is "END" is the CTIA exact-match case, which
+// carriers and any future vendor honor whether we do or not — and a scrub
+// that disagreed with the carrier would keep us paying to text somebody
+// already blocked while the opt-out chip read "subscribed".
+//
+// So the CTIA list is honored as a floor on whole messages and NOT
+// stretched to sentence fragments. The phrase list below already covers
+// the explicit forms ("remove me from your list") without the bare words.
+// `revoke` is dropped entirely: not a CTIA keyword, not a spelling people
+// send, and ambiguous on its own.
+const WHOLE_MESSAGE_KEYWORDS = new Set(['cancel', 'end', 'remove'])
 
 // Unambiguous revocation phrases. Matched anywhere in a segment, because
 // "hey, stop texting me" is a revocation wherever the clause starts.
@@ -77,6 +90,9 @@ const normalizeSegment = (segment: string): string =>
     .replace(/\s+/g, ' ')
     .trim()
 
+const stripPoliteness = (text: string): string =>
+  text.replace(LEADING_POLITENESS, '').replace(TRAILING_POLITENESS, '').trim()
+
 /**
  * True when this reply revokes consent. Producer-agnostic: the only input
  * is the message text as the constituent sent it.
@@ -85,14 +101,17 @@ export const isOptOutMessage = (
   content: string | null | undefined,
 ): boolean => {
   if (!content) return false
+
+  // The CTIA exact-match case: the whole body is the keyword.
+  const whole = stripPoliteness(normalizeSegment(content))
+  if (WHOLE_MESSAGE_KEYWORDS.has(whole) || SEGMENT_KEYWORDS.has(whole)) {
+    return true
+  }
+
   for (const rawSegment of content.split(SEGMENT_BOUNDARY)) {
     const segment = normalizeSegment(rawSegment)
     if (!segment) continue
-    const bare = segment
-      .replace(LEADING_POLITENESS, '')
-      .replace(TRAILING_POLITENESS, '')
-      .trim()
-    if (OPT_OUT_KEYWORDS.has(bare)) return true
+    if (SEGMENT_KEYWORDS.has(stripPoliteness(segment))) return true
     if (OPT_OUT_PHRASES.some((phrase) => phrase.test(segment))) return true
   }
   return false
