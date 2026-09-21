@@ -51,12 +51,18 @@ and run only post-merge on the release train. `gpbot-dev-test-triage.yml` says
 it outright: "These never run on PRs, so nothing saw them before the merge."
 There is a prior incident, ENG-11106.
 
-The poll e2e is `@dev-only`. So when B2 removes the `aws s3 cp` line from the
+The poll e2e is `@dev-only`. So when the `aws s3 cp` line is removed from the
 poll Slack message, the spec throws and **no PR anywhere will fail.** It
-surfaces on the train, after the final `serve-sms` → main merge, which is the
-highest-stakes merge of this project, and it will read as though the feature
-broke the e2e. The advisory `devonly-drift.yml` comment matches on changed
-routes and B2's change is a Slack string in gp-api, so do not count on it.
+surfaces on the train, after a merge to main, and it will read as though the
+feature broke the e2e. The advisory `devonly-drift.yml` comment matches on
+changed routes and that change is a Slack string in gp-api, so do not count on
+it.
+
+The 2026-09-21 scope cut moved that removal out of B2 and into the follow-up
+that unifies the upload surface (see B2 below), so it is no longer this
+project's final merge that carries the risk. PR-0 landed the decoupling
+anyway, which is why the follow-up can proceed without re-deriving any of
+this.
 
 **The line feeds two parsers, not one** (found while building PR-0; the TDD
 originally named only the first). `getBucketNameFromSlackMessage` takes the
