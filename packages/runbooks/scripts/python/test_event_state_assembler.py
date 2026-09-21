@@ -522,3 +522,36 @@ def test_accepted_anchors_reads_only_the_rows_a_reviewer_accepted(tmp_path):
 
 def test_accepted_anchors_treats_a_missing_state_file_as_no_anchors(tmp_path):
     assert esa.accepted_anchors(tmp_path / "nope.json") == {}
+
+
+def test_assembled_rows_carry_the_anchor_columns(monkeypatch, tmp_path):
+    # Pins the assemble -> accepted_anchors -> build_rows wiring, not just build_rows:
+    # dropping the anchors argument leaves where_it_fires and url blank for every event
+    # while every unit test above still passes.
+    mon = tmp_path / "mon.yaml"
+    mon.write_text("watched_families: []\nevents: []\ndismissed: []\n")
+    monkeypatch.setattr(esa.aeh, "WATCHLIST", mon)
+
+    anchors_path = tmp_path / "event_anchors.json"
+    anchors_path.write_text(json.dumps({
+        "Sign Up Clicked": {"disposition": "accepted",
+                            "fires_on": "Sign-up page, CTA button.",
+                            "url": "/sign-up"},
+    }))
+
+    code_csv = tmp_path / "code.csv"
+    code_csv.write_text("event_type\n")
+
+    def fake_query(sql):
+        return pd.DataFrame([
+            {"event_type": "Sign Up Clicked", "govern_display_name": "Sign Up Clicked",
+             "family": "win_onboarding", "first_seen_date": "2024-01-01",
+             "last_seen_date": "2026-08-01", "event_count": 100, "event_count_30d": 5,
+             "govern_description": "", "govern_tags": None},
+        ])
+
+    out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv,
+                       anchors_path=anchors_path)
+    row = {r["event_type"]: r for r in out["rows"]}["Sign Up Clicked"]
+    assert row["where_it_fires"] == "Sign-up page, CTA button."
+    assert row["url"] == "/sign-up"
