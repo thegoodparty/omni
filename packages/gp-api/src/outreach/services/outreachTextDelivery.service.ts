@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -84,6 +86,14 @@ export interface RequestSendResult {
   excludedDuplicateCount: number
   /** The deterministic S3 key this send's recipient CSV was written under. */
   sendKey: string
+  /**
+   * Set only when nothing was handed off and never will be, so the caller
+   * acks rather than redelivering. `not_sendable` is the spine refusing the
+   * claim — canceled, unpaid, or already sent — and leaves the row where it
+   * was. `send_failed` is a send that cannot be made at all (see the 4xx
+   * rule in `requestSend`) and leaves the row `failed`.
+   */
+  terminalReason?: 'not_sendable' | 'send_failed'
 }
 
 /**
@@ -93,6 +103,13 @@ export interface RequestSendResult {
  * this layer.
  */
 const CSV_COLUMNS = ['id', 'firstName', 'lastName', 'cellPhone'] as const
+
+/**
+ * Widened to `number` on purpose: `HttpException.getStatus()` returns a plain
+ * number, and comparing it against the enum member trips
+ * `no-unsafe-enum-comparison`.
+ */
+const SERVER_ERROR_FLOOR: number = HttpStatus.INTERNAL_SERVER_ERROR
 
 /**
  * Where the recipient CSVs live. The dedicated name is preferred so the
@@ -202,19 +219,73 @@ export class OutreachTextDeliveryService extends createPrismaBase(
    * reuses a previous attempt's CSV reports 0 for each and flags
    * `audienceResolved: false`. Read that flag before reading the counts.
    *
-   * A send the spine will not release returns zeros rather than throwing:
-   * a canceled row never becomes sendable, and throwing out of an SQS
-   * handler redelivers forever.
+   * Never throws for a condition redelivery cannot fix. The only caller is
+   * the SQS consumer, and a throw there is a requeue, so a permanent fault
+   * would spend the whole redrive budget on its way to the DLQ. Those come
+   * back as a `terminalReason` instead. Transient faults still throw.
    */
   async requestSend(input: RequestSendInput): Promise<RequestSendResult> {
     const { outreachId, sendSeq } = input
-
-    const { organization, official } = await this.loadSendContext(outreachId)
     // Deterministic on (outreach, send), so a redelivered queue message
     // reuses this object instead of resampling a different audience. Polls
     // keys on an estimated completion date it relies on never changing; an
     // explicit counter beats a timestamp that happens to be stable.
     const sendKey = `${outreachId}-${sendSeq}.csv`
+
+    try {
+      return await this.runSend(input, sendKey)
+    } catch (error) {
+      // A 4xx out of this path describes the DATA, not the infrastructure: a
+      // deleted outreach, an organization that does not exist, a saved list
+      // that was removed, an audience that scrubs down to nobody. A
+      // redelivery reads the same rows and fails the same way, so retrying
+      // only burns the redrive budget. Everything else — S3, Slack, Prisma,
+      // any 5xx — may well be transient and keeps its retry.
+      if (
+        !(error instanceof HttpException) ||
+        error.getStatus() >= SERVER_ERROR_FLOOR
+      ) {
+        throw error
+      }
+      // Not a revert to `pending`. Nothing re-enqueues a pending row, and a
+      // Serve row carries no phone list, so `pending` renders "In review" —
+      // it would tell the official a human is working a send that can never
+      // go out. `failed` already renders "Couldn't send".
+      await this.client.outreach.updateMany({
+        where: {
+          id: outreachId,
+          status: {
+            in: [OutreachStatus.pending, OutreachStatus.in_progress],
+          },
+        },
+        data: { status: OutreachStatus.failed },
+      })
+      this.logger.error(
+        { outreachId, sendSeq, sendKey, err: error },
+        'Text send failed permanently; the row is now failed. It is already ' +
+          'paid, so this one needs a refund decision.',
+      )
+      return {
+        audienceResolved: false,
+        recipientCount: 0,
+        excludedOptedOutCount: 0,
+        excludedDuplicateCount: 0,
+        sendKey,
+        terminalReason: 'send_failed',
+      }
+    }
+  }
+
+  /**
+   * The send itself. Split out so `requestSend` is only the terminal-vs-
+   * transient decision and this is only the happy path plus the claim.
+   */
+  private async runSend(
+    input: RequestSendInput,
+    sendKey: string,
+  ): Promise<RequestSendResult> {
+    const { outreachId, sendSeq } = input
+    const { organization, official } = await this.loadSendContext(outreachId)
 
     // CLAIM before anything irreversible, rather than checking the status at
     // the end. A read would not be enough and the trailing CAS was not
@@ -242,6 +313,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         excludedOptedOutCount: 0,
         excludedDuplicateCount: 0,
         sendKey,
+        terminalReason: 'not_sendable',
       }
     }
 
@@ -252,11 +324,12 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         sendKey,
       })
     } catch (error) {
-      // Hand the claim back so a fixed list or a transient fault can retry.
-      // Guarded on `in_progress`, which can only be this send's own claim:
-      // the queue is FIFO with a per-outreach message group, so two
-      // deliveries for one outreach serialize, and a cancel cannot have
-      // landed while the row was claimed.
+      // Hand the claim back so a transient fault can retry. Guarded on
+      // `in_progress`, which can only be this send's own claim: the queue is
+      // FIFO with a per-outreach message group, so two deliveries for one
+      // outreach serialize, and a cancel cannot have landed while the row
+      // was claimed. `requestSend` decides whether the retry actually
+      // happens or the row goes to `failed` instead.
       await this.client.outreach.updateMany({
         where: { id: outreachId, status: OutreachStatus.in_progress },
         data: { status: SENDABLE_STATUS },
@@ -304,12 +377,11 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         excludePersonIds,
       )
       if (resolved.recipients.length === 0) {
-        // Nothing is written and nothing is handed off; the caller's revert
-        // returns the row to `pending` so the send can be retried once the
-        // list is fixed.
+        // Nothing is written and nothing is handed off. A 4xx, so
+        // `requestSend` lands the row in `failed` and the consumer acks.
         throw new BadRequestException(
           'No contacts matched this send with a valid cell phone after the ' +
-            'opt-out scrub — widen the audience and try again.',
+            'opt-out scrub.',
         )
       }
       audienceResolved = true

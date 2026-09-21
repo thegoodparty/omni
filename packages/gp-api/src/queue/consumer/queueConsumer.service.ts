@@ -60,6 +60,7 @@ import {
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
+  OutreachTextSendEventSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -84,6 +85,8 @@ import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
+import { OutreachService } from '@/outreach/services/outreach.service'
+import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
@@ -174,6 +177,8 @@ export class QueueConsumerService {
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
     private readonly hubspotSingleSend: HubspotSingleSendService,
     private readonly chatAttachments: ChatAttachmentsService,
+    private readonly outreachService: OutreachService,
+    private readonly outreachTextDelivery: OutreachTextDeliveryService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -478,16 +483,15 @@ export class QueueConsumerService {
           await this.chatAttachments.runExtraction(attachmentId)
           return true
         })
-      case QueueType.OUTREACH_TEXT_SEND:
-        // Deliberate placeholder until the delivery slice lands its handler.
-        // It THROWS rather than returning true: the default branch below acks,
-        // which would silently delete a real send instead of letting it age to
-        // the DLQ where someone would see it. A type with no handler must fail
-        // loudly, not disappear.
-        throw new Error(
-          `${QueueType.OUTREACH_TEXT_SEND} has no handler yet; ` +
-            'refusing to ack so the message ages to the DLQ',
-        )
+      case QueueType.OUTREACH_TEXT_SEND: {
+        this.logger.info('received outreachTextSend message')
+        // A malformed payload is left to throw: the producer is our own
+        // purchase handler, so a shape it cannot satisfy is a bug, and this
+        // is a paid send. Let it age to the DLQ where someone sees it rather
+        // than ack-dropping it the way a poison ordinance step is dropped.
+        const { data } = OutreachTextSendEventSchema.parse(queueMessage)
+        return await this.handleOutreachTextSend(data)
+      }
 
       default:
         this.logger.warn(
@@ -496,6 +500,110 @@ export class QueueConsumerService {
         )
         return true
     }
+  }
+
+  /**
+   * The outbound half of the shared text delivery layer, triggered by the
+   * Serve SMS purchase handler's post-purchase step.
+   *
+   * The queue message carries the envelope id and nothing else, so the
+   * product-shaped half of `requestSend`'s input — which saved list, what
+   * message, which day — is read back off the row here. That is deliberate:
+   * the delivery layer takes an audience spec rather than an outreach id
+   * precisely so polls can hand it a random sample later without the layer
+   * learning what a poll is.
+   *
+   * Every refusal below ACKS rather than retrying. A row that is missing, or
+   * that has no saved list / message / date, is in exactly the same state on
+   * every redelivery, so retrying only burns the DLQ budget on a message
+   * nothing can act on. Real faults (S3, Slack, the database) still throw out
+   * of `requestSend` and redeliver; the send is idempotent under that.
+   */
+  private async handleOutreachTextSend({
+    outreachId,
+    sendSeq,
+  }: {
+    outreachId: number
+    sendSeq: number
+  }): Promise<boolean> {
+    const outreach = await this.outreachService.model.findUnique({
+      where: { id: outreachId },
+      select: {
+        message: true,
+        imageUrl: true,
+        scheduledLocalDate: true,
+        voterFileFilterId: true,
+      },
+    })
+
+    if (!outreach) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: no such outreach; acking, retrying cannot help',
+      )
+      return true
+    }
+
+    const { message, imageUrl, scheduledLocalDate, voterFileFilterId } =
+      outreach
+
+    if (!message || !scheduledLocalDate || !voterFileFilterId) {
+      this.logger.error(
+        {
+          outreachId,
+          sendSeq,
+          hasMessage: Boolean(message),
+          hasScheduledLocalDate: Boolean(scheduledLocalDate),
+          hasVoterFileFilterId: Boolean(voterFileFilterId),
+        },
+        'outreachTextSend: the row is missing what a send needs; acking, ' +
+          'retrying cannot help',
+      )
+      return true
+    }
+
+    const result = await this.outreachTextDelivery.requestSend({
+      outreachId,
+      sendSeq,
+      audience: { kind: 'savedFilter', voterFileFilterId },
+      message,
+      imageUrl: imageUrl ?? undefined,
+      scheduledLocalDate,
+    })
+
+    // `terminalReason` means nothing was handed off and nothing ever will be.
+    // `requestSend` returns rather than throwing for exactly these cases,
+    // because a redelivery would hit the same wall: ack instead of burning
+    // the redrive budget on the way to the DLQ.
+    if (result.terminalReason) {
+      this.logger.warn(
+        {
+          outreachId,
+          sendSeq,
+          sendKey: result.sendKey,
+          terminalReason: result.terminalReason,
+        },
+        result.terminalReason === 'send_failed'
+          ? 'outreachTextSend: nothing was sent — the send cannot be made ' +
+              'at all; the row is now failed'
+          : 'outreachTextSend: nothing was sent — the outreach was not ' +
+              'pending, or a previous attempt already handed off this send',
+      )
+      return true
+    }
+
+    this.logger.info(
+      {
+        outreachId,
+        sendSeq,
+        sendKey: result.sendKey,
+        recipientCount: result.recipientCount,
+        excludedOptedOutCount: result.excludedOptedOutCount,
+        excludedDuplicateCount: result.excludedDuplicateCount,
+      },
+      'outreachTextSend: handed off to fulfilment',
+    )
+    return true
   }
 
   // TODO: ALL of the below functions should be moved to their respective

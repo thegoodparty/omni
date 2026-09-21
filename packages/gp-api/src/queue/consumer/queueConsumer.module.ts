@@ -23,6 +23,7 @@ import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.modul
 import { OrdinancesModule } from 'src/ordinances/ordinances.module'
 import { CrmModule } from 'src/crm/crmModule'
 import { ChatsModule } from 'src/chats/chats.module'
+import { OutreachModule } from 'src/outreach/outreach.module'
 
 @Module({
   imports: [
@@ -55,6 +56,10 @@ import { ChatsModule } from 'src/chats/chats.module'
     OrdinancesModule,
     CrmModule,
     ChatsModule,
+    // For OutreachTextDeliveryService, which the `outreachTextSend` case
+    // calls. Nothing imports QueueConsumerModule except AppModule, so this
+    // edge adds no cycle.
+    OutreachModule,
   ],
   providers: [QueueConsumerService],
 })
