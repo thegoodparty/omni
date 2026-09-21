@@ -39,6 +39,8 @@ import { OutreachInboundSweepService } from './services/outreachInboundSweep.ser
 import { OutreachMaterializationService } from './services/outreachMaterialization.service'
 import { OutreachAssignmentService } from './services/outreachAssignment.service'
 import { OutreachService } from './services/outreach.service'
+import { OutreachTextDeliveryService } from './services/outreachTextDelivery.service'
+import { OutreachTextIngestService } from './services/outreachTextIngest.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
@@ -120,6 +122,13 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
   ],
   providers: [
     OutreachService,
+    // The two delivery-layer entry points. Registered here in the contract
+    // lock even though nothing injects them yet: the point of this slice is
+    // that the parallel slices can inject them on day one, and an
+    // @Injectable() that is never provided fails at bootstrap the moment one
+    // of them declares it as a dependency.
+    OutreachTextDeliveryService,
+    OutreachTextIngestService,
     OutreachSmsAdminService,
     OutreachSocialService,
     OutreachSocialGenerationService,
