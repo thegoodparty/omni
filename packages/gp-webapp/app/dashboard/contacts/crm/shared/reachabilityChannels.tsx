@@ -46,12 +46,17 @@ export const REACHABILITY_CHANNELS: {
   },
 ]
 
-// Channels only a Win org can actually send. Robocall is campaign-side
-// only: Serve has no compliance or payment machinery behind it, so an
-// elected official can never send one (see
-// app/dashboard/constituent-outreach/AGENTS.md) and the tile advertised a
-// channel that does not exist for them.
-const WIN_ONLY_CHANNEL_KEYS = new Set<ReachabilityChannelKey>(['robocall'])
+// Channels only a Win org can actually send. Robocall and text are the
+// paid channels: Serve has no compliance or payment machinery behind
+// either (see app/dashboard/constituent-outreach/AGENTS.md), so an
+// elected official can never send one and the tiles advertised channels
+// that do not exist for them. Polls stays for Serve even though its count
+// mirrors sms 1:1 — a poll is a Serve product, and its count answers how
+// many of the list one could reach with it.
+const WIN_ONLY_CHANNEL_KEYS = new Set<ReachabilityChannelKey>([
+  'robocall',
+  'sms',
+])
 
 export const SERVE_REACHABILITY_CHANNELS = REACHABILITY_CHANNELS.filter(
   ({ key }) => !WIN_ONLY_CHANNEL_KEYS.has(key),

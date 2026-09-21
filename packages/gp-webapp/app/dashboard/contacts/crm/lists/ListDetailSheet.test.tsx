@@ -307,7 +307,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
   })
 
-  it('hides the robocall reachability tile in Serve mode', async () => {
+  it('hides the robocall and text reachability tiles in Serve mode', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -318,9 +318,10 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
 
     expect(await screen.findByText('Phone banking')).toBeInTheDocument()
     expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
+    expect(screen.queryByText('Text')).not.toBeInTheDocument()
   })
 
-  it('keeps the robocall tile hidden until isWinContextReady settles', async () => {
+  it('keeps the Win-only tiles hidden until isWinContextReady settles', async () => {
     setContext({ isWinContextReady: false })
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -331,6 +332,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
 
     expect(await screen.findByText('Phone banking')).toBeInTheDocument()
     expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
+    expect(screen.queryByText('Text')).not.toBeInTheDocument()
   })
 
   it('suppresses the details heading until isWinContextReady settles', async () => {
