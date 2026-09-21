@@ -25,7 +25,7 @@ results anatomy below is transcribed from the `polls` channel: `pollData`,
 `renderGatherFlow`.
 
 Build plan: `docs/features/serve-sms-implementation-plan.md` (waves, file
-ownership per task, and the pre-work PR).
+ownership per task, the pre-work PR, and a retrospective).
 
 Related: `packages/gp-api/src/outreach/AGENTS.md`,
 `packages/gp-webapp/app/dashboard/constituent-outreach/AGENTS.md`,
@@ -62,13 +62,15 @@ Fargate analysis, does not read a cluster artifact, and does not consume theme
 events. Consequence: SMS needs no part of the S3-plus-Lambda-plus-Fargate
 chain, so its replies arrive through an upload instead.
 
-**Both products return results through one surface** (decided 2026-09-18).
-Fulfillment must never have to work out which kind of send a Slack message is
-about, or remember two ways to send results back. gp-api takes one upload and
-routes server-side: a poll's file is written to the bucket the pipeline
-already watches, an SMS file is ingested directly. The human-facing
-unification therefore lands immediately, in slice 2, and does not wait for the
-backend unification in slice 4. See Layer 1, inbound.
+**Both products return results through one surface** (decided 2026-09-18;
+**the slice-2 half reversed 2026-09-21**). Fulfillment must never have to work
+out which kind of send a Slack message is about, or remember two ways to send
+results back. gp-api takes one upload and routes server-side: a poll's file is
+written to the bucket the pipeline already watches, an SMS file is ingested
+directly. That routing is built in slice 2 and the end state is unchanged, but
+only SMS uses it there — polls keeps its `aws s3 cp` line until the follow-up
+that moves it over, so fulfillment temporarily has two return paths. See the
+2026-09-21 reversal note in Sequencing, and Layer 1, inbound.
 
 Creating hidden `Poll` rows to ride the existing poll consumer would ship
 faster and is rejected. It adds a second caller to the thing we intend to
@@ -296,7 +298,11 @@ gathering responses. No action needed."
 
 ### Inbound
 
-One upload surface for both products, two producers behind it, one writer.
+One upload surface, designed for both products with two producers behind it
+and one writer. Slice 2 builds the SMS producer only (reversed 2026-09-21):
+a poll id 404s on the surface until the follow-up adds the poll producer and
+moves fulfillment over. The shape below is the end state, not what slice 2
+ships.
 
 **The human-factors constraint comes first here.** Today the Slack message
 hands fulfillment an `aws s3 cp` command
@@ -339,10 +345,34 @@ knows there are two paths:
   chain changes.** gp-api simply becomes the thing that puts the object there
   instead of a person's terminal.
 
-The `aws s3 cp` line is removed from the Slack message in the same slice.
-Uploading results was its only purpose, so nothing else depends on it, and
-leaving it beside the button would reintroduce exactly the choice this design
-removes.
+**Reversed 2026-09-21: the `aws s3 cp` line stays, and polls does not move
+onto the upload surface in slice 2.** Slice 2 becomes SMS-only.
+
+The earlier plan removed the line and routed poll uploads through the page in
+the same slice, so fulfilment would learn one thing once. That is still the
+right end state, but it made slice 2 the one piece of the customer's path that
+changed a live workflow, which meant it could not ship without a scheduled
+conversation. Deferring it takes that dependency off the critical path
+entirely.
+
+What this costs: fulfilment temporarily has two return paths — the CLI command
+for polls, the button for Serve SMS. That is precisely the cognitive overhead
+this design set out to remove, so it is a debt, not a simplification. It is
+tolerable only because the split is per product rather than per message, and
+because Serve SMS starts with one customer.
+
+**Agreed follow-up (2026-09-21): once Serve SMS has been tested end to end,
+move polls onto the upload surface and delete the `aws s3 cp` line.** That is
+its own change, sequenced after the customer is live rather than bundled into
+their path. It is the only slice that alters fulfilment's existing workflow,
+so it is the one that gets scheduled with them. Nothing blocks it technically:
+PR #2024 already decoupled the poll e2e from that line.
+
+Two things make the deferral cheap. A5's handoff helper is used only by the
+delivery layer, so the button already appears solely on Serve SMS messages and
+polls' Slack message is untouched as things stand. And PR #2024 already
+decoupled the poll e2e from the CLI line, so keeping the line is now a free
+choice rather than something the test depends on.
 
 **This is gated on a pre-work PR to main, and the reason is that no PR will
 catch it.** `@dev-only` Playwright specs are grepped out of pull request runs
@@ -655,30 +685,38 @@ Each slice ships independently and leaves the product working.
    opt-out predicate, the message-row generalization migration, the
    `ContactInteractionText` write-back, spine completion. Plus the gp-admin
    upload page, the per-send Slack button, the results inbox, and the
-   server-side route by outreach type. **Polls moves onto this upload in the
-   same slice**, with its file written to the bucket so the pipeline runs
-   exactly as it does today. Fulfillment's workflow changes once, here, and
-   never again. Includes retiring the `aws s3 cp` line, which **requires the
-   e2e pre-work PR to have landed on main first** or the poll e2e breaks after
-   the final merge with no PR having caught it. See Layer 1, inbound.
+   server-side route by outreach type. **SMS only** (reversed 2026-09-21).
+   The route branches on outreach type from the start, so polls moving onto
+   it later is a re-point rather than a rewrite — but polls keeps its
+   `aws s3 cp` line and its current workflow until the first customer is live
+   end to end. That follow-up is what retires the line, and it **requires the
+   e2e pre-work PR to have landed on main first** or the poll e2e breaks with
+   no PR having caught it. See Layer 1, inbound.
 3. **SMS results.** Org-scope `getSmsResults`, the Statistics card, the
    collapsed row summary, the read-only reply list.
 4. **Polls onto delivery.** Repoint the poll send at `requestSend` and the poll
    consumer at `ingestReplies`, keeping `Poll` rows and the polls page as they
    are. Removes the duplicate send path and fixes polls' opt-out gap. This is
-   the backend half of what slice 2 already did for the human.
+   the backend half; the human half is the follow-up that moves polls onto the
+   upload surface and retires the `aws s3 cp` line, which the 2026-09-21
+   reversal took out of slice 2. Either can land first.
 5. **Theme payload split.** Separate the artifact event from the theme event;
    fix the five gaps above while the payload is open.
 6. **Polls into outreach.** The `poll` type, the `OutreachPoll` satellite, the
    backfill, the re-key, retire the page.
 
-**Slices 0 through 3 are the customer's path**, with one exception inside slice
-2: moving polls onto the upload surface is there for fulfillment's sake, not
-the customer's, and it is the only schedule lever in the set. Pulling it is the
-wrong trade in most cases, because SMS messages would then carry a button while
-poll messages still carry a CLI command, which is the precise confusion the
-design exists to remove. If it has to move, move it as a named slice with a
-date rather than leaving it implied.
+**Slices 0 through 3 are the customer's path.** Moving polls onto the upload
+surface was the one piece of the set that served fulfillment rather than the
+customer, and it was the only schedule lever. That lever was pulled on
+2026-09-21: it is now a named follow-up, sequenced after the first customer is
+live end to end and coordinated with fulfillment.
+
+The cost of pulling it is real and accepted, not avoided. Until the follow-up
+lands, an SMS message carries a button while a poll message still carries a CLI
+command — the precise confusion this design exists to remove — and fulfillment
+holds two return paths. That was judged the better trade against making slice 2
+the one piece of the customer's path that could not ship without a scheduled
+conversation.
 
 Slice 4 is the one that pays for the layering, and it is worth doing before 6
 so polls runs on the shared layer while still living on its own page.
@@ -700,6 +738,67 @@ expansion.** Every theme-shaped item below is a polls-layer question in slice
 
 **Settled (all 2026-09-21 unless noted):**
 
+* *All slices* — **the whole feature ships behind `serve-sms-outreach`**, an
+  Amplitude Experiment flag resolved server-side by gp-api
+  (`packages/gp-webapp/docs/feature-flags.md`). Two gates, not ten:
+  * **gp-api**: both Serve SMS routes on `outreachServeSms.controller.ts`
+    (`sms/draft` and `sms`) check `FeaturesService.isFeatureEnabled` and 404
+    when off, the same shape `outreachAssignment.controller.ts` uses for
+    `win-team-accounts`.
+  * **webapp**: a wrapper hook in `app/shared/experiments/serveSmsFlag.ts`,
+    consumed where the channel card mounts.
+
+  **Everything downstream is deliberately ungated.** Delivery, ingest, the
+  purchase handler and the results readers are all unreachable without an
+  `Outreach` row, and the create route is the only writer — so gating the
+  writer makes the rest inert. This is the reasoning `win-team-accounts`
+  records for gating only its create route, and gate-everywhere would be
+  churn that protects nothing extra.
+
+  The flag gates rollout, not authorization. `@UseElectedOffice()` remains the
+  real access check on every route, per the docs' own anti-pattern note.
+
+  **One surface the flag cannot reach: the gp-admin results page.** Flags
+  resolve for an authenticated product user through gp-api; gp-admin runs on
+  Clerk staff auth and has no provider. It is staff-only and lists nothing
+  until sends exist, so the exposure is acceptable — but it is not covered,
+  and pretending otherwise would be worse than saying so.
+
+  Open, related: whether B2's poll-upload move should also sit behind a flag.
+  It changes fulfilment's workflow rather than a candidate-facing surface, so
+  it is a coordination question more than a flag one.
+
+* *SMS, slice 0* — **merge tokens follow polls, not Peerly.** Use
+  `{{first_name}}` (double braces), the format fulfilment's tool already
+  merges for poll messages, with `[Name]` as the authoring affordance the way
+  `CreatePoll.tsx` offers it. Win keeps Peerly's single-brace `{first_name}`,
+  so this is surface-specific and belongs on the flow's `composeMessage`.
+  Without this a constituent receives the literal token: the Win greeting is a
+  Peerly merge token and nothing on the Slack path substitutes it.
+  Convenient side effect: `checkSmsStandards`' `first_name_token` rule tests
+  `script.includes('{first_name}')`, which `{{first_name}}` satisfies as a
+  substring, so the rule passes unchanged and `paid_for_by` is the only rule
+  needing a Serve override.
+* *SMS, slice 0* — **minimum audience is 25 recipients**, enforced server-side
+  on create and surfaced on the audience step, not only in the picker.
+  Arithmetic floor is 15: `textPricing.util.ts` charges 35 tenth-cents each,
+  so 14 recipients is 49 cents and Stripe's minimum is 50. 25 sits above the
+  edge with headroom if pricing moves, and a 14-person list is not a campaign.
+  Polls does not transfer here — its only floor is 500 constituents in the
+  *district* to use the feature at all, which is meaningless for a saved list
+  that is deliberately narrower. The free-texts offer does not rescue a small
+  send either: that is a Win campaign benefit and a zero-amount purchase takes
+  the separate free path without touching Stripe.
+* *Delivery* — **fulfilment already filters opt-outs on their side and tracks
+  them separately; the product records them anyway.** Two consequences. The
+  in-product scrub is defense in depth rather than the only gate, which is
+  what makes A6's deliberately strict predicate the right trade: a false
+  positive scrubs someone org-wide and permanently, a false negative is caught
+  downstream. And the results CSV **must include STOP replies rather than
+  excluding them** — if fulfilment filters before returning results, the
+  product can never learn who opted out. That is a requirement to confirm in
+  the slice 2 conversation, not an implementation detail.
+
 * *SMS, slice 0* — send timing mimics the live polls rule: 11am local fixed,
   2 business days minimum, 30 days maximum, no weekends, completion at
   +3 business days. See Send timing.
@@ -713,20 +812,23 @@ expansion.** Every theme-shaped item below is a polls-layer question in slice
   confirms before B2 merges. Owner: Stephen. This is the only slice visible
   outside the team on the day it lands.
 
-The `aws s3 cp` line is retired in slice 2 rather than kept as a fallback
-(decided 2026-09-18): uploading results was its only use. Polls is assumed to
-be working as it stands; this design does not reopen it beyond moving its
-upload, and the confirm-before-commit step is specified as a property of the
-new surface rather than as a fix for anything observed.
+The `aws s3 cp` line **stays** (reversed 2026-09-21; the 2026-09-18 decision
+retired it in slice 2). Slice 2 is SMS-only, and moving polls onto the upload
+surface is a follow-up sequenced after the first customer is live end to end
+— see the reversal note in the slice 2 section. Polls is assumed to be working
+as it stands; this design does not reopen it, and the confirm-before-commit
+step is specified as a property of the new surface rather than as a fix for
+anything observed.
 
 ## Open questions
 
 Same labelling.
 
-* *Delivery, slice 2* — one Slack channel for both products or two? With the
-  upload surface unified and the button carrying the send identity, one
-  channel is now the simpler answer; the reason to split them was the
-  divergent return path, which slice 2 removes.
+* *Delivery, the unification follow-up* — one Slack channel for both products
+  or two? The reason to split them was the divergent return path. Slice 2 no
+  longer removes it: until polls moves onto the upload surface, fulfillment
+  has the CLI command for polls and the upload button for Serve SMS. Answer
+  this in the follow-up, once the return paths actually converge.
 * *Delivery, slice 2* — a send whose results never arrive. Polls has no sweep
   and the row sits in progress indefinitely. The results inbox probably
   answers this by making an outstanding send visible in a work queue rather
