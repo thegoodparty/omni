@@ -19,7 +19,12 @@ ALTER COLUMN "poll_id" DROP NOT NULL;
 -- A message row belongs to one product or the other, never both and never
 -- neither.
 --
--- Added NOT VALID, then validated separately. The comment above is about
+-- Added NOT VALID here; VALIDATE runs in the NEXT migration file, and the
+-- separation is the whole point. Prisma wraps each migration file in one
+-- BEGIN/COMMIT, so ADD ... NOT VALID followed by VALIDATE in the same file
+-- would hold the ACCESS EXCLUSIVE lock across the validation scan anyway —
+-- exactly what a plain ADD CONSTRAINT does. Two files, two transactions, lock
+-- released in between. The comment above is about
 -- whether the constraint can FAIL on existing rows (it cannot) — which is a
 -- different question from how long it LOCKS. A plain ADD CONSTRAINT scans
 -- every row under ACCESS EXCLUSIVE regardless of the outcome, and this table
@@ -33,9 +38,6 @@ ALTER COLUMN "poll_id" DROP NOT NULL;
 -- it is not a precedent to copy.
 ALTER TABLE "poll_individual_message" ADD CONSTRAINT "poll_individual_message_scope_check"
   CHECK (num_nonnulls("poll_id", "outreach_id") = 1) NOT VALID;
-
-ALTER TABLE "poll_individual_message"
-  VALIDATE CONSTRAINT "poll_individual_message_scope_check";
 
 -- CreateTable
 CREATE TABLE "outreach_text_recipient" (

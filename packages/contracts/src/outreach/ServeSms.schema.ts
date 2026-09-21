@@ -84,7 +84,9 @@ export const OutreachResultsParseReportSchema = z.object({
   matched: z.number().int().nonnegative(),
   unmatched: z.number().int().nonnegative(),
   optOuts: z.number().int().nonnegative(),
-  // Present on a dry run; absent once the rows are written.
+  // false on a dry run, true once the rows are written. Always present — an
+  // earlier version of this comment said "absent once written", which would
+  // have led an implementer to omit it and have Zod reject every real result.
   committed: z.boolean(),
 })
 export type OutreachResultsParseReport = z.infer<
