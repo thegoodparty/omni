@@ -70,6 +70,54 @@ export const identificationIntro = (
   return `this is ${name}, candidate for ${role}.`
 }
 
+// Serve's identification sentence. Win's four variants all say the person is
+// running for something ("candidate for {office}", "running for {office}"),
+// which an elected official is not: they already hold the office. So this is
+// not a reworded Win line, it is the other half of the same compliance
+// requirement — say who is texting.
+//
+// The wording is polls' own shipped copy, not new phrasing: `introOptions` in
+// `app/dashboard/polls/create/CreatePoll.tsx` already introduces an official
+// as "I'm {name}, your {office}.", so the two Serve products introduce the
+// same person the same way. Urgent and direct converge on one line on
+// purpose — "running for" is what separated them on Win and it has no
+// elected-official equivalent.
+//
+// A SERVE_* record rather than a ternary so the Serve vocabulary gate can see
+// every string (docs/product-vocabulary.md).
+export const SERVE_SMS_IDENTIFICATION_INTRO: Record<
+  SocialTone,
+  (name: string, office: string) => string
+> = {
+  warm: (name, office) => `this is ${name}, your ${office}.`,
+  direct: (name, office) => `${name} here, your ${office}.`,
+  friendly: (name, office) => `it's ${name}, your ${office}.`,
+  urgent: (name, office) => `${name} here, your ${office}.`,
+}
+
+// Last resort only. The name comes from the signed-in user and the office
+// from the organization's position name, so in practice both are present;
+// these exist so a missing one degrades to a sentence rather than to
+// "this is , your ." the way an empty interpolation would.
+export const SERVE_SMS_IDENTIFICATION_FALLBACK = {
+  name: 'your elected official',
+  office: 'local elected official',
+}
+
+// Serve twin of `identificationIntro` above. The office argument is expected
+// to have been through `grammarizeOfficeName` already ("City Council" ->
+// "City Council Member", " - District 3" stripped); this function does not
+// re-derive that grammar.
+export const serveIdentificationIntro = (
+  tone: SocialTone,
+  firstName: string,
+  office: string,
+): string =>
+  SERVE_SMS_IDENTIFICATION_INTRO[tone](
+    firstName || SERVE_SMS_IDENTIFICATION_FALLBACK.name,
+    office || SERVE_SMS_IDENTIFICATION_FALLBACK.office,
+  )
+
 // The submitted script is the concatenation of the system regions around
 // the user's message (which opens with the identification) — the backend
 // has no region concept and sends the script to the vendor verbatim
