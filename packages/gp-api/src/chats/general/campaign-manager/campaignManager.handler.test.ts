@@ -819,16 +819,17 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
 })
 
 describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
-  it('returns the disclaimer for a statute citation with no caution', () => {
+  it('adds the professional-advice disclaimer when the shared check fires', () => {
     const answer =
       'Under RCW 42.17A.405 that contribution is over the limit, and a ' +
       'resident can file a complaint with the state commission.'
+
     expect(buildHandler().finalizeAssistantText(answer)).toBe(
       `\n\n${PROFESSIONAL_ADVICE_DISCLAIMER}`,
     )
   })
 
-  it('returns nothing when the reply ends with the closing line', () => {
+  it('does not duplicate an existing legal caution', () => {
     expect(
       buildHandler().finalizeAssistantText(
         'Under RCW 42.17A.405 that contribution is over the limit. ' +
