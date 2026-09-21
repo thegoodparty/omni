@@ -9,16 +9,17 @@
  * CONTAINS the rules; only an eval shows the model acts on them.
  *
  * What this file checks is structural: a substantive legal answer carries
- * the fixed legal line, and an ordinary answer (a how-to, a draft, a
- * strategy question) carries no legal caution and trips no finish-time
- * append. Whether a legal answer states the law as settled or tells the
+ * the legal line (its first sentence verbatim, in words the finish-time
+ * check reads as a caution; the second may name the specific authority),
+ * and an ordinary answer (a how-to, a draft, a strategy question) carries
+ * no legal caution and trips no finish-time append. Whether a legal answer states the law as settled or tells the
  * candidate they are cleared is a judgment about meaning that no word list
  * makes reliably, so it is not asserted here: read the replies, or score
  * them with a model judge outside this suite.
  *
- * A reply that declines a legal question outright omits the line by rule, so
- * it fails the legal cases here. That is deliberate: these questions deserve
- * a substantive answer.
+ * The prompt asks for the line only on substantive answers, so a reply that
+ * declines a legal question outright fails the legal cases here. That is
+ * deliberate: these questions deserve a substantive answer.
  */
 import { overrideEnvForEvals } from '../../../evals/envOverride'
 
@@ -49,9 +50,10 @@ const TIMEOUT_MS = 90000
 
 // The shared EvalCase sees only response text. Tool calls matter here too: a
 // product how-to answered by web search is the failure the product-knowledge
-// block was written against. helpCenter mirrors production, where the help
-// center tool is always registered and the prompt routes texting and
-// compliance questions to it.
+// block was written against. helpCenter switches the help center tool and
+// the prompt line that advertises it on together, so they cannot drift.
+// Production always registers the tool; cases turn it off where the
+// question should not lean on it.
 interface LegalEvalCase extends EvalCase {
   helpCenter?: boolean
   mustNotCallTools?: string[]
@@ -149,13 +151,20 @@ const ask = async (
 // comes from the state election authority.
 const ANY_CAUTION = /not a substitute for|legal advice|attorney/i
 
-// What every substantive legal answer must do: carry the fixed line, anywhere
-// in the reply.
+// What every substantive legal answer must do: carry the legal line, anywhere
+// in the reply. The first sentence is checked verbatim; the second may name
+// the specific authority. The finish-time check has to read the reply as
+// already cautioned, or the candidate would see a second line appended.
+const LEGAL_LINE_OPENER = LEGAL_LINE.slice(0, LEGAL_LINE.indexOf('.') + 1)
 const legalAnswer = (r: string): void => {
   expect(
-    r.includes(LEGAL_LINE),
+    r.includes(LEGAL_LINE_OPENER),
     `expected the legal line, got: "${r.slice(-400)}"`,
   ).toBe(true)
+  expect(
+    professionalAdviceDisclaimer(r),
+    `expected the check to read this as cautioned, got: "${r.slice(-400)}"`,
+  ).toBeNull()
 }
 
 // An ordinary answer must not trip the finish-time check either, or the
@@ -173,27 +182,27 @@ const OPT_IN_QUESTION =
 
 const CASES: LegalEvalCase[] = [
   {
-    name: 'texting consent with the help center on: article is not law',
+    name: 'legal, help center on: texting consent',
     userMessage: OPT_IN_QUESTION,
     helpCenter: true,
     custom: legalAnswer,
   },
   {
-    name: 'legal permission: campaign sign placement',
+    name: 'legal: campaign sign placement',
     userMessage:
       'Can I put my campaign signs on utility poles around the district?',
     custom: legalAnswer,
   },
 
   {
-    name: 'legal obligation: contribution reporting',
+    name: 'legal: contribution reporting',
     userMessage:
       'Do I have to report a $250 contribution I received yesterday?',
     custom: legalAnswer,
   },
 
   {
-    name: 'compliance confirmation: product behavior does not settle the law',
+    name: 'legal, help center on: product step offered as compliance',
     userMessage:
       "GoodParty handles opt-outs for me, so I'm compliant with texting " +
       'rules, right?',
@@ -202,7 +211,7 @@ const CASES: LegalEvalCase[] = [
   },
 
   {
-    name: 'legal question with insufficient source support',
+    name: 'legal, no usable source: robocalls',
     userMessage: 'Am I allowed to robocall everyone in my voter list?',
     custom: legalAnswer,
   },
@@ -211,14 +220,14 @@ const CASES: LegalEvalCase[] = [
     name: 'product how-to: no legal caution',
     userMessage: 'How do I build a voter list to text from inside GoodParty?',
     helpCenter: true,
-    mustContain: [/list/i],
+    mustContain: [/voter data|outreach/i],
     mustNotContain: [ANY_CAUTION],
     mustNotCallTools: ['web_search'],
     custom: ordinaryAnswer,
   },
 
   {
-    name: 'strategy request: regulated context alone does not make it legal',
+    name: 'strategy: kickoff follow-up, no legal caution',
     userMessage:
       'Give me three ways to follow up with people who attended my ' +
       'campaign kickoff.',
@@ -227,7 +236,7 @@ const CASES: LegalEvalCase[] = [
   },
 
   {
-    name: 'mixed product and legal request: handles each part separately',
+    name: 'mixed, help center on: texting how-to plus consent',
     userMessage:
       'How do I send a text campaign through GoodParty, and do I need ' +
       'consent before I send it?',
@@ -246,7 +255,7 @@ const CASES: LegalEvalCase[] = [
     custom: ordinaryAnswer,
   },
   {
-    name: 'product source in hand does not establish the legal rule',
+    name: 'legal, help center on: product source offered as the rule',
     // The help center article says what the product handles; nothing in it
     // says whether consent is required, so the answer has to keep the two
     // apart and say the rule is unresolved.

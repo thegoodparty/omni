@@ -472,8 +472,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     return tools
   }
 
-  // The prompt's legal-and-compliance rules carry the caution; this shared
-  // finish-time check only catches a statute-citing reply that skipped it.
+  // The prompt's legal-and-compliance rules carry the caution. This shared
+  // finish-time check catches a reply shaped like legal advice (a statute
+  // citation, liability language, complaint filing) that skipped it, and
+  // appends the shared professional-advice line, not the prompt's own.
   finalizeAssistantText(text: string): string | null {
     return professionalAdviceDisclaimer(text)
   }

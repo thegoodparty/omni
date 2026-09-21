@@ -430,7 +430,7 @@ export const LEGAL_LINE =
   'election or regulatory authority, or an election attorney.'
 
 const LEGAL_AND_COMPLIANCE_RULES = [
-  'LEGAL AND COMPLIANCE (route by the user’s underlying intent)',
+  "LEGAL AND COMPLIANCE (route by the user's underlying intent)",
   'A request is a legal or compliance question when the user is asking ' +
     'what the law allows, prohibits, requires, or whether conduct is ' +
     'legally compliant.',
