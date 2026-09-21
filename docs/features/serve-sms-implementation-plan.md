@@ -220,15 +220,6 @@ landed on main first**. This is the one slice that is not invisible: it moves
 fulfillment's upload path, so it needs timing with them rather than just a
 merge.
 
-**Narrowed 2026-09-21: B2 as built is SMS only.** No poll routing, no write to
-`input/<pollId>.csv`, and the `aws s3 cp` line stays in the poll Slack message.
-That makes the slice inert after all — it adds a path for a product fulfillment
-has never handled and changes nothing they do today, so it needs no timing with
-them and PR-0 is no longer a gate on it. Poll routing and retiring the CLI line
-move to the slice that unifies the backend; the contract does not change when
-they land, because routing was always meant to be server-side and invisible to
-the page.
-
 **B3.** Org-scope `getSmsResults` (parametrize the campaign predicate the way
 `findByScope` already does), the Serve results endpoint, the Statistics card,
 the collapsed row summary, and the read-only reply list.
