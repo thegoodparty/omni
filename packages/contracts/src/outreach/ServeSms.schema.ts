@@ -1,0 +1,114 @@
+import { z } from 'zod'
+import { ServeOutreachPurposeSchema } from './OutreachPurpose.schema'
+import { SocialToneSchema } from './OutreachSocial.schema'
+import { SMS_COMPOSED_MAX_LENGTH } from './OutreachSms.schema'
+
+// Serve SMS: texting for elected officials. Fulfilled by the shared delivery
+// layer (CSV to Slack today, a vendor later), never by Peerly — an elected
+// official has no campaign and so no 10DLC registration to send under.
+//
+// Serve reuses the Win composed-length cap. The message is the same artifact
+// on both surfaces; only the vocabulary and the fulfilment path differ.
+
+// --- Compose -------------------------------------------------------------
+
+// Mirrors SmsDraftRequestSchema with the purpose swapped to the serve
+// vocabulary, the same way ServePhoneBankingScriptDraftRequestSchema mirrors
+// its Win twin.
+export const ServeSmsDraftRequestSchema = z.object({
+  purpose: ServeOutreachPurposeSchema,
+  tone: SocialToneSchema,
+  currentDraft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH).optional(),
+})
+export type ServeSmsDraftRequest = z.infer<typeof ServeSmsDraftRequestSchema>
+
+export const ServeSmsDraftResponseSchema = z.object({
+  draft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
+})
+export type ServeSmsDraftResponse = z.infer<typeof ServeSmsDraftResponseSchema>
+
+// --- Create --------------------------------------------------------------
+
+// Draft-first, like the Win p2p flow: the row is persisted `pending_payment`
+// before checkout, because the composed message can reach 1000 characters and
+// Stripe metadata caps a value at 500, so the poll pattern of carrying content
+// through checkout metadata cannot work here.
+//
+// No scheduledLocalTime. Serve sends at a fixed 11am local, matching what
+// polls already ships, so the time is a constant rather than a choice — see
+// docs/features/serve-sms.md, "Send timing".
+export const ServeSmsCreateRequestSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  message: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
+  imageUrl: z.string().url().optional(),
+  // The send day as a local calendar date. At least 2 business days out and
+  // no more than 30, weekends excluded; enforced server-side, not just by the
+  // picker.
+  scheduledLocalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  voterFileFilterId: z.number().int().positive(),
+})
+export type ServeSmsCreateRequest = z.infer<typeof ServeSmsCreateRequestSchema>
+
+export const ServeSmsCreateResponseSchema = z.object({
+  outreachId: z.number().int().positive(),
+  // Server-derived from the saved list with the opt-out scrub applied. Never
+  // a client count: this is what the pay step quotes.
+  recipientCount: z.number().int().nonnegative(),
+  excludedOptedOutCount: z.number().int().nonnegative(),
+  excludedDuplicateCount: z.number().int().nonnegative(),
+})
+export type ServeSmsCreateResponse = z.infer<
+  typeof ServeSmsCreateResponseSchema
+>
+
+// --- Results upload (staff) ----------------------------------------------
+
+// One parsed row of a fulfilment results CSV. Header spellings the analysis
+// pipeline already accepts are normalized to these before validation, so
+// fulfilment does not learn a second format.
+export const OutreachResultsUploadRowSchema = z.object({
+  phone: z.string().min(1),
+  content: z.string(),
+  receivedAt: z.coerce.date().optional(),
+})
+export type OutreachResultsUploadRow = z.infer<
+  typeof OutreachResultsUploadRowSchema
+>
+
+// Reported before anything is committed. Silent partial failure is the
+// current failure mode of the `aws s3 cp` path this replaces, so the count
+// that matters most is `unmatched`: rows whose number belongs to nobody on
+// this send.
+export const OutreachResultsParseReportSchema = z.object({
+  rowsParsed: z.number().int().nonnegative(),
+  matched: z.number().int().nonnegative(),
+  unmatched: z.number().int().nonnegative(),
+  optOuts: z.number().int().nonnegative(),
+  // Present on a dry run; absent once the rows are written.
+  committed: z.boolean(),
+})
+export type OutreachResultsParseReport = z.infer<
+  typeof OutreachResultsParseReportSchema
+>
+
+// A send awaiting results, for the staff results inbox. The inbox is what
+// makes "we never got results back" visible rather than absent.
+export const OutreachAwaitingResultsItemSchema = z.object({
+  outreachId: z.number().int().positive(),
+  name: z.string().nullable(),
+  organizationSlug: z.string(),
+  outreachType: z.string(),
+  recipientCount: z.number().int().nonnegative(),
+  sentAt: z.coerce.date().nullable(),
+  expectedBy: z.coerce.date().nullable(),
+})
+export type OutreachAwaitingResultsItem = z.infer<
+  typeof OutreachAwaitingResultsItemSchema
+>
+
+export const OutreachAwaitingResultsResponseSchema = z.object({
+  items: z.array(OutreachAwaitingResultsItemSchema),
+})
+export type OutreachAwaitingResultsResponse = z.infer<
+  typeof OutreachAwaitingResultsResponseSchema
+>

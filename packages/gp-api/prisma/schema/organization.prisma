@@ -24,6 +24,7 @@ model Organization {
   contactNotes                      ContactNote[]
   contactInteractionDoorKnocks      ContactInteractionDoorKnock[]
   contactInteractionTexts           ContactInteractionText[]
+  outreachTextRecipients      OutreachTextRecipient[]
   contactInteractionRobocalls       ContactInteractionRobocall[]
   contactInteractionPhoneBankings   ContactInteractionPhoneBanking[]
   phoneBankingLists                 PhoneBankingList[]

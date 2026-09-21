@@ -966,6 +966,24 @@ export {
   type SmsDraftResponse,
 } from './outreach/OutreachSms.schema'
 export {
+  ServeSmsDraftRequestSchema,
+  type ServeSmsDraftRequest,
+  ServeSmsDraftResponseSchema,
+  type ServeSmsDraftResponse,
+  ServeSmsCreateRequestSchema,
+  type ServeSmsCreateRequest,
+  ServeSmsCreateResponseSchema,
+  type ServeSmsCreateResponse,
+  OutreachResultsUploadRowSchema,
+  type OutreachResultsUploadRow,
+  OutreachResultsParseReportSchema,
+  type OutreachResultsParseReport,
+  OutreachAwaitingResultsItemSchema,
+  type OutreachAwaitingResultsItem,
+  OutreachAwaitingResultsResponseSchema,
+  type OutreachAwaitingResultsResponse,
+} from './outreach/ServeSms.schema'
+export {
   SMS_APPROVAL_STATUS_VALUES,
   SmsApprovalStatusSchema,
   type SmsApprovalStatus,
