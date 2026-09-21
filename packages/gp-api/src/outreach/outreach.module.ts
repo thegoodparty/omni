@@ -20,6 +20,7 @@ import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
 import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
+import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachAssignmentController } from './outreachAssignment.controller'
@@ -28,6 +29,7 @@ import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
 import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
+import { OutreachServeSmsController } from './outreachServeSms.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachServePhoneBankingController } from './outreachServePhoneBanking.controller'
 import { OutreachDoorKnockingController } from './outreachDoorKnocking.controller'
@@ -53,6 +55,8 @@ import { OutreachSocialGenerationService } from './services/outreachSocialGenera
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
+import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
+import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
@@ -112,6 +116,10 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     // For HubspotSingleSendService, the robocall payment/receipt single-send
     // cutover (ENG-11035).
     CrmModule,
+    // For QueueProducerService, which OutreachServeSmsPurchaseHandlerService
+    // uses to enqueue `outreachTextSend` from its post-purchase step. The
+    // producer module imports nothing, so this edge adds no cycle.
+    QueueProducerModule,
   ],
   controllers: [
     OutreachController,
@@ -123,6 +131,9 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachDoorKnockingController,
     OutreachServeDoorKnockingController,
     OutreachSmsController,
+    // Carries BOTH Serve SMS routes: POST /v1/outreach/serve/sms/draft and
+    // POST /v1/outreach/serve/sms. Neither path existed until this line.
+    OutreachServeSmsController,
     OutreachRobocallController,
     OutreachRobocallAudioController,
     OutreachSmsAdminController,
@@ -159,6 +170,10 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachPhoneBankingGenerationService,
     OutreachDoorKnockingGenerationService,
     OutreachSmsGenerationService,
+    // The Serve SMS product layer: draft-first create, and the purchase
+    // handler its checkout runs through.
+    OutreachServeSmsCreateService,
+    OutreachServeSmsPurchaseHandlerService,
     OutreachRobocallGenerationService,
     OutreachRobocallService,
     OutreachRobocallHoldService,
@@ -196,12 +211,16 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachService,
     OutreachPurchaseHandlerService,
     OutreachAssignmentService,
+    // The queue consumer's `outreachTextSend` case calls `requestSend` on
+    // this; QueueConsumerModule imports OutreachModule to reach it.
+    OutreachTextDeliveryService,
   ],
 })
 export class OutreachModule {
   constructor(
     private readonly purchaseService: PurchaseService,
     private readonly outreachPurchaseHandler: OutreachPurchaseHandlerService,
+    private readonly serveSmsPurchaseHandler: OutreachServeSmsPurchaseHandlerService,
   ) {
     this.purchaseService.registerPurchaseHandler(
       PurchaseType.TEXT,
@@ -212,6 +231,25 @@ export class OutreachModule {
       PurchaseType.TEXT,
       (sessionId, metadata) =>
         this.outreachPurchaseHandler.executePostPurchase(sessionId, metadata),
+    )
+
+    // Serve SMS is its own PurchaseType, not a branch inside TEXT: the TEXT
+    // handler prices off Peerly's leads_loaded and its post-purchase step
+    // returns early unless a campaignId is present and outreachType is p2p.
+    // A Serve row has neither. Registration mirrors TEXT above and POLL in
+    // polls.module.ts.
+    //
+    // PurchaseService.getPaymentType must also map SERVE_TEXT, or checkout
+    // throws out of its default branch before any of this is reached.
+    this.purchaseService.registerPurchaseHandler(
+      PurchaseType.SERVE_TEXT,
+      this.serveSmsPurchaseHandler,
+    )
+
+    this.purchaseService.registerCheckoutSessionPostPurchaseHandler(
+      PurchaseType.SERVE_TEXT,
+      (sessionId, metadata) =>
+        this.serveSmsPurchaseHandler.executePostPurchase(sessionId, metadata),
     )
   }
 }
