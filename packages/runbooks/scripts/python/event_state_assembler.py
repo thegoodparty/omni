@@ -8,6 +8,7 @@ byte-identical to the health monitor's because both go through reconcile()/class
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -87,6 +88,23 @@ def _num(value: Any) -> Any:
     return value
 
 
+ANCHOR_STATE = Path(__file__).parent / "instrumentation_data" / "event_anchors.json"
+
+
+def accepted_anchors(path: Path | None = None) -> dict[str, dict]:
+    """{event_type: anchor} for the rows a reviewer has accepted. Govern is still the
+    source of truth for `fires_on`/`url` — build_rows only reaches for an anchor where
+    Govern carries nothing — but nothing writes the accepted anchors back to Govern yet
+    (DATA-2434), so without this the two columns the sheet was reordered around stay
+    blank for every event."""
+    state_path = path or ANCHOR_STATE
+    if not state_path.exists():
+        return {}
+    state = json.loads(state_path.read_text())
+    return {event_id: entry for event_id, entry in state.items()
+            if entry.get("disposition") == "accepted"}
+
+
 def questions_by_event(behaviors: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
     """{event_type: sorted questions it helps answer}. This answers "why do we track this" in
     the place people already have open, which is why it belongs on the events tab and not
@@ -105,6 +123,7 @@ def build_rows(
     catalog_by_type: Mapping[str, Mapping[str, Any]],
     code_map: Mapping[str, Mapping[str, Any]],
     questions_by_type: Mapping[str, Sequence[str]] | None = None,
+    anchors_by_type: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict]:
     """Project reconcile records + catalog + provenance into COLUMNS rows, most-recently
     touched-in-code first (rows with no provenance date sort last; 30d volume breaks ties)."""
@@ -114,6 +133,7 @@ def build_rows(
         cat = catalog_by_type.get(event_type, {})
         prov = code_map.get(event_type, {})
         gpmeta = rec.get("gpmeta") or {}
+        anchor = (anchors_by_type or {}).get(event_type) or {}
         supersession = (gpmeta.get("supersession") or "").strip()
         if supersession.lower() == "original":
             supersession = ""
@@ -121,8 +141,8 @@ def build_rows(
             {
                 "event": cat.get("govern_display_name") or event_type,
                 "description": _blank(gpmeta.get("purpose")),
-                "where_it_fires": _blank(gpmeta.get("fires_on")),
-                "url": _blank(gpmeta.get("url")),
+                "where_it_fires": _blank(gpmeta.get("fires_on") or anchor.get("fires_on")),
+                "url": _blank(gpmeta.get("url") or anchor.get("url")),
                 "status": rec["status"],
                 "last_seen_date": _blank(cat.get("last_seen_date")),
                 "event_count_30d": _num(cat.get("event_count_30d", rec.get("event_count_30d", 0))),
@@ -205,12 +225,14 @@ def assemble(
     run_query=execute_query,
     code_csv: Path | None = None,
     overrides: Mapping[str, Mapping[str, Any]] | None = None,
+    anchors_path: Path | None = None,
 ) -> dict:
     """Load the catalog + provenance, derive status via the shared reconcile(), and project
     into the 24-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
     to this surface — while still yielding the authoritative status for every event.
     ``overrides`` maps event_type -> {govern_*} to overlay Amplitude-direct metadata onto
-    (or inject rows into) the Databricks catalog (DATA-2053)."""
+    (or inject rows into) the Databricks catalog (DATA-2053). ``anchors_path`` overrides
+    the accepted-anchor state the `where_it_fires`/`url` fallback reads (DATA-2426)."""
     catalog = fetch_catalog(run_query)
     catalog = _apply_overrides(catalog, overrides)
     code_map = aeh.load_code_axis(code_csv) if code_csv else aeh.load_code_axis()
@@ -227,7 +249,8 @@ def assemble(
     catalog_by_type = {row["event_type"]: row for row in catalog}
     behaviors = br.load_behaviors(aeh.WATCHLIST)
     rows = build_rows(
-        reconciled["records"], catalog_by_type, code_map, questions_by_event(behaviors)
+        reconciled["records"], catalog_by_type, code_map, questions_by_event(behaviors),
+        accepted_anchors(anchors_path),
     )
     return {
         "rows": rows,
