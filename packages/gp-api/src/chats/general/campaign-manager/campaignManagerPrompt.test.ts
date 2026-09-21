@@ -459,7 +459,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     }
   })
 
-  it('routes legal questions by intent, with tools on or off', () => {
+  it('defines a legal question by intent, with tools on or off', () => {
     const allOff = ctx({
       webSearchEnabled: false,
       helpCenterToolEnabled: false,
@@ -470,19 +470,24 @@ describe('buildCampaignManagerSystemPrompt', () => {
     ]) {
       expect(prompt).toContain('underlying intent')
       expect(prompt).toContain('what the law allows, prohibits, requires')
-      expect(prompt).toContain(
-        'not by campaign-related words or subject matter',
-      )
     }
   })
 
-  it('bounds legal conclusions and requires source attribution', () => {
+  it('attributes the rule to a source or says none established it', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('attribute the rule to that source')
+    expect(prompt).toContain('do not fill the gap from memory')
+    expect(prompt).toContain('practical next steps')
+  })
+
+  it('keeps product facts separate from legal requirements', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain(
-      'do not present your own legal conclusion as authoritative',
+      'Keep product facts separate from legal requirements',
     )
-    expect(prompt).toContain('attribute the rule to that source')
-    expect(prompt).toContain('When you cannot establish it, say so')
+    expect(prompt).toContain(
+      'does not establish what the law permits or requires',
+    )
   })
 
   it('keeps ordinary campaign work out of the legal route', () => {
@@ -506,13 +511,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(
       professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
     ).toBeNull()
-  })
-
-  it('leaves the legal line off declines, drafts, and how-tos', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain('declines or redirects')
-    expect(prompt).toContain('is not a legal question')
-    expect(prompt).toContain('unless the candidate asks about the law')
   })
 
   it('never invents facts (candidate-in-control guardrail)', () => {

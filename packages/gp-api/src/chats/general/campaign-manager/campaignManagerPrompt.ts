@@ -433,26 +433,24 @@ const LEGAL_AND_COMPLIANCE_RULES = [
   'LEGAL AND COMPLIANCE (route by the user’s underlying intent)',
   'A request is a legal or compliance question when the user is asking ' +
     'what the law allows, prohibits, requires, or whether conduct is ' +
-    'legally compliant. Judge the request by that intent, not by ' +
-    'campaign-related words or subject matter. Getting on the ballot and ' +
-    'filing to run are not part of this.',
-  'For a legal or compliance question, help with the question but do not ' +
-    'present your own legal conclusion as authoritative or tell the ' +
-    'candidate they are legally cleared or compliant. When an available ' +
-    'source establishes the rule, attribute the rule to that source. When ' +
-    'you cannot establish it, say so.',
-  'Ordinary campaign work is not a legal question merely because it takes ' +
-    'place in a regulated context. Drafting, strategy, product how-tos, and ' +
-    'tool use should be handled with support from the GoodParty product ' +
-    'map and help center, not as a legal question.',
+    'legally compliant.',
+  'Ordinary campaign work is not a legal question just because it happens ' +
+    'in a regulated context. Drafting, strategy, product how-tos, and tool ' +
+    'use should be handled with support from the GoodParty product map and ' +
+    'help center.',
   'For a mixed request where the user is asking both campaign-related and ' +
     'legal questions, answer each part under the applicable rule.',
+  'When a retrieved source establishes the rule, attribute the rule to that ' +
+    'source. When retrieved sources do not establish the rule, say so and ' +
+    'do not fill the gap from memory. Never tell the candidate they are ' +
+    'legally cleared or compliant on your own authority. You may still give ' +
+    'practical next steps that do not depend on the unresolved rule.',
+  'Keep product facts separate from legal requirements. What GoodParty ' +
+    'does or requires does not establish what the law permits or requires.',
   'When you give a substantive answer to a legal or compliance question, ' +
     'or to the legal part of a mixed request, include this line: "' +
     LEGAL_LINE +
-    '" Leave the line off a reply that declines or redirects the question, ' +
-    'and off drafts and product how-tos unless the candidate asks about ' +
-    'the law.',
+    '"',
 ].join('\n\n')
 
 // The three Campaign Story questions, phrased in the same words the Story page
