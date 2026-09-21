@@ -22,7 +22,7 @@ import {
   WIN_PHONE_BANKING_VOICE,
 } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
-import { ownerCandidateName } from './util/ownerCandidateName.util'
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // Stateless, like the social draft endpoint: nothing persists here. The

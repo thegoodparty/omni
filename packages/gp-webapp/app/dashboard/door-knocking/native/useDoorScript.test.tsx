@@ -10,9 +10,14 @@ const useUserMock = vi.fn()
 const useDoorKnockingServeModeMock = vi.fn()
 const useDoorKnockingOfficeNameMock = vi.fn()
 const useDoorKnockingCanvasserMock = vi.fn()
+const useOrganizationRoleMock = vi.fn()
 
 vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: unknown[]) => clientRequestMock(...args),
+}))
+
+vi.mock('@shared/organization-picker', () => ({
+  useOrganizationRole: () => useOrganizationRoleMock(),
 }))
 
 vi.mock('@shared/hooks/useCampaign', () => ({
@@ -79,6 +84,8 @@ beforeEach(() => {
     isVolunteer: false,
     representing: null,
   })
+  useOrganizationRoleMock.mockReset()
+  useOrganizationRoleMock.mockReturnValue(undefined)
   clientRequestMock.mockResolvedValue({ data: [] })
 })
 
@@ -438,6 +445,62 @@ describe('useDoorScript', () => {
         'Ask.',
         DEPARTURE_NOTE,
       ])
+    })
+  })
+
+  // A Campaign Manager is not a volunteer, so they walk the candidate branch
+  // — which had the script claim they are running for office (ENG-11139).
+  describe('for a campaign manager', () => {
+    it('states the affiliation with the owner, not a candidacy', () => {
+      useUserMock.mockReturnValue([{ firstName: 'Sam', lastName: 'Reed' }])
+      useOrganizationRoleMock.mockReturnValue('campaignAdmin')
+      useCampaignMock.mockReturnValue([
+        campaign({ ownerName: 'Jane Doe' } as Partial<Campaign>),
+      ])
+
+      const { result } = renderHook(() => useDoorScript(), { wrapper })
+
+      expect(result.current.intro).toBe(
+        "Hi, I'm Sam Reed, and I'm with Jane Doe's campaign for City Council.",
+      )
+    })
+
+    it('keeps the candidate intro for the owner role', () => {
+      useOrganizationRoleMock.mockReturnValue('owner')
+
+      const { result } = renderHook(() => useDoorScript(), { wrapper })
+
+      expect(result.current.intro).toBe(
+        "Hi, I'm Jane Doe, running for City Council.",
+      )
+    })
+
+    // The issue stances are the campaign's, not the walker's — a manager
+    // reads the same card the candidate does.
+    it('still reads the campaign stances under the opener', async () => {
+      useOrganizationRoleMock.mockReturnValue('campaignAdmin')
+      useCampaignMock.mockReturnValue([
+        campaign({ ownerName: 'Jane Doe' } as Partial<Campaign>),
+      ])
+      clientRequestMock.mockResolvedValue({
+        data: [
+          {
+            id: 1,
+            description: 'Fund the shelter.',
+            order: 0,
+            topIssue: { id: 5, name: 'Housing' },
+            position: null,
+          },
+        ],
+      })
+
+      const { result } = renderHook(() => useDoorScript(), { wrapper })
+
+      await waitFor(() =>
+        expect(result.current.issues.map((issue) => issue.title)).toEqual([
+          'Housing',
+        ]),
+      )
     })
   })
 })
