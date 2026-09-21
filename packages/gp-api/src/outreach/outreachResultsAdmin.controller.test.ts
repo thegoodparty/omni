@@ -1,0 +1,292 @@
+import { addBusinessDays, parseISO } from 'date-fns'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { useTestService } from '@/test-service'
+import {
+  Outreach,
+  OutreachStatus,
+  OutreachType,
+  PollIndividualMessageSender,
+  UserRole,
+} from '../generated/prisma'
+
+// Driven through the real routes rather than by instantiating the controller:
+// the guard, the Zod body pipe and the response interceptor are all part of
+// what gp-admin was built against, and the routes themselves ARE the contract
+// — task A8 wrote the page against these three paths before they existed.
+
+const service = useTestService()
+
+const ORG_SLUG = 'serve-org-results'
+const SCHEDULED_LOCAL_DATE = '2026-08-10'
+const BASE = '/v1/outreach/admin/results'
+
+const PERSON_1 = { personId: 'person-1', phone: '+13035550101' }
+const PERSON_2 = { personId: 'person-2', phone: '(303) 555-0102' }
+
+const RESULTS_CSV = [
+  'Contact Phone Number,Message Text,Sent At',
+  '3035550101,The potholes on Elm are getting worse,2026-08-11T15:04:05.000Z',
+  '+1 (303) 555-0102,STOP,2026-08-11T16:00:00.000Z',
+].join('\n')
+
+let outreach: Outreach
+
+const createSend = (
+  status: OutreachStatus,
+  outreachType: OutreachType = OutreachType.text,
+) =>
+  service.prisma.outreach.create({
+    data: {
+      organizationSlug: ORG_SLUG,
+      outreachType,
+      status,
+      name: 'September newsletter text',
+      message: 'Hi from the Mayor. Reply STOP to opt out.',
+      scheduledLocalDate: SCHEDULED_LOCAL_DATE,
+    },
+  })
+
+// What the delivery layer writes at handoff. Its presence, not the spine
+// status, is what means a human has this send.
+const addRecipients = async (outreachId: number) => {
+  const recipients = [PERSON_1, PERSON_2]
+  await service.prisma.outreachTextRecipient.createMany({
+    data: recipients.map((recipient) => ({
+      outreachId,
+      organizationSlug: ORG_SLUG,
+      personId: recipient.personId,
+      phone: recipient.phone,
+    })),
+  })
+  await service.prisma.contactInteractionText.createMany({
+    data: recipients.map((recipient) => ({
+      outreachId,
+      organizationSlug: ORG_SLUG,
+      personId: recipient.personId,
+      occurredAt: new Date(),
+    })),
+  })
+}
+
+const getQueue = () => service.client.get(`${BASE}/queue`)
+const getTarget = (outreachId: number) =>
+  service.client.get(`${BASE}/${outreachId}`)
+const post = (
+  outreachId: number,
+  body: Record<string, unknown>,
+  headers?: Record<string, string>,
+) => service.client.post(`${BASE}/${outreachId}`, body, { headers })
+
+const upload = (csv: string, dryRun: boolean, outreachId = outreach.id) =>
+  post(outreachId, {
+    fileName: 'results.csv',
+    csv,
+    dryRun,
+    sourceLabel: 'gp-admin upload by staffer@goodparty.org',
+  })
+
+const messageCount = () =>
+  service.prisma.pollIndividualMessage.count({
+    where: { outreachId: outreach.id },
+  })
+
+const statusOf = async (outreachId: number) =>
+  (
+    await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreachId },
+    })
+  ).status
+
+beforeEach(async () => {
+  // The whole surface is AdminOrM2M-gated and the default test user is not an
+  // admin, so every test but the 403 one needs the promotion.
+  await service.prisma.user.update({
+    where: { id: service.user.id },
+    data: { roles: [UserRole.admin] },
+  })
+  await service.prisma.organization.create({
+    data: { slug: ORG_SLUG, ownerId: service.user.id, positionId: 'pos-1' },
+  })
+  await service.prisma.electedOffice.create({
+    data: { organizationSlug: ORG_SLUG, userId: service.user.id },
+  })
+  outreach = await createSend(OutreachStatus.in_progress)
+  await addRecipients(outreach.id)
+})
+
+describe('GET /v1/outreach/admin/results/queue', () => {
+  it('lists a handed-off send with counts read off the recipient map', async () => {
+    const result = await getQueue()
+
+    expect(result.status).toBe(200)
+    expect(result.data.items).toHaveLength(1)
+    expect(result.data.items[0]).toMatchObject({
+      outreachId: outreach.id,
+      name: 'September newsletter text',
+      organizationSlug: ORG_SLUG,
+      outreachType: OutreachType.text,
+      recipientCount: 2,
+      // Three business days after the scheduled day — the same promise polls
+      // already makes, so the two Serve products say one thing.
+      expectedBy: addBusinessDays(
+        parseISO(SCHEDULED_LOCAL_DATE),
+        3,
+      ).toISOString(),
+    })
+    expect(result.data.items[0].sentAt).not.toBeNull()
+  })
+
+  it('omits a send that has not reached fulfilment yet', async () => {
+    // `in_progress` alone is not enough: delivery claims the spine a beat
+    // before it resolves the audience, and reverts the claim on failure.
+    await createSend(OutreachStatus.in_progress)
+    const result = await getQueue()
+    expect(
+      result.data.items.map((item: { outreachId: number }) => item.outreachId),
+    ).toEqual([outreach.id])
+  })
+
+  it('omits a send whose results already came back', async () => {
+    const done = await createSend(OutreachStatus.completed)
+    await addRecipients(done.id)
+    const result = await getQueue()
+    expect(
+      result.data.items.map((item: { outreachId: number }) => item.outreachId),
+    ).toEqual([outreach.id])
+  })
+
+  it('is refused for a signed-in user who is not an admin', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.candidate] },
+    })
+    expect((await getQueue()).status).toBe(403)
+  })
+})
+
+describe('GET /v1/outreach/admin/results/:outreachId', () => {
+  it('returns what the page must show before it accepts a file', async () => {
+    const result = await getTarget(outreach.id)
+
+    expect(result.status).toBe(200)
+    expect(result.data).toMatchObject({
+      outreachId: outreach.id,
+      message: 'Hi from the Mayor. Reply STOP to opt out.',
+      imageUrl: null,
+      recipientCount: 2,
+      resultsReceivedAt: null,
+    })
+  })
+
+  it('stays openable after results land, and says they did', async () => {
+    await upload(RESULTS_CSV, false)
+    const result = await getTarget(outreach.id)
+    expect(result.data.resultsReceivedAt).not.toBeNull()
+  })
+
+  it('404s anything that is not a text send: this surface is SMS-only', async () => {
+    const other = await createSend(
+      OutreachStatus.in_progress,
+      OutreachType.socialMedia,
+    )
+    expect((await getTarget(other.id)).status).toBe(404)
+  })
+})
+
+describe('POST /v1/outreach/admin/results/:outreachId', () => {
+  it('writes nothing on a dry run and says so', async () => {
+    const result = await upload(RESULTS_CSV, true)
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({
+      rowsParsed: 2,
+      matched: 2,
+      unmatched: 0,
+      optOuts: 1,
+      committed: false,
+    })
+    expect(await messageCount()).toBe(0)
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
+  })
+
+  it('commits the same file through the shared ingest', async () => {
+    const result = await upload(RESULTS_CSV, false)
+
+    expect(result.data).toEqual({
+      rowsParsed: 2,
+      matched: 2,
+      unmatched: 0,
+      // Server-computed from the one opt-out predicate, not from anything
+      // the page or the file claimed.
+      optOuts: 1,
+      committed: true,
+    })
+    const messages = await service.prisma.pollIndividualMessage.findMany({
+      where: { outreachId: outreach.id },
+    })
+    expect(messages).toHaveLength(2)
+    expect(
+      messages.every(
+        (message) => message.sender === PollIndividualMessageSender.CONSTITUENT,
+      ),
+    ).toBe(true)
+    const optedOut =
+      await service.prisma.contactInteractionText.findUniqueOrThrow({
+        where: {
+          outreachId_personId: {
+            outreachId: outreach.id,
+            personId: PERSON_2.personId,
+          },
+        },
+      })
+    expect(optedOut.optedOutAt).not.toBeNull()
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.completed)
+  })
+
+  it('counts a row the parse threw out as a row that matched nobody', async () => {
+    const result = await upload(
+      `${RESULTS_CSV}\n,A reply with no number attached\n`,
+      true,
+    )
+    // The operator uploaded three rows; one of them can never match, and
+    // reporting two would understate what they handed over.
+    expect(result.data.rowsParsed).toBe(3)
+    expect(result.data.matched).toBe(2)
+    expect(result.data.unmatched).toBe(1)
+  })
+
+  it('refuses a file cut off mid-value before anything is written', async () => {
+    const result = await upload(
+      'phone_number,message_text\n3035550101,"cut off here',
+      false,
+    )
+    expect(result.status).toBe(400)
+    expect(await messageCount()).toBe(0)
+  })
+
+  it('refuses a file whose rows can none of them be used', async () => {
+    const result = await upload(
+      'phone_number,message_text\n,nothing to attach this to\n',
+      false,
+    )
+    expect(result.status).toBe(400)
+    expect(await messageCount()).toBe(0)
+  })
+
+  it('refuses a body that is not an upload request', async () => {
+    expect((await post(outreach.id, { csv: RESULTS_CSV })).status).toBe(400)
+  })
+
+  it('404s an outreach that does not exist', async () => {
+    expect((await upload(RESULTS_CSV, true, 987654321)).status).toBe(404)
+  })
+
+  it('is refused for a signed-in user who is not an admin', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.candidate] },
+    })
+    expect((await upload(RESULTS_CSV, true)).status).toBe(403)
+    expect(await messageCount()).toBe(0)
+  })
+})

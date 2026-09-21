@@ -982,6 +982,10 @@ export {
   type OutreachAwaitingResultsItem,
   OutreachAwaitingResultsResponseSchema,
   type OutreachAwaitingResultsResponse,
+  OutreachResultsTargetSchema,
+  type OutreachResultsTarget,
+  OutreachResultsUploadRequestSchema,
+  type OutreachResultsUploadRequest,
 } from './outreach/ServeSms.schema'
 export {
   SMS_APPROVAL_STATUS_VALUES,

@@ -25,6 +25,8 @@ import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachAssignmentController } from './outreachAssignment.controller'
 import { OutreachSmsAdminController } from './outreachSmsAdmin.controller'
+import { OutreachResultsAdminController } from './outreachResultsAdmin.controller'
+import { OutreachResultsAdminService } from './services/outreachResultsAdmin.service'
 import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
 import { OutreachSmsController } from './outreachSms.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
@@ -137,6 +139,9 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachRobocallController,
     OutreachRobocallAudioController,
     OutreachSmsAdminController,
+    // The staff results surface: the awaiting-results queue and the per-send
+    // upload that replaces fulfilment's `aws s3 cp` line for SMS.
+    OutreachResultsAdminController,
   ],
   providers: [
     OutreachService,
@@ -165,6 +170,11 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
       }),
     },
     OutreachSmsAdminService,
+    // Depends only on OutreachTextIngestService (provided above) and Prisma,
+    // so registering it cannot unbind the module. That matters: a provider
+    // with an unbindable dependency takes down every suite that builds
+    // OutreachModule, not just this one.
+    OutreachResultsAdminService,
     OutreachSocialService,
     OutreachSocialGenerationService,
     OutreachPhoneBankingGenerationService,
