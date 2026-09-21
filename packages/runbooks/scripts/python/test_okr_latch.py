@@ -195,8 +195,14 @@ def test_total_silence_latches_and_an_existing_latch_survives_it():
     # count the leg ever had, so it never reads as broken -- or, worse, an already-latched
     # record would read that stale healthy count as a fresh recovery and clear itself.
     key = "Dashboard - Campaign Plan Viewed"
-    # Only 4 real weeks are ever returned; the leg goes silent after that.
-    raw_series = {key: _weeks([700, 680, 660, 690])}
+    # Only 4 real weeks are ever returned for this leg; it goes silent after that. A second,
+    # unrelated event with rows through week index 6 proves the warehouse loaded those later
+    # weeks for someone -- this leg's absence in them is real silence, not a warehouse gap
+    # (see Critical/item 3's own dedicated tests for that distinction in isolation).
+    raw_series = {
+        key: _weeks([700, 680, 660, 690]),
+        "Some Other Event": _weeks([50, 50, 50, 50, 50, 50, 50]),
+    }
 
     # First call: two silent weeks have passed beyond the last real data point. today is
     # chosen so densify fills weeks 5 and 6 in with zeros.
@@ -306,3 +312,85 @@ def test_malformed_prior_state_degrades_instead_of_raising():
     state_b = ol.update_latches(prior_b, series, WATCHED, today=W0 + timedelta(days=35))
     assert state_b[key]["consecutive"] == 1
     assert state_b[key]["latched"] is False
+
+
+def test_prior_missing_since_degrades_instead_of_indexerror():
+    # Fix round 3, item 1. Reviewer's exact repro: a prior with `reference`/`consecutive`/
+    # `latched` but no `since` at all, reaching the band path (this week, 40, is neither
+    # broken by the tight floor nor recovered against 682.5). Before this fix, the since
+    # fallback `weeks[len(weeks) - consecutive]` indexed `weeks[len(weeks)]` when
+    # `consecutive == 0` and raised IndexError -- every record this module ever writes
+    # itself sets `since`, so a record missing it is exactly the kind of untrustworthy
+    # persisted state Minor 7 already degrades rather than crashes on.
+    key = "Dashboard - Campaign Plan Viewed"
+    prior = {key: {"metric": "win_active_candidates_30d", "reference": 682.5,
+                    "consecutive": 4, "latched": True}}  # no "since"
+    series = {key: _weeks([700, 680, 660, 690, 20, 18, 22, 40])}
+    state = ol.update_latches(prior, series, WATCHED, today=W0 + timedelta(days=56))
+    # Must not raise. Degrading the whole record to "no prior" means this specific band
+    # week (not itself broken by the tight floor) produces no record rather than crashing.
+    assert key not in state
+
+
+def test_densify_truncating_to_empty_degrades_instead_of_indexerror():
+    # Fix round 3, item 2. `_densify` can return `[]` when the leg's first observed week is
+    # later than the window it's allowed to fill (here, `today` predates the leg's own
+    # first row). The line right after densify used to do `weeks[-1][1]` unconditionally,
+    # which raises IndexError on an empty list. Not reachable once B4 derives `today` from
+    # the same clock as the query window, but this module must degrade, not crash, on it.
+    key = "Dashboard - Campaign Plan Viewed"
+    series = {key: _weeks([700, 680, 660, 690, 20])}
+    # today lands on the leg's own first observed week, so the "most recent complete week"
+    # is a week before any data exists at all -- the forward-fill loop never runs once.
+    state = ol.update_latches({}, series, WATCHED, today=W0)
+    assert key not in state  # must not raise, and there is nothing to latch on
+
+
+def test_warehouse_gap_does_not_latch_a_healthy_leg():
+    # Fix round 3, item 3, direction A. R15's own promise ("never create [a latch] from
+    # absence, which would fire on a warehouse gap") broke the moment densify started
+    # zero-filling purely off `today`: a leg that is the ONLY event in `series` and simply
+    # has no rows for the last two weeks looks identical to a leg that went silent. Without
+    # any other event proving the warehouse loaded those weeks, they must not be
+    # fabricated as zeros -- reviewer's exact repro: 700/week for six weeks, "latched: True,
+    # reference: 525" if this regresses.
+    key = "Dashboard - Campaign Plan Viewed"
+    series = {key: _weeks([700, 700, 700, 700, 700, 700])}  # nothing else in `series` at all
+    state = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=56))
+    assert key not in state, (
+        "a gap where no event has rows must not be fabricated as a break for a healthy leg"
+    )
+
+
+def test_leg_specific_silence_still_latches_when_other_events_have_rows():
+    # Fix round 3, item 3, direction B. The mirror of the test above: when some OTHER event
+    # in `series` has rows through the same later weeks, the warehouse clearly loaded them,
+    # so this leg's own absence in them is real, leg-specific silence and must still latch.
+    key = "Dashboard - Campaign Plan Viewed"
+    series = {
+        key: _weeks([700, 700, 700, 700, 700, 700]),  # silent for weeks 6 and 7
+        "Some Other Event": _weeks([50, 50, 50, 50, 50, 50, 50, 50]),  # has rows through week 7
+    }
+    state = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=56))
+    assert key in state, (
+        "a gap where other events DO have rows must still read as this leg going silent"
+    )
+    assert state[key]["latched"] is True
+
+
+def test_densify_never_fills_backward_past_the_first_observed_week():
+    # Fix round 3, item 4. Reviewer's exact finding: starting the fill cursor four weeks
+    # before the first observed week still passes every other test in this file, because
+    # every other fixture has at least five observed weeks, so fabricated leading zeros
+    # never reach `_reference`'s window. With only two real observed weeks and no backward
+    # fill, there are only ever 2 weeks total -- below MIN_BASELINE_WEEKS -- so no record can
+    # be judged at all. A backward fill of 4 weeks would fabricate 6 total weeks (4 fake
+    # zeros + these 2 real ones), which is enough for `_reference` to compute a depressed
+    # reference from fabricated history and wrongly judge the real, second week as broken.
+    key = "Dashboard - Campaign Plan Viewed"
+    series = {key: _weeks([700, 0])}  # only 2 real observed weeks
+    state = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=14))
+    assert key not in state, (
+        "two real weeks is too little history to judge -- backward-filled fabricated "
+        "history must not manufacture enough weeks to produce a (wrong) verdict"
+    )

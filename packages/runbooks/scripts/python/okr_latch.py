@@ -92,15 +92,38 @@ def _consecutive_broken(weeks: Sequence[tuple[date, int]], reference: float) -> 
     return count
 
 
-def _densify(weeks: Sequence[tuple[date, int]], today: date) -> list[tuple[date, int]]:
-    """Zero-fill from a leg's first observed week through the most recent complete week.
+def _warehouse_last_loaded(series: Mapping[str, Sequence[tuple[date, int]]]) -> date | None:
+    """The most recent week for which *any* event in the warehouse has rows.
+
+    "This leg has no rows for week N" is ambiguous on its own: it means either the leg went
+    silent (a real break) or the warehouse simply hadn't loaded week N yet for anyone (an
+    ingestion gap). The two are distinguishable only by looking outside the one leg being
+    judged — if some other event in `series` has rows for week N, the warehouse did load
+    that week, so a watched leg with no rows for it is silence, not a gap. If nothing in the
+    whole `series` mapping has rows for week N, there is no evidence the warehouse loaded it
+    at all, so it must not be fabricated as a zero (R15 follow-up, DATA-2421 review).
+    """
+    last: date | None = None
+    for weeks in series.values():
+        for week_start, _ in weeks:
+            if last is None or week_start > last:
+                last = week_start
+    return last
+
+
+def _densify(
+    weeks: Sequence[tuple[date, int]], today: date, warehouse_last_loaded: date | None
+) -> list[tuple[date, int]]:
+    """Zero-fill from a leg's first observed week through the most recent *loaded* week.
 
     A leg that stops firing entirely — a route rename, a removed `trackEvent` call — stops
     producing rows for the missing weeks rather than producing zero-count rows. Without this,
     the series' last entry stays the last *healthy* week the leg ever fired: it reads as
     never-broken, or worse, as a fresh recovery that clears an existing latch (R15,
     DATA-2421). This finally gives `today` a job: it defines where "most recent complete
-    week" is when the leg's own data has nothing to say about it.
+    week" is when the leg's own data has nothing to say about it — capped by
+    `warehouse_last_loaded` so a week nothing in the warehouse loaded is never fabricated as
+    a zero for a leg that was otherwise perfectly healthy.
 
     Never fills backward from the leg's first observed week — that would fabricate a broken
     pre-history for an instrument that simply hadn't been observed yet.
@@ -110,6 +133,8 @@ def _densify(weeks: Sequence[tuple[date, int]], today: date) -> list[tuple[date,
     step = timedelta(days=7)
     current_week_start = today - timedelta(days=today.weekday())
     last_complete = current_week_start - step
+    if warehouse_last_loaded is not None and warehouse_last_loaded < last_complete:
+        last_complete = warehouse_last_loaded
     observed = dict(weeks)
     filled: list[tuple[date, int]] = []
     cursor = weeks[0][0]
@@ -126,6 +151,11 @@ def _sanitize_record(raw: Any) -> dict[str, Any]:
     digest down over a corrupt state file. A record that isn't even a mapping, or whose
     `reference` doesn't round-trip to a number, can't be trusted for anything it stores —
     treating it as absent re-derives a fresh reference from the series instead of crashing.
+
+    Every branch that ever writes a record also sets `since`, so a non-empty record
+    missing it isn't a state this module produces itself — it's as untrustworthy as a
+    reference that doesn't round-trip. Left unguarded, the band-week `since` fallback
+    tries to index a trailing broken run of length 0 and raises IndexError.
     """
     if not isinstance(raw, Mapping):
         return {}
@@ -136,6 +166,8 @@ def _sanitize_record(raw: Any) -> dict[str, Any]:
             record["reference"] = float(reference)
         except (TypeError, ValueError):
             return {}
+    if record and record.get("since") is None:
+        return {}
     return record
 
 
@@ -151,19 +183,31 @@ def update_latches(
     which is how a re-declared anchor clears a latch.
     """
     state: dict[str, dict[str, Any]] = {}
+    warehouse_last_loaded = _warehouse_last_loaded(series)
     for key, metric in watched.items():
         raw_weeks = list(series.get(key) or [])
         record = _sanitize_record(prior.get(key))
 
         if not raw_weeks:
-            # No data at all this run. Hold any existing latch; never create one from
-            # absence, which would fire on a warehouse gap. Still refresh `metric` — the
-            # sem layer can rename a metric without the leg key changing.
+            # This leg has no rows at all — not even one, ever. That is a real, total
+            # absence, distinct from a warehouse-wide gap (see `_warehouse_last_loaded`):
+            # there is nothing here to distinguish "leg went silent" from "leg was never
+            # observed," so hold any existing latch and never create one from nothing.
+            # Still refresh `metric` — the sem layer can rename a metric without the leg
+            # key changing.
             if record:
                 state[key] = {**record, "metric": metric}
             continue
 
-        weeks = _densify(raw_weeks, today)
+        weeks = _densify(raw_weeks, today, warehouse_last_loaded)
+        if not weeks:
+            # The leg's first observed week is later than the window `_densify` allows
+            # (e.g. `today` predates it). Not currently reachable — B4 derives `today` and
+            # the query window from the same clock — but this module must degrade rather
+            # than index into an empty list.
+            if record:
+                state[key] = {**record, "metric": metric}
+            continue
         current = weeks[-1][1]
 
         # Explicit None check: a stored reference of 0.0 is falsy but still a real,
