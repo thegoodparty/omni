@@ -38,6 +38,7 @@ import type {
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  SmsOutreachReplies,
   SmsOutreachResults,
   SocialDraftRequest,
   SocialDraftResponse,
@@ -453,6 +454,26 @@ export type APIEndpoints = {
   'GET /v1/outreach/serve/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Serve's org-scoped results reads. Siblings of
+  // `GET /v1/outreach/:id/results`, scoped by organizationSlug with
+  // campaignId pinned null so an org that holds both a Campaign and an
+  // ElectedOffice cannot read its Win results here.
+  'GET /v1/outreach/serve/:id/results': {
+    Request: {}
+    Response: SmsOutreachResults
+  }
+
+  // The read-only reply list: first name, content, and the CRM facts the
+  // expandable panel shows. Serve-only — reply CONTENT is stored only for
+  // sends that came back through the shared ingest, which is the Serve
+  // fulfilment path; Win's Peerly sweep records timestamps and never bodies.
+  // `total` is every reply on the send, so "Show all {n} responses" can name
+  // a number it has not fetched.
+  'GET /v1/outreach/serve/:id/replies': {
+    Request: { limit?: number; offset?: number }
+    Response: SmsOutreachReplies
   }
 
   // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows

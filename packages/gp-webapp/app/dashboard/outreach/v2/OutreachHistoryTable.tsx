@@ -36,6 +36,7 @@ import {
   useOutreachDetail,
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
+import { fetchServeSmsResults, useSmsResults } from './useOutreachResults'
 
 const PAGE_SIZE = 10
 
@@ -225,13 +226,46 @@ const RowMetric = ({
 // missing-results placeholder. Social keeps it permanently (engagements are
 // cut from v1 by the social channel spec). nativePhoneBanking's results
 // (supporter count) are already computed on the detail, so it fills the slot.
+// A completed SMS row on the SERVE surface fills it too — see below.
+
+// The design's collapsed SMS row: "{responses} responses · {unsub} unsub",
+// off the same three numbers the Statistics card reads.
+//
+// Serve-only, and that is a scope line rather than a design one. Win's
+// Results column is still the placeholder described above, and filling it
+// would add a results fetch per completed text row to a surface that has not
+// asked for one. Give this the Win fetcher the day Win's column should fill.
+const ServeSmsResponsesMetric = ({ id }: { id: number }) => {
+  const { data } = useSmsResults(id, true, fetchServeSmsResults)
+  if (!data) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return (
+    <>
+      {data.responded.toLocaleString()} responses ·{' '}
+      {data.optedOut.toLocaleString()} unsub
+    </>
+  )
+}
+
+// Which result metric a row shows, by channel and by surface.
 const RowResults = ({
   row,
   detailFetcher,
+  isServe,
 }: {
   row: HistoryRow
   detailFetcher: OutreachDetailFetcher
+  isServe?: boolean
 }) => {
+  if (
+    isServe &&
+    row.status === 'completed' &&
+    (row.outreachType === OUTREACH_TYPES.text ||
+      row.outreachType === OUTREACH_TYPES.p2p)
+  ) {
+    return <ServeSmsResponsesMetric id={row.id} />
+  }
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
     return (
       <PhoneBankingSupportersMetric id={row.id} detailFetcher={detailFetcher} />
@@ -550,7 +584,11 @@ export const OutreachHistoryTable = ({
                       <RowMetric row={row} detailFetcher={detailFetcher} />
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      <RowResults row={row} detailFetcher={detailFetcher} />
+                      <RowResults
+                        row={row}
+                        detailFetcher={detailFetcher}
+                        isServe={isServe}
+                      />
                     </TableCell>
                     <TableCell className="text-right">
                       <HistoryStatusText label={displayStatusLabel(row)} />
@@ -602,7 +640,12 @@ export const OutreachHistoryTable = ({
                 </span>
                 <span className="text-xs text-muted-foreground">
                   <RowMetric row={row} compact detailFetcher={detailFetcher} />{' '}
-                  · <RowResults row={row} detailFetcher={detailFetcher} />
+                  ·{' '}
+                  <RowResults
+                    row={row}
+                    detailFetcher={detailFetcher}
+                    isServe={isServe}
+                  />
                 </span>
               </Card>
             )

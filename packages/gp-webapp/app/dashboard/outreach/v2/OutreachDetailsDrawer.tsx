@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  SmsOutreachResults,
   OutreachReceipt,
   PhoneBankCallOutcome,
   PhoneBankingOutreachDetail,
@@ -65,6 +64,12 @@ import {
   useOutreachDetail,
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
+import {
+  fetchServeSmsResults,
+  fetchSmsResults,
+  useSmsResults,
+} from './useOutreachResults'
+import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
@@ -269,18 +274,17 @@ export const OutreachDetailsDrawer = ({
 
   // The Statistics card (design prototype): counts + share of contacts for
   // a finished text campaign. Numbers refresh with the hourly report sweep.
-  const resultsQuery = useQuery({
-    queryKey: ['outreach-results', row?.id ?? -1],
-    queryFn: async (): Promise<SmsOutreachResults> => {
-      const { data } = await clientRequest('GET /v1/outreach/:id/results', {
-        id: String(row?.id),
-      })
-      return data
-    },
-    enabled: row !== null && isSms && isCompleted,
-    retry: false,
-    staleTime: 5 * 60 * 1000,
-  })
+  //
+  // The SAME card on both surfaces, from the same three numbers — the design
+  // renders one three-row card for the sms and polls channels alike, which is
+  // exactly SmsOutreachResultsSchema. Only the network differs, so the
+  // surface picks a fetcher the way it already picks `detailFetcher`, and the
+  // Win default is unchanged.
+  const resultsQuery = useSmsResults(
+    row?.id ?? null,
+    isSms && isCompleted,
+    isServe ? fetchServeSmsResults : fetchSmsResults,
+  )
   const results = resultsQuery.data ?? null
   const statRows = results
     ? [
@@ -790,6 +794,14 @@ export const OutreachDetailsDrawer = ({
                   ))}
                 </div>
               </DetailsSection>
+            )}
+
+            {/* Read-only for v1: no heart, no unread dot, no composer and no
+                filters — see ServeSmsRepliesSection's own note. Serve-only
+                because reply CONTENT only exists for sends that came back
+                through the shared ingest. */}
+            {isServe && isSms && isCompleted && (
+              <ServeSmsRepliesSection outreachId={row.id} />
             )}
 
             {isPaidFlowSms && (

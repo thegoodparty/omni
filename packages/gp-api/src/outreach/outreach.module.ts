@@ -18,6 +18,7 @@ import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { DoorKnockingModule } from '../doorKnocking/doorKnocking.module'
 import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
+import { PeopleQueryModule } from '../peopleDb/peopleQuery.module'
 import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { QueueProducerModule } from '../queue/producer/queueProducer.module'
@@ -55,6 +56,7 @@ import { OutreachSocialGenerationService } from './services/outreachSocialGenera
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
+import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
 import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
@@ -120,6 +122,10 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     // uses to enqueue `outreachTextSend` from its post-purchase step. The
     // producer module imports nothing, so this edge adds no cycle.
     QueueProducerModule,
+    // For VoterQueryService, which OutreachSmsRepliesService uses to put a
+    // first name on each reply. PeopleQueryModule imports only HttpModule and
+    // ClerkModule, so this edge adds no cycle and needs no forwardRef.
+    PeopleQueryModule,
   ],
   controllers: [
     OutreachController,
@@ -170,6 +176,9 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachPhoneBankingGenerationService,
     OutreachDoorKnockingGenerationService,
     OutreachSmsGenerationService,
+    // The reply list behind the Serve results surface. Reads
+    // poll_individual_message, the only table that stores inbound SMS text.
+    OutreachSmsRepliesService,
     // The Serve SMS product layer: draft-first create, and the purchase
     // handler its checkout runs through.
     OutreachServeSmsCreateService,

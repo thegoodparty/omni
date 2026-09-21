@@ -8,6 +8,8 @@ import { OutreachServeSmsController } from './outreachServeSms.controller'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
+import { OutreachService } from './services/outreach.service'
+import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 import { SERVE_SMS_VOICE } from './util/serveSmsVoice.util'
 
 // Direct instantiation rather than the HTTP harness: the controller is not
@@ -55,6 +57,10 @@ const buildController = (
   const isFeatureEnabled = vi
     .fn()
     .mockResolvedValue(overrides.flagEnabled ?? true)
+  const getSmsResults = vi
+    .fn()
+    .mockResolvedValue({ contacts: 480, responded: 61, optedOut: 4 })
+  const listReplies = vi.fn().mockResolvedValue({ total: 0, replies: [] })
   const controller = new OutreachServeSmsController(
     { generateDraftWithVoice } as unknown as OutreachSmsGenerationService,
     {
@@ -62,6 +68,8 @@ const buildController = (
     } as unknown as OutreachServeComposeContextService,
     organizations,
     { createDraft } as unknown as OutreachServeSmsCreateService,
+    { getSmsResults } as unknown as OutreachService,
+    { listReplies } as unknown as OutreachSmsRepliesService,
     { isFeatureEnabled } as unknown as FeaturesService,
     createMockLogger(),
   )
@@ -71,6 +79,8 @@ const buildController = (
     buildProfileContext,
     createDraft,
     isFeatureEnabled,
+    getSmsResults,
+    listReplies,
   }
 }
 
@@ -203,5 +213,58 @@ describe('OutreachServeSmsController feature gate', () => {
 
     expect(generateDraftWithVoice).toHaveBeenCalledOnce()
     expect(createDraft).toHaveBeenCalledOnce()
+  })
+})
+
+describe('OutreachServeSmsController results and replies', () => {
+  it('scopes the Statistics card to the org with campaignId pinned null', async () => {
+    const { controller, getSmsResults } = buildController()
+
+    const result = await controller.results(electedOffice, 12)
+
+    expect(result).toEqual({ contacts: 480, responded: 61, optedOut: 4 })
+    // campaignId: null is the ENG-10976 guard — an org holding both a
+    // Campaign and an ElectedOffice must not read Win results here.
+    expect(getSmsResults).toHaveBeenCalledWith(12, {
+      organizationSlug: 'eo-alex-rivera',
+      campaignId: null,
+    })
+  })
+
+  it('reads the org from the guard, never from a caller-supplied slug', async () => {
+    const { controller, listReplies } = buildController()
+
+    await controller.replies(electedOffice, 12)
+
+    expect(listReplies).toHaveBeenCalledWith(
+      12,
+      { organizationSlug: 'eo-alex-rivera', campaignId: null },
+      { limit: 10, offset: 0 },
+    )
+  })
+
+  it('clamps the reply page: nonsense falls back, oversized caps at 200', async () => {
+    const { controller, listReplies } = buildController()
+
+    await controller.replies(electedOffice, 12, 'banana', '-5')
+    expect(listReplies).toHaveBeenLastCalledWith(12, expect.anything(), {
+      limit: 10,
+      offset: 0,
+    })
+
+    await controller.replies(electedOffice, 12, '5000', '30')
+    expect(listReplies).toHaveBeenLastCalledWith(12, expect.anything(), {
+      limit: 200,
+      offset: 30,
+    })
+  })
+
+  it('serves results and replies with the rollout flag off', async () => {
+    // Deliberately ungated: neither route is reachable without an Outreach
+    // row, and only the flag-gated create writes one.
+    const { controller } = buildController({ flagEnabled: false })
+
+    await expect(controller.results(electedOffice, 12)).resolves.toBeTruthy()
+    await expect(controller.replies(electedOffice, 12)).resolves.toBeTruthy()
   })
 })

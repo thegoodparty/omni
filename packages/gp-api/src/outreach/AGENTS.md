@@ -120,12 +120,42 @@ local, so B3/B4 must read a Serve row's day off `scheduledLocalDate`, not
   flow creates a fresh draft. That is what keeps the priced count and the row
   the purchase handler re-reads the same thing.
 
-Both routes on this controller are gated by the `serve-sms-outreach` feature
-flag (404 when off), and only these two: the delivery service, the ingest,
-the purchase handler and the results readers are unreachable without an
-`Outreach` row, and this route is the only thing that writes one, so gating
-the writer makes the rest inert. The flag gates ROLLOUT —
-`@UseElectedOffice()` is the access check either way.
+Both WRITE routes on this controller are gated by the `serve-sms-outreach`
+feature flag (404 when off), and only those two: the delivery service, the
+ingest, the purchase handler and the two results readers below are
+unreachable without an `Outreach` row, and the create route is the only thing
+that writes one, so gating the writer makes the rest inert. The flag gates
+ROLLOUT — `@UseElectedOffice()` is the access check either way.
+
+## Serve SMS results (slice 3)
+
+Two ungated reads on the same controller, both org-scoped:
+
+- **`GET /v1/outreach/serve/:id/results`** — the Statistics card, the
+  Serve sibling of `GET /v1/outreach/:id/results`. Both call one
+  `OutreachService.getSmsResults`, which now takes an `OutreachScope`
+  (`{ campaignId }` or `{ organizationSlug, campaignId: null }`) instead of a
+  bare campaign id, the same union `findByScope` takes. **`campaignId: null`
+  is load-bearing:** a Win row carries an organizationSlug too, so an org
+  holding both a Campaign and an ElectedOffice would otherwise read its Win
+  results through the Serve route (ENG-10976). The counts themselves have no
+  surface branch — they come off `ContactInteractionText`, which is already
+  organizationSlug-scoped, and the shared ingest writes both products' reply
+  and opt-out events onto it.
+- **`GET /v1/outreach/serve/:id/replies`** — the read-only reply list
+  (`OutreachSmsRepliesService`), paged by `limit`/`offset`. Reply CONTENT
+  lives on `poll_individual_message` and nowhere else: the Win inbound sweep
+  records reply and opt-out TIMESTAMPS on `ContactInteractionText` and never
+  a body, which is why the counts read can be counts-only and this one
+  cannot. Inbound only (`sender: CONSTITUENT`) — an outbound row on the same
+  envelope is the blast itself. First name, surname and place come from ONE
+  people-api read per page (`filters.id.in` over the page's personIds, not a
+  lookup per reply the way the ingest's phone fallback has to be), and that
+  read DEGRADES rather than throws: a name is decoration on a reply the
+  official can already read.
+
+No Win sibling for the replies route, and that is not an omission — Win sends
+go out through Peerly, whose sweep stores no reply bodies to list.
 
 ## Serve SMS purchase (draft-first, org-scoped)
 

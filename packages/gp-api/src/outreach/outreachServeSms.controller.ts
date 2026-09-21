@@ -1,8 +1,12 @@
 import {
   Body,
   Controller,
+  Get,
   NotFoundException,
+  Param,
+  ParseIntPipe,
   Post,
+  Query,
   UseInterceptors,
 } from '@nestjs/common'
 import {
@@ -14,6 +18,12 @@ import {
   ServeSmsDraftRequestSchema,
   ServeSmsDraftResponse,
   ServeSmsDraftResponseSchema,
+  SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
+  SMS_OUTREACH_REPLIES_MAX_LIMIT,
+  SmsOutreachReplies,
+  SmsOutreachRepliesSchema,
+  SmsOutreachResults,
+  SmsOutreachResultsSchema,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { PinoLogger } from 'nestjs-pino'
@@ -25,7 +35,9 @@ import { OrganizationsService } from '@/organizations/services/organizations.ser
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ElectedOffice, User } from '../generated/prisma'
+import { OutreachService } from './services/outreach.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
+import { OutreachSmsRepliesService } from './services/outreachSmsReplies.service'
 import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
 import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
 import { SERVE_SMS_VOICE } from './util/serveSmsVoice.util'
@@ -33,17 +45,34 @@ import { SERVE_SMS_VOICE } from './util/serveSmsVoice.util'
 const electedOfficialName = (user: User): string =>
   [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
 
-// The whole Serve SMS feature ships behind one flag. Both routes here are
-// gated because between them they are the only way into the flow: compose
-// and create. The delivery service, the reply ingest, the purchase handler
-// and the results readers are deliberately NOT gated — none is reachable
-// without an `Outreach` row, and the create route below is the only thing
-// that writes one, so gating the writer makes the rest inert. Same reasoning
-// `win-team-accounts` records for gating only its create route
-// (outreachAssignment.controller.ts).
+// Hand-parsed rather than a Zod query DTO: two optional integers with a
+// clamp is smaller than the pipe it would take to reject them, and a reply
+// list has nothing to gain from 400ing a nonsense page size when the honest
+// answer is the first page.
+const clampLimit = (raw?: string): number => {
+  const parsed = Number.parseInt(raw ?? '', 10)
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return SMS_OUTREACH_REPLIES_DEFAULT_LIMIT
+  }
+  return Math.min(parsed, SMS_OUTREACH_REPLIES_MAX_LIMIT)
+}
+
+const clampOffset = (raw?: string): number => {
+  const parsed = Number.parseInt(raw ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+// The whole Serve SMS feature ships behind one flag. The two WRITE routes
+// here are gated because between them they are the only way into the flow:
+// compose and create. The delivery service, the reply ingest, the purchase
+// handler and the two results readers at the bottom of this file are
+// deliberately NOT gated — none is reachable without an `Outreach` row, and
+// the create route below is the only thing that writes one, so gating the
+// writer makes the rest inert. Same reasoning `win-team-accounts` records
+// for gating only its create route (outreachAssignment.controller.ts).
 //
 // This gates ROLLOUT, not authorization. @UseElectedOffice() is the real
-// access check on both routes and stays that way whatever the flag says.
+// access check on every route here and stays that way whatever the flag says.
 const SERVE_SMS_FLAG = 'serve-sms-outreach'
 
 // Serve counterpart to OutreachSmsController: org-scoped, stateless
@@ -63,6 +92,8 @@ export class OutreachServeSmsController {
     private readonly profileContext: OutreachServeComposeContextService,
     private readonly organizations: OrganizationsService,
     private readonly createService: OutreachServeSmsCreateService,
+    private readonly outreachService: OutreachService,
+    private readonly repliesService: OutreachSmsRepliesService,
     private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
@@ -162,5 +193,51 @@ export class OutreachServeSmsController {
     // The org comes from the ElectedOffice row the guard resolved, never from
     // the body — the same posture every route on this controller takes.
     return this.createService.createDraft(electedOffice.organizationSlug, input)
+  }
+
+  // The Statistics card, org-scoped. Deliberately NOT behind
+  // SERVE_SMS_FLAG (see the note above it): a results read is unreachable
+  // without an Outreach row, and only the flag-gated create writes one.
+  //
+  // `campaignId: null` is load-bearing, not decoration — a Win row carries
+  // an organizationSlug too, so an org holding both a Campaign and an
+  // ElectedOffice would otherwise read its Win results here (ENG-10976).
+  // The counts come from ContactInteractionText, which the shared ingest
+  // writes for either product, so there is no Serve-specific arithmetic.
+  @Get(':id/results')
+  @ResponseSchema(SmsOutreachResultsSchema)
+  results(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<SmsOutreachResults> {
+    return this.outreachService.getSmsResults(id, {
+      organizationSlug: electedOffice.organizationSlug,
+      campaignId: null,
+    })
+  }
+
+  // The read-only reply list. Same scope and the same ungated reasoning as
+  // the results read above. `limit`/`offset` rather than a page number
+  // because the client's only two states are the design's first ten and
+  // "Show all {n} responses".
+  @Get(':id/replies')
+  @ResponseSchema(SmsOutreachRepliesSchema)
+  replies(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ): Promise<SmsOutreachReplies> {
+    return this.repliesService.listReplies(
+      id,
+      {
+        organizationSlug: electedOffice.organizationSlug,
+        campaignId: null,
+      },
+      {
+        limit: clampLimit(limit),
+        offset: clampOffset(offset),
+      },
+    )
   }
 }

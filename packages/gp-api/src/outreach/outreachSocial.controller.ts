@@ -225,7 +225,7 @@ export class OutreachSocialController {
     @ReqCampaign() campaign: Campaign,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<SmsOutreachResults> {
-    return this.outreachService.getSmsResults(id, campaign.id)
+    return this.outreachService.getSmsResults(id, { campaignId: campaign.id })
   }
 
   // Org-scoped, like the phone-banking list's own DELETE — an outreach row
