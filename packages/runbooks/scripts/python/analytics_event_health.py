@@ -1159,9 +1159,11 @@ def run_monitor(
         catalog, weekly, code, today, watchlist_events, watched_families,
         dismissed_events=dismissed_events, okr_by_event=okr_for_digest,
     )
-    # Against local_okr_tags, not okr_for_digest: the merged map is the anchors
-    # overwriting the tag for any leg they agree on, so validating it would check the
-    # anchors against themselves and could never find the era-2 shape of this bug.
+    # Against local_okr_tags, not okr_for_digest: the merged map also carries
+    # watched_by_key's entries, and those are keyed by LEG KEY, not event name — a path
+    # leg's key is a synthetic string like "Viewed[path=/dashboard]" that no leg's
+    # `.event` ever equals. Validating the merged map would spuriously fire Class 1
+    # ("unknown event") on that synthetic key.
     result["okr_tag_problems"] = validate_okr_tags(local_okr_tags, anchors)
 
     current_monday = today - timedelta(days=today.weekday())

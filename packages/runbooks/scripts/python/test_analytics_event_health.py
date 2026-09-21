@@ -1903,25 +1903,23 @@ def test_no_anchors_means_no_validation_rather_than_everything_failing():
 
 
 def test_run_monitor_validates_the_pre_merge_local_tags_not_the_merged_map(tmp_path):
-    # Validating okr_for_digest (local tags merged over watched_by_key) would check the
-    # anchors against themselves and could never find anything wrong.
+    # okr_for_digest is local_okr_tags merged with watched_by_key, and watched_by_key is
+    # keyed by LEG KEY, not event name — a path leg's key is a synthetic string like
+    # "Viewed[path=/dashboard]" that no leg's `.event` ever equals. Validating that
+    # merged map would spuriously fire Class 1 ("unknown event") on the synthetic key
+    # itself. This reproduces with an EMPTY watchlist: watched_by_key alone already
+    # carries that synthetic key regardless of any real okr: tag, so a wrong
+    # implementation reports a problem here with nothing on the watchlist at all.
     catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
     csv_path, wl_path, state_path = _monitor_env(
-        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={},
-        watchlist=(
-            'events:\n'
-            '  - {event: "Dashboard - Candidate Dashboard Viewed", '
-            'okr: "Active Candidates"}\n'
-        ),
-    )
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
 
     result, _ = eh.run_monitor(
         _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
         watchlist_path=wl_path, state_path=state_path,
-        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+        anchors={_METRIC: [sa.Leg("Viewed", "/dashboard", None)]})
 
-    assert any(
-        "Dashboard - Candidate Dashboard Viewed" in p for p in result["okr_tag_problems"])
+    assert not any("Viewed[path=/dashboard]" in p for p in result["okr_tag_problems"])
 
 
 def test_digest_renders_the_okr_tag_problems_section_after_the_latch_table():
