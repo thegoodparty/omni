@@ -208,6 +208,7 @@ export default function RecommendedListDetailSheet({
             reachability={detailQuery.data?.reachability}
             isLoading={detailQuery.isLoading}
             isError={detailQuery.isError}
+            isWinContext={isWinContextReady && isWinContext}
           />
 
           <div className="flex flex-col gap-2">

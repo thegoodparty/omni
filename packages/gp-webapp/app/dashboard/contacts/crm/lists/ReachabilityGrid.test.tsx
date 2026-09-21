@@ -30,6 +30,7 @@ describe('ReachabilityGrid', () => {
         reachability={reachability}
         isLoading={false}
         isError={false}
+        isWinContext
       />,
     )
 
@@ -45,6 +46,7 @@ describe('ReachabilityGrid', () => {
         reachability={reachability}
         isLoading={false}
         isError={false}
+        isWinContext
       />,
     )
 
@@ -57,6 +59,7 @@ describe('ReachabilityGrid', () => {
         reachability={reachability}
         isLoading={false}
         isError
+        isWinContext
       />,
     )
 
@@ -66,7 +69,12 @@ describe('ReachabilityGrid', () => {
 
   it('renders a neutral placeholder — never Unavailable — while loading', () => {
     render(
-      <ReachabilityGrid reachability={undefined} isLoading isError={false} />,
+      <ReachabilityGrid
+        reachability={undefined}
+        isLoading
+        isError={false}
+        isWinContext
+      />,
     )
 
     expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
@@ -79,11 +87,45 @@ describe('ReachabilityGrid', () => {
         reachability={degradedReachability}
         isLoading={false}
         isError={false}
+        isWinContext
       />,
     )
 
     expect(screen.getAllByText('Unavailable')).toHaveLength(2)
     expect(screen.getAllByText('777')).toHaveLength(2)
     expect(screen.getByText('111')).toBeInTheDocument()
+  })
+
+  // Robocall is campaign-side only: a Serve org has no way to send one, so
+  // advertising a reachable-by-robocall count on an elected official's list
+  // promised a channel that is not there.
+  it('drops the robocall tile in Serve and keeps every other channel', () => {
+    render(
+      <ReachabilityGrid
+        reachability={reachability}
+        isLoading={false}
+        isError={false}
+        isWinContext={false}
+      />,
+    )
+
+    expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
+    expect(screen.getByText('Text')).toBeInTheDocument()
+    expect(screen.getByText('Polls')).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    expect(screen.getByText('Door knocking')).toBeInTheDocument()
+  })
+
+  it('renders Robocall in Win', () => {
+    render(
+      <ReachabilityGrid
+        reachability={reachability}
+        isLoading={false}
+        isError={false}
+        isWinContext
+      />,
+    )
+
+    expect(screen.getByText('Robocall')).toBeInTheDocument()
   })
 })
