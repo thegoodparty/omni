@@ -319,3 +319,66 @@ describe('CrmUsersService - merge-tolerant contact lookups (ENG-11029)', () => {
     })
   })
 })
+
+describe('CrmUsersService test-user guard', () => {
+  const update = vi.fn()
+  const create = vi.fn()
+  const post = vi.fn()
+  const hubspot = {
+    client: {
+      config: { accessToken: 'token' },
+      crm: { contacts: { basicApi: { update, create } } },
+    },
+  }
+  const users = { patchUserMetaData: vi.fn() }
+  const campaigns = { findActiveByUserId: vi.fn() }
+  const logger = createMockLogger()
+
+  const buildService = () =>
+    new CrmUsersService(
+      hubspot as never,
+      users as never,
+      campaigns as never,
+      { post } as never,
+      {} as never,
+      logger,
+    )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('skips contact sync for an e2e test user', async () => {
+    await buildService().trackUserLogin({
+      id: 7,
+      email: 'test-1790009-abcde@test.goodparty.org',
+      metaData: { hubspotId: 'hs-1' },
+    } as unknown as User)
+
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    expect(users.patchUserMetaData).not.toHaveBeenCalled()
+  })
+
+  it('skips contact sync for a QA fixture user', async () => {
+    await buildService().trackUserLogin({
+      id: 8,
+      email: 'qa-123e4567-e89b-12d3-a456-426614174000@goodparty.org',
+      metaData: {},
+    } as unknown as User)
+
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('skips form submission when the email field is a test user', async () => {
+    await buildService().submitCrmForm(
+      'form-1',
+      [{ name: 'email', value: 'test-1790009-abcde@test.goodparty.org' }],
+      'registerPage',
+      'https://goodparty.org/sign-up',
+    )
+
+    expect(post).not.toHaveBeenCalled()
+  })
+})
