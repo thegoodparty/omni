@@ -1877,8 +1877,14 @@ def test_a_tag_stale_to_historical_is_reported_with_where_it_should_point():
 def test_a_tag_on_an_all_historical_metrics_historical_leg_is_not_reported_here():
     # run_monitor's own anchor_problems check already reports a metric with no live
     # leg left at all; this check has nowhere to point the tag, so it stays silent
-    # rather than duplicating that finding under a different heading.
-    anchors = {"win_dead_metric": [sa.Leg("Old Name", None, "historical")]}
+    # rather than duplicating that finding under a different heading. A second,
+    # unrelated metric WITH a live leg sits alongside it so a bug that pools live legs
+    # across all metrics (rather than checking each metric's own legs) would wrongly
+    # find somewhere to point this tag and this test would catch it.
+    anchors = {
+        "win_dead_metric": [sa.Leg("Old Name", None, "historical")],
+        _METRIC: [sa.Leg("Viewed", "/dashboard", None)],
+    }
     assert eh.validate_okr_tags({"Old Name": "win_dead_metric"}, anchors) == []
 
 
