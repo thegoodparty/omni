@@ -64,7 +64,22 @@ export interface RequestSendInput {
 }
 
 export interface RequestSendResult {
+  /**
+   * Whether this call resolved the audience, which is what makes the two
+   * `excluded*` counts mean anything. False when the CSV a previous attempt
+   * wrote was reused, and false when the spine refused the send — neither
+   * resolves anything, so both counts are 0 meaning "not measured" rather
+   * than "none". Without this a caller cannot tell the two apart.
+   */
+  audienceResolved: boolean
   recipientCount: number
+  /**
+   * How many people THIS audience lost to the opt-out scrub: they matched
+   * the filter, had a cell phone, and were dropped for having opted out.
+   *
+   * Not the size of the org's opt-out list. An org with 1,000 historical
+   * opt-outs whose filter reaches 5 of them reports 5.
+   */
   excludedOptedOutCount: number
   excludedDuplicateCount: number
   /** The deterministic S3 key this send's recipient CSV was written under. */
@@ -119,6 +134,7 @@ type ResolvedRecipient = {
 type ResolvedAudience = {
   recipients: ResolvedRecipient[]
   excludedDuplicateCount: number
+  excludedOptedOutCount: number
 }
 
 const toRecipient = (
@@ -182,12 +198,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
    * message reuses the CSV at `sendKey` rather than resampling a different
    * audience, and both capture writes are skipDuplicates.
    *
-   * One count is weaker on the reuse path than on the first run.
-   * `excludedOptedOutCount` is re-derived from the database every time, but
-   * `excludedDuplicateCount` is a byproduct of resolution, and a reused
-   * object was not resolved — it comes back 0. The number the customer was
-   * quoted is the one captured at create time; these are observability for
-   * the send itself.
+   * Both `excluded*` counts are byproducts of resolution, so a call that
+   * reuses a previous attempt's CSV reports 0 for each and flags
+   * `audienceResolved: false`. Read that flag before reading the counts.
    *
    * A send the spine will not release returns zeros rather than throwing:
    * a canceled row never becomes sendable, and throwing out of an SQS
@@ -224,6 +237,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
           'unpaid, or already sent. Nothing was written or handed off.',
       )
       return {
+        audienceResolved: false,
         recipientCount: 0,
         excludedOptedOutCount: 0,
         excludedDuplicateCount: 0,
@@ -274,7 +288,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
 
     const bucket = resolveBucket()
     let csv = await this.s3Service.getFile(bucket, sendKey)
+    let audienceResolved = false
     let excludedDuplicateCount = 0
+    let excludedOptedOutCount = 0
 
     if (csv) {
       this.logger.info(
@@ -296,7 +312,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             'opt-out scrub — widen the audience and try again.',
         )
       }
+      audienceResolved = true
       excludedDuplicateCount = resolved.excludedDuplicateCount
+      excludedOptedOutCount = resolved.excludedOptedOutCount
       csv = buildRecipientCsv(resolved.recipients)
       await this.s3Service.uploadFile(bucket, csv, sendKey, {
         contentType: 'text/csv',
@@ -348,8 +366,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     })
 
     return {
+      audienceResolved,
       recipientCount: captured.length,
-      excludedOptedOutCount: excludePersonIds.size,
+      excludedOptedOutCount,
       excludedDuplicateCount,
       sendKey,
     }
@@ -402,11 +421,15 @@ export class OutreachTextDeliveryService extends createPrismaBase(
   }
 
   /**
-   * ENG-10800, lifted from `P2pPhoneListUploadService.resolveOptOutScrub`:
-   * a person who opted out of a past text send in this org must not land on
-   * the next one. Best-effort against people-api's id-filter cap — an org
-   * with more opt-outs than the cap must still be able to send, so a set that
-   * large skips the scrub (logged loudly) rather than blocking delivery.
+   * ENG-10800: a person who opted out of a past text send in this org must
+   * not land on the next one.
+   *
+   * Unlike `P2pPhoneListUploadService.resolveOptOutScrub`, an over-cap set is
+   * NOT dropped here. That cap exists because Win sends the ids to people-api
+   * as an id filter; the saved-filter branch below applies this set
+   * in-process instead, so the vendor limit does not apply and a large org
+   * gets a real scrub rather than none. The only remaining truncation is the
+   * `LIMIT` inside `findOptedOutPersonIds`, which is loud rather than silent.
    */
   private async resolveOptOutScrub(
     organizationSlug: string,
@@ -415,14 +438,12 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       await this.contactInteractionTextService.findOptedOutPersonIds(
         organizationSlug,
       )
-    if (optedOutIds.length === 0) return new Set()
     if (optedOutIds.length > MAX_RESOLVED_ID_SET_SIZE) {
       this.logger.warn(
         { organizationSlug, optedOutCount: optedOutIds.length },
-        'Opt-out scrub set exceeds the people-api id-filter cap — skipping ' +
-          'the scrub for this send rather than blocking it',
+        'Opt-out set hit the query limit — the scrub is still applied but ' +
+          'may be incomplete for this send',
       )
-      return new Set()
     }
     return new Set(optedOutIds)
   }
@@ -460,12 +481,32 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     const filterInput: ContactsFilterResolutionInput = filter
 
     const recipients: ResolvedRecipient[] = []
+    let excludedOptedOutCount = 0
+
     // `for await...of` discards a generator's RETURN value, and the duplicate
     // count is the return value — drive the iterator by hand.
     const resolution = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
-      excludePersonIds,
+      // Empty on purpose, with the scrub applied through `isEligible`
+      // instead. Handing the ids to people-api as an exclusion filter means
+      // those rows never come back, so the layer can only ever report how
+      // many people the ORG has opted out — not how many THIS audience lost,
+      // which is the number the official is shown before paying. Scrubbing
+      // in-process is what makes the honest count computable. It also drops
+      // the vendor's id-filter cap (a big org is scrubbed rather than
+      // skipped) and the id-set contention `excludePersonIdsFromResolution`
+      // warns about. The cost is that opted-out rows are paged over before
+      // being discarded.
+      excludePersonIds: new Set(),
+      // Runs after the cell-phone check and before dedupe/cap, so an
+      // opted-out person neither claims a phone number nor spends a
+      // recipient — the same position the upstream filter had.
+      isEligible: (person) => {
+        if (!excludePersonIds.has(person.id)) return true
+        excludedOptedOutCount += 1
+        return false
+      },
       limitExceededMessage:
         'This list is over the recipient limit for one send — narrow it and ' +
         'try again.',
@@ -479,6 +520,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     return {
       recipients,
       excludedDuplicateCount: next.value.excludedDuplicatePhoneCount,
+      excludedOptedOutCount,
     }
   }
 
@@ -493,8 +535,15 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     organization: Organization,
     excludePersonIds: Set<string>,
   ): Promise<ResolvedAudience> {
-    // sampleContacts takes exclusions as ids rather than a set, so the
-    // opt-out scrub and the caller's own exclusions merge into one list.
+    // The sample branch keeps sending exclusions UPSTREAM, unlike the filter
+    // branch. A sample is a request for N people, so the scrub has to narrow
+    // the pool the sample is drawn FROM; scrubbing afterwards would return
+    // fewer than N. That makes `excludedOptedOutCount` 0 here and correct: a
+    // caller asking for N still gets N, so this audience lost nobody.
+    //
+    // It does mean this branch inherits people-api's id-filter cap on the
+    // exclusion list, which the filter branch no longer has. Polls has to
+    // resolve that when it adopts this layer; nothing calls it today.
     const excludeIds = [
       ...new Set([...excludePersonIds, ...(audience.excludePersonIds ?? [])]),
     ]
@@ -519,7 +568,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       recipients.push(toRecipient({ ...person, cellPhone: person.cellPhone }))
     }
 
-    return { recipients, excludedDuplicateCount }
+    return { recipients, excludedDuplicateCount, excludedOptedOutCount: 0 }
   }
 
   /**

@@ -103,6 +103,16 @@ describe('OutreachTextDeliveryService', () => {
   // the spine advanced, so the row is still `pending`. Simulate that rather
   // than calling requestSend twice against an `in_progress` row, which the
   // claim correctly refuses.
+  const seedOptOuts = (slug: string, personIds: string[]) =>
+    service.prisma.contactInteractionText.createMany({
+      data: personIds.map((personId) => ({
+        organizationSlug: slug,
+        personId,
+        occurredAt: new Date(),
+        optedOutAt: new Date(),
+      })),
+    })
+
   const resetToPending = (outreachId: number) =>
     service.prisma.outreach.update({
       where: { id: outreachId },
@@ -165,6 +175,7 @@ describe('OutreachTextDeliveryService', () => {
     )
 
     expect(result).toEqual({
+      audienceResolved: true,
       recipientCount: 2,
       excludedOptedOutCount: 0,
       excludedDuplicateCount: 0,
@@ -214,6 +225,9 @@ describe('OutreachTextDeliveryService', () => {
     const second = await delivery.requestSend(args)
 
     expect(second.sendKey).toBe(first.sendKey)
+    // The reuse path resolved nothing, so its counts mean "not measured".
+    expect(first.audienceResolved).toBe(true)
+    expect(second.audienceResolved).toBe(false)
     expect(findContactsForFilter).toHaveBeenCalledTimes(1)
     expect(s3.uploadFile).toHaveBeenCalledTimes(1)
     expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual([
@@ -253,19 +267,18 @@ describe('OutreachTextDeliveryService', () => {
     ])
   })
 
-  it('scrubs opted-out people and reports how many were excluded', async () => {
+  it('counts the opt-outs THIS audience lost, not the org total', async () => {
     const { outreach, filter, slug } = await seedSend()
-    await service.prisma.contactInteractionText.create({
-      data: {
-        organizationSlug: slug,
-        personId: 'p-optout',
-        occurredAt: new Date(),
-        optedOutAt: new Date(),
-      },
-    })
+    // Four historical opt-outs in the org; the filter only reaches one.
+    await seedOptOuts(slug, ['gone-1', 'gone-2', 'gone-3', 'p-optout'])
     const findContactsForFilter = vi
       .spyOn(contacts, 'findContactsForFilter')
-      .mockResolvedValue(peoplePage([person('p-1', '5551230001')]))
+      .mockResolvedValue(
+        peoplePage([
+          person('p-1', '5551230001'),
+          person('p-optout', '5551230002'),
+        ]),
+      )
 
     const result = await delivery.requestSend(
       input(outreach.id, {
@@ -273,10 +286,59 @@ describe('OutreachTextDeliveryService', () => {
       }),
     )
 
+    // 1, not 4. The org's opt-out history is not this send's loss.
     expect(result.excludedOptedOutCount).toBe(1)
-    expect(findContactsForFilter.mock.calls[0]?.[3]).toEqual(
-      new Set(['p-optout']),
+    expect(result.recipientCount).toBe(1)
+    expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual([
+      'p-1',
+    ])
+    // The scrub is applied in-process, which is the only way the count above
+    // is knowable: ids sent upstream never come back to be counted.
+    expect(findContactsForFilter.mock.calls[0]?.[3]).toEqual(new Set())
+  })
+
+  it('reports zero when the org has opt-outs the filter does not reach', async () => {
+    const { outreach, filter, slug } = await seedSend()
+    await seedOptOuts(slug, ['gone-1', 'gone-2'])
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([person('p-1', '5551230001')]),
     )
+
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+      }),
+    )
+
+    expect(result.excludedOptedOutCount).toBe(0)
+    expect(result.recipientCount).toBe(1)
+  })
+
+  it('does not let an opted-out person claim a phone from a reachable one', async () => {
+    const { outreach, filter, slug } = await seedSend()
+    await seedOptOuts(slug, ['p-optout'])
+    // Same number, opted-out person first: scrubbing before dedupe is what
+    // keeps the reachable person on the send.
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([
+        person('p-optout', '5551230001'),
+        person('p-keep', '5551230001'),
+      ]),
+    )
+
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+      }),
+    )
+
+    expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual([
+      'p-keep',
+    ])
+    expect(result).toMatchObject({
+      excludedOptedOutCount: 1,
+      excludedDuplicateCount: 0,
+    })
   })
 
   it('reports the duplicate phones the resolution dropped', async () => {
@@ -338,16 +400,9 @@ describe('OutreachTextDeliveryService', () => {
     expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
   })
 
-  it('merges the opt-out scrub into the sample branch exclusions', async () => {
+  it('narrows the sample POOL with the scrub and so loses nobody', async () => {
     const { outreach, slug } = await seedSend()
-    await service.prisma.contactInteractionText.create({
-      data: {
-        organizationSlug: slug,
-        personId: 'p-optout',
-        occurredAt: new Date(),
-        optedOutAt: new Date(),
-      },
-    })
+    await seedOptOuts(slug, ['p-optout'])
     const sampleContacts = vi
       .spyOn(contacts, 'sampleContacts')
       .mockResolvedValue([person('s-1', '5552220001')] as never)
@@ -360,7 +415,10 @@ describe('OutreachTextDeliveryService', () => {
       { size: 1, excludeIds: ['p-optout'] },
       expect.objectContaining({ slug }),
     )
-    expect(result.excludedOptedOutCount).toBe(1)
+    // A sample asks for N and still gets N, so this audience lost nobody.
+    // 0 is the honest answer here, unlike the filter branch.
+    expect(result.excludedOptedOutCount).toBe(0)
+    expect(result.recipientCount).toBe(1)
   })
 
   it('hands a canceled send off to nobody', async () => {
@@ -385,7 +443,7 @@ describe('OutreachTextDeliveryService', () => {
     expect(await recipientRows(outreach.id)).toHaveLength(0)
     expect(await interactionRows(outreach.id)).toHaveLength(0)
     expect(await statusOf(outreach.id)).toBe(OutreachStatus.canceled)
-    expect(result).toMatchObject({ recipientCount: 0 })
+    expect(result).toMatchObject({ audienceResolved: false, recipientCount: 0 })
   })
 
   it('does nothing for a send the spine has already advanced', async () => {
@@ -481,10 +539,10 @@ describe('OutreachTextDeliveryService', () => {
     expect(handoffPort.send).not.toHaveBeenCalled()
   })
 
-  it('skips the scrub, loudly, when the opt-out set is over the id cap', async () => {
+  it('still scrubs, loudly, when the opt-out set hits the query limit', async () => {
     const { outreach, filter } = await seedSend()
-    // Seeding 100k rows is not a test; the cap check is what is under test,
-    // so stub the producer at the size that trips it.
+    // Seeding 100k rows is not a test; the limit check is what is under
+    // test, so stub the producer at the size that trips it.
     const overCap = Array.from(
       { length: MAX_RESOLVED_ID_SET_SIZE + 1 },
       (_unused, i) => `opted-out-${i}`,
@@ -492,10 +550,13 @@ describe('OutreachTextDeliveryService', () => {
     vi.spyOn(
       service.app.get(ContactInteractionTextService),
       'findOptedOutPersonIds',
-    ).mockResolvedValue(overCap)
-    const findContactsForFilter = vi
-      .spyOn(contacts, 'findContactsForFilter')
-      .mockResolvedValue(peoplePage([person('p-1', '5551230001')]))
+    ).mockResolvedValue([...overCap, 'p-optout'])
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([
+        person('p-1', '5551230001'),
+        person('p-optout', '5551230002'),
+      ]),
+    )
 
     const result = await delivery.requestSend(
       input(outreach.id, {
@@ -504,13 +565,14 @@ describe('OutreachTextDeliveryService', () => {
     )
 
     expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ optedOutCount: overCap.length }),
-      expect.stringContaining('exceeds the people-api id-filter cap'),
+      expect.objectContaining({ optedOutCount: overCap.length + 1 }),
+      expect.stringContaining('the scrub is still applied'),
     )
-    // The send proceeds unscrubbed rather than blocking, and the returned
-    // count cannot distinguish that from "nobody opted out" — see the PR body.
-    expect(findContactsForFilter.mock.calls[0]?.[3]).toEqual(new Set())
-    expect(result.excludedOptedOutCount).toBe(0)
-    expect(result.recipientCount).toBe(1)
+    // The send is scrubbed rather than skipped: in-process scrubbing has no
+    // vendor id-filter cap to fall foul of.
+    expect(result.excludedOptedOutCount).toBe(1)
+    expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual([
+      'p-1',
+    ])
   })
 })
