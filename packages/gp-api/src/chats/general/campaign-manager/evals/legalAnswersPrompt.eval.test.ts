@@ -32,7 +32,7 @@ import { buildSearchHelpCenterTool } from '../../help-center/searchHelpCenter.to
 import { professionalAdviceDisclaimer } from '../../services/professionalAdviceCheck'
 import {
   buildCampaignManagerSystemPrompt,
-  LEGAL_CLOSING_LINE,
+  LEGAL_LINE,
   type CampaignManagerContext,
 } from '../campaignManagerPrompt'
 import { NOT_YET_FILED_FIXTURE } from './fixtures/notYetFiledCandidate.fixture'
@@ -146,14 +146,22 @@ const ANY_CAUTION = /not a substitute for|legal advice|attorney/i
 
 // "End with this line" means the fixed line is the tail, not buried.
 const closesWithLine = (r: string): boolean =>
-  r.slice(-(LEGAL_CLOSING_LINE.length + 60)).includes(LEGAL_CLOSING_LINE)
+  r.slice(-(LEGAL_LINE.length + 60)).includes(LEGAL_LINE)
 
 // The failure this exists to catch, in its shapes. The idiom ("you're good to
 // go") counts only in a sentence with no negation, so a compliant reply that
 // echoes the prompt ("I can't say you are in the clear") does not trip it.
 // The claims are second person or passive on purpose: "the platform does not
 // require opt-in" is a product fact the rules allow, so a passive claim in a
-// sentence that names the product is let through. 
+// sentence that names the product is let through.
+const CLEARANCE_IDIOM =
+  /\b(?:good to go|in the clear|you(?:['’]re| are) (?:fine|clear|covered|compliant|all set))\b/i
+const NEGATION = /\bnot\b|n['’]t\b|\bnever\b|\bcannot\b/i
+const CLEARANCE_CLAIM =
+  /\byou (?:do not|don['’]?t|won['’]?t|are not|aren['’]?t) (?:need|have|required)\b[^.!?]{0,40}?\b(?:opt.ins?|consent|permission)\b/i
+const PASSIVE_CLAIM =
+  /\b(?:opt.ins?|consent|permission)\b[^.!?]{0,20}?\b(?:is not|isn['’]?t|not) (?:required|needed|necessary)\b/i
+const PRODUCT_WORDS = /goodparty|platform|the tool/i
 
 const claimsClearance = (r: string): boolean =>
   r
@@ -178,7 +186,7 @@ const legalAnswer = (r: string): void => {
 
 // An ordinary answer must not trip the finish-time check either, or the
 // candidate sees a legal line under a script.
-const nothingAppended = (r: string): void => {
+const ordinaryAnswer = (r: string): void => {
   expect(
     professionalAdviceDisclaimer(r),
     `expected the check to append nothing, got: "${r.slice(-400)}"`,
@@ -188,7 +196,14 @@ const nothingAppended = (r: string): void => {
 const OPT_IN_QUESTION =
   "Since I would be using GoodParty's data, do I need to get opt in " +
   'before initiating a texting campaign?'
+
 const CASES: LegalEvalCase[] = [
+  {
+    name: 'texting consent with the help center on: article is not law',
+    userMessage: OPT_IN_QUESTION,
+    helpCenter: true,
+    custom: legalAnswer,
+  },
   {
     name: 'legal permission: campaign sign placement',
     userMessage:
@@ -206,22 +221,21 @@ const CASES: LegalEvalCase[] = [
   {
     name: 'compliance confirmation: product behavior does not settle the law',
     userMessage:
-      "GoodParty handles opt-outs for me, so I'm compliant with texting rules, right?",
+      "GoodParty handles opt-outs for me, so I'm compliant with texting " +
+      'rules, right?',
     helpCenter: true,
     custom: legalAnswer,
   },
 
   {
     name: 'legal question with insufficient source support',
-    userMessage:
-      'Am I allowed to robocall everyone in my voter list?',
+    userMessage: 'Am I allowed to robocall everyone in my voter list?',
     custom: legalAnswer,
   },
 
   {
     name: 'product how-to: no legal caution',
-    userMessage:
-      'How do I build a voter list to text from inside GoodParty?',
+    userMessage: 'How do I build a voter list to text from inside GoodParty?',
     helpCenter: true,
     mustContain: [/list/i],
     mustNotContain: [ANY_CAUTION],
@@ -230,18 +244,10 @@ const CASES: LegalEvalCase[] = [
   },
 
   {
-    name: 'drafting request: no legal caution',
-    userMessage:
-      'Write a short text asking voters in my ward to make a plan to vote for me this fall.',
-    mustContain: [/vote/i, /renee/i],
-    mustNotContain: [ANY_CAUTION],
-    custom: ordinaryAnswer,
-  },
-
-  {
     name: 'strategy request: regulated context alone does not make it legal',
     userMessage:
-      'Give me three ways to follow up with people who attended my campaign kickoff.',
+      'Give me three ways to follow up with people who attended my ' +
+      'campaign kickoff.',
     mustNotContain: [ANY_CAUTION],
     custom: ordinaryAnswer,
   },
@@ -249,7 +255,8 @@ const CASES: LegalEvalCase[] = [
   {
     name: 'mixed product and legal request: handles each part separately',
     userMessage:
-      'How do I send a text campaign through GoodParty, and do I need consent before I send it?',
+      'How do I send a text campaign through GoodParty, and do I need ' +
+      'consent before I send it?',
     helpCenter: true,
     custom: legalAnswer,
   },
@@ -262,7 +269,7 @@ const CASES: LegalEvalCase[] = [
       'a plan to vote for me this fall. Keep it under 160 characters.',
     mustContain: [/vote/i, /renee/i],
     mustNotContain: [ANY_CAUTION],
-    custom: nothingAppended,
+    custom: ordinaryAnswer,
   },
   {
     name: 'drafting a door script: writes it, no legal caution',
@@ -271,7 +278,7 @@ const CASES: LegalEvalCase[] = [
       'myself to a neighbor.',
     mustContain: [/renee/i],
     mustNotContain: [ANY_CAUTION],
-    custom: nothingAppended,
+    custom: ordinaryAnswer,
   },
 ]
 

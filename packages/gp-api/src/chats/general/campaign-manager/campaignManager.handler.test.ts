@@ -29,7 +29,7 @@ import type { ElectionsService } from '@/elections/services/elections.service'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import { PROFESSIONAL_ADVICE_DISCLAIMER } from '../services/professionalAdviceCheck'
-import { LEGAL_CLOSING_LINE } from './campaignManagerPrompt'
+import { LEGAL_LINE } from './campaignManagerPrompt'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -833,7 +833,7 @@ describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
     expect(
       buildHandler().finalizeAssistantText(
         'Under RCW 42.17A.405 that contribution is over the limit. ' +
-          LEGAL_CLOSING_LINE,
+          LEGAL_LINE,
       ),
     ).toBeNull()
   })

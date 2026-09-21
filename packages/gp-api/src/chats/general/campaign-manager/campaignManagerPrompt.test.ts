@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
-  LEGAL_CLOSING_LINE,
+  LEGAL_LINE,
 } from './campaignManagerPrompt'
 import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import type { Organization } from '../../../generated/prisma'
@@ -459,55 +459,65 @@ describe('buildCampaignManagerSystemPrompt', () => {
     }
   })
 
-it('routes legal and compliance questions by intent rather than subject matter', () => {
-  const prompt = buildCampaignManagerSystemPrompt(ctx())
+  it('routes legal questions by intent, with tools on or off', () => {
+    const allOff = ctx({
+      webSearchEnabled: false,
+      helpCenterToolEnabled: false,
+    })
+    for (const prompt of [
+      buildCampaignManagerSystemPrompt(ctx()),
+      buildCampaignManagerSystemPrompt(allOff),
+    ]) {
+      expect(prompt).toContain('underlying intent')
+      expect(prompt).toContain('what the law allows, prohibits, requires')
+      expect(prompt).toContain(
+        'not by campaign-related words or subject matter',
+      )
+    }
+  })
 
-  expect(prompt).toContain('underlying intent')
-  expect(prompt).toContain('what the law allows, prohibits, requires')
-  expect(prompt).toContain('not by campaign-related words or subject matter')
-})
+  it('bounds legal conclusions and requires source attribution', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'do not present your own legal conclusion as authoritative',
+    )
+    expect(prompt).toContain('attribute the rule to that source')
+    expect(prompt).toContain('When you cannot establish it, say so')
+  })
 
-it('bounds legal conclusions and requires source attribution', () => {
-  const prompt = buildCampaignManagerSystemPrompt(ctx())
+  it('keeps product behavior separate from legal requirements', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Keep product behavior separate from legal requirements',
+    )
+    expect(prompt).toContain(
+      'does not by itself establish what the law requires',
+    )
+  })
 
-  expect(prompt).toContain('do not present your own legal conclusion as authoritative')
-  expect(prompt).toContain('attribute the rule to that source')
-  expect(prompt).toContain('say what you cannot confirm')
-})
+  it('keeps ordinary campaign work out of the legal route', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('Ordinary campaign work is not a legal question')
+    expect(prompt).toContain(
+      'Drafting, strategy, product how-tos, and tool use',
+    )
+  })
 
-it('keeps product behavior separate from legal requirements', () => {
-  const prompt = buildCampaignManagerSystemPrompt(ctx())
+  it('handles mixed product and legal requests part by part', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('For a mixed request')
+    expect(prompt).toContain('answer each part under the applicable rule')
+  })
 
-  expect(prompt).toContain('Keep product behavior separate from legal requirements')
-  expect(prompt).toContain('does not by itself establish what the law requires')
-})
+  it('pins the closing line to one the finish-time check recognizes', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(`end with this line: "${LEGAL_LINE}"`)
+    // A statute-citing reply that ends with the line gets nothing appended.
+    expect(
+      professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
+    ).toBeNull()
+  })
 
-it('keeps ordinary campaign work out of the legal route', () => {
-  const prompt = buildCampaignManagerSystemPrompt(ctx())
-
-  expect(prompt).toContain('Ordinary campaign work is not a legal question')
-  expect(prompt).toContain('Drafting, strategy, product how-tos, and tool use')
-})
-
-it('handles mixed product and legal requests separately', () => {
-  const prompt = buildCampaignManagerSystemPrompt(ctx())
-
-  expect(prompt).toContain(
-    'For a mixed request, answer each part under the applicable rule',
-  )
-})
-
-it('pins the legal line to one the finish-time check recognizes', () => {
-  const prompt = buildCampaignManagerSystemPrompt(ctx())
-
-  expect(prompt).toContain(LEGAL_CLOSING_LINE)
-  expect(
-    professionalAdviceDisclaimer(
-      `RCW 42.17A applies. ${LEGAL_CLOSING_LINE}`,
-    ),
-  ).toBeNull()
-})
- 
   it('sends the product part to the product map, then support', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain('answer from the product map')
