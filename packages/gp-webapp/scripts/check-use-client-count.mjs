@@ -404,7 +404,22 @@ import { dirname, join, relative } from 'node:path'
 // 568 + 2 (the boundary surfaces above) + 1 (FollowUpOutstandingSection):
 // both sides of this merge raised the ratchet from the same base, so the
 // count is the sum of the two, not either one of them.
-const BASELINE = 571
+// 2026-09-21: 571 -> 572 for outreach/v2/sms/ServeSmsScheduleStep.tsx, the
+// Serve SMS schedule step. It is an interactive date picker and cannot render
+// on the server for three independent reasons: it freezes `now` in useState
+// so a re-render cannot shift the 2-business-day floor under a date already
+// chosen, it reads the VIEWER's timezone through
+// Intl.DateTimeFormat().resolvedOptions() — the server's would be the wrong
+// answer for a step whose whole promise is "11am local" — and it renders
+// DateInputCalendar, itself client-only. Its Win sibling SmsScheduleStep.tsx
+// carries the directive for the same reasons. Inheriting the boundary from
+// SmsFlow.tsx (its only importer, already a client component) would have been
+// count-neutral, and is the rule RouteStep.tsx and TurfLegend.tsx follow — but
+// that rule is for modules holding no state, and the door-knocking entry above
+// already rejected directive-free for stateful ones, since they read as an
+// oversight to copy. The other four files added with it — serveSmsPurposes.ts
+// and three test files — are directive-free and stay that way.
+const BASELINE = 572
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
