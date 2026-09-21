@@ -370,6 +370,121 @@ describe('OutreachTextIngestService.ingestReplies', () => {
     expect(after.status).toBe(OutreachStatus.canceled)
   })
 
+  it('merges two phones that resolve to one person at one instant, keeping the opt-out', async () => {
+    // A forwarded message answered from a second number: both resolve to
+    // person-1, and the deterministic id is the same for both.
+    findPersonByPhone.mockResolvedValue({ id: 'person-1' })
+
+    const result = await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows: [
+        row('3035550101', 'The park needs lights'),
+        row('3035559999', 'STOP'),
+      ],
+    })
+
+    // Both rows are attributed, so the counts still reconcile...
+    expect(result.matched).toBe(2)
+    expect(result.unmatched).toBe(0)
+    expect(result.matched + result.unmatched).toBe(result.rowsParsed)
+    // ...and the opt-out is reported because a row actually records it.
+    expect(result.optOuts).toBe(1)
+
+    const messages = await messagesForOutreach()
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.isOptOut).toBe(true)
+    expect(messages[0]?.content).toBe('The park needs lights STOP')
+    // The opt-out must reach the CRM, not just the message row.
+    expect((await interactionFor('person-1')).optedOutAt).toEqual(RECEIVED_AT)
+  })
+
+  it('merges rather than drops when rows carry no timestamp at all', async () => {
+    // receivedAt is optional in the contract, and with it absent every
+    // reply from one person shares an id — the collision is certain.
+    findPersonByPhone.mockResolvedValue({ id: 'person-1' })
+
+    const result = await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows: [
+        row('3035550101', 'Fix the crosswalk', undefined),
+        row('3035550101', 'And the streetlight', undefined),
+        row('3035559999', 'unsubscribe', undefined),
+      ],
+    })
+
+    expect(result.matched).toBe(3)
+    expect(result.matched + result.unmatched).toBe(result.rowsParsed)
+    expect(result.optOuts).toBe(1)
+
+    const messages = await messagesForOutreach()
+    expect(messages).toHaveLength(1)
+    expect(messages[0]?.isOptOut).toBe(true)
+    expect(messages[0]?.content).toBe(
+      'Fix the crosswalk And the streetlight unsubscribe',
+    )
+    expect((await interactionFor('person-1')).optedOutAt).not.toBeNull()
+  })
+
+  it('reports the same counts on a dry run of a colliding upload', async () => {
+    findPersonByPhone.mockResolvedValue({ id: 'person-1' })
+    const rows = [
+      row('3035550101', 'The park needs lights'),
+      row('3035559999', 'STOP'),
+    ]
+
+    const dry = await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows,
+      dryRun: true,
+    })
+    expect(await messagesForOutreach()).toHaveLength(0)
+
+    const committed = await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows,
+    })
+    expect(committed).toEqual({ ...dry, committed: true })
+  })
+
+  it('leaves the send in_progress when nothing matched, so a re-upload can fix it', async () => {
+    const result = await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      // The wrong file: not one number belongs to this send.
+      rows: [row('9995550999', 'Who is this?'), row('9995550888', 'Wrong')],
+    })
+
+    expect(result).toEqual({
+      rowsParsed: 2,
+      matched: 0,
+      unmatched: 2,
+      optOuts: 0,
+      committed: true,
+    })
+    expect(await messagesForOutreach()).toHaveLength(0)
+
+    // The CAS is one-way, so completing here would be unrecoverable.
+    const stillOpen = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreach.id },
+    })
+    expect(stillOpen.status).toBe(OutreachStatus.in_progress)
+
+    // The corrected upload still completes it.
+    await ingest.ingestReplies({
+      outreachId: outreach.id,
+      sourceLabel: 'staff_upload',
+      rows: [row('3035550101', 'The right file')],
+    })
+    const after = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: outreach.id },
+    })
+    expect(after.status).toBe(OutreachStatus.completed)
+  })
+
   it('throws for an outreach that does not exist', async () => {
     await expect(
       ingest.ingestReplies({

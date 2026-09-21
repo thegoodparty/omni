@@ -76,6 +76,16 @@ interface ReplyGroup {
   rows: IngestReplyRow[]
 }
 
+// One message row under construction, keyed by its deterministic id. Several
+// ReplyGroups can merge into one of these — see the merge note below.
+interface PendingMessage {
+  id: string
+  personId: string
+  phoneDigits: string
+  receivedAt?: Date
+  rows: IngestReplyRow[]
+}
+
 @Injectable()
 export class OutreachTextIngestService extends createPrismaBase(
   MODELS.Outreach,
@@ -154,11 +164,19 @@ export class OutreachTextIngestService extends createPrismaBase(
       : null
 
     // --- 3 & 4. Opt-out predicate, deterministic message rows ------------
-    const messages: Prisma.PollIndividualMessageCreateManyInput[] = []
-    const seenIds = new Set<string>()
+    // Two groups can land on one id: the id is (outreachId, personId,
+    // receivedAt), so two phones resolving to the same person at the same
+    // instant collide — and when a producer omits receivedAt (it is optional
+    // in the contract) EVERY reply from that person collides, because the
+    // timestamp component is empty for all of them. Colliding groups are
+    // MERGED into the single row that id names rather than one being
+    // discarded: dropping a group would silently discard an opt-out while
+    // the result still counted it, and an opt-out is the one row that must
+    // never be lost. Merge is also why the counts below are taken from the
+    // merged set, not from the loop.
+    const pending = new Map<string, PendingMessage>()
     let matched = 0
     let unmatched = unparseablePhoneRows
-    let optOuts = 0
 
     for (const group of groups.values()) {
       const personId = phoneToPersonId.get(group.phoneDigits)
@@ -174,36 +192,50 @@ export class OutreachTextIngestService extends createPrismaBase(
         )
         continue
       }
+      // Every attributed row is represented in the merged set, so this
+      // still holds: matched + unmatched === rowsParsed.
       matched += group.rows.length
-
-      // One predicate, every producer, every atom of a split message.
-      const isOptOut = group.rows.some((row) => isOptOutMessage(row.content))
-      if (isOptOut) optOuts += 1
 
       const id = uuidv5(
         `${outreachId}-${personId}-${this.receivedAtKey(group.receivedAt)}`,
         OUTREACH_TEXT_MESSAGE_NAMESPACE,
       )
-      // Two phones can resolve to the same person at the same instant (a
-      // forwarded message answered from a second number). Same id, so keep
-      // the first rather than letting createMany fail on a duplicate key.
-      if (seenIds.has(id)) continue
-      seenIds.add(id)
-
-      messages.push({
+      const existing = pending.get(id)
+      if (existing) {
+        existing.rows.push(...group.rows)
+        continue
+      }
+      pending.set(id, {
         id,
         personId,
-        personCellPhone: `+1${group.phoneDigits}`,
-        sentAt: group.receivedAt ?? new Date(),
-        isOptOut,
-        sender: PollIndividualMessageSender.CONSTITUENT,
-        content: this.groupContent(group),
-        electedOfficeId,
-        // The XOR the DB CHECK enforces: a text outreach's message never
-        // carries a pollId.
-        outreachId,
+        phoneDigits: group.phoneDigits,
+        receivedAt: group.receivedAt,
+        rows: [...group.rows],
       })
     }
+
+    const now = new Date()
+    const messages: Prisma.PollIndividualMessageCreateManyInput[] = [
+      ...pending.values(),
+    ].map((entry) => ({
+      id: entry.id,
+      personId: entry.personId,
+      // The first phone this person answered from; a merged row can span
+      // two, and the recipient map is the record of which were on the send.
+      personCellPhone: `+1${entry.phoneDigits}`,
+      sentAt: entry.receivedAt ?? now,
+      // One predicate, every producer, every atom of a split or merged reply.
+      isOptOut: entry.rows.some((row) => isOptOutMessage(row.content)),
+      sender: PollIndividualMessageSender.CONSTITUENT,
+      content: this.mergedContent(entry.rows),
+      electedOfficeId,
+      // The XOR the DB CHECK enforces: a text outreach's message never
+      // carries a pollId.
+      outreachId,
+    }))
+    // Counted off the rows actually written, so the upload preview can never
+    // promise staff an opt-out that no row records.
+    const optOuts = messages.filter((message) => message.isOptOut).length
 
     if (dryRun) {
       this.logger.info(
@@ -250,10 +282,18 @@ export class OutreachTextIngestService extends createPrismaBase(
     await this.applyInboundEvents(outreachId, messages)
 
     // --- 6. Spine status, CAS-guarded ------------------------------------
-    const advanced = await this.model.updateMany({
-      where: { id: outreachId, status: OutreachStatus.in_progress },
-      data: { status: OutreachStatus.completed },
-    })
+    // Only on an ingest that actually recorded something. An upload whose
+    // every row failed to match is a mis-parse or the wrong file, and the
+    // CAS is one-way: completing on zero rows would leave the send reading
+    // "completed" with no data and no way for a corrected re-upload to fix
+    // it, because the guard would never match again.
+    const advanced =
+      messages.length > 0
+        ? await this.model.updateMany({
+            where: { id: outreachId, status: OutreachStatus.in_progress },
+            data: { status: OutreachStatus.completed },
+          })
+        : { count: 0 }
 
     this.logger.info(
       {
@@ -287,11 +327,12 @@ export class OutreachTextIngestService extends createPrismaBase(
 
   // The pipeline repeats the original message on every atom it split out, so
   // the distinct set collapses to one and this matches what the poll handler
-  // stores. A producer that hands over genuinely different atoms keeps all
-  // of them rather than silently losing everything after the first.
-  private groupContent(group: ReplyGroup): string | null {
+  // stores. A producer that hands over genuinely different atoms — or a
+  // merge of two groups onto one id — keeps all of them rather than silently
+  // losing everything after the first.
+  private mergedContent(rows: IngestReplyRow[]): string | null {
     const distinct = [
-      ...new Set(group.rows.map((row) => row.content).filter(Boolean)),
+      ...new Set(rows.map((row) => row.content).filter(Boolean)),
     ]
     return distinct.length > 0 ? distinct.join(' ') : null
   }
