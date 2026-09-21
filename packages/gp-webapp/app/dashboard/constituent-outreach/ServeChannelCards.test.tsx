@@ -4,25 +4,36 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import ServeChannelCards from './ServeChannelCards'
 
-const renderCards = () => {
+// `onSmsClick` omitted by default: that is what the page passes while
+// `serve-sms-outreach` is off or still resolving, so it is the shape most of
+// these assertions are about.
+const renderCards = ({ withSms = false }: { withSms?: boolean } = {}) => {
   const onSocialClick = vi.fn()
   const onPhoneBankingClick = vi.fn()
   const onDoorKnockingClick = vi.fn()
+  const onSmsClick = vi.fn()
   render(
     <ServeChannelCards
       onSocialClick={onSocialClick}
       onPhoneBankingClick={onPhoneBankingClick}
       onDoorKnockingClick={onDoorKnockingClick}
+      onSmsClick={withSms ? onSmsClick : undefined}
     />,
   )
-  return { onSocialClick, onPhoneBankingClick, onDoorKnockingClick }
+  return {
+    onSocialClick,
+    onPhoneBankingClick,
+    onDoorKnockingClick,
+    onSmsClick,
+  }
 }
 
 describe('ServeChannelCards', () => {
-  // Three, because door knocking is wired for Serve as of 3.0: every turf now
-  // gets an `Outreach` envelope, so an elected official's lists have somewhere
-  // to live and a rail of their own to live on.
-  it('renders exactly the three Serve channel cards', () => {
+  // Three without an SMS handler, because door knocking is wired for Serve as
+  // of 3.0: every turf now gets an `Outreach` envelope, so an elected
+  // official's lists have somewhere to live and a rail of their own to live
+  // on.
+  it('renders exactly the three ungated Serve channel cards', () => {
     renderCards()
 
     expect(screen.getByText('Social media')).toBeInTheDocument()
@@ -31,17 +42,50 @@ describe('ServeChannelCards', () => {
     expect(screen.getAllByRole('button')).toHaveLength(3)
   })
 
-  // The two paid channels stay out. An elected official has no campaign to
-  // bill, and pricing copy on this page would be describing a purchase they
-  // cannot make.
-  it('never renders SMS, Robocall, or pricing copy', () => {
+  // No handler means the flag is off or still resolving, and a channel that
+  // cannot be entered must not be advertised — not even greyed out.
+  it('omits the SMS card entirely when no SMS handler is given', () => {
     renderCards()
 
-    expect(screen.queryByText(/texting/i)).not.toBeInTheDocument()
     expect(screen.queryByText('SMS')).not.toBeInTheDocument()
+    expect(screen.queryByText(/texting/i)).not.toBeInTheDocument()
+  })
+
+  // Robocall is the paid channel that stays out for good, and no card on this
+  // page carries the candidate grid's per-message pricing sub-copy.
+  it('never renders Robocall or pricing copy', () => {
+    renderCards({ withSms: true })
+
     expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
     expect(screen.queryByText(/\$/)).not.toBeInTheDocument()
     expect(screen.queryByText(/free/i)).not.toBeInTheDocument()
+  })
+
+  // Order matters: SMS sits second, where the candidate grid's TILE_ORDER
+  // puts texting, so someone moving between the two products finds it in the
+  // same place.
+  it('renders the SMS card second when a handler is given', () => {
+    renderCards({ withSms: true })
+
+    const labels = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(labels).toEqual([
+      'Social media',
+      'SMS',
+      'Phone banking',
+      'Door knocking',
+    ])
+  })
+
+  it('opens the SMS flow when the SMS card is clicked', async () => {
+    const { onSmsClick, onSocialClick, onPhoneBankingClick } = renderCards({
+      withSms: true,
+    })
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(onSmsClick).toHaveBeenCalledTimes(1)
+    expect(onSocialClick).not.toHaveBeenCalled()
+    expect(onPhoneBankingClick).not.toHaveBeenCalled()
   })
 
   it('opens the social flow when the Social media card is clicked', async () => {

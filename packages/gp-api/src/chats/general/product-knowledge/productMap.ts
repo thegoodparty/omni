@@ -289,9 +289,12 @@ const SERVE_AREAS: ProductArea[] = [
     modes: ['serve'],
     does: 'Build and send outreach to constituents, and see what has gone out.',
     inside: [
-      'Three channels: Social media, Phone banking, and Door knocking',
+      'Four channels: Social media, SMS, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
+      'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
     ],
+    gate: 'Texting is being rolled out office by office, so the SMS channel is not on every account yet. It is paid for per message at checkout, with no subscription.',
   },
   {
     navId: 'contacts-dashboard',
