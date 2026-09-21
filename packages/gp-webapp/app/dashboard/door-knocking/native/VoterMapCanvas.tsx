@@ -20,6 +20,11 @@ import {
   IconButton,
   LocateFixedIcon,
   LocateOffIcon,
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  Undo2Icon,
   MinusIcon,
   PlusIcon,
 } from '@styleguide'
@@ -243,6 +248,17 @@ interface VoterMapCanvasProps {
   // so the cluster has to be told where the uncovered map ends; every other
   // surface leaves it at the design's 16px edge.
   controlsBottomPx?: number
+  // Drop the most recently placed corner. Only supplied while a boundary is
+  // being drawn and there is something to take back, so the button's
+  // presence IS the "there is a point to undo" state and it needs no
+  // disabled form. It joins the cluster below rather than floating
+  // somewhere of its own — see the comment on that cluster.
+  onUndoDrawPoint?: () => void
+  // What the shape under the cursor is worth, and whether it is over the
+  // 150-stop cap. Printed on a pill immediately left of Undo, so the count
+  // and the control that changes it are one group that moves together.
+  drawStopCount?: number
+  drawStopsOverCap?: boolean
   // Bottom padding to reserve when framing the route with fitBounds — the
   // canvas re-fits the pins to keep them visible above the walk sheet,
   // Google Maps pattern for a persistent bottom sheet over a route map.
@@ -534,6 +550,9 @@ export default function VoterMapCanvas({
   frameDrawBottomPct,
   controlsHidden = false,
   controlsBottomPx = 16,
+  onUndoDrawPoint,
+  drawStopCount = 0,
+  drawStopsOverCap = false,
   routeFrameBottomPx = null,
   location,
   liveLocationEnabled = false,
@@ -547,6 +566,25 @@ export default function VoterMapCanvas({
   onTurfClick,
   onTurfHover,
 }: VoterMapCanvasProps) {
+  // Shake on every change that lands the count over cap, in either
+  // direction — 165→160 is still over the limit, and the point of the shake
+  // is to keep saying so with every tap until the shape gets under it.
+  const stopPillRef = useRef<HTMLSpanElement>(null)
+  const prevStopsRef = useRef(drawStopCount)
+  useEffect(() => {
+    const previous = prevStopsRef.current
+    prevStopsRef.current = drawStopCount
+    if (!drawStopsOverCap || drawStopCount === previous) return
+    const el = stopPillRef.current
+    if (!el) return
+    el.classList.remove('animate-shake')
+    // Reflow: React seeing the same class on re-render will not restart the
+    // CSS animation, so the class has to go away and come back with a
+    // layout between the two writes.
+    void el.offsetWidth
+    el.classList.add('animate-shake')
+  }, [drawStopCount, drawStopsOverCap])
+
   const containerRef = useRef<HTMLDivElement>(null)
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
@@ -633,18 +671,17 @@ export default function VoterMapCanvas({
       attributionControl: false,
     })
     mapRef.current = map
-    // No `NavigationControl`. The design puts zoom on the bottom LEFT as a
-    // three-button cluster whose third button is a location toggle maplibre's
-    // stack has no equivalent of, so the cluster is rendered below in React
-    // and maplibre's own would only be a second, differently-styled pair of
-    // zoom buttons under the rail that now occupies the top-left corner.
+    // No `NavigationControl`. The cluster is a three-button stack whose
+    // third button is a location toggle maplibre's own has no equivalent of,
+    // so it is rendered below in React and maplibre's would only be a
+    // second, differently-styled pair of zoom buttons beside it.
     //
-    // Attribution goes bottom-RIGHT for the same reason it was moved off there
-    // before: the corner it used to share is the cluster's now. Nothing floats
-    // over the bottom-right on any of the three surfaces.
+    // Attribution takes whichever bottom corner the cluster does not. It is
+    // bottom-LEFT now because the cluster moved to the right — see the
+    // cluster's own comment for why that corner came free.
     map.addControl(
       new maplibregl.AttributionControl({ compact: true }),
-      'bottom-right',
+      'bottom-left',
     )
 
     // osm-liberty ships transit overlays and 3D building extrusions we
@@ -1486,14 +1523,25 @@ export default function VoterMapCanvas({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
-      {/* The design's cluster: bottom left, vertical, 8px apart, each an
-          outline icon button on a card background so it reads against both
-          the pale street fill and the dark park fill it can sit over.
-          Rendered here rather than by each surface because it drives the map
-          and the map is this component's. */}
+      {/* The cluster: bottom right, vertical, 8px apart, each an outline
+          icon button on a card background so it reads against both the pale
+          street fill and the dark park fill it can sit over. Rendered here
+          rather than by each surface because it drives the map and the map
+          is this component's.
+          
+          It sat bottom-LEFT for a while, and the reason is worth knowing
+          before moving it back: the create flow's landing surface used to be
+          an inset card (`lg:right-4 lg:w-96`) floating OVER the map's right
+          edge, which left all three of these buttons drawn, looking
+          pressable and unclickable at 1440px. What makes the right corner
+          safe again is that the panel beside the map now RESERVES its width
+          instead of floating over it, so the map's own right edge is inside
+          the map at every width — and below `lg` the panel is a bottom sheet
+          the cluster already clears by measurement. If anything is ever put
+          back over the map's right half, this moves again. */}
       {!controlsHidden && (
         <div
-          className="absolute left-8 z-20 flex flex-col gap-2 transition-[bottom] duration-200 ease-out"
+          className="absolute right-8 z-20 flex flex-col items-end gap-2 transition-[bottom] duration-200 ease-out"
           style={{ bottom: controlsBottomPx }}
         >
           <IconButton
@@ -1535,6 +1583,56 @@ export default function VoterMapCanvas({
                 <LocateOffIcon className="size-[18px]" />
               )}
             </IconButton>
+          )}
+          {/* Below the locate button, last in the stack. Undo is a
+              direct-manipulation gesture and belongs on the map, but every
+              free-floating position was worse: following the last point put
+              a 44px target over the 12px vertex handle you grab to drag,
+              bottom-centre ate the taps meant for the shape, and top-left
+              was out of reach of the thumb doing the drawing. The cluster
+              is the one place on this map that is already understood to
+              hold controls, already clears the sheet by measurement, and
+              already sits under the hand. */}
+          {onUndoDrawPoint && (
+            <div className="flex items-center gap-2">
+              {/* Left of Undo and inside the same row, so the count and the
+                  control that changes it are one object: the cluster moves
+                  with the sheet, and a pill anchored anywhere else would
+                  drift away from its own button. */}
+              <Tooltip open={drawStopsOverCap ? true : undefined}>
+                <TooltipTrigger asChild>
+                  <span
+                    ref={stopPillRef}
+                    onAnimationEnd={(e) =>
+                      e.currentTarget.classList.remove('animate-shake')
+                    }
+                    className={`inline-flex h-10 shrink-0 items-center rounded-full border px-3.5 text-sm font-semibold ${
+                      drawStopsOverCap
+                        ? 'border-destructive bg-brand-red-100 text-destructive-dark'
+                        : 'border-border bg-card text-foreground'
+                    }`}
+                  >
+                    {drawStopCount.toLocaleString()} selected
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  Limit is 150 per list
+                </TooltipContent>
+              </Tooltip>
+              {/* Labelled, not an icon button. The other three controls in
+                  this stack are universal map glyphs; an undo arrow beside
+                  them reads as a third map control rather than as the way
+                  back from the tap just made. */}
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-card hover:bg-card"
+                onClick={onUndoDrawPoint}
+              >
+                <Undo2Icon className="size-[18px]" />
+                Undo
+              </Button>
+            </div>
           )}
         </div>
       )}

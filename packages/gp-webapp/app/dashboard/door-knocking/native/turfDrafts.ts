@@ -27,6 +27,76 @@ export interface TurfDraft {
   assigneeId: number | null
 }
 
+// Whether this turf currently has a boundary.
+//
+// A draft can exist without one: undoing corners on a turf already committed
+// takes it back below three, and the canvas stops emitting a ring. The draft
+// is KEPT through that rather than deleted, because deleting it would throw
+// away the colour and the canvasser the candidate had already set — silent
+// data loss from pressing Undo. So the turf survives with an empty polygon
+// and reads as still being drawn, which is what it is.
+//
+// Everything that treats a draft as a real turf goes through here: its card
+// prints "Drawing" instead of a stop count, the map draws no ring for it,
+// and the paid press does not try to buy it a route.
+export const isDrawnTurf = (draft: TurfDraft): boolean =>
+  draft.polygon.length >= 3
+
+// Whether two rings trace the same boundary. Point-wise, because the canvas
+// hands back a fresh array on every report and the contents are what a
+// boundary IS.
+const sameRing = (a: PolygonRing, b: PolygonRing): boolean =>
+  a.length === b.length &&
+  a.every((point, index) => {
+    const other = b[index]
+    return other !== undefined && point[0] === other[0] && point[1] === other[1]
+  })
+
+// Whether applying this patch would leave the draft exactly as it is.
+//
+// `updateDraft` uses it to return the list UNCHANGED rather than mapping a
+// new array over identical contents, and both things that depend on that are
+// load-bearing. The session's dirty flag is one: re-entering the drawing
+// surface re-reports the boundary already under the cursor, and a write of
+// the same shape replaced the array, so Cancel asked what to discard about a
+// session that had touched nothing. The per-draft stats cache is the other —
+// it keys on polygon IDENTITY, so a fresh array of identical points costs a
+// full ray-cast over the pack for an answer that cannot have changed.
+//
+// Spelled out per field rather than looped, so a field added to `TurfDraft`
+// fails the typecheck here instead of being silently compared by reference.
+export const patchChangesDraft = (
+  draft: TurfDraft,
+  patch: Partial<Omit<TurfDraft, 'clientId'>>,
+): boolean => {
+  if (patch.color !== undefined && patch.color !== draft.color) return true
+  if (patch.name !== undefined && patch.name !== draft.name) return true
+  // `undefined` is "not in the patch" and `null` is "unassign", so the
+  // explicit check is the difference between taking a canvasser off a turf
+  // and leaving them on it.
+  if (patch.assigneeId !== undefined && patch.assigneeId !== draft.assigneeId)
+    return true
+  if (patch.polygon !== undefined && !sameRing(patch.polygon, draft.polygon))
+    return true
+  return false
+}
+
+// Whether two lists describe the same turfs — the session snapshot's test.
+// It used to be reference equality on the array, on the argument that every
+// writer replaces it; that held until a writer started replacing it with
+// identical contents. Value equality is the question actually being asked:
+// would Cancel put anything back?
+export const sameDrafts = (a: TurfDraft[], b: TurfDraft[]): boolean =>
+  a.length === b.length &&
+  a.every((draft, index) => {
+    const other = b[index]
+    return (
+      other !== undefined &&
+      draft.clientId === other.clientId &&
+      !patchChangesDraft(draft, other)
+    )
+  })
+
 // What the next turf cut into this campaign is called. Numbered across the
 // campaign's WHOLE membership — the siblings already bought plus the drafts
 // committed this session — because the number is what tells them apart on a

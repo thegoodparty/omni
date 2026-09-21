@@ -66,17 +66,11 @@ const baseProps = {
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,
-  turfStats: {
-    stops: 14,
-    people: 22,
-    households: 9,
-    partyMix: [],
-    ageMix: [],
-  },
+
   drawPointCount: 3,
-  onUndoPoint: vi.fn(),
   drawFullScreen: false,
   onDrawFullScreenChange: vi.fn(),
+  mapChromeBottomPx: 16,
   onRestartDrawing: vi.fn(),
   color: '#2563eb',
   drawnStops: null,
@@ -189,18 +183,11 @@ const buildNewList = () => {
   fireEvent.click(screen.getByRole('button', { name: /Create a new list/ }))
 }
 
-// Drawing happens on the uncovered map, not on the step that frames it: the
-// step behind carries the counts and the warnings, and this surface carries
-// the shape and the way forward from it.
-const drawingSurface = (
-  props: Partial<ComponentProps<typeof CreateListFlow>> = {},
-) => <CreateListFlow {...baseProps} step="draw" drawFullScreen {...props} />
-
-// The drawing surface opens with an instructions AlertDialog on every mount.
-// Every test that reaches into the surface's chrome has to dismiss it first,
-// or Radix inerts everything behind the modal and the queries miss it.
-const dismissDrawInstructions = () =>
-  fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+// Nothing here renders the drawing surface any more. What the flow puts on
+// the uncovered map is the hint and the count pill, which `DrawFullScreen`
+// owns and its own suite covers; Cancel, Save and the campaign's turfs moved
+// into `TurfPanel`, which the PAGE mounts beside the map, so they are
+// asserted in `TurfPanel.test.tsx` and in the page suite.
 
 // The step heading is said twice on purpose — once sr-only as the sheet's
 // accessible title, once in the body as the intro block — so a test that
@@ -629,71 +616,6 @@ describe('CreateListFlow', () => {
     expect(filterPosts).toBe(0)
   })
 
-  it('gates Save turf(s) on having a turf, and on the one being cut', () => {
-    // Two different questions, and the surface asks both. An empty campaign
-    // has nothing to save; a campaign with turfs in it can still be holding
-    // an over-cap shape that would not route.
-    const { rerender } = render(
-      drawingSurface({
-        turfDrafts: [],
-        ring: null,
-        turfStats: null,
-        drawPointCount: 0,
-      }),
-    )
-    dismissDrawInstructions()
-    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeDisabled()
-
-    rerender(drawingSurface({ turfStats: turfStats(151, 140) }))
-    // The cap is on stops (the router's unit), so 151 stops holding 140
-    // doors is over it. The count pill itself lives in VoterMapCanvas's
-    // control cluster now (see VoterMapCanvas for pill assertions); this
-    // suite covers only what DrawFullScreen still renders.
-    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeDisabled()
-
-    rerender(drawingSurface({ turfStats: turfStats(14, 9) }))
-    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeEnabled()
-  })
-
-  // A candidate who has cut two turfs and then pressed New turf is standing
-  // on an empty ring with two turfs to save. Gating on the ring alone would
-  // trap them on this surface with no way out but Back.
-  it('keeps Save turf(s) live on an empty ring once a turf exists', () => {
-    render(drawingSurface({ ring: null, turfStats: null, drawPointCount: 0 }))
-    dismissDrawInstructions()
-
-    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeEnabled()
-  })
-
-  // Removed: draw step body no longer prints cap warnings (design change —
-  // DrawStep is body-only inside OutreachFlowShell; the over-cap pill still
-  // shows on the drawing surface itself).
-
-  // The button is the design's bare word in every state, including all three
-  // of its dead ones. It used to rename itself — counting the points still
-  // needed, then announcing an empty shape — which put a running commentary in
-  // the one control on the surface. What it is waiting for is said around it
-  // instead: the centred hint names the gesture until the first point lands,
-  // and the count pill reads the shape from there.
-  it('keeps the drawing surface’s button on one phrase through every state', () => {
-    const empty = (drawPointCount: number) =>
-      drawingSurface({
-        turfDrafts: [],
-        ring: null,
-        turfStats: null,
-        drawPointCount,
-      })
-    const { rerender } = render(empty(1))
-    dismissDrawInstructions()
-    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeDisabled()
-
-    rerender(empty(2))
-    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeDisabled()
-
-    rerender(drawingSurface({ turfStats: turfStats(14, 9), drawPointCount: 3 }))
-    expect(screen.getByRole('button', { name: 'Save turf(s)' })).toBeEnabled()
-  })
-
   // The regression this line shipped with: two counts side by side, one
   // district-wide and one in-polygon, with nothing saying which was which. The
   // step still reports both — a candidate cutting turf needs to know how much
@@ -705,12 +627,7 @@ describe('CreateListFlow', () => {
     // several turfs describes whichever turf is under the cursor while
     // reading as the campaign's total. The per-turf figures are on the cards.
     render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        districtHouseholds={12000}
-        turfStats={turfStats(84, 61)}
-      />,
+      <CreateListFlow {...baseProps} step="draw" districtHouseholds={12000} />,
     )
 
     expect(screen.queryByText(/matching households/)).toBeNull()
@@ -735,13 +652,12 @@ describe('CreateListFlow', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: 'Turf 1' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Turf 2' })).toBeInTheDocument()
-    // Softened, for the reason every other pre-route figure here is: the
-    // pack cannot shade every way a list narrows, so the number is a
-    // superset of who actually gets knocked.
-    expect(screen.getByText(/About 28/)).toBeInTheDocument()
-    expect(screen.getByText(/About 80/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Turf 1/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Turf 2/ })).toBeInTheDocument()
+    // Stops, the router's own unit and the one the 150 cap is stated in.
+    // `turfStats(stops, households)` puts stops first.
+    expect(screen.getByText(/^14 stops/)).toBeInTheDocument()
+    expect(screen.getByText(/^40 stops/)).toBeInTheDocument()
   })
 
   // The CTA opens the drawing surface, and it says which of the two jobs it
@@ -756,45 +672,15 @@ describe('CreateListFlow', () => {
 
     rerender(<CreateListFlow {...baseProps} step="draw" />)
     expect(
-      screen.getByRole('button', { name: 'Draw more turfs' }),
+      screen.getByRole('button', { name: 'Draw another turf' }),
     ).toBeInTheDocument()
-  })
-
-  // The count in this button was the canvas's shape too ("Add to saved lists
-  // (N)"), and the product owner asked for it out on 2026-08-26. It can go
-  // because it was never the only place the number was said: the pill sits
-  // right above it and counts the same shape, in the unit the cap is stated in.
-  it('leaves the count to the pill rather than the drawing surface’s CTA', () => {
-    render(drawingSurface({ turfStats: turfStats(14, 9) }))
-    dismissDrawInstructions()
-
-    const advance = screen.getByRole('button', { name: 'Save turf(s)' })
-    expect(advance).toBeEnabled()
-    expect(advance.textContent).not.toMatch(/\d/)
-    // Pill text lives on VoterMapCanvas's control cluster now (see that
-    // component's tests for pill assertions).
   })
 
   // The design draws nothing under its preview, so neither do we: the knocking
   // estimate this step used to print is a metric in the details drawer, where
   // it can be stated against a real route rather than against a guess.
   it('keeps the draw step to the counts the design states', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={{
-          stops: 90,
-          people: 150,
-          households: 70,
-          partyMix: [
-            { label: 'Democratic', people: 50 },
-            { label: 'Republican', people: 30 },
-          ],
-          ageMix: [],
-        }}
-      />,
-    )
+    render(<CreateListFlow {...baseProps} step="draw" />)
 
     expect(screen.queryByText(/of knocking/)).toBeNull()
     expect(screen.queryByText(/50 Democratic/)).toBeNull()
@@ -995,7 +881,6 @@ describe('CreateListFlow', () => {
         {...baseProps}
         step="draw"
         ring={null}
-        turfStats={null}
         drawPointCount={0}
         onClose={onClose}
       />,

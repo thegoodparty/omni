@@ -146,7 +146,7 @@ export const TURF_COLORS = [
   '#7c3aed',
   '#0d9488',
   '#db2777',
-  '#65a30d',
+  '#0891b2',
 ] as const
 
 // The canvas labels each swatch with the colour's name (`'aria-label':opt.label`
@@ -163,6 +163,19 @@ const TURF_COLOR_NAMES: Record<string, string> = {
   '#7c3aed': 'Purple',
   '#0d9488': 'Teal',
   '#db2777': 'Pink',
+  '#0891b2': 'Cyan',
+  // Off the palette, still named. Lime sat one slot from Green and the two
+  // read as the same colour in a row of eight swatches and as the same ring
+  // on a map. Cyan took the slot because the only real hue gaps left in the
+  // set are teal-to-blue and purple-to-pink, and the first has the clearer
+  // margin: cyan is a light blue-cyan against teal's dark green-cyan, where
+  // a magenta would sit between two brights. Turfs cut in lime before the
+  // swap keep it — the label is what stops such a turf announcing itself as
+  // "six five a three zero d".
+  //
+  // Eight maximally distinct hues is genuinely hard, and this is the second
+  // attempt at the eighth. If cyan reads as teal in use, the honest fix is
+  // SEVEN colours rather than a third hue nobody can name.
   '#65a30d': 'Lime',
 }
 
@@ -174,8 +187,8 @@ export const turfColorLabel = (color: string): string =>
 // The tick that marks the chosen swatch sits ON the swatch, so it inverts with
 // it — the same rule and the same crossover as the walk list's stop numeral on
 // its status circle, which is why the helper is shared rather than copied. A
-// fixed white tick failed on four of these eight (green, amber, teal and lime
-// all land above the crossover), which is the mark meant to make the choice
+// fixed white tick failed on three of these eight (green, amber and teal all
+// land above the crossover), which is the mark meant to make the choice
 // legible being the thing that isn't.
 export const turfColorTick = (color: string): string => readableInkOnHex(color)
 

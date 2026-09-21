@@ -9,7 +9,7 @@ import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
-import { formatName, teamQueryKey } from 'app/dashboard/team/team.util'
+import { useTeamOptions } from '../useTeamOptions'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
 import { purposeForRecommendedVariant } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
@@ -29,7 +29,7 @@ import {
 } from './voterFilterPreview'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
-import { nextTurfName, type TurfDraft } from '../turfDrafts'
+import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
@@ -68,8 +68,6 @@ import {
 } from './serveDoorKnockingPurposes'
 import { WhoStep } from './WhoStep'
 import { DrawStep } from './DrawStep'
-import { DrawFullScreen } from './DrawFullScreen'
-import { DrawToolbar, type TeamOption } from './DrawToolbar'
 import { RouteStep } from './RouteStep'
 import type { SavedListOption } from './savedListOptions'
 import type {
@@ -193,7 +191,7 @@ interface CreateListFlowProps {
   // In-polygon counts for the drawn shape, computed by the page from the pack.
   // The estimate: instant on every ring change, and a superset, since the pack
   // carries no addresses and cannot shade by every filter a list applies.
-  turfStats: PolygonStats | null
+
   // The drawn shape's stops as [lng, lat], from the pack the page holds. The
   // route step's walk-vs-drive suggestion is derived from how spread out they
   // are, which is only answerable before the route is bought — and since the
@@ -223,25 +221,24 @@ interface CreateListFlowProps {
   // Drop the most recently placed vertex. Threaded through to the drawing
   // surface's Undo button, which only renders when there is a point to drop
   // (see DrawFullScreen).
-  onUndoPoint: () => void
+
   // Whether the map is uncovered and being drawn on. It lives on the page
   // beside the draw tokens, not here, because it decides what the CANVAS is
   // doing: the shielded preview window on this step and the live drawing
   // surface are the same map in two states, and the map outlives this panel.
   drawFullScreen: boolean
-  onDrawFullScreenChange: (full: boolean) => void
+  // `origin` is the rectangle the press came from, when there was one —
+  // the draw step's preview card. The page animates the map out of it.
+  onDrawFullScreenChange: (full: boolean, origin?: DOMRect) => void
+  // What covers the bottom of the map, so the drawing surface's hint and
+  // count pill clear it by the same number the zoom cluster does. The page
+  // owns it because the turf panel reports it there.
+
   // Throw the drawn boundary away and open a fresh drawing session on the same
   // map. What "Discard this turf?" means: the canvas keeps the session live
   // behind the draw step's shield, so a discard that merely cleared would leave
   // a map nothing can be drawn on next time the surface opens.
   onRestartDrawing: () => void
-  // The colour the in-progress ring is drawn in. Seeded from
-  // `assignNextColor(siblingTurfs.colors)` up in `useCreateListDraw`, so the
-  // ring lands on the palette-next slot the moment drawing starts. The
-  // picker that lets a candidate override this belongs on the drawing step
-  // itself (a follow-up); it is deliberately NOT on the name step, which
-  // asks about the CAMPAIGN, not the individual turfs cut into it.
-  color: string
   // The whole chain committed: turf, route and outreach envelope all exist.
   // Carries the created row because the page opens the walk on it directly.
   onListCreated: (turf: DoorKnockingTurf) => void
@@ -310,17 +307,18 @@ interface CreateListFlowProps {
   // The pack's stops/doors/people per draft, keyed by `clientId`. Absent
   // means the pack has not answered for that boundary yet.
   draftStats: Map<string, PolygonStats>
-  // The turf whose boundary is under the cursor right now, or null while a
-  // new one is being drawn. The toolbar's controls act on this one.
-  activeDraftId: string | null
+  // Reopening the drawing surface on one turf, from its card. Naming,
+  // colouring and assigning a turf all happen in the surface's own panel
+  // now, which the page mounts — so this seam carries only the two things
+  // the STEP can do to a turf: open it, or drop it.
   onSelectDraft: (clientId: string) => void
-  onStartNewTurf: () => void
-  onRemoveDraft: (clientId: string) => void
+  // Write a turf's colour or canvasser from the draw step's cards, which
+  // open onto the same two controls the drawing surface's panel offers.
   onUpdateDraft: (
     clientId: string,
     patch: Partial<Omit<TurfDraft, 'clientId'>>,
   ) => void
-  onPickColor: (color: string) => void
+  onRemoveDraft: (clientId: string) => void
 }
 
 // The clauses an accepted recommendation carries that the who step's boolean
@@ -407,13 +405,10 @@ export default function CreateListFlow({
   savedLists,
   allContactsHouseholds,
   ring,
-  turfStats,
   drawnStops,
   drawPointCount,
-  onUndoPoint,
   drawFullScreen,
   onDrawFullScreenChange,
-  color,
   onListCreated,
   isServeOrg,
   unpreviewableKeys,
@@ -427,60 +422,32 @@ export default function CreateListFlow({
   campaignOutreachId,
   turfDrafts,
   draftStats,
-  activeDraftId,
   onSelectDraft,
-  onStartNewTurf,
-  onRemoveDraft,
   onUpdateDraft,
-  onPickColor,
+  onRemoveDraft,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const serveMode = useDoorKnockingServeMode()
   const officeName = useDoorKnockingOfficeName()
-  const activeDraft =
-    turfDrafts.find((draft) => draft.clientId === activeDraftId) ?? null
-  // The org's roster, for the drawing surface's assignee control.
-  //
-  // Shares `teamQueryKey` with the team page and the outreach drawer's
-  // assignees section, which is the whole reason it is read through that
-  // helper: three surfaces asking the same question must not each keep
-  // their own copy of the answer, and a candidate who has just come from
-  // either of the other two pays for no request here.
-  //
-  // Failure is silent on purpose. An assignee is optional on every turf and
-  // can be set from the outreach drawer afterwards, so a roster that will
-  // not load costs the candidate a convenience and not the campaign they
-  // came to cut — the toolbar simply does not offer the control.
-  const teamQuery = useQuery({
-    queryKey: teamQueryKey(orgSlug),
-    queryFn: () =>
-      clientRequest('GET /v1/organizations/team', {}).then((res) => res.data),
-    enabled: !!orgSlug,
-  })
-  const teamOptions = useMemo<TeamOption[]>(
-    () =>
-      (teamQuery.data?.members ?? []).map((member) => ({
-        userId: member.userId,
-        label: formatName(member.name, member.email),
-      })),
-    [teamQuery.data],
-  )
+  // The roster the cards name an assignee from. Shares a cache key with the
+  // drawing surface's own read, so the two cost one request between them.
+  const teamOptions = useTeamOptions(orgSlug)
   // Draft id -> the canvasser's name, for the cards on the step behind the
   // drawing surface. An assignee whose membership has gone (removed from the
   // org between the pick and the save) drops out of the map rather than
   // printing a bare id, and the save still posts the assignment — gp-api is
   // the authority on whether that user may hold one.
-  const assigneeLabels = useMemo(() => {
-    const labels = new Map<string, string>()
-    for (const draft of turfDrafts) {
-      if (draft.assigneeId === null) continue
-      const member = teamOptions.find(
-        (option) => option.userId === draft.assigneeId,
-      )
-      if (member) labels.set(draft.clientId, member.label)
-    }
-    return labels
-  }, [turfDrafts, teamOptions])
+  // The turfs with a boundary, which is not the same set as the turfs.
+  // Undoing a committed turf back below three corners keeps the draft — its
+  // colour and canvasser are the candidate's work — but leaves it with no
+  // shape, and nothing here may treat one of those as buyable: the create
+  // body's `geoPoly` needs a closed ring of at least four positions, so a
+  // boundary-less turf would be a guaranteed 400 on a paid press.
+  const drawnDrafts = useMemo(
+    () => turfDrafts.filter(isDrawnTurf),
+    [turfDrafts],
+  )
+
   // For the talking-points step's composed sections only: the identity clause
   // it previews, and the website its call to action is built from. The
   // candidate's name lives on the user, not the campaign.
@@ -959,23 +926,6 @@ export default function CreateListFlow({
     setName(suggestion)
   }, [step, purpose, purposeNameSuggestion, siblingTurfs])
 
-  // The stop count for the boundary under the cursor, and the only figure
-  // this component derives from the live ring — everything else about a turf
-  // is read off its draft, which is where a turf's identity now lives.
-  //
-  // Stops are what the router and its 150-stop cap are denominated in, so
-  // this is what the drawing surface's pill prints and what `overCap` below
-  // is measured in. Doors and people belong to a turf rather than to the
-  // gesture drawing one, and the per-draft figures in `draftStats` are where
-  // both now come from: this flow cuts several turfs, and a single `people`
-  // off the active ring would have described whichever one happened to be
-  // under the cursor while reading as the campaign's.
-  //
-  // Pack-derived, and ephemeral on purpose. Once the route step commits, the
-  // paid `POST /door-knocking/turfs` runs its own exact evaluation
-  // server-side and freezes the list.
-  const stops = turfStats?.stops ?? 0
-
   // Derived rather than seeded into state: the pack decodes on its own
   // schedule, so a suggestion that arrives after the route step is on screen
   // still lands. `mode` is the override once there is one, the suggestion
@@ -1147,7 +1097,7 @@ export default function CreateListFlow({
 
   const save = useMutation({
     mutationFn: async () => {
-      if (turfDrafts.length === 0) throw new Error('no turfs')
+      if (drawnDrafts.length === 0) throw new Error('no turfs')
       // A list picked on the who step ALREADY is a `voter-file/filter`, and
       // its id is the same one the turf attaches by — `TurfDetailsDrawer`
       // resolves a turf's list by matching them. So the turf reuses it rather
@@ -1279,9 +1229,9 @@ export default function CreateListFlow({
       let anchorId = campaignOutreachId ?? createdAnchorRef.current ?? undefined
       const created: CreatedTurf[] = []
       const failures: unknown[] = []
-      let pending = turfDrafts
+      let pending = drawnDrafts
       if (anchorId === undefined) {
-        const [first, ...rest] = turfDrafts
+        const [first, ...rest] = drawnDrafts
         // Narrowing only — the length was checked at the top of the
         // mutation, so there is always a first draft here.
         if (!first) throw new Error('no turfs')
@@ -1432,7 +1382,6 @@ export default function CreateListFlow({
       ? `${toCreateErrorMessage(partialFailure)} The turfs that did build are saved — press Build route again to finish the rest.`
       : null
 
-  const overCap = stops > HARD_STOP_LIMIT
   // The per-list stop cap above is the only thing the drawing surface
   // enforces. A daily allowance used to be checked here too: a 500-stop
   // budget rode the address preview, so a shape could be refused for its size
@@ -1460,64 +1409,20 @@ export default function CreateListFlow({
         savedListId !== null,
       )
 
-  // Leaving the drawing surface. Back is a step-back inside the flow, not a
-  // close — the drawn shape stays and the candidate lands on the draw step
-  // where they can Continue with it or open the drawing surface again to
-  // adjust. The old "Discard this turf?" prompt fired here whenever Back
-  // was pressed with any vertices, which read as "you're about to lose
-  // work" for a gesture that never lost any.
-  const leaveFullScreen = () => {
-    onDrawFullScreenChange(false)
-  }
-
-  // The drawing surface is the one thing that renders OUTSIDE the shell:
-  // it takes over the whole map with its own chrome, at a z-index above
-  // the sheet, and only ever appears from the draw stage. Every other
-  // stage — draw included, when the surface is not up — flows through the
-  // shell below with its own body branch.
+  // The drawing surface is the map with nothing over it. Every control it
+  // used to float there — the hint, the instructions modal, Undo and the
+  // stop count — is either deleted or in the turf panel now, and the panel
+  // is mounted by the PAGE, so this branch has nothing left to draw. It
+  // still has to exist: returning null is what takes the flow's own
+  // full-screen sheet off the map.
+  const resumedRef = useRef(false)
   if (stage === 'draw' && drawFullScreen) {
-    return (
-      <DrawFullScreen
-        pointCount={drawPointCount}
-        // Enabled once there is at least one turf worth keeping, which is
-        // not the same question as "is the shape under the cursor valid".
-        // A candidate who cut two turfs and then tapped New turf has an
-        // empty ring and two turfs to save; gating on the ring alone would
-        // trap them on this surface with no way back but Back.
-        //
-        // The over-cap term stays on the ring, because the cap is about the
-        // shape being drawn RIGHT NOW: a committed turf was under it when
-        // it committed, and the one in progress is what can still be fixed.
-        continueDisabled={turfDrafts.length === 0 || overCap}
-        // Back to the step that lists the turfs — NOT on to the route step.
-        // Drawing is a place a candidate goes several times before the
-        // campaign is cut the way they want it, so the way out of it is the
-        // list of what they have cut, with "Draw more turfs" on it.
-        onContinue={() => onDrawFullScreenChange(false)}
-        onClose={leaveFullScreen}
-        onUndoPoint={onUndoPoint}
-        drawStopCount={stops}
-        drawStopsOverCap={overCap}
-        toolbar={
-          <DrawToolbar
-            drafts={turfDrafts}
-            active={activeDraft}
-            pendingName={nextTurfName(
-              (siblingTurfs?.length ?? 0) + turfDrafts.length,
-            )}
-            drawColor={color}
-            onSelectDraft={onSelectDraft}
-            onStartNewTurf={onStartNewTurf}
-            onPickColor={onPickColor}
-            onAssign={(assigneeId) => {
-              if (!activeDraft) return
-              onUpdateDraft(activeDraft.clientId, { assigneeId })
-            }}
-            team={teamOptions}
-          />
-        }
-      />
-    )
+    // Coming back from the map is a RESUMPTION, not an arrival, so the
+    // sheet must not slide up the whole viewport again on the way in. This
+    // component stays mounted across the hand-off — only its return value
+    // changes — so a ref is enough to remember that it has happened.
+    resumedRef.current = true
+    return null
   }
 
   const title =
@@ -1529,6 +1434,7 @@ export default function CreateListFlow({
 
   return (
     <OutreachFlowShell
+      instant={resumedRef.current}
       open
       onClose={onClose}
       title={title}
@@ -1631,7 +1537,7 @@ export default function CreateListFlow({
                       // One turf is the whole requirement: a campaign with
                       // no boundary has nothing to route, and the per-turf
                       // validity was settled when each was committed.
-                      disabled: turfDrafts.length === 0,
+                      disabled: drawnDrafts.length === 0,
                       onClick: () => goToStage('route'),
                     }
                   : {
@@ -1646,10 +1552,10 @@ export default function CreateListFlow({
                       // about to be spent.
                       label: save.isPending
                         ? 'Building routes'
-                        : turfDrafts.length > 1
-                          ? `Build ${turfDrafts.length} routes`
+                        : drawnDrafts.length > 1
+                          ? `Build ${drawnDrafts.length} routes`
                           : 'Build route',
-                      disabled: save.isPending || turfDrafts.length === 0,
+                      disabled: save.isPending || drawnDrafts.length === 0,
                       loading: save.isPending,
                       onClick: () => save.mutate(),
                     }
@@ -1790,14 +1696,20 @@ export default function CreateListFlow({
             districtBounds={districtBounds}
             drafts={turfDrafts}
             draftStats={draftStats}
-            assigneeLabels={assigneeLabels}
-            onOpenFullScreen={() => onDrawFullScreenChange(true)}
+            team={teamOptions}
+            onPickColor={(clientId, color) =>
+              onUpdateDraft(clientId, { color })
+            }
+            onAssign={(clientId, assigneeId) =>
+              onUpdateDraft(clientId, { assigneeId })
+            }
+            onOpenFullScreen={(origin) => onDrawFullScreenChange(true, origin)}
             // Editing a turf from its card opens the drawing surface with
             // that boundary already under the cursor, which is the only
             // place its corners can be moved.
-            onEditDraft={(clientId) => {
+            onEditDraft={(clientId, origin) => {
               onSelectDraft(clientId)
-              onDrawFullScreenChange(true)
+              onDrawFullScreenChange(true, origin)
             }}
             onRemoveDraft={onRemoveDraft}
           />

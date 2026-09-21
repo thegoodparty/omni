@@ -244,29 +244,28 @@ export interface CreateListSurfaceProps {
   ring: PolygonRing | null
   // In-polygon counts from the pack — instant on every ring change, and a
   // superset. The preview below replaces these once it answers.
-  turfStats: PolygonStats | null
+
   // Boundary points placed so far, straight off the canvas. `ring` only exists
   // from three points, so this is the only thing that knows there is a one- or
   // two-point shape to undo.
   drawPointCount: number
   // Drop the most recently placed vertex. Threaded through to the drawing
   // surface's Undo button.
-  onUndoPoint: () => void
+
   // Whether the map is uncovered and live. Owned by `useCreateListDraw` above
   // — it is a fact about the canvas, which outlives this surface.
   drawFullScreen: boolean
-  onDrawFullScreenChange: (full: boolean) => void
+  onDrawFullScreenChange: (full: boolean, origin?: DOMRect) => void
+  // What covers the bottom of the map, so the drawing surface's own chrome
+  // clears it by the same number the zoom cluster does. Threaded straight
+  // through — the turf panel measures it and the page holds it.
+
   // Discarding the drawn boundary. Bumps `startDrawToken` rather than
   // `clearDrawToken`: the canvas keeps a live drawing session behind the draw
   // step's shield, and clearing would end it and leave a map nothing can be
   // drawn on. Up on the page with the other draw tokens for the usual reason —
   // the map outlives this surface.
   onRestartDrawing: () => void
-  // The colour the new list will be drawn in. Auto-assigned, not picked: the
-  // canvas's confirm step is a single name field, and a list's colour stays
-  // editable in `EditTurfDialog`. Up on the page because the canvas tints the
-  // boundary with it while the shape is being cut.
-  color: string
   // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
   // suggestion. From the pack, which is the orchestrator's.
   drawnStops: Array<[number, number]> | null
@@ -308,31 +307,22 @@ export interface CreateListSurfaceProps {
   // because the canvas draws them; threaded down so the draw step can list
   // them and the save can buy a route for each.
   //
-  // Nothing here COMMITS one. A turf becomes a draft the moment its ring is
-  // valid, which only the page can see (it is the page the canvas reports
-  // the ring to), so the flow's part is to name, colour, assign, reorder and
-  // drop them — never to decide one exists.
+  // Nothing here COMMITS one, and nothing here CONFIGURES one either. A turf
+  // becomes a draft the moment its ring is valid, which only the page can
+  // see; and naming, colouring and assigning happen in `TurfPanel`, which
+  // the page mounts beside the map. What crosses this seam is the two things
+  // the STEP can do to a turf — reopen it, or drop it.
   turfDrafts: TurfDraft[]
   // The pack's stops/doors/people for each draft, keyed by `clientId`. From
   // the orchestrator because the pack is: this surface never decodes one.
   // A draft missing from the map has no answer yet and prints as such.
   draftStats: Map<string, PolygonStats>
-  // The draft whose boundary is currently under the cursor, or null while a
-  // brand-new turf is being drawn. The toolbar's colour and assignee
-  // controls act on this one.
-  activeDraftId: string | null
   onSelectDraft: (clientId: string) => void
-  // "+ New turf": let go of the active turf and hand the canvas a clean
-  // session on the palette's next slot.
-  onStartNewTurf: () => void
-  onRemoveDraft: (clientId: string) => void
   onUpdateDraft: (
     clientId: string,
     patch: Partial<Omit<TurfDraft, 'clientId'>>,
   ) => void
-  // The colour picker. Separate from `onUpdateDraft` because a colour has to
-  // reach the live ring as well as the draft, and only the page holds both.
-  onPickColor: (color: string) => void
+  onRemoveDraft: (clientId: string) => void
   // The same pair for a recommendation carried in on `?recommended=`.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
@@ -350,13 +340,10 @@ export default function CreateListSurface({
   districtHouseholdsFailed,
   districtUnavailable,
   ring,
-  turfStats,
   drawPointCount,
-  onUndoPoint,
   drawFullScreen,
   onDrawFullScreenChange,
   onRestartDrawing,
-  color,
   drawnStops,
   onListCreated,
   isServeOrg,
@@ -371,12 +358,9 @@ export default function CreateListSurface({
   campaignOutreachId,
   turfDrafts,
   draftStats,
-  activeDraftId,
   onSelectDraft,
-  onStartNewTurf,
-  onRemoveDraft,
   onUpdateDraft,
-  onPickColor,
+  onRemoveDraft,
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
 }: CreateListSurfaceProps) {
@@ -543,7 +527,6 @@ export default function CreateListSurface({
       savedLists={audience.lists}
       allContactsHouseholds={audience.allContactsHouseholds}
       ring={ring}
-      turfStats={turfStats}
       addressPreview={addressPreview}
       previewPending={previewCurrent && previewQuery.isPending}
       previewFailed={previewCurrent && previewQuery.isError}
@@ -558,11 +541,9 @@ export default function CreateListSurface({
       // nothing would go out.
       onRetryAddresses={() => void previewQuery.refetch()}
       drawPointCount={drawPointCount}
-      onUndoPoint={onUndoPoint}
       drawFullScreen={drawFullScreen}
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}
-      color={color}
       drawnStops={drawnStops}
       onListCreated={onListCreated}
       isServeOrg={isServeOrg}
@@ -577,12 +558,9 @@ export default function CreateListSurface({
       campaignOutreachId={campaignOutreachId}
       turfDrafts={turfDrafts}
       draftStats={draftStats}
-      activeDraftId={activeDraftId}
       onSelectDraft={onSelectDraft}
-      onStartNewTurf={onStartNewTurf}
-      onRemoveDraft={onRemoveDraft}
       onUpdateDraft={onUpdateDraft}
-      onPickColor={onPickColor}
+      onRemoveDraft={onRemoveDraft}
     />
   )
 }

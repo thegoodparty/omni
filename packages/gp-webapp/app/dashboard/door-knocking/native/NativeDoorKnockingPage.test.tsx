@@ -364,12 +364,18 @@ const page = (props: PageProps = {}) => (
   />
 )
 
-// The walk's sheet, which is the only `aside` the page renders now — the
-// saved-lists rail that used to sit beside it is gone, and so is the same
-// rail's phone sheet. One query where there used to be two that had to say
-// which of the pair they meant.
+// The walk's sheet. It shares `aside[data-snap]` with the create flow's turf
+// panel — both are the same snap-sheet object over the same map — but the two
+// are never on screen together, because one belongs to a walk and the other
+// to the create flow. The panel carries an accessible name and is queried by
+// it below; this stays a bare selector because the walk's sheet is named by
+// the turf it is walking and so has no fixed one.
 const walkSheet = () => document.querySelector('aside[data-snap]')
 const walkSurface = () => within(walkSheet() as HTMLElement)
+
+// The create flow's turf panel: the campaign's turfs, and the selected one's
+// colour and canvasser. Beside the map at `lg`, over it below.
+const turfPanel = () => screen.getByRole('complementary', { name: 'Turfs' })
 
 // The turf points at saved filter 7, so the default is that list existing with
 // no options set — a real list that legitimately targets everyone inside its
@@ -396,7 +402,11 @@ const mapReady = () => screen.findByTestId('voter-map')
 // drawn shape is a card naming that turf. It used to be one paragraph of
 // "N matching households · M selected households", which described a single
 // boundary — the thing this step stopped being about.
-const drawnTurfCard = (name: string) => screen.findByRole('button', { name })
+// The draw step's cards are the same component the panel draws, so the row
+// button's accessible name carries the counts and the canvasser too — match
+// on the turf's name at the start of it.
+const drawnTurfCard = (name: string) =>
+  screen.findByRole('button', { name: new RegExp(`^${name}`) })
 
 // The who step's CTA carries the audience it is about to continue with, so it
 // is matched on the word rather than on the count — which is the fixture's
@@ -440,8 +450,9 @@ const openFlowAndDraw = async () => {
 // instructions AlertDialog opens on every mount and inerts the map behind it,
 // so it has to be dismissed before any tap can reach the canvas.
 const drawRingAndReview = async () => {
-  fireEvent.click(screen.getByRole('button', { name: /^Draw (more )?turfs$/ }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
+  fireEvent.click(
+    screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+  )
   const tapMap = screen.getByRole('button', { name: 'tap the map' })
   fireEvent.click(tapMap)
   fireEvent.click(tapMap)
@@ -450,7 +461,7 @@ const drawRingAndReview = async () => {
   // lists what was cut — it does not advance the flow, because drawing is a
   // place a candidate returns to until the campaign is divided the way they
   // want it.
-  fireEvent.click(await screen.findByRole('button', { name: 'Save turf(s)' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
 }
 
 // The picker on the who step, which is a listbox rather than a stack of radio
@@ -980,10 +991,8 @@ describe('NativeDoorKnockingPage create flow', () => {
 
     await openFlowAndDraw()
     fireEvent.click(
-      screen.getByRole('button', { name: /^Draw (more )?turfs$/ }),
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
     )
-    // The instructions dialog inerts the map behind it on every mount.
-    fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
@@ -992,7 +1001,7 @@ describe('NativeDoorKnockingPage create flow', () => {
     // campaign was already named by `openFlowAndDraw` — the name step sits
     // before the polygon now, because the campaign is the container the
     // turfs are cut into.
-    fireEvent.click(await screen.findByRole('button', { name: 'Save turf(s)' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
@@ -1149,54 +1158,40 @@ describe('NativeDoorKnockingPage draw step', () => {
     // The step frames the map behind a shielded window, so cutting the shape
     // is its own surface: the map with nothing over it but the way forward.
     fireEvent.click(
-      screen.getByRole('button', { name: /^Draw (more )?turfs$/ }),
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
     )
-    // Dismiss the instructions AlertDialog seeded open on every drawing-
-    // surface mount, or it inerts the map behind it.
-    fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
-    const save = () => screen.getByRole('button', { name: 'Save turf(s)' })
-    // What the button is waiting for is said by the surface rather than by the
-    // button, which keeps its one phrase in every state.
-    expect(
-      screen.getByText('Tap or click the map to add your first point'),
-    ).toBeInTheDocument()
-    expect(save()).toBeDisabled()
+    const save = () => within(turfPanel()).getByRole('button', { name: 'Save' })
+    // Nothing over the map before the first point: the instructions dialog
+    // has just named the gesture and the panel names the turf. Save is live
+    // throughout — leaving a surface you are standing on is never the thing
+    // to block.
+    expect(screen.queryByText(/Tap or click the map/)).toBeNull()
+    expect(save()).toBeEnabled()
 
     fireEvent.click(tapMap)
-    // The hint is spent on the first point and the count pill reads the shape
-    // from there — at nothing, because one point is not a ring.
-    expect(
-      screen.queryByText('Tap or click the map to add your first point'),
-    ).toBeNull()
-    expect(screen.getByText('0 selected')).toBeInTheDocument()
-    expect(save()).toBeDisabled()
+    // The count pill and Undo moved into maplibre's control cluster, which
+    // this suite stubs — `VoterMapCanvas.test.tsx` owns them now.
 
     fireEvent.click(tapMap)
-    expect(save()).toBeDisabled()
 
     // The canvas closes the shape itself on the third tap rather than waiting
     // for a finish gesture, and that is also the moment the turf becomes a
-    // draft: the ring is valid, so the campaign now holds something worth
-    // saving and the button comes alive.
+    // draft — so it is the moment the panel beside the map gains a row for
+    // it.
     fireEvent.click(tapMap)
-    await waitFor(() => expect(save()).toBeEnabled())
-    // Awaited rather than read: the button comes alive the moment the ring
-    // is valid, which is one render before the pack has counted what is
-    // inside it. The two used to settle together because the button was
-    // gated on the count.
-    expect(await screen.findByText('2 selected')).toBeInTheDocument()
+    expect(await within(turfPanel()).findByText('Turf 1')).toBeInTheDocument()
 
     fireEvent.click(save())
 
     // Back on the step that lists the campaign's turfs, with the one just
     // cut on it — not forward into the flow.
     expect(
-      await screen.findByRole('button', { name: 'Turf 1' }),
+      await screen.findByRole('button', { name: /^Turf 1/ }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Draw more turfs' }),
+      screen.getByRole('button', { name: 'Draw another turf' }),
     ).toBeInTheDocument()
   })
 
@@ -1222,10 +1217,8 @@ describe('NativeDoorKnockingPage draw step', () => {
     expect(map).toHaveAttribute('data-draw-color', '#2563eb')
 
     fireEvent.click(
-      screen.getByRole('button', { name: /^Draw (more )?turfs$/ }),
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
     )
-    // Dismiss the instructions AlertDialog, or it inerts everything behind.
-    fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
 
     // Uncovering the map asks for the shape back in view: the camera has not
     // moved, but a candidate who has been reading a step has no idea where
@@ -1235,12 +1228,13 @@ describe('NativeDoorKnockingPage draw step', () => {
     expect(map).toHaveAttribute('data-frame-bottom', '0')
     expect(map).toHaveAttribute('data-controls-hidden', 'false')
 
-    // And back to the draw step, using the drawing-surface's Back button.
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    // And back to the draw step. Cancel rather than Back now, and it does
+    // not prompt: nothing was drawn in this session, so nothing is lost.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
     expect(map).toHaveAttribute('data-controls-hidden', 'true')
     expect(
-      screen.getByRole('button', { name: /^Draw (more )?turfs$/ }),
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
     ).toBeVisible()
   })
 
@@ -1269,14 +1263,93 @@ describe('NativeDoorKnockingPage draw step', () => {
     await drawnTurfCard('Turf 1')
   })
 
-  // The drawing surface's own footer is 88px of opaque bar across the bottom,
-  // so the cluster clears it by the design's 96 rather than sitting at the
-  // 16px edge underneath it — which left the zoom buttons half-covered and the
-  // locate toggle entirely hidden. The locate button is offered here and only
-  // here inside the flow: a boundary is cut standing on the street it covers
-  // as often as at a desk, and knowing where you are is how you know which
-  // blocks to enclose.
-  it('clears the drawing surface’s footer, with the full cluster on it', async () => {
+  // Cancel is the only word on this surface that throws anything away, and
+  // what it throws away is THIS SESSION — not the campaign.
+  it('puts the turfs back the way the session found them', async () => {
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    // Session one: cut a turf and keep it.
+    await drawRingAndReview()
+    await drawnTurfCard('Turf 1')
+
+    // Session two: cut a second, then change your mind. Reopening the map
+    // resumes the turf that was being drawn rather than starting one, so
+    // the second turf begins with Add turf — the same press a candidate
+    // makes.
+    fireEvent.click(screen.getByRole('button', { name: 'Draw another turf' }))
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+    )
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    expect(await within(turfPanel()).findByText('Turf 2')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    // Something would be lost, so it asks — the prompt this button carries
+    // is gated on the session having changed something.
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard' }))
+
+    // Turf 1 survives and Turf 2 is gone. Restoring to EMPTY here would
+    // delete a turf the candidate cut in an earlier session and never asked
+    // to lose, which is the whole reason the snapshot is per-session.
+    expect(await drawnTurfCard('Turf 1')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Turf 2/ })).toBeNull()
+  })
+
+  it('does not ask when a session with turfs already in it changed nothing', async () => {
+    // Reported from the app: cut a turf, Save, press Draw another turf, then
+    // Cancel straight away — and it asked what to discard, about a session
+    // that had not touched anything. The sibling test below only covers a
+    // session with NO turfs behind it, where nothing can be re-reported.
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    await drawRingAndReview()
+    await drawnTurfCard('Turf 1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Draw another turf' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByText(/Discard/)).toBeNull()
+    expect(await drawnTurfCard('Turf 1')).toBeInTheDocument()
+  })
+
+  it('leaves without asking when the session changed nothing', async () => {
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+
+    // Nothing drawn, so nothing to lose. The button this replaced used to
+    // prompt on every press with any vertices down, for a gesture that
+    // discarded nothing, and was removed for crying wolf.
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByText(/Discard/)).toBeNull()
+    expect(
+      await screen.findByRole('button', { name: 'Draw turfs' }),
+    ).toBeInTheDocument()
+  })
+
+  // The cluster used to clear a hardcoded 96px, which was the drawing
+  // surface's own 88px footer bar plus a gap. That bar moved into the turf
+  // panel, so there is nothing on the map for the cluster to clear but the
+  // panel itself — and only the panel knows how tall it is, so it reports.
+  // Docked beside the map it covers nothing and reports the ordinary edge
+  // gap; over the map as a sheet it reports its measured height.
+  //
+  // The locate button is offered here and only here inside the flow: a
+  // boundary is cut standing on the street it covers as often as at a desk,
+  // and knowing where you are is how you know which blocks to enclose.
+  it('clears whatever the turf panel covers, with the full cluster on it', async () => {
     renderPage()
     await mapReady()
 
@@ -1286,13 +1359,16 @@ describe('NativeDoorKnockingPage draw step', () => {
     expect(map).toHaveAttribute('data-controls-hidden', 'true')
 
     fireEvent.click(
-      screen.getByRole('button', { name: /^Draw (more )?turfs$/ }),
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
     )
-    // The instructions AlertDialog inerts everything behind it on every mount.
-    fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
 
     expect(map).toHaveAttribute('data-controls-hidden', 'false')
-    expect(map).toHaveAttribute('data-controls-bottom', '96')
+    // The panel's own report rather than a number this page holds. jsdom
+    // measures every element at zero height, so what is asserted is that the
+    // report arrived at all — the 96 that used to be here was the one thing
+    // this could no longer be.
+    expect(map).not.toHaveAttribute('data-controls-bottom', '96')
+    expect(map).toHaveAttribute('data-controls-bottom')
     expect(
       screen.getByRole('button', { name: 'Show my location' }),
     ).toBeInTheDocument()
@@ -1309,14 +1385,13 @@ describe('NativeDoorKnockingPage draw step', () => {
     await openFlowAndDraw()
     await drawRingAndReview()
 
-    // One turf, numbered across the campaign, with its own counts under it
-    // — softened, because a pack-derived figure is a superset of who gets
-    // knocked.
+    // One turf, numbered across the campaign, with its own stop count —
+    // the router's unit, and the one the cap is stated in.
     await drawnTurfCard('Turf 1')
-    expect(screen.getByText(/^About /)).toBeInTheDocument()
+    expect(screen.getByText(/stops/)).toBeInTheDocument()
     // And the CTA now offers the next one rather than the first.
     expect(
-      screen.getByRole('button', { name: 'Draw more turfs' }),
+      screen.getByRole('button', { name: 'Draw another turf' }),
     ).toBeInTheDocument()
   })
 

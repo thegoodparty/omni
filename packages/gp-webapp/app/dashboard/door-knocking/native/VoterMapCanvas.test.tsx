@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import maplibregl from 'maplibre-gl'
 import { DOOR_KNOCK_STATUSES } from '@goodparty_org/contracts'
@@ -1293,6 +1293,44 @@ describe('VoterMapCanvas drawing', () => {
   // The cluster is ours, not maplibre's. Its third button is a location toggle
   // maplibre's navigation stack has no equivalent of, so adopting that stack
   // would put a second, differently-styled pair of zoom buttons on the map
+  it('groups the stop count and Undo at the foot of the control cluster', () => {
+    // They travel together on purpose: the cluster is the one place on this
+    // map already understood to hold controls, it already clears the sheet
+    // by measurement, and it is already under the thumb. Every free-floating
+    // position was worse — following the last point put a touch target over
+    // the vertex handle you grab to drag, and bottom-centre ate the taps
+    // meant for the shape.
+    const onUndoDrawPoint = vi.fn()
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+        onUndoDrawPoint={onUndoDrawPoint}
+        drawStopCount={41}
+      />,
+    )
+
+    expect(screen.getByText('41 selected')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Undo/ }))
+    expect(onUndoDrawPoint).toHaveBeenCalled()
+  })
+
+  it('draws neither with no corner to take back', () => {
+    // The handler's absence IS the "nothing to undo" state, so the control
+    // needs no disabled form.
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /Undo/ })).toBeNull()
+    expect(screen.queryByText(/selected/)).toBeNull()
+  })
+
   // beside the three the design draws.
   it('builds the control cluster itself rather than adopting maplibre’s', () => {
     render(
@@ -1311,12 +1349,14 @@ describe('VoterMapCanvas drawing', () => {
     ).toBe(false)
   })
 
-  // The rail now floats over the top-left and the sheets rise from the bottom,
-  // which leaves the bottom-right as the one corner nothing covers on any of
-  // the three surfaces. The attribution is placed there rather than defaulted,
-  // and maplibre only lets it be placed if its own default is switched off
-  // first — leaving the option on would put a second credit back under the rail.
-  it('puts the credit in the corner nothing floats over', () => {
+  // The credit takes whichever bottom corner the control cluster does not.
+  // The cluster is bottom-RIGHT now — the turf panel reserves its width
+  // rather than floating over the map, so that corner came free — which
+  // puts the credit bottom-LEFT. It is placed rather than defaulted, and
+  // maplibre only allows placing it if its own default is switched off
+  // first; leaving the option on would draw a second credit under the
+  // cluster.
+  it('puts the credit in the corner the cluster does not take', () => {
     render(
       <VoterMapCanvas
         {...baseProps}
@@ -1328,7 +1368,7 @@ describe('VoterMapCanvas drawing', () => {
     const attribution = gl.map.addControl.mock.calls.find(
       ([control]) => control instanceof maplibregl.AttributionControl,
     )
-    expect(attribution?.[1]).toBe('bottom-right')
+    expect(attribution?.[1]).toBe('bottom-left')
     expect(gl.mapOptions?.attributionControl).toBe(false)
   })
 
