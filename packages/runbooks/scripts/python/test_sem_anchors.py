@@ -57,3 +57,47 @@ def test_parse_anchors_rejects_a_leg_with_no_event():
         assert "event" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_a_malformed_declaration_is_reported_rather_than_taking_the_run_down(monkeypatch):
+    # A bad leg merged in gp-data-platform must not delete omni's governance digest.
+    # Raising here is loud in the wrong place: it fails the CI step, so there is no
+    # digest, no Slack post and no state write-back at all.
+    bad = "metrics:\n  - name: m\n    config:\n      meta:\n        anchored_on:\n          - path: /x\n"
+    monkeypatch.setattr(sa, "_fetch", lambda path, token: bad)
+    anchors, problems = sa.load_anchors("fake-token")
+    assert anchors == {}
+    assert problems and any("malformed" in p for p in problems)
+
+
+def test_one_malformed_file_does_not_cost_the_other_file_its_anchors(monkeypatch):
+    bad = "metrics:\n  - name: m\n    config:\n      meta:\n        anchored_on:\n          - path: /x\n"
+    good = (
+        "metrics:\n  - name: serve_metric\n    config:\n      meta:\n"
+        "        anchored_on:\n          - event: Some Event\n"
+    )
+    monkeypatch.setattr(
+        sa, "_fetch", lambda path, token: bad if path == sa.SEM_PATHS[0] else good)
+    anchors, problems = sa.load_anchors("fake-token")
+    assert anchors["serve_metric"] == [sa.Leg("Some Event", None, None)]
+    assert len(problems) == 1 and sa.SEM_PATHS[0] in problems[0]
+
+
+def test_unparseable_yaml_is_reported_rather_than_taking_the_run_down(monkeypatch):
+    # Same class of failure as a malformed declaration: another repo's file, our digest.
+    monkeypatch.setattr(sa, "_fetch", lambda path, token: "metrics: [unclosed\n")
+    anchors, problems = sa.load_anchors("fake-token")
+    assert anchors == {}
+    assert problems and any("malformed" in p for p in problems)
+
+
+def test_parse_anchors_still_raises_for_direct_callers():
+    # The catching lives in load_anchors; parse_anchors stays strict so a test or a
+    # local caller sees the real error.
+    bad = "metrics:\n  - name: m\n    config:\n      meta:\n        anchored_on:\n          - path: /x\n"
+    try:
+        sa.parse_anchors(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError")

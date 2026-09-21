@@ -1048,12 +1048,23 @@ def run_monitor(
     token, or GitHub unreachable) disables the anchored checks and leaves every other
     check working, which is why the whole monitor does not hinge on a cross-repo read.
     """
-    import okr_latch as ol
-    import sem_anchors as sa
+    import okr_latch as ol  # local: okr_latch imports this module's constants
 
-    anchor_problems: list[str] = []
+    read_problems: list[str] = []
     if anchors is None:
-        anchors, anchor_problems = sa.load_anchors()
+        anchors, read_problems = sem_anchors.load_anchors()
+
+    # A metric that declares anchored_on but whose every leg is historical has no live
+    # instrument left to watch. That is this ticket's disease in its purest form — the
+    # metric still reports a number, and nothing is checking that anything still feeds
+    # it — so it is reported even though the read itself succeeded.
+    anchor_problems = read_problems + [
+        f"'{metric}' declares anchored_on but every leg is historical, so no live "
+        "instrument is being watched for it. Either the metric is retired, or its "
+        "current instrument was never declared."
+        for metric, legs in sorted(anchors.items())
+        if legs and not any(leg.watched for leg in legs)
+    ]
 
     watched_legs = [leg for legs in anchors.values() for leg in legs if leg.watched]
     watched_by_key = {
@@ -1085,7 +1096,10 @@ def run_monitor(
     series = weekly_series(weekly, current_monday)
     prior_latches = load_prior_latches(state_path)
     latches = ol.update_latches(prior_latches, series, watched_by_key, today)
-    if anchor_problems:
+    # Keyed on the READ failures alone, not on anchor_problems: a metric going all
+    # historical is a governed declaration change, which is one of the two sanctioned
+    # ways a latch clears, so reporting it must not hold the clear open.
+    if read_problems:
         # A failed anchor read is not a de-declaration. update_latches drops every key it
         # cannot see in `watched`, and the state write below is the only place a sticky
         # reference lives — so one unreadable run would erase references that cannot be
@@ -1171,15 +1185,22 @@ def build_slack_triage(
     # quiet line in the markdown log. Added AFTER run_triage, not before: run_triage
     # overwrites headline and action on every item it is handed, and this text is
     # run-level and authored here, so it is not the judge's to rewrite.
-    for problem in result.get("anchor_problems") or []:
-        triage["items"].insert(0, {
+    # Spliced as a block rather than inserted one at a time, which would reverse them.
+    triage["items"][:0] = [
+        {
             "id": "(OKR dormancy checks)",
             "event_type": "(OKR dormancy checks)",
             "rank": 0, "okr": "run-level",
             "rules_tier": "red", "tier": "red",
             "headline": problem,
-            "action": "Restore GP_DATA_PLATFORM_READ_TOKEN, then re-run.",
-        })
+            # Generic because anchor_problems now covers three causes — a missing
+            # token, a sem file that will not parse, and a metric with no live leg —
+            # and each problem string already names its own.
+            "action": ("Check GP_DATA_PLATFORM_READ_TOKEN and the sem files in "
+                       "gp-data-platform, then re-run."),
+        }
+        for problem in result.get("anchor_problems") or []
+    ]
     red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
     if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
         return None
@@ -1288,7 +1309,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             # broken weeks, which is the drift the latch exists to prevent.
             "latches": result.get("latches") or {},
         }
-        _atomic_write(args.state, json.dumps(state, indent=2) + "\n")
+        # default=_json_default like the --json write: the latch records are authored by
+        # okr_latch, and this file is the only place the sticky reference survives, so a
+        # date sneaking into one must not fail the write that preserves it.
+        _atomic_write(
+            args.state, json.dumps(state, indent=2, default=_json_default) + "\n")
     return 0
 
 

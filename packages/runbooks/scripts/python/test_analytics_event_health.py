@@ -1654,3 +1654,178 @@ def test_rank_zero_canary_and_latch_render_different_labels():
     assert "OKR anchor dormant" not in canary_row
     assert "OKR anchor dormant (latched)" in latched_row
     assert "counter blind spot" not in latched_row
+
+
+# --- degradation branches (DATA-2421 Part B, review round 2) ------------------
+
+
+def _recording_query(catalog_rows, weekly_rows, path_rows=(), seen_sql=None):
+    inner = _fake_query(catalog_rows, weekly_rows, path_rows)
+
+    def run(sql):
+        if seen_sql is not None:
+            seen_sql.append(sql)
+        return inner(sql)
+
+    return run
+
+
+def test_run_monitor_never_watches_a_historical_leg(tmp_path, monkeypatch):
+    # Historical legs are kept so old numbers stay right, but they are not expected to
+    # fire. Watching one alarms forever; querying its path slice is wasted warehouse work.
+    import okr_latch as ol
+
+    seen_sql, seen = [], {}
+    monkeypatch.setattr(ol, "update_latches",
+                        lambda prior, series, watched, today: seen.update(watched=watched) or {})
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+
+    eh.run_monitor(
+        _recording_query(catalog, [], seen_sql=seen_sql), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg("Old Name", "/old", "historical"),
+                           sa.Leg(_TRACKER, None, None)]})
+
+    assert "Old Name[path=/old]" not in seen["watched"]  # watched_by_key filter
+    assert _TRACKER in seen["watched"]
+    assert not any("/old" in sql for sql in seen_sql)  # watched_legs filter
+
+
+def test_a_metric_whose_every_leg_is_historical_is_reported(tmp_path):
+    # An anchored metric with no live leg left is this ticket's disease in its purest
+    # form, and today it produces no signal at all.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={"Old Name": _latch(metric="win_dead_metric")})
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={"win_dead_metric": [sa.Leg("Old Name", None, "historical")]})
+
+    assert any("win_dead_metric" in p for p in result["anchor_problems"])
+    # Marking a leg historical is a governed declaration change, which is one of the two
+    # sanctioned ways a latch clears. Reporting the condition must not suppress that.
+    assert result["latches"] == {}
+
+
+def test_a_partial_anchor_read_does_not_resurrect_a_recovered_latch(tmp_path, monkeypatch):
+    # The hold exists for legs the degraded read can no longer see. A leg it CAN still
+    # see, which update_latches just cleared on recovery, must stay cleared or it posts
+    # red forever.
+    monkeypatch.setattr(
+        sa, "load_anchors",
+        lambda: ({_METRIC: [sa.Leg(_TRACKER, None, None)]}, ["one sem file unreadable"]))
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=5000)]
+    weekly = _weeks_before(_TRACKER, [1000, 1000, 1000, 1000, 1000])
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={_TRACKER: _latch(reference=1000.0)})
+
+    result, _ = eh.run_monitor(_fake_query(catalog, weekly), today=TODAY,
+                               csv_path=csv_path, watchlist_path=wl_path,
+                               state_path=state_path)
+
+    assert _TRACKER not in result["latches"]
+    assert all(r["rank"] != 0 for r in result["flagged"])
+
+
+def test_the_degraded_hold_skips_records_a_hand_edit_broke(tmp_path, monkeypatch):
+    # okr_latch tolerates a corrupt state record rather than killing the digest; the
+    # hold must not undo that by carrying one into the marking loop.
+    monkeypatch.setattr(sa, "load_anchors", lambda: ({}, ["token missing"]))
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={"No Metric Leg": {"latched": True, "since": "2026-05-18"},
+                 "Junk Leg": "not a mapping",
+                 _PATH_KEY: _latch()})
+
+    result, _ = eh.run_monitor(_fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+                               watchlist_path=wl_path, state_path=state_path)
+
+    assert "No Metric Leg" not in result["latches"]
+    assert "Junk Leg" not in result["latches"]
+    assert result["latches"][_PATH_KEY]["metric"] == _METRIC  # the good one still held
+
+
+def test_run_monitor_creates_a_latch_from_the_series_with_no_prior_state(tmp_path):
+    # The real production path: no seeded latch, the break inferred from the weekly rows
+    # plus the zero-fill. Every other latch test starts from a state file, so this is the
+    # only one that exercises series -> latch at the wiring level.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=0),
+               _cat("Unrelated Event", "win_other", "Other.", cnt30=99)]
+    # The leg simply stops producing rows for the last two weeks; those zeros are
+    # inferred by the zero-fill, and only the unrelated event proves the warehouse
+    # loaded them at all.
+    weekly = ([{"event_type": _TRACKER, "week_start": MONDAY - timedelta(days=7 * o),
+                "n": 1000} for o in (5, 4, 3)]
+              + _weeks_before("Unrelated Event", [99, 99, 99, 99, 99]))
+    csv_path, wl_path, _unused = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}])
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, weekly), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=tmp_path / "no-prior.json",
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+
+    latch = result["latches"][_TRACKER]
+    assert latch["latched"] is True
+    assert latch["consecutive"] == 2  # never on the first broken week
+    assert latch["since"] == (MONDAY - timedelta(days=14)).isoformat()
+    assert latch["reference"] == 750.0  # captured from the series, not from a state file
+    assert any(r["event_type"] == _TRACKER and r["rank"] == 0 for r in result["flagged"])
+
+
+def test_multiple_anchor_problems_reach_slack_in_order(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = _render_result(anchor_problems=["first problem", "second problem"],
+                            proposals=[])
+
+    triage = eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None)
+
+    assert [i["headline"] for i in triage["items"][:2]] == ["first problem",
+                                                            "second problem"]
+
+
+def test_main_state_write_survives_a_date_inside_a_latch_record(monkeypatch, tmp_path):
+    # The state file is the only place the sticky reference lives, and its latch records
+    # are authored by another module. A bare json.dumps would fail the whole run.
+    latches = {_PATH_KEY: {**_latch(), "first_seen": date(2026, 5, 18)}}
+
+    def _stub(*_a, **_k):
+        result = {"run_date": "2026-09-21", "current_week_basis": "x", "flagged": [],
+                  "status_counts": {}, "total_events": 0, "latches": latches}
+        return result, {"new": [], "escalated": [], "resolved": [], "still_open": []}
+
+    monkeypatch.setattr(eh, "run_monitor", _stub)
+    state = tmp_path / "s.json"
+    assert eh.main(["--no-log", "--today", "2026-09-21", "--state", str(state)]) == 0
+    assert json.loads(state.read_text())["latches"][_PATH_KEY]["first_seen"] == "2026-05-18"
+
+
+def test_a_malformed_sem_file_still_produces_a_digest(tmp_path, monkeypatch):
+    # End to end for the worst degradation: a bad leg merged in gp-data-platform used to
+    # raise out of load_anchors, through run_monitor and main, failing the CI step — no
+    # digest, no Slack, no state write-back. The whole point is that the digest survives
+    # AND says what broke.
+    bad = ("metrics:\n  - name: m\n    config:\n      meta:\n"
+           "        anchored_on:\n          - path: /x\n")
+    monkeypatch.setenv(sa.TOKEN_ENV, "fake-token")
+    monkeypatch.setattr(sa, "_fetch", lambda path, token: bad)
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+
+    result, changes = eh.run_monitor(_fake_query(catalog, []), today=TODAY,
+                                     csv_path=csv_path, watchlist_path=wl_path,
+                                     state_path=state_path)
+    out = eh.render_digest_section(result, changes)
+
+    assert any("malformed" in p for p in result["anchor_problems"])
+    assert "> **OKR dormancy checks degraded.**" in out
+    assert "### Flagged (ranked)" in out  # the rest of the digest still renders
+    assert result["total_events"] == 1  # and the other two axes still reconciled

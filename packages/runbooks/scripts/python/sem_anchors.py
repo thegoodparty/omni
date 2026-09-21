@@ -92,8 +92,13 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
     ticket exists to remove — degrading silently here would rebuild the original bug in
     the alarm itself.
 
-    A malformed declaration is NOT swallowed. That is a real defect in the kernel and
-    must raise.
+    A malformed declaration is reported, not raised. The spec's requirement is "loud,
+    never a silent empty watch set", and raising here is loud in the wrong place: it is
+    another repo's file, so one bad leg merged in gp-data-platform would fail omni's CI
+    step outright — no digest, no Slack post, no state write-back. Routing it into
+    ``problems`` is louder in the place that matters (a red digest line and a red Slack
+    item) and costs only that one file's anchors. ``parse_anchors`` stays strict for
+    direct callers.
 
     A read that succeeds but finds zero anchored_on blocks is ALSO not swallowed: that
     is the live condition while gp-data-platform's Part A PR is unmerged, and reporting
@@ -116,7 +121,17 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
                 "not being watched this run."
             )
             continue
-        anchors.update(parse_anchors(text))
+        try:
+            anchors.update(parse_anchors(text))
+        # Wide on purpose: the input is another repo's YAML, so every shape it can be
+        # wrong in — a leg with no event (ValueError), anchored_on that is not a list of
+        # mappings (TypeError/AttributeError), or a file that does not parse at all —
+        # is the same incident, and none of them may cost omni its digest.
+        except (ValueError, TypeError, AttributeError, yaml.YAMLError) as exc:
+            problems.append(
+                f"{path} in {REPO} has a malformed anchored_on declaration ({exc}). "
+                "Anchors from this file are not being watched this run."
+            )
     if not problems and not anchors:
         problems.append(
             f"Read every governed sem file from {REPO} successfully but found no "
