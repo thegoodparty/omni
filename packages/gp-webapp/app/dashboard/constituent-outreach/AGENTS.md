@@ -22,8 +22,8 @@ rule, the models, and the check that gates it:
 | File                          | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `page.tsx`                    | Server component: `serveAccess()` (redirects non-serve users; switches orgs through `/post-auth-redirect` when the user owns an eo- org that isn't selected), then fetches history via `GET /v1/outreach/serve` with `ignoreResponseError` — an empty array is a valid fresh-org response, never a 404                                                                                                                                                                               |
-| `ConstituentOutreachPage.tsx` | Client hub: `OutreachProvider` seeded with the server rows, channel cards, both serve flows, the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage`                                                                                                                                                                                                                                 |
-| `ServeChannelCards.tsx`       | The channel grid — Social media, Phone banking and Door knocking, at `max-w-3xl grid-cols-2 sm:grid-cols-3` rather than the candidate grid's five-column breakpoints. Door knocking's card was removed for a while and is back: it had no serve wiring, and a permanently disabled placeholder reads as broken. Door knocking 3.0 wired it, and unlike the other two it navigates (`/dashboard/door-knocking?create=1`) instead of opening a flow in place — the map is its own page |
+| `ConstituentOutreachPage.tsx` | Client hub: `OutreachProvider` seeded with the server rows, channel cards, the three serve flows (social, phone banking, and — behind `serve-sms-outreach` — SMS), the shared history table + details drawer with `fetchServeOutreachDetail` threaded in, and the same save→seed-cache handlers as Win's `OutreachHubPage`. It is also the only reader of `useServeSmsFlag()`                                                                                                                                                                                                                                 |
+| `ServeChannelCards.tsx`       | The channel grid — Social media, SMS, Phone banking and Door knocking, at `max-w-3xl grid-cols-2 sm:grid-cols-3` (four cards widen it to `max-w-4xl ... sm:grid-cols-4`, so the tiles stay the same size on either side of the SMS flag) rather than the candidate grid's five-column breakpoints. SMS renders only when the page passes an `onSmsClick`; the component itself reads no flag and stays hookless, so it needs no `'use client'`. Door knocking's card was removed for a while and is back: it had no serve wiring, and a permanently disabled placeholder reads as broken. Door knocking 3.0 wired it, and unlike the other two it navigates (`/dashboard/door-knocking?create=1`) instead of opening a flow in place — the map is its own page |
 
 ## Connection to Win outreach — one machine, two callers
 
@@ -31,22 +31,32 @@ Everything interactive is `outreach/v2/` code invoked with serve parameters.
 The parametrization seams (all default to the Win config, so the Win hub is
 byte-identical when they're omitted):
 
-- **`SocialFlow` / `PhoneBankingFlow` take a `surface` prop** — this page
-  mounts the exported `SERVE_SOCIAL_SURFACE` and
-  `SERVE_PHONE_BANKING_SURFACE` (defined next to each flow). A surface
-  carries `purposes`, `nameSuggestion`, `endpoints` (and for phone banking
-  `audienceCopy`). `endpoints` are bound async functions, not route strings,
-  so each surface's `clientRequest` call keeps a literal `APIEndpoints` key.
+- **`SocialFlow` / `PhoneBankingFlow` / `SmsFlow` take a `surface` prop** —
+  this page mounts the exported `SERVE_SOCIAL_SURFACE`,
+  `SERVE_PHONE_BANKING_SURFACE` and `SERVE_SMS_SURFACE` (defined next to each
+  flow). A surface carries `purposes`, `nameSuggestion`, `endpoints` (and for
+  phone banking and SMS `audienceCopy`; SMS adds `scheduleMode`,
+  `composeMessage` and `ignoredStandardsRules`). `endpoints` are bound async
+  functions, not route strings, so each surface's `clientRequest` call keeps
+  a literal `APIEndpoints` key. `SmsFlow` gets no `tcrCompliance` here: 10DLC
+  registration is a candidate committee's obligation and a Serve org has
+  none, which is the same reason `SERVE_SMS_SURFACE` drops the `paid_for_by`
+  standards rule.
 - **`OutreachHistoryTable` + `OutreachDetailsDrawer` take a `detailFetcher`**
   — this page threads `fetchServeOutreachDetail`
   (`GET /v1/outreach/serve/:id`, in `outreach/v2/useOutreachDetail.ts`)
   instead of Win's campaign-scoped default.
 - **`rowClickable`** scopes row clicks to `socialMedia`,
-  `nativePhoneBanking` and `nativeDoorKnocking` — the wired serve channels —
-  so any other row type renders as plain content, never a dead clickable.
-  Door knocking joined the list in 3.0, when Serve orgs started getting an
-  `Outreach` envelope at all; before that a Serve walk produced no row for
-  anyone to click.
+  `nativePhoneBanking`, `nativeDoorKnocking` and `text` — the wired serve
+  channels — so any other row type (robocall) renders as plain content,
+  never a dead clickable. Door knocking joined the list in 3.0, when Serve
+  orgs started getting an `Outreach` envelope at all; before that a Serve
+  walk produced no row for anyone to click. `text` is a Serve SMS send (the
+  spine type the serve create writes — there is no Peerly `p2p` row on this
+  surface) and it is deliberately NOT gated on `serve-sms-outreach`: only an
+  org that has already sent has a text row, and an org whose flag is later
+  turned off must not lose the results for a send it paid for. The flag
+  gates the way IN, not the record of what went out.
 - **Purpose vocabularies** live beside Win's:
   `outreach/v2/serveSocialPurposes.ts` / `servePhoneBankingPurposes.ts`
   mirror the Win files with constituent-framed copy. Slugs deliberately reuse
@@ -62,7 +72,7 @@ byte-identical when they're omitted):
 | --------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | User + scope    | Candidate with a campaign; rows keyed `campaignId`                               | Elected official with an `ElectedOffice` row (eo- org); rows keyed `{ campaignId: null, organizationSlug }` — the isolation constraint, ENG-10976                                                                                                                                    |
 | Access          | Campaign auth; per-channel Pro/compliance gates (text gate, upgrade-at-entry)    | `serveAccess()` on the page, `@UseElectedOffice()` on the API. NO Pro gate anywhere: the `ElectedOffice` row IS the entitlement                                                                                                                                                      |
-| Channels        | Social, SMS, phone banking, robocall, door knocking                              | Social, phone banking and door knocking. Paid channels (texting, robocall) stay out of scope — no compliance/payment machinery on Serve. Door knocking is paid in a different sense (Geoapify credits per list) and is in anyway, because the `ElectedOffice` row is the entitlement |
+| Channels        | Social, SMS, phone banking, robocall, door knocking                              | Social, SMS, phone banking and door knocking. Robocall stays out. SMS came in with Serve SMS (`docs/features/serve-sms.md`): it is paid per message at checkout under its own purchase type, and fulfilled by a human working a CSV rather than Peerly, so there is no 10DLC gate to clear — the `ElectedOffice` row is still the entitlement, and the flag is rollout only. Door knocking is paid in a different sense (Geoapify credits per list) |
 | Endpoints       | `/v1/outreach/*`, `POST /v1/phone-banking/lists`, `POST /v1/door-knocking/turfs` | `/v1/outreach/serve/*` siblings, `POST /v1/phone-banking/serve/lists`, `POST` + `GET /v1/door-knocking/serve/turfs`                                                                                                                                                                  |
 | Purpose slugs   | `SocialPurpose` / `PhoneBankingPurpose`                                          | `ServeSocialPurpose` / `ServePhoneBankingPurpose` (contracts) — voter framing becomes constituent framing                                                                                                                                                                            |
 | Draft grounding | Campaign story, issue positions, plan (`outreachComposeContext.service.ts`)      | The official's Public Profile materials (`outreachServeComposeContext.service.ts`, ENG-10982) — reads by `ElectedOffice.userId`, never a campaign table                                                                                                                              |
@@ -73,6 +83,24 @@ generation services, the spine scoping — are in
 `packages/gp-api/src/outreach/AGENTS.md`.
 
 ## Gotchas
+
+- **SMS is the one channel behind a flag, and `ready` is half the gate.**
+  `useServeSmsFlag()` (`@shared/experiments/serveSmsFlag`, key
+  `serve-sms-outreach`) returns `{ ready, enabled }` and this page mounts the
+  card and the flow only on `ready && enabled`. A variant is `undefined`
+  while it resolves, so gating on `enabled` alone renders three cards and
+  then pops a fourth in — the flash `docs/feature-flags.md` names as the top
+  anti-pattern. The flow is conditionally MOUNTED rather than rendered
+  closed, so with the flag off there is no Serve SMS request reachable from
+  this page by any route. gp-api gates `POST /v1/outreach/serve/sms/draft`
+  and `POST /v1/outreach/serve/sms` on the same key, so the surface and the
+  API roll out together — but the flag gates UX, not authz:
+  `@UseElectedOffice()` is still the real check.
+- **An SMS send is the one row this page refetches for.** Social and phone
+  banking seed their new row from the create response; a paid text send only
+  exists once the server finalizes it, so `SmsFlow`'s `onScheduled` re-reads
+  `GET /v1/outreach/serve` the way `OutreachHubPage`'s `refetchOutreaches`
+  re-reads the Win list.
 
 - **The phone banking caller page and call-sheet PDF are one surface for
   both products.** Both hubs navigate to
