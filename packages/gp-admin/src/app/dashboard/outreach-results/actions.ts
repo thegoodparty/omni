@@ -8,8 +8,9 @@ import type {
 } from '@goodparty_org/contracts'
 import { PERMISSIONS } from '@/lib/permissions'
 import { getOutreachResultsGateway } from './gateway'
+import { checkResultsFile, uploadBlocker } from './lib/checkResultsFile'
 import { commitResults, requestParseReport } from './lib/resultsUpload'
-import { MAX_RESULTS_FILE_BYTES, type OutreachResultsTarget } from './types'
+import { type OutreachResultsTarget } from './types'
 
 const ADMIN_ROLE = 'org:admin'
 
@@ -62,14 +63,15 @@ interface UploadArgs {
   csv: string
 }
 
+// A server action is a public POST endpoint. Whatever the page did before
+// calling it is fast feedback, not a gate: this is the only place the file
+// is actually checked, and it applies the same rules by calling the same
+// module the page does. Both branches below run it, so a truncated or
+// unreadable file cannot reach gp-api — and for a poll cannot reach S3,
+// where the bytes are written exactly as received.
 function assertUploadable({ fileName, csv }: UploadArgs) {
-  if (!fileName.trim()) throw new Error('The file has no name')
-  if (!csv.trim()) throw new Error('That file is empty')
-  // Byte length, not character count: a UTF-8 reply body is routinely
-  // wider than one byte per character.
-  if (new TextEncoder().encode(csv).length > MAX_RESULTS_FILE_BYTES) {
-    throw new Error('That file is too large to upload here')
-  }
+  const blocker = uploadBlocker(checkResultsFile({ fileName, csv }))
+  if (blocker) throw new Error(blocker)
 }
 
 // `sourceLabel` is the audit trail the ingest stores: which human returned

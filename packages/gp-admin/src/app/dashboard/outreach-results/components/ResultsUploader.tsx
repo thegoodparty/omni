@@ -17,10 +17,11 @@ import type { OutreachResultsParseReport } from '@goodparty_org/contracts'
 import { useToast } from '@/components/Toast'
 import { commitResultsUpload, dryRunResultsUpload } from '../actions'
 import {
-  ACCEPTED_HEADERS,
-  parseResultsCsv,
-  type ParsedResultsCsv,
-} from '../lib/parseResultsCsv'
+  checkResultsFile,
+  TOO_LARGE_MESSAGE,
+  uploadBlocker,
+} from '../lib/checkResultsFile'
+import { ACCEPTED_HEADERS, type ParsedResultsCsv } from '../lib/parseResultsCsv'
 import { describeReport } from '../lib/resultsUpload'
 import { MAX_RESULTS_FILE_BYTES } from '../types'
 
@@ -41,6 +42,11 @@ export function ResultsUploader({
   const router = useRouter()
   const { showToast } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
+  // Reading a file is async and the input stays enabled while it runs, so
+  // picking A then B quickly leaves two reads in flight. Each read claims a
+  // number and drops itself if a newer one has started, otherwise whichever
+  // finishes last wins and the page can show B's name over A's bytes.
+  const readIdRef = useRef(0)
 
   const [phase, setPhase] = useState<Phase>('idle')
   const [busy, setBusy] = useState(false)
@@ -51,6 +57,8 @@ export function ResultsUploader({
   const [error, setError] = useState<string | null>(null)
 
   const reset = () => {
+    // Also abandons any read still in flight.
+    readIdRef.current += 1
     setPhase('idle')
     setFileName('')
     setCsv('')
@@ -63,22 +71,29 @@ export function ResultsUploader({
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     if (!file) return
+    const readId = (readIdRef.current += 1)
     setReport(null)
     setError(null)
     setPhase('idle')
 
+    // Checked before reading as well as inside checkResultsFile, so a file
+    // far too large is never pulled into memory to be rejected.
     if (file.size > MAX_RESULTS_FILE_BYTES) {
-      setParsed(null)
-      setError('That file is larger than 5MB. Check it is the results CSV.')
+      setFileName(file.name)
+      setCsv('')
+      setParsed({ ok: false, error: TOO_LARGE_MESSAGE })
       return
     }
 
     const text = await file.text()
-    const result = parseResultsCsv(text)
+    // A newer file was picked while this one was being read. Drop it.
+    if (readId !== readIdRef.current) return
+
+    const result = checkResultsFile({ fileName: file.name, csv: text })
     setFileName(file.name)
     setCsv(text)
     setParsed(result)
-    if (result.ok) setPhase('parsed')
+    if (uploadBlocker(result) === null) setPhase('parsed')
   }
 
   async function handleDryRun() {
@@ -112,6 +127,8 @@ export function ResultsUploader({
       setBusy(false)
     }
   }
+
+  const blocker = parsed?.ok ? uploadBlocker(parsed) : null
 
   return (
     <Card>
@@ -187,11 +204,9 @@ export function ResultsUploader({
             </Callout.Root>
           )}
 
-          {parsed.rows.length === 0 && (
+          {blocker && (
             <Callout.Root color="red" mt="3">
-              <Callout.Text>
-                No usable rows in that file. Nothing to upload.
-              </Callout.Text>
+              <Callout.Text>{blocker}</Callout.Text>
             </Callout.Root>
           )}
         </Box>
@@ -233,7 +248,7 @@ export function ResultsUploader({
       )}
 
       <Flex gap="3" mt="4" align="center">
-        {phase === 'parsed' && parsed?.ok && parsed.rows.length > 0 && (
+        {phase === 'parsed' && parsed?.ok && blocker === null && (
           <Button onClick={handleDryRun} disabled={busy} loading={busy}>
             Check this file against the send
           </Button>

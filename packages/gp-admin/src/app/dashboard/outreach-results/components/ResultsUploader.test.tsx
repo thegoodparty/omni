@@ -123,6 +123,60 @@ describe('ResultsUploader', () => {
     ).toBeNull()
   })
 
+  // handleCommit's catch is a branch of its own: it shows the error and
+  // deliberately does not refresh or toast, so the operator can retry
+  // against the report still on screen.
+  it('keeps the report and the retry when the commit fails', async () => {
+    mockCommit.mockRejectedValue(new Error('gp-api refused the write'))
+    setup()
+    const user = await upload(GOOD_CSV)
+    await user.click(
+      await screen.findByRole('button', { name: /check this file/i })
+    )
+    await screen.findByText(
+      '3 rows, 2 matched a recipient, 1 matched nobody, 1 opt-out'
+    )
+
+    await user.click(screen.getByRole('button', { name: /save 3 rows/i }))
+
+    await screen.findByText('gp-api refused the write')
+    expect(mockRefresh).not.toHaveBeenCalled()
+    expect(mockToast).not.toHaveBeenCalled()
+    // Still offered, so a retry does not mean re-picking the file.
+    expect(screen.getByRole('button', { name: /save 3 rows/i })).toBeTruthy()
+    expect(screen.queryByText('Results saved')).toBeNull()
+  })
+
+  // Reads are async and the input stays enabled, so two can overlap. The
+  // dangerous outcome is not an error, it is the page showing one file's
+  // name while holding another's bytes.
+  it('ignores a slow read once a newer file has been picked', async () => {
+    setup()
+    const user = userEvent.setup()
+    const input = screen.getByLabelText('Results CSV')
+
+    let releaseSlow: (text: string) => void = () => {}
+    const slow = new File(['placeholder'], 'slow.csv', { type: 'text/csv' })
+    Object.defineProperty(slow, 'text', {
+      value: () =>
+        new Promise<string>((resolve) => {
+          releaseSlow = resolve
+        }),
+    })
+    const fast = new File([GOOD_CSV], 'fast.csv', { type: 'text/csv' })
+
+    await user.upload(input, slow)
+    await user.upload(input, fast)
+    await screen.findByText('fast.csv')
+
+    // The abandoned read lands late with a file that would parse fine.
+    releaseSlow('phone_number,message_text\n5551111111,From the stale file\n')
+    await waitFor(() => {
+      expect(screen.queryByText('slow.csv')).toBeNull()
+    })
+    expect(screen.getByText('fast.csv')).toBeTruthy()
+  })
+
   it('warns about rows that matched nobody instead of burying the number', async () => {
     setup()
     const user = await upload(GOOD_CSV)
