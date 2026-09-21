@@ -8,16 +8,19 @@ import {
   Box,
   Button,
   Flex,
+  IconButton,
   Table,
   Tabs,
   Text,
   TextField,
+  Tooltip,
 } from '@radix-ui/themes'
+import { HiOutlineInformationCircle } from 'react-icons/hi'
 import type {
   SmsApprovalQueueItem,
   SmsApprovalStatus,
 } from '@goodparty_org/contracts'
-import { formatDateTime } from '@/lib/utils/date'
+import { formatDateTime, formatLocalSendTime } from '@/lib/utils/date'
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -243,13 +246,25 @@ export function SmsQueue({ items, viewerName }: SmsQueueProps) {
                     : undefined
                 }
               >
-                <Button
-                  variant="ghost"
-                  color="gray"
-                  onClick={() => toggleSort('sendDate')}
-                >
-                  Requested send (ET){sortIndicator('sendDate')}
-                </Button>
+                <Flex align="center" gap="1">
+                  <Button
+                    variant="ghost"
+                    color="gray"
+                    onClick={() => toggleSort('sendDate')}
+                  >
+                    Send time{sortIndicator('sendDate')}
+                  </Button>
+                  <Tooltip content="Shown in each contact's local time, the same as Peerly.">
+                    <IconButton
+                      variant="ghost"
+                      color="gray"
+                      size="1"
+                      aria-label="About send times"
+                    >
+                      <HiOutlineInformationCircle />
+                    </IconButton>
+                  </Tooltip>
+                </Flex>
               </Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Audience</Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Standards</Table.ColumnHeaderCell>
@@ -293,7 +308,12 @@ export function SmsQueue({ items, viewerName }: SmsQueueProps) {
                     </Text>
                   )}
                 </Table.Cell>
-                <Table.Cell>{formatDateTime(item.sendAt)}</Table.Cell>
+                <Table.Cell>
+                  {formatLocalSendTime(
+                    item.scheduledLocalDate,
+                    item.scheduledLocalTime
+                  ) ?? formatDateTime(item.sendAt)}
+                </Table.Cell>
                 <Table.Cell>
                   {(
                     item.billableTextCount ?? item.textCount

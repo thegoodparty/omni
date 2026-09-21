@@ -345,6 +345,11 @@ export interface PeerlyJob {
   start_date: string
   end_date: string
   schedule_id: number
+  schedule_details?: {
+    schedule_id: number
+    schedule_name: string
+    is_global: number
+  }
   did_state: string
   did_npa_subset: string[]
   disable_did_purchase: boolean

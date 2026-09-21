@@ -126,12 +126,18 @@ describe('SmsQueue', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Likely voters — SMS')).toBeInTheDocument()
     expect(screen.queryByText('Booked send')).not.toBeInTheDocument()
-    // The queue shows the requested send TIME, not just the date, labeled
-    // with the fixed timezone it renders in.
+    // The queue shows the candidate's stored day + wall-clock time (what
+    // Peerly shows), never the instant converted to Eastern.
     expect(
-      screen.getByRole('button', { name: /Requested send \(ET\)/ })
+      screen.getByRole('button', { name: /Send time/ })
     ).toBeInTheDocument()
-    expect(screen.getByText('Sep 10, 2026, 11:00 AM EDT')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'About send times' })
+    ).toBeInTheDocument()
+    expect(screen.getByText('Sep 10, 2026, 6:00 PM')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Sep 10, 2026, 11:00 AM EDT')
+    ).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: /Booked \(1\)/ }))
     expect(screen.getByText('Booked send')).toBeInTheDocument()
