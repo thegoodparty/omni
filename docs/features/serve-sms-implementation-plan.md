@@ -241,9 +241,10 @@ contracts.
 hot files, once, after everything it wires exists. This is why wave 1 tasks do
 not edit module files.
 
-**B2.** The admin upload endpoint, `AdminOrM2MGuard`, and the server-side route:
-SMS parses straight to `ingestReplies`, a poll's file is written to
-`input/<pollId>.csv` so the existing pipeline runs untouched.
+**B2.** The admin upload endpoint, `AdminOrM2MGuard`, and the server-side
+route: **SMS only** — parses straight to `ingestReplies`. Poll routing is out
+of scope, and so is retiring the `aws s3 cp` line (scope cut 2026-09-21; see
+below). A poll id 404s on this surface rather than routing anywhere.
 
 **Scope cut 2026-09-21: B2 is SMS-only.** Polls is out — no write to
 `input/<pollId>.csv`, no routing by outreach type, and the `aws s3 cp` line

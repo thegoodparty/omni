@@ -298,7 +298,11 @@ gathering responses. No action needed."
 
 ### Inbound
 
-One upload surface for both products, two producers behind it, one writer.
+One upload surface, designed for both products with two producers behind it
+and one writer. Slice 2 builds the SMS producer only (reversed 2026-09-21):
+a poll id 404s on the surface until the follow-up adds the poll producer and
+moves fulfillment over. The shape below is the end state, not what slice 2
+ships.
 
 **The human-factors constraint comes first here.** Today the Slack message
 hands fulfillment an `aws s3 cp` command
@@ -701,13 +705,18 @@ Each slice ships independently and leaves the product working.
 6. **Polls into outreach.** The `poll` type, the `OutreachPoll` satellite, the
    backfill, the re-key, retire the page.
 
-**Slices 0 through 3 are the customer's path**, with one exception inside slice
-2: moving polls onto the upload surface is there for fulfillment's sake, not
-the customer's, and it is the only schedule lever in the set. Pulling it is the
-wrong trade in most cases, because SMS messages would then carry a button while
-poll messages still carry a CLI command, which is the precise confusion the
-design exists to remove. If it has to move, move it as a named slice with a
-date rather than leaving it implied.
+**Slices 0 through 3 are the customer's path.** Moving polls onto the upload
+surface was the one piece of the set that served fulfillment rather than the
+customer, and it was the only schedule lever. That lever was pulled on
+2026-09-21: it is now a named follow-up, sequenced after the first customer is
+live end to end and coordinated with fulfillment.
+
+The cost of pulling it is real and accepted, not avoided. Until the follow-up
+lands, an SMS message carries a button while a poll message still carries a CLI
+command — the precise confusion this design exists to remove — and fulfillment
+holds two return paths. That was judged the better trade against making slice 2
+the one piece of the customer's path that could not ship without a scheduled
+conversation.
 
 Slice 4 is the one that pays for the layering, and it is worth doing before 6
 so polls runs on the shared layer while still living on its own page.
