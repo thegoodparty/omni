@@ -25,7 +25,7 @@ import {
   DoorKnockingTalkingPointsDraftRequest,
   DoorKnockingTalkingPointsDraftRequestSchema,
 } from './schemas/DoorKnockingTalkingPointsDraft.schema'
-import { ownerCandidateName } from './util/ownerCandidateName.util'
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // Stateless, like every other compose draft endpoint: nothing persists here.
