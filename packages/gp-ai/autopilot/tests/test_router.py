@@ -39,6 +39,7 @@ def event(
     event_ts=None,
     event_actor_id=None,
     epic_task_id=None,
+    latest_comment_text=None,
 ):
     return router.RoutableEvent(
         kind=kind,
@@ -49,6 +50,7 @@ def event(
         event_ts=event_ts,
         event_actor_id=event_actor_id,
         epic_task_id=epic_task_id,
+        latest_comment_text=latest_comment_text,
     )
 
 
@@ -244,6 +246,177 @@ def test_comment_posted_by_a_human_dispatches_resume():
     assert decisions[0].stage == router.STAGE_RESUME
 
 
+# ---------------------------------------------------------------------------
+# ENG-11150 — Slack-answer relay exemption from the self-resume guard
+# ---------------------------------------------------------------------------
+
+
+def test_bot_comment_carrying_the_slack_answer_marker_dispatches_resume():
+    # The ONE exemption: a comment this conductor itself relayed from a
+    # Slack thread reply carries the marker even though the actor is the bot.
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        event_ts="1700000100000",
+        event_actor_id=BOT_USER_ID,
+        latest_comment_text="[autopilot:slack-answer from U123] fix the flaky test",
+    )
+
+    decisions = router.route(e)
+
+    assert len(decisions) == 1
+    assert decisions[0].stage == router.STAGE_RESUME
+
+
+def test_bot_park_comment_is_not_exempted_by_the_marker_check(capsys):
+    # Loop safety: the resume a relayed answer wakes may itself re-park. That
+    # park comment is bot-authored too, but carries PARK_MARKER, never
+    # SLACK_ANSWER_MARKER — it must NOT be exempted, or the self-resume loop
+    # the original guard exists to stop comes right back.
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        event_ts="1700000200000",
+        event_actor_id=BOT_USER_ID,
+        latest_comment_text="[autopilot:parked stage=qa]\n\n1. Q?",
+    )
+
+    assert router.route(e) == []
+    assert "Ignoring the bot's own comment" in capsys.readouterr().out
+
+
+def test_bot_comment_with_no_latest_comment_text_is_not_exempted(capsys):
+    # The common case: latest_comment_text is only ever hydrated for a
+    # commentPosted delivery whose actor is the bot, but a None value (no
+    # comments read yet, or a read that came back empty) must still fall
+    # through to the ordinary bot-ignore behavior, not silently exempt.
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        event_ts="1700000300000",
+        event_actor_id=BOT_USER_ID,
+    )
+
+    assert router.route(e) == []
+    assert "Ignoring the bot's own comment" in capsys.readouterr().out
+
+
+def test_is_slack_relay_comment_matches_only_the_slack_answer_marker():
+    assert router.is_slack_relay_comment("[autopilot:slack-answer from U123] yes, use option B") is True
+    assert router.is_slack_relay_comment("[autopilot:parked stage=qa]\n\n1. Q?") is False
+    assert router.is_slack_relay_comment("just a reply") is False
+    assert router.is_slack_relay_comment(None) is False
+
+
+def test_format_slack_answer_comment_embeds_user_and_text():
+    text = router.format_slack_answer_comment("U123", "yes, use option B")
+
+    assert text == "[autopilot:slack-answer from U123] yes, use option B"
+    assert router.is_slack_relay_comment(text) is True
+
+
+def test_latest_comment_text_picks_the_newest_by_date():
+    comments = [
+        {"comment_text": "older", "date": "1000"},
+        {"comment_text": "newest", "date": "3000"},
+        {"comment_text": "middle", "date": "2000"},
+    ]
+
+    assert router.latest_comment_text(comments) == "newest"
+
+
+def test_latest_comment_text_empty_thread_is_none():
+    assert router.latest_comment_text([]) is None
+
+
+# ---------------------------------------------------------------------------
+# ENG-11150 — Slack thread-reply classification (pure, no Slack API calls)
+# ---------------------------------------------------------------------------
+
+SLACK_CHANNEL = "C-AUTOPILOT"
+
+
+def slack_reply(
+    channel=SLACK_CHANNEL,
+    ts="1700000100.000100",
+    thread_ts="1700000000.000000",
+    user_id="U-HUMAN",
+    bot_id=None,
+    text="use option B",
+    event_id="Ev123",
+):
+    return router.SlackReplyEvent(
+        channel=channel,
+        ts=ts,
+        thread_ts=thread_ts,
+        user_id=user_id,
+        bot_id=bot_id,
+        text=text,
+        event_id=event_id,
+    )
+
+
+def test_human_thread_reply_in_the_autopilot_channel_is_relayable():
+    assert router.is_relayable_slack_reply(slack_reply(), expected_channel=SLACK_CHANNEL) is True
+
+
+def test_bot_message_is_never_relayable():
+    # Covers the relay's own message landing back as a Slack event, and any
+    # other app/bot post in the channel.
+    e = slack_reply(bot_id="B123")
+
+    assert router.is_relayable_slack_reply(e, expected_channel=SLACK_CHANNEL) is False
+
+
+def test_non_thread_message_is_not_relayable():
+    # A bare top-level channel message: thread_ts equal to its own ts is how
+    # Slack represents "this message doesn't reply to anything".
+    e = slack_reply(thread_ts="1700000100.000100", ts="1700000100.000100")
+
+    assert router.is_relayable_slack_reply(e, expected_channel=SLACK_CHANNEL) is False
+
+
+def test_message_with_no_thread_ts_is_not_relayable():
+    e = slack_reply(thread_ts=None)
+
+    assert router.is_relayable_slack_reply(e, expected_channel=SLACK_CHANNEL) is False
+
+
+def test_message_in_a_different_channel_is_not_relayable():
+    e = slack_reply(channel="C-SOME-OTHER-CHANNEL")
+
+    assert router.is_relayable_slack_reply(e, expected_channel=SLACK_CHANNEL) is False
+
+
+def test_message_with_no_user_is_not_relayable():
+    e = slack_reply(user_id=None)
+
+    assert router.is_relayable_slack_reply(e, expected_channel=SLACK_CHANNEL) is False
+
+
+def test_blank_text_is_not_relayable():
+    e = slack_reply(text="   ")
+
+    assert router.is_relayable_slack_reply(e, expected_channel=SLACK_CHANNEL) is False
+
+
+def test_slack_ping_task_id_extracts_the_card_id_from_a_park_message():
+    text = "Autopilot parked <https://app.clickup.com/t/abc123|a card> during *qa* — needs your input:\n1. Q?"
+
+    assert router.slack_ping_task_id(text) == "abc123"
+
+
+def test_slack_ping_task_id_extracts_the_card_id_from_a_notify_message():
+    text = "Autopilot *story* on <https://app.clickup.com/t/xyz789|a card>: opened a PR"
+
+    assert router.slack_ping_task_id(text) == "xyz789"
+
+
+def test_slack_ping_task_id_none_when_thread_root_is_not_a_ping():
+    assert router.slack_ping_task_id("just chatting about something else") is None
+    assert router.slack_ping_task_id(None) is None
+
+
 def test_comment_resume_refused_when_bot_user_id_unconfigured(monkeypatch, capsys):
     # Same fail-closed shape as the gate check: an actor that cannot be told
     # apart from the bot cannot be proven human, and the failure mode of
@@ -407,7 +580,7 @@ def test_derive_card_type_defaults_to_feature_card():
 def test_stage_ceilings_match_ticket_defaults():
     assert router.STAGE_CEILINGS[router.STAGE_EPIC_CREATE] == router.StageCeiling(10.0, 30 * 60)
     assert router.STAGE_CEILINGS[router.STAGE_STORY] == router.StageCeiling(15.0, 45 * 60)
-    assert router.STAGE_CEILINGS[router.STAGE_QA] == router.StageCeiling(8.0, 30 * 60)
+    assert router.STAGE_CEILINGS[router.STAGE_QA] == router.StageCeiling(8.0, 45 * 60)
     # resume inherits story's ceiling by design (the ticket carves out no
     # separate budget for it) — a change to either side must break this.
     assert router.STAGE_CEILINGS[router.STAGE_RESUME] == router.STAGE_CEILINGS[router.STAGE_STORY]
@@ -442,6 +615,72 @@ def test_parked_stage_from_comments_none_without_a_marker():
     assert router.parked_stage_from_comments([]) is None
 
 
+# ---------------------------------------------------------------------------
+# Run-summary marker (ENG-11151) — the conductor's copy
+# ---------------------------------------------------------------------------
+
+
+def test_run_summary_marker_pattern_matches_the_agent_side_pattern_exactly():
+    # Same drift alarm as PARK_MARKER_PATTERN above: duplicated because the
+    # Lambda bundle can't import autopilot.agent.metrics.
+    from autopilot.agent.metrics import RUN_SUMMARY_MARKER_PATTERN as agent_pattern
+
+    assert router.RUN_SUMMARY_MARKER_PATTERN.pattern == agent_pattern.pattern
+    assert router.RUN_SUMMARY_MARKER_PATTERN.flags == agent_pattern.flags
+
+
+def test_is_run_summary_comment_matches_only_the_run_summary_marker():
+    assert router.is_run_summary_comment("[autopilot:run-summary stage=story outcome=success cost_usd=3.71]") is True
+    assert router.is_run_summary_comment("[autopilot:parked stage=story]\n\n1. Q?") is False
+    assert router.is_run_summary_comment("[autopilot:slack-answer from U123] yes") is False
+    assert router.is_run_summary_comment("just a reply") is False
+    assert router.is_run_summary_comment(None) is False
+
+
+def test_latest_run_summary_parses_stage_outcome_and_cost():
+    comments = [{"comment_text": "[autopilot:run-summary stage=story outcome=success cost_usd=3.71]", "date": "1000"}]
+
+    summary = router.latest_run_summary(comments)
+
+    assert summary == {"stage": "story", "outcome": "success", "cost_usd": 3.71}
+
+
+def test_latest_run_summary_without_cost_reports_none_not_zero():
+    comments = [{"comment_text": "[autopilot:run-summary stage=qa outcome=error]", "date": "1000"}]
+
+    assert router.latest_run_summary(comments) == {"stage": "qa", "outcome": "error", "cost_usd": None}
+
+
+def test_latest_run_summary_latest_marker_wins_by_date():
+    comments = [
+        {"comment_text": "[autopilot:run-summary stage=story outcome=feedback_parked cost_usd=1.0]", "date": "1000"},
+        {"comment_text": "[autopilot:run-summary stage=story outcome=success cost_usd=4.5]", "date": "5000"},
+    ]
+
+    assert router.latest_run_summary(comments) == {"stage": "story", "outcome": "success", "cost_usd": 4.5}
+
+
+def test_latest_run_summary_none_without_a_marker():
+    assert router.latest_run_summary([{"comment_text": "just a reply", "date": "1"}]) is None
+
+
+def test_bot_run_summary_comment_is_not_exempted_by_the_marker_check(capsys):
+    # A run-summary comment is bot-authored (posted via the same ClickUp API
+    # key) and carries neither PARK_MARKER nor SLACK_ANSWER_MARKER — it must
+    # be ignored exactly like a re-park comment (test_bot_park_comment_is_
+    # not_exempted_by_the_marker_check above), never treated as a human answer.
+    e = story_event(
+        kind="commentPosted",
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        event_ts="1700000400000",
+        event_actor_id=BOT_USER_ID,
+        latest_comment_text="[autopilot:run-summary stage=story outcome=success cost_usd=3.71]",
+    )
+
+    assert router.route(e) == []
+    assert "Ignoring the bot's own comment" in capsys.readouterr().out
+
+
 def test_parked_stage_from_comments_survives_bad_dates_and_missing_text():
     comments = [
         {"comment_text": "[autopilot:parked stage=story]", "date": "not-a-number"},
@@ -450,3 +689,32 @@ def test_parked_stage_from_comments_survives_bad_dates_and_missing_text():
     ]
 
     assert router.parked_stage_from_comments(comments) == "qa"
+
+
+# ---------------------------------------------------------------------------
+# Merge-pending park classifier (ENG-11147)
+# ---------------------------------------------------------------------------
+
+
+def test_merge_pending_pr_number_extracts_the_pr_number():
+    question = "Merge pending: PR #123 is approved with auto-merge armed but hasn't merged yet."
+
+    assert router.merge_pending_pr_number(question) == 123
+
+
+def test_merge_pending_pr_number_is_case_insensitive_and_tolerates_spacing():
+    assert router.merge_pending_pr_number("merge pending:  pr  #7 armed but not merged.") == 7
+
+
+def test_merge_pending_pr_number_none_for_a_real_question():
+    assert router.merge_pending_pr_number("Should this endpoint require an admin role?") is None
+
+
+def test_merge_pending_pr_number_none_for_deploy_pending():
+    # Scoped to merge-pending only — qa.md's status note keeps the existing
+    # auto-resume/human path (see sweep.py's resolve_merge_pending_parks).
+    assert router.merge_pending_pr_number("Deploy pending: commit abc123 isn't live on dev yet.") is None
+
+
+def test_merge_pending_pr_number_none_when_pr_number_missing():
+    assert router.merge_pending_pr_number("Merge pending: not sure which PR, check the thread.") is None

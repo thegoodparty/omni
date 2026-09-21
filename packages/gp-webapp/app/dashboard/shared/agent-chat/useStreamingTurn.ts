@@ -92,7 +92,11 @@ export interface StreamingTurn {
   send: (
     conversationId: string,
     content: string,
-    opts?: { hidden?: boolean; clientMessageId?: string },
+    opts?: {
+      hidden?: boolean
+      clientMessageId?: string
+      attachmentIds?: string[]
+    },
   ) => Promise<void>
   // Synchronous "a turn is actively streaming" check (false once the stream is
   // done and the turn is merely settling). Consumers that push their own
@@ -168,7 +172,11 @@ export function useStreamingTurn(
     async (
       conversationId: string,
       content: string,
-      opts?: { hidden?: boolean; clientMessageId?: string },
+      opts?: {
+        hidden?: boolean
+        clientMessageId?: string
+        attachmentIds?: string[]
+      },
     ): Promise<void> => {
       const trimmed = content.trim()
       if (!conversationId || !trimmed) return
@@ -199,8 +207,8 @@ export function useStreamingTurn(
         ])
       }
 
-      // Build the turn as interleaved text + tool segments so pills render inline
-      // in stream order; consecutive text deltas coalesce into one block.
+      // Build the turn as interleaved text + tool + citation segments so they
+      // render inline in stream order; consecutive text deltas coalesce.
       const segments: LiveSegment[] = []
       // What the server is persisting for this turn, which is NOT what the
       // live row renders. A tool the scope consumed, or one `toolLabel` hides,
@@ -210,6 +218,8 @@ export function useStreamingTurn(
       // rebuilt from what streamed; without it that rebuild silently drops
       // every widget, and the card the user watched appear disappears.
       const persisted: ChatMessageSegment[] = []
+      // 1-based counter for citation ordinals within this turn.
+      let citationOrdinal = 0
       const pushPersistedText = (delta: string): void => {
         const last = persisted[persisted.length - 1]
         if (last && last.kind === 'text') {
@@ -250,6 +260,7 @@ export function useStreamingTurn(
             // Replay the caller's id on retry so the server's partial unique
             // index on (conversation_id, client_message_id) dedupes the turn.
             clientMessageId: opts?.clientMessageId ?? crypto.randomUUID(),
+            attachmentIds: opts?.attachmentIds,
             signal: abortController.signal,
           })
           [Symbol.asyncIterator]()
@@ -286,7 +297,8 @@ export function useStreamingTurn(
           // Recorded before the consumed check, and regardless of whether the
           // tool has a visible label: the transcript keeps every tool call,
           // and the two reasons a call renders no pill are both invisible to
-          // the server.
+          // the server. Citations are always persisted so the replay on reload
+          // can reconstruct the inline chips at the same positions.
           if (event.type === 'tool_call') {
             persisted.push({
               kind: 'tool',
@@ -294,9 +306,27 @@ export function useStreamingTurn(
               payload: event.args,
             })
           }
+          if (event.type === 'citation') {
+            persisted.push({
+              kind: 'citation',
+              attachmentId: event.attachmentId,
+              page: event.page ?? null,
+              quotedText: event.quotedText,
+            })
+          }
           if (consumed) continue
           if (event.type === 'text') {
             pushText(event.delta)
+          } else if (event.type === 'citation') {
+            citationOrdinal += 1
+            segments.push({
+              kind: 'citation',
+              ordinal: citationOrdinal,
+              attachmentId: event.attachmentId,
+              page: event.page ?? null,
+              quotedText: event.quotedText,
+            })
+            setLiveSegments([...segments])
           } else if (event.type === 'tool_call') {
             if (scope.toolLabel(event.toolName)) {
               segments.push({

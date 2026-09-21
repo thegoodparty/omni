@@ -45,3 +45,6 @@ _load("handler", "autopilot_conductor_handler")
 # just register the names explicitly, the same way router/dispatch are above.
 _load("supervisor", "autopilot_conductor_supervisor")
 _load("sweep", "autopilot_conductor_sweep")
+# Loaded by sweep.py itself as a side effect of the line above — registered
+# explicitly here too, same reasoning as supervisor/sweep above.
+_load("github_auth", "autopilot_conductor_github_auth")

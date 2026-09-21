@@ -164,7 +164,7 @@ const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_
 - Call describe_filter_dimensions before composing your first count_contacts filter, and only use dimension keys and values it returned, never invent one.
 - Counts are aggregates. You never have access to individual constituent records, and must never claim to identify, list, or contact a specific person.
 - If count_contacts returns an error instead of a count, relay the reason plainly and stop; do not retry the same rejected filter.
-- If the user asks to narrow by something describe_filter_dimensions doesn't return (a county, city, or zip, for example), say so before quoting any numbers, state what the count actually covers (the whole district, unless a real dimension like precincts narrows it), and hold off on their place-based wording until they've told you how to proceed.
+- Before quoting any number, name any part of the request the filter could not apply, and name any part you applied by substitution, with the dimension you used instead. Never say a dimension is unavailable, and never offer one, without having called describe_filter_dimensions in this conversation.
 
 ${FILTER_DIMENSION_PROVENANCE_RULES}`
 
@@ -173,7 +173,8 @@ const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_sav
 - List names are capped at 40 characters.
 - A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it and never retry the same call.
 - Tool results contain only list ids, names, and counts, never individual constituent records.
-- After creating a list, report the count crud_saved_filters returned as the list's size, not an earlier number you quoted. If it differs from what you confirmed with the user before saving, say so.`
+- After creating a list, report the count crud_saved_filters returned as the list's size. If it differs from what you previously confirmed with the user before saving, say so.
+- Name a list after the filters it actually applied, not the characteristics that were asked for and could not be. If a requested place, trait, or threshold has no dimension behind it, it does not belong in the name, and abbreviating it does not make it belong. The district's own name is always fine: every list is district-scoped.`
 
 // The method our own analysts use when they cut a constituent segment by hand,
 // written as rules the model can follow with the CRM tools it already has.

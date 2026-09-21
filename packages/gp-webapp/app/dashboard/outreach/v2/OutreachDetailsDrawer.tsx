@@ -74,6 +74,7 @@ import {
   listDetailsFooterMode,
   type ListDetailsLifecycle,
 } from './listDetails/footerMode'
+import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
 import { CampaignTurfList } from './CampaignTurfList'
@@ -163,6 +164,9 @@ interface OutreachDetailsDrawerProps {
   // campaign roles to assign a list to, so the assignees section is not
   // rendered there at all rather than relabelled.
   isServe?: boolean
+  // Serve only: opens the phone-banking flow on the follow-up list the
+  // results section saves. Omitted by Win, which has no such section.
+  onCallFollowUpList?: (listId: number, listName: string) => void
 }
 
 interface DetailRow extends HistoryRow {
@@ -176,6 +180,7 @@ export const OutreachDetailsDrawer = ({
   onOpenChange,
   detailFetcher = fetchOutreachDetail,
   isServe = false,
+  onCallFollowUpList,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
@@ -1101,6 +1106,20 @@ export const OutreachDetailsDrawer = ({
                 </Card>
               </DetailsSection>
             )}
+            {/* Serve's actionable half of the results: the Needs follow-up
+                row above says what was asked during the campaign, this says
+                what is still owed now and turns it into people to call. */}
+            {isPhoneBanking &&
+              phoneBanking &&
+              isCompleted &&
+              isServe &&
+              row && (
+                <FollowUpOutstandingSection
+                  outreachId={row.id}
+                  outreachName={row.name}
+                  onCallList={onCallFollowUpList}
+                />
+              )}
           </>
         )}
       </ListDetailsSheetShell>

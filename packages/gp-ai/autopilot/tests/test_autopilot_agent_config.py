@@ -78,7 +78,7 @@ class TestPerStageCeilingDefaults:
         [
             ("epic-create", 10.0, 30 * 60),
             ("story", 15.0, 45 * 60),
-            ("qa", 8.0, 30 * 60),
+            ("qa", 8.0, 45 * 60),
         ],
     )
     def test_defaults_applied_when_ceiling_vars_absent(self, monkeypatch, stage, expected_budget, expected_deadline):

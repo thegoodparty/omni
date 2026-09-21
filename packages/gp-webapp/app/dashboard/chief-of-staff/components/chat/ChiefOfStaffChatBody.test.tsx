@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -34,6 +34,19 @@ vi.mock('../../data/chat-api', () => ({
 }))
 
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+
+// Attachments are flag-gated; the toggle lets the drag-and-drop block turn
+// them on without flipping the flag under every other test in this file.
+let attachmentsOn = false
+vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
+  useAttachmentsEnabled: () => ({ ready: true, enabled: attachmentsOn }),
+}))
+
+const uploadAttachmentMock = vi.fn()
+vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
+  ...(await orig<object>()),
+  uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+}))
 
 // deck.gl and maplibre don't run in jsdom. The stub reports how many people
 // the card handed the canvas, so the wiring from a tool payload through to the
@@ -99,6 +112,8 @@ beforeEach(() => {
   // client; tests that assert the committed transcript override this.
   listMessagesMock.mockResolvedValue([])
   seq = 0
+  attachmentsOn = false
+  uploadAttachmentMock.mockReset()
   window.localStorage.clear()
 })
 
@@ -1221,5 +1236,82 @@ describe('<ChiefOfStaffChatBody>', () => {
       expect(await screen.findByText(LIST.name)).toBeInTheDocument()
       expect(screen.queryByText('show_list_map')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
+  const dragPayload = (files: File[]) => ({
+    dataTransfer: { types: ['Files'], files },
+  })
+
+  const renderBody = () => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    const { container } = render(
+      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+    )
+    return container.firstElementChild as HTMLElement
+  }
+
+  it('shows the drop overlay while dragging files and hides it on leave', () => {
+    attachmentsOn = true
+    const surface = renderBody()
+
+    fireEvent.dragEnter(surface, dragPayload([]))
+    expect(screen.getByText('Drop a file to attach it')).toBeInTheDocument()
+
+    fireEvent.dragLeave(surface, dragPayload([]))
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('uploads a supported dropped file through the attach path', async () => {
+    attachmentsOn = true
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    const surface = renderBody()
+    const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+    fireEvent.drop(surface, dragPayload([file]))
+
+    await waitFor(() =>
+      expect(uploadAttachmentMock).toHaveBeenCalledWith('conv', file),
+    )
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not upload an unsupported dropped file', async () => {
+    attachmentsOn = true
+    const surface = renderBody()
+    const file = new File(['x'], 'malware.exe', {
+      type: 'application/x-msdownload',
+    })
+
+    fireEvent.drop(surface, dragPayload([file]))
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
+  })
+
+  it('ignores drops while attachments are disabled', async () => {
+    const surface = renderBody()
+    const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+    fireEvent.dragEnter(surface, dragPayload([file]))
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+
+    fireEvent.drop(surface, dragPayload([file]))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
   })
 })

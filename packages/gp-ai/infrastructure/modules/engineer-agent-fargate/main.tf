@@ -119,9 +119,9 @@ variable "task_cpu" {
 }
 
 variable "task_memory" {
-  description = "Memory for ECS Fargate task in MB"
+  description = "Memory for ECS Fargate task in MB. 8GB: NODE_OPTIONS grants Node a 6GB heap for gp-api's tsc/vitest, which a 4GB task cannot physically house."
   type        = string
-  default     = "4096"
+  default     = "8192"
 }
 
 data "aws_region" "current" {}
@@ -287,6 +287,13 @@ resource "aws_ecs_task_definition" "agent" {
     cpu_architecture        = "ARM64"
   }
 
+  # Same ENOSPC exposure autopilot-agent hit live at Fargate's 20 GiB
+  # default: an omni clone plus npm ci, workspace builds, and Prisma engines
+  # overflow it mid-run.
+  ephemeral_storage {
+    size_in_gib = 60
+  }
+
   container_definitions = jsonencode([
     {
       name  = "engineer-agent"
@@ -360,6 +367,12 @@ resource "aws_ecs_task_definition" "agent" {
         {
           name  = "GPBOT_BUGS_CHANNEL_ID"
           value = var.bugs_channel_id
+        },
+        # Same OOM class as autopilot-agent: gp-api's tsc/vitest overflow
+        # Node's default heap and burn agent turns on dead verify retries.
+        {
+          name  = "NODE_OPTIONS"
+          value = "--max-old-space-size=6144"
         }
       ]
     }

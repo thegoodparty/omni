@@ -64,6 +64,8 @@ describe('VoterFileController', () => {
       mockVoterFileService as never,
       mockCampaignsService as never,
       mockVoterFileFilterService as never,
+      // Only reached when a request carries a boundary; these cases don't.
+      { resolveGeoMemberIds: vi.fn() } as never,
       mockOrganizationsService as never,
       createMockLogger(),
     )
@@ -185,9 +187,12 @@ describe('VoterFileController', () => {
       expect(mockVoterFileFilterService.filterAccessCheck).toHaveBeenCalledWith(
         baseOrg.slug,
       )
+      // The third argument is the people a drawn boundary enclosed, resolved
+      // by the controller. A body with no geoPoly resolves nothing.
       expect(mockVoterFileFilterService.create).toHaveBeenCalledWith(
         baseOrg.slug,
         body,
+        null,
       )
       expect(result).toEqual(mockFilter)
     })
@@ -250,7 +255,7 @@ describe('VoterFileController', () => {
       ).toHaveBeenCalledWith(1, baseOrg.slug)
       expect(
         mockVoterFileFilterService.updateByIdAndOrganizationSlug,
-      ).toHaveBeenCalledWith(1, baseOrg.slug, body)
+      ).toHaveBeenCalledWith(1, baseOrg.slug, body, null)
       expect(result).toEqual(mockFilter)
     })
 

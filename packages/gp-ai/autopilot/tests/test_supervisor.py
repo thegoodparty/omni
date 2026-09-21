@@ -25,11 +25,11 @@ class FakeDynamoDBClient:
     def __init__(self):
         self.items: dict[str, dict] = {}
 
-    # supervisor.py uses three distinct ConditionExpression strings across
-    # its three DynamoDB claims (in-flight, stall-alert, close-out) — each
-    # must be evaluated on its own real semantics, not one blanket rule, or
-    # this fake would validate atomicity the production code doesn't
-    # actually have.
+    # supervisor.py uses several distinct ConditionExpression strings across
+    # its DynamoDB claims (story-in-flight, epic/story stall-alert,
+    # close-out) — each must be evaluated on its own real semantics, not one
+    # blanket rule, or this fake would validate atomicity the production
+    # code doesn't actually have.
     def put_item(self, TableName, Item, ConditionExpression=None, **kwargs):
         pk = Item["pk"]["S"]
         existing = self.items.get(pk)
@@ -43,8 +43,8 @@ class FakeDynamoDBClient:
             return existing is None
         if expression == "attribute_not_exists(pk) OR #exp < :now":
             return existing is None or int(existing["expires_at"]["N"]) < now
-        if expression == "attribute_not_exists(pk) OR #exp < :now OR attribute_not_exists(story_task_id)":
-            return existing is None or int(existing["expires_at"]["N"]) < now or "story_task_id" not in existing
+        if expression == "attribute_not_exists(pk) OR #exp < :now OR attribute_not_exists(dispatched)":
+            return existing is None or int(existing["expires_at"]["N"]) < now or "dispatched" not in existing
         if expression == "attribute_not_exists(pk) OR attribute_not_exists(alerted_at)":
             return existing is None or "alerted_at" not in existing
         raise AssertionError(f"fake does not know how to evaluate condition: {expression!r}")
@@ -164,11 +164,11 @@ def register_epic(fake_clickup, story_ids, stories):
 
 
 # ---------------------------------------------------------------------------
-# Next-story selection
+# Unblocked-story selection
 # ---------------------------------------------------------------------------
 
 
-def test_select_next_story_orders_numerically_not_lexicographically():
+def test_select_unblocked_stories_orders_numerically_not_lexicographically():
     # ClickUp's real orderindex is a large decimal-like string, not a small
     # sequential integer — "10" must sort AFTER "2", where a plain string
     # sort would put it first.
@@ -177,19 +177,19 @@ def test_select_next_story_orders_numerically_not_lexicographically():
         supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
-    assert supervisor.select_next_story(stories).task_id == "s2"
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 1)] == ["s2"]
 
 
-def test_select_next_story_prefers_board_order_when_no_dependencies():
+def test_select_unblocked_stories_prefers_board_order_when_no_dependencies():
     stories = [
         supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
         supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset()),
     ]
 
-    assert supervisor.select_next_story(stories).task_id == "s1"
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 1)] == ["s1"]
 
 
-def test_select_next_story_prefers_dependency_links_over_board_order():
+def test_select_unblocked_stories_prefers_dependency_links_over_board_order():
     # s1 has the lower board position, but s2 blocks s3 (not yet done) — the
     # ticket's "dependency links first" beats plain board order.
     stories = [
@@ -198,34 +198,64 @@ def test_select_next_story_prefers_dependency_links_over_board_order():
         supervisor.Story("s3", router.STATUS_APPROVED_TDD, "3", frozenset({"s2"})),
     ]
 
-    assert supervisor.select_next_story(stories).task_id == "s2"
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 1)] == ["s2"]
 
 
-def test_select_next_story_skips_feedback_needed():
+def test_select_unblocked_stories_skips_feedback_needed():
     stories = [
         supervisor.Story("s1", router.STATUS_FEEDBACK_NEEDED, "1", frozenset()),
         supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
-    assert supervisor.select_next_story(stories).task_id == "s2"
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 5)] == ["s2"]
 
 
-def test_select_next_story_skips_stories_still_blocked():
+def test_select_unblocked_stories_skips_stories_still_blocked():
+    # s1's dependency (s2) is neither done nor even selected — a story with
+    # any unmet dependency link is never a candidate, whatever the limit.
     stories = [
         supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset({"s2"})),
         supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
-    assert supervisor.select_next_story(stories).task_id == "s2"
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 5)] == ["s2"]
 
 
-def test_select_next_story_none_when_all_remaining_are_feedback_needed():
+def test_select_unblocked_stories_none_when_all_remaining_are_feedback_needed():
     stories = [
         supervisor.Story("s1", router.STATUS_DONE, "1", frozenset()),
         supervisor.Story("s2", router.STATUS_FEEDBACK_NEEDED, "2", frozenset()),
     ]
 
-    assert supervisor.select_next_story(stories) is None
+    assert supervisor.select_unblocked_stories(stories, frozenset(), 5) == []
+
+
+def test_select_unblocked_stories_excludes_already_in_flight_ids():
+    # s1 is still formally in the queue status-wise (the race window before
+    # its dispatch's own ClickUp status write lands) but is already claimed
+    # — the caller's excluded_ids must keep it out of the candidate pool.
+    stories = [
+        supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
+    ]
+
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset({"s1"}), 5)] == ["s2"]
+
+
+def test_select_unblocked_stories_truncates_to_the_limit():
+    stories = [
+        supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
+        supervisor.Story("s3", router.STATUS_APPROVED_TDD, "3", frozenset()),
+    ]
+
+    assert [s.task_id for s in supervisor.select_unblocked_stories(stories, frozenset(), 2)] == ["s1", "s2"]
+
+
+def test_select_unblocked_stories_zero_limit_returns_nothing():
+    stories = [supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset())]
+
+    assert supervisor.select_unblocked_stories(stories, frozenset(), 0) == []
 
 
 # ---------------------------------------------------------------------------
@@ -268,11 +298,47 @@ def test_tick_dispatches_next_unblocked_after_a_story_finishes(fake_clickup, fak
 
 
 # ---------------------------------------------------------------------------
-# One-in-flight-story invariant
+# Bounded concurrency — dispatch cap
 # ---------------------------------------------------------------------------
 
 
-def test_epic_claim_blocks_second_dispatch(fake_clickup, fake_ecs):
+def set_cap(monkeypatch, value):
+    monkeypatch.setenv(supervisor.MAX_CONCURRENT_STORIES_ENV, str(value))
+
+
+def dispatched_task_ids(fake_ecs):
+    return [
+        next(
+            e["value"]
+            for e in call["overrides"]["containerOverrides"][0]["environment"]
+            if e["name"] == "CLICKUP_TASK_ID"
+        )
+        for call in fake_ecs.run_task_calls
+    ]
+
+
+def test_max_concurrent_stories_defaults_to_two(monkeypatch):
+    monkeypatch.delenv(supervisor.MAX_CONCURRENT_STORIES_ENV, raising=False)
+    assert supervisor.max_concurrent_stories() == 2
+
+
+def test_max_concurrent_stories_reads_env_override(monkeypatch):
+    set_cap(monkeypatch, 5)
+    assert supervisor.max_concurrent_stories() == 5
+
+
+def test_max_concurrent_stories_ignores_non_positive_override(monkeypatch):
+    set_cap(monkeypatch, 0)
+    assert supervisor.max_concurrent_stories() == supervisor.DEFAULT_MAX_CONCURRENT_STORIES
+
+
+def test_max_concurrent_stories_ignores_unparseable_override(monkeypatch):
+    monkeypatch.setenv(supervisor.MAX_CONCURRENT_STORIES_ENV, "not-a-number")
+    assert supervisor.max_concurrent_stories() == supervisor.DEFAULT_MAX_CONCURRENT_STORIES
+
+
+def test_cap_one_dispatches_a_single_story_then_blocks_the_second(fake_clickup, fake_ecs, monkeypatch):
+    set_cap(monkeypatch, 1)
     register_epic(
         fake_clickup,
         ["s1", "s2"],
@@ -283,20 +349,77 @@ def test_epic_claim_blocks_second_dispatch(fake_clickup, fake_ecs):
     )
 
     supervisor.run_supervisor_tick(EPIC_ID)
-    assert len(fake_ecs.run_task_calls) == 1
+    assert dispatched_task_ids(fake_ecs) == ["s1"]
 
     # A second tick before anything has moved off "to do" for s1 (dispatched)
     # must not also dispatch s2 — the sweep re-discovering the same epic
     # while s1 is still in flight is exactly this scenario.
     supervisor.run_supervisor_tick(EPIC_ID)
-    assert len(fake_ecs.run_task_calls) == 1
+    assert dispatched_task_ids(fake_ecs) == ["s1"]
 
 
-def test_claim_survives_a_tick_before_clickup_status_catches_up(fake_clickup, fake_ecs):
+def test_cap_two_dispatches_two_independent_stories_in_one_tick(fake_clickup, fake_ecs, monkeypatch):
+    set_cap(monkeypatch, 2)
+    register_epic(
+        fake_clickup,
+        ["s1", "s2", "s3"],
+        {
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
+            "s3": story_task("s3", router.STATUS_APPROVED_TDD, order_index="3"),
+        },
+    )
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    # Two independent stories dispatch together, the third waits for a slot.
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2"]
+
+
+def test_cap_greater_than_story_count_dispatches_every_unblocked_story(fake_clickup, fake_ecs, monkeypatch):
+    set_cap(monkeypatch, 10)
+    register_epic(
+        fake_clickup,
+        ["s1", "s2", "s3"],
+        {
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
+            "s3": story_task("s3", router.STATUS_APPROVED_TDD, order_index="3"),
+        },
+    )
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2", "s3"]
+
+
+def test_unmet_dependency_never_launches_regardless_of_cap_headroom(fake_clickup, fake_ecs, monkeypatch):
+    # s2 depends on s1, which is still in progress (not done) — s2 must stay
+    # queued even though the cap has plenty of room for it.
+    set_cap(monkeypatch, 10)
+    register_epic(
+        fake_clickup,
+        ["s1", "s2"],
+        {
+            "s1": story_task("s1", router.STATUS_IN_PROGRESS),
+            "s2": story_task(
+                "s2", router.STATUS_APPROVED_TDD, order_index="2", dependencies=[{"task_id": "s2", "depends_on": "s1"}]
+            ),
+        },
+    )
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert fake_ecs.run_task_calls == []
+
+
+def test_claim_survives_a_tick_before_clickup_status_catches_up(fake_clickup, fake_ecs, monkeypatch):
     # Right after a dispatch, the story's ClickUp status is often still "to
     # do" for a beat (the stage runner itself writes "executing" as its own
     # first action) — the claim, not board status, must be what a very-next
-    # tick trusts to avoid dispatching s1 twice.
+    # tick trusts to avoid dispatching s1 twice, and must still count
+    # against the cap so a second story doesn't sneak in either.
+    set_cap(monkeypatch, 1)
     register_epic(
         fake_clickup,
         ["s1", "s2"],
@@ -307,20 +430,21 @@ def test_claim_survives_a_tick_before_clickup_status_catches_up(fake_clickup, fa
     )
 
     supervisor.run_supervisor_tick(EPIC_ID)
-    assert len(fake_ecs.run_task_calls) == 1
+    assert dispatched_task_ids(fake_ecs) == ["s1"]
 
     # s1's board status has NOT changed yet — still "to do" per the fake —
     # exactly the race window this test targets.
     supervisor.run_supervisor_tick(EPIC_ID)
 
-    assert len(fake_ecs.run_task_calls) == 1
+    assert dispatched_task_ids(fake_ecs) == ["s1"]
 
 
-def test_in_flight_story_status_blocks_dispatch_even_without_a_claim(fake_clickup, fake_ecs):
+def test_in_flight_story_status_counts_against_the_cap_even_without_a_claim(fake_clickup, fake_ecs, monkeypatch):
     # No claim was ever written for s1 (e.g. the dedup table was briefly
     # unreachable when it was dispatched) but its board status already shows
-    # it running — the ClickUp-status signal alone must still block a
-    # second dispatch.
+    # it running — the ClickUp-status signal alone must still count against
+    # the cap, even with no claim item backing it.
+    set_cap(monkeypatch, 1)
     register_epic(
         fake_clickup,
         ["s1", "s2"],
@@ -335,7 +459,8 @@ def test_in_flight_story_status_blocks_dispatch_even_without_a_claim(fake_clicku
     assert fake_ecs.run_task_calls == []
 
 
-def test_claim_released_once_in_flight_story_reaches_done(fake_clickup, fake_ecs):
+def test_claim_released_once_in_flight_story_reaches_done(fake_clickup, fake_ecs, monkeypatch):
+    set_cap(monkeypatch, 1)
     register_epic(
         fake_clickup,
         ["s1", "s2"],
@@ -345,7 +470,7 @@ def test_claim_released_once_in_flight_story_reaches_done(fake_clickup, fake_ecs
         },
     )
     supervisor.run_supervisor_tick(EPIC_ID)
-    assert len(fake_ecs.run_task_calls) == 1
+    assert dispatched_task_ids(fake_ecs) == ["s1"]
 
     # s1 is now done; nothing else is in flight, so the next tick must
     # release the stale claim and dispatch s2.
@@ -353,9 +478,182 @@ def test_claim_released_once_in_flight_story_reaches_done(fake_clickup, fake_ecs
 
     supervisor.run_supervisor_tick(EPIC_ID)
 
-    assert len(fake_ecs.run_task_calls) == 2
-    second_call_env = fake_ecs.run_task_calls[1]["overrides"]["containerOverrides"][0]["environment"]
-    assert {"name": "CLICKUP_TASK_ID", "value": "s2"} in second_call_env
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2"]
+
+
+def test_claim_story_in_flight_is_atomic_across_racing_ticks(fake_dynamodb):
+    # Models a webhook tick and the sweep's own overlapping tick racing to
+    # claim the SAME story: only the first of two back-to-back calls may
+    # win, so a supervisor tick overlapping a sweep tick can never dispatch
+    # the same story twice.
+    first = supervisor.claim_story_in_flight(EPIC_ID, "s1", 3600)
+    second = supervisor.claim_story_in_flight(EPIC_ID, "s1", 3600)
+
+    assert first is None
+    assert second == "already claimed"
+
+
+def test_story_alert_only_claim_does_not_block_a_real_dispatch(fake_dynamodb):
+    # A story ClickUp shows in flight with no dispatch claim of our own
+    # (e.g. a manual drag) can pick up an alert-only claim item first. That
+    # item must not permanently block a later real dispatch of the same
+    # story until its TTL lapses — the "attribute_not_exists(dispatched)"
+    # clause is what lets claim_story_in_flight overwrite it.
+    assert supervisor.try_claim_story_stall_alert(EPIC_ID, "s1")
+
+    reason = supervisor.claim_story_in_flight(EPIC_ID, "s1", 3600)
+
+    assert reason is None
+    claim = fake_dynamodb.items[supervisor.story_claim_pk("s1")]
+    assert claim["dispatched"]["BOOL"] is True
+
+
+def test_concurrent_completion_order_a_then_b_advances(fake_clickup, fake_ecs, monkeypatch):
+    # s3 depends on BOTH s1 and s2, dispatched together under the cap —
+    # s1 finishing first must not by itself unblock s3.
+    set_cap(monkeypatch, 2)
+    register_epic(
+        fake_clickup,
+        ["s1", "s2", "s3"],
+        {
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
+            "s3": story_task(
+                "s3",
+                router.STATUS_APPROVED_TDD,
+                order_index="3",
+                dependencies=[
+                    {"task_id": "s3", "depends_on": "s1"},
+                    {"task_id": "s3", "depends_on": "s2"},
+                ],
+            ),
+        },
+    )
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2"]
+
+    fake_clickup.responses["/task/s1"] = story_task("s1", router.STATUS_DONE)
+    supervisor.run_supervisor_tick(EPIC_ID)
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2"]  # s2 still open, s3 stays blocked
+
+    fake_clickup.responses["/task/s2"] = story_task("s2", router.STATUS_DONE, order_index="2")
+    supervisor.run_supervisor_tick(EPIC_ID)
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2", "s3"]
+
+
+def test_concurrent_completion_order_b_then_a_advances(fake_clickup, fake_ecs, monkeypatch):
+    # Same as above with the finishing order swapped — s3 must advance
+    # regardless of which of its two dependencies finishes first.
+    set_cap(monkeypatch, 2)
+    register_epic(
+        fake_clickup,
+        ["s1", "s2", "s3"],
+        {
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
+            "s3": story_task(
+                "s3",
+                router.STATUS_APPROVED_TDD,
+                order_index="3",
+                dependencies=[
+                    {"task_id": "s3", "depends_on": "s1"},
+                    {"task_id": "s3", "depends_on": "s2"},
+                ],
+            ),
+        },
+    )
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2"]
+
+    fake_clickup.responses["/task/s2"] = story_task("s2", router.STATUS_DONE, order_index="2")
+    supervisor.run_supervisor_tick(EPIC_ID)
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2"]  # s1 still open, s3 stays blocked
+
+    fake_clickup.responses["/task/s1"] = story_task("s1", router.STATUS_DONE)
+    supervisor.run_supervisor_tick(EPIC_ID)
+    assert dispatched_task_ids(fake_ecs) == ["s1", "s2", "s3"]
+
+
+# ---------------------------------------------------------------------------
+# Flag-key parsing (ENG-11152)
+# ---------------------------------------------------------------------------
+
+
+def test_flag_cleanup_ticket_carries_the_parsed_flag_key(fake_clickup):
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = {
+        "comments": [
+            {
+                "comment_text": ("Stories: s1 Do the thing.\n\nflag-key: win-new-thing\n\nNo open questions."),
+                "date": "1000",
+            }
+        ]
+    }
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    cleanup_task_id = supervisor.file_flag_cleanup_ticket(EPIC_ID)
+
+    assert cleanup_task_id == "cleanup-1"
+    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert len(create_calls) == 1
+    assert "flag-key: win-new-thing" in create_calls[0][2]["description"]
+
+
+def test_flag_cleanup_ticket_prefers_the_most_recently_posted_flag_key(fake_clickup):
+    # A resumed epic-create run can post a second breakdown summary — the
+    # most recently posted line wins, same "latest wins" discipline as
+    # router.latest_park / router.latest_run_summary.
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = {
+        "comments": [
+            {"comment_text": "flag-key: win-old-thing", "date": "1000"},
+            {"comment_text": "flag-key: win-new-thing", "date": "2000"},
+        ]
+    }
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    supervisor.file_flag_cleanup_ticket(EPIC_ID)
+
+    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert "flag-key: win-new-thing" in create_calls[0][2]["description"]
+    assert "win-old-thing" not in create_calls[0][2]["description"]
+
+
+def test_flag_cleanup_ticket_files_without_a_key_when_unparseable(fake_clickup, capsys):
+    # Never guess: a summary that only names the key in prose (not the
+    # required machine-readable line) must still file the ticket, just
+    # without a flag-key line — sweep.py's ramp pass will skip it forever
+    # rather than acting on a guessed key.
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = {
+        "comments": [{"comment_text": "The flag key is win-new-thing, chosen from the feature slug.", "date": "1000"}]
+    }
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    cleanup_task_id = supervisor.file_flag_cleanup_ticket(EPIC_ID)
+
+    assert cleanup_task_id == "cleanup-1"
+    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert "flag-key:" not in create_calls[0][2]["description"]
+    assert "no parseable" in capsys.readouterr().out
+
+
+def test_flag_cleanup_ticket_files_without_a_key_when_comments_unreadable(fake_clickup):
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+
+    def failing_comments(method, endpoint, data):
+        raise RuntimeError("ClickUp unavailable")
+
+    fake_clickup.responses[f"/task/{EPIC_ID}/comment"] = failing_comments
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    cleanup_task_id = supervisor.file_flag_cleanup_ticket(EPIC_ID)
+
+    assert cleanup_task_id == "cleanup-1"
+    create_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert "flag-key:" not in create_calls[0][2]["description"]
 
 
 # ---------------------------------------------------------------------------
@@ -524,61 +822,87 @@ def test_feedback_needed_story_never_counted_stalled(fake_clickup, fake_ecs):
     assert fake_clickup.slack_posts == []
 
 
-def test_alerted_at_recorded_on_the_epic_claim_item(fake_clickup, fake_ecs, fake_dynamodb):
+def test_alerted_at_recorded_on_the_story_claim_item(fake_clickup, fake_ecs, fake_dynamodb):
     register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_QA)})
     stale_since = str(int((time.time() - supervisor.STATUS_TTL_SECONDS[router.STATUS_QA] - 60) * 1000))
     fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": stale_since}}
 
     supervisor.run_supervisor_tick(EPIC_ID)
 
-    item = fake_dynamodb.items[supervisor.epic_claim_pk(EPIC_ID)]
+    item = fake_dynamodb.items[supervisor.story_claim_pk("s1")]
     assert "alerted_at" in item
 
 
 def test_story_dragged_into_executing_alerts_instead_of_silently_freezing(fake_clickup, fake_ecs, fake_dynamodb):
     # Stories never reach "executing" in the pipeline, but a manual drag can
-    # put one there — it reads as in-flight (blocking every dispatch on its
-    # epic) so it must at least stall-alert rather than freeze silently.
+    # put one there — it reads as in-flight (counting against the epic's
+    # concurrency cap) so it must at least stall-alert rather than freeze
+    # silently.
     register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_EXECUTING)})
     stale_since = str(int((time.time() - supervisor.STATUS_TTL_SECONDS[router.STATUS_EXECUTING] - 60) * 1000))
     fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": stale_since}}
 
     supervisor.run_supervisor_tick(EPIC_ID)
 
-    assert fake_ecs.run_task_calls == []  # in-flight guard still holds
+    assert fake_ecs.run_task_calls == []  # nothing else was queued to dispatch
     assert len(fake_clickup.slack_posts) == 1
     assert "executing" in fake_clickup.slack_posts[0]["text"]
 
 
-def test_alert_only_claim_item_does_not_block_a_real_dispatch(fake_clickup, fake_ecs, fake_dynamodb):
-    # The sweep's pre-supervisor feature-card stall alert writes this epic's
-    # claim pk with a live expires_at and NO story_task_id. When the human
-    # then approves the breakdown and the first real tick runs, that
-    # alert-only item must not read as "a story is in flight" — the dispatch
-    # claim overwrites it (the attribute_not_exists(story_task_id) clause).
-    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_APPROVED_TDD)})
-    assert supervisor.try_claim_stall_alert(EPIC_ID)
-
-    supervisor.run_supervisor_tick(EPIC_ID)
-
-    assert len(fake_ecs.run_task_calls) == 1
-    claim = fake_dynamodb.items[supervisor.epic_claim_pk(EPIC_ID)]
-    assert claim["story_task_id"]["S"] == "s1"
-
-
-def test_alerting_preserves_the_claimed_story_id(fake_clickup, fake_ecs, fake_dynamodb):
-    # A story we ourselves dispatched (claim holds story_task_id) that then
-    # stalls must still be recognized as "claimed" by the next tick after
-    # the alert fires — otherwise the alert path would itself erase the
-    # one-in-flight tracking it is supposed to leave alone.
+def test_stall_alerts_fire_once_per_story_under_concurrency(fake_clickup, fake_ecs, monkeypatch):
+    # Two stories stalled at the same time, under the same epic, must each
+    # get their own alert — not one shared per-epic alert that only the
+    # first stalled story could ever claim.
+    set_cap(monkeypatch, 2)
     register_epic(
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
-            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
+            "s1": story_task("s1", router.STATUS_IN_PROGRESS),
+            "s2": story_task("s2", router.STATUS_QA, order_index="2"),
         },
     )
+    stale_in_progress = str(int((time.time() - supervisor.STATUS_TTL_SECONDS[router.STATUS_IN_PROGRESS] - 60) * 1000))
+    stale_qa = str(int((time.time() - supervisor.STATUS_TTL_SECONDS[router.STATUS_QA] - 60) * 1000))
+    fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": stale_in_progress}}
+    fake_clickup.responses["/task/s2/time_in_status"] = {"current_status": {"since": stale_qa}}
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+    supervisor.run_supervisor_tick(EPIC_ID)  # repeated tick must not re-alert either story
+
+    assert len(fake_clickup.slack_posts) == 2
+    alerted_ids = {"s1" if "s1" in post["text"] else "s2" for post in fake_clickup.slack_posts}
+    assert alerted_ids == {"s1", "s2"}
+
+
+def test_story_alert_only_claim_does_not_block_a_real_dispatch_end_to_end(fake_clickup, fake_ecs, fake_dynamodb):
+    # A story stall-alerted while ClickUp itself shows it in flight (e.g. a
+    # manual drag, no dispatch claim of our own) must not have that
+    # alert-only claim block a later, genuine dispatch of the same story.
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_EXECUTING)})
+    stale_since = str(int((time.time() - supervisor.STATUS_TTL_SECONDS[router.STATUS_EXECUTING] - 60) * 1000))
+    fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": stale_since}}
+    supervisor.run_supervisor_tick(EPIC_ID)
+    assert len(fake_clickup.slack_posts) == 1  # alert-only claim now sits on s1
+
+    # A human moves it back to the queue — the alert-only claim's TTL has
+    # not lapsed, but it must not block this real dispatch.
+    fake_clickup.responses["/task/s1"] = story_task("s1", router.STATUS_APPROVED_TDD)
+    fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": str(int(time.time() * 1000))}}
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert len(fake_ecs.run_task_calls) == 1
+    claim = fake_dynamodb.items[supervisor.story_claim_pk("s1")]
+    assert claim["dispatched"]["BOOL"] is True
+
+
+def test_stall_alert_does_not_allow_a_second_dispatch_of_the_stalled_story(fake_clickup, fake_ecs):
+    # A story we ourselves dispatched, that then stalls, must still be
+    # recognized as in flight by the next tick after the alert fires —
+    # otherwise the alert path would itself erase the in-flight tracking it
+    # is supposed to leave alone.
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_APPROVED_TDD)})
     supervisor.run_supervisor_tick(EPIC_ID)
     assert len(fake_ecs.run_task_calls) == 1
 
@@ -589,7 +913,7 @@ def test_alerting_preserves_the_claimed_story_id(fake_clickup, fake_ecs, fake_dy
     supervisor.run_supervisor_tick(EPIC_ID)  # alerts, must not forget the claim
     assert len(fake_clickup.slack_posts) == 1
 
-    supervisor.run_supervisor_tick(EPIC_ID)  # must still refuse to dispatch s2
+    supervisor.run_supervisor_tick(EPIC_ID)  # must still refuse to re-dispatch s1
 
     assert len(fake_ecs.run_task_calls) == 1
     assert len(fake_clickup.slack_posts) == 1  # and must not re-alert either

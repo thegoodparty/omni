@@ -92,7 +92,7 @@ test.describe('CRM Contacts Page (Serve)', () => {
     )
     await expect(wizard.getByRole('progressbar')).toHaveAttribute(
       'aria-valuemax',
-      '2',
+      '3',
     )
     await expect(
       wizard.getByText('How do you want to build this list?'),
@@ -117,12 +117,15 @@ test.describe('CRM Contacts Page (Serve)', () => {
 
     // --- Name step: 40-char counter (crm/wizard/NameStep.tsx) ---
     await wizardBuildButton(page).click()
+    // Serve's boundary step sits here now, skippable and skipped: this case
+    // is about the name step's counter, and the boundary has its own specs.
+    await wizard.getByRole('button', { name: 'Continue', exact: true }).click()
     await expect(wizard.getByText('Name your list')).toBeVisible({
       timeout: 10_000,
     })
     await expect(wizard.getByRole('progressbar')).toHaveAttribute(
       'aria-valuenow',
-      '2',
+      '3',
     )
     await expect(
       wizard.getByText(/constituents match\. Give this list a name/),

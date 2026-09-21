@@ -47,13 +47,13 @@ variable "task_cpu" {
 }
 
 variable "task_memory" {
-  description = "Memory for the base autopilot-agent task (epic-create/story/resume), in MB"
+  description = "Memory for the base autopilot-agent task (epic-create/story/resume), in MB. 8GB: NODE_OPTIONS grants Node a 6GB heap for gp-api's tsc/vitest, which the old 4GB task could not physically house."
   type        = string
-  default     = "4096"
+  default     = "8192"
 }
 
 variable "task_memory_playwright" {
-  description = "Memory for the autopilot-agent-playwright (qa) task, in MB. 2x the base task: a headless Chromium under Playwright needs meaningfully more headroom than the base agent."
+  description = "Memory for the autopilot-agent-playwright (qa) task, in MB. Base + 4GB: the 6GB NODE_OPTIONS heap plus V8 non-heap plus the Python agent already claim most of the base 8GB, and a headless Chromium under Playwright (0.5-1.5GB resident) needs its own headroom on top."
   type        = string
-  default     = "8192"
+  default     = "12288"
 }

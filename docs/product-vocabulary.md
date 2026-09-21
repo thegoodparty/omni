@@ -128,6 +128,16 @@ copy.
 - Copy chosen by a bare `isServe ? a : b` ternary, and an unconditional string
   shown identically to both surfaces. Use a mode-keyed object and it is
   covered; the hook nudges on shared-surface edits either way.
+- **A whole component in a shared directory that only ever renders for one
+  surface**, because the gating lives at the CALL SITE and the strings inside
+  it are unconditional. `outreach/v2/FollowUpOutstandingSection.tsx` renders
+  solely behind `isServe &&` in `OutreachDetailsDrawer.tsx`, so every string
+  in it is Serve copy — but nothing in the file says so, and the directory is
+  shared, so the gate read it as ordinary Win-and-Serve code and passed
+  "during the course of your campaign" over 1,162 clean files. Give such a
+  component a `SERVE_*` copy object (see that file's `SERVE_FOLLOW_UP_COPY`)
+  and rule 2 covers it. Do NOT reach for a cleverer parser that follows the
+  render graph: the fix is to write the copy where the check can see it.
 - `packages/gp-api` prompts and `packages/gp-sdk`. The gate is gp-webapp only.
   `SERVE_SOCIAL_VOICE` is the pattern to copy there, by hand.
 - Serve words leaking into **Win** ("constituent" on a candidate's screen).

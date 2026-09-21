@@ -1,21 +1,21 @@
 # autopilot-bot prod variables
 #
-# The defaults in main.tf are already correct for prod — you do NOT need a
-# terraform.tfvars file to apply this environment. This example exists only
-# to document the variables, and to show what to set once task 14 supplies
-# real board IDs and prod rollout begins (ENG-11104).
+# The real non-secret values are committed in terraform.auto.tfvars — you do
+# NOT need a hand-created terraform.tfvars to apply this environment. This
+# example only documents the variables. The rollout runbook (README.md,
+# ENG-11153) says when autopilot_list_ids gets its real value.
 
-# Comma-separated ClickUp list IDs in scope. Placeholder default "" means
-# every webhook event 200-skips as "list not in scope" until this is set.
+# Comma-separated ClickUp list IDs in scope. "" (the shipped state) means
+# every webhook event 200-skips as "list not in scope" until the prod board
+# decision is made and the webhook is registered.
 autopilot_list_ids = ""
 
-
 # ClickUp user id the human-actor gate treats as the bot's own writes.
-autopilot_bot_user_id = ""
+autopilot_bot_user_id = "150125283"
 
 # Slack channel id the epic supervisor posts stall/close-out alerts to
 # (not a secret — a channel id, not a credential).
-autopilot_slack_channel = ""
+autopilot_slack_channel = "C0C1K9FBDG9"
 
 # Private subnet IDs for the ECS tasks this Lambda launches.
 # Default: the prod private subnets below (same ones pinned in

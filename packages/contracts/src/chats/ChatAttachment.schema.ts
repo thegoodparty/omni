@@ -66,10 +66,40 @@ export type FinalizeRequest = z.infer<typeof FinalizeRequestSchema>
 
 export const LinkAttachRequestSchema = z
   .object({
-    url: z.string().url().max(2048),
+    url: z
+      .string()
+      .url()
+      .max(2048)
+      .refine(
+        (u) => {
+          try {
+            const { protocol } = new URL(u)
+            return protocol === 'http:' || protocol === 'https:'
+          } catch {
+            return false
+          }
+        },
+        { message: 'URL scheme must be http or https' },
+      ),
   })
   .strict()
 export type LinkAttachRequest = z.infer<typeof LinkAttachRequestSchema>
+
+export const LinkAttachResponseSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), attachment: ChatAttachmentSchema }),
+  z.object({
+    ok: z.literal(false),
+    error: z.enum([
+      'unreachable',
+      'blocked_url',
+      'unsupported_content_type',
+      'too_large',
+      'timeout',
+      'attachment_limit_reached',
+    ]),
+  }),
+])
+export type LinkAttachResponse = z.infer<typeof LinkAttachResponseSchema>
 
 export const ChatAttachmentListResponseSchema = z.object({
   attachments: z.array(ChatAttachmentSchema),

@@ -25,7 +25,7 @@ STAGES = ("epic-create", "story", "qa", "resume")
 STAGE_CEILINGS: dict[str, tuple[float, float]] = {
     "epic-create": (10.0, 30 * 60),
     "story": (15.0, 45 * 60),
-    "qa": (8.0, 30 * 60),
+    "qa": (8.0, 45 * 60),
 }
 
 
@@ -87,8 +87,9 @@ class AgentConfig:
     max_budget_usd: float = 0.0
     deadline_seconds: float = 0.0
     # Starts as the base directory the container mounts; main.py overwrites it
-    # with the omni clone's path once workspace.clone_omni succeeds, so this
-    # field is what ClaudeAgentOptions.cwd is built from either way.
+    # with the omni checkout's path once workspace.prepare_omni_workspace
+    # succeeds (baked-image warm path or cold-clone fallback), so this field
+    # is what ClaudeAgentOptions.cwd is built from either way.
     workspace_dir: str = "/workspace"
     # Which stage a "resume" run is picking back up. Empty for every other
     # stage — see _resolve_ceilings for why this drives the ceiling defaults

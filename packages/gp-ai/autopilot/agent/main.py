@@ -17,7 +17,9 @@ import asyncio
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -30,13 +32,14 @@ from claude_agent_sdk import (
     query,
 )
 
+from shared.clickup_client import ClickUpClient
 from shared.logger import get_logger
 
 from .config import CAPABILITIES, AgentConfig, UnknownStageError
 from .feedback import apply_park_outcome, park_if_stranded
 from .github_auth import setup_github_auth
-from .metrics import format_metric_line
-from .workspace import WorkspaceCloneError, clone_omni, point_playwright_mcp_at_chromium
+from .metrics import format_metric_line, format_run_summary_comment, run_summary
+from .workspace import WorkspaceCloneError, point_playwright_mcp_at_chromium, prepare_omni_workspace
 
 logger = get_logger(__name__)
 
@@ -208,7 +211,11 @@ async def run_agent(config: AgentConfig) -> dict:
         allowed_tools=CAPABILITIES["sdk_tools"],
         permission_mode="bypassPermissions",
         cwd=config.workspace_dir,
-        max_turns=200,
+        # Budget and deadline are the real ceilings; this only backstops a
+        # pathological tight loop. 200 killed a legitimate Story 6 run at 201
+        # turns with $8.80/$15 and 35/45 min still unspent, discarding all of
+        # its work (max-turns errors leave nothing pushed and nothing parked).
+        max_turns=400,
         model=config.model,
         # Enforced by the SDK, which ends the run with an error_max_budget_usd
         # result rather than us policing cost between messages — the cost of
@@ -238,6 +245,31 @@ async def run_agent(config: AgentConfig) -> dict:
         }
 
 
+def post_run_summary_comment(
+    summary: dict,
+    task_id: str,
+    *,
+    clickup_client_factory: Callable[[], Any] = ClickUpClient,
+) -> None:
+    """Posts the run summary (stage, outcome, cost, duration, PR link) as a
+    ClickUp comment on the worked card — the phase 2 status surface's
+    per-card half (see sweep.py for the pinned Slack half, which reads this
+    same comment back).
+
+    Log-and-continue, never raise: a comment is strictly additive
+    observability, and a failure here (a ClickUp outage, a bad task id) must
+    never turn an already-decided run result into a failure it wasn't. The
+    caller passes `summary` in, rather than this function computing it, so a
+    failure here can never mutate the dict format_metric_line has already
+    used (or is about to).
+    """
+    try:
+        with clickup_client_factory() as clickup:
+            clickup.create_task_comment(task_id, format_run_summary_comment(summary))
+    except Exception as e:
+        logger.error(f"Failed to post run-summary comment on {task_id}: {type(e).__name__}: {e}")
+
+
 async def main():
     try:
         config = AgentConfig.from_env()
@@ -255,21 +287,22 @@ async def main():
         logger.error("GitHub App key present but token minting failed and no fallback PAT — aborting before agent run")
         sys.exit(1)
 
+    # monotonic, not wall clock: reported as durations below, and an NTP
+    # correction mid-run would otherwise be able to make one negative.
+    setup_started = time.monotonic()
     try:
         # Reassigned onto workspace_dir (rather than a separate field) because
         # that is exactly what run_agent hands the SDK as `cwd` — the stage
         # works inside the omni checkout, not its parent directory.
-        config.workspace_dir = clone_omni(config.workspace_dir, os.environ.get("GITHUB_TOKEN", ""))
+        config.workspace_dir = prepare_omni_workspace(config.workspace_dir, os.environ.get("GITHUB_TOKEN", ""))
         # This container has no branded Chrome (none exists for ARM64 Linux);
         # the repo's .mcp.json default would break the first browser call.
         point_playwright_mcp_at_chromium(config.workspace_dir)
     except WorkspaceCloneError as e:
-        logger.error(f"omni clone failed: {e}")
+        logger.error(f"omni workspace setup failed: {e}")
         sys.exit(1)
+    setup_duration_s = time.monotonic() - setup_started
 
-    # monotonic, not wall clock: this number is reported as the run's duration
-    # and an NTP correction mid-run would otherwise be able to make it
-    # negative.
     started = time.monotonic()
     result = await run_agent(config)
     duration_s = time.monotonic() - started
@@ -293,7 +326,13 @@ async def main():
         workspace_dir=os.environ.get("WORKSPACE_DIR", "/workspace"),
     )
 
-    logger.info(format_metric_line(result, config.stage, duration_s, config.epic_task_id))
+    # Built once and handed to both sinks — see metrics.run_summary — so the
+    # comment below and the metric line logged after it can never disagree
+    # about what this run's own outcome/cost/duration were.
+    summary = run_summary(result, config.stage, duration_s, config.epic_task_id, setup_s=setup_duration_s)
+    post_run_summary_comment(summary, config.task_id)
+
+    logger.info(format_metric_line(result, config.stage, duration_s, config.epic_task_id, setup_s=setup_duration_s))
 
     if result["status"] == "error":
         sys.exit(1)

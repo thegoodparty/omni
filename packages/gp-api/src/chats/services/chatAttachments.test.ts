@@ -120,14 +120,14 @@ describe('serve-chat-attachments flag gate', () => {
     }
   })
 
-  describe('flag on → not-implemented (link) or real (presign/finalize)', () => {
-    it('POST .../attachments/link → 501', async () => {
+  describe('flag on → validates link url', () => {
+    it('POST .../attachments/link → 400 when url missing', async () => {
       const res = await service.client.post(
         `/v1/chats/${conversationId}/attachments/link`,
         {},
         header,
       )
-      expect(res.status).toBe(501)
+      expect(res.status).toBe(400)
     })
   })
 })

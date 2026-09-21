@@ -24,6 +24,10 @@ import {
   PlusIcon,
 } from '@styleguide'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
+import {
+  ringInsertIndex,
+  type PolygonRing,
+} from 'app/dashboard/shared/ringGeometry'
 import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
@@ -132,7 +136,10 @@ const ARCHIVED_RING_ALPHA = 0.28
 // If both apply (a walk on an archived list, rare), the two multiply.
 const WALK_ACTIVE_RING_ALPHA = 0.3
 
-export type PolygonRing = Array<[number, number]>
+// Re-exported rather than moved out of every caller: the shape and the
+// tap-placement maths now belong to the constituent-list map too, so they
+// live in app/dashboard/shared/ringGeometry.ts.
+export { ringInsertIndex, type PolygonRing }
 
 export interface RoutePin {
   // Which stop this pin is, so a tap can be turned back into a door to open.
@@ -462,7 +469,7 @@ export const packOpeningCenter = (
   const mid = dots >> 1
   const anchorLng = lngs[mid] ?? 0
   const anchorLat = lats[mid] ?? 0
-  // Scaled for the reason distanceToSegment below scales: compared in bare
+  // Scaled for the reason ringGeometry's distanceToSegment scales: in bare
   // degrees a district's east-west spread reads wider than it is on the
   // ground, and the wrong dot wins.
   const lngScale = Math.cos((anchorLat * Math.PI) / 180)
@@ -503,53 +510,6 @@ const ringBounds = (
     [minX, minY],
     [maxX, maxY],
   ]
-}
-
-// Shortest distance from `point` to the segment a-b. Longitude is scaled by
-// cos(latitude) first because a degree of longitude is only ~0.75 of a degree
-// of latitude at US latitudes — compared in raw degrees, a tall narrow ring's
-// long sides read as closer than they are and the wrong edge wins.
-const distanceToSegment = (
-  point: [number, number],
-  a: [number, number],
-  b: [number, number],
-  lngScale: number,
-): number => {
-  const px = point[0] * lngScale
-  const ax = a[0] * lngScale
-  const dx = b[0] * lngScale - ax
-  const dy = b[1] - a[1]
-  const lengthSq = dx * dx + dy * dy
-  const projected =
-    lengthSq === 0 ? 0 : ((px - ax) * dx + (point[1] - a[1]) * dy) / lengthSq
-  const t = Math.max(0, Math.min(1, projected))
-  return Math.hypot(px - (ax + t * dx), point[1] - (a[1] + t * dy))
-}
-
-// Where a tap belongs in the ring being drawn. Under three points there are no
-// edges yet, so it appends; from three the ring is read as closed and the point
-// splices into whichever edge it is nearest. Appending unconditionally meant a
-// tap between two existing vertices jumped the boundary across the shape and
-// back, leaving a criss-crossed, self-intersecting outline.
-export const ringInsertIndex = (
-  ring: PolygonRing,
-  point: [number, number],
-): number => {
-  if (ring.length < 3) return ring.length
-  const lngScale = Math.cos((point[1] * Math.PI) / 180)
-  let bestIndex = ring.length
-  let bestDistance = Infinity
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i]
-    const b = ring[(i + 1) % ring.length]
-    if (!a || !b) continue
-    const distance = distanceToSegment(point, a, b, lngScale)
-    if (distance < bestDistance) {
-      bestDistance = distance
-      bestIndex = i + 1
-    }
-  }
-  return bestIndex
 }
 
 export default function VoterMapCanvas({

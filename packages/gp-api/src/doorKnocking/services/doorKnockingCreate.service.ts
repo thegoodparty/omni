@@ -29,7 +29,7 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import { DoorKnockingTurfService } from './doorKnockingTurf.service'
-import { pointInPolygon, polygonBbox } from '../utils/geo.util'
+import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
 import {
   type BlockFace,
   coordinateKey,

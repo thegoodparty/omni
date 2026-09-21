@@ -187,6 +187,7 @@ describe('ContactsService', () => {
 
       service = new ContactsService(
         mockVoterFileFilterService as never,
+        {} as never,
         mockElectionsService as never,
         mockCampaignsService as never,
         mockOrganizationsService as never,
@@ -197,6 +198,7 @@ describe('ContactsService', () => {
         mockActivityConditionResolutionService as never,
         mockVoterQueryService as never,
         mockVoterDownloadService as never,
+        {} as never,
         mockStatsService as never,
         mockContactsMadeResolutionService as never,
         createMockLogger(),
