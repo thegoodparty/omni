@@ -138,6 +138,12 @@ class FakeClickUp:
         self.executing_tasks: dict[str, list[dict]] = {}
         self.in_progress_tasks: dict[str, list[dict]] = {}
         self.parked_tasks: dict[str, list[dict]] = {}
+        # Backs the flag-cleanup ramp pass's own statuses[]=done query
+        # (ENG-11152) — its own registry, not folded into executing_tasks'
+        # catch-all below: "done" and "executing" are both single words with
+        # no space to distinguish by substring the way feedback/in-progress
+        # already are.
+        self.done_tasks: dict[str, list[dict]] = {}
         self.comments: dict[str, list[dict]] = {}
         self.time_in_status_since: dict[str, int] = {}
         self.task_queries: list[str] = []
@@ -188,6 +194,8 @@ class FakeClickUp:
                     registry = self.parked_tasks
                 elif "in%20progress" in query:
                     registry = self.in_progress_tasks
+                elif f"statuses[]={router.STATUS_DONE}" in query:
+                    registry = self.done_tasks
                 else:
                     registry = self.executing_tasks
                 return {"tasks": self._with_current_tags(registry.get(list_id, []))}
@@ -219,6 +227,13 @@ class FakeClickUp:
                 self.status_update_failures[task_id] -= 1
                 raise RuntimeError("transient ClickUp 500")
             self.status_updates.setdefault(task_id, []).append((data or {}).get("status"))
+            # Mirrors a real ClickUp status write: a subsequent GET of this
+            # same task_id (e.g. a supervisor tick reading it back mid-flow,
+            # as the flag-cleanup promote-then-dispatch pass does) must see
+            # the new status, not the pre-move one it was registered with.
+            new_status = (data or {}).get("status")
+            if task_id in self.tasks and new_status is not None:
+                self.tasks[task_id] = {**self.tasks[task_id], "status": {"status": new_status}}
             return {"id": task_id}
         raise AssertionError(f"no fake response registered for {method} {endpoint}")
 
@@ -1200,3 +1215,258 @@ def test_status_card_state_save_failure_skips_the_pin_and_fails_no_tick(
 
     assert result["statusCode"] == 200
     assert fake_slack_status_card["pinned"] == []
+
+
+# ---------------------------------------------------------------------------
+# Flag-cleanup ramp pickup (ENG-11152)
+# ---------------------------------------------------------------------------
+
+FLAG_KEY = "win-new-thing"
+CLEANUP_TASK_ID = "cleanup-1"
+CLOSED_EPIC_ID = "epic-closed-1"
+
+
+def flag_state(rollout_percentage=100.0, enabled=True):
+    return {"enabled": enabled, "rollout_percentage": rollout_percentage}
+
+
+def register_flag_cleanup_candidate(
+    fake_clickup, epic_id=CLOSED_EPIC_ID, cleanup_task_id=CLEANUP_TASK_ID, flag_key=FLAG_KEY
+):
+    fake_clickup.subtasks[epic_id] = [cleanup_task_id]
+    fake_clickup.tasks[cleanup_task_id] = {
+        "id": cleanup_task_id,
+        "status": {"status": router.STATUS_DONE},
+        "description": f"Flag cleanup ticket.\n\nflag-key: {flag_key}\n",
+    }
+
+
+def seed_old_ramp_timer(fake_dynamodb, flag_key=FLAG_KEY, days_ago=8):
+    old_ts = time.time() - days_ago * 24 * 60 * 60
+    fake_dynamodb.items[sweep.flag_ramp_pk(flag_key)] = {
+        "pk": {"S": sweep.flag_ramp_pk(flag_key)},
+        "flag_key": {"S": flag_key},
+        "first_seen_full_ramp_at": {"N": str(old_ts)},
+        "expires_at": {"N": str(int(time.time() + 999_999))},
+    }
+
+
+def test_flag_below_full_rollout_never_promotes_or_starts_a_timer(fake_clickup, fake_ecs, monkeypatch):
+    register_flag_cleanup_candidate(fake_clickup)
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: flag_state(rollout_percentage=50.0))
+
+    promoted = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+
+    assert promoted == 0
+    assert sweep.get_flag_ramp_first_seen(FLAG_KEY) is None
+    assert CLEANUP_TASK_ID not in fake_clickup.status_updates
+    assert fake_ecs.run_task_calls == []
+
+
+def test_flag_at_full_rollout_starts_the_timer_without_promoting(fake_clickup, fake_ecs, monkeypatch):
+    register_flag_cleanup_candidate(fake_clickup)
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: flag_state())
+
+    promoted = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+
+    assert promoted == 0
+    assert sweep.get_flag_ramp_first_seen(FLAG_KEY) is not None
+    assert CLEANUP_TASK_ID not in fake_clickup.status_updates
+    assert fake_ecs.run_task_calls == []
+
+
+def test_rollback_below_full_rollout_resets_an_already_running_timer(fake_clickup, fake_dynamodb, monkeypatch):
+    register_flag_cleanup_candidate(fake_clickup)
+    seed_old_ramp_timer(fake_dynamodb, days_ago=1)  # running, but not yet past the 7-day default
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: flag_state(rollout_percentage=80.0))
+
+    promoted = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+
+    assert promoted == 0
+    assert sweep.get_flag_ramp_first_seen(FLAG_KEY) is None
+
+
+def test_flag_ramped_past_threshold_promotes_exactly_once_and_dispatches(
+    fake_clickup, fake_ecs, fake_dynamodb, monkeypatch
+):
+    register_flag_cleanup_candidate(fake_clickup)
+    seed_old_ramp_timer(fake_dynamodb, days_ago=8)
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: flag_state())
+
+    first = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+    second = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+
+    assert first == 1
+    # The second tick finds no candidate at all: the ticket's own status
+    # already moved off `done` (the fake mirrors the real ClickUp write —
+    # see FakeClickUp's PUT handler), so it drops out of
+    # _flag_cleanup_candidates before the dedup claim is even consulted.
+    # test_flag_cleanup_promotion_claim_survives_a_racing_overlapping_tick
+    # below exercises the claim itself, for the narrower race where two
+    # ticks reach the claim before either has written the status back.
+    assert second == 0
+    assert fake_clickup.status_updates[CLEANUP_TASK_ID] == [router.STATUS_APPROVED_TDD]
+    # The queue move alone dispatches nothing — check_flag_cleanup_ramps must
+    # drive the closed epic's supervisor tick itself so the promoted story is
+    # picked up in the very same pass, since no other sweep path or webhook
+    # would ever reach a `done` feature card.
+    assert len(fake_ecs.run_task_calls) == 1
+    assert env_vars(fake_ecs.run_task_calls[0])["CLICKUP_TASK_ID"] == CLEANUP_TASK_ID
+    assert env_vars(fake_ecs.run_task_calls[0])["AUTOPILOT_STAGE"] == router.STAGE_STORY
+
+
+def test_supervisor_tick_failure_after_promotion_rolls_back_for_a_clean_retry(fake_clickup, fake_dynamodb, monkeypatch):
+    # Once the ticket's status leaves `done`, _flag_cleanup_candidates never
+    # finds it again, and nothing else in the sweep drives a story under a
+    # closed feature card — so a tick failure right after the promote move
+    # must roll both the move and the claim back, or the story is silently
+    # stranded in the queue forever.
+    register_flag_cleanup_candidate(fake_clickup)
+    seed_old_ramp_timer(fake_dynamodb, days_ago=8)
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: flag_state())
+
+    def failing_tick(epic_task_id):
+        raise RuntimeError("ClickUp unavailable")
+
+    monkeypatch.setattr(sweep.supervisor, "run_supervisor_tick", failing_tick)
+
+    promoted = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+
+    assert promoted == 0
+    assert fake_clickup.status_updates[CLEANUP_TASK_ID][-1] == router.STATUS_DONE
+    # Claim released — the next tick must not see "already promoted" and skip
+    # a ticket that never actually got dispatched.
+    assert sweep.claim_flag_cleanup_promotion(CLEANUP_TASK_ID) is None
+
+
+def test_promoted_cleanup_story_reaching_done_closes_out_without_duplicating(
+    fake_clickup, fake_ecs, fake_dynamodb, monkeypatch
+):
+    # End-to-end AC: promote -> dispatch -> the cleanup story finishes like
+    # any other story and reaches `done`. The epic's real close-out already
+    # happened once (that's how the flag-cleanup ticket got filed in the
+    # first place) and holds its own claim — this drives the SAME
+    # `run_supervisor_tick` a real story-done webhook would, confirming the
+    # closed-card path reaches `done` cleanly rather than filing a second
+    # cleanup ticket or posting a second Slack summary.
+    register_flag_cleanup_candidate(fake_clickup)
+    seed_old_ramp_timer(fake_dynamodb, days_ago=8)
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: flag_state())
+    assert sweep.supervisor.claim_epic_close_out(CLOSED_EPIC_ID) is None  # models the epic's earlier real close-out
+
+    promoted = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+    assert promoted == 1
+    assert len(fake_ecs.run_task_calls) == 1
+
+    # The cleanup story finishes and its own stage run moves it to `done`.
+    fake_clickup.tasks[CLEANUP_TASK_ID] = {
+        **fake_clickup.tasks[CLEANUP_TASK_ID],
+        "status": {"status": router.STATUS_DONE},
+    }
+
+    sweep.supervisor.run_supervisor_tick(CLOSED_EPIC_ID)
+
+    # No second dispatch, and (implicitly) no crash reaching for a POST this
+    # fake doesn't even answer — close_out_epic's own claim short-circuits
+    # before it would ever try to file a second ticket or post a second
+    # summary.
+    assert len(fake_ecs.run_task_calls) == 1
+
+
+def test_flag_cleanup_promotion_claim_survives_a_racing_overlapping_tick(fake_clickup, fake_ecs, fake_dynamodb):
+    # Models two overlapping sweep invocations (a slow prior Lambda still
+    # finishing when the next 15-minute cron fires) both past the promotion
+    # decision at once — the dedup claim, not the ClickUp move itself, is
+    # what must make this exactly one promotion.
+    register_flag_cleanup_candidate(fake_clickup)
+
+    first_reason = sweep.claim_flag_cleanup_promotion(CLEANUP_TASK_ID)
+    second_reason = sweep.claim_flag_cleanup_promotion(CLEANUP_TASK_ID)
+
+    assert first_reason is None
+    assert second_reason == "already promoted"
+
+
+def test_amplitude_read_failure_skips_the_flag_this_tick_without_crashing(fake_clickup, fake_ecs, monkeypatch):
+    register_flag_cleanup_candidate(fake_clickup)
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: None)
+
+    promoted = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+
+    assert promoted == 0
+    assert sweep.get_flag_ramp_first_seen(FLAG_KEY) is None
+    assert fake_ecs.run_task_calls == []
+
+
+def test_missing_flag_key_skips_the_candidate_entirely(fake_clickup, fake_ecs, monkeypatch):
+    # A cleanup ticket filed without a parseable flag-key line (epic-create's
+    # summary never named one) must never be guessed at — it's invisible to
+    # this pass, not merely skipped for one tick.
+    fake_clickup.subtasks[CLOSED_EPIC_ID] = [CLEANUP_TASK_ID]
+    fake_clickup.tasks[CLEANUP_TASK_ID] = {
+        "id": CLEANUP_TASK_ID,
+        "status": {"status": router.STATUS_DONE},
+        "description": "Flag cleanup ticket. No machine-readable key here.",
+    }
+    read_calls = []
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: read_calls.append(key))
+
+    promoted = sweep.check_flag_cleanup_ramps([{"id": CLOSED_EPIC_ID}])
+
+    assert promoted == 0
+    assert read_calls == []
+    assert fake_ecs.run_task_calls == []
+
+
+def test_flag_cleanup_ramp_check_is_bounded_per_tick(fake_clickup, fake_ecs, monkeypatch):
+    epic_ids = [f"epic-{i}" for i in range(sweep.FLAG_CLEANUP_AMPLITUDE_READ_CAP + 2)]
+    for i, epic_id in enumerate(epic_ids):
+        register_flag_cleanup_candidate(
+            fake_clickup, epic_id=epic_id, cleanup_task_id=f"cleanup-{i}", flag_key=f"flag-{i}"
+        )
+    read_calls = []
+
+    def fake_read(flag_key):
+        read_calls.append(flag_key)
+        return flag_state(rollout_percentage=50.0)  # never promotes — isolates the cap itself
+
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", fake_read)
+
+    sweep.check_flag_cleanup_ramps([{"id": epic_id} for epic_id in epic_ids])
+
+    assert len(read_calls) == sweep.FLAG_CLEANUP_AMPLITUDE_READ_CAP
+
+
+def test_flag_cleanup_ramp_days_env_overrides_the_default(monkeypatch):
+    monkeypatch.setenv("FLAG_CLEANUP_RAMP_DAYS", "1")
+    assert sweep.flag_cleanup_ramp_days() == 1.0
+
+
+def test_flag_cleanup_ramp_days_ignores_unusable_env(monkeypatch):
+    monkeypatch.setenv("FLAG_CLEANUP_RAMP_DAYS", "not-a-number")
+    assert sweep.flag_cleanup_ramp_days() == sweep.DEFAULT_FLAG_CLEANUP_RAMP_DAYS
+
+
+def test_handle_sweep_reports_flag_cleanup_promotions(fake_clickup, fake_ecs, fake_dynamodb, monkeypatch):
+    register_flag_cleanup_candidate(fake_clickup)
+    fake_clickup.done_tasks[FEATURE_LIST_ID] = [task(CLOSED_EPIC_ID, router.STATUS_DONE)]
+    seed_old_ramp_timer(fake_dynamodb, days_ago=8)
+    monkeypatch.setattr(sweep, "_read_prod_flag_rollout", lambda key: flag_state())
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert json.loads(result["body"])["flag_cleanup_promoted"] == 1
+
+
+def test_flag_cleanup_check_failure_never_fails_the_sweep_tick(fake_clickup, monkeypatch):
+    fake_clickup.done_tasks[FEATURE_LIST_ID] = [task(CLOSED_EPIC_ID, router.STATUS_DONE)]
+    monkeypatch.setattr(
+        sweep,
+        "_flag_cleanup_candidates",
+        lambda closed_epics: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    result = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert result["statusCode"] == 200
+    assert json.loads(result["body"])["flag_cleanup_promoted"] == 0

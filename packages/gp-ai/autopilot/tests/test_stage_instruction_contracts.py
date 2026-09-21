@@ -51,6 +51,11 @@ def test_epic_create_covers_its_load_bearing_directives():
 
     assert "feedback loop" in text.lower() or "park" in text.lower(), "questions must go through the park primitive"
 
+    # ENG-11152: the flag-cleanup ramp sweep parses this exact line back out
+    # of the breakdown summary comment at epic close-out — a key only named
+    # in prose can't be picked up automatically.
+    assert "flag-key: <key>" in text, "must require the machine-readable `flag-key: <key>` line in the summary comment"
+
     assert "`feedback needed`" in text, "must move the card to feedback needed on handoff (breakdown review column)"
     assert "feedback notify" in text, (
         "must ping Slack on handoff via the notify primitive — the TDD promises every card "

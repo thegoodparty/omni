@@ -37,6 +37,14 @@ epic's feature flag** (the key from the epic's breakdown summary). If this
 story is itself the flag-wiring story, that gate IS the implementation; every
 other story checks the flag rather than reintroducing it.
 
+**If this story's job is instead to remove a flag** (the flag-cleanup ticket
+autopilot files at epic close-out, picked up once the flag has stayed fully
+ramped for the configured window), do the opposite: delete the flag check
+and every dark/no-op path behind it, leaving only the on behavior — this work
+must ship un-gated, since it can never hide behind the very flag it deletes.
+Retire the flag itself via the Amplitude management API (disable it and
+stamp its description RETIRED; the API has no delete).
+
 **If this story is the flag-wiring story**, once you've decided how the flag
 gets overridden off in dev (a cookie, a query param, a per-user override —
 whatever this codebase already uses, or whatever you build), post a comment

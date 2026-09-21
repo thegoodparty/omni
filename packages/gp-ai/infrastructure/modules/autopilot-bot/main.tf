@@ -81,6 +81,12 @@ variable "sweep_max_triggers" {
   default     = "10"
 }
 
+variable "flag_cleanup_ramp_days" {
+  description = "FLAG_CLEANUP_RAMP_DAYS: how long a prod flag must sit at 100% (all users, no partial targeting) before its flag-cleanup ticket is promoted to the story queue. Matches sweep.py's own DEFAULT_FLAG_CLEANUP_RAMP_DAYS; override lower to accelerate the first real use."
+  type        = string
+  default     = "7"
+}
+
 variable "github_app_id" {
   description = "GitHub App id (not a secret) the sweep's merge-pending PR reads mint tokens as — the Delegate App, same identity agent/github_auth.py uses."
   type        = string
@@ -373,10 +379,26 @@ resource "aws_lambda_function" "autopilot_bot" {
       # doesn't carry yet). Value is added to AI_SECRETS_<ENV> out-of-band
       # (see docs/secrets.md); this only wires the reference.
       AUTOPILOT_SLACK_SIGNING_SECRET = try(local.ai_secrets["AUTOPILOT_SLACK_SIGNING_SECRET"], "")
+      # ENG-11152: the sweep's flag-cleanup ramp pass reads a flag's prod
+      # rollout to decide when to promote its cleanup ticket. Same
+      # degrade-safe try(...) posture as every other AI_SECRETS entry above —
+      # an empty value makes _read_prod_flag_rollout skip the check (logged),
+      # never a stale credential. The project id is a plain value, not a
+      # secret: same hardcoded "694490" the autopilot-agent-fargate module's
+      # agent_environment carries for AMPLITUDE_PROD_PROJECT_ID (resolved
+      # live from the Experiment management API on 2026-09-17; see that
+      # module for the canonical source).
+      AMPLITUDE_MANAGEMENT_API_KEY = try(local.ai_secrets["AMPLITUDE_MANAGEMENT_API_KEY"], "")
+      AMPLITUDE_PROD_PROJECT_ID    = "694490"
 
       AUTOPILOT_SLACK_CHANNEL = var.autopilot_slack_channel
       SWEEP_LOOKBACK_MINUTES  = var.sweep_lookback_minutes
       SWEEP_MAX_TRIGGERS      = var.sweep_max_triggers
+      # ENG-11152: how long a prod flag must stay at 100% (all users, no
+      # partial targeting) before its cleanup ticket is promoted to the
+      # story queue. Default 7 days; lower it here to accelerate the first
+      # real use rather than editing sweep.py's own default.
+      FLAG_CLEANUP_RAMP_DAYS = var.flag_cleanup_ramp_days
 
       # ECS dispatch. Names are dispatch.py's exact env var names — NOT
       # ECS_SUBNET_IDS/ECS_SECURITY_GROUP_ID (clickup-bot's names): this

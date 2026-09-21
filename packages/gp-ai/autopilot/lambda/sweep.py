@@ -66,6 +66,8 @@ from typing import Any
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+from botocore.exceptions import ClientError
+
 DEFAULT_LOOKBACK_MINUTES = 45.0
 DEFAULT_MAX_TRIGGERS = 10
 
@@ -149,6 +151,13 @@ def sweep_lookback_ms() -> int:
 
 def sweep_max_triggers() -> int:
     return int(_positive_float_env("SWEEP_MAX_TRIGGERS", DEFAULT_MAX_TRIGGERS))
+
+
+DEFAULT_FLAG_CLEANUP_RAMP_DAYS = 7.0
+
+
+def flag_cleanup_ramp_days() -> float:
+    return _positive_float_env("FLAG_CLEANUP_RAMP_DAYS", DEFAULT_FLAG_CLEANUP_RAMP_DAYS)
 
 
 def list_recently_updated_tasks(list_id: str, since_ms: int) -> list[dict]:
@@ -814,6 +823,16 @@ def handle_sweep(event: dict) -> dict:
     # work — the next pass reaches it.
     auto_resumed = auto_resume_actionable_parks(max(cap - triggered, 0), parked_stories)
 
+    # A separate, unconditional statuses[] query (own read family, like
+    # executing_cards/in_progress_cards above) — cheap ClickUp reads; the
+    # Amplitude reads this feeds are the part bounded and guarded below (see
+    # check_flag_cleanup_ramps).
+    try:
+        flag_cleanup_promoted = check_flag_cleanup_ramps(_feature_cards_in_status(router.STATUS_DONE))
+    except Exception as e:
+        print(f"ERROR: flag-cleanup ramp check failed: {type(e).__name__}: {e}")
+        flag_cleanup_promoted = 0
+
     # Status-card failures are lost visibility, never a failed tick: every
     # helper below already logs-and-continues on its own, and this catches
     # anything else (a bad board shape) that would otherwise bubble past them.
@@ -826,7 +845,8 @@ def handle_sweep(event: dict) -> dict:
         f"Sweep complete: {ticked} epics ticked, {alerted} stall alerts, "
         f"{scanned} candidates scanned, {triggered} triggered, "
         f"{merge_pending_result['merge_resolved']} merges resolved, "
-        f"{merge_pending_result['merge_closed_alerted']} closed-PR alerts, {auto_resumed} auto-resumed"
+        f"{merge_pending_result['merge_closed_alerted']} closed-PR alerts, {auto_resumed} auto-resumed, "
+        f"{flag_cleanup_promoted} flag-cleanup tickets promoted"
     )
     return {
         "statusCode": 200,
@@ -839,9 +859,376 @@ def handle_sweep(event: dict) -> dict:
                 "merge_resolved": merge_pending_result["merge_resolved"],
                 "merge_closed_alerted": merge_pending_result["merge_closed_alerted"],
                 "auto_resumed": auto_resumed,
+                "flag_cleanup_promoted": flag_cleanup_promoted,
             }
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Flag-cleanup ramp pickup (ENG-11152)
+#
+# Phase 2 closes the loop supervisor.file_flag_cleanup_ticket opens at epic
+# close-out: that ticket is filed born in `done`, deliberately outside the
+# story queue so the pipeline never dispatches it before a human has ramped
+# the flag. This pass notices once a human HAS ramped it — a prod flag at
+# 100% (all users, no partial targeting) continuously for
+# FLAG_CLEANUP_RAMP_DAYS — and promotes the ticket into the queue itself,
+# where the supervisor dispatches it like any other story. Ramping stays a
+# human-only action end to end; only the pickup afterward is automated, and
+# this pass never writes to Amplitude, only reads it.
+#
+# Amplitude reads are the expensive/rate-limited part of this pass, not the
+# ClickUp discovery reads that find candidates — capped at a small constant
+# (never an env var: this isn't expected to need live tuning) so a future
+# burst of simultaneously-closed, unpromoted epics can't turn one 15-minute
+# sweep tick into an Amplitude rate-limit incident. Candidates beyond the cap
+# simply wait for the next tick, same "remainder deferred" shape as
+# SWEEP_MAX_TRIGGERS above.
+# ---------------------------------------------------------------------------
+
+FLAG_CLEANUP_AMPLITUDE_READ_CAP = 5
+
+AMPLITUDE_MANAGEMENT_BASE_URL = "https://experiment.amplitude.com/api/1"
+# "All users, no partial targeting" for this codebase's flag shape (a plain
+# on/off flag — see agent/amplitude_flags.py's module docstring): the client
+# that creates every flag only ever writes rolloutWeights={"on": 1}, so a
+# rollout at 100% IS "every request that reaches the flag gets on," with no
+# narrower segment carving out less than that.
+FULL_ROLLOUT_PERCENTAGE = 100
+
+FLAG_RAMP_PK_PREFIX = "flagramp#"
+# Refreshed every tick a flag is seen fully ramped, so this only expires if
+# the sweep goes dark for far longer than any real FLAG_CLEANUP_RAMP_DAYS
+# window — a safety net against an abandoned item, never the mechanism that
+# resets the ramp clock (a sub-100% or partial-targeting read does that
+# explicitly; see clear_flag_ramp_timer).
+FLAG_RAMP_TIMER_TTL_SECONDS = 90 * 24 * 60 * 60
+
+FLAG_CLEANUP_PROMOTED_PREFIX = "flagcleanup-promoted#"
+# One-time terminal action, same long-lived shape as
+# supervisor.EPIC_CLOSE_OUT_TTL_SECONDS: not a per-run transition with a
+# natural deadline to size a shorter TTL against.
+FLAG_CLEANUP_PROMOTED_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def _flag_cleanup_candidates(closed_epics: list[dict]) -> list[dict]:
+    """One candidate per closed (done) feature card whose flag-cleanup
+    subtask (filed by supervisor.file_flag_cleanup_ticket at close-out) is
+    still parked in `done` and carries a parseable `flag-key: <key>` line —
+    that exact line is what tells this pass "this subtask IS the flag-cleanup
+    ticket," not an ordinary finished story that happens to also sit in
+    `done` (see supervisor.FLAG_KEY_LINE_PATTERN's docstring). One ClickUp
+    read per closed epic's subtask listing, plus one per subtask actually
+    sitting in `done` — bounded by how many epics are ever simultaneously
+    closed with an unresolved cleanup ticket, not a new unbounded query
+    family."""
+    candidates: list[dict] = []
+    for epic in closed_epics:
+        epic_task_id = epic.get("id")
+        if not isinstance(epic_task_id, str) or not epic_task_id:
+            continue
+        try:
+            epic_detail = supervisor.clickup_request(
+                "GET", f"/task/{epic_task_id}?include_subtasks=true&include_closed=true"
+            )
+        except Exception as e:
+            print(f"ERROR: flag-cleanup sweep failed to load epic {epic_task_id}: {type(e).__name__}")
+            continue
+        subtasks = epic_detail.get("subtasks")
+        if not isinstance(subtasks, list):
+            continue
+        for entry in subtasks:
+            if not isinstance(entry, dict):
+                continue
+            sub_id = entry.get("id")
+            if not isinstance(sub_id, str) or not sub_id:
+                continue
+            try:
+                full_task = supervisor.get_task(sub_id)
+            except Exception as e:
+                print(f"ERROR: flag-cleanup sweep failed to load subtask {sub_id}: {type(e).__name__}")
+                continue
+            if handler._status_label(full_task.get("status")) != router.STATUS_DONE:
+                continue
+            description = full_task.get("text_content")
+            if not isinstance(description, str):
+                description = full_task.get("description")
+            flag_key = supervisor.parse_flag_key(description)
+            if flag_key is None:
+                continue
+            candidates.append({"epic_task_id": epic_task_id, "cleanup_task_id": sub_id, "flag_key": flag_key})
+    return candidates
+
+
+def _read_prod_flag_rollout(flag_key: str) -> dict | None:
+    """One GET .../flags?key=&projectId= against the PROD Amplitude project
+    (mirrors agent/amplitude_flags.py's _get_flag_by_key, re-implemented here
+    with stdlib urllib rather than imported — this Lambda's zip carries no
+    pip-installed dependencies, same reason lambda/github_auth.py
+    re-implements RS256 signing instead of importing agent/github_auth.py).
+    Returns {"enabled": bool, "rollout_percentage": float} for the matching,
+    non-deleted flag, or None on ANY failure: missing config, a network
+    error, a non-2xx response, unparseable JSON, or no matching flag. Every
+    caller treats None identically to "skip this flag's ramp check this
+    tick," never as "0% rolled out" — an Amplitude outage must never look
+    like a rollback and clear a flag's ramp timer."""
+    api_key = os.environ.get("AMPLITUDE_MANAGEMENT_API_KEY", "")
+    project_id = os.environ.get("AMPLITUDE_PROD_PROJECT_ID", "")
+    if not api_key or not project_id:
+        print(
+            "ERROR: AMPLITUDE_MANAGEMENT_API_KEY or AMPLITUDE_PROD_PROJECT_ID not configured; skipping flag-ramp check"
+        )
+        return None
+
+    query = urlencode({"key": flag_key, "projectId": project_id})
+    req = Request(
+        f"{AMPLITUDE_MANAGEMENT_BASE_URL}/flags?{query}",
+        headers={"Authorization": f"Bearer {api_key}"},
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=10) as response:
+            if response.status >= 300:
+                print(f"ERROR: Amplitude returned {response.status} reading flag {flag_key!r}")
+                return None
+            payload = json.loads(response.read().decode())
+    except Exception as e:
+        print(f"ERROR: flag-cleanup sweep failed to read Amplitude flag {flag_key!r}: {type(e).__name__}")
+        return None
+
+    flags = payload.get("flags")
+    if not isinstance(flags, list):
+        return None
+    matches = [
+        f
+        for f in flags
+        if isinstance(f, dict)
+        and f.get("key") == flag_key
+        and str(f.get("projectId", "")) == project_id
+        and not f.get("deleted", False)
+    ]
+    if not matches:
+        return None
+    rollout = matches[0].get("rolloutPercentage")
+    if not isinstance(rollout, (int, float)):
+        return None
+    return {"enabled": bool(matches[0].get("enabled", False)), "rollout_percentage": float(rollout)}
+
+
+def _is_fully_ramped(flag_state: dict) -> bool:
+    return bool(flag_state["enabled"]) and flag_state["rollout_percentage"] >= FULL_ROLLOUT_PERCENTAGE
+
+
+def flag_ramp_pk(flag_key: str) -> str:
+    return f"{FLAG_RAMP_PK_PREFIX}{flag_key}"
+
+
+def get_flag_ramp_first_seen(flag_key: str) -> float | None:
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        return None
+    try:
+        response = dispatch.get_dynamodb_client().get_item(
+            TableName=table_name, Key={"pk": {"S": flag_ramp_pk(flag_key)}}
+        )
+    except Exception as e:
+        print(f"ERROR: failed to read flag-ramp state for {flag_key!r}: {type(e).__name__}")
+        return None
+    item = response.get("Item")
+    if not isinstance(item, dict):
+        return None
+    raw = item.get("first_seen_full_ramp_at", {}).get("N")
+    try:
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def record_flag_fully_ramped(flag_key: str) -> float:
+    """Idempotently marks flag_key as fully ramped as of NOW, preserving an
+    already-recorded first-seen timestamp rather than resetting the clock on
+    every tick the flag stays ramped. Returns that first-seen timestamp
+    (whichever tick actually recorded it) — the caller measures elapsed time
+    against it."""
+    first_seen = get_flag_ramp_first_seen(flag_key)
+    if first_seen is None:
+        first_seen = time.time()
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        print("ERROR: AUTOPILOT_DEDUP_TABLE not configured; cannot persist flag-ramp state")
+        return first_seen
+    try:
+        dispatch.get_dynamodb_client().put_item(
+            TableName=table_name,
+            Item={
+                "pk": {"S": flag_ramp_pk(flag_key)},
+                "flag_key": {"S": flag_key},
+                "first_seen_full_ramp_at": {"N": str(first_seen)},
+                "expires_at": {"N": str(int(time.time() + FLAG_RAMP_TIMER_TTL_SECONDS))},
+            },
+        )
+    except Exception as e:
+        print(f"ERROR: failed to persist flag-ramp state for {flag_key!r}: {type(e).__name__}")
+    return first_seen
+
+
+def clear_flag_ramp_timer(flag_key: str) -> None:
+    """A rollback (below 100%, or partial targeting) resets the clock: the
+    NEXT full-ramp sighting starts a fresh window rather than counting time
+    the flag spent below 100% toward the threshold."""
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        return
+    try:
+        dispatch.get_dynamodb_client().delete_item(TableName=table_name, Key={"pk": {"S": flag_ramp_pk(flag_key)}})
+    except Exception as e:
+        print(f"ERROR: failed to clear flag-ramp state for {flag_key!r}: {type(e).__name__}")
+
+
+def claim_flag_cleanup_promotion(cleanup_task_id: str) -> str | None:
+    """Conditionally claims "this flag-cleanup ticket has been promoted to
+    the story queue" so an overlapping sweep tick (a slow prior invocation
+    still finishing when the next 15-minute cron fires, most concretely)
+    can never move it twice. None = this call won the claim and must
+    proceed; a non-None string is the failure reason ("already promoted" |
+    "dedup table not configured" | "dedup table unavailable") — the same
+    contract shape as supervisor.claim_epic_close_out."""
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        print("ERROR: AUTOPILOT_DEDUP_TABLE not configured; refusing flag-cleanup promotion")
+        return "dedup table not configured"
+
+    pk = f"{FLAG_CLEANUP_PROMOTED_PREFIX}{cleanup_task_id}"
+    try:
+        dispatch.get_dynamodb_client().put_item(
+            TableName=table_name,
+            Item={
+                "pk": {"S": pk},
+                "cleanup_task_id": {"S": cleanup_task_id},
+                "expires_at": {"N": str(int(time.time() + FLAG_CLEANUP_PROMOTED_TTL_SECONDS))},
+            },
+            ConditionExpression="attribute_not_exists(pk)",
+        )
+        return None
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return "already promoted"
+        print(f"ERROR: dedup table unavailable, refusing flag-cleanup promotion: {e}")
+        return "dedup table unavailable"
+    except Exception as e:
+        print(f"ERROR: dedup table unavailable, refusing flag-cleanup promotion: {e}")
+        return "dedup table unavailable"
+
+
+def _release_flag_cleanup_promotion_claim(cleanup_task_id: str) -> None:
+    """Undoes claim_flag_cleanup_promotion after a move that failed before
+    anything real happened — same rollback shape as
+    supervisor.close_out_epic's own claim-then-move: the claim only protects
+    a COMPLETED promotion, so a transient ClickUp error must not permanently
+    strand the ticket un-promoted for the claim's full 30-day TTL."""
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        return
+    try:
+        dispatch.get_dynamodb_client().delete_item(
+            TableName=table_name, Key={"pk": {"S": f"{FLAG_CLEANUP_PROMOTED_PREFIX}{cleanup_task_id}"}}
+        )
+    except Exception as e:
+        print(f"ERROR: failed to release flag-cleanup promotion claim for {cleanup_task_id}: {type(e).__name__}")
+
+
+def check_flag_cleanup_ramps(closed_epics: list[dict]) -> int:
+    """Runs every tick, bounded and cheap (see this section's module
+    comment). For up to FLAG_CLEANUP_AMPLITUDE_READ_CAP candidates: one
+    Amplitude read decides whether the flag is fully ramped right now; a
+    ramped flag's timer is recorded (or left alone if already running), and
+    once it has run for flag_cleanup_ramp_days(), the ticket is promoted to
+    the story queue under a dedup claim and the supervisor is ticked
+    directly for that exact epic — a closed feature card no longer sits in
+    `executing`, so no other sweep or webhook path would ever drive it (see
+    the module docstring's DESIGN note in the ticket this implements).
+    Returns how many tickets this pass actually promoted."""
+    candidates = _flag_cleanup_candidates(closed_epics)
+    threshold_days = flag_cleanup_ramp_days()
+    promoted = 0
+
+    for candidate in candidates[:FLAG_CLEANUP_AMPLITUDE_READ_CAP]:
+        flag_key = candidate["flag_key"]
+        cleanup_task_id = candidate["cleanup_task_id"]
+        epic_task_id = candidate["epic_task_id"]
+
+        flag_state = _read_prod_flag_rollout(flag_key)
+        if flag_state is None:
+            continue  # Amplitude read failed or the flag wasn't found — try again next tick
+
+        if not _is_fully_ramped(flag_state):
+            clear_flag_ramp_timer(flag_key)
+            continue
+
+        first_seen = record_flag_fully_ramped(flag_key)
+        elapsed_days = (time.time() - first_seen) / (24 * 60 * 60)
+        if elapsed_days < threshold_days:
+            continue
+
+        claim_reason = claim_flag_cleanup_promotion(cleanup_task_id)
+        if claim_reason is not None:
+            continue  # already promoted by an earlier tick, or the dedup table is unavailable this tick
+
+        try:
+            supervisor.move_task_status(cleanup_task_id, router.STATUS_APPROVED_TDD)
+        except Exception as e:
+            print(
+                f"ERROR: failed to promote flag-cleanup ticket {cleanup_task_id} to the story queue: {type(e).__name__}"
+            )
+            _release_flag_cleanup_promotion_claim(cleanup_task_id)
+            continue
+
+        print(
+            f"Promoted flag-cleanup ticket {cleanup_task_id} (flag {flag_key!r}) to the story queue "
+            f"after {elapsed_days:.1f} days fully ramped"
+        )
+
+        # The queue move alone dispatches nothing: this epic's feature card
+        # is `done`, not `executing`, so the unconditional executing-cards
+        # tick above never reaches it and no webhook fires off a status move
+        # this pass itself just made. Tick the supervisor directly for this
+        # one epic so the promoted story is picked up in the SAME pass it
+        # was promoted in — run_supervisor_tick's own per-story claim is
+        # still what actually protects against a duplicate dispatch.
+        #
+        # A failure here must not strand the ticket silently: once its status
+        # is `approved tdd`, _flag_cleanup_candidates (which gates on `done`)
+        # never finds it again, and nothing else in the sweep drives a story
+        # under a closed feature card — unlike a normal story dispatch, there
+        # is no lookback-reconstruction fallback for this transition (no
+        # ROUTING_TABLE row lands on it). Roll the move and the claim back so
+        # the next tick treats it as a fresh, unpromoted candidate — same
+        # claim-released-before-status-restored order as
+        # _release_qa_dispatch_claim's own rollback, for the same reason: a
+        # rollback that only partially completes should fail toward "no
+        # stale claim blocking a future retry" rather than toward "story
+        # sitting in `done` again behind a claim nothing will ever release."
+        try:
+            supervisor.run_supervisor_tick(epic_task_id)
+        except Exception as e:
+            print(
+                f"ERROR: supervisor tick for closed epic {epic_task_id} failed after flag-cleanup promotion; "
+                f"rolling back the promotion for a clean retry next tick: {type(e).__name__}"
+            )
+            _release_flag_cleanup_promotion_claim(cleanup_task_id)
+            try:
+                supervisor.move_task_status(cleanup_task_id, router.STATUS_DONE)
+            except Exception as rollback_error:
+                print(
+                    f"ERROR: rollback of {cleanup_task_id} back to done failed too; it will sit in the story "
+                    f"queue undriven until a human intervenes: {type(rollback_error).__name__}"
+                )
+            continue
+
+        promoted += 1
+
+    return promoted
 
 
 # ---------------------------------------------------------------------------

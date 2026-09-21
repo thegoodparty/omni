@@ -82,7 +82,12 @@ back up.
 
 Post one summary comment on `CLICKUP_TASK_ID` covering: the stories you
 created (title and id) in order, the flag key and how it was chosen, and any
-open questions you parked on earlier in this run. Then move the card to
+open questions you parked on earlier in this run. Name the flag key on its
+own machine-readable line, in exactly this form: `flag-key: <key>`. Autopilot
+parses that line back out at epic close-out to file the flag's eventual
+cleanup ticket — a key only named in prose leaves that ticket unable to be
+picked up automatically once the flag is fully ramped, and it is filed
+without one instead. Then move the card to
 `feedback needed` — that column is where a human reviews the breakdown (the
 same column a park lands in; the summary comment is what tells the reviewer
 this is a finished breakdown, not an open question).
