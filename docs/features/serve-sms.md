@@ -62,13 +62,15 @@ Fargate analysis, does not read a cluster artifact, and does not consume theme
 events. Consequence: SMS needs no part of the S3-plus-Lambda-plus-Fargate
 chain, so its replies arrive through an upload instead.
 
-**Both products return results through one surface** (decided 2026-09-18).
-Fulfillment must never have to work out which kind of send a Slack message is
-about, or remember two ways to send results back. gp-api takes one upload and
-routes server-side: a poll's file is written to the bucket the pipeline
-already watches, an SMS file is ingested directly. The human-facing
-unification therefore lands immediately, in slice 2, and does not wait for the
-backend unification in slice 4. See Layer 1, inbound.
+**Both products return results through one surface** (decided 2026-09-18;
+**the slice-2 half reversed 2026-09-21**). Fulfillment must never have to work
+out which kind of send a Slack message is about, or remember two ways to send
+results back. gp-api takes one upload and routes server-side: a poll's file is
+written to the bucket the pipeline already watches, an SMS file is ingested
+directly. That routing is built in slice 2 and the end state is unchanged, but
+only SMS uses it there — polls keeps its `aws s3 cp` line until the follow-up
+that moves it over, so fulfillment temporarily has two return paths. See the
+2026-09-21 reversal note in Sequencing, and Layer 1, inbound.
 
 Creating hidden `Poll` rows to ride the existing poll consumer would ship
 faster and is rejected. It adds a second caller to the thing we intend to
@@ -691,7 +693,9 @@ Each slice ships independently and leaves the product working.
 4. **Polls onto delivery.** Repoint the poll send at `requestSend` and the poll
    consumer at `ingestReplies`, keeping `Poll` rows and the polls page as they
    are. Removes the duplicate send path and fixes polls' opt-out gap. This is
-   the backend half of what slice 2 already did for the human.
+   the backend half; the human half is the follow-up that moves polls onto the
+   upload surface and retires the `aws s3 cp` line, which the 2026-09-21
+   reversal took out of slice 2. Either can land first.
 5. **Theme payload split.** Separate the artifact event from the theme event;
    fix the five gaps above while the payload is open.
 6. **Polls into outreach.** The `poll` type, the `OutreachPoll` satellite, the
@@ -811,10 +815,11 @@ anything observed.
 
 Same labelling.
 
-* *Delivery, slice 2* — one Slack channel for both products or two? With the
-  upload surface unified and the button carrying the send identity, one
-  channel is now the simpler answer; the reason to split them was the
-  divergent return path, which slice 2 removes.
+* *Delivery, the unification follow-up* — one Slack channel for both products
+  or two? The reason to split them was the divergent return path. Slice 2 no
+  longer removes it: until polls moves onto the upload surface, fulfillment
+  has the CLI command for polls and the upload button for Serve SMS. Answer
+  this in the follow-up, once the return paths actually converge.
 * *Delivery, slice 2* — a send whose results never arrive. Polls has no sweep
   and the row sits in progress indefinitely. The results inbox probably
   answers this by making an outstanding send visible in a work queue rather
