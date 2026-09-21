@@ -684,8 +684,16 @@ def diff_flagged(
 
 # --- rendering ----------------------------------------------------------------
 
+# Rank 0 carries two unrelated findings, so the two wordings live apart and the digest
+# picks between them per record (``_record_rank_label``). The dict entry stays the rank's
+# own summary, for anything reading the rank rather than a record.
+_LATCHED_LABEL = "OKR anchor dormant (latched)"
+_CANARY_LABEL = (
+    "counter blind spot: 0 call sites but firing normally (fix the counter, not the event)"
+)
+
 _RANK_LABEL = {
-    0: "OKR anchor dormant (latched) / counter blind spot",
+    0: f"{_LATCHED_LABEL} / counter blind spot",
     1: "orphaned-firing / not-in-use still firing",
     2: "call site removed, name constant remains",
     3: "anomaly drop, active (elevated)",
@@ -695,6 +703,21 @@ _RANK_LABEL = {
     7: "instrumented, never observed",
     8: "dormant",
 }
+
+
+def _record_rank_label(record: Mapping[str, Any]) -> str:
+    """The rank's label narrowed to the condition this record actually hit.
+
+    Only rank 0 needs narrowing: a latched OKR anchor and the DATA-2106 counter blind
+    spot share it, and it is the row a reader acts on first. Rendering the shared label
+    there tells someone a number the company steers by is dormant when the finding is a
+    tooling alert, which is the credibility the digest cannot afford to spend.
+    """
+    if record.get("latched"):
+        return _LATCHED_LABEL
+    if record["rank"] == 0:
+        return _CANARY_LABEL
+    return _RANK_LABEL.get(record["rank"], "")
 
 
 def _evidence(record: Mapping[str, Any]) -> str:
@@ -786,7 +809,7 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
     for r in priority:
         elev = "yes" if r["elevated"] else ""
         lines.append(
-            f"| {r['rank']} {_RANK_LABEL.get(r['rank'], '')} | {r['event_type']} | "
+            f"| {r['rank']} {_record_rank_label(r)} | {r['event_type']} | "
             f"{r['status']} | {elev} | {_evidence(r)} | {r['divergence'] or ''} |"
         )
     if tail:

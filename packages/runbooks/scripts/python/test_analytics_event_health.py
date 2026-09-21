@@ -1634,3 +1634,23 @@ def test_a_leg_the_semantic_layer_stopped_declaring_clears_its_latch(tmp_path):
 
     assert result["latches"] == {}
     assert all(r["event_type"] != _TRACKER for r in result["flagged"])
+
+
+def test_rank_zero_canary_and_latch_render_different_labels():
+    # Rank 0 is the line a reader acts on first and it covers two unrelated findings.
+    # Labelling a tooling alert as a dormant OKR metric costs the digest its credibility
+    # exactly where it can least afford to.
+    # The canary carries an okr: tag too, so the label has to key off `latched` rather
+    # than "is this event OKR-anchored" — an anchored event can hit the canary while its
+    # instrument is perfectly healthy.
+    canary = _flag("Canary", 0, "active", call_site_count=0, event_count_30d=50,
+                   okr=_METRIC)
+    latched = _flag("Latched", 0, "active", latched=True, okr=_METRIC, event_count_30d=50)
+    out = eh.render_digest_section(_render_result(flagged=[canary, latched]), _NO_CHANGES)
+
+    canary_row = next(ln for ln in out.splitlines() if "| Canary |" in ln)
+    latched_row = next(ln for ln in out.splitlines() if "| Latched |" in ln)
+    assert "counter blind spot" in canary_row
+    assert "OKR anchor dormant" not in canary_row
+    assert "OKR anchor dormant (latched)" in latched_row
+    assert "counter blind spot" not in latched_row
