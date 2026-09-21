@@ -13,6 +13,7 @@ import { AwsModule } from 'src/vendors/aws/aws.module'
 import { CallhubModule } from 'src/vendors/callhub/callhub.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
+import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { StripeModule } from 'src/vendors/stripe/stripe.module'
 import { DoorKnockingModule } from '../doorKnocking/doorKnocking.module'
 import { ContactsModule } from '../contacts/contacts.module'
@@ -40,6 +41,12 @@ import { OutreachMaterializationService } from './services/outreachMaterializati
 import { OutreachAssignmentService } from './services/outreachAssignment.service'
 import { OutreachService } from './services/outreach.service'
 import { OutreachTextDeliveryService } from './services/outreachTextDelivery.service'
+import {
+  TEXT_DELIVERY_HANDOFF_PORT,
+  type TextDeliveryHandoff,
+  type TextDeliveryHandoffPort,
+} from './interfaces/textDeliveryHandoff.interface'
+import { sendTextDeliverySlackMessage } from './util/textDeliverySlack.util'
 import { OutreachTextIngestService } from './services/outreachTextIngest.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
@@ -129,6 +136,23 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     // of them declares it as a dependency.
     OutreachTextDeliveryService,
     OutreachTextIngestService,
+    // Binds the delivery layer's handoff port to today's implementation:
+    // post the recipient CSV to the fulfilment Slack channel for a human to
+    // send. The port exists so this is the only line that changes when a real
+    // vendor replaces the human step.
+    //
+    // Without this binding the module cannot instantiate at all —
+    // OutreachTextDeliveryService takes the token as a constructor argument,
+    // so an unbound token takes down every test that builds OutreachModule,
+    // not just the delivery ones.
+    {
+      provide: TEXT_DELIVERY_HANDOFF_PORT,
+      inject: [SlackService],
+      useFactory: (slack: SlackService): TextDeliveryHandoffPort => ({
+        send: (handoff: TextDeliveryHandoff) =>
+          sendTextDeliverySlackMessage(slack.client, handoff),
+      }),
+    },
     OutreachSmsAdminService,
     OutreachSocialService,
     OutreachSocialGenerationService,
