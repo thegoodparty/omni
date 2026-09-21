@@ -207,12 +207,26 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     }
     const filterInput: ContactsFilterResolutionInput = { ...filter }
 
-    const excludePersonIds = await this.resolveOptOutScrub(organizationSlug)
+    const optedOutPersonIds = await this.resolveOptOutScrub(organizationSlug)
+    let excludedOptedOutCount = 0
 
     const audience = resolveFilterAudience(this.contactsService, {
       filterInput,
       organization,
-      excludePersonIds,
+      // Empty on purpose, with the scrub applied through `isEligible` below.
+      // Handing the ids to people-api as an exclusion filter means those rows
+      // never come back, so this route could only ever report how many people
+      // the ORG has opted out — not how many THIS list lost, which is the
+      // number quoted on the pay step. Matches the delivery layer, which has
+      // to agree with this quote when it re-resolves at send time.
+      excludePersonIds: new Set(),
+      // After the cell-phone check and before dedupe/cap, so an opted-out
+      // constituent neither claims a phone number nor spends a recipient.
+      isEligible: (person) => {
+        if (!optedOutPersonIds.has(person.id)) return true
+        excludedOptedOutCount += 1
+        return false
+      },
       limitExceededMessage:
         `This list reaches over the ${MAX_AUDIENCE_RECIPIENTS} constituent ` +
         'limit — narrow the list and try again.',
@@ -270,7 +284,7 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
         organizationSlug,
         voterFileFilterId: input.voterFileFilterId,
         recipientCount,
-        excludedOptedOutCount: excludePersonIds.size,
+        excludedOptedOutCount,
         excludedDuplicateCount: excludedDuplicatePhoneCount,
       },
       'Serve SMS draft created',
@@ -279,23 +293,29 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
     return {
       outreachId: outreach.id,
       recipientCount,
-      // The candidate opt-out set size, matching what the Peerly phone-list
-      // upload records: it is the number of people scrubbed from the org, not
-      // a measure of how many of them this particular filter would have
-      // matched. Same caveat as there — if the set is dropped for exceeding
-      // people-api's id-filter cap this reads 0, which is accurate, because
-      // nothing was excluded.
-      excludedOptedOutCount: excludePersonIds.size,
+      // How many people THIS list lost to the scrub: they matched the filter,
+      // had a cell phone, and were dropped for having opted out. Not the size
+      // of the org's opt-out history — an org with 1,000 past opt-outs whose
+      // list reaches 5 of them quotes 5.
+      excludedOptedOutCount,
       excludedDuplicateCount: excludedDuplicatePhoneCount,
     }
   }
 
   /**
-   * The org-wide STOP scrub, applied exactly as `P2pPhoneListUploadService`
-   * applies it. Honoring an opt-out follows the message rather than the
-   * sender, and Serve is explicitly a repeat-send product, so this runs on
-   * every send rather than only on an expansion. It is also the gap polls has
-   * today, which this build must not copy.
+   * ENG-10800: a constituent who opted out of a past text in this org must
+   * not land on the next one. Honoring an opt-out follows the message rather
+   * than the sender, and Serve is explicitly a repeat-send product, so this
+   * runs on every send rather than only on an expansion. It is also the gap
+   * polls has today, which this build must not copy.
+   *
+   * Unlike `P2pPhoneListUploadService.resolveOptOutScrub`, an over-cap set is
+   * NOT dropped. That cap exists because Win hands the ids to people-api as
+   * an id filter; this route applies them in-process, so the vendor limit
+   * does not apply and a large org gets a real scrub rather than none — the
+   * compliance-sensitive degradation. Same posture as the delivery layer.
+   * The only remaining truncation is the `LIMIT` inside
+   * `findOptedOutPersonIds`, which is loud rather than silent.
    */
   private async resolveOptOutScrub(
     organizationSlug: string,
@@ -304,17 +324,12 @@ export class OutreachServeSmsCreateService extends createPrismaBase(
       await this.contactInteractionTextService.findOptedOutPersonIds(
         organizationSlug,
       )
-    if (optedOutIds.length === 0) return new Set()
     if (optedOutIds.length > MAX_RESOLVED_ID_SET_SIZE) {
-      // Same posture as the Peerly path: people-api cannot take an id filter
-      // this large, and blocking the draft outright would be worse than
-      // quoting an unscrubbed count. Loud, and vanishingly rare.
       this.logger.warn(
         { organizationSlug, optedOutCount: optedOutIds.length },
-        'Opt-out scrub set exceeds the people-api id-filter cap — skipping ' +
-          'the scrub for this Serve SMS draft rather than blocking it',
+        'Opt-out set hit the query limit — the scrub is still applied but ' +
+          'may be incomplete for this draft',
       )
-      return new Set()
     }
     return new Set(optedOutIds)
   }

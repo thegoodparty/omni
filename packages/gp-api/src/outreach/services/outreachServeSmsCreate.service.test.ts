@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { ServeSmsCreateRequestSchema } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
@@ -42,6 +41,14 @@ const people = (count: number, startAt = 0) =>
   Array.from({ length: count }, (_, index) => ({
     id: `person-${startAt + index}`,
     cellPhone: `512555${String(startAt + index).padStart(4, '0')}`,
+  }))
+
+// Fresh records carrying phone numbers this resolution has already seen —
+// what people-api returns for a list where whole households share a number.
+const repeatPhones = (count: number, tag: string) =>
+  Array.from({ length: count }, (_, index) => ({
+    id: `${tag}-${index}`,
+    cellPhone: `512555${String(index).padStart(4, '0')}`,
   }))
 
 describe('OutreachServeSmsCreateService', () => {
@@ -178,30 +185,75 @@ describe('OutreachServeSmsCreateService', () => {
   })
 
   describe('the opt-out scrub', () => {
-    it('passes the org STOP set into the resolution and reports its size', async () => {
-      texts.findOptedOutPersonIds.mockResolvedValue(['opt-1', 'opt-2'])
+    // Counting what THIS list lost, not the org's opt-out history, is the
+    // whole point: the number is quoted on the pay step, and the delivery
+    // layer has to agree with it when it re-resolves at send time. An org
+    // with a long opt-out history whose list reaches two of them quotes two.
+    it('counts only the people this list actually lost', async () => {
+      texts.findOptedOutPersonIds.mockResolvedValue([
+        'person-0',
+        'person-1',
+        // Historical opt-outs this filter never reaches. They must not
+        // inflate the quote.
+        ...Array.from({ length: 998 }, (_, i) => `elsewhere-${i}`),
+      ])
 
       const result = await service.createDraft(ORG, request())
 
       expect(texts.findOptedOutPersonIds).toHaveBeenCalledWith(ORG)
+      expect(result.excludedOptedOutCount).toBe(2)
+      // 120 matched, 2 of them scrubbed.
+      expect(result.recipientCount).toBe(118)
+    })
+
+    // The ids go to isEligible, not to people-api: as an upstream exclusion
+    // filter those rows never come back, so the count above is not
+    // computable. It also means the vendor's id-filter cap cannot silently
+    // skip the scrub for a large org.
+    it('scrubs in-process rather than as an upstream exclusion filter', async () => {
+      texts.findOptedOutPersonIds.mockResolvedValue(['person-0'])
+
+      await service.createDraft(ORG, request())
+
       const excludePersonIds = firstOrThrow(
         contacts.findContactsForFilter.mock.calls,
       )[3] as Set<string>
-      expect(excludePersonIds).toEqual(new Set(['opt-1', 'opt-2']))
-      expect(result.excludedOptedOutCount).toBe(2)
+      expect(excludePersonIds).toEqual(new Set())
     })
 
     it('scrubs before the minimum is measured, so the floor sees the real audience', async () => {
-      texts.findOptedOutPersonIds.mockResolvedValue(['opt-1'])
-      // people-api applies the exclusion; what comes back is already scrubbed.
+      // 25 matched, one opted out — 24 reachable, below the floor.
+      texts.findOptedOutPersonIds.mockResolvedValue(['person-0'])
       contacts.findContactsForFilter.mockResolvedValue({
-        people: people(MIN_SERVE_SMS_RECIPIENTS - 1),
+        people: people(MIN_SERVE_SMS_RECIPIENTS),
       })
 
       await expect(service.createDraft(ORG, request())).rejects.toThrow(
-        BadRequestException,
+        /reaches 24 constituents/,
       )
       expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
+    // An opted-out person is still a record people-api had not shown us, so
+    // the resolver's stall guard must not read a page of them as repetition.
+    it('does not let a scrubbed page trip the stall guard', async () => {
+      texts.findOptedOutPersonIds.mockResolvedValue(
+        Array.from({ length: AUDIENCE_PAGE_SIZE }, (_, i) => `optout-${i}`),
+      )
+      contacts.findContactsForFilter
+        .mockResolvedValueOnce({ people: people(AUDIENCE_PAGE_SIZE) })
+        .mockResolvedValueOnce({
+          people: Array.from({ length: AUDIENCE_PAGE_SIZE }, (_, i) => ({
+            id: `optout-${i}`,
+            cellPhone: `919555${String(i).padStart(4, '0')}`,
+          })),
+        })
+        .mockResolvedValueOnce({ people: people(5, AUDIENCE_PAGE_SIZE) })
+
+      const result = await service.createDraft(ORG, request())
+
+      expect(result.recipientCount).toBe(AUDIENCE_PAGE_SIZE + 5)
+      expect(result.excludedOptedOutCount).toBe(AUDIENCE_PAGE_SIZE)
     })
   })
 
@@ -307,6 +359,55 @@ describe('OutreachServeSmsCreateService', () => {
       expect(() =>
         assertServeSmsSendDateAllowed('2026-09-24', utcTuesdayPacificMonday),
       ).not.toThrow()
+    })
+  })
+
+  // The audience helper is A3's and carries three circuit breakers. These pin
+  // the two that a Serve create can actually reach (the recipient cap needs
+  // 100k fixture rows), because the counts they guard are what gets charged —
+  // and because the rest of this file's fixtures are single short pages that
+  // never arm a breaker at all.
+  describe('the audience helper’s guards, through createDraft', () => {
+    it('still resolves a dedup-heavy list rather than rejecting it', async () => {
+      contacts.findContactsForFilter
+        // A full page of fresh numbers...
+        .mockResolvedValueOnce({ people: people(AUDIENCE_PAGE_SIZE) })
+        // ...then a full page that repeats every one of them. One such page is
+        // legitimate: people-api's ordering clusters a household together.
+        .mockResolvedValueOnce({
+          people: repeatPhones(AUDIENCE_PAGE_SIZE, 'household'),
+        })
+        .mockResolvedValueOnce({ people: people(10, AUDIENCE_PAGE_SIZE) })
+
+      const result = await service.createDraft(ORG, request())
+
+      expect(result.recipientCount).toBe(AUDIENCE_PAGE_SIZE + 10)
+      expect(result.excludedDuplicateCount).toBe(AUDIENCE_PAGE_SIZE)
+      expect(prisma.outreach.create).toHaveBeenCalledOnce()
+    })
+
+    it('surfaces the stall guard rather than quoting a truncated audience', async () => {
+      contacts.findContactsForFilter
+        .mockResolvedValueOnce({ people: people(AUDIENCE_PAGE_SIZE) })
+        .mockResolvedValueOnce({
+          people: repeatPhones(AUDIENCE_PAGE_SIZE, 'a'),
+        })
+        .mockResolvedValueOnce({
+          people: repeatPhones(AUDIENCE_PAGE_SIZE, 'b'),
+        })
+        .mockResolvedValueOnce({
+          people: repeatPhones(AUDIENCE_PAGE_SIZE, 'c'),
+        })
+        .mockResolvedValue({ people: [] })
+
+      await expect(service.createDraft(ORG, request())).rejects.toThrow(
+        /consecutive full pages returned no phone/,
+      )
+      // Three stalled pages after the good one, then it aborts — it does not
+      // read on to the scan ceiling.
+      expect(contacts.findContactsForFilter).toHaveBeenCalledTimes(4)
+      // The count never reaches pricing: no row, so nothing to check out.
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
     })
   })
 })
