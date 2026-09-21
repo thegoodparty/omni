@@ -4,6 +4,13 @@ import Stripe from 'stripe'
 export enum PurchaseType {
   DOMAIN_REGISTRATION = 'DOMAIN_REGISTRATION',
   TEXT = 'TEXT',
+  // A Serve SMS send: an elected official texting their constituents. A
+  // separate type from TEXT because the TEXT handler is structurally Win-only
+  // — it returns early unless a campaignId is present and
+  // `outreachType === 'p2p'`, and it finalizes to Peerly, which a Serve row
+  // has no identity for. See outreach/services/outreachServeSmsPurchase
+  // .service.ts and docs/features/serve-sms.md, "Layer 2: SMS (Serve)".
+  SERVE_TEXT = 'SERVE_TEXT',
   POLL = 'POLL',
 }
 

@@ -19,7 +19,7 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 | `services/purchase.service.ts`     | Per-`PurchaseType` validation, amount calc, post-purchase handlers                                                                             |
 | `services/paymentEventsService.ts` | Stripe webhook event dispatcher (subscriptions, invoices, charges)                                                                             |
 | `payments.types.ts`                | `PaymentType`, `PaymentIntentPayload<T>`                                                                                                       |
-| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `POLL`) and per-type DTOs                                                                  |
+| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `SERVE_TEXT`, `POLL`) and per-type DTOs                                                    |
 
 Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suffix — historical, leave it.
 
@@ -341,6 +341,23 @@ polls for the winner's `projectId` and throws unless fulfillment is confirmed,
 so a loser's success can never stamp the marker while the winner fails.
 Sessions without `outreachId` (pre-draft-first clients) fall back to
 free-texts redemption only.
+
+## Serve SMS fulfillment (SERVE_TEXT)
+
+`SERVE_TEXT` is the Serve twin of the TEXT flow above, for an elected official
+texting constituents. It exists as its own type because the TEXT handler
+returns early unless a `campaignId` is present and `outreachType === 'p2p'`,
+and then finalizes to Peerly — a Serve row has no campaign and no Peerly
+identity. `create-checkout-session` already accepts a campaign OR an
+organization, so no route change was needed.
+
+The handler is `outreach/services/outreachServeSmsPurchase.service.ts`. It
+prices off `Outreach.textCount` (server-written at draft, never a client
+count), refuses a row that is not `pending_payment` so a paid send cannot be
+checked out twice, and its post-purchase step is the same
+`pending_payment → pending` CAS claim the TEXT path uses, followed by an
+`outreachTextSend` queue message rather than a Peerly submission. Full
+invariants: `outreach/AGENTS.md`, "Serve SMS purchase".
 
 ## Gotchas
 
