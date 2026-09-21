@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ChatComposer } from './chatUI'
+import { ChatComposer, extractHttpUrls } from './chatUI'
 import type { UseDictationAppendResult } from '../dictation/useDictationAppend'
 import type { ChatAttachmentState } from './chatAttachments-api'
 
@@ -214,46 +214,35 @@ describe('ChatComposer — attachment affordance', () => {
       <ChatComposer {...baseProps} attachments={[]} onAttachFile={vi.fn()} />,
     )
     expect(
-      screen.getByRole('button', { name: 'Attach file or link' }),
+      screen.getByRole('button', { name: 'Attach a file' }),
     ).toBeInTheDocument()
   })
 
   it('does not render the paperclip button when attachments are not enabled', () => {
     render(<ChatComposer {...baseProps} />)
     expect(
-      screen.queryByRole('button', { name: 'Attach file or link' }),
+      screen.queryByRole('button', { name: 'Attach a file' }),
     ).not.toBeInTheDocument()
   })
 
-  it('calls onAttachLink with the entered URL and closes the input', async () => {
+  it('opens the file picker directly on paperclip click', async () => {
     const user = userEvent.setup()
-    const onAttachLink = vi.fn()
-    render(
-      <ChatComposer
-        {...baseProps}
-        attachments={[]}
-        onAttachFile={vi.fn()}
-        onAttachLink={onAttachLink}
-      />,
+    const { container } = render(
+      <ChatComposer {...baseProps} attachments={[]} onAttachFile={vi.fn()} />,
     )
+    const fileInput = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement
+    const clickSpy = vi.spyOn(fileInput, 'click')
 
-    await user.click(
-      screen.getByRole('button', { name: 'Attach file or link' }),
-    )
-    const urlInput = screen.getByRole('textbox', { name: 'Attachment URL' })
-    expect(urlInput).toBeInTheDocument()
-
-    await user.type(urlInput, 'https://example.com')
-    await user.click(screen.getByRole('button', { name: 'Attach link' }))
-
-    expect(onAttachLink).toHaveBeenCalledWith('https://example.com')
+    await user.click(screen.getByRole('button', { name: 'Attach a file' }))
+    expect(clickSpy).toHaveBeenCalledTimes(1)
     expect(
       screen.queryByRole('textbox', { name: 'Attachment URL' }),
     ).not.toBeInTheDocument()
   })
 
-  it('closes the link input on Escape without calling onAttachLink', async () => {
-    const user = userEvent.setup()
+  it('attaches each URL found in pasted text', () => {
     const onAttachLink = vi.fn()
     render(
       <ChatComposer
@@ -264,18 +253,34 @@ describe('ChatComposer — attachment affordance', () => {
       />,
     )
 
-    await user.click(
-      screen.getByRole('button', { name: 'Attach file or link' }),
-    )
-    expect(
-      screen.getByRole('textbox', { name: 'Attachment URL' }),
-    ).toBeInTheDocument()
+    fireEvent.paste(screen.getByRole('textbox'), {
+      clipboardData: {
+        getData: () =>
+          'see https://example.com/agenda.pdf and http://example.org/minutes.',
+      },
+    })
 
-    await user.keyboard('{Escape}')
+    expect(onAttachLink).toHaveBeenCalledTimes(2)
+    expect(onAttachLink).toHaveBeenCalledWith('https://example.com/agenda.pdf')
+    expect(onAttachLink).toHaveBeenCalledWith('http://example.org/minutes')
+  })
+
+  it('does not call onAttachLink when pasted text has no URL', () => {
+    const onAttachLink = vi.fn()
+    render(
+      <ChatComposer
+        {...baseProps}
+        attachments={[]}
+        onAttachFile={vi.fn()}
+        onAttachLink={onAttachLink}
+      />,
+    )
+
+    fireEvent.paste(screen.getByRole('textbox'), {
+      clipboardData: { getData: () => 'plain text, no links here' },
+    })
+
     expect(onAttachLink).not.toHaveBeenCalled()
-    expect(
-      screen.queryByRole('textbox', { name: 'Attachment URL' }),
-    ).not.toBeInTheDocument()
   })
 
   it('renders AttachmentChip with the file name and calls onRemoveAttachment on remove', async () => {
@@ -352,5 +357,36 @@ describe('ChatComposer — attachment affordance', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(onGuardAcknowledge).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('extractHttpUrls', () => {
+  it('extracts multiple http(s) URLs from prose', () => {
+    expect(
+      extractHttpUrls(
+        'read https://a.example/x then http://b.example/y?z=1 today',
+      ),
+    ).toEqual(['https://a.example/x', 'http://b.example/y?z=1'])
+  })
+
+  it('strips trailing sentence punctuation', () => {
+    expect(extractHttpUrls('see https://a.example/doc.pdf.')).toEqual([
+      'https://a.example/doc.pdf',
+    ])
+    expect(extractHttpUrls('really? https://a.example/page!')).toEqual([
+      'https://a.example/page',
+    ])
+  })
+
+  it('ignores non-http schemes and plain text', () => {
+    expect(extractHttpUrls('ftp://a.example file:///etc/hosts hello')).toEqual(
+      [],
+    )
+  })
+
+  it('dedupes a URL pasted twice', () => {
+    expect(
+      extractHttpUrls('https://a.example/x and again https://a.example/x'),
+    ).toEqual(['https://a.example/x'])
   })
 })

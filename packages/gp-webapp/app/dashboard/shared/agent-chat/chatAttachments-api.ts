@@ -34,6 +34,13 @@ export const resolveMimeType = (file: File): string => {
   return EXTENSION_MIME[ext] ?? ''
 }
 
+const SUPPORTED_MIME_TYPES = new Set(Object.values(EXTENSION_MIME))
+
+// Gate for the drag-and-drop path, which (unlike the file picker's `accept`)
+// receives arbitrary files.
+export const isSupportedAttachmentFile = (file: File): boolean =>
+  SUPPORTED_MIME_TYPES.has(resolveMimeType(file))
+
 /**
  * Upload a file: presign → S3 presigned POST → finalize.
  * Returns the server-created attachment state.
@@ -80,7 +87,7 @@ export const uploadChatAttachment = async (
 }
 
 /**
- * Paste a URL as an attachment.
+ * Attach a URL (detected in text pasted into the composer).
  * Returns the attachment on success, or an error string on failure.
  */
 export const linkChatAttachment = async (

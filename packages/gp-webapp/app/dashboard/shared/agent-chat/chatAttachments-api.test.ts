@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   resolveMimeType,
+  isSupportedAttachmentFile,
   linkErrorMessage,
   uploadChatAttachment,
   linkChatAttachment,
@@ -56,6 +57,33 @@ describe('resolveMimeType', () => {
   it('returns empty string when there is no extension and type is empty', () => {
     const file = new File([''], 'nodotfile', { type: '' })
     expect(resolveMimeType(file)).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isSupportedAttachmentFile
+// ---------------------------------------------------------------------------
+
+describe('isSupportedAttachmentFile', () => {
+  it('accepts every supported type, by declared type or extension', () => {
+    expect(
+      isSupportedAttachmentFile(
+        new File([''], 'a.pdf', { type: 'application/pdf' }),
+      ),
+    ).toBe(true)
+    expect(isSupportedAttachmentFile(new File([''], 'b.docx'))).toBe(true)
+    expect(isSupportedAttachmentFile(new File([''], 'c.txt'))).toBe(true)
+    expect(isSupportedAttachmentFile(new File([''], 'd.jpeg'))).toBe(true)
+    expect(isSupportedAttachmentFile(new File([''], 'e.png'))).toBe(true)
+  })
+
+  it('rejects unsupported and unknown types', () => {
+    expect(
+      isSupportedAttachmentFile(
+        new File([''], 'f.exe', { type: 'application/x-msdownload' }),
+      ),
+    ).toBe(false)
+    expect(isSupportedAttachmentFile(new File([''], 'nodotfile'))).toBe(false)
   })
 })
 
