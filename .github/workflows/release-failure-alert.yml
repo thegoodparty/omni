@@ -173,8 +173,12 @@ jobs:
             # reaches prod, so only main can say the train is shipping.
             #
             # Read from env rather than interpolated inline: a branch name is
-            # attacker-shaped input, and `${{ }}` in the middle of a script is
-            # how it becomes a shell injection.
+            # attacker-shaped input, and a GitHub expression interpolated into
+            # the middle of a script is how it becomes a shell injection. (The
+            # expression syntax itself cannot be written here even in a comment:
+            # Actions expands it before the shell ever sees the line, and an
+            # empty expression is a parse error that invalidates this whole
+            # file — which is exactly what took this alert down for three days.)
             if [ "$HEAD_BRANCH" != "main" ]; then
               echo "::notice::Run #$RUN_NUMBER was on '$HEAD_BRANCH' rather than main, so it says nothing about whether prod is shipping."
               exit 0
