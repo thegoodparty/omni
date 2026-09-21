@@ -179,6 +179,13 @@ def update_latches(
 ) -> dict[str, dict[str, Any]]:
     """Advance latch state by one run.
 
+    ``series`` must be the WHOLE warehouse's weekly series, not just the watched legs.
+    A leg with no rows for a week is either silence (a real break) or the warehouse not
+    having loaded that week yet, and the only way to tell them apart is whether some
+    *other* event has rows for it — see ``_warehouse_last_loaded``. Passing a filtered
+    mapping makes every leg look silent the moment ingestion lags, and nothing in this
+    module can detect that it happened.
+
     ``watched`` maps leg key to the metric it anchors; keys absent from it are dropped,
     which is how a re-declared anchor clears a latch.
     """

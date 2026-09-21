@@ -409,6 +409,11 @@ def rank_record(record: Mapping[str, Any]) -> int:
     """Digest severity rank (0 = highest). 99 = not flagged."""
     status, elevated, anomaly = record["status"], record["elevated"], record["anomaly"]
     div = record["divergence"] or ""
+    # DATA-2421: a latched break on an OKR-anchored instrument outranks every other
+    # signal, including the counter canary. The canary means "the tooling is blind";
+    # this means "a number the company steers by is wrong right now".
+    if record.get("latched"):
+        return 0
     # DATA-2106 canary: a client event firing normally (active, no anomaly) with zero counted
     # call sites is a contradiction -- the data axis says alive, the code axis says gone. The
     # counter is blind (an aliased or Prettier-wrapped reference it cannot see), not the
@@ -680,7 +685,7 @@ def diff_flagged(
 # --- rendering ----------------------------------------------------------------
 
 _RANK_LABEL = {
-    0: "counter blind spot: 0 call sites but firing normally (fix the counter, not the event)",
+    0: "OKR anchor dormant (latched) / counter blind spot",
     1: "orphaned-firing / not-in-use still firing",
     2: "call site removed, name constant remains",
     3: "anomaly drop, active (elevated)",
@@ -747,12 +752,37 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
         f"{result['total_events']} events — "
         + ", ".join(f"{k} {v}" for k, v in sorted(sc.items(), key=lambda x: -x[1]))
         + f". {len(flagged)} flagged ({len(priority)} priority, {len(tail)} dormant tail).",
-        "",
-        "### Flagged (ranked)",
-        "",
-        "| rank | event | status | elev | evidence | divergence |",
-        "| --- | --- | --- | --- | --- | --- |",
     ]
+    latched = {k: v for k, v in (result.get("latches") or {}).items() if v.get("latched")}
+    if latched:
+        lines.append("")
+        lines.append("### OKR anchors dormant (latched)")
+        lines.append("")
+        lines.append("| instrument | metric | broken since | pre-break level |")
+        lines.append("| --- | --- | --- | --- |")
+        for key, rec in sorted(latched.items()):
+            # Read defensively: a hand-edited state file can drop a field, and okr_latch
+            # carries such a record through rather than crashing. A renderer that then
+            # raises would take the whole digest down over the corruption it was built
+            # to survive.
+            lines.append(
+                f"| {key} | {rec.get('metric', '?')} | {rec.get('since', '?')} | "
+                f"{rec.get('reference', '?')} /wk |"
+            )
+        lines.append("")
+        lines.append(
+            "Clears on recovery, or when the metric's `anchored_on` changes in the "
+            "semantic layer. There is no dismiss path."
+        )
+    # The guard disabling itself must be as loud as the thing it guards against.
+    for problem in result.get("anchor_problems") or []:
+        lines.append("")
+        lines.append(f"> **OKR dormancy checks degraded.** {problem}")
+    lines.append("")
+    lines.append("### Flagged (ranked)")
+    lines.append("")
+    lines.append("| rank | event | status | elev | evidence | divergence |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
     for r in priority:
         elev = "yes" if r["elevated"] else ""
         lines.append(
@@ -908,6 +938,19 @@ def load_prior_state(path: Path | None) -> dict[str, str] | None:
     return flagged if isinstance(flagged, dict) else None
 
 
+def load_prior_latches(path: Path | None) -> dict[str, dict]:
+    """Prior run's latch records (DATA-2421). ``{}`` when absent or corrupt: a lost latch
+    re-arms on the next broken week rather than crashing the run."""
+    if not path or not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    latches = data.get("latches")
+    return latches if isinstance(latches, dict) else {}
+
+
 def load_prior_anomalous(path: Path | None) -> set[str] | None:
     """Read the prior run's anomalous-event set from the state file (DATA-2057). Lets the
     Slack quiet gate tell a *newly* anomalous event from a persistent one. None when the
@@ -922,6 +965,50 @@ def load_prior_anomalous(path: Path | None) -> set[str] | None:
     return set(anomalous) if isinstance(anomalous, list) else None
 
 
+# Status carried by a latched anchor leg the catalog has no row for. A path-qualified
+# slice of an event is an instrument in its own right, but not something Amplitude counts
+# as an event, so none of the SOP statuses fit it.
+LATCHED_STATUS = "okr_anchor_dormant"
+
+
+def _latched_leg_record(
+    key: str, latch: Mapping[str, Any], weeks: Sequence[tuple[date, int]], today: date
+) -> dict:
+    """A flagged row for a latched leg that ``reconcile`` never built a record for.
+
+    ``reconcile`` builds records from the catalog, so a path-qualified leg
+    (``Viewed[path=/dashboard]``) has none — and a latch that reaches no consumer is the
+    same silent failure this ticket exists to remove. The shape mirrors a reconcile record
+    key for key so the digest table, ``digest_triage`` and the state diff need no special
+    case for it.
+    """
+    cutoff = today - timedelta(days=DORMANT_DAYS)
+    record = {
+        "event_type": key,
+        "family": None,
+        "status": LATCHED_STATUS,
+        # An OKR anchor is elevated by definition; nothing else about this leg is known.
+        "elevated": True,
+        "on_watchlist": False,
+        "okr": latch["metric"],
+        # The catalog counts whole events, so the leg's own weekly rows are the only
+        # honest source for the digest's count column.
+        "event_count_30d": sum(n for week_start, n in weeks if week_start >= cutoff),
+        "last_seen_date": None,
+        "anomaly": None,
+        "instrumented_pr": None,
+        "call_site_count": None,
+        "call_site_retired_date": None,
+        "divergence": None,
+        "gpmeta": None,
+        "has_description": None,
+        "watchlist_status": "—",
+        "latched": True,
+    }
+    record["rank"] = rank_record(record)
+    return record
+
+
 def run_monitor(
     run_query: Callable[[str], Any],
     *,
@@ -929,19 +1016,91 @@ def run_monitor(
     csv_path: Path = CODE_CSV,
     watchlist_path: Path = WATCHLIST,
     state_path: Path | None = None,
+    anchors: Mapping[str, Sequence[Any]] | None = None,
 ) -> tuple[dict, dict[str, list[str]]]:
-    """Orchestrate a full pass: fetch the two queries, read the code axis + watchlist,
-    reconcile, diff."""
+    """Orchestrate a full pass: fetch the queries, read the code axis + watchlist +
+    semantic-layer anchors, reconcile, latch, diff.
+
+    ``anchors`` defaults to a live read; pass a dict in tests. An empty mapping (no
+    token, or GitHub unreachable) disables the anchored checks and leaves every other
+    check working, which is why the whole monitor does not hinge on a cross-repo read.
+    """
+    import okr_latch as ol
+    import sem_anchors as sa
+
+    anchor_problems: list[str] = []
+    if anchors is None:
+        anchors, anchor_problems = sa.load_anchors()
+
+    watched_legs = [leg for legs in anchors.values() for leg in legs if leg.watched]
+    watched_by_key = {
+        leg.key: metric
+        for metric, legs in anchors.items()
+        for leg in legs
+        if leg.watched
+    }
+
     catalog = fetch_catalog(run_query)
-    weekly = fetch_weekly(run_query)
+    weekly = fetch_weekly(run_query) + fetch_path_weekly(run_query, watched_legs)
     code = load_code_axis(csv_path)
-    watched_families, watchlist_events, dismissed_events, okr_by_event = load_monitored_events(
-        watchlist_path
+    watched_families, watchlist_events, dismissed_events, local_okr_tags = (
+        load_monitored_events(watchlist_path)
     )
+    # A leg's metric name is authoritative over any hand-typed okr: tag for the same
+    # event, because the semantic layer is the kernel and the tag is a local copy.
+    okr_for_digest = {**local_okr_tags, **watched_by_key}
+
     result = reconcile(
         catalog, weekly, code, today, watchlist_events, watched_families,
-        dismissed_events=dismissed_events, okr_by_event=okr_by_event,
+        dismissed_events=dismissed_events, okr_by_event=okr_for_digest,
     )
+
+    current_monday = today - timedelta(days=today.weekday())
+    # The WHOLE warehouse series, never a watched-only slice: update_latches tells a leg
+    # going silent from the warehouse not having loaded that week by looking at the other
+    # events' rows, and a filtered mapping would silently revert this ticket's fix.
+    series = weekly_series(weekly, current_monday)
+    prior_latches = load_prior_latches(state_path)
+    latches = ol.update_latches(prior_latches, series, watched_by_key, today)
+    if anchor_problems:
+        # A failed anchor read is not a de-declaration. update_latches drops every key it
+        # cannot see in `watched`, and the state write below is the only place a sticky
+        # reference lives — so one unreadable run would erase references that cannot be
+        # re-derived once the break has aged into the baseline. That is this ticket's own
+        # bug, rebuilt inside the degradation path. Hold what we can no longer check.
+        latches = {
+            **{k: v for k, v in prior_latches.items()
+               if k not in watched_by_key and isinstance(v, Mapping) and v.get("metric")},
+            **latches,
+        }
+    result["latches"] = latches
+    result["anchor_problems"] = anchor_problems
+
+    # Walk `records`, not `flagged`: a latched break is by construction one whose
+    # detect_anomaly has gone quiet, so its record already ranks 99 and has dropped out of
+    # `flagged` — and `flagged` is the only list digest_triage and the Slack quiet gate
+    # read. Marking the flagged list alone would leave the latch visible in the markdown
+    # log and invisible on the surface people actually read.
+    by_event = {r["event_type"]: r for r in result["records"]}
+    already_flagged = {id(r) for r in result["flagged"]}
+    for key, latch in latches.items():
+        if not latch.get("latched"):
+            continue
+        record = by_event.get(key)
+        if record is None:
+            # Deliberately appended to `flagged` only: a path leg is not a catalog event,
+            # so adding it to `records` would corrupt total_events and status_counts.
+            result["flagged"].append(
+                _latched_leg_record(key, latch, series.get(key, ()), today)
+            )
+            continue
+        record["latched"] = True
+        record["okr"] = latch["metric"]
+        record["rank"] = rank_record(record)
+        if id(record) not in already_flagged:
+            result["flagged"].append(record)
+    result["flagged"].sort(key=lambda r: (r["rank"], -r["event_count_30d"]))
+
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes
 
@@ -984,6 +1143,20 @@ def build_slack_triage(
         prior_anomalous=prior_anomalous,
     )
     triage = dt.run_triage(items, api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    # An expired token is the single most likely way the OKR dormancy checks stop
+    # working, and it produces no other symptom, so it posts as red rather than as a
+    # quiet line in the markdown log. Added AFTER run_triage, not before: run_triage
+    # overwrites headline and action on every item it is handed, and this text is
+    # run-level and authored here, so it is not the judge's to rewrite.
+    for problem in result.get("anchor_problems") or []:
+        triage["items"].insert(0, {
+            "id": "(OKR dormancy checks)",
+            "event_type": "(OKR dormancy checks)",
+            "rank": 0, "okr": "run-level",
+            "rules_tier": "red", "tier": "red",
+            "headline": problem,
+            "action": "Restore GP_DATA_PLATFORM_READ_TOKEN, then re-run.",
+        })
     red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
     if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
         return None
@@ -1087,6 +1260,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             # anomalous set persisted for the Slack quiet gate (DATA-2057): distinguishes a
             # newly anomalous event from one that was already anomalous last run.
             "anomalous": sorted(r["event_type"] for r in result["flagged"] if r["anomaly"]),
+            # DATA-2421: the latch's sticky reference and "broken since" only survive
+            # across runs here — losing them re-derives a reference from the already
+            # broken weeks, which is the drift the latch exists to prevent.
+            "latches": result.get("latches") or {},
         }
         _atomic_write(args.state, json.dumps(state, indent=2) + "\n")
     return 0

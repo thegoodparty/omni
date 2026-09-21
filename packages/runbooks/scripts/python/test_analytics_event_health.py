@@ -1247,3 +1247,390 @@ def test_path_rows_key_into_the_series_under_the_leg_key():
              "week_start": MONDAY - timedelta(days=7), "n": 500}]
     keyed = eh.key_path_rows(rows)
     assert keyed[0]["event_type"] == "Viewed[path=/dashboard]"
+
+
+# --- latch ranking (DATA-2421 Part B) -----------------------------------------
+
+
+def test_latched_record_outranks_the_counter_blind_spot_canary():
+    record = {"status": "active", "elevated": True, "anomaly": None, "divergence": None,
+              "call_site_count": 5, "okr": "win_active_candidates_30d", "latched": True}
+    assert eh.rank_record(record) == 0
+
+
+def test_unlatched_records_rank_exactly_as_before():
+    # Guard against the latch field changing behaviour for everything else.
+    record = {"status": "dormant", "elevated": False, "anomaly": None, "divergence": None,
+              "call_site_count": None, "okr": None, "latched": False}
+    assert eh.rank_record(record) == 8
+
+
+def test_rank_label_covers_the_latched_rank():
+    assert "latched" in eh._RANK_LABEL[0].lower() or "okr" in eh._RANK_LABEL[0].lower()
+
+
+# --- run_monitor: anchors + latches wired end to end (DATA-2421 Part B) -------
+
+_TRACKER = "Campaign Plan - Campaign Tracker Viewed"
+_METRIC = "win_active_candidates_30d"
+_PATH_KEY = "Viewed[path=/dashboard]"
+_CODE_COLS = [
+    "event_type", "retired_date", "instrumented_pr", "call_site_count",
+    "call_site_retired_date",
+]
+
+
+class _DF:
+    """Minimal stand-in for the pandas frame databricks_oauth.run_query returns."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def to_dict(self, _orient):
+        return list(self._rows)
+
+
+def _fake_query(catalog_rows, weekly_rows, path_rows=()):
+    def run(sql):
+        if "amplitude_event_catalog" in sql:
+            return _DF(catalog_rows)
+        if "event_properties:path" in sql:
+            return _DF(path_rows)
+        return _DF(weekly_rows)
+
+    return run
+
+
+def _weeks_before(event_type, counts, page_path=None):
+    """Weekly rows for the complete weeks immediately before MONDAY, oldest first."""
+    rows = []
+    for offset, n in enumerate(reversed(counts), start=1):
+        row = {"event_type": event_type, "week_start": MONDAY - timedelta(days=7 * offset),
+               "n": n}
+        if page_path is not None:
+            row["page_path"] = page_path
+        rows.append(row)
+    return rows
+
+
+def _monitor_env(tmp_path, code_rows, latches=None, watchlist="events: []\n",
+                 prior_flagged=None):
+    csv_path = tmp_path / "provenance.csv"
+    csv_path.write_text(
+        "\n".join([",".join(_CODE_COLS)]
+                  + [",".join(str(r.get(c, "")) for c in _CODE_COLS) for r in code_rows])
+        + "\n"
+    )
+    wl_path = tmp_path / "watchlist.yaml"
+    wl_path.write_text(watchlist)
+    state_path = tmp_path / "state.json"
+    if latches is not None:
+        state_path.write_text(
+            json.dumps({"latches": latches, "flagged": prior_flagged or {}}))
+    return csv_path, wl_path, state_path
+
+
+def _latch(metric=_METRIC, reference=1000.0, latched=True):
+    return {"metric": metric, "since": "2026-05-18", "reference": reference,
+            "consecutive": 4, "latched": latched}
+
+
+def test_run_monitor_latched_event_reaches_flagged_after_its_anomaly_cleared(tmp_path):
+    # The era-2 failure exactly: four flat broken weeks make the broken level the
+    # baseline, detect_anomaly goes quiet, and the record drops out of `flagged` — the
+    # only list digest_triage and the Slack quiet gate read.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    weekly = _weeks_before(_TRACKER, [2, 2, 2, 2, 2])
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={_TRACKER: _latch()}, prior_flagged={"Something Else": "dormant"},
+    )
+    anchors = {_METRIC: [sa.Leg(_TRACKER, None, None)]}
+
+    result, changes = eh.run_monitor(
+        _fake_query(catalog, weekly), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors=anchors)
+
+    record = next(r for r in result["records"] if r["event_type"] == _TRACKER)
+    assert record["anomaly"] is None  # the baseline absorbed the break
+    flagged = [r for r in result["flagged"] if r["event_type"] == _TRACKER]
+    assert len(flagged) == 1
+    # The existing record is promoted, not shadowed by a stand-in: a stand-in would lose
+    # the record's own evidence and leave `records` disagreeing with `flagged`.
+    assert flagged[0] is record
+    assert flagged[0]["status"] == "active"
+    assert flagged[0]["rank"] == 0
+    assert flagged[0]["latched"] is True
+    assert flagged[0]["okr"] == _METRIC
+    # The diff runs after the marking, so the break reads as news rather than as a row
+    # that was never there.
+    assert _TRACKER in changes["new"]
+
+    # Without the latch this same data flags nothing at all — that is the bug.
+    unlatched, _ = eh.run_monitor(
+        _fake_query(catalog, weekly), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=tmp_path / "absent.json", anchors=anchors)
+    assert all(r["event_type"] != _TRACKER for r in unlatched["flagged"])
+
+
+def _run_with_latched_path_leg(tmp_path):
+    catalog = [
+        _cat("Viewed", "amplitude_autotrack", "", cnt30=4_460_000),
+        _cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8),
+    ]
+    weekly = _weeks_before("Viewed", [100, 100, 100, 100, 100])
+    path_rows = _weeks_before("Viewed", [3, 3], page_path="/dashboard")
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path,
+        [{"event_type": _TRACKER, "call_site_count": 3},
+         # Never observed -> rank 7, so the flagged list is non-trivially ordered.
+         {"event_type": "Ghost Event", "call_site_count": 1}],
+        latches={_PATH_KEY: _latch(reference=500.0)},
+    )
+    anchors = {_METRIC: [sa.Leg("Viewed", "/dashboard", None)]}
+    return eh.run_monitor(
+        _fake_query(catalog, weekly, path_rows), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path, anchors=anchors)
+
+
+def test_run_monitor_synthesizes_a_flagged_row_for_a_latched_path_leg(tmp_path):
+    # reconcile builds records from the catalog, and 'Viewed[path=/dashboard]' is not a
+    # catalog event, so promoting an existing record cannot work for a path leg.
+    result, _changes = _run_with_latched_path_leg(tmp_path)
+
+    # Rank 0 sorts to the top: appending without re-sorting would bury it under the
+    # lower-severity rows already in the list.
+    assert result["flagged"][0]["event_type"] == _PATH_KEY
+    synthetic = result["flagged"][0]
+    assert synthetic["rank"] == 0
+    assert synthetic["okr"] == _METRIC
+    assert synthetic["status"] == eh.LATCHED_STATUS
+    assert synthetic["event_count_30d"] == 6  # the leg's own rows, not the catalog's
+
+    real = next(r for r in result["records"] if r["event_type"] == _TRACKER)
+    assert set(synthetic) == set(real) | {"latched"}
+
+
+def test_run_monitor_keeps_the_synthesized_row_out_of_the_catalog_counts(tmp_path):
+    result, _changes = _run_with_latched_path_leg(tmp_path)
+
+    assert all(r["event_type"] != _PATH_KEY for r in result["records"])
+    assert result["total_events"] == 3  # the two catalog events plus Ghost Event
+    assert eh.LATCHED_STATUS not in result["status_counts"]
+
+
+def test_a_latched_path_leg_reaches_the_slack_triage_as_red(tmp_path):
+    # The whole point of R2: the markdown log is not the surface people read.
+    import digest_triage as dt
+
+    result, changes = _run_with_latched_path_leg(tmp_path)
+    items = dt.build_items(result, changes)
+    item = next(i for i in items if i["event_type"] == _PATH_KEY)
+    assert dt.rules_tier(item) == "red"
+
+
+def test_run_monitor_passes_the_whole_warehouse_series_to_the_latch(tmp_path, monkeypatch):
+    # update_latches tells "this leg went silent" from "the warehouse skipped a week" by
+    # looking at events other than the watched leg. A filtered mapping would revert the
+    # fix with no other test failing.
+    import okr_latch as ol
+
+    seen = {}
+    monkeypatch.setattr(
+        ol, "update_latches",
+        lambda prior, series, watched, today: seen.update(series=series) or {})
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8),
+               _cat("Unrelated Event", "win_other", "Other.", cnt30=99)]
+    weekly = _weeks_before(_TRACKER, [2, 2]) + _weeks_before("Unrelated Event", [99, 99])
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, weekly), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+
+    assert "Unrelated Event" in seen["series"]
+    # And the declared metric reaches reconcile even with nothing latched.
+    record = next(r for r in result["records"] if r["event_type"] == _TRACKER)
+    assert record["okr"] == _METRIC
+
+
+def test_a_declared_leg_outranks_a_hand_typed_okr_tag_for_the_same_event(tmp_path):
+    # The semantic layer is the kernel; monitored_events.yaml's okr: is a local copy.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={},
+        watchlist=f'events:\n  - {{event: "{_TRACKER}", okr: "Active Candidates"}}\n',
+    )
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+
+    record = next(r for r in result["records"] if r["event_type"] == _TRACKER)
+    assert record["okr"] == _METRIC
+
+
+def test_run_monitor_reports_anchor_problems_from_the_live_read(tmp_path, monkeypatch):
+    monkeypatch.setattr(sa, "load_anchors", lambda: ({}, ["token missing"]))
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+
+    result, _ = eh.run_monitor(_fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+                               watchlist_path=wl_path, state_path=state_path)
+
+    assert result["anchor_problems"] == ["token missing"]
+    assert result["latches"] == {}
+
+
+# --- latch state file ---------------------------------------------------------
+
+
+def test_load_prior_latches_tolerates_corrupt_json(tmp_path):
+    p = tmp_path / "s.json"
+    p.write_text("{not json")
+    assert eh.load_prior_latches(p) == {}
+
+
+def test_load_prior_latches_missing_key_returns_empty(tmp_path):
+    p = tmp_path / "s.json"
+    p.write_text(json.dumps({"flagged": {}}))
+    assert eh.load_prior_latches(p) == {}
+
+
+def test_load_prior_latches_reads_valid_records(tmp_path):
+    p = tmp_path / "s.json"
+    p.write_text(json.dumps({"latches": {_PATH_KEY: _latch()}}))
+    assert eh.load_prior_latches(p)[_PATH_KEY]["metric"] == _METRIC
+
+
+def test_main_persists_the_latches_for_the_next_run(monkeypatch, tmp_path):
+    latches = {_PATH_KEY: _latch()}
+
+    def _stub(*_a, **_k):
+        result = {"run_date": "2026-09-21", "current_week_basis": "x", "flagged": [],
+                  "status_counts": {}, "total_events": 0, "latches": latches}
+        return result, {"new": [], "escalated": [], "resolved": [], "still_open": []}
+
+    monkeypatch.setattr(eh, "run_monitor", _stub)
+    state = tmp_path / "s.json"
+    assert eh.main(["--no-log", "--today", "2026-09-21", "--state", str(state)]) == 0
+    assert json.loads(state.read_text())["latches"] == latches
+
+
+# --- digest rendering of the latch + degradation lines ------------------------
+
+
+def _render_result(**kw):
+    base = {"run_date": date(2026, 9, 21), "current_week_basis": "complete weeks before x",
+            "total_events": 1, "status_counts": {"active": 1}, "flagged": []}
+    base.update(kw)
+    return base
+
+
+_NO_CHANGES = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+
+
+def test_digest_renders_the_latched_anchor_table():
+    out = eh.render_digest_section(
+        _render_result(latches={_PATH_KEY: _latch(reference=1234.5)}), _NO_CHANGES)
+    assert "### OKR anchors dormant (latched)" in out
+    assert f"| {_PATH_KEY} | {_METRIC} | 2026-05-18 | 1234.5 /wk |" in out
+    assert "There is no dismiss path." in out
+
+
+def test_digest_omits_the_table_for_a_tracked_but_unlatched_leg():
+    out = eh.render_digest_section(
+        _render_result(latches={_PATH_KEY: _latch(latched=False)}), _NO_CHANGES)
+    assert "### OKR anchors dormant (latched)" not in out
+
+
+def test_digest_shouts_when_the_anchor_read_failed():
+    out = eh.render_digest_section(
+        _render_result(anchor_problems=["token missing"]), _NO_CHANGES)
+    assert "> **OKR dormancy checks degraded.** token missing" in out
+    assert "### Flagged (ranked)" in out  # the rest of the digest still renders
+
+
+def test_anchor_problem_posts_to_slack_as_red_with_its_text_intact(monkeypatch):
+    # run_triage overwrites headline/action on every item it is handed, so this item has
+    # to be added after the judge or the problem text is replaced by a fallback.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = _render_result(anchor_problems=["GP_DATA_PLATFORM_READ_TOKEN is not set"],
+                            proposals=[])
+
+    triage = eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None)
+
+    assert triage is not None  # a quiet run must not swallow the degradation
+    item = triage["items"][0]
+    assert item["tier"] == "red"
+    assert item["headline"] == "GP_DATA_PLATFORM_READ_TOKEN is not set"
+    assert "GP_DATA_PLATFORM_READ_TOKEN" in item["action"]
+
+
+def test_run_monitor_does_not_duplicate_a_latched_record_already_flagged(tmp_path):
+    # A latched leg that ALSO still has a live anomaly is already in `flagged`; appending
+    # unconditionally would list it twice in the digest and in the Slack triage.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=1)]
+    weekly = _weeks_before(_TRACKER, [1000, 1000, 1000, 1000, 1])
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={_TRACKER: _latch()},
+    )
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, weekly), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+
+    rows = [r for r in result["flagged"] if r["event_type"] == _TRACKER]
+    assert len(rows) == 1
+    assert rows[0]["anomaly"] is not None  # it was flagged on its own merits too
+    assert rows[0]["rank"] == 0  # and the latch still outranks that
+
+
+def test_digest_survives_a_latch_record_a_hand_edit_broke():
+    # okr_latch deliberately carries a partial record rather than crashing; the renderer
+    # must not undo that by raising on the missing field.
+    out = eh.render_digest_section(
+        _render_result(latches={_PATH_KEY: {"latched": True, "since": "2026-05-18"}}),
+        _NO_CHANGES)
+    assert f"| {_PATH_KEY} | ? | 2026-05-18 | ? /wk |" in out
+
+
+def test_a_degraded_anchor_read_holds_the_latches_instead_of_wiping_them(tmp_path,
+                                                                         monkeypatch):
+    # The state file is the only place a sticky reference lives, and it cannot be
+    # re-derived once the break has aged into the baseline. Losing it on a token blip
+    # would rebuild this ticket's bug inside the degradation path.
+    monkeypatch.setattr(sa, "load_anchors", lambda: ({}, ["token missing"]))
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={_TRACKER: _latch()})
+
+    result, _ = eh.run_monitor(_fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+                               watchlist_path=wl_path, state_path=state_path)
+
+    assert result["latches"][_TRACKER]["reference"] == 1000.0
+    assert any(r["event_type"] == _TRACKER and r["rank"] == 0
+               for r in result["flagged"])
+
+
+def test_a_leg_the_semantic_layer_stopped_declaring_clears_its_latch(tmp_path):
+    # The successful-read case is the one that IS a de-declaration, and it must still
+    # clear — that is the only way a latch goes away besides recovery.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={_TRACKER: _latch()})
+
+    result, _ = eh.run_monitor(_fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+                               watchlist_path=wl_path, state_path=state_path,
+                               anchors={_METRIC: [sa.Leg("Some Other Event", None, None)]})
+
+    assert result["latches"] == {}
+    assert all(r["event_type"] != _TRACKER for r in result["flagged"])
