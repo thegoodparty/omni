@@ -67,11 +67,20 @@ export type ParsedResultsCsv =
     }
   | { ok: false; error: string }
 
+export interface CsvReadResult {
+  rows: string[][]
+  // The file ended with a quote still open, which means it is not a whole
+  // CSV — a download cut short, a copy-paste that dropped the tail. The
+  // bytes that are there parse fine, which is the danger: without this flag
+  // a truncated file reads as a shorter valid one.
+  unterminatedQuote: boolean
+}
+
 // A hand-rolled reader rather than a dependency: the whole grammar is quotes,
 // doubled quotes and newlines, and a reply body routinely contains all three.
 // Splitting on commas would silently truncate exactly the messages people
 // wrote the most in.
-export function parseCsvRows(text: string): string[][] {
+export function parseCsvRows(text: string): CsvReadResult {
   const rows: string[][] = []
   let row: string[] = []
   let field = ''
@@ -133,14 +142,28 @@ export function parseCsvRows(text: string): string[][] {
   }
 
   if (field !== '' || row.length > 0) endRow()
-  return rows
+  return { rows, unterminatedQuote: quoted }
 }
 
 const isBlankRow = (cells: string[]) =>
   cells.every((cell) => cell.trim() === '')
 
 export function parseResultsCsv(text: string): ParsedResultsCsv {
-  const rows = parseCsvRows(text)
+  const { rows, unterminatedQuote } = parseCsvRows(text)
+
+  // Refuse before reading a single row. A truncated file parses cleanly up to
+  // the cut, so every count below it would be a confident undercount, and the
+  // raw bytes are what gets uploaded — the operator would be shown a plausible
+  // report for a file that is missing its tail.
+  if (unterminatedQuote) {
+    return {
+      ok: false,
+      error:
+        'That file ends in the middle of a quoted value, so it is incomplete — ' +
+        'the export or download was cut short. Get a whole copy and try again.',
+    }
+  }
+
   const headerRow = rows.find((cells) => !isBlankRow(cells))
   if (!headerRow) {
     return { ok: false, error: 'That file is empty.' }

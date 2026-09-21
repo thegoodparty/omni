@@ -40,9 +40,14 @@ export type OutreachResultsUploadRequest = z.infer<
   typeof OutreachResultsUploadRequestSchema
 >
 
-// gp-api rejects a body over its own limit long before a browser struggles
-// with the file, and a results CSV for a 5,000-recipient send is well under
-// a megabyte. Refusing early gives a readable message instead of a 413.
+// Checked in the browser so an oversize file gets a readable sentence rather
+// than a generic body-limit failure from somewhere downstream.
+//
+// This must not exceed `experimental.serverActions.bodySizeLimit` in
+// next.config.ts, which the upload goes through, or the check here never
+// fires and the action rejects instead. The two are set to the same 5MB: a
+// results file for a 10,000-recipient send is plausibly 2-3MB, so Next's 1MB
+// default would have refused real work.
 export const MAX_RESULTS_FILE_BYTES = 5 * 1024 * 1024
 
 export const OUTREACH_TYPE_LABELS: Record<string, string> = {

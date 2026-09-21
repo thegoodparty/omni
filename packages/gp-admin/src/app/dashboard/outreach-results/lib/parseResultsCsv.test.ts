@@ -22,19 +22,29 @@ describe('normalizeHeader', () => {
 
 describe('parseCsvRows', () => {
   it('keeps commas and newlines inside a quoted reply body', () => {
-    const rows = parseCsvRows('a,"one, two\nthree",b')
+    const { rows } = parseCsvRows('a,"one, two\nthree",b')
     expect(rows).toEqual([['a', 'one, two\nthree', 'b']])
   })
 
   it('unescapes a doubled quote', () => {
-    expect(parseCsvRows('"he said ""hi"""')).toEqual([['he said "hi"']])
+    expect(parseCsvRows('"he said ""hi"""').rows).toEqual([['he said "hi"']])
   })
 
   it('treats CRLF as one row terminator', () => {
-    expect(parseCsvRows('a,b\r\nc,d\r\n')).toEqual([
+    expect(parseCsvRows('a,b\r\nc,d\r\n').rows).toEqual([
       ['a', 'b'],
       ['c', 'd'],
     ])
+  })
+
+  it('flags a file that ends with a quote still open', () => {
+    expect(parseCsvRows('a,b\n1,"half a reply').unterminatedQuote).toBe(true)
+  })
+
+  it('does not flag a file whose quotes all close', () => {
+    expect(parseCsvRows('a,b\n1,"a whole reply"\n').unterminatedQuote).toBe(
+      false
+    )
   })
 })
 
@@ -104,6 +114,27 @@ describe('parseResultsCsv refusals', () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error).toContain('message_text')
+  })
+
+  // A truncated download is the realistic way this happens: the bytes that
+  // arrived parse fine, so without the guard the operator is shown a
+  // confident report for a file that is missing its tail.
+  it('refuses a file that ends inside a quoted value', () => {
+    const result = parseResultsCsv(
+      'phone_number,message_text\n5551234567,Hi\n5559876543,"Half a rep'
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toMatch(/incomplete/i)
+  })
+
+  it('refuses a truncated file even when every row before the cut is good', () => {
+    const whole =
+      'phone_number,message_text\n5551234567,"Fix Elm St"\n5559876543,"Yes"\n'
+    expect(parseResultsCsv(whole).ok).toBe(true)
+    // The same file cut mid-reply. Two good rows precede the cut, so without
+    // the guard this would report as a complete two-row file.
+    expect(parseResultsCsv(whole.slice(0, -4)).ok).toBe(false)
   })
 
   it('refuses an empty file', () => {
