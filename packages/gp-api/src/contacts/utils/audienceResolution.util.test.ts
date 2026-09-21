@@ -48,6 +48,27 @@ const drain = async (
   return { people, summary: next.value }
 }
 
+// The production-shaped cases resolve tens of thousands of people; count
+// them rather than keeping them all.
+const countDrain = async (
+  audience: AsyncGenerator<
+    PhoneAudiencePerson,
+    AudienceResolutionSummary,
+    void
+  >,
+) => {
+  let resolved = 0
+  let next = await audience.next()
+  while (!next.done) {
+    resolved += 1
+    next = await audience.next()
+  }
+  return { resolved, summary: next.value }
+}
+
+const peopleWithPhones = (ids: string[], phones = ids) =>
+  ids.map((id, i) => person({ id, cellPhone: phones[i] }))
+
 describe('resolveFilterAudience', () => {
   it('forces hasCellPhone and pages with skipCount until a short page', async () => {
     const findContactsForFilter = contactsStub([
@@ -202,70 +223,142 @@ describe('resolveFilterAudience', () => {
     expect(emitted.map((p) => p.id)).toEqual(['a', 'b'])
   })
 
-  it('aborts on the first full page that resolves nobody new', async () => {
-    const findContactsForFilter = contactsStub([
-      [
-        person({ id: 'a', cellPhone: '1' }),
-        person({ id: 'b', cellPhone: '2' }),
-      ],
-      [
-        person({ id: 'c', cellPhone: '1' }),
-        person({ id: 'd', cellPhone: '2' }),
-      ],
-      [person({ id: 'e', cellPhone: '3' })],
-    ])
-
-    const audience = resolveFilterAudience(
-      { findContactsForFilter },
-      {
-        filterInput: {},
-        organization: ORGANIZATION,
-        excludePersonIds: new Set(),
-        pageSize: 2,
-        maxRecipients: 1000,
-      },
-    )
-
-    await expect(drain(audience)).rejects.toThrow(
-      /A full page of 2 contacts resolved no new recipients/,
-    )
-    // Stops on the page that made no progress rather than paging on to the
-    // page guard, which at production sizes is 101 warehouse queries.
-    expect(findContactsForFilter).toHaveBeenCalledTimes(2)
-  })
-
-  it('caps total fetches when pages progress too slowly to reach the cap', async () => {
-    // One new number and one repeat per page: every page makes progress, so
-    // the no-progress guard never fires and the cap (10) is never reached,
-    // which leaves the page guard as the only thing that stops this.
+  it('reads past the naive page count for a dedup-heavy list at the cap', async () => {
+    // Production sizes and the defaults: 1000 per page, 100k recipients.
+    // 10% of each page repeats a number from that same page, so resolving
+    // this list needs 111 fetches — more than the ceiling this guard used
+    // to carry (ceil(100000 / 1000) + 1 = 101), which 400'd a filter for
+    // the sin of having duplicate phone numbers in it.
     let pageNumber = 0
     const findContactsForFilter = asFinder(
       vi.fn(async () => {
         pageNumber += 1
-        const phone = `p${pageNumber}`
+        if (pageNumber > 110) {
+          const tailIds = Array.from({ length: 500 }, (_, i) => `tail-${i}`)
+          return { people: peopleWithPhones(tailIds) }
+        }
+        const fresh = Array.from(
+          { length: 900 },
+          (_, i) => `${pageNumber}-${i}`,
+        )
+        const repeats = fresh.slice(0, 100)
         return {
           people: [
-            person({ id: `new-${pageNumber}`, cellPhone: phone }),
-            person({ id: `repeat-${pageNumber}`, cellPhone: phone }),
+            ...peopleWithPhones(fresh),
+            ...peopleWithPhones(
+              repeats.map((phone) => `repeat-${phone}`),
+              repeats,
+            ),
           ],
         }
       }),
     )
 
-    const audience = resolveFilterAudience(
-      { findContactsForFilter },
-      {
-        filterInput: {},
-        organization: ORGANIZATION,
-        excludePersonIds: new Set(),
-        pageSize: 2,
-        maxRecipients: 10,
-      },
+    const { resolved, summary } = await countDrain(
+      resolveFilterAudience(
+        { findContactsForFilter },
+        {
+          filterInput: {},
+          organization: ORGANIZATION,
+          excludePersonIds: new Set(),
+        },
+      ),
     )
 
-    // maxPages = ceil(10 / 2) + 1 = 6, and the guard permits exactly that
-    // many fetches — the sixth page is read, the seventh is refused.
-    await expect(drain(audience)).rejects.toThrow(/Pagination exceeded 6 pages/)
-    expect(findContactsForFilter).toHaveBeenCalledTimes(6)
+    expect(resolved).toBe(110 * 900 + 500)
+    expect(summary.excludedDuplicatePhoneCount).toBe(110 * 100)
+    expect(findContactsForFilter).toHaveBeenCalledTimes(111)
+  })
+
+  it('keeps going when a whole page fails isEligible', async () => {
+    // The Peerly shape of this: a page of 1000 voters who all have cell
+    // phones and none of whom has a complete address. Fresh records, all
+    // rejected — legitimate filtering, not a stuck resolution.
+    let pageNumber = 0
+    const findContactsForFilter = asFinder(
+      vi.fn(async () => {
+        pageNumber += 1
+        if (pageNumber > 2) return { people: [] }
+        const ids = Array.from({ length: 1000 }, (_, i) => `${pageNumber}-${i}`)
+        return {
+          people: peopleWithPhones(ids).map((p) =>
+            pageNumber === 1 ? { ...p, firstName: null } : p,
+          ),
+        }
+      }),
+    )
+
+    const { resolved, summary } = await countDrain(
+      resolveFilterAudience(
+        { findContactsForFilter },
+        {
+          filterInput: {},
+          organization: ORGANIZATION,
+          excludePersonIds: new Set(),
+          isEligible: (p) => Boolean(p.firstName),
+        },
+      ),
+    )
+
+    expect(resolved).toBe(1000)
+    expect(summary.excludedDuplicatePhoneCount).toBe(0)
+    expect(findContactsForFilter).toHaveBeenCalledTimes(3)
+  })
+
+  it('aborts when consecutive full pages return no unseen phone number', async () => {
+    // people-api handing back the same page forever: paging is advancing,
+    // the rows are not.
+    const repeated = peopleWithPhones(
+      Array.from({ length: 1000 }, (_, i) => `same-${i}`),
+    )
+    const findContactsForFilter = asFinder(
+      vi.fn(async () => ({ people: repeated })),
+    )
+
+    await expect(
+      countDrain(
+        resolveFilterAudience(
+          { findContactsForFilter },
+          {
+            filterInput: {},
+            organization: ORGANIZATION,
+            excludePersonIds: new Set(),
+          },
+        ),
+      ),
+    ).rejects.toThrow(/3 consecutive full pages/)
+    // The first page progresses; the three after it do not.
+    expect(findContactsForFilter).toHaveBeenCalledTimes(4)
+  })
+
+  it('stops scanning once a rejecting filter has read its row budget', async () => {
+    // Every page is fresh, so the stall guard never fires, and nothing is
+    // ever resolved, so the cap never fires either. Only the scan ceiling
+    // stands between this and reading the whole district.
+    let pageNumber = 0
+    const findContactsForFilter = asFinder(
+      vi.fn(async () => {
+        pageNumber += 1
+        const ids = Array.from({ length: 1000 }, (_, i) => `${pageNumber}-${i}`)
+        return { people: peopleWithPhones(ids) }
+      }),
+    )
+
+    // maxPages = ceil(10000 * 2 / 1000) + 1 = 21.
+    await expect(
+      countDrain(
+        resolveFilterAudience(
+          { findContactsForFilter },
+          {
+            filterInput: {},
+            organization: ORGANIZATION,
+            excludePersonIds: new Set(),
+            maxRecipients: 10_000,
+            isEligible: () => false,
+          },
+        ),
+      ),
+    ).rejects.toThrow(/Pagination exceeded 21 pages/)
+    expect(findContactsForFilter).toHaveBeenCalledTimes(21)
   })
 })

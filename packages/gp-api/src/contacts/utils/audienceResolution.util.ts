@@ -15,8 +15,8 @@ import {
 //
 // What came across from that loop: hasCellPhone forced on the filter,
 // skipCount paging, the skip of a row people-api gives no phone for, the
-// cross-page phone dedupe and its count, the per-page recipient cap, and the
-// runaway-page guard.
+// cross-page phone dedupe and its count, the recipient cap, and a ceiling on
+// how many pages one resolution may read.
 //
 // What deliberately did NOT: Peerly's requirement that state, city and zip
 // all be present. That one is the vendor's rule, not the channel's — Peerly
@@ -24,12 +24,25 @@ import {
 // it (or any other per-caller row requirement) has to pass it as isEligible.
 // P2pPhoneListUploadService.hasGeoTargetableAddress is the worked example.
 //
-// What is NEW here, and so has no equivalent in that loop: the no-progress
-// guard. The loop has three circuit breakers and they cover three different
-// shapes of runaway, so read them together — the cap stops a filter that
-// resolves too many people, the no-progress guard stops a full page that
-// resolved nobody, and the page guard is the hard ceiling on fetches when
-// pages do progress but only barely.
+// Three circuit breakers guard this loop. They stop three different things
+// and none of them substitutes for another, so read them together:
+//
+//   - the CAP bounds the output. Too many recipients for one send.
+//   - the STALL guard bounds repetition. Consecutive full pages in which
+//     people-api handed back no phone number this resolution had not already
+//     seen — it is repeating itself, or ignoring the hasCellPhone it was
+//     asked for. Deliberately NOT "pages that produced no recipient": a page
+//     everyone on which isEligible rejects is legitimate filtering over fresh
+//     records, and aborting there would kill a Peerly send the moment it hit
+//     a page of voters with incomplete addresses.
+//   - the SCAN ceiling bounds the input. Rejecting is progress by the stall
+//     guard's measure, so a caller whose isEligible refuses nearly everyone
+//     advances forever without either other breaker firing; without this it
+//     would read the whole district one page at a time.
+//
+// Only the cap came from the Peerly loop. That loop's page ceiling assumed
+// every page contributes a full page of recipients, which dedupe alone makes
+// false near the cap; see SCAN_ALLOWANCE.
 //
 // A plain function rather than an injectable service, deliberately: callers
 // hand it the ContactsService they already inject, so adding a second consumer
@@ -39,6 +52,23 @@ import {
 // SEGMENT_PAGE_SIZE is the sibling constant).
 export const AUDIENCE_PAGE_SIZE = 1000
 export const MAX_AUDIENCE_RECIPIENTS = 100_000
+
+// How many rows the loop may read, as a multiple of the rows reaching
+// maxRecipients would take if nothing were ever skipped. It has to be more
+// than 1: every skip — a duplicate phone, a row people-api gave no phone for,
+// an isEligible rejection — means one more row must be read to resolve the
+// same recipient, so a filter at 5% phone duplication needs ~5% more pages
+// than the naive count and a ceiling without headroom fails it for being
+// popular. 2 is generous for both of today's callers (Peerly's skips are a
+// few percent) while still refusing to walk a district for a filter that
+// rejects more than half of what it reads.
+const SCAN_ALLOWANCE = 2
+
+// Consecutive full pages carrying no phone this resolution had not already
+// seen. More than one, because a single such page is reachable legitimately
+// when people-api's ordering clusters a household's shared numbers together;
+// small, because the state it detects never recovers on its own.
+const MAX_STALLED_PAGES = 3
 
 // people-api's Person carries a nullable cellPhone even when the filter forces
 // hasCellPhone, so a resolved audience member is the narrowed shape: callers
@@ -100,15 +130,13 @@ export async function* resolveFilterAudience(
     limitExceededMessage,
   } = options
 
-  // The hard ceiling on fetches, for pages that do make progress but too
-  // little of it to reach the cap. Reaching the cap itself costs
-  // ceil(maxRecipients / pageSize) pages, and the recipient PAST the cap —
-  // the one that trips it — can only arrive on the page after those, hence
-  // the +1. `page > maxPages` then permits exactly maxPages fetches, which
-  // is that allowance and not one more: at the defaults, page 101 is
-  // fetched and page 102 throws. Tightening the comparison would 400 a list
-  // that legitimately resolves exactly maxRecipients people.
-  const maxPages = Math.ceil(maxRecipients / pageSize) + 1
+  // The scan ceiling, in pages. `page > maxPages` permits exactly maxPages
+  // fetches: at the defaults, page 201 is read and page 202 throws. The +1
+  // is not slack on top of that — reaching the cap costs
+  // ceil(maxRecipients * SCAN_ALLOWANCE / pageSize) pages and the recipient
+  // that TRIPS the cap can only arrive on the page after those, so without
+  // it a list resolving exactly maxRecipients people would 400.
+  const maxPages = Math.ceil((maxRecipients * SCAN_ALLOWANCE) / pageSize) + 1
 
   // Spans every page: two voters sharing a cell phone must dedupe even
   // when people-api splits them across pages (ENG-10801). Keeping the
@@ -118,6 +146,7 @@ export async function* resolveFilterAudience(
   const seenPhones = new Set<string>()
   let excludedDuplicatePhoneCount = 0
   let resolvedCount = 0
+  let stalledPages = 0
 
   let page = 1
   while (true) {
@@ -137,13 +166,18 @@ export async function* resolveFilterAudience(
       excludePersonIds,
     )
 
-    const resolvedBeforePage = resolvedCount
+    // Measured before the eligibility gate and off the phone rather than the
+    // recipient, because this asks what people-api returned, not what this
+    // caller kept. An ineligible person is still a record the warehouse had
+    // not shown us before.
+    let sawUnseenPhone = false
 
     for (const person of people) {
       // hasCellPhone: true is forced above; cellPhone is nullable on the
       // Person contract regardless, so skip a row people-api can't
       // guarantee a phone for rather than resolving an unusable recipient.
       if (!hasCellPhone(person)) continue
+      if (!seenPhones.has(person.cellPhone)) sawUnseenPhone = true
       if (isEligible && !isEligible(person)) continue
       if (seenPhones.has(person.cellPhone)) {
         excludedDuplicatePhoneCount += 1
@@ -175,18 +209,16 @@ export async function* resolveFilterAudience(
     // truncated the send whenever that count was floored.
     if (people.length < pageSize) break
 
-    // A FULL page that resolved nobody means paging further is unbounded
-    // work for an audience that is not growing: the cap can never fire
-    // (resolvedCount is stuck) so only the page guard would stop it, after
-    // maxPages full-size warehouse queries. Throws rather than breaking,
-    // because breaking would silently hand back a truncated audience, and a
-    // send that quietly reaches fewer people than the filter promised is
-    // worse than one that fails loudly. It cannot fire on a legitimate tail
-    // (a short page has already broken above).
-    if (resolvedCount === resolvedBeforePage) {
+    // Throws rather than breaking, because breaking would hand back a
+    // silently truncated audience, and a send that quietly reaches fewer
+    // people than the filter promised is worse than one that fails loudly.
+    // A short page has already ended the loop above, so a legitimate tail
+    // cannot reach this.
+    stalledPages = sawUnseenPhone ? 0 : stalledPages + 1
+    if (stalledPages >= MAX_STALLED_PAGES) {
       throw new BadRequestException(
-        `A full page of ${pageSize} contacts resolved no new recipients ` +
-          `— aborting`,
+        `${MAX_STALLED_PAGES} consecutive full pages returned no phone ` +
+          `number this resolution had not already seen — aborting`,
       )
     }
 
