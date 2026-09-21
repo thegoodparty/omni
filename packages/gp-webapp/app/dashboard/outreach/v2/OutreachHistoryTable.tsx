@@ -36,7 +36,7 @@ import {
   useOutreachDetail,
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
-import { fetchServeSmsResults, useSmsResults } from './useOutreachResults'
+import { useSmsResults } from './useOutreachResults'
 
 const PAGE_SIZE = 10
 
@@ -236,7 +236,7 @@ const RowMetric = ({
 // would add a results fetch per completed text row to a surface that has not
 // asked for one. Give this the Win fetcher the day Win's column should fill.
 const ServeSmsResponsesMetric = ({ id }: { id: number }) => {
-  const { data } = useSmsResults(id, true, fetchServeSmsResults)
+  const { data } = useSmsResults(id, true, 'serve')
   if (!data) {
     return <span className="text-muted-foreground">—</span>
   }
@@ -359,7 +359,7 @@ export const OutreachHistoryTable = ({
     if (row.archivedAt) {
       return 'Archived'
     }
-    return getHistoryStatusLabel(row)
+    return getHistoryStatusLabel(row, isServe)
   }
 
   const visible = useMemo(

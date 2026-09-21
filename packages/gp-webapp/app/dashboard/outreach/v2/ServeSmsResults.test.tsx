@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { cleanup, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -123,6 +123,51 @@ describe('Serve SMS results — the Statistics card', () => {
       await screen.findByText(/Based on 400 SMS contacts/),
     ).toBeInTheDocument()
   })
+
+  // Both surfaces share one QueryClient per browser session and number their
+  // rows from the same auto-increment table, so a cache key without the
+  // scope would let whichever resolved first answer for the other — no
+  // network hit, wrong numbers, until gcTime expired. One tab moving between
+  // /dashboard/outreach and /dashboard/constituent-outreach reaches it.
+  it('does not serve one surface its results for the other surface, same id', async () => {
+    api.mock('GET /v1/outreach/serve/:id/results', {
+      status: 200,
+      data: { contacts: 400, responded: 62, optedOut: 8 },
+    })
+    api.mock('GET /v1/outreach/:id/results', {
+      status: 200,
+      data: { contacts: 1204, responded: 186, optedOut: 9 },
+    })
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...serveDetail, campaignId: 1, organizationSlug: null },
+    })
+
+    // Serve first: this populates the cache for outreach 77.
+    render(
+      <OutreachHistoryTable
+        rows={[completedSmsRow]}
+        onRowClick={vi.fn()}
+        detailFetcher={fetchServeOutreachDetail}
+        isServe
+      />,
+    )
+    expect(
+      await screen.findByText('62 responses · 8 unsub'),
+    ).toBeInTheDocument()
+    cleanup()
+
+    // Same id, same cache, Win drawer. It must read Win's own numbers.
+    render(
+      <OutreachDetailsDrawer row={completedSmsRow} onOpenChange={vi.fn()} />,
+    )
+
+    expect(
+      await screen.findByText(/Based on 1,204 SMS contacts/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('186')).toBeInTheDocument()
+    expect(screen.queryByText('62')).not.toBeInTheDocument()
+  })
 })
 
 describe('Serve SMS results — the reply list', () => {
@@ -173,6 +218,63 @@ describe('Serve SMS results — the reply list', () => {
     expect(
       await screen.findByRole('button', { name: 'Show all 24 responses' }),
     ).toBeInTheDocument()
+  })
+
+  // The server caps a page at SMS_OUTREACH_REPLIES_MAX_LIMIT (200), so a
+  // send with more than that still to load cannot honestly promise "all".
+  it('says "more" rather than "all" when one press cannot finish the list', async () => {
+    mockServeDrawer({ total: 350, replies: [reply()] })
+
+    renderServeDrawer()
+
+    expect(await screen.findByText('350 responses')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Show more responses' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Show all/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The regression: a growing `limit` was clamped back to 200 server-side, so
+  // anything past that position could never be reached while the header went
+  // on naming the full total. Offsets make every row reachable.
+  it('pages past the server cap so the header never promises an unreachable row', async () => {
+    const TOTAL = 205
+    const all = Array.from({ length: TOTAL }, (_unused, index) =>
+      reply({ id: `reply-${index}`, content: `Response number ${index + 1}` }),
+    )
+    api.mock('GET /v1/outreach/serve/:id', { status: 200, data: serveDetail })
+    api.mock('GET /v1/outreach/serve/:id/results', {
+      status: 200,
+      data: { contacts: 400, responded: TOTAL, optedOut: 8 },
+    })
+    api.mock('GET /v1/outreach/serve/:id/replies', ({ query }) => {
+      const offset = Number(query.offset ?? 0)
+      const limit = Number(query.limit ?? 10)
+      return {
+        status: 200,
+        data: { total: TOTAL, replies: all.slice(offset, offset + limit) },
+      }
+    })
+
+    renderServeDrawer()
+
+    expect(await screen.findByText('205 responses')).toBeInTheDocument()
+    expect(screen.getByText('Response number 1')).toBeInTheDocument()
+    expect(screen.queryByText('Response number 205')).not.toBeInTheDocument()
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show all 205 responses' }),
+    )
+
+    // The row past the old ceiling, which the capped-limit version could
+    // never fetch.
+    expect(await screen.findByText('Response number 205')).toBeInTheDocument()
+    expect(screen.getByText('Response number 201')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /Show (all|more)/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('says so plainly when nothing has come back yet', async () => {

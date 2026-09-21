@@ -64,11 +64,7 @@ import {
   useOutreachDetail,
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
-import {
-  fetchServeSmsResults,
-  fetchSmsResults,
-  useSmsResults,
-} from './useOutreachResults'
+import { useSmsResults } from './useOutreachResults'
 import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
@@ -278,12 +274,14 @@ export const OutreachDetailsDrawer = ({
   // The SAME card on both surfaces, from the same three numbers — the design
   // renders one three-row card for the sms and polls channels alike, which is
   // exactly SmsOutreachResultsSchema. Only the network differs, so the
-  // surface picks a fetcher the way it already picks `detailFetcher`, and the
-  // Win default is unchanged.
+  // surface names itself and the hook picks both the endpoint and the cache
+  // key from that; Win's read is unchanged. The key has to carry the scope —
+  // both surfaces share one QueryClient and number their rows from the same
+  // table, so a scope-less key would let one answer for the other.
   const resultsQuery = useSmsResults(
     row?.id ?? null,
     isSms && isCompleted,
-    isServe ? fetchServeSmsResults : fetchSmsResults,
+    isServe ? 'serve' : 'win',
   )
   const results = resultsQuery.data ?? null
   const statRows = results
@@ -395,7 +393,7 @@ export const OutreachDetailsDrawer = ({
   // Prototype byline verbs ("Scheduled for {date}" / "Sent {date}"); our
   // extra legacy statuses (Draft, In review, …) have no prototype verb and
   // keep the bare date.
-  const statusLabel = row ? getHistoryStatusLabel(row) : null
+  const statusLabel = row ? getHistoryStatusLabel(row, isServe) : null
   const bylineVerb =
     statusLabel === 'Scheduled'
       ? 'Scheduled for'

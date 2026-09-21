@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import {
-  SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
   SMS_OUTREACH_REPLIES_MAX_LIMIT,
   type SmsOutreachReply,
 } from '@goodparty_org/contracts'
@@ -34,7 +33,12 @@ const SERVE_SMS_REPLIES_COPY = {
   phoneLabel: 'Phone',
   locationLabel: 'Location',
   receivedLabel: 'Received',
+  // Two labels, because one press cannot always finish the list: the server
+  // caps a page at SMS_OUTREACH_REPLIES_MAX_LIMIT, so a send with more than
+  // that left to load gets the honest "more" rather than a promise of "all".
   showAll: (total: number) => `Show all ${total.toLocaleString()} responses`,
+  showMore: 'Show more responses',
+  loadingMore: 'Loading…',
   count: (total: number) =>
     `${total.toLocaleString()} response${total === 1 ? '' : 's'}`,
 } as const
@@ -140,8 +144,7 @@ export const ServeSmsRepliesSection = ({
 }: {
   outreachId: number
 }): React.JSX.Element => {
-  const [limit, setLimit] = useState(SMS_OUTREACH_REPLIES_DEFAULT_LIMIT)
-  const repliesQuery = useServeSmsReplies(outreachId, true, limit)
+  const repliesQuery = useServeSmsReplies(outreachId, true)
 
   if (repliesQuery.isError) {
     return (
@@ -153,8 +156,8 @@ export const ServeSmsRepliesSection = ({
     )
   }
 
-  const data = repliesQuery.data
-  if (!data) {
+  const pages = repliesQuery.data?.pages
+  if (!pages?.length) {
     return (
       <DetailsSection title={SERVE_SMS_REPLIES_COPY.sectionTitle}>
         <p className="text-sm text-muted-foreground">
@@ -164,7 +167,12 @@ export const ServeSmsRepliesSection = ({
     )
   }
 
-  if (data.total === 0) {
+  // The newest page's total, not the first's: a reply that landed while the
+  // drawer was open would otherwise leave the header quoting a stale number.
+  const total = pages[pages.length - 1]!.total
+  const replies = pages.flatMap((page) => page.replies)
+
+  if (total === 0) {
     return (
       <DetailsSection title={SERVE_SMS_REPLIES_COPY.sectionTitle}>
         <p className="text-sm text-muted-foreground">
@@ -174,35 +182,43 @@ export const ServeSmsRepliesSection = ({
     )
   }
 
+  // "All" only when one more press actually finishes the list, since a page
+  // is capped server-side. The header names `total`, and every one of those
+  // rows is now reachable, so the count is a promise the UI can keep.
+  const remaining = total - replies.length
+  const moreLabel =
+    remaining > SMS_OUTREACH_REPLIES_MAX_LIMIT
+      ? SERVE_SMS_REPLIES_COPY.showMore
+      : SERVE_SMS_REPLIES_COPY.showAll(total)
+
   return (
     <DetailsSection title={SERVE_SMS_REPLIES_COPY.sectionTitle}>
       <div className="overflow-hidden rounded-lg border border-border">
         <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
           <MessageSquareIcon className="size-4" />
-          {SERVE_SMS_REPLIES_COPY.count(data.total)}
+          {SERVE_SMS_REPLIES_COPY.count(total)}
         </div>
         <ul className="border-t border-border">
-          {data.replies.map((reply) => (
+          {replies.map((reply) => (
             <ReplyRow key={reply.id} reply={reply} />
           ))}
         </ul>
       </div>
-      {/* Hidden once the page is the server's ceiling: the button would
-          otherwise stay up on a send with more than MAX replies and do
-          nothing, since a larger limit is clamped back to the same page. */}
-      {data.replies.length < data.total &&
-        limit < SMS_OUTREACH_REPLIES_MAX_LIMIT && (
-          <Button
-            type="button"
-            variant="link"
-            className="h-auto px-0 no-underline has-[>svg]:px-0"
-            onClick={() =>
-              setLimit(Math.min(data.total, SMS_OUTREACH_REPLIES_MAX_LIMIT))
-            }
-          >
-            {SERVE_SMS_REPLIES_COPY.showAll(data.total)}
-          </Button>
-        )}
+      {repliesQuery.hasNextPage && (
+        <Button
+          type="button"
+          variant="link"
+          disabled={repliesQuery.isFetchingNextPage}
+          className="h-auto px-0 no-underline has-[>svg]:px-0"
+          onClick={() => {
+            void repliesQuery.fetchNextPage()
+          }}
+        >
+          {repliesQuery.isFetchingNextPage
+            ? SERVE_SMS_REPLIES_COPY.loadingMore
+            : moreLabel}
+        </Button>
+      )}
     </DetailsSection>
   )
 }
