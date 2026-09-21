@@ -52,8 +52,8 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
-Severity ranks (0 = loudest): 0 counter blind spot — zero call sites but firing normally, a
-tooling alert, see DATA-2106 · 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
+Severity ranks (0 = loudest): 0 OKR anchor dormant (latched), see DATA-2421, or counter
+blind spot — zero call sites but firing normally, a tooling alert, see DATA-2106 · 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
 removed, name constant survives (DATA-2046) · 3 anomaly drop on an active elevated event · 4
 anomaly drop on any active/system event · 5 intent divergence · 6 dormant elevated · 7
 instrumented-never-observed · 8 dormant (collapsed to a single tail line in the digest).
@@ -68,14 +68,16 @@ uv run analytics_event_health.py
 Prints the dated digest section, inserts it newest-first at the top of
 `instrumentation_data/analytics-event-health-log.md` (the growing longitudinal history,
 below the header), and writes `analytics_event_health_state.json` (the flagged set, for
-next run's changes-since-last-run diff). Useful flags:
+next run's changes-since-last-run diff, plus the OKR latch records — their sticky
+pre-break reference survives only there). Useful flags:
 
 - `--today YYYY-MM-DD` — run "as of" a past date (replay / backfill).
 - `--json PATH` — also write the full per-event result JSON (gitignored; use it to dig into a flag).
 - `--no-log` — print only, do not write to the log.
 - `--csv PATH` / `--watchlist PATH` / `--state PATH` — override the default locations.
 
-Read the digest top-down: priority flags table first (ranks 0-7), then the dormant tail,
+Read the digest top-down: the dormant-OKR-anchor latch table and any "OKR dormancy checks
+degraded" line first, then the priority flags table (ranks 0-7), then the dormant tail,
 then changes-since-last-run, then metadata completeness, then watchlist proposals. The loud
 ones (rank 1-2) are what you route to Eng/PM; everything else is awareness.
 
