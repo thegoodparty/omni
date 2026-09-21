@@ -1,6 +1,8 @@
 import { addBusinessDays, parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { FastifyAdapter } from '@nestjs/platform-fastify'
 import { useTestService } from '@/test-service'
+import { RESULTS_UPLOAD_BODY_LIMIT_BYTES } from './util/outreachResultsBodyLimit.util'
 import {
   Outreach,
   OutreachStatus,
@@ -288,5 +290,127 @@ describe('POST /v1/outreach/admin/results/:outreachId', () => {
     })
     expect((await upload(RESULTS_CSV, true)).status).toBe(403)
     expect(await messageCount()).toBe(0)
+  })
+})
+
+describe('POST /v1/outreach/admin/results/:outreachId — send state', () => {
+  // The guard exists because the ingest's People DB fallback will happily
+  // attribute a reply to a real constituent even when the send has no
+  // recipient map. Without it, an upload against a draft writes message rows
+  // and lands reply/opt-out events on live CRM interaction rows for a send
+  // nobody ever received; `advanceToCompleted`'s CAS refuses only the final
+  // status flip, by which point those writes are committed.
+  const assertNothingWritten = async (outreachId: number) => {
+    expect(
+      await service.prisma.pollIndividualMessage.count({
+        where: { outreachId },
+      }),
+    ).toBe(0)
+  }
+
+  it('refuses a send that has not been paid for', async () => {
+    const draft = await createSend(OutreachStatus.pending_payment)
+    const result = await upload(RESULTS_CSV, false, draft.id)
+    expect(result.status).toBe(409)
+    await assertNothingWritten(draft.id)
+  })
+
+  it('refuses a send that is paid but not yet handed to fulfilment', async () => {
+    const waiting = await createSend(OutreachStatus.pending)
+    await addRecipients(waiting.id)
+    const result = await upload(RESULTS_CSV, false, waiting.id)
+    expect(result.status).toBe(409)
+    await assertNothingWritten(waiting.id)
+  })
+
+  it('refuses a canceled send', async () => {
+    const canceled = await createSend(OutreachStatus.canceled)
+    await addRecipients(canceled.id)
+    expect((await upload(RESULTS_CSV, false, canceled.id)).status).toBe(409)
+    await assertNothingWritten(canceled.id)
+  })
+
+  it('refuses a claimed send whose recipient map has not been written yet', async () => {
+    // Delivery flips the spine to `in_progress` a beat before it resolves the
+    // audience. In that window the status alone would let an upload through
+    // with nothing for a reply phone to match against.
+    const claimed = await createSend(OutreachStatus.in_progress)
+    expect((await upload(RESULTS_CSV, false, claimed.id)).status).toBe(409)
+    await assertNothingWritten(claimed.id)
+  })
+
+  it('accepts a completed send, because a re-upload is idempotent', async () => {
+    await upload(RESULTS_CSV, false)
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.completed)
+    expect((await upload(RESULTS_CSV, false)).status).toBe(201)
+  })
+
+  it('still opens the page for an undispatched send: only the upload is gated', async () => {
+    const draft = await createSend(OutreachStatus.pending_payment)
+    const result = await getTarget(draft.id)
+    expect(result.status).toBe(200)
+    expect(result.data.recipientCount).toBe(0)
+    expect(result.data.sentAt).toBeNull()
+  })
+})
+
+describe('POST /v1/outreach/admin/results/:outreachId — body size', () => {
+  // A results CSV is a raw string inside a JSON body, and the adapter in
+  // src/app.ts sets no bodyLimit, so Fastify's 1 MiB default applied here
+  // until a route-scoped limit was added. That made the endpoint's own 5MB
+  // cap unreachable: a real file for a large send was refused with an opaque
+  // 413 before any readable sentence could be produced.
+  const FASTIFY_DEFAULT_BODY_LIMIT = 1024 * 1024
+
+  // Both phones are on the recipient map, so nothing reaches the People DB
+  // fallback and the test stays off the network.
+  const bigCsv = (rows: number) => {
+    const content = 'The crossing on Elm still needs work. '.repeat(6)
+    const lines = ['Contact Phone Number,Message Text,Sent At']
+    for (let i = 0; i < rows; i += 1) {
+      const phone = i % 2 === 0 ? '3035550101' : '3035550102'
+      lines.push(`${phone},${content},2026-08-11T15:04:05.000Z`)
+    }
+    return lines.join('\n')
+  }
+
+  it("accepts a results file larger than Fastify's default limit", async () => {
+    const csv = bigCsv(5000)
+    const body = {
+      fileName: 'results.csv',
+      csv,
+      dryRun: true,
+      sourceLabel: 'gp-admin upload by staffer@goodparty.org',
+    }
+    // Assert the fixture is actually testing what it claims: if this ever
+    // falls under the default, the test below would pass for the wrong
+    // reason.
+    expect(Buffer.byteLength(JSON.stringify(body), 'utf8')).toBeGreaterThan(
+      FASTIFY_DEFAULT_BODY_LIMIT,
+    )
+    expect(RESULTS_UPLOAD_BODY_LIMIT_BYTES).toBeGreaterThan(
+      FASTIFY_DEFAULT_BODY_LIMIT,
+    )
+
+    const result = await post(outreach.id, body)
+
+    expect(result.status).toBe(201)
+    expect(result.data.rowsParsed).toBe(5000)
+    expect(result.data.matched).toBe(5000)
+  })
+
+  it('leaves every other route on the default limit', () => {
+    // The point of scoping it: widening the limit for ~380 endpoints, several
+    // of them public, to fix one staff upload would be a real change in
+    // exposure. Asserted on the server's own frozen config rather than by
+    // posting an oversized body to a second route — Fastify tears the socket
+    // down mid-upload when it refuses one, so that request races and reports
+    // EPIPE instead of a status. This fails the moment someone raises the
+    // adapter's limit in src/app.ts instead of scoping it here.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const adapter = service.app.getHttpAdapter() as FastifyAdapter
+    expect(adapter.getInstance().initialConfig.bodyLimit).toBe(
+      FASTIFY_DEFAULT_BODY_LIMIT,
+    )
   })
 })

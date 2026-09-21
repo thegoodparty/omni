@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -56,6 +57,30 @@ import { OutreachTextIngestService } from './outreachTextIngest.service'
 // make one promise rather than two.
 const RESULTS_EXPECTED_BUSINESS_DAYS = 3
 
+/**
+ * The only two spine states a send may take results in, and the reason the
+ * upload path is guarded where `getTarget` is not.
+ *
+ * `in_progress` is what the delivery layer's claim CAS leaves behind at
+ * handoff; `completed` is what this ingest's own CAS leaves behind once
+ * results have landed, and it stays uploadable because a re-upload is
+ * idempotent. Everything else — `pending`, `pending_payment`, `paid`,
+ * `canceled`, `denied` — describes a send that has NOT been dispatched.
+ *
+ * Without this guard an AdminOrM2M caller could upload against a draft. The
+ * ingest would find no recipient map, fall through to the People DB
+ * fallback, and attribute the replies to real constituents anyway: message
+ * rows written, reply and opt-out events applied to their CRM interaction
+ * rows, and the next send's opt-out scrub poisoned — all for a send nobody
+ * ever received. `advanceToCompleted`'s CAS refuses the status flip at the
+ * very end, but by then every one of those writes is committed, so the CAS
+ * is not a substitute for refusing the upload up front.
+ */
+const UPLOADABLE_STATUSES = [
+  OutreachStatus.in_progress,
+  OutreachStatus.completed,
+] as const
+
 // Only the delivery layer's own producer label reaches the ingest: A6 types
 // `sourceLabel` as a closed union of producers, and the request's free-text
 // label names a person, not a producer. The person is recorded in this
@@ -68,6 +93,7 @@ const INGEST_SOURCE = 'staff_upload' as const
 const SEND_SELECT = {
   id: true,
   name: true,
+  status: true,
   outreachType: true,
   organizationSlug: true,
   scheduledLocalDate: true,
@@ -80,6 +106,7 @@ const SEND_SELECT = {
 interface SendRow {
   id: number
   name: string | null
+  status: OutreachStatus | null
   outreachType: OutreachType
   organizationSlug: string | null
   scheduledLocalDate: string | null
@@ -172,7 +199,7 @@ export class OutreachResultsAdminService extends createPrismaBase(
     outreachId: number,
     input: OutreachResultsUploadRequest,
   ): Promise<OutreachResultsParseReport> {
-    await this.requireTextSend(outreachId)
+    await this.requireDispatchedSend(outreachId)
 
     const parsed = checkResultsCsv(input)
     if (!parsed.ok) throw new BadRequestException(parsed.error)
@@ -217,6 +244,39 @@ export class OutreachResultsAdminService extends createPrismaBase(
     })
     if (!send) {
       throw new NotFoundException(`No text outreach ${outreachId}`)
+    }
+    return send
+  }
+
+  /**
+   * The upload's extra gate: a send that fulfilment never received cannot
+   * have results. 409 rather than 404 or 400 — the send exists and the file
+   * may be perfectly good, it is the send that is in the wrong state, and
+   * saying so is what stops the operator re-checking a file that was never
+   * the problem.
+   *
+   * Two conditions, because neither alone is the handoff. The status is the
+   * durable answer; the recipient map closes the window between the claim
+   * CAS and the map being written, which is the only moment an `in_progress`
+   * send has nothing for a reply phone to match against.
+   */
+  private async requireDispatchedSend(outreachId: number): Promise<SendRow> {
+    const send = await this.requireTextSend(outreachId)
+    if (!UPLOADABLE_STATUSES.some((status) => status === send.status)) {
+      throw new ConflictException(
+        `Outreach ${outreachId} has not been sent yet, so it cannot have ` +
+          'results. Nothing was written.',
+      )
+    }
+    const dispatched = await this.client.outreachTextRecipient.findFirst({
+      where: { outreachId },
+      select: { id: true },
+    })
+    if (!dispatched) {
+      throw new ConflictException(
+        `Outreach ${outreachId} has no recipients on record, so fulfilment ` +
+          'has not received it yet. Nothing was written.',
+      )
     }
     return send
   }
