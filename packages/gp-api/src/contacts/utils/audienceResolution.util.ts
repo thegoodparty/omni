@@ -8,11 +8,21 @@ import {
 
 // Resolves a saved filter into an SMS-reachable audience, one page at a time.
 //
-// Lifted verbatim out of P2pPhoneListUploadService.buildPhoneList (ENG-10801
-// and its neighbours) so the Peerly phone-list upload and the shared text
-// delivery layer resolve the same audience the same way while each writes its
-// own CSV. The behavior below is the Peerly loop's behavior; change it here
-// only with both callers in mind.
+// Lifted out of P2pPhoneListUploadService.buildPhoneList (ENG-10801 and its
+// neighbours) so the Peerly phone-list upload and the shared text delivery
+// layer resolve the same audience the same way while each writes its own CSV.
+// Change it here only with both callers in mind.
+//
+// What came across from that loop: hasCellPhone forced on the filter,
+// skipCount paging, the skip of a row people-api gives no phone for, the
+// cross-page phone dedupe and its count, the per-page recipient cap, and the
+// runaway-page guard.
+//
+// What deliberately did NOT: Peerly's requirement that state, city and zip
+// all be present. That one is the vendor's rule, not the channel's — Peerly
+// counts an incomplete address as a malformed lead, and a caller that needs
+// it (or any other per-caller row requirement) has to pass it as isEligible.
+// P2pPhoneListUploadService.hasGeoTargetableAddress is the worked example.
 //
 // A plain function rather than an injectable service, deliberately: callers
 // hand it the ContactsService they already inject, so adding a second consumer
