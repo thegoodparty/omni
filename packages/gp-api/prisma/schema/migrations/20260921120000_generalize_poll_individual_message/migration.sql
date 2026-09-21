@@ -18,8 +18,24 @@ ALTER COLUMN "poll_id" DROP NOT NULL;
 -- Win outreach row legitimately carries both campaignId and organization_slug).
 -- A message row belongs to one product or the other, never both and never
 -- neither.
+--
+-- Added NOT VALID, then validated separately. The comment above is about
+-- whether the constraint can FAIL on existing rows (it cannot) — which is a
+-- different question from how long it LOCKS. A plain ADD CONSTRAINT scans
+-- every row under ACCESS EXCLUSIVE regardless of the outcome, and this table
+-- carries one row per SMS exchange across every poll ever run, so that scan
+-- would block all reads and writes for the duration. NOT VALID takes a brief
+-- lock and skips the scan; VALIDATE then does the scan under SHARE UPDATE
+-- EXCLUSIVE, which blocks neither.
+--
+-- Note the sibling outreach_scope_check migration makes the same conflation in
+-- its comment. Not changed here (migrations are immutable once applied), but
+-- it is not a precedent to copy.
 ALTER TABLE "poll_individual_message" ADD CONSTRAINT "poll_individual_message_scope_check"
-  CHECK (num_nonnulls("poll_id", "outreach_id") = 1);
+  CHECK (num_nonnulls("poll_id", "outreach_id") = 1) NOT VALID;
+
+ALTER TABLE "poll_individual_message"
+  VALIDATE CONSTRAINT "poll_individual_message_scope_check";
 
 -- CreateTable
 CREATE TABLE "outreach_text_recipient" (
