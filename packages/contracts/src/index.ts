@@ -952,6 +952,12 @@ export {
 export {
   SmsOutreachResultsSchema,
   type SmsOutreachResults,
+  SmsOutreachReplySchema,
+  type SmsOutreachReply,
+  SmsOutreachRepliesSchema,
+  type SmsOutreachReplies,
+  SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
+  SMS_OUTREACH_REPLIES_MAX_LIMIT,
 } from './outreach/OutreachResults.schema'
 
 export {

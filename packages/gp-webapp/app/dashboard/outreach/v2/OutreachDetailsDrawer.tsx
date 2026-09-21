@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  SmsOutreachResults,
   OutreachReceipt,
   PhoneBankCallOutcome,
   PhoneBankingOutreachDetail,
@@ -65,6 +64,8 @@ import {
   useOutreachDetail,
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
+import { useSmsResults } from './useOutreachResults'
+import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
@@ -269,18 +270,19 @@ export const OutreachDetailsDrawer = ({
 
   // The Statistics card (design prototype): counts + share of contacts for
   // a finished text campaign. Numbers refresh with the hourly report sweep.
-  const resultsQuery = useQuery({
-    queryKey: ['outreach-results', row?.id ?? -1],
-    queryFn: async (): Promise<SmsOutreachResults> => {
-      const { data } = await clientRequest('GET /v1/outreach/:id/results', {
-        id: String(row?.id),
-      })
-      return data
-    },
-    enabled: row !== null && isSms && isCompleted,
-    retry: false,
-    staleTime: 5 * 60 * 1000,
-  })
+  //
+  // The SAME card on both surfaces, from the same three numbers — the design
+  // renders one three-row card for the sms and polls channels alike, which is
+  // exactly SmsOutreachResultsSchema. Only the network differs, so the
+  // surface names itself and the hook picks both the endpoint and the cache
+  // key from that; Win's read is unchanged. The key has to carry the scope —
+  // both surfaces share one QueryClient and number their rows from the same
+  // table, so a scope-less key would let one answer for the other.
+  const resultsQuery = useSmsResults(
+    row?.id ?? null,
+    isSms && isCompleted,
+    isServe ? 'serve' : 'win',
+  )
   const results = resultsQuery.data ?? null
   const statRows = results
     ? [
@@ -391,7 +393,7 @@ export const OutreachDetailsDrawer = ({
   // Prototype byline verbs ("Scheduled for {date}" / "Sent {date}"); our
   // extra legacy statuses (Draft, In review, …) have no prototype verb and
   // keep the bare date.
-  const statusLabel = row ? getHistoryStatusLabel(row) : null
+  const statusLabel = row ? getHistoryStatusLabel(row, isServe) : null
   const bylineVerb =
     statusLabel === 'Scheduled'
       ? 'Scheduled for'
@@ -790,6 +792,14 @@ export const OutreachDetailsDrawer = ({
                   ))}
                 </div>
               </DetailsSection>
+            )}
+
+            {/* Read-only for v1: no heart, no unread dot, no composer and no
+                filters — see ServeSmsRepliesSection's own note. Serve-only
+                because reply CONTENT only exists for sends that came back
+                through the shared ingest. */}
+            {isServe && isSms && isCompleted && (
+              <ServeSmsRepliesSection outreachId={row.id} />
             )}
 
             {isPaidFlowSms && (
