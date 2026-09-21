@@ -1403,3 +1403,88 @@ def test_unsaved_edits_ignores_a_row_the_state_has_never_heard_of():
     field reads as an edit — which is the safe direction: refuse rather than overwrite."""
     parsed = {"Unknown": {"fires_on": "something"}}
     assert ea._unsaved_edits(parsed, {}) == ["Unknown"]
+
+
+def _queued(confidence, url, **kw):
+    entry = {"fires_on": "Somewhere in the app, on click.", "url": url,
+             "confidence": confidence, "flag_reason": "", "evidence": "a.tsx:1",
+             "disposition": "new", "reason": "", "first_seen": "2026-09-11",
+             "last_seen": "2026-09-11", "written_date": ""}
+    entry.update(kw)
+    return entry
+
+
+def test_accept_confident_accepts_a_high_confidence_row_with_a_url():
+    state = {"E": _queued("high", "/dashboard")}
+    out, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == ["E"]
+    assert out["E"]["disposition"] == "accepted"
+    assert "2026-09-21" in out["E"]["reason"]
+    # The caller's state is not mutated, matching merge_verdicts.
+    assert state["E"]["disposition"] == "new"
+
+
+def test_accept_confident_leaves_a_flagged_row_queued():
+    state = {"E": _queued("low", "", flag_reason="no_route")}
+    out, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == []
+    assert out["E"]["disposition"] == "new"
+
+
+def test_accept_confident_skips_a_high_confidence_row_with_no_url():
+    # A confident prose line with no path is still a row a person should look at.
+    state = {"E": _queued("high", "")}
+    _, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == []
+
+
+def test_accept_confident_never_overwrites_a_decision_a_human_made():
+    state = {
+        "Dismissed": _queued("high", "/x", disposition="dismissed", reason="autotrack"),
+        "Accepted": _queued("high", "/y", disposition="accepted", reason="checked it"),
+    }
+    out, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == []
+    assert out["Dismissed"]["reason"] == "autotrack"
+    assert out["Accepted"]["reason"] == "checked it"
+
+
+def test_accept_confident_accepts_an_open_row_the_reviewer_left_queued():
+    state = {"E": _queued("high", "/dashboard", disposition="open")}
+    _, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == ["E"]
+
+
+def test_accepted_rows_drop_out_of_the_review_queue_so_only_flagged_ones_remain():
+    # This is the point of the bulk accept: 362 rows is not a real review ask, and the
+    # rendered queue is what a human actually opens.
+    state = {"Confident": _queued("high", "/dashboard"),
+             "Flagged": _queued("low", "", flag_reason="no_route")}
+    out, _ = ea.accept_confident(state, "2026-09-21")
+    rendered = ea.render_review_artifact(out, "2026-09-21")
+
+    assert "## Flagged" in rendered
+    assert "## Confident" not in rendered
+
+
+def test_main_accept_confident_saves_and_reports_what_is_left(tmp_path, capsys):
+    state_path = tmp_path / "anchors.json"
+    state_path.write_text(json.dumps({
+        "Confident": _queued("high", "/dashboard"),
+        "Flagged": _queued("low", "", flag_reason="dynamic_dispatch"),
+    }))
+
+    rc = ea.main(["--state", str(state_path), "--accept-confident",
+                  "--today", "2026-09-21"])
+
+    assert rc == 0
+    saved = json.loads(state_path.read_text())
+    assert saved["Confident"]["disposition"] == "accepted"
+    assert saved["Flagged"]["disposition"] == "new"
+    out = capsys.readouterr().out
+    assert "accepted 1" in out and "1 left queued" in out

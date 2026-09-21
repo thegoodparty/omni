@@ -680,6 +680,27 @@ def merge_verdicts(state: dict, verdicts: Mapping[str, dict],
     return out
 
 
+def accept_confident(state: dict, today: str) -> tuple[dict, list[str]]:
+    """Accept every still-queued row the code could prove: high confidence with a URL it
+    derived. Reviewing 362 rows by hand is not a real ask, and these are the ones a human
+    would accept unchanged. A flagged row is never accepted here — low confidence means
+    the code could not establish the anchor, which is exactly the case that needs a
+    person. Copies each entry rather than mutating the caller's state."""
+    out = {event_id: dict(entry) for event_id, entry in state.items()}
+    accepted = []
+    for event_id in sorted(out):
+        entry = out[event_id]
+        if entry.get("disposition") not in ("new", "open"):
+            continue
+        if entry.get("confidence") != "high" or not entry.get("url"):
+            continue
+        entry["disposition"] = "accepted"
+        if not entry.get("reason"):
+            entry["reason"] = f"bulk-accepted {today}: high confidence, code-derived URL"
+        accepted.append(event_id)
+    return out, accepted
+
+
 def render_review_artifact(state: Mapping, today: str) -> str:
     """The fill-in-the-blanks review surface. Drafted values sit on editable lines with
     the evidence above them, because an anchor is a draft to correct, not a fact to
@@ -961,6 +982,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                              "judge runs). Existing skips still apply to a named event.")
     parser.add_argument("--no-judge", action="store_true")
     parser.add_argument("--list-new", action="store_true")
+    parser.add_argument("--accept-confident", action="store_true",
+                        help="accept every queued row the code could prove (high "
+                             "confidence with a URL), leaving only flagged rows to review")
     parser.add_argument("--review-artifact", type=Path, nargs="?",
                         const=DEFAULT_REVIEW_ARTIFACT,
                         help="render the queue for review; bare flag writes the "
@@ -976,6 +1000,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         for event_id in sorted(state):
             if state[event_id].get("disposition") in ("new", "open"):
                 print(event_id)
+        return 0
+
+    if args.accept_confident:
+        state, accepted = accept_confident(state, today)
+        save_state(args.state, state)
+        queued = sum(1 for e in state.values()
+                     if e.get("disposition") in ("new", "open"))
+        print(f"event-anchors: accepted {len(accepted)} high-confidence row(s), "
+              f"{queued} left queued for review")
         return 0
 
     if args.load_review:
