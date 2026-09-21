@@ -1626,6 +1626,33 @@ describe('QueueConsumerService - message type routing', () => {
       excludedOptedOutCount: 0,
       excludedDuplicateCount: 0,
       sendKey: '9-1.csv',
+      terminalReason: 'not_sendable',
+    })
+
+    const result = await service.processMessage(
+      outreachTextSendMessage({ outreachId: 9, sendSeq: 1 }),
+    )
+
+    expect(result).toBe(true)
+  })
+
+  // An audience that scrubs down to nobody is terminal too: the same filter
+  // resolves to the same nobody on every redelivery, so a throw here would
+  // spend the whole redrive budget before reaching the DLQ.
+  it('acknowledges a send whose audience resolved to nobody', async () => {
+    mockOutreachService.model.findUnique.mockResolvedValue({
+      message: 'Budget hearing Tuesday.',
+      imageUrl: null,
+      scheduledLocalDate: '2026-10-08',
+      voterFileFilterId: 5,
+    })
+    mockOutreachTextDelivery.requestSend.mockResolvedValue({
+      audienceResolved: false,
+      recipientCount: 0,
+      excludedOptedOutCount: 0,
+      excludedDuplicateCount: 0,
+      sendKey: '9-1.csv',
+      terminalReason: 'empty_audience',
     })
 
     const result = await service.processMessage(

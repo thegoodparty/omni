@@ -571,15 +571,23 @@ export class QueueConsumerService {
       scheduledLocalDate,
     })
 
-    // Zeros with `audienceResolved: false` is the spine refusing the send —
-    // canceled, unpaid, or already sent. `requestSend` returns rather than
-    // throwing for exactly this case, and it is terminal: the row will never
-    // become sendable, so ack it instead of redelivering until the DLQ.
-    if (!result.audienceResolved && result.recipientCount === 0) {
+    // `terminalReason` means nothing was handed off and nothing ever will be.
+    // `requestSend` returns rather than throwing for exactly these cases,
+    // because a redelivery would hit the same wall: ack instead of burning
+    // the redrive budget on the way to the DLQ.
+    if (result.terminalReason) {
       this.logger.warn(
-        { outreachId, sendSeq, sendKey: result.sendKey },
-        'outreachTextSend: nothing was sent — the outreach was not pending, ' +
-          'or a previous attempt already handed off this send',
+        {
+          outreachId,
+          sendSeq,
+          sendKey: result.sendKey,
+          terminalReason: result.terminalReason,
+        },
+        result.terminalReason === 'empty_audience'
+          ? 'outreachTextSend: nothing was sent — the audience resolved to ' +
+              'nobody after the opt-out scrub; the row is now failed'
+          : 'outreachTextSend: nothing was sent — the outreach was not ' +
+              'pending, or a previous attempt already handed off this send',
       )
       return true
     }

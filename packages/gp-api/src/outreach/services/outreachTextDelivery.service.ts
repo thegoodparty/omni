@@ -84,6 +84,13 @@ export interface RequestSendResult {
   excludedDuplicateCount: number
   /** The deterministic S3 key this send's recipient CSV was written under. */
   sendKey: string
+  /**
+   * Set only when nothing was handed off and never will be, so the caller
+   * can ack rather than redeliver. `not_sendable` is the spine refusing the
+   * claim (canceled, unpaid, already sent); `empty_audience` is a claimed
+   * send whose list resolved to nobody, which leaves the row `failed`.
+   */
+  terminalReason?: 'not_sendable' | 'empty_audience'
 }
 
 /**
@@ -242,6 +249,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         excludedOptedOutCount: 0,
         excludedDuplicateCount: 0,
         sendKey,
+        terminalReason: 'not_sendable',
       }
     }
 
@@ -304,13 +312,31 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         excludePersonIds,
       )
       if (resolved.recipients.length === 0) {
-        // Nothing is written and nothing is handed off; the caller's revert
-        // returns the row to `pending` so the send can be retried once the
-        // list is fixed.
-        throw new BadRequestException(
-          'No contacts matched this send with a valid cell phone after the ' +
-            'opt-out scrub — widen the audience and try again.',
+        // Nothing is written and nothing is handed off. This is terminal, not
+        // transient: the same filter will resolve to the same nobody on every
+        // redelivery, so throwing would burn the redrive budget and then DLQ.
+        // Reverting to `pending` instead would strand it — nothing re-enqueues
+        // a pending row, and a Serve row reads "In review", which tells the
+        // official a human is working a send that will never go out. `failed`
+        // is the honest terminal state and already renders "Couldn't send".
+        await this.client.outreach.updateMany({
+          where: { id: outreachId, status: OutreachStatus.in_progress },
+          data: { status: OutreachStatus.failed },
+        })
+        this.logger.error(
+          { outreachId, sendSeq, sendKey },
+          'Text send failed: no contacts matched with a valid cell phone ' +
+            'after the opt-out scrub. The row is already paid, so this one ' +
+            'needs a refund decision.',
         )
+        return {
+          audienceResolved: false,
+          recipientCount: 0,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
+          sendKey,
+          terminalReason: 'empty_audience',
+        }
       }
       audienceResolved = true
       excludedDuplicateCount = resolved.excludedDuplicateCount

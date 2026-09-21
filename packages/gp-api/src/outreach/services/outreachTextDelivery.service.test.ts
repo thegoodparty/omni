@@ -500,24 +500,29 @@ describe('OutreachTextDeliveryService', () => {
     expect(await statusOf(outreach.id)).toBe(OutreachStatus.pending)
   })
 
-  it('hands off nothing when the audience resolves empty', async () => {
+  it('fails the row rather than throwing when the audience resolves empty', async () => {
     const { outreach, filter } = await seedSend()
     vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
       peoplePage([]),
     )
 
-    await expect(
-      delivery.requestSend(
-        input(outreach.id, {
-          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
-        }),
-      ),
-    ).rejects.toThrow(BadRequestException)
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+      }),
+    )
 
     expect(s3.uploadFile).not.toHaveBeenCalled()
     expect(handoffPort.send).not.toHaveBeenCalled()
-    // The claim is handed back, so fixing the list and retrying works.
-    expect(await statusOf(outreach.id)).toBe(OutreachStatus.pending)
+    // Terminal, so the caller acks. `pending` would strand it — nothing
+    // re-enqueues a pending row, and the history list would keep claiming a
+    // human is working a send that will never go out.
+    expect(result).toMatchObject({
+      audienceResolved: false,
+      recipientCount: 0,
+      terminalReason: 'empty_audience',
+    })
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.failed)
   })
 
   it('rejects a saved list that belongs to another organization', async () => {
