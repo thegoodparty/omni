@@ -483,15 +483,24 @@ def test_find_call_sites_four_live_repo_cases_verified():
     if hits:
         assert all(h["kind"] == "literal" for h in hits), "Should be literal hits"
 
-    # Case 4: Navigation - Dashboard: Click Door Knocking (declaration-only)
-    hits = ea.find_call_sites(
-        "Navigation - Dashboard: Click Door Knocking",
-        reg.get("Navigation - Dashboard: Click Door Knocking"),
-        files
+    # Case 4: a declaration-only event resolves to exactly its declaration and nothing
+    # else. The subject is derived from the registry rather than named: this case used to
+    # name `Navigation - Dashboard: Click Door Knocking`, and retiring that event
+    # (DATA-2424) made `reg.get` return None, `find_call_sites` return [], and the
+    # `if hits:` guard skip every assertion — a green test verifying nothing. Deriving the
+    # subject means retiring any single event can no longer hollow the case out.
+    declaration_only = sorted(
+        name for name, key_path in reg.items()
+        if (found := ea.find_call_sites(name, key_path, files))
+        and all(h["kind"] == "declaration" for h in found)
     )
-    if hits:
-        kinds = {h["kind"] for h in hits}
-        assert "declaration" in kinds or not kinds, "Should be declaration-only or empty"
+    assert declaration_only, "expected at least one declaration-only event in the registry"
+    subject = declaration_only[0]
+    hits = ea.find_call_sites(subject, reg.get(subject), files)
+    assert hits, f"{subject} should resolve to its declaration"
+    assert {h["kind"] for h in hits} == {"declaration"}, (
+        f"{subject} should be declaration-only, got {[h['kind'] for h in hits]}"
+    )
 
 
 PAGES = [
