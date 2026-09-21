@@ -30,6 +30,7 @@ import { professionalAdviceDisclaimer } from '../services/professionalAdviceChec
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
+  LEGAL_LINE,
 } from './campaignManagerPrompt'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 import {
@@ -472,12 +473,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     return tools
   }
 
-  // The prompt's legal-and-compliance rules carry the caution. This shared
-  // finish-time check catches a reply shaped like legal advice (a statute
-  // citation, liability language, complaint filing) that skipped it, and
-  // appends the shared professional-advice line, not the prompt's own.
+  // The prompt's legal-and-compliance rules carry the caution. The shared
+  // finish-time check decides whether a reply is shaped like legal advice (a
+  // statute citation, liability language, complaint filing) and carries no
+  // caution; when it is, the candidate gets the same line the prompt asks
+  // for, so the wording does not depend on which path supplied it.
   finalizeAssistantText(text: string): string | null {
-    return professionalAdviceDisclaimer(text)
+    return professionalAdviceDisclaimer(text) === null
+      ? null
+      : `\n\n${LEGAL_LINE}`
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the

@@ -41,7 +41,12 @@ import {
   LEGAL_LINE,
   type CampaignManagerContext,
 } from '../campaignManagerPrompt'
-import { NOT_YET_FILED_FIXTURE } from './fixtures/notYetFiledCandidate.fixture'
+import type { ElectionsService } from '@/elections/services/elections.service'
+import { buildGetBallotRequirementsTool } from '../getBallotRequirements.tool'
+import {
+  BALLOT_DATA_FULL,
+  NOT_YET_FILED_FIXTURE,
+} from './fixtures/notYetFiledCandidate.fixture'
 
 const RUN = process.env.RUN_LLM_EVALS === '1'
 const d = RUN ? describe : describe.skip
@@ -54,8 +59,11 @@ const TIMEOUT_MS = 90000
 // the prompt line that advertises it on together, so they cannot drift.
 // Production always registers the tool; cases turn it off where the
 // question should not lean on it.
+// notYetFiled swaps in the candidate who has not filed, so the ballot-access
+// guidance renders alongside the legal rules, with the ballot tool wired.
 interface LegalEvalCase extends EvalCase {
   helpCenter?: boolean
+  notYetFiled?: boolean
   mustNotCallTools?: string[]
 }
 
@@ -107,8 +115,19 @@ const HELP_CENTER_STUB: HelpCenterSearchResult = {
   ],
 }
 
-const buildTools = (helpCenter: boolean): Record<string, LlmTool> => ({
+const buildTools = (
+  helpCenter: boolean,
+  notYetFiled: boolean,
+): Record<string, LlmTool> => ({
   web_search: webSearchStub,
+  ...(notYetFiled && {
+    get_ballot_requirements: buildGetBallotRequirementsTool({
+      elections: {
+        fetchFilingFeeByRaceHash: () => Promise.resolve(BALLOT_DATA_FULL),
+      } as unknown as Pick<ElectionsService, 'fetchFilingFeeByRaceHash'>,
+      raceId: NOT_YET_FILED_FIXTURE.raceId ?? '',
+    }),
+  }),
   ...(helpCenter && {
     // The REAL tool, so its description is exercised; only the lookup is
     // stubbed.
@@ -123,7 +142,11 @@ const ask = async (
   c: LegalEvalCase,
 ): Promise<{ response: string; calls: string[] }> => {
   const helpCenter = c.helpCenter ?? false
-  const ctx = { ...ON_BALLOT, helpCenterToolEnabled: helpCenter }
+  const notYetFiled = c.notYetFiled ?? false
+  const ctx = {
+    ...(notYetFiled ? NOT_YET_FILED_FIXTURE : ON_BALLOT),
+    helpCenterToolEnabled: helpCenter,
+  }
   const messages: LlmMessage[] = [
     { role: 'system', content: buildCampaignManagerSystemPrompt(ctx) },
     { role: 'user', content: c.userMessage },
@@ -131,7 +154,7 @@ const ask = async (
   const calls: string[] = []
   const result = await svc.streamChatCompletion({
     messages,
-    tools: buildTools(helpCenter),
+    tools: buildTools(helpCenter, notYetFiled),
     temperature: 0,
     // Generous: the model usually puts the legal line last, and a truncated
     // reply would lose it for the wrong reason.
@@ -216,6 +239,18 @@ const CASES: LegalEvalCase[] = [
     custom: legalAnswer,
   },
 
+  {
+    name: 'ballot, not yet filed: signatures and deadline',
+    // The ballot-access guidance owns this answer and has its own step of
+    // confirming with the filing office. The legal rules carve it out, so
+    // the reply carries that one confirmation and not the legal line too.
+    userMessage:
+      'How many signatures do I need to get on the ballot, and when is the ' +
+      'filing deadline?',
+    notYetFiled: true,
+    mustContain: [/filing office|county clerk|election office/i],
+    mustNotContain: [/not a substitute for legal advice/i],
+  },
   {
     name: 'product how-to: no legal caution',
     userMessage: 'How do I build a voter list to text from inside GoodParty?',

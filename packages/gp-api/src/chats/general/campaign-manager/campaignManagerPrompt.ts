@@ -424,7 +424,8 @@ const searchRulesBlock = (ctx: CampaignManagerContext): string | null =>
 // not the law for this candidate's state and office, so it keeps the two
 // apart and says what it cannot settle. The line is fixed so the
 // finish-time check (professionalAdviceCheck.ts) recognizes it as the caution
-// and does not stack a second one on the same reply.
+// and does not stack a second one on the same reply, and so the handler can
+// append this same line when that check fires.
 export const LEGAL_LINE =
   'This is not a substitute for legal advice. Confirm it with the relevant ' +
   'election or regulatory authority, or an election attorney.'
@@ -433,7 +434,8 @@ const LEGAL_AND_COMPLIANCE_RULES = [
   "LEGAL AND COMPLIANCE (route by the user's underlying intent)",
   'A request is a legal or compliance question when the user is asking ' +
     'what the law allows, prohibits, requires, or whether conduct is ' +
-    'legally compliant.',
+    'legally compliant. Getting on the ballot and filing to run have their ' +
+    'own guidance and are not part of this.',
   'Ordinary campaign work is not a legal question just because it happens ' +
     'in a regulated context. Drafting, strategy, product how-tos, and tool ' +
     'use should be handled with support from the GoodParty product map and ' +

@@ -470,6 +470,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     ]) {
       expect(prompt).toContain('underlying intent')
       expect(prompt).toContain('what the law allows, prohibits, requires')
+      expect(prompt).toContain('Getting on the ballot and filing to run')
     }
   })
 
