@@ -679,12 +679,13 @@ Each slice ships independently and leaves the product working.
    opt-out predicate, the message-row generalization migration, the
    `ContactInteractionText` write-back, spine completion. Plus the gp-admin
    upload page, the per-send Slack button, the results inbox, and the
-   server-side route by outreach type. **Polls moves onto this upload in the
-   same slice**, with its file written to the bucket so the pipeline runs
-   exactly as it does today. Fulfillment's workflow changes once, here, and
-   never again. Includes retiring the `aws s3 cp` line, which **requires the
-   e2e pre-work PR to have landed on main first** or the poll e2e breaks after
-   the final merge with no PR having caught it. See Layer 1, inbound.
+   server-side route by outreach type. **SMS only** (reversed 2026-09-21).
+   The route branches on outreach type from the start, so polls moving onto
+   it later is a re-point rather than a rewrite — but polls keeps its
+   `aws s3 cp` line and its current workflow until the first customer is live
+   end to end. That follow-up is what retires the line, and it **requires the
+   e2e pre-work PR to have landed on main first** or the poll e2e breaks with
+   no PR having caught it. See Layer 1, inbound.
 3. **SMS results.** Org-scope `getSmsResults`, the Statistics card, the
    collapsed row summary, the read-only reply list.
 4. **Polls onto delivery.** Repoint the poll send at `requestSend` and the poll
@@ -798,11 +799,13 @@ expansion.** Every theme-shaped item below is a polls-layer question in slice
   confirms before B2 merges. Owner: Stephen. This is the only slice visible
   outside the team on the day it lands.
 
-The `aws s3 cp` line is retired in slice 2 rather than kept as a fallback
-(decided 2026-09-18): uploading results was its only use. Polls is assumed to
-be working as it stands; this design does not reopen it beyond moving its
-upload, and the confirm-before-commit step is specified as a property of the
-new surface rather than as a fix for anything observed.
+The `aws s3 cp` line **stays** (reversed 2026-09-21; the 2026-09-18 decision
+retired it in slice 2). Slice 2 is SMS-only, and moving polls onto the upload
+surface is a follow-up sequenced after the first customer is live end to end
+— see the reversal note in the slice 2 section. Polls is assumed to be working
+as it stands; this design does not reopen it, and the confirm-before-commit
+step is specified as a property of the new surface rather than as a fix for
+anything observed.
 
 ## Open questions
 
