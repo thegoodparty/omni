@@ -143,8 +143,8 @@ async def run_agent(config: AgentConfig) -> dict:
         allowed_tools=CAPABILITIES["sdk_tools"],
         permission_mode="bypassPermissions",
         cwd=config.workspace_dir,
-        # 400, matching autopilot: 200 killed a legitimate large-story run
-        # with budget and deadline unspent, discarding all of its work.
+        # 400 (was 200, which killed a legitimate large-story run with budget
+        # and deadline unspent, discarding all of its work)
         max_turns=400,
         model=config.model,
         # Enforced by the SDK, which ends the run with an
