@@ -143,7 +143,9 @@ async def run_agent(config: AgentConfig) -> dict:
         allowed_tools=CAPABILITIES["sdk_tools"],
         permission_mode="bypassPermissions",
         cwd=config.workspace_dir,
-        max_turns=200,
+        # 400 (was 200, which killed a legitimate large-story run with budget
+        # and deadline unspent, discarding all of its work)
+        max_turns=400,
         model=config.model,
         # Enforced by the SDK, which ends the run with an
         # error_max_budget_usd result rather than us policing cost between
