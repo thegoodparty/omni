@@ -7,6 +7,14 @@ saved filters, outreach). `src/personProfiles/` also writes to HubSpot
 contacts directly (candidate profile-completion counter) rather than
 through this module.
 
+**Test users never reach the portal.** Every contact/company write path —
+`trackContact` and `submitCrmForm` (`crmUsers.service.ts`), `syncTeamMember`
+(`crmTeamMembers.service.ts`), `trackCampaign` (`crmCampaigns.service.ts`) —
+is gated on `isTestUser` (`src/users/util/users.util.ts`). Dev, previews, and
+prod share this one portal, so the E2E suite's `@test.goodparty.org` users
+(created on every merge) were piling up as billable marketing contacts. A new
+sync path must carry the same gate.
+
 ## Key files
 
 | Path                                | Owns                                                             |
