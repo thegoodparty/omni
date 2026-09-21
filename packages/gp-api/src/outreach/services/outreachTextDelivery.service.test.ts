@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common'
 import type { PeopleListResponse, Person } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MAX_RESOLVED_ID_SET_SIZE } from '@/contactInteraction/services/activityConditionResolution.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OutreachStatus, OutreachType } from '@/generated/prisma'
@@ -54,6 +55,7 @@ describe('OutreachTextDeliveryService', () => {
   let s3: ReturnType<typeof makeS3Stub>
   let handoffs: TextDeliveryHandoff[]
   let handoffPort: TextDeliveryHandoffPort
+  let warn: ReturnType<typeof vi.fn>
 
   const seedSend = async (
     opts: { status?: OutreachStatus; slug?: string } = {},
@@ -97,6 +99,16 @@ describe('OutreachTextDeliveryService', () => {
       orderBy: { personId: 'asc' },
     })
 
+  // A redelivery that matters is one where the previous attempt died before
+  // the spine advanced, so the row is still `pending`. Simulate that rather
+  // than calling requestSend twice against an `in_progress` row, which the
+  // claim correctly refuses.
+  const resetToPending = (outreachId: number) =>
+    service.prisma.outreach.update({
+      where: { id: outreachId },
+      data: { status: OutreachStatus.pending },
+    })
+
   const statusOf = async (outreachId: number) =>
     (
       await service.prisma.outreach.findUniqueOrThrow({
@@ -116,10 +128,11 @@ describe('OutreachTextDeliveryService', () => {
         return Promise.resolve()
       }),
     }
+    warn = vi.fn()
     const logger = {
       setContext: vi.fn(),
       info: vi.fn(),
-      warn: vi.fn(),
+      warn,
       error: vi.fn(),
     } as unknown as PinoLogger
 
@@ -197,6 +210,7 @@ describe('OutreachTextDeliveryService', () => {
     findContactsForFilter.mockResolvedValue(
       peoplePage([person('p-9', '5559990009')]),
     )
+    await resetToPending(outreach.id)
     const second = await delivery.requestSend(args)
 
     expect(second.sendKey).toBe(first.sendKey)
@@ -223,6 +237,7 @@ describe('OutreachTextDeliveryService', () => {
     findContactsForFilter.mockResolvedValue(
       peoplePage([person('p-2', '5551230002')]),
     )
+    await resetToPending(outreach.id)
     const second = await delivery.requestSend(
       input(outreach.id, {
         audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
@@ -348,9 +363,34 @@ describe('OutreachTextDeliveryService', () => {
     expect(result.excludedOptedOutCount).toBe(1)
   })
 
-  it('only advances the spine from pending', async () => {
+  it('hands a canceled send off to nobody', async () => {
     const { outreach, filter } = await seedSend({
       status: OutreachStatus.canceled,
+    })
+    const findContactsForFilter = vi
+      .spyOn(contacts, 'findContactsForFilter')
+      .mockResolvedValue(peoplePage([person('p-1', '5551230001')]))
+
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+      }),
+    )
+
+    // Nothing irreversible: no audience resolved, no CSV, no capture rows,
+    // and above all nothing sitting in a human's queue to send.
+    expect(findContactsForFilter).not.toHaveBeenCalled()
+    expect(s3.uploadFile).not.toHaveBeenCalled()
+    expect(handoffPort.send).not.toHaveBeenCalled()
+    expect(await recipientRows(outreach.id)).toHaveLength(0)
+    expect(await interactionRows(outreach.id)).toHaveLength(0)
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.canceled)
+    expect(result).toMatchObject({ recipientCount: 0 })
+  })
+
+  it('does nothing for a send the spine has already advanced', async () => {
+    const { outreach, filter } = await seedSend({
+      status: OutreachStatus.in_progress,
     })
     vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
       peoplePage([person('p-1', '5551230001')]),
@@ -362,7 +402,44 @@ describe('OutreachTextDeliveryService', () => {
       }),
     )
 
-    expect(await statusOf(outreach.id)).toBe(OutreachStatus.canceled)
+    expect(handoffPort.send).not.toHaveBeenCalled()
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
+  })
+
+  it('claims the send before resolving, so a cancel cannot race the handoff', async () => {
+    const { outreach, filter } = await seedSend()
+    // The claim has to land before the first irreversible step, so by the
+    // time the audience is being resolved the row is no longer cancelable.
+    vi.spyOn(contacts, 'findContactsForFilter').mockImplementation(async () => {
+      expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
+      return peoplePage([person('p-1', '5551230001')])
+    })
+
+    await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+      }),
+    )
+
+    expect(handoffPort.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives the claim back when the handoff fails, so a retry can run', async () => {
+    const { outreach, filter } = await seedSend()
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([person('p-1', '5551230001')]),
+    )
+    vi.mocked(handoffPort.send).mockRejectedValueOnce(new Error('slack down'))
+
+    await expect(
+      delivery.requestSend(
+        input(outreach.id, {
+          audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+        }),
+      ),
+    ).rejects.toThrow('slack down')
+
+    expect(await statusOf(outreach.id)).toBe(OutreachStatus.pending)
   })
 
   it('hands off nothing when the audience resolves empty', async () => {
@@ -381,6 +458,7 @@ describe('OutreachTextDeliveryService', () => {
 
     expect(s3.uploadFile).not.toHaveBeenCalled()
     expect(handoffPort.send).not.toHaveBeenCalled()
+    // The claim is handed back, so fixing the list and retrying works.
     expect(await statusOf(outreach.id)).toBe(OutreachStatus.pending)
   })
 
@@ -401,5 +479,38 @@ describe('OutreachTextDeliveryService', () => {
       ),
     ).rejects.toThrow(BadRequestException)
     expect(handoffPort.send).not.toHaveBeenCalled()
+  })
+
+  it('skips the scrub, loudly, when the opt-out set is over the id cap', async () => {
+    const { outreach, filter } = await seedSend()
+    // Seeding 100k rows is not a test; the cap check is what is under test,
+    // so stub the producer at the size that trips it.
+    const overCap = Array.from(
+      { length: MAX_RESOLVED_ID_SET_SIZE + 1 },
+      (_unused, i) => `opted-out-${i}`,
+    )
+    vi.spyOn(
+      service.app.get(ContactInteractionTextService),
+      'findOptedOutPersonIds',
+    ).mockResolvedValue(overCap)
+    const findContactsForFilter = vi
+      .spyOn(contacts, 'findContactsForFilter')
+      .mockResolvedValue(peoplePage([person('p-1', '5551230001')]))
+
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+      }),
+    )
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ optedOutCount: overCap.length }),
+      expect.stringContaining('exceeds the people-api id-filter cap'),
+    )
+    // The send proceeds unscrubbed rather than blocking, and the returned
+    // count cannot distinguish that from "nobody opted out" — see the PR body.
+    expect(findContactsForFilter.mock.calls[0]?.[3]).toEqual(new Set())
+    expect(result.excludedOptedOutCount).toBe(0)
+    expect(result.recipientCount).toBe(1)
   })
 })

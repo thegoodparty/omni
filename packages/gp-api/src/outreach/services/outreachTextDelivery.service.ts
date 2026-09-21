@@ -98,6 +98,17 @@ const resolveBucket = (): string => {
   return bucket
 }
 
+/**
+ * The only spine status a send may start from: what the purchase handler's
+ * `pending_payment → pending` CAS leaves behind. Anything else means the row
+ * was canceled, is already sending, or was never paid for, and none of those
+ * may reach fulfilment.
+ *
+ * An expansion (`sendSeq > 1`) is its own trigger's problem: it has to return
+ * the row to `pending` before enqueueing, the way the purchase handler does.
+ */
+const SENDABLE_STATUS = OutreachStatus.pending
+
 type ResolvedRecipient = {
   personId: string
   firstName: string | null
@@ -177,8 +188,77 @@ export class OutreachTextDeliveryService extends createPrismaBase(
    * object was not resolved — it comes back 0. The number the customer was
    * quoted is the one captured at create time; these are observability for
    * the send itself.
+   *
+   * A send the spine will not release returns zeros rather than throwing:
+   * a canceled row never becomes sendable, and throwing out of an SQS
+   * handler redelivers forever.
    */
   async requestSend(input: RequestSendInput): Promise<RequestSendResult> {
+    const { outreachId, sendSeq } = input
+
+    const { organization, official } = await this.loadSendContext(outreachId)
+    // Deterministic on (outreach, send), so a redelivered queue message
+    // reuses this object instead of resampling a different audience. Polls
+    // keys on an estimated completion date it relies on never changing; an
+    // explicit counter beats a timestamp that happens to be stable.
+    const sendKey = `${outreachId}-${sendSeq}.csv`
+
+    // CLAIM before anything irreversible, rather than checking the status at
+    // the end. A read would not be enough and the trailing CAS was not
+    // enough: a candidate can cancel between the check and the handoff, and
+    // by then a human has the CSV and will send it. Claiming closes that
+    // window, because `cancelOutreach` is `pending`-only — once this row
+    // reads `in_progress` a cancel is refused rather than racing the send.
+    //
+    // The claim IS the spine advance; there is no separate "claimed" state to
+    // add. A redelivered message, or a message for a canceled / unpaid /
+    // already-sent row, matches nothing and does no work.
+    const claimed = await this.client.outreach.updateMany({
+      where: { id: outreachId, status: SENDABLE_STATUS },
+      data: { status: OutreachStatus.in_progress },
+    })
+    if (claimed.count === 0) {
+      this.logger.warn(
+        { outreachId, sendSeq },
+        'Text send skipped: the outreach was not pending, so it is canceled, ' +
+          'unpaid, or already sent. Nothing was written or handed off.',
+      )
+      return {
+        recipientCount: 0,
+        excludedOptedOutCount: 0,
+        excludedDuplicateCount: 0,
+        sendKey,
+      }
+    }
+
+    try {
+      return await this.runClaimedSend(input, {
+        organization,
+        official,
+        sendKey,
+      })
+    } catch (error) {
+      // Hand the claim back so a fixed list or a transient fault can retry.
+      // Guarded on `in_progress`, which can only be this send's own claim:
+      // the queue is FIFO with a per-outreach message group, so two
+      // deliveries for one outreach serialize, and a cancel cannot have
+      // landed while the row was claimed.
+      await this.client.outreach.updateMany({
+        where: { id: outreachId, status: OutreachStatus.in_progress },
+        data: { status: SENDABLE_STATUS },
+      })
+      throw error
+    }
+  }
+
+  /**
+   * Everything after the claim. Split out so the claim's revert wraps the
+   * whole irreversible stretch in one place rather than a catch per step.
+   */
+  private async runClaimedSend(
+    input: RequestSendInput,
+    context: { organization: Organization; official: User; sendKey: string },
+  ): Promise<RequestSendResult> {
     const {
       outreachId,
       audience,
@@ -187,19 +267,12 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       scheduledLocalDate,
       sendSeq,
     } = input
-
-    const { organization, official } = await this.loadSendContext(outreachId)
+    const { organization, official, sendKey } = context
     const organizationSlug = organization.slug
 
     const excludePersonIds = await this.resolveOptOutScrub(organizationSlug)
 
     const bucket = resolveBucket()
-    // Deterministic on (outreach, send), so a redelivered queue message
-    // reuses this object instead of resampling a different audience. Polls
-    // keys on an estimated completion date it relies on never changing; an
-    // explicit counter beats a timestamp that happens to be stable.
-    const sendKey = `${outreachId}-${sendSeq}.csv`
-
     let csv = await this.s3Service.getFile(bucket, sendKey)
     let excludedDuplicateCount = 0
 
@@ -215,8 +288,9 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         excludePersonIds,
       )
       if (resolved.recipients.length === 0) {
-        // Nothing is written and nothing is handed off, so the row stays
-        // `pending` and the send can be retried once the list is fixed.
+        // Nothing is written and nothing is handed off; the caller's revert
+        // returns the row to `pending` so the send can be retried once the
+        // list is fixed.
         throw new BadRequestException(
           'No contacts matched this send with a valid cell phone after the ' +
             'opt-out scrub — widen the audience and try again.',
@@ -272,22 +346,6 @@ export class OutreachTextDeliveryService extends createPrismaBase(
         phone: official.phone ?? undefined,
       },
     })
-
-    // CAS, guarded on `pending`: only the state the purchase handler leaves
-    // behind advances. A redelivered message finds the row already
-    // `in_progress` and leaves it alone, and a row canceled mid-flight is
-    // never resurrected.
-    const advanced = await this.client.outreach.updateMany({
-      where: { id: outreachId, status: OutreachStatus.pending },
-      data: { status: OutreachStatus.in_progress },
-    })
-    if (advanced.count === 0) {
-      this.logger.info(
-        { outreachId, sendSeq },
-        'Text send handed off but the spine was not pending — leaving the ' +
-          'status as it is',
-      )
-    }
 
     return {
       recipientCount: captured.length,
