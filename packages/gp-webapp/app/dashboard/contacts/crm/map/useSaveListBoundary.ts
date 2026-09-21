@@ -47,7 +47,6 @@ export const useSaveListBoundary = (
         surface,
       })
       successSnackbar('List updated')
-      onSaved?.()
       // Who is in the list changed, so both the summary the sheet renders
       // and the members the map draws are stale. The chat reads the list row
       // out of `custom-segments` too, so the first of these is what refreshes
@@ -61,6 +60,12 @@ export const useSaveListBoundary = (
       await queryClient.invalidateQueries({
         queryKey: listPeopleQueryKey(orgSlug, String(listId)),
       })
+      // Last, for the reason the 409 branch below does the same: closing
+      // hands the holder back a card that reads its ring and its lock out
+      // of these caches, so closing first shows them the boundary they just
+      // replaced. The mutation stays pending across these awaits, which is
+      // honest — the save is not done until what everyone reads agrees.
+      onSaved?.()
     },
     onError: async (error: unknown) => {
       // Outreach stamps firstUsedForOutreachAt atomically, so a list can lock

@@ -32,41 +32,57 @@ const RING: Array<[number, number]> = [
 describe('useSaveListBoundary', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  // The ordering IS the fix. Both drawing surfaces decide whether to offer
-  // the draw button from the `custom-segments` cache, so closing before that
-  // cache refreshes hands the holder back a card still saying "unlocked" —
-  // inviting them to draw on the list they were just refused. Asserted as a
-  // sequence because the two calls both happen either way; only their order
-  // distinguishes the bug from the fix.
-  it('refreshes the list cache before closing the drawer on a 409', async () => {
-    const order: string[] = []
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(async () => {
-      order.push('invalidate')
-    })
-    const onSaved = vi.fn(() => {
-      order.push('closed')
-    })
-    const locked = new FetchError('locked')
-    locked.status = 409
-    mockedRequest.mockRejectedValue(locked)
+  // Both paths, because they are the same rule and the last review only
+  // caught the error one — the success branch had the identical stale-cache
+  // race sitting beside it, untested, and survived a round because the test
+  // covered the branch that was pointed at rather than the shape of the bug.
+  it.each([
+    ['success', undefined],
+    ['409', 409],
+  ])(
+    'refreshes every list cache before closing the drawer (%s)',
+    async (_label, status) => {
+      const order: string[] = []
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(
+        async () => {
+          order.push('invalidate')
+        },
+      )
+      const onSaved = vi.fn(() => {
+        order.push('closed')
+      })
+      if (status === undefined) {
+        mockedRequest.mockResolvedValue({ data: { id: 7 } } as never)
+      } else {
+        const failure = new FetchError('locked')
+        failure.status = status
+        mockedRequest.mockRejectedValue(failure)
+      }
 
-    const { result } = renderHook(
-      () => useSaveListBoundary(7, 'chat', onSaved),
-      {
-        wrapper: ({ children }) => (
-          <QueryClientProvider client={queryClient}>
-            {children}
-          </QueryClientProvider>
-        ),
-      },
-    )
+      const { result } = renderHook(
+        () => useSaveListBoundary(7, 'chat', onSaved),
+        {
+          wrapper: ({ children }) => (
+            <QueryClientProvider client={queryClient}>
+              {children}
+            </QueryClientProvider>
+          ),
+        },
+      )
 
-    result.current.mutate(RING)
+      result.current.mutate(RING)
 
-    await waitFor(() => expect(onSaved).toHaveBeenCalled())
-    expect(order).toEqual(['invalidate', 'closed'])
-  })
+      await waitFor(() => expect(onSaved).toHaveBeenCalled())
+      // Closing is last whatever happened; how many caches were refreshed
+      // first differs between the paths and is not what this pins.
+      expect(order[order.length - 1]).toBe('closed')
+      expect(
+        order.filter((step) => step === 'invalidate').length,
+      ).toBeGreaterThan(0)
+      expect(order.indexOf('closed')).toBe(order.length - 1)
+    },
+  )
 })
