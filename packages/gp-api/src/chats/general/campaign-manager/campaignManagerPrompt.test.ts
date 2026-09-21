@@ -476,7 +476,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('attributes the rule to a source or says none established it', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain('attribute the rule to that source')
-    expect(prompt).toContain('do not fill the gap from memory')
+    expect(prompt).toContain(
+      'do not supply the missing rule from model knowledge',
+    )
+    expect(prompt).toContain('identify what remains unresolved')
     expect(prompt).toContain('practical next steps')
   })
 

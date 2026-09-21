@@ -246,6 +246,18 @@ const CASES: LegalEvalCase[] = [
     custom: ordinaryAnswer,
   },
   {
+    name: 'product source in hand does not establish the legal rule',
+    // The help center article says what the product handles; nothing in it
+    // says whether consent is required, so the answer has to keep the two
+    // apart and say the rule is unresolved.
+    userMessage:
+      'GoodParty says it handles carrier registration and opt-outs for my ' +
+      "texts. Does that mean I don't need voters to opt in before I text " +
+      'them?',
+    helpCenter: true,
+    custom: legalAnswer,
+  },
+  {
     name: 'drafting a door script: writes it, no legal caution',
     userMessage:
       'Write a 30-second door-knocking script I can use to introduce ' +
