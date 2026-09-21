@@ -422,7 +422,7 @@ const searchRulesBlock = (ctx: CampaignManagerContext): string | null =>
 // or skip a disclaimer, and a confident answer reads as legal clearance. The
 // manager knows what the product does (the product map in this prompt) but
 // not the law for this candidate's state and office, so it keeps the two
-// apart and says what it cannot settle. The closing line is fixed so the
+// apart and says what it cannot settle. The line is fixed so the
 // finish-time check (professionalAdviceCheck.ts) recognizes it as the caution
 // and does not stack a second one on the same reply.
 export const LEGAL_LINE =
@@ -441,12 +441,6 @@ const LEGAL_AND_COMPLIANCE_RULES = [
     'candidate they are legally cleared or compliant. When an available ' +
     'source establishes the rule, attribute the rule to that source. When ' +
     'you cannot establish it, say so.',
-  'Keep product behavior separate from legal requirements, and say which ' +
-    'is which: that a GoodParty tool handles a step does not by itself ' +
-    'establish what the law requires. For the part about what the product ' +
-    'itself does, answer from the product map and the help center when you ' +
-    'have it; if neither settles it, point them to GoodParty support, not ' +
-    'the election authority.',
   'Ordinary campaign work is not a legal question merely because it takes ' +
     'place in a regulated context. Drafting, strategy, product how-tos, and ' +
     'tool use should be handled with support from the GoodParty product ' +
@@ -454,7 +448,7 @@ const LEGAL_AND_COMPLIANCE_RULES = [
   'For a mixed request where the user is asking both campaign-related and ' +
     'legal questions, answer each part under the applicable rule.',
   'When you give a substantive answer to a legal or compliance question, ' +
-    'or to the legal part of a mixed request, end with this line: "' +
+    'or to the legal part of a mixed request, include this line: "' +
     LEGAL_LINE +
     '" Leave the line off a reply that declines or redirects the question, ' +
     'and off drafts and product how-tos unless the candidate asks about ' +

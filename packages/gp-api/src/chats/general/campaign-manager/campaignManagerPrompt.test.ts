@@ -485,16 +485,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('When you cannot establish it, say so')
   })
 
-  it('keeps product behavior separate from legal requirements', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(
-      'Keep product behavior separate from legal requirements',
-    )
-    expect(prompt).toContain(
-      'does not by itself establish what the law requires',
-    )
-  })
-
   it('keeps ordinary campaign work out of the legal route', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain('Ordinary campaign work is not a legal question')
@@ -509,22 +499,16 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('answer each part under the applicable rule')
   })
 
-  it('pins the closing line to one the finish-time check recognizes', () => {
+  it('pins the legal line to one the finish-time check recognizes', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(`end with this line: "${LEGAL_LINE}"`)
-    // A statute-citing reply that ends with the line gets nothing appended.
+    expect(prompt).toContain(`include this line: "${LEGAL_LINE}"`)
+    // A statute-citing reply that carries the line gets nothing appended.
     expect(
       professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
     ).toBeNull()
   })
 
-  it('sends the product part to the product map, then support', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain('answer from the product map')
-    expect(prompt).toContain('point them to GoodParty support')
-  })
-
-  it('leaves the closing line off declines, drafts, and how-tos', () => {
+  it('leaves the legal line off declines, drafts, and how-tos', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt).toContain('declines or redirects')
     expect(prompt).toContain('is not a legal question')
