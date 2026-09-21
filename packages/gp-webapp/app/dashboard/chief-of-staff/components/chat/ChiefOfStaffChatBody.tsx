@@ -43,6 +43,7 @@ import {
   deleteChatAttachment,
   listChatAttachments,
   downloadChatAttachment,
+  isSupportedAttachmentFile,
   linkErrorMessage,
   type ChatAttachmentState,
 } from '../../../shared/agent-chat/chatAttachments-api'
@@ -634,6 +635,60 @@ export default function ChiefOfStaffChatBody({
     [conversationId, ensureConversationId],
   )
 
+  // Drag-and-drop anywhere on the chat surface attaches the dropped files
+  // through the same upload path as the paperclip. dragenter/dragleave fire on
+  // every child crossed, so a depth counter decides when the pointer actually
+  // left the surface.
+  const dragDepthRef = useRef(0)
+  const [dragActive, setDragActive] = useState(false)
+
+  const dragHasFiles = (e: React.DragEvent): boolean =>
+    Array.from(e.dataTransfer.types).includes('Files')
+
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent): void => {
+      if (!attachmentsEnabled.enabled || !dragHasFiles(e)) return
+      e.preventDefault()
+      dragDepthRef.current += 1
+      setDragActive(true)
+    },
+    [attachmentsEnabled.enabled],
+  )
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent): void => {
+      if (!attachmentsEnabled.enabled || !dragHasFiles(e)) return
+      // preventDefault is what makes the surface a valid drop target.
+      e.preventDefault()
+    },
+    [attachmentsEnabled.enabled],
+  )
+
+  const handleDragLeave = useCallback((e: React.DragEvent): void => {
+    if (!dragHasFiles(e)) return
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragActive(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent): void => {
+      if (!attachmentsEnabled.enabled) return
+      e.preventDefault()
+      dragDepthRef.current = 0
+      setDragActive(false)
+      for (const file of Array.from(e.dataTransfer.files)) {
+        if (isSupportedAttachmentFile(file)) {
+          void handleAttachFile(file)
+        } else {
+          toast.error(
+            `Can't attach ${file.name}. Use a PDF, DOCX, TXT, JPEG, or PNG.`,
+          )
+        }
+      }
+    },
+    [attachmentsEnabled.enabled, handleAttachFile],
+  )
+
   const handleCitationClick = useCallback(
     async (
       attachmentId: string,
@@ -901,8 +956,12 @@ export default function ChiefOfStaffChatBody({
     // that runs after this one. Do NOT stopPropagation: Radix dismisses popovers
     // from a document-level pointerdown, so that would strand the history popover.
     <div
-      className="flex min-h-0 flex-1 flex-col select-text"
+      className="relative flex min-h-0 flex-1 flex-col select-text"
       data-vaul-no-drag
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       onPointerDown={(e) => {
         const target = e.target
         if (!(target instanceof Element)) return
@@ -914,6 +973,13 @@ export default function ChiefOfStaffChatBody({
         })
       }}
     >
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-background/80">
+          <span className="text-sm font-medium text-foreground">
+            Drop a file to attach it
+          </span>
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={onScroll}
