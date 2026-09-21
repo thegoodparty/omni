@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -37,43 +38,47 @@ const renderOverlay = (over: Partial<{ onCancel: () => void }> = {}) =>
   )
 
 describe('ListBoundaryOverlay focus handling', () => {
-  it('announces itself as a modal dialog', async () => {
+  // Radix hides the rest of the tree with aria-hidden rather than setting
+  // aria-modal, which is the stronger of the two — some assistive tech
+  // ignores aria-modal outright. Asserted as the behaviour it produces, not
+  // as a particular attribute, so the platform component is free to change
+  // how it achieves it.
+  it('announces itself as a dialog and hides the page behind it', async () => {
     renderOverlay()
 
     const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveAccessibleName()
+    expect(
+      screen.queryByRole('button', { name: 'Behind the overlay' }),
+    ).not.toBeInTheDocument()
   })
 
+  // Somewhere inside, not the wrapper specifically — Radix decides where,
+  // and pinning its choice would make this a test of Radix rather than of
+  // the thing that matters, which is that focus left the page behind.
   it('moves focus into the overlay on open', async () => {
     renderOverlay()
+    const dialog = await screen.findByRole('dialog')
 
-    expect(await screen.findByRole('dialog')).toHaveFocus()
+    expect(dialog).toContainElement(document.activeElement as HTMLElement)
   })
 
   // It covers the viewport with an opaque background, so nothing behind it
-  // is clickable — but Tab does not care what is painted on top.
-  it('keeps Tab inside rather than walking onto the page behind', async () => {
+  // is clickable — but Tab does not care what is painted on top, and the
+  // page behind holds other maps' draw buttons, which remount this overlay
+  // and discard the ring being drawn.
+  it('keeps Tab inside, in both directions', async () => {
     const user = userEvent.setup()
     renderOverlay()
-    await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog')
 
-    const behind = screen.getByRole('button', { name: 'Behind the overlay' })
     for (let i = 0; i < 8; i++) {
       await user.tab()
-      expect(behind).not.toHaveFocus()
+      expect(dialog).toContainElement(document.activeElement as HTMLElement)
     }
-  })
-
-  it('wraps backwards too, not only off the end', async () => {
-    const user = userEvent.setup()
-    renderOverlay()
-    await screen.findByRole('dialog')
-
-    const behind = screen.getByRole('button', { name: 'Behind the overlay' })
     for (let i = 0; i < 4; i++) {
       await user.tab({ shift: true })
-      expect(behind).not.toHaveFocus()
+      expect(dialog).toContainElement(document.activeElement as HTMLElement)
     }
   })
 
@@ -91,26 +96,40 @@ describe('ListBoundaryOverlay focus handling', () => {
   })
 
   it('returns focus to whatever opened it', async () => {
-    render(<button type="button">Draw an area</button>)
-    const opener = screen.getByRole('button', { name: 'Draw an area' })
-    opener.focus()
-    expect(opener).toHaveFocus()
+    const user = userEvent.setup()
 
-    const { unmount } = render(
-      <ListBoundaryOverlay
-        people={[]}
-        truncated={false}
-        initialRing={[]}
-        labels={LABELS}
-        isSaving={false}
-        onCancel={vi.fn()}
-        onSave={vi.fn()}
-      />,
-    )
+    // A real open/close cycle in one tree, because that is what Radix
+    // restores against — two independent render() calls give it nothing to
+    // hand focus back to.
+    const Harness = () => {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Draw an area
+          </button>
+          {open && (
+            <ListBoundaryOverlay
+              people={[]}
+              truncated={false}
+              initialRing={[]}
+              labels={LABELS}
+              isSaving={false}
+              onCancel={() => setOpen(false)}
+              onSave={vi.fn()}
+            />
+          )}
+        </>
+      )
+    }
+    render(<Harness />)
+
+    const opener = screen.getByRole('button', { name: 'Draw an area' })
+    await user.click(opener)
     await screen.findByRole('dialog')
     expect(opener).not.toHaveFocus()
 
-    unmount()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
 
     await vi.waitFor(() => expect(opener).toHaveFocus())
   })
