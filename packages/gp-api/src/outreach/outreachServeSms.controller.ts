@@ -1,5 +1,9 @@
 import { Body, Controller, Post, UseInterceptors } from '@nestjs/common'
 import {
+  ServeSmsCreateRequest,
+  ServeSmsCreateRequestSchema,
+  ServeSmsCreateResponse,
+  ServeSmsCreateResponseSchema,
   ServeSmsDraftRequest,
   ServeSmsDraftRequestSchema,
   ServeSmsDraftResponse,
@@ -16,6 +20,7 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { ElectedOffice, User } from '../generated/prisma'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
+import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate.service'
 import { SERVE_SMS_VOICE } from './util/serveSmsVoice.util'
 
 const electedOfficialName = (user: User): string =>
@@ -37,6 +42,7 @@ export class OutreachServeSmsController {
     private readonly generationService: OutreachSmsGenerationService,
     private readonly profileContext: OutreachServeComposeContextService,
     private readonly organizations: OrganizationsService,
+    private readonly createService: OutreachServeSmsCreateService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachServeSmsController.name)
@@ -100,5 +106,25 @@ export class OutreachServeSmsController {
         SERVE_SMS_VOICE,
       ),
     }
+  }
+
+  // Draft-first create. The row exists BEFORE checkout because the composed
+  // message can reach SMS_COMPOSED_MAX_LENGTH (1000) and a Stripe metadata
+  // value caps at 500, so the poll pattern of carrying content through
+  // checkout metadata cannot work here — checkout carries two ids instead.
+  //
+  // No matching PATCH: a draft is immutable while pending_payment, so
+  // re-entering the flow creates a fresh draft. That is what keeps the
+  // priced count and the row the purchase handler re-reads the same thing.
+  @Post('sms')
+  @ResponseSchema(ServeSmsCreateResponseSchema)
+  create(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body(new ZodValidationPipe(ServeSmsCreateRequestSchema))
+    input: ServeSmsCreateRequest,
+  ): Promise<ServeSmsCreateResponse> {
+    // The org comes from the ElectedOffice row the guard resolved, never from
+    // the body — the same posture every route on this controller takes.
+    return this.createService.createDraft(electedOffice.organizationSlug, input)
   }
 }
