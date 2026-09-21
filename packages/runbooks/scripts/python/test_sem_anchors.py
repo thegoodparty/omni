@@ -5,6 +5,7 @@ Pure functions and a committed fixture only — no network.
 
 from __future__ import annotations
 
+import http.client
 from pathlib import Path
 
 import sem_anchors as sa
@@ -89,6 +90,33 @@ def test_unparseable_yaml_is_reported_rather_than_taking_the_run_down(monkeypatc
     anchors, problems = sa.load_anchors("fake-token")
     assert anchors == {}
     assert problems and any("malformed" in p for p in problems)
+
+
+def test_an_incomplete_read_mid_fetch_is_reported_rather_than_taking_the_run_down(
+    monkeypatch,
+):
+    # http.client.IncompleteRead is raised from INSIDE _fetch's `with` block (while
+    # reading the response body), so it is not a urllib.error.URLError and used to
+    # escape load_anchors entirely, killing the whole digest over a dropped connection.
+    def _boom(path, token):
+        raise http.client.IncompleteRead(b"")
+
+    monkeypatch.setattr(sa, "_fetch", _boom)
+    anchors, problems = sa.load_anchors("fake-token")
+    assert anchors == {}
+    assert problems and any("could not read" in p for p in problems)
+
+
+def test_a_remote_disconnect_mid_fetch_is_reported_rather_than_taking_the_run_down(
+    monkeypatch,
+):
+    def _boom(path, token):
+        raise http.client.RemoteDisconnected("Remote end closed connection")
+
+    monkeypatch.setattr(sa, "_fetch", _boom)
+    anchors, problems = sa.load_anchors("fake-token")
+    assert anchors == {}
+    assert problems and any("could not read" in p for p in problems)
 
 
 def test_parse_anchors_still_raises_for_direct_callers():

@@ -18,6 +18,14 @@
 #   okr:         optional OKR metric name(s) anchored on this event (string or list).
 #                Marks the event as top-tier for the governance digest (DATA-2174):
 #                a breaking signal on an okr: row renders as 🔴 needs-action.
+#                DATA-2421: this is a LOCAL COPY. The kernel is the governed metric's
+#                config.meta.anchored_on in gp-data-platform's sem_*.yml. The monitor
+#                validates these tags against it every run and reports any tag whose
+#                event no declaration mentions at all, AND any tag whose event has
+#                gone historical while its metric still has a live leg elsewhere (the
+#                instrument moved and the tag did not follow). Re-anchoring a metric
+#                is a semantic layer change first; updating this tag is the downstream
+#                follow-up, never the fix.
 
 # Families the monitor treats as "in scope" for coverage-drift / new-event detection.
 watched_families:
@@ -119,6 +127,7 @@ events:
 #   answers:       optional extra questions this behavior contributes to (composite questions)
 #   product:       win | serve | both
 #   okr:           optional OKR metric name(s); makes the behavior high-consequence
+#                  (same LOCAL COPY contract and validation as events:' okr: above)
 #   surfaces[]:    path (repo-relative), label (stable, used in per-surface reporting),
 #                  instrumented_by (event name, or explicit null for a known gap)
 #   superseded[]:  historical instruments, for successor lineage

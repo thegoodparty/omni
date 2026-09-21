@@ -801,6 +801,13 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
     for problem in result.get("anchor_problems") or []:
         lines.append("")
         lines.append(f"> **OKR dormancy checks degraded.** {problem}")
+    tag_problems = result.get("okr_tag_problems") or []
+    if tag_problems:
+        lines.append("")
+        lines.append("### OKR tags the semantic layer does not back")
+        lines.append("")
+        for problem in tag_problems:
+            lines.append(f"- {problem}")
     lines.append("")
     lines.append("### Flagged (ranked)")
     lines.append("")
@@ -1032,6 +1039,70 @@ def _latched_leg_record(
     return record
 
 
+def validate_okr_tags(
+    okr_by_event: Mapping[str, str],
+    anchors: Mapping[str, Sequence[Any]],
+) -> list[str]:
+    """Report `okr:` tags in monitored_events.yaml that the semantic layer does not back.
+
+    The tag is a local convenience copy; the declaration is the kernel. Two problem
+    classes, both worth saying out loud every run:
+
+    1. Unknown — the tagged event appears in no metric's anchored_on at all. This is
+       how the era-2 break went unescalated for a month: a tag pointing at a retired
+       event name.
+    2. Stale-to-historical — the tagged event is not live anywhere, but is declared as
+       an ``era: historical`` leg on a metric that still has a live leg elsewhere. The
+       instrument moved; the tag did not follow it. Reported with a softer message that
+       names the live leg(s) to point the tag at instead.
+
+    A tag whose event is historical on one metric but live on another is backed by a
+    live declaration and is not reported. Nor is a tag on a historical leg of a metric
+    whose every leg is historical — that metric has nowhere for the tag to move to, and
+    run_monitor's own anchor_problems check already reports the metric itself; reporting
+    the tag too would be duplicate noise under a different heading.
+
+    An empty ``anchors`` means the cross-repo read did not happen (no token, GitHub
+    down). Validating against nothing would report every tag as broken, so return
+    nothing instead.
+    """
+    if not anchors:
+        return []
+
+    all_events = {leg.event for legs in anchors.values() for leg in legs}
+    live_events = {leg.event for legs in anchors.values() for leg in legs if leg.watched}
+
+    # event -> live leg keys of every metric where the event is a historical leg AND
+    # that metric still has a live leg for the tag to move to.
+    stale_targets: dict[str, list[str]] = {}
+    for legs in anchors.values():
+        live_keys = [leg.key for leg in legs if leg.watched]
+        if not live_keys:
+            continue
+        for leg in legs:
+            if not leg.watched:
+                stale_targets.setdefault(leg.event, []).extend(live_keys)
+
+    problems = []
+    for event, metric in sorted(okr_by_event.items()):
+        if event in live_events:
+            continue
+        if event not in all_events:
+            problems.append(
+                f"okr: tag on '{event}' ({metric}) — no governed metric declares this event in "
+                f"anchored_on. Either the instrument moved and the semantic layer needs "
+                f"updating, or the tag is stale."
+            )
+        elif event in stale_targets:
+            targets = ", ".join(sorted(set(stale_targets[event])))
+            problems.append(
+                f"okr: tag on '{event}' ({metric}) — the semantic layer has moved this "
+                f"instrument on; that event is now historical. Point the tag at "
+                f"{targets} instead."
+            )
+    return problems
+
+
 def run_monitor(
     run_query: Callable[[str], Any],
     *,
@@ -1088,6 +1159,10 @@ def run_monitor(
         catalog, weekly, code, today, watchlist_events, watched_families,
         dismissed_events=dismissed_events, okr_by_event=okr_for_digest,
     )
+    # Against local_okr_tags, not okr_for_digest: the merged map is the anchors
+    # overwriting the tag for any leg they agree on, so validating it would check the
+    # anchors against themselves and could never find the era-2 shape of this bug.
+    result["okr_tag_problems"] = validate_okr_tags(local_okr_tags, anchors)
 
     current_monday = today - timedelta(days=today.weekday())
     # The WHOLE warehouse series, never a watched-only slice: update_latches tells a leg
@@ -1096,9 +1171,13 @@ def run_monitor(
     series = weekly_series(weekly, current_monday)
     prior_latches = load_prior_latches(state_path)
     latches = ol.update_latches(prior_latches, series, watched_by_key, today)
-    # Keyed on the READ failures alone, not on anchor_problems: a metric going all
-    # historical is a governed declaration change, which is one of the two sanctioned
-    # ways a latch clears, so reporting it must not hold the clear open.
+    # Keyed on read_problems, not on the per-metric all-historical entries in
+    # anchor_problems: a metric going fully historical is an unambiguous governed
+    # declaration change, one of the two sanctioned ways a latch clears, so THAT must
+    # not hold the clear open. read_problems itself is not pure read failure — it also
+    # carries "every sem file read fine but declared nothing anywhere", which IS
+    # declaration content, held open here because an empty result can't be told apart
+    # from the declaration not having landed yet.
     if read_problems:
         # A failed anchor read is not a de-declaration. update_latches drops every key it
         # cannot see in `watched`, and the state write below is the only place a sticky
@@ -1193,9 +1272,10 @@ def build_slack_triage(
             "rank": 0, "okr": "run-level",
             "rules_tier": "red", "tier": "red",
             "headline": problem,
-            # Generic because anchor_problems now covers three causes — a missing
-            # token, a sem file that will not parse, and a metric with no live leg —
-            # and each problem string already names its own.
+            # Generic because anchor_problems now covers five causes — a missing
+            # token, a network/read failure, a sem file that will not parse, every
+            # sem file reading fine but declaring nothing anywhere, and a metric with
+            # no live leg — and each problem string already names its own.
             "action": ("Check GP_DATA_PLATFORM_READ_TOKEN and the sem files in "
                        "gp-data-platform, then re-run."),
         }

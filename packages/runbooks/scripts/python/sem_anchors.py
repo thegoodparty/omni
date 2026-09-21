@@ -12,6 +12,7 @@ weekly digest is more valuable degraded than not posted at all.
 
 from __future__ import annotations
 
+import http.client
 import os
 import urllib.error
 import urllib.request
@@ -115,7 +116,18 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
     for path in SEM_PATHS:
         try:
             text = _fetch(path, token)
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
+        # Wide on purpose, same reasoning as the parse except below: _fetch reads the
+        # response body inside urlopen's `with` block, so a connection dropped mid-body
+        # raises http.client.IncompleteRead or RemoteDisconnected — neither is a
+        # urllib.error.URLError — and either would otherwise escape load_anchors and
+        # take the whole digest down over a transient network blip.
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            TimeoutError,
+            http.client.IncompleteRead,
+            http.client.RemoteDisconnected,
+        ) as exc:
             problems.append(
                 f"could not read {path} from {REPO} ({exc}). Anchors from this file are "
                 "not being watched this run."
