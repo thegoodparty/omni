@@ -144,6 +144,11 @@ export function ResultsUploader({
         it is there.
       </Text>
 
+      {/* The native control renders as a small grey chip that reads as text
+          rather than the primary action on the page — staff could not find
+          it. The input stays in the DOM (it is what actually opens the
+          picker and carries the accessible name) but is visually hidden
+          behind a real button. */}
       <Box mt="3">
         <input
           ref={inputRef}
@@ -152,7 +157,27 @@ export function ResultsUploader({
           onChange={handleFile}
           disabled={busy}
           aria-label="Results CSV"
+          style={{
+            position: 'absolute',
+            width: 1,
+            height: 1,
+            padding: 0,
+            margin: -1,
+            overflow: 'hidden',
+            clip: 'rect(0 0 0 0)',
+            whiteSpace: 'nowrap',
+            border: 0,
+          }}
         />
+        {/* No filename beside the button: the report below already has a
+            File row, and repeating it made the same name appear twice. */}
+        <Button
+          type="button"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+        >
+          {fileName ? 'Choose a different file' : 'Choose results CSV'}
+        </Button>
       </Box>
 
       {parsed && !parsed.ok && (
