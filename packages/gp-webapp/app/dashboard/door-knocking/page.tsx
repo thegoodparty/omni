@@ -39,6 +39,7 @@ interface PageParams {
     walkTurfId?: string
     outreachId?: string
     create?: string
+    campaignOutreachId?: string
   }>
 }
 
@@ -48,7 +49,7 @@ export default async function Page({
   await candidateAccess()
 
   const [
-    { listId, recommended, walkTurfId, outreachId, create },
+    { listId, recommended, walkTurfId, outreachId, create, campaignOutreachId },
     campaign,
     summary,
   ] = await Promise.all([
@@ -87,6 +88,11 @@ export default async function Page({
     // Exactly `'1'` — anything else is somebody's stray query string, and the
     // page it would open a modal over is perfectly usable without one.
     openCreateFlow: create === '1',
+    // "Add another turf" from the campaign drawer — the id of the anchor
+    // Outreach the new turf should join. Same positive-integer rule as the
+    // list/turf ids above; the drawer never sends anything else, and a
+    // malformed value is dropped rather than opening a broken flow.
+    campaignOutreachId: parsePositiveListId(campaignOutreachId),
   }
 
   return <DoorKnockingPageGate {...childProps} />

@@ -56,6 +56,10 @@ import {
 } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ExportWalkSheetButton } from 'app/dashboard/door-knocking/native/ExportWalkSheetButton'
+import {
+  CAMPAIGN_TURFS_QUERY_KEY,
+  TURFS_QUERY_KEY,
+} from 'app/dashboard/door-knocking/native/turfQueries'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { shortOutreachDate } from './outreachDate.util'
@@ -77,6 +81,7 @@ import {
 import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
+import { CampaignTurfList } from './CampaignTurfList'
 import {
   DetailsSection,
   FilterGroup,
@@ -331,6 +336,17 @@ export const OutreachDetailsDrawer = ({
   // anyway, because it arrives with the detail rather than with the table —
   // a row this drawer was opened from through a deep link has no cached copy
   // to be right or wrong about.
+  // Archive writes ONE turf's envelope (`setArchived` takes a turf id), and
+  // the drawer hands it the anchor's — so on a multi-turf campaign the button
+  // would shelve the anchor and leave every sibling on the rail while history
+  // read "Archived". Withheld rather than made to fan out: the same endpoint
+  // is the walk's own "Move to archive" and its `finishAndArchive`, so a
+  // server-side fan-out would shelve a whole campaign when a canvasser
+  // finished one turf of it — and archiving is one-way from this feature's
+  // UI. A campaign-level archive is follow-up work; until it exists this is
+  // the same call the Overview cells and the progress bar make for the same
+  // reason. Solo campaigns are unaffected, which is every list today.
+  const canArchiveFromDrawer = (row?.turfCount ?? 1) === 1
   const isArchived = Boolean(
     isDoorKnocking ? doorKnocking?.archivedAt : row?.archivedAt,
   )
@@ -369,6 +385,14 @@ export const OutreachDetailsDrawer = ({
       queryClient.invalidateQueries({
         queryKey: outreachDetailQueryKey(row?.id ?? -1),
       })
+      // And the two caches the door-knocking write above actually moves. The
+      // comment on `mutationFn` already names the rail as the reason this
+      // routes through the turf's endpoint, but flushing only the detail left
+      // the rail and this drawer's own sibling list showing the turf active.
+      // Same pair `turfLifecycle` and `DeleteTurfControl` invalidate, and
+      // unconditional because a non-door-knocking archive matches neither key.
+      queryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: CAMPAIGN_TURFS_QUERY_KEY })
       onOpenChange(false)
     },
     onError: () =>
@@ -459,15 +483,17 @@ export const OutreachDetailsDrawer = ({
     // the main table). Same action pair completed rows get.
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px]">
-        <Button
-          variant="outline"
-          className="flex-1"
-          disabled={archiveMutation.isPending}
-          onClick={() => archiveMutation.mutate()}
-        >
-          <ArchiveIcon className="size-4" />
-          {isArchived ? 'Restore from archive' : 'Move to archive'}
-        </Button>
+        {canArchiveFromDrawer && (
+          <Button
+            variant="outline"
+            className="flex-1"
+            disabled={archiveMutation.isPending}
+            onClick={() => archiveMutation.mutate()}
+          >
+            <ArchiveIcon className="size-4" />
+            {isArchived ? 'Restore from archive' : 'Move to archive'}
+          </Button>
+        )}
       </div>
     </div>
   ) : null
@@ -585,7 +611,8 @@ export const OutreachDetailsDrawer = ({
                 // archive, and a button that resolves to a rejected mutation is
                 // worse than one that arrives a beat late.
                 footerMode === 'done' &&
-                (!isDoorKnocking || Boolean(doorKnocking)) && (
+                (!isDoorKnocking || Boolean(doorKnocking)) &&
+                canArchiveFromDrawer && (
                   <Button
                     variant="outline"
                     className="w-full"
@@ -685,11 +712,21 @@ export const OutreachDetailsDrawer = ({
                   // reads — printing a second derivation of either is the
                   // two-denominator failure this feature has a rule against.
                   //
+                  // Solo-campaign only. `OutreachDetail.doorKnocking` carries
+                  // the ANCHOR turf's figures — not the campaign aggregate
+                  // across siblings — so on a multi-turf campaign this pair
+                  // would print anchor-only numbers labelled as campaign
+                  // totals, which is exactly the two-denominator failure
+                  // above. For multi-turf campaigns the per-turf figures live
+                  // on the sibling section above; the drawer-level aggregate
+                  // will need a real backend rollup before it can come back.
+                  //
                   // A walk whose list is gone renders neither cell rather than
                   // two em-dashes, which is the rule this drawer already
                   // followed when it had no block at all: the sentence below
                   // says what happened, and a cell that can only say "—" adds
                   // nothing to it.
+                  (row?.turfCount ?? 1) === 1 &&
                   (doorKnocking || detailQuery.isLoading) && (
                     <>
                       <Metric
@@ -915,7 +952,29 @@ export const OutreachDetailsDrawer = ({
                 surface here (ADR 0012), and a walk is routinely ended with
                 doors left unlogged — so how much of the list was covered is
                 the answer on a done walk too, not only on a live one. */}
-            {isDoorKnocking && doorKnocking && (
+            {/* The campaign's own turfs: one row per turf, plus an "Add
+                another turf" affordance that lands on the create flow scoped
+                to this campaign. Rendered for every door-knocking row rather
+                than only for `turfCount > 1`, so the add-turf path is
+                reachable from a solo campaign — otherwise a candidate with
+                one turf can never grow it, chicken-and-egg. On a solo
+                campaign the section reads as one row, which duplicates some
+                of what the Progress card below shows; the two-row overlap
+                is the price of keeping the affordance reachable. */}
+            {isDoorKnocking && row && (
+              <CampaignTurfList
+                anchorOutreachId={row.campaignOutreachId ?? row.id}
+                outreachId={row.id}
+              />
+            )}
+
+            {isDoorKnocking && doorKnocking && (row?.turfCount ?? 1) === 1 && (
+              // Solo-campaign only, same argument as the Overview cells
+              // above: `doorKnocking.loggedCount` / `peopleCount` are the
+              // ANCHOR turf's, so on a multi-turf campaign this bar would
+              // report one turf's progress as if it were the whole
+              // campaign's. Per-turf progress lives on the sibling section;
+              // the drawer-level aggregate is hidden until a rollup exists.
               <DetailsSection title="Progress">
                 <Card className="gap-3 rounded-lg p-3">
                   <div className="flex items-center justify-between">

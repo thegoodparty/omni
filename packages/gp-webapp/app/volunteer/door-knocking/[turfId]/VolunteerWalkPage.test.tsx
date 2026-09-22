@@ -76,6 +76,7 @@ vi.mock('app/dashboard/door-knocking/native/VoterMapCanvas', () => ({
 
 const turf: DoorKnockingTurf = {
   id: 7,
+  outreachId: 900,
   voterFileFilterId: 3,
   name: 'Elm St & 5th',
   color: '#2563eb',

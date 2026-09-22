@@ -65,6 +65,7 @@ const toResponse = (
   counts: DoorKnockingTurfCounts = NO_COUNTS,
 ): DoorKnockingTurf => ({
   id: turf.id,
+  outreachId: turf.route.outreach.id,
   voterFileFilterId: turf.voterFileFilterId,
   name: turf.name,
   color: turf.color,
@@ -128,6 +129,37 @@ export class DoorKnockingTurfService extends createPrismaBase(
     const rows = await this.model.findMany({
       where: railTurfScope(organizationSlug, scope),
       orderBy: { name: 'asc' },
+      include: ROUTE_INCLUDE,
+    })
+    const turfs = rows.map(assertRouted)
+    const counts = await this.counts.forRoutes(
+      organizationSlug,
+      turfs.map((turf) => turf.route.id),
+    )
+    return turfs.map((turf) => toResponse(turf, counts.get(turf.route.id)))
+  }
+
+  // The dual-pane drawer's sibling list: every turf whose Outreach envelope is
+  // the anchor itself or points at it via `campaignOutreachId`. The org scope
+  // is expressed through `voterFileFilter` the same way `list` does, so a
+  // foreign anchorId cannot pull a turf out of another tenant — it just
+  // returns empty. No surface filter here (the by-id routes do not carry one,
+  // for the same reason `getTurf` does not): an id the caller already holds
+  // cannot be made to cross a surface by asking for it on the wrong one.
+  async listCampaign(
+    anchorId: number,
+    organizationSlug: string,
+  ): Promise<DoorKnockingTurf[]> {
+    const rows = await this.model.findMany({
+      where: {
+        ...activeTurfScope(organizationSlug),
+        route: {
+          outreach: {
+            OR: [{ id: anchorId }, { campaignOutreachId: anchorId }],
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
       include: ROUTE_INCLUDE,
     })
     const turfs = rows.map(assertRouted)

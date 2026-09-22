@@ -42,6 +42,7 @@ import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { OutreachStepError } from '../types/outreachStepError'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
+import { collapseDoorKnockingCampaigns } from '../util/collapseDoorKnockingCampaigns.util'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
 
@@ -1040,12 +1041,19 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // org's slug), so the Serve scope must pin campaignId: null — an org that
   // holds a Campaign and an ElectedOffice (the post-election transition)
   // would otherwise leak its Win history onto the Serve list (ENG-10976).
+  //
+  // Door-knocking rows collapse into their campaign anchor (many turfs → one
+  // history row) after the base query: an anchor points at itself via
+  // `campaignOutreachId IS NULL` and siblings point at that anchor's id, so
+  // grouping by `COALESCE(campaignOutreachId, id)` reads both. The anchor
+  // row is kept whole (name, dates, script), and its response carries a
+  // `turfCount` alongside — the history badge reads that.
   private async findByScope(
     scope:
       | { campaignId: number }
       | { organizationSlug: string; campaignId: null },
   ) {
-    return this.findMany({
+    const rows = await this.findMany({
       where: {
         ...scope,
         // Unpaid drafts are an implementation detail of the purchase flow.
@@ -1060,6 +1068,8 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         voterFileFilter: true,
       },
     })
+
+    return collapseDoorKnockingCampaigns(rows)
   }
 
   async findByCampaignId(campaignId: number) {

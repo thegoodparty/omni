@@ -1367,6 +1367,16 @@ export type APIEndpoints = {
     Request: CreateDoorKnockingTurf
     Response: DoorKnockingTurf
   }
+  // Every turf in a door-knocking campaign — the anchor Outreach plus every
+  // row pointing at it via `campaignOutreachId`. The drawer reads this to
+  // paint the sibling map + list; it is a second read on top of the
+  // outreach-detail fetch so a rename or archive can invalidate the sibling
+  // list without churning the drawer's OutreachDetail cache. Org-scoped
+  // only, like the by-id route below.
+  'GET /v1/door-knocking/campaigns/:anchorId': {
+    Request: {}
+    Response: DoorKnockingTurf[]
+  }
   // One turf, org-scoped and NOT surface-scoped — which is what the two print
   // surfaces need it for. They hold an id they already fetched a route with,
   // so the rail's surface filter would only be able to hide a list they are

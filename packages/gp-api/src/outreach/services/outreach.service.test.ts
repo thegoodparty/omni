@@ -740,7 +740,10 @@ describe('OutreachService', () => {
         },
         include: { voterFileFilter: true },
       })
-      expect(result).toEqual(list)
+      // `findByScope` collapses door-knocking siblings into their anchor and
+      // attaches a `turfCount`; a non-door-knocking row passes through as its
+      // own campaign of one. See `collapseDoorKnockingCampaigns`.
+      expect(result).toEqual(list.map((row) => ({ ...row, turfCount: 1 })))
     })
 
     it('throws NotFoundException when no outreaches exist for campaign', async () => {
