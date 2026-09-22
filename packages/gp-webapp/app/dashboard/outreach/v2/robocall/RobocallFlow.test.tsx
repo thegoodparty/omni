@@ -2102,9 +2102,10 @@ describe('RobocallFlow', () => {
       return bodies
     }
 
-    // Build mode drops the schedule step: purpose -> audience -> compose ->
-    // review, ending on the summary the draft save reads from.
-    const buildToReview = async (onClose: () => void = vi.fn()) => {
+    // Build mode drops the schedule, review and pay steps: purpose ->
+    // audience -> compose, whose Continue is the draft save (design:
+    // flowContinue opens the gate on the robocall "what" step).
+    const buildToCompose = async (onClose: () => void = vi.fn()) => {
       mockDraft()
       mockSavedLists()
       const listDetailCalls = mockFreeAudience()
@@ -2125,15 +2126,14 @@ describe('RobocallFlow', () => {
         screen.getByRole('button', { name: 'Stop recording' }),
       )
       await userEvent.click(screen.getByRole('button', { name: 'Save' }))
-      const continueBtn = screen.getByRole('button', { name: 'Continue' })
-      await waitFor(() => expect(continueBtn).toBeEnabled())
-      await userEvent.click(continueBtn)
-      await screen.findByRole('button', { name: 'Save draft' })
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
       return listDetailCalls
     }
 
     const saveDraft = () =>
-      userEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+      userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The banner rides every build-mode step, so its explainer can open the
     // gate long before there is a draft. Finishing there must hand the
@@ -2170,27 +2170,27 @@ describe('RobocallFlow', () => {
     })
 
     // The whole free build path, with every Pro-gated read answering the way
-    // gp-api really answers it: the reach count is the recommendation's own,
-    // and nothing asks list-detail for one.
-    it('reaches review and prices the summary off the recommendation', async () => {
+    // gp-api really answers it: nothing asks list-detail for a count, and
+    // the build ends on compose with no review or schedule step behind it.
+    it('reaches compose without a list-detail read', async () => {
       gateRef.set(FREE_GATE)
       mockSaveDraft()
-      // buildToReview registers the audience mocks itself and hands back the
+      // buildToCompose registers the audience mocks itself and hands back the
       // live counter. Registering a second set here would leave this test
       // counting a handler msw had already replaced.
-      const listDetailCalls = await buildToReview()
+      const listDetailCalls = await buildToCompose()
 
-      expect(screen.getByText('People')).toBeInTheDocument()
-      expect(screen.getByText('900')).toBeInTheDocument()
-      expect(screen.getByText('Estimated cost')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Save draft' }),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText('Review your campaign')).not.toBeInTheDocument()
       expect(listDetailCalls()).toBe(0)
     })
 
     // The FIRST time a recommendation is taken there is no saved list yet, so
-    // it goes through createRecommendedList rather than the reuse branch.
-    // That path has to carry the card's count too, or the very first free
-    // build reaches review with no People row and no estimate.
-    it('carries the count through a recommendation saved for the first time', async () => {
+    // it goes through createRecommendedList rather than the reuse branch,
+    // and the build has to reach compose off that list.
+    it('saves a recommendation taken for the first time and reaches compose', async () => {
       gateRef.set(FREE_GATE)
       mockSaveDraft()
       mockDraft()
@@ -2225,14 +2225,10 @@ describe('RobocallFlow', () => {
         screen.getByRole('button', { name: 'Stop recording' }),
       )
       await userEvent.click(screen.getByRole('button', { name: 'Save' }))
-      const continueBtn = screen.getByRole('button', { name: 'Continue' })
-      await waitFor(() => expect(continueBtn).toBeEnabled())
-      await userEvent.click(continueBtn)
-      await screen.findByRole('button', { name: 'Save draft' })
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
 
-      expect(screen.getByText('People')).toBeInTheDocument()
-      expect(screen.getByText('900')).toBeInTheDocument()
-      expect(screen.getByText('Estimated cost')).toBeInTheDocument()
       expect(listDetailCalls()).toBe(0)
     })
 
@@ -2271,7 +2267,7 @@ describe('RobocallFlow', () => {
       gateRef.set(FREE_GATE)
       const bodies = mockSaveDraft()
 
-      await buildToReview()
+      await buildToCompose()
       expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
       await saveDraft()
 
@@ -2304,7 +2300,7 @@ describe('RobocallFlow', () => {
         return { status: 200, data: undefined }
       })
 
-      await buildToReview()
+      await buildToCompose()
       await saveDraft()
 
       await waitFor(() => expect(detailRequests).toEqual(['55']))
@@ -2330,7 +2326,7 @@ describe('RobocallFlow', () => {
         data: draftDetail({ id: 55 }),
       })
 
-      await buildToReview()
+      await buildToCompose()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
 
@@ -2349,14 +2345,14 @@ describe('RobocallFlow', () => {
       ).not.toBeInTheDocument()
     })
 
-    it('reports a failed draft save on the review step', async () => {
+    it('reports a failed draft save on the compose step', async () => {
       gateRef.set(FREE_GATE)
       api.mock('POST /v1/outreach/drafts', {
         status: 500,
         data: { message: 'boom' },
       })
 
-      await buildToReview()
+      await buildToCompose()
       await saveDraft()
 
       expect(
@@ -2454,7 +2450,7 @@ describe('RobocallFlow', () => {
       })
       const onClose = vi.fn()
 
-      await buildToReview(onClose)
+      await buildToCompose(onClose)
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
       await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -2468,7 +2464,7 @@ describe('RobocallFlow', () => {
       mockSaveDraft()
       api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
 
-      await buildToReview()
+      await buildToCompose()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
 
@@ -2501,7 +2497,7 @@ describe('RobocallFlow', () => {
         data: draftDetail({ id: 55 }),
       })
 
-      await buildToReview()
+      await buildToCompose()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
 

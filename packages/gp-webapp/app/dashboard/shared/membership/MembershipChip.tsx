@@ -22,7 +22,7 @@ import {
 } from './MembershipBanner'
 
 const CHIP_CLASS_NAME =
-  'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full bg-primary-light px-2.5 text-xs font-semibold text-primary'
+  'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full bg-info-50 px-2.5 text-xs font-semibold text-primary'
 
 const verificationLabel = (state: MembershipState): string => {
   if (state.texting === 'awaiting_pin') return MEMBERSHIP_COPY.chip.awaitingPin

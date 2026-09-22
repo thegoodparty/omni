@@ -1255,7 +1255,12 @@ export default function CreateListFlow({
       open
       onClose={onClose}
       title={title}
-      headerBadge={<ChannelBadge type="nativeDoorKnocking" />}
+      headerBadge={
+        <ChannelBadge
+          type="nativeDoorKnocking"
+          locked={gate.requirement !== null && !gateOpen}
+        />
+      }
       currentStep={currentStep}
       totalSteps={totalSteps}
       onBack={previousStage(stage) && !gateOpen ? back : undefined}
@@ -1406,7 +1411,7 @@ export default function CreateListFlow({
           channel="door"
           state={gate}
           open
-          hasDraft={false}
+          showInterstitial={false}
           onExit={() => {
             setGateOpen(false)
             setGateOrigin(null)

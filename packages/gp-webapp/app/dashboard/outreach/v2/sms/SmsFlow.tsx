@@ -57,7 +57,11 @@ import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
 import { SmsPurposeStep } from './SmsPurposeStep'
-import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
+import {
+  NAME_ONLY_COPY,
+  SmsScheduleStep,
+  TIME_OPTIONS,
+} from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
 import { composeScript, identificationIntro } from './smsCompose.util'
@@ -71,9 +75,18 @@ const STEP_ORDER: StepId[] = [
   'review',
 ]
 
-// Build mode (the candidate cannot send yet): there is nothing to schedule,
-// so the draft is written straight off the review summary.
-const BUILD_STEP_ORDER: StepId[] = ['purpose', 'audience', 'compose', 'review']
+// Build mode (the candidate cannot send yet) has no date to pick, so the
+// schedule step only names the campaign (design: the locked "when" step) and
+// the draft is written off it. A free tier hands straight to the Pro gate
+// from there; a Pro candidate who still has to verify continues to the
+// "Review and verify" summary (design: flowReview's preClear branch).
+const PRO_BUILD_STEP_ORDER: StepId[] = [
+  'purpose',
+  'audience',
+  'compose',
+  'schedule',
+]
+const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -342,7 +355,11 @@ export const SmsFlow = ({
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
-  const stepOrder = buildMode ? BUILD_STEP_ORDER : STEP_ORDER
+  const stepOrder = !buildMode
+    ? STEP_ORDER
+    : gate.requirement === 'pro'
+      ? PRO_BUILD_STEP_ORDER
+      : VERIFY_BUILD_STEP_ORDER
   // A free candidate on the build path can reach neither the in-flow builder
   // nor a saved list's reach count: both go through the Pro-gated voter-file
   // reads, which 403 for them. Recommended lists carry their own counts, so
@@ -949,51 +966,73 @@ export const SmsFlow = ({
                   phoneListCreating ||
                   (phoneListError && audience.reachableLoading),
               }
-            : stepId === 'schedule'
+            : // Build mode's name step is where the draft is written: a
+              // free tier goes to the Pro gate from here, and a Pro candidate
+              // who still has to verify reads the summary first.
+              stepId === 'schedule' && buildMode
               ? {
                   label: 'Continue',
                   onClick: () => {
-                    if (resumed) {
-                      void handleResumeScheduleContinue()
+                    if (gate.requirement === 'pro') {
+                      void draftGate.saveDraft()
                       return
                     }
-                    setStepId('compose')
+                    setStepId('review')
                   },
                   disabled:
                     name.trim().length === 0 ||
-                    scheduledAt === null ||
-                    violates48h ||
-                    outsideWindow ||
-                    // The resume derives its phone list from this list:
-                    // nothing to press until it resolves, and nothing at all
-                    // if it has been deleted since the draft was saved.
-                    (resumed && !selectedList),
-                  loading: resumed && phoneListCreating,
+                    !audience.selectedListId ||
+                    image === null,
+                  loading: draftGate.savingDraft,
                 }
-              : stepId === 'compose'
+              : stepId === 'schedule'
                 ? {
                     label: 'Continue',
-                    onClick: () => setStepId('review'),
+                    onClick: () => {
+                      if (resumed) {
+                        void handleResumeScheduleContinue()
+                        return
+                      }
+                      setStepId('compose')
+                    },
                     disabled:
-                      body.trim().length === 0 ||
-                      !standards.passed ||
-                      composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                      image === null ||
-                      draftMutation.isPending,
+                      name.trim().length === 0 ||
+                      scheduledAt === null ||
+                      violates48h ||
+                      outsideWindow ||
+                      // The resume derives its phone list from this list:
+                      // nothing to press until it resolves, and nothing at all
+                      // if it has been deleted since the draft was saved.
+                      (resumed && !selectedList),
+                    loading: resumed && phoneListCreating,
                   }
-                : // Build mode's review has nothing to pay for: the CTA saves
-                  // the draft and hands the flow to the gate, named for
-                  // whatever still stands in the way.
-                  stepId === 'review' && buildMode && gate.requirement !== null
+                : stepId === 'compose'
                   ? {
-                      label: REVIEW_GATE_CTA[gate.requirement],
-                      onClick: () => {
-                        void draftGate.saveDraft()
-                      },
-                      disabled: !audience.selectedListId || image === null,
-                      loading: draftGate.savingDraft,
+                      label: 'Continue',
+                      onClick: () =>
+                        setStepId(buildMode ? 'schedule' : 'review'),
+                      disabled:
+                        body.trim().length === 0 ||
+                        !standards.passed ||
+                        composedLength > SMS_COMPOSED_MAX_LENGTH ||
+                        image === null ||
+                        draftMutation.isPending,
                     }
-                  : null
+                  : // Build mode's review has nothing to pay for: the CTA saves
+                    // the draft and hands the flow to the gate, named for
+                    // whatever still stands in the way.
+                    stepId === 'review' &&
+                      buildMode &&
+                      gate.requirement !== null
+                    ? {
+                        label: REVIEW_GATE_CTA[gate.requirement],
+                        onClick: () => {
+                          void draftGate.saveDraft()
+                        },
+                        disabled: !audience.selectedListId || image === null,
+                        loading: draftGate.savingDraft,
+                      }
+                    : null
 
   // Mirrors the review step's isFree: a free send reads "Review and send" /
   // "Schedule campaign" instead of the pay vocabulary (design prototype).
@@ -1008,13 +1047,20 @@ export const SmsFlow = ({
       title={
         scheduled
           ? 'Done'
-          : stepId === 'review' && buildMode
-            ? 'Review and verify'
-            : stepId === 'review' && isFreeSend
-              ? 'Review and send'
-              : STEP_TITLES[stepId]
+          : stepId === 'schedule' && buildMode
+            ? NAME_ONLY_COPY.title
+            : stepId === 'review' && buildMode
+              ? 'Review and verify'
+              : stepId === 'review' && isFreeSend
+                ? 'Review and send'
+                : STEP_TITLES[stepId]
       }
-      headerBadge={<ChannelBadge type={OUTREACH_TYPES.text} />}
+      headerBadge={
+        <ChannelBadge
+          type={OUTREACH_TYPES.text}
+          locked={gate.requirement !== null && !scheduled && !gateOpen}
+        />
+      }
       currentStep={stepIndex + 1}
       totalSteps={scheduled ? 0 : stepOrder.length}
       onBack={
@@ -1077,7 +1123,7 @@ export const SmsFlow = ({
           channel="sms"
           state={gate}
           open
-          hasDraft={savedDraft !== null}
+          showInterstitial={draftGate.gateOrigin === 'save'}
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onDelete={
@@ -1179,6 +1225,7 @@ export const SmsFlow = ({
               setName(value)
               setNameEdited(true)
             }}
+            nameOnly={buildMode}
             date={date}
             onDateChange={setDate}
             timeSlot={timeSlot}
@@ -1200,6 +1247,11 @@ export const SmsFlow = ({
           {resumed && phoneListError && (
             <p className="mt-4 text-sm text-destructive">
               We couldn&apos;t prepare this audience. Try again.
+            </p>
+          )}
+          {buildMode && draftGate.draftSaveError && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t save this draft. Try again.
             </p>
           )}
         </>

@@ -45,7 +45,7 @@ export const isMembershipSurfaceVisible = (
   )
 
 const BANNER_CLASS_NAME =
-  'mb-2 flex w-full flex-col items-start gap-1.5 rounded-lg bg-primary-light p-3 text-left'
+  'mb-2 flex w-full flex-col items-start gap-1.5 rounded-lg bg-info-50 p-3 text-left'
 
 const bannerCopy = (state: MembershipState) => {
   if (state.tier === 'free') return MEMBERSHIP_COPY.banner.free

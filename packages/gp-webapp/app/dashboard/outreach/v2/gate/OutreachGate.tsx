@@ -32,10 +32,12 @@ interface OutreachGateProps {
   // A delete that failed. Silence here left the candidate looking at a draft
   // they had already asked twice to discard.
   deleteError?: boolean
-  // Whether a draft row stands behind this gate. With none the Pro screen
-  // cannot open on the interstitial — its copy says the campaign has been
-  // made and will be kept for 90 days, which would be a lie.
-  hasDraft?: boolean
+  // Whether the Pro screen opens on the "Join Pro to send this campaign"
+  // interstitial or straight on the wizard's first step. Only the save that
+  // just wrote the draft shows the pitch (design: sgOpen's pause screen);
+  // coming back to a saved draft, or pressing Join Pro on the explainer that
+  // already made the pitch, skips it (design: sgOpen(..., skipPause)).
+  showInterstitial?: boolean
 }
 
 const DeleteButton = ({
@@ -79,7 +81,7 @@ export const OutreachGate = ({
   onDelete,
   deleting,
   deleteError,
-  hasDraft = true,
+  showInterstitial = true,
 }: OutreachGateProps): React.JSX.Element | null => {
   // THE SCREEN IS LATCHED FOR THE LIFE OF ONE OPEN, and must stay that way.
   // `state.requirement` is derived from the same campaign cache
@@ -132,11 +134,10 @@ export const OutreachGate = ({
           />
         )}
         <ProUpgradeFlow
-          // With no draft behind the gate the interstitial's "send this
-          // campaign" copy has nothing to describe, so the wizard opens on
-          // the first step of its own purchase-only order instead.
           initialStep={
-            hasDraft ? PRO_UPGRADE_STEP.INTERSTITIAL : PRO_UPGRADE_STEP.GUIDANCE
+            showInterstitial
+              ? PRO_UPGRADE_STEP.INTERSTITIAL
+              : PRO_UPGRADE_STEP.GUIDANCE
           }
           channel={channel}
           onExit={onExit}

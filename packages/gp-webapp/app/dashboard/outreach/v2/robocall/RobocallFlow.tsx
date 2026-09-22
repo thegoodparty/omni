@@ -30,7 +30,6 @@ import {
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
-import { REVIEW_GATE_CTA } from '../gate/gateCopy'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate } from '../gate/OutreachGate'
@@ -64,8 +63,10 @@ const STEP_ORDER: StepId[] = [
 ]
 
 // Build mode (the candidate is not Pro yet): there is nothing to schedule or
-// pay for, so the draft is written straight off the review summary.
-const BUILD_STEP_ORDER: StepId[] = ['purpose', 'audience', 'compose', 'review']
+// pay for, so the draft is written off the saved recording and the flow hands
+// to the Pro gate from compose (design: flowContinue opens the gate on the
+// robocall "what" step).
+const BUILD_STEP_ORDER: StepId[] = ['purpose', 'audience', 'compose']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -715,49 +716,52 @@ export const RobocallFlow = ({
         : stepId === 'compose'
           ? {
               label: 'Continue',
-              onClick: () => setStepId('review'),
+              // Build mode has nothing to schedule or pay for, so this is
+              // where the draft is written and the flow hands to the gate.
+              onClick: () => {
+                if (buildMode) {
+                  void draftGate.saveDraft()
+                  return
+                }
+                setStepId('review')
+              },
               // Advancing requires a saved recording that also passed the
               // compliance check — the audio is the deliverable, and it must
               // carry the spoken disclosures.
               disabled:
                 recorder.status !== 'saved' ||
-                complianceMutation.data?.passed !== true,
+                complianceMutation.data?.passed !== true ||
+                (buildMode &&
+                  (!audience.selectedListId ||
+                    !audioUpload.key ||
+                    !callbackNumber)),
+              loading: buildMode && draftGate.savingDraft,
             }
-          : stepId === 'review' && buildMode && gate.requirement !== null
-            ? // Build mode's review has nothing to pay for: the CTA saves the
-              // draft and hands the flow to the gate, named for whatever
-              // still stands in the way.
-              {
-                label: REVIEW_GATE_CTA[gate.requirement],
-                onClick: () => {
-                  void draftGate.saveDraft()
-                },
-                disabled:
-                  !audience.selectedListId ||
-                  !audioUpload.key ||
-                  !callbackNumber,
-                loading: draftGate.savingDraft,
+          : stepId === 'review'
+            ? {
+                label: 'Continue to payment',
+                onClick: goToPay,
               }
-            : stepId === 'review'
-              ? {
-                  label: 'Continue to payment',
-                  onClick: goToPay,
-                }
-              : settled
-                ? // Settled (authorized/deferred/noop): the success screen is
-                  // shown, so the shell offers Done to close the flow.
-                  { label: 'Done', onClick: onClose }
-                : // Before settling, the pay step owns its own submit button
-                  // (the Stripe confirm must run inside the Elements
-                  // context), so the shell shows no CTA.
-                  null
+            : settled
+              ? // Settled (authorized/deferred/noop): the success screen is
+                // shown, so the shell offers Done to close the flow.
+                { label: 'Done', onClick: onClose }
+              : // Before settling, the pay step owns its own submit button
+                // (the Stripe confirm must run inside the Elements
+                // context), so the shell shows no CTA.
+                null
 
   return (
     <OutreachFlowShell
       open={open}
       onClose={onClose}
       title={STEP_TITLES[stepId]}
-      headerBadge={<ChannelBadge type={OUTREACH_TYPES.robocall} />}
+      headerBadge={
+        <ChannelBadge
+          type={OUTREACH_TYPES.robocall}
+          locked={gate.requirement !== null && !settled && !gateOpen}
+        />
+      }
       currentStep={stepIndex + 1}
       totalSteps={stepOrder.length}
       onBack={
@@ -795,7 +799,7 @@ export const RobocallFlow = ({
           channel="robocall"
           state={gate}
           open
-          hasDraft={savedDraft !== null}
+          showInterstitial={draftGate.gateOrigin === 'save'}
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onDelete={
@@ -901,54 +905,49 @@ export const RobocallFlow = ({
           )}
         </>
       ) : stepId === 'compose' ? (
-        <RobocallComposeStep
-          tone={tone}
-          onToneChange={handleToneChange}
-          isCustomPurpose={isCustomPurpose}
-          draft={script}
-          onDraftChange={setScript}
-          onRegenerate={handleRegenerate}
-          isDrafting={draftMutation.isPending}
-          isDraftError={draftMutation.isError}
-          audienceName={audience.selectedList?.name ?? 'your list'}
-          callbackNumber={callbackNumber}
-          isRentingNumber={rentMutation.isPending}
-          rentError={rentMutation.isError}
-          onRetryNumber={rentCallbackNumber}
-          recorder={recorder}
-          maxSeconds={MAX_RECORDING_SECONDS}
-          onSaveRecording={handleSaveRecording}
-          isUploading={audioUpload.isUploading}
-          uploadError={audioUpload.error}
-          complianceChecking={complianceMutation.isPending}
-          complianceVerdict={complianceMutation.data ?? null}
-          complianceError={complianceMutation.isError}
-          onRetryCompliance={retryCompliance}
-        />
-      ) : stepId === 'review' ? (
         <>
-          <RobocallReviewStep
-            campaignName={campaignName}
+          <RobocallComposeStep
+            tone={tone}
+            onToneChange={handleToneChange}
+            isCustomPurpose={isCustomPurpose}
+            draft={script}
+            onDraftChange={setScript}
+            onRegenerate={handleRegenerate}
+            isDrafting={draftMutation.isPending}
+            isDraftError={draftMutation.isError}
             audienceName={audience.selectedList?.name ?? 'your list'}
-            reachCount={
-              buildMode
-                ? audience.reachableCount
-                : (audience.reachableCount ?? 0)
-            }
-            pricePerContact={PRICE_PER_CONTACT}
-            scheduledAt={scheduledAt}
-            timeZone={timeZone}
             callbackNumber={callbackNumber}
-            recording={recorder.recording}
-            script={script}
-            readOnlySummary={buildMode}
+            isRentingNumber={rentMutation.isPending}
+            rentError={rentMutation.isError}
+            onRetryNumber={rentCallbackNumber}
+            recorder={recorder}
+            maxSeconds={MAX_RECORDING_SECONDS}
+            onSaveRecording={handleSaveRecording}
+            isUploading={audioUpload.isUploading}
+            uploadError={audioUpload.error}
+            complianceChecking={complianceMutation.isPending}
+            complianceVerdict={complianceMutation.data ?? null}
+            complianceError={complianceMutation.isError}
+            onRetryCompliance={retryCompliance}
           />
-          {draftGate.draftSaveError && (
+          {buildMode && draftGate.draftSaveError && (
             <p className="mt-4 text-sm text-destructive">
               We couldn&apos;t save this draft. Try again.
             </p>
           )}
         </>
+      ) : stepId === 'review' ? (
+        <RobocallReviewStep
+          campaignName={campaignName}
+          audienceName={audience.selectedList?.name ?? 'your list'}
+          reachCount={audience.reachableCount ?? 0}
+          pricePerContact={PRICE_PER_CONTACT}
+          scheduledAt={scheduledAt}
+          timeZone={timeZone}
+          callbackNumber={callbackNumber}
+          recording={recorder.recording}
+          script={script}
+        />
       ) : (
         <RobocallPayStep
           voterFileFilterId={audience.selectedListId}

@@ -630,9 +630,10 @@ describe('SmsFlow', () => {
       ...overrides,
     })
 
-    // Build mode drops the schedule step: purpose → audience → compose →
-    // review, ending on the summary the draft save reads from.
-    const buildToReview = async () => {
+    // A free build has no date to pick and nothing to review: purpose →
+    // audience → compose → the campaign name, which is where the draft is
+    // written (design: the locked "when" step).
+    const buildToName = async () => {
       await userEvent.click(screen.getByText('Introduce myself to voters'))
       // Recommendations only: the picker offers no saved lists here.
       expect(screen.queryByText('Choose a voter list')).not.toBeInTheDocument()
@@ -651,37 +652,39 @@ describe('SmsFlow', () => {
       expect(
         await screen.findByRole('heading', {
           level: 3,
-          name: 'Review and verify',
+          name: 'What do you want to call this campaign?',
         }),
       ).toBeInTheDocument()
     }
 
-    // The gated review CTA is named for what still stands in the way, not
-    // "Continue" (design: the sms review CTA).
+    // The name step's Continue is the draft save for a free tier: the Pro
+    // gate opens off it (design: flowContinue on the locked "when" step).
     const saveDraft = () =>
-      userEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+      userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // The whole free build path, with every Pro-gated read answering the way
-    // gp-api really answers it: the reach count is the recommendation's own,
-    // and nothing asks list-detail for one.
-    it('reaches review and prices the summary off the recommendation', async () => {
+    // gp-api really answers it: nothing asks list-detail for a count, and
+    // the name step only asks for the name.
+    it('reaches the name step without a list-detail read', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
       const listDetailCalls = mockFreeAudience()
       openFlow()
 
-      await buildToReview()
+      await buildToName()
 
-      expect(screen.getByText('People')).toBeInTheDocument()
-      expect(screen.getByText('900')).toBeInTheDocument()
+      expect(screen.getByLabelText('Campaign name')).toHaveValue(
+        'Likely voters — SMS',
+      )
+      expect(screen.queryByText('Send date')).not.toBeInTheDocument()
+      expect(screen.queryByText('Review and verify')).not.toBeInTheDocument()
       expect(listDetailCalls()).toBe(0)
     })
 
     // The FIRST time a recommendation is taken there is no saved list yet, so
-    // it goes through createRecommendedList rather than the reuse branch.
-    // That path has to carry the card's count too, or the very first free
-    // build reaches review with no People row and no total.
-    it('carries the count through a recommendation saved for the first time', async () => {
+    // it goes through createRecommendedList rather than the reuse branch,
+    // and the build has to land on the name step off that list.
+    it('saves a recommendation taken for the first time and reaches the name step', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
       const listDetailCalls = mockFreeAudience()
@@ -717,11 +720,15 @@ describe('SmsFlow', () => {
       expect(
         await screen.findByRole('heading', {
           level: 3,
-          name: 'Review and verify',
+          name: 'What do you want to call this campaign?',
         }),
       ).toBeInTheDocument()
-      expect(screen.getByText('People')).toBeInTheDocument()
-      expect(screen.getByText('900')).toBeInTheDocument()
+      // The saved-lists mock never returns the row the create just made, so
+      // the auto-name falls back to the channel; the field being filled is
+      // what matters here.
+      expect(
+        (screen.getByLabelText('Campaign name') as HTMLInputElement).value,
+      ).toMatch(/ — SMS$/)
       expect(listDetailCalls()).toBe(0)
     })
 
@@ -761,7 +768,7 @@ describe('SmsFlow', () => {
       mockFreeAudience()
       const { onClose } = openFlow()
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
 
@@ -779,7 +786,7 @@ describe('SmsFlow', () => {
       const { onScheduled } = openFlow()
 
       expect(await screen.findByText(GATE_LINE)).toBeInTheDocument()
-      await buildToReview()
+      await buildToName()
       await saveDraft()
 
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
@@ -815,7 +822,7 @@ describe('SmsFlow', () => {
       })
       openFlow()
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
 
       await waitFor(() => expect(detailRequests).toEqual(['55']))
@@ -844,7 +851,7 @@ describe('SmsFlow', () => {
       })
       openFlow()
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
       vi.mocked(createOutreach).mockClear()
@@ -945,7 +952,7 @@ describe('SmsFlow', () => {
       })
       const { onClose, onScheduled } = openFlow()
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
       await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -968,7 +975,7 @@ describe('SmsFlow', () => {
       const { onScheduled } = openFlow()
       onScheduled.mockRejectedValueOnce(new Error('refetch failed'))
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
 
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
@@ -988,7 +995,7 @@ describe('SmsFlow', () => {
         .mockResolvedValueOnce(undefined)
         .mockRejectedValueOnce(new Error('refetch failed'))
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
       await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -1053,7 +1060,7 @@ describe('SmsFlow', () => {
       mockFreeAudience()
       openFlow()
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
 
@@ -1080,7 +1087,7 @@ describe('SmsFlow', () => {
       })
       openFlow()
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
 
@@ -1097,7 +1104,7 @@ describe('SmsFlow', () => {
       api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
       openFlow()
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
       await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
@@ -1156,7 +1163,7 @@ describe('SmsFlow', () => {
       })
       const { onClose } = openFlow()
 
-      await buildToReview()
+      await buildToName()
       await saveDraft()
       await screen.findByTestId('pro-upgrade-flow')
       await userEvent.click(screen.getByRole('button', { name: 'Delete' }))

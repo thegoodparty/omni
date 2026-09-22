@@ -94,18 +94,24 @@ export const GateExplainerModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[88vh] max-w-[640px] flex-col">
+      {/* DialogContent's own `sm:max-w-lg` would cap the 640px the design
+          draws, so the width is set at the same breakpoint. */}
+      <DialogContent className="flex max-h-[88vh] flex-col gap-5 rounded-2xl p-5 sm:max-w-[640px] sm:gap-6 sm:p-8">
         {/* Only the body scrolls: expanding the verification card on a short
             viewport must not carry the CTA off the bottom of the dialog. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto sm:gap-6">
           {/* DialogHeader's own classes end in `sm:text-left`, so centering
               the wrapped lines needs the sm: breakpoint spelled out too. */}
-          <DialogHeader className="items-center text-center sm:text-center">
-            <ProBadge size="large" />
+          <DialogHeader className="items-center gap-3 text-center sm:text-center">
+            <ProBadge size="large" className="h-[30px] w-[66px]" />
             <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
               {title}
             </DialogTitle>
-            {body && <DialogDescription>{body}</DialogDescription>}
+            {body && (
+              <DialogDescription className="text-base leading-normal">
+                {body}
+              </DialogDescription>
+            )}
           </DialogHeader>
           <ProPitchPanel
             channel={channel}

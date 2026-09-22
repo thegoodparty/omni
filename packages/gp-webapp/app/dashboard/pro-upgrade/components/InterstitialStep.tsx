@@ -21,7 +21,7 @@ const InterstitialStep = (): React.JSX.Element => {
 
   return (
     <div className="flex flex-col items-center gap-6 text-center">
-      <ProBadge size="large" />
+      <ProBadge size="large" className="h-[30px] w-[66px]" />
       <h3 className="text-xl font-semibold tracking-tight sm:text-2xl">
         {INTERSTITIAL_COPY.title}
       </h3>

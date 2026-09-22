@@ -28,37 +28,38 @@ const CHANNEL_ICON: Record<
   'phone-bank': HeadphonesIcon,
 }
 
-// Each channel's tint. The design paints these cards in the 200-level wash of
-// a token family, which is the `-light` step here; the header and the check
-// circles sit at fractions of that same wash so the icon circle still reads
-// against the header behind it.
+// Each channel's tint: the design's `CHANNEL_TINT`, a brand-palette 200 step
+// (gp-blue-200 for texting, not the theme's Tailwind-blue `info-light`), the
+// same wash `channelMeta.tsx` paints the channel badge and tile with. The
+// header and the check circles sit at fractions of it so the icon circle
+// still reads against the header behind it.
 const CHANNEL_TINT: Record<
   GateChannel,
   { border: string; header: string; circle: string; check: string }
 > = {
   sms: {
-    border: 'border-info-light',
-    header: 'bg-info-light/45',
-    circle: 'bg-info-light',
-    check: 'bg-info-light/55',
+    border: 'border-brand-blue-200',
+    header: 'bg-brand-blue-200/45',
+    circle: 'bg-brand-blue-200',
+    check: 'bg-brand-blue-200/55',
   },
   robocall: {
-    border: 'border-warning-light',
-    header: 'bg-warning-light/45',
-    circle: 'bg-warning-light',
-    check: 'bg-warning-light/55',
+    border: 'border-brand-waxflower-200',
+    header: 'bg-brand-waxflower-200/45',
+    circle: 'bg-brand-waxflower-200',
+    check: 'bg-brand-waxflower-200/55',
   },
   door: {
-    border: 'border-success-light',
-    header: 'bg-success-light/45',
-    circle: 'bg-success-light',
-    check: 'bg-success-light/55',
+    border: 'border-brand-halo-green-200',
+    header: 'bg-brand-halo-green-200/45',
+    circle: 'bg-brand-halo-green-200',
+    check: 'bg-brand-halo-green-200/55',
   },
   'phone-bank': {
-    border: 'border-destructive-light',
-    header: 'bg-destructive-light/45',
-    circle: 'bg-destructive-light',
-    check: 'bg-destructive-light/55',
+    border: 'border-brand-red-200',
+    header: 'bg-brand-red-200/45',
+    circle: 'bg-brand-red-200',
+    check: 'bg-brand-red-200/55',
   },
 }
 
@@ -149,7 +150,7 @@ export const ProPitchPanel = ({
                   </div>
                 ))}
               </div>
-              <span className="w-fit rounded-full bg-info-light px-3 py-1 text-sm font-medium text-primary">
+              <span className="w-fit rounded-full bg-brand-blue-100 px-3 py-1 text-sm font-medium text-primary">
                 {PITCH_PANEL_COPY.verifyFeePill}
               </span>
             </div>

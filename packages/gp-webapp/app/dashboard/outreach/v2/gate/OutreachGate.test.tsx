@@ -93,15 +93,14 @@ describe('OutreachGate', () => {
       )
     })
 
-    // The interstitial's copy pitches Pro as the way to send this campaign.
-    // With nothing saved there is no campaign, so the wizard opens on the
-    // first step of its own purchase-only order instead.
-    it('starts on guidance when no draft stands behind the gate', () => {
+    // Only the save that just wrote the draft shows the pitch; a resume or
+    // the explainer's Join Pro opens on the wizard's first step instead.
+    it('starts on guidance when the caller skips the interstitial', () => {
       render(
         <OutreachGate
           {...baseProps}
           state={stateWith({ requirement: 'pro' })}
-          hasDraft={false}
+          showInterstitial={false}
         />,
       )
 

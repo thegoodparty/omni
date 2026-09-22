@@ -726,7 +726,12 @@ export const PhoneBankingFlow = ({
       open={open}
       onClose={onClose}
       title={STEP_TITLES[stepId]}
-      headerBadge={<ChannelBadge type={OUTREACH_TYPES.nativePhoneBanking} />}
+      headerBadge={
+        <ChannelBadge
+          type={OUTREACH_TYPES.nativePhoneBanking}
+          locked={gate.requirement !== null && !saved && !gateOpen}
+        />
+      }
       currentStep={stepIndex + 1}
       totalSteps={STEP_ORDER.length}
       onBack={stepIndex > 0 && !saved && !gateOpen ? handleBack : undefined}
@@ -758,7 +763,7 @@ export const PhoneBankingFlow = ({
           channel="phone-bank"
           state={gate}
           open
-          hasDraft={false}
+          showInterstitial={false}
           onExit={() => {
             setGateOpen(false)
             setGateOrigin(null)
