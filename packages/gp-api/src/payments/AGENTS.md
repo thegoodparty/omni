@@ -342,6 +342,18 @@ so a loser's success can never stamp the marker while the winner fails.
 Sessions without `outreachId` (pre-draft-first clients) fall back to
 free-texts redemption only.
 
+A delayed-notification payment (ACH bank debit; one-time sessions offer
+`us_bank_account`) completes checkout with `payment_status: unpaid`.
+`completeCheckoutSession` then returns `{ deferred: true }` and fulfills
+nothing; `checkout.session.async_payment_succeeded` re-enters the same path
+with `paid` days later, and `checkout.session.async_payment_failed` routes to
+the purchase type's registered payment-failed handler
+(`registerCheckoutSessionPaymentFailedHandler`; TEXT unwinds the draft to
+`failed` and notifies CAS + the candidate). Neither async event is subscribed
+by code: the Stripe dashboard's webhook endpoint must list them, and nothing in
+CI checks that it does. Before 2026-09-21 it did not, so every ACH text
+purchase since the `paid` gate landed (2026-06-11) sat deferred forever.
+
 ## Serve SMS fulfillment (SERVE_TEXT)
 
 `SERVE_TEXT` is the Serve twin of the TEXT flow above, for an elected official

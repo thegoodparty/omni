@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   transformVoterFileFiltersForBackend,
@@ -24,6 +24,7 @@ import type {
   DoorKnockingTurf,
   RecommendedListVariant,
 } from '@goodparty_org/contracts'
+import type { TurfDraft } from './turfDrafts'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { PolygonRing } from './VoterMapCanvas'
@@ -52,14 +53,35 @@ const NO_RECOMMENDED_CRITERIA: RecommendedCriteria = {
 // Kept beside the panel because both halves are one surface's contract: an
 // agent changing what the draw step asks of the map changes this file, and the
 // orchestrator only ever spreads the result onto `VoterMapCanvas`.
-export const useCreateListDraw = () => {
+// `seedColor` is the palette slot a candidate should land on when the flow
+// opens: `TURF_COLORS[0]` for a solo campaign, or `assignNextColor(...)`
+// off the anchor's siblings when the create is joining an existing
+// campaign. Passing it in rather than deriving it here keeps the hook
+// unaware of the campaign fetch — the surface is the one place that knows
+// whether siblings exist. It re-seeds when the value changes, but never
+// clobbers a colour the candidate has since picked (see the effect below).
+export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [resumeDrawToken, setResumeDrawToken] = useState(0)
+  const [loadDrawToken, setLoadDrawToken] = useState(0)
+  const [loadDrawRing, setLoadDrawRing] = useState<PolygonRing | null>(null)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [frameDrawToken, setFrameDrawToken] = useState(0)
   const [pointCount, setPointCount] = useState(0)
-  const [drawColor, setDrawColor] = useState<string>(TURF_COLORS[0])
+  // The colour of the in-progress ring. Two writers, and which of them wins
+  // is the whole reason `colorPicked` exists beside it: the seed is the
+  // palette's next free slot, recomputed whenever the campaign's turfs
+  // change, and it must not overwrite a hue the candidate chose by hand on
+  // the toolbar's picker. So the seed effect stands down once a turf has been
+  // picked for, and `startNewTurf` below is what puts the assigner back in
+  // charge — a NEW turf has no candidate choice behind it yet.
+  const [drawColor, setDrawColor] = useState<string>(seedColor)
+  const colorPicked = useRef(false)
+  useEffect(() => {
+    if (colorPicked.current) return
+    setDrawColor(seedColor)
+  }, [seedColor])
   // Whether the map is uncovered and being drawn on. It belongs here rather
   // than inside the flow for the reason everything else in this hook does: it
   // is a fact about what the CANVAS is doing. The draw step's shielded preview
@@ -71,14 +93,17 @@ export const useCreateListDraw = () => {
   return {
     startDrawToken,
     resumeDrawToken,
+    loadDrawToken,
+    loadDrawRing,
     clearDrawToken,
     undoDrawToken,
     frameDrawToken,
     pointCount,
     onPointCount: setPointCount,
-    // The colour a new list is drawn in. Auto-assigned rather than picked —
-    // the canvas's confirm step is a single name field — but still the map's
-    // to know, because it tints the ring while it is being cut.
+    // The colour the in-progress ring is drawn in. Defaults to the seed
+    // (palette[0] for a solo turf; the assigner's next-slot answer when
+    // joining a campaign) and is overridden by the drawing surface's own
+    // picker through `pickColor` below.
     drawColor,
     // Nothing covers the map on the drawing surface, so the ring is fitted
     // into the whole of it.
@@ -108,6 +133,37 @@ export const useCreateListDraw = () => {
     // that decided for itself by looking at the ring would get one of the two
     // callers right and quietly break the other the day it comes back.
     resumeDrawing: () => setResumeDrawToken((token) => token + 1),
+    // Putting a turf the candidate already cut back under the cursor, so its
+    // corners can be moved again. The colour rides along because the ring is
+    // drawn in it: loading Turf 2's boundary while the canvas is still tinted
+    // for Turf 3 would put one turf's shape on screen in another's hue, which
+    // is the one thing the palette exists to prevent.
+    //
+    // `colorPicked` is set because a loaded turf HAS a colour — the assigner's
+    // next-free-slot answer is about the next NEW turf and must not repaint
+    // one that already exists.
+    loadRing: (ring: PolygonRing, color: string) => {
+      colorPicked.current = true
+      setDrawColor(color)
+      setLoadDrawRing(ring)
+      setLoadDrawToken((token) => token + 1)
+    },
+    // Starting the next turf of a multi-turf campaign: an empty session, and
+    // the assigner back in charge of the hue. Distinct from `startDrawing`
+    // only in that it releases the candidate's pick — the seed is recomputed
+    // from the turfs that now exist, so consecutive turfs walk the palette.
+    startNewTurf: (color: string) => {
+      colorPicked.current = false
+      setDrawColor(color)
+      setStartDrawToken((token) => token + 1)
+    },
+    // The toolbar's colour picker. Marks the hue as the candidate's so the
+    // seed effect stops overwriting it — without the guard, committing a
+    // draft recomputes the seed and repaints the ring they just chose for.
+    pickColor: (color: string) => {
+      colorPicked.current = true
+      setDrawColor(color)
+    },
     undoPoint: () => setUndoDrawToken((token) => token + 1),
     // Leaving the flow entirely: empty the shape rather than restart a session.
     // The colour and the drawing surface reset with it, which a component that
@@ -115,7 +171,17 @@ export const useCreateListDraw = () => {
     // the unmount did has to be said out loud.
     clearDrawing: () => {
       setClearDrawToken((token) => token + 1)
-      setDrawColor(TURF_COLORS[0])
+      // Rewind to the seed rather than to a fixed palette[0]: the next
+      // create should start on whichever slot the assigner recommends
+      // right now — a solo campaign gets palette[0], a candidate opening
+      // "Add another turf" on a two-turf campaign gets palette[2].
+      //
+      // The candidate's pick is released with it. This is the end of a
+      // create, so the hue they chose for the last turf of it has no claim
+      // on the first turf of the next one.
+      colorPicked.current = false
+      setDrawColor(seedColor)
+      setLoadDrawRing(null)
       setFullScreen(false)
     },
   }
@@ -178,29 +244,28 @@ export interface CreateListSurfaceProps {
   ring: PolygonRing | null
   // In-polygon counts from the pack — instant on every ring change, and a
   // superset. The preview below replaces these once it answers.
-  turfStats: PolygonStats | null
+
   // Boundary points placed so far, straight off the canvas. `ring` only exists
   // from three points, so this is the only thing that knows there is a one- or
   // two-point shape to undo.
   drawPointCount: number
   // Drop the most recently placed vertex. Threaded through to the drawing
   // surface's Undo button.
-  onUndoPoint: () => void
+
   // Whether the map is uncovered and live. Owned by `useCreateListDraw` above
   // — it is a fact about the canvas, which outlives this surface.
   drawFullScreen: boolean
-  onDrawFullScreenChange: (full: boolean) => void
+  onDrawFullScreenChange: (full: boolean, origin?: DOMRect) => void
+  // What covers the bottom of the map, so the drawing surface's own chrome
+  // clears it by the same number the zoom cluster does. Threaded straight
+  // through — the turf panel measures it and the page holds it.
+
   // Discarding the drawn boundary. Bumps `startDrawToken` rather than
   // `clearDrawToken`: the canvas keeps a live drawing session behind the draw
   // step's shield, and clearing would end it and leave a map nothing can be
   // drawn on. Up on the page with the other draw tokens for the usual reason —
   // the map outlives this surface.
   onRestartDrawing: () => void
-  // The colour the new list will be drawn in. Auto-assigned, not picked: the
-  // canvas's confirm step is a single name field, and a list's colour stays
-  // editable in `EditTurfDialog`. Up on the page because the canvas tints the
-  // boundary with it while the shape is being cut.
-  color: string
   // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
   // suggestion. From the pack, which is the orchestrator's.
   drawnStops: Array<[number, number]> | null
@@ -229,6 +294,35 @@ export interface CreateListSurfaceProps {
   // Raised once the who step has taken the carried list, so the page can stop
   // handing it back on the next open of this flow.
   onPreselectApplied?: () => void
+  // The turfs already in this campaign, threaded to the flow so the name
+  // step can default to `Turf N`. Undefined for a solo (self-anchored)
+  // create. A future per-turf picker on the drawing step will also read
+  // these to pick a palette slot the campaign has not already used.
+  siblingTurfs?: DoorKnockingTurf[]
+  // The anchor Outreach id this new turf should join, when the drawer's
+  // "Add another turf" opens the flow with `?campaignOutreachId=`. Threaded
+  // straight through — the surface never resolves it.
+  campaignOutreachId?: number
+  // The turfs cut in this sitting but not yet paid for. Owned by the page
+  // because the canvas draws them; threaded down so the draw step can list
+  // them and the save can buy a route for each.
+  //
+  // Nothing here COMMITS one, and nothing here CONFIGURES one either. A turf
+  // becomes a draft the moment its ring is valid, which only the page can
+  // see; and naming, colouring and assigning happen in `TurfPanel`, which
+  // the page mounts beside the map. What crosses this seam is the two things
+  // the STEP can do to a turf — reopen it, or drop it.
+  turfDrafts: TurfDraft[]
+  // The pack's stops/doors/people for each draft, keyed by `clientId`. From
+  // the orchestrator because the pack is: this surface never decodes one.
+  // A draft missing from the map has no answer yet and prints as such.
+  draftStats: Map<string, PolygonStats>
+  onSelectDraft: (clientId: string) => void
+  onUpdateDraft: (
+    clientId: string,
+    patch: Partial<Omit<TurfDraft, 'clientId'>>,
+  ) => void
+  onRemoveDraft: (clientId: string) => void
   // The same pair for a recommendation carried in on `?recommended=`.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
@@ -246,13 +340,10 @@ export default function CreateListSurface({
   districtHouseholdsFailed,
   districtUnavailable,
   ring,
-  turfStats,
   drawPointCount,
-  onUndoPoint,
   drawFullScreen,
   onDrawFullScreenChange,
   onRestartDrawing,
-  color,
   drawnStops,
   onListCreated,
   isServeOrg,
@@ -263,6 +354,13 @@ export default function CreateListSurface({
   orgSlug,
   preselectedListId,
   onPreselectApplied,
+  siblingTurfs,
+  campaignOutreachId,
+  turfDrafts,
+  draftStats,
+  onSelectDraft,
+  onUpdateDraft,
+  onRemoveDraft,
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
 }: CreateListSurfaceProps) {
@@ -429,7 +527,6 @@ export default function CreateListSurface({
       savedLists={audience.lists}
       allContactsHouseholds={audience.allContactsHouseholds}
       ring={ring}
-      turfStats={turfStats}
       addressPreview={addressPreview}
       previewPending={previewCurrent && previewQuery.isPending}
       previewFailed={previewCurrent && previewQuery.isError}
@@ -444,11 +541,9 @@ export default function CreateListSurface({
       // nothing would go out.
       onRetryAddresses={() => void previewQuery.refetch()}
       drawPointCount={drawPointCount}
-      onUndoPoint={onUndoPoint}
       drawFullScreen={drawFullScreen}
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}
-      color={color}
       drawnStops={drawnStops}
       onListCreated={onListCreated}
       isServeOrg={isServeOrg}
@@ -459,6 +554,13 @@ export default function CreateListSurface({
       preselectedRecommendedVariant={preselectedRecommendedVariant}
       onRecommendedPreselectApplied={onRecommendedPreselectApplied}
       onSelectedListChange={handleSelectedListChange}
+      siblingTurfs={siblingTurfs}
+      campaignOutreachId={campaignOutreachId}
+      turfDrafts={turfDrafts}
+      draftStats={draftStats}
+      onSelectDraft={onSelectDraft}
+      onUpdateDraft={onUpdateDraft}
+      onRemoveDraft={onRemoveDraft}
     />
   )
 }

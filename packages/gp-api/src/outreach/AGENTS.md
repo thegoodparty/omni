@@ -90,6 +90,16 @@ message — the webhook handler acks it rather than retrying a permanent error).
 `schemas/createOutreachSchema.ts`: only p2p may be a draft, and clients can
 never send `pending_payment` themselves.
 
+A bank-debit (ACH) checkout completes with `payment_status: unpaid`, so the
+completion defers and the draft stays `pending_payment` until Stripe's
+`async_payment_succeeded` runs the same finalize days later. If the debit
+fails instead, `async_payment_failed` reaches `failOutreachPurchase`: the
+same claim shape (`pending_payment` + `projectId IS NULL → failed`, so a
+draft a racing finalize already sent to Peerly is never failed and a
+redelivery notifies nobody twice), then the CAS failure Slack (step
+`payment`) and a plain email to the candidate. Nothing was sent or charged;
+the row surfaces in history as "Couldn't send".
+
 ## Serve SMS create (draft-first, org-scoped)
 
 `POST /outreach/serve/sms` writes the row BEFORE checkout, for the same

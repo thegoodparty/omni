@@ -182,18 +182,20 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     districtHouseholdsFailed={false}
     districtUnavailable={false}
     ring={ringA}
-    turfStats={null}
     drawFullScreen={false}
     onDrawFullScreenChange={vi.fn()}
     onRestartDrawing={vi.fn()}
     drawPointCount={3}
-    onUndoPoint={vi.fn()}
-    color="#2563eb"
     drawnStops={null}
     onListCreated={onListCreated}
     isServeOrg={false}
     unpreviewableKeys={[]}
     orgSlug="campaign-9"
+    turfDrafts={[]}
+    draftStats={new Map()}
+    onSelectDraft={vi.fn()}
+    onUpdateDraft={vi.fn()}
+    onRemoveDraft={vi.fn()}
     {...overrides}
   />
 )

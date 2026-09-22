@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import maplibregl from 'maplibre-gl'
 import { DOOR_KNOCK_STATUSES } from '@goodparty_org/contracts'
@@ -195,6 +195,7 @@ const filterResult: FilterResult = {
 // archive stamp matter to the canvas; the rest is the row's own shape.
 const turfFixture: DoorKnockingTurf = {
   id: 1,
+  outreachId: 900,
   voterFileFilterId: 7,
   name: 'Elm St & 5th',
   color: '#2563eb',
@@ -292,6 +293,8 @@ describe('VoterMapCanvas drawing', () => {
     focusTurf: null,
     startDrawToken: 1,
     resumeDrawToken: 0,
+    loadDrawToken: 0,
+    loadDrawRing: null,
     clearDrawToken: 0,
     undoDrawToken: 0,
     drawColor: '#2563eb',
@@ -402,6 +405,88 @@ describe('VoterMapCanvas drawing', () => {
     expect(onDrawPointCount).toHaveBeenLastCalledWith(3)
     expect(onPolygonChange).toHaveBeenLastCalledWith(POINTS.slice(0, 3))
     expect(layerData('draw-vertices')).toEqual(POINTS.slice(0, 3))
+  })
+
+  // The third way into drawing mode, and the only one that puts a shape the
+  // canvas did not draw onto the canvas. It is how the multi-turf toolbar
+  // hands an earlier turf back for its corners to be moved again.
+  it('installs a finished ring as the shape being drawn', () => {
+    const onPolygonChange = vi.fn()
+    const onDrawPointCount = vi.fn()
+    const loaded = POINTS.slice(0, 3)
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        loadDrawToken={1}
+        loadDrawRing={loaded}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+
+    // On screen with grabbable handles, and reported up as the ring — so the
+    // page's counts and its Save gate read the loaded turf immediately.
+    expect(layerData('draw-vertices')).toEqual(loaded)
+    expect(onPolygonChange).toHaveBeenLastCalledWith(loaded)
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(3)
+
+    // And it is live: a further tap edits the loaded shape rather than
+    // starting a new one beside it.
+    clickMap(POINTS[3] as [number, number])
+    expect(layerData('draw-vertices')).toHaveLength(4)
+  })
+
+  // Undo's entries are indexes into the shape the canvas was drawing before
+  // the load. Replaying one against a different ring would move a vertex at
+  // an index that meant something else — and walking back past the load
+  // would unbuild a turf the candidate has already committed.
+  it('makes the loaded ring the floor that undo cannot go under', () => {
+    const onPolygonChange = vi.fn()
+    const loaded = POINTS.slice(0, 3)
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    // Four taps of history on the shape being replaced.
+    POINTS.slice(0, 4).forEach(clickMap)
+    expect(layerData('draw-vertices')).toHaveLength(4)
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        loadDrawToken={1}
+        loadDrawRing={loaded}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        loadDrawToken={1}
+        loadDrawRing={loaded}
+        undoDrawToken={1}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // Nothing to undo: the stack was emptied with the load, so the ring is
+    // exactly what was handed in.
+    expect(layerData('draw-vertices')).toEqual(loaded)
   })
 
   // Appending every tap meant a point placed between two existing vertices sent
@@ -1208,6 +1293,44 @@ describe('VoterMapCanvas drawing', () => {
   // The cluster is ours, not maplibre's. Its third button is a location toggle
   // maplibre's navigation stack has no equivalent of, so adopting that stack
   // would put a second, differently-styled pair of zoom buttons on the map
+  it('groups the stop count and Undo at the foot of the control cluster', () => {
+    // They travel together on purpose: the cluster is the one place on this
+    // map already understood to hold controls, it already clears the sheet
+    // by measurement, and it is already under the thumb. Every free-floating
+    // position was worse — following the last point put a touch target over
+    // the vertex handle you grab to drag, and bottom-centre ate the taps
+    // meant for the shape.
+    const onUndoDrawPoint = vi.fn()
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+        onUndoDrawPoint={onUndoDrawPoint}
+        drawStopCount={41}
+      />,
+    )
+
+    expect(screen.getByText('41 selected')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Undo/ }))
+    expect(onUndoDrawPoint).toHaveBeenCalled()
+  })
+
+  it('draws neither with no corner to take back', () => {
+    // The handler's absence IS the "nothing to undo" state, so the control
+    // needs no disabled form.
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /Undo/ })).toBeNull()
+    expect(screen.queryByText(/selected/)).toBeNull()
+  })
+
   // beside the three the design draws.
   it('builds the control cluster itself rather than adopting maplibre’s', () => {
     render(
@@ -1226,12 +1349,14 @@ describe('VoterMapCanvas drawing', () => {
     ).toBe(false)
   })
 
-  // The rail now floats over the top-left and the sheets rise from the bottom,
-  // which leaves the bottom-right as the one corner nothing covers on any of
-  // the three surfaces. The attribution is placed there rather than defaulted,
-  // and maplibre only lets it be placed if its own default is switched off
-  // first — leaving the option on would put a second credit back under the rail.
-  it('puts the credit in the corner nothing floats over', () => {
+  // The credit takes whichever bottom corner the control cluster does not.
+  // The cluster is bottom-RIGHT now — the turf panel reserves its width
+  // rather than floating over the map, so that corner came free — which
+  // puts the credit bottom-LEFT. It is placed rather than defaulted, and
+  // maplibre only allows placing it if its own default is switched off
+  // first; leaving the option on would draw a second credit under the
+  // cluster.
+  it('puts the credit in the corner the cluster does not take', () => {
     render(
       <VoterMapCanvas
         {...baseProps}
@@ -1243,7 +1368,7 @@ describe('VoterMapCanvas drawing', () => {
     const attribution = gl.map.addControl.mock.calls.find(
       ([control]) => control instanceof maplibregl.AttributionControl,
     )
-    expect(attribution?.[1]).toBe('bottom-right')
+    expect(attribution?.[1]).toBe('bottom-left')
     expect(gl.mapOptions?.attributionControl).toBe(false)
   })
 
@@ -1592,6 +1717,8 @@ describe('VoterMapCanvas label ordering', () => {
     focusTurf: null,
     startDrawToken: 0,
     resumeDrawToken: 0,
+    loadDrawToken: 0,
+    loadDrawRing: null,
     clearDrawToken: 0,
     undoDrawToken: 0,
     drawColor: '#2563eb',

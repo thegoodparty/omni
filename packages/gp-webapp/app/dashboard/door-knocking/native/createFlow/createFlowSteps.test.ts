@@ -16,7 +16,7 @@ describe('flowStage / stageStep', () => {
     expect(flowStage('filters', 'purpose')).toBe('purpose')
     expect(flowStage('filters', 'who')).toBe('who')
     expect(flowStage('draw', 'who')).toBe('draw')
-    expect(flowStage('confirm', 'purpose')).toBe('confirm')
+    expect(flowStage('name', 'purpose')).toBe('name')
     expect(flowStage('route', 'purpose')).toBe('route')
   })
 
@@ -24,7 +24,7 @@ describe('flowStage / stageStep', () => {
     expect(stageStep('purpose')).toBe('filters')
     expect(stageStep('who')).toBe('filters')
     expect(stageStep('draw')).toBe('draw')
-    expect(stageStep('confirm')).toBe('confirm')
+    expect(stageStep('name')).toBe('name')
     expect(stageStep('points')).toBe('points')
     expect(stageStep('route')).toBe('route')
   })
@@ -34,7 +34,7 @@ describe('flowStage / stageStep', () => {
       'purpose',
       'who',
       'draw',
-      'confirm',
+      'name',
       'points',
       'route',
     ]
@@ -56,15 +56,15 @@ describe('stepperPosition', () => {
       totalSteps: 6,
     })
     expect(stepperPosition('who')).toEqual({ currentStep: 2, totalSteps: 6 })
-    expect(stepperPosition('draw')).toEqual({ currentStep: 3, totalSteps: 6 })
-    expect(stepperPosition('confirm')).toEqual({
+    expect(stepperPosition('points')).toEqual({
+      currentStep: 3,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('name')).toEqual({
       currentStep: 4,
       totalSteps: 6,
     })
-    expect(stepperPosition('points')).toEqual({
-      currentStep: 5,
-      totalSteps: 6,
-    })
+    expect(stepperPosition('draw')).toEqual({ currentStep: 5, totalSteps: 6 })
     expect(stepperPosition('route')).toEqual({ currentStep: 6, totalSteps: 6 })
   })
 
@@ -77,7 +77,7 @@ describe('stepperPosition', () => {
       'purpose',
       'who',
       'draw',
-      'confirm',
+      'name',
       'points',
       'route',
     ]
@@ -102,15 +102,20 @@ describe('previousStage', () => {
     expect(previousStage('purpose')).toBeNull()
   })
 
-  it('returns from draw to the who step', () => {
-    expect(previousStage('draw')).toBe('who')
+  it('returns from draw to the name step, since the campaign is named before the polygon is drawn', () => {
+    expect(previousStage('draw')).toBe('name')
   })
 
-  // The talking-points step sits between the name and the paid press, so Back
-  // from the route step lands on the card rather than on the name field.
-  it('returns from route to the talking points, and from those to the name', () => {
-    expect(previousStage('route')).toBe('points')
-    expect(previousStage('points')).toBe('confirm')
+  // The campaign name is settled before the polygon is drawn (name sits
+  // between talking points and draw), and route lands last. So Back from
+  // route walks route → draw → name → points → who → purpose without
+  // detouring back into an audience step.
+  it('walks route → draw → name → points → who → purpose in one back per step', () => {
+    expect(previousStage('route')).toBe('draw')
+    expect(previousStage('draw')).toBe('name')
+    expect(previousStage('name')).toBe('points')
+    expect(previousStage('points')).toBe('who')
+    expect(previousStage('who')).toBe('purpose')
   })
 
   it('walks the path back to the start in exactly totalSteps - 1 moves', () => {

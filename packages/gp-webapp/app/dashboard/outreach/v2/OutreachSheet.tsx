@@ -65,6 +65,12 @@ interface OutreachSheetProps {
   footer?: ReactNode
   children: ReactNode
   bodyRef?: Ref<HTMLDivElement>
+  // Skip the slide-up on open. For a flow that hands off to a full-screen
+  // surface of its own and comes back — door knocking's drawing surface —
+  // the sheet is not arriving, it is resuming, and sliding it up the whole
+  // viewport says otherwise. The motion for that transition belongs to the
+  // surface being opened, not to the sheet getting out of its way.
+  instant?: boolean
 }
 
 // The outreach flow sheet: FULL SCREEN (prototype `drawerShell` full mode —
@@ -81,6 +87,7 @@ export const OutreachSheet = ({
   footer,
   children,
   bodyRef,
+  instant = false,
 }: OutreachSheetProps) => {
   const {
     ref: scrollRef,
@@ -103,7 +110,10 @@ export const OutreachSheet = ({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} direction="bottom">
       <DrawerContent
-        className="h-dvh w-full data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-dvh data-[vaul-drawer-direction=bottom]:rounded-t-none data-[vaul-drawer-direction=bottom]:border-t-0"
+        className={cn(
+          'h-dvh w-full data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-dvh data-[vaul-drawer-direction=bottom]:rounded-t-none data-[vaul-drawer-direction=bottom]:border-t-0',
+          instant && '[&[data-state=open]]:animate-none',
+        )}
         closeClassName={
           hideClose
             ? 'hidden'

@@ -105,6 +105,7 @@ export const useWalkArchive = (turf: DoorKnockingTurf | null) => {
 // `id: 0` keeps it from naming a real row if one ever slipped past.
 const NO_WALK_TURF: DoorKnockingTurf = {
   id: 0,
+  outreachId: 0,
   voterFileFilterId: 0,
   name: '',
   color: '#000000',

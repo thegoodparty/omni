@@ -68,6 +68,103 @@ describe('POST /v1/contacts/overlap-count', () => {
       .spyOn(service.app.get(VoterQueryService), 'getOverlapCount')
       .mockResolvedValue(data)
 
+  const SQUARE = {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ],
+  }
+
+  // A saved list narrowed by a drawn boundary joins the union at the size
+  // its SHAPE holds, not the size its criteria match across the district.
+  // Getting this wrong overstates in the one direction that matters: the
+  // strip exists to say "you may not need this list", so counting too many
+  // argues against building something the holder does need.
+  describe('a saved list carrying a drawn boundary', () => {
+    const seedBoundariedList = async (slug: string, enclosed: string[]) => {
+      const saved = await createSavedFilter(slug, {
+        genderFemale: true,
+        geoPoly: SQUARE,
+        geoMembersResolvedAt: new Date(),
+      })
+      await service.prisma.voterFileFilterGeoMember.createMany({
+        data: enclosed.map((personId) => ({
+          voterFileFilterId: saved.id,
+          personId,
+        })),
+      })
+      return saved
+    }
+
+    it('joins the union narrowed to the people inside its shape', async () => {
+      const slug = await setupProOrg('geo-narrowed')
+      const enclosed = randomUUID()
+      await seedBoundariedList(slug, [enclosed])
+      const overlapSpy = spyOnOverlapCount({ count: 1 })
+
+      const response = await service.client.post(
+        '/v1/contacts/overlap-count',
+        { genderFemale: true },
+        { headers: { [ORG_SLUG_HEADER]: slug } },
+      )
+
+      expect(response.status).toBe(201)
+      const savedSets = overlapSpy.mock.calls[0]?.[0]?.savedFilterSets
+      expect(savedSets).toHaveLength(1)
+      expect(savedSets?.[0]).toMatchObject({
+        filterOperators: { id: { operator: 'in', values: [enclosed] } },
+      })
+    })
+
+    // The shape enclosing nobody is not "no constraint". Dropped from the
+    // union entirely, the same way an activity condition that resolves to
+    // nobody already is — contributing its unbounded criteria instead would
+    // be the original bug at its worst.
+    it('drops a list whose shape encloses nobody', async () => {
+      const slug = await setupProOrg('geo-empty')
+      await createSavedFilter(slug, {
+        genderFemale: true,
+        geoPoly: SQUARE,
+        geoMembersResolvedAt: new Date(),
+      })
+      const overlapSpy = spyOnOverlapCount({ count: 7 })
+
+      const response = await service.client.post(
+        '/v1/contacts/overlap-count',
+        { genderFemale: true },
+        { headers: { [ORG_SLUG_HEADER]: slug } },
+      )
+
+      expect(response.status).toBe(201)
+      expect(response.data).toEqual({ count: 0 })
+      expect(overlapSpy).not.toHaveBeenCalled()
+    })
+
+    // The other half: a list with no shape must keep contributing
+    // everything its criteria match, or this fix would silently shrink
+    // every ordinary list's contribution to nothing.
+    it('leaves a list without a boundary unconstrained', async () => {
+      const slug = await setupProOrg('geo-absent')
+      await createSavedFilter(slug, { genderFemale: true })
+      const overlapSpy = spyOnOverlapCount({ count: 3 })
+
+      await service.client.post(
+        '/v1/contacts/overlap-count',
+        { genderFemale: true },
+        { headers: { [ORG_SLUG_HEADER]: slug } },
+      )
+
+      const savedSets = overlapSpy.mock.calls[0]?.[0]?.savedFilterSets
+      expect(savedSets?.[0]?.filters).not.toContain('id')
+    })
+  })
+
   it('403s for a non-pro organization without querying people-db', async () => {
     const slug = `campaign-overlap-nonpro-${Date.now()}`
     await service.prisma.organization.create({

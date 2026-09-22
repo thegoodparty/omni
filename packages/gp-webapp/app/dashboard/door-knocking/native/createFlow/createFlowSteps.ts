@@ -10,24 +10,29 @@
 // deciding between a fresh session and resuming the one already drawn.
 //
 // `CreateFlowStage` is the FLOW's own word, and it is what the design draws:
-// purpose → who → draw → confirm → points → route. The two pre-draw stages
+// purpose → who → points → name → draw → route. The two pre-draw stages
 // both live inside the page's single `filters` step, which is what lets that
 // phase grow a stage without the orchestrator learning about it. `filters` is
 // therefore read as "the phase that decides the audience", not as "the filter
 // pills" — the pills are one half of one stage of two.
 //
-// `points` is the talking-points stage. It sits second-to-last: the purpose
-// slug and the audience it writes from are settled well before it, the list
-// is already named (so the stage needs no name field of its own), and `route`
-// is the paid press that must stay last. Reviewing the card is therefore the
-// last thing that happens before any money moves.
+// `points` is the talking-points stage. It sits third: the purpose slug and
+// the audience it writes from are both settled by then (steps 1 and 2), which
+// is the whole of what the draft endpoint reads. It sits BEFORE the polygon,
+// so the audience label falls back to a placeholder — the campaign name is
+// not asked until `name`, which now comes AFTER points.
 //
-// It is a `CreateFlowStep` of its own rather than another lodger inside an
-// existing one, which means it must be named in `CreateListFlow`'s
-// orphan-filter guard alongside `confirm` and `route` — those three are the
-// retry zone a failed create can be walked back into, and releasing the
-// minted filter there would strand the retry.
-export type CreateFlowStep = 'filters' | 'draw' | 'confirm' | 'points' | 'route'
+// `name` is the "Name your campaign" stage. It sits fourth, BEFORE `draw`,
+// because the multi-turf design has one campaign hold many turfs cut on one
+// map: the campaign is the container, so its name is settled before any turf
+// is drawn into it. This is what the drawing step is drawing INTO, not just
+// naming after the fact.
+//
+// The orphan-filter retry zone is `name | draw | route` — every step after
+// the campaign name is a valid retry destination for a failed create. Points
+// is not in it because it sits pre-name and a walkback that far usually
+// means changing the audience upstream; who/purpose release the filter.
+export type CreateFlowStep = 'filters' | 'draw' | 'name' | 'points' | 'route'
 
 export const PRE_DRAW_STAGES = ['purpose', 'who'] as const
 
@@ -36,7 +41,7 @@ export type PreDrawStage = (typeof PRE_DRAW_STAGES)[number]
 export type CreateFlowStage =
   | PreDrawStage
   | 'draw'
-  | 'confirm'
+  | 'name'
   | 'points'
   | 'route'
 
@@ -55,7 +60,7 @@ export const flowStage = (
 export const stageStep = (stage: CreateFlowStage): CreateFlowStep =>
   stage === 'draw' ||
   stage === 'points' ||
-  stage === 'confirm' ||
+  stage === 'name' ||
   stage === 'route'
     ? stage
     : 'filters'
@@ -80,11 +85,11 @@ export const stepperPosition = (stage: CreateFlowStage): StepperPosition => {
       return { currentStep: 1, totalSteps: 6 }
     case 'who':
       return { currentStep: 2, totalSteps: 6 }
-    case 'draw':
-      return { currentStep: 3, totalSteps: 6 }
-    case 'confirm':
-      return { currentStep: 4, totalSteps: 6 }
     case 'points':
+      return { currentStep: 3, totalSteps: 6 }
+    case 'name':
+      return { currentStep: 4, totalSteps: 6 }
+    case 'draw':
       return { currentStep: 5, totalSteps: 6 }
     case 'route':
       return { currentStep: 6, totalSteps: 6 }
@@ -101,13 +106,13 @@ export const previousStage = (
       return null
     case 'who':
       return 'purpose'
-    case 'draw':
-      return 'who'
-    case 'confirm':
-      return 'draw'
     case 'points':
-      return 'confirm'
-    case 'route':
+      return 'who'
+    case 'name':
       return 'points'
+    case 'draw':
+      return 'name'
+    case 'route':
+      return 'draw'
   }
 }

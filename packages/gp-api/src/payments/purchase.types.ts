@@ -51,6 +51,11 @@ export type CheckoutSessionPostPurchaseHandler<Metadata> = (
   metadata: Metadata,
 ) => Promise<unknown>
 
+export type CheckoutSessionPaymentFailedHandler<Metadata> = (
+  sessionId: string,
+  metadata: Metadata,
+) => Promise<void>
+
 export interface PurchaseHandler<Metadata> {
   validatePurchase(metadata: Metadata): Promise<void | Stripe.PaymentIntent>
   calculateAmount(metadata: Metadata): Promise<number>

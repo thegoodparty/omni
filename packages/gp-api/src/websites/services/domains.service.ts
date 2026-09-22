@@ -27,6 +27,7 @@ import { Records } from '@vercel/sdk/models/getrecordsop'
 import { VercelError } from '@vercel/sdk/models/vercelerror'
 import { VerifyProjectDomainResponseBody } from '@vercel/sdk/models/verifyprojectdomainop'
 import { isAxiosError } from 'axios'
+import { differenceInMilliseconds } from 'date-fns'
 import { PaymentStatus } from 'src/payments/payments.types'
 import { PurchaseHandler } from 'src/payments/purchase.types'
 import { PaymentsService } from 'src/payments/services/payments.service'
@@ -77,6 +78,16 @@ const MAX_PATTERN_CANDIDATES = 50
 // dropped from search results. Search is agent-driven, so the added latency
 // from batching is fine.
 const AVAILABILITY_CHECK_BATCH_SIZE = 5
+
+// The compliance agent reaches this endpoint through the broker, whose
+// upstream read timeout is 30s (gp-ai broker/main.py). An exhaustive check of
+// all 50 candidates under Route53 throttling backoff took ~6 minutes, so the
+// broker timed out every call and the agent resume-looped to death
+// (2026-09-20..22, nine campaigns). The search is a shortlist for one
+// purchase, not an inventory: stop once enough candidates qualify, and hard-
+// stop under the broker's timeout so the caller always gets what was found.
+const SEARCH_TARGET_CANDIDATE_COUNT = 6
+const SEARCH_TIME_BUDGET_MS = 20_000
 
 const DOMAIN_PURCHASE_ADVISORY_LOCK_KEY = 918_275
 
@@ -582,31 +593,75 @@ export class DomainsService
       ),
     )
 
-    const checked: PromiseSettledResult<PatternedDomainCandidate | null>[] = []
+    const startedAt = new Date()
+    const found: PatternedDomainCandidate[] = []
+    let outOfBudget = false
     for (let i = 0; i < candidates.length; i += AVAILABILITY_CHECK_BATCH_SIZE) {
+      const remainingMs =
+        SEARCH_TIME_BUDGET_MS - differenceInMilliseconds(new Date(), startedAt)
+      if (remainingMs <= 0) {
+        outOfBudget = true
+        break
+      }
       const batch = candidates.slice(i, i + AVAILABILITY_CHECK_BATCH_SIZE)
-      checked.push(
-        ...(await Promise.allSettled(
+      // Race the batch against the remaining budget: a single throttled
+      // Route53 check can back off for minutes, so a between-batches elapsed
+      // check alone can't bound the request. An abandoned batch settles later
+      // into nothing (allSettled never rejects).
+      const checked = await Promise.race([
+        Promise.allSettled(
           batch.map((domain) => this.checkPatternedCandidate(domain, maxPrice)),
-        )),
-      )
+        ),
+        this.deadline(remainingMs),
+      ])
+      if (checked === null) {
+        outOfBudget = true
+        break
+      }
+      for (const r of checked) {
+        if (r.status === 'fulfilled' && r.value !== null) {
+          found.push(r.value)
+        } else if (r.status === 'rejected') {
+          const err =
+            r.reason instanceof Error ? r.reason : new Error(String(r.reason))
+          this.logger.warn(
+            { err, fn: 'searchDomainsForCampaign' },
+            'candidate availability check failed; skipping',
+          )
+        }
+      }
+      if (found.length >= SEARCH_TARGET_CANDIDATE_COUNT) {
+        break
+      }
     }
 
-    const found: PatternedDomainCandidate[] = []
-    for (const r of checked) {
-      if (r.status === 'fulfilled' && r.value !== null) {
-        found.push(r.value)
-      } else if (r.status === 'rejected') {
-        const err =
-          r.reason instanceof Error ? r.reason : new Error(String(r.reason))
-        this.logger.warn(
-          { err, fn: 'searchDomainsForCampaign' },
-          'candidate availability check failed; skipping',
+    if (outOfBudget) {
+      this.logger.warn(
+        {
+          campaignId: campaign.id,
+          foundCount: found.length,
+          candidateCount: candidates.length,
+          fn: 'searchDomainsForCampaign',
+        },
+        'domain search hit its time budget; returning what was found',
+      )
+      if (found.length === 0) {
+        throw new BadGatewayException(
+          'Domain availability checks timed out before any candidate ' +
+            'could be verified. Retry shortly.',
         )
       }
     }
 
     return { candidates: found }
+  }
+
+  // Not the shared sleep util: the loser of the race must not keep the event
+  // loop referenced for the rest of the budget, so the timer is unref'd.
+  private deadline(ms: number): Promise<null> {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(null), ms).unref()
+    })
   }
 
   private async checkPatternedCandidate(

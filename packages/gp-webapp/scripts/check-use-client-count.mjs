@@ -432,7 +432,19 @@ import { dirname, join, relative } from 'node:path'
 // survives: this branch counted up from a base main has since moved off, and
 // main's 564 predates the three Serve SMS client components above. Measured
 // rather than derived — the script was run against the merged tree.
-const BASELINE = 567
+// 2026-09-21: main's removals took this to 564 (SurveyAnimation and
+// QuestionAnimation, deleted with the two door-knocking empty states that
+// rendered them) while this branch sat at 567. The merge is main's number
+// plus this branch's own net addition, not either side. The turf-panel work
+// is net-neutral: it added TurfPanel, TurfCard, removeTurfDialog,
+// draftCounts, useDrawExpand and useTeamOptions while deleting DrawToolbar,
+// DrawFullScreen and TurfDraftCard, and none of the new files carry the
+// directive.
+// 2026-09-22: 568 on the second merge of main into serve-sms. Measured
+// against the merged tree, not derived — both sides had moved the ratchet
+// from bases the other no longer shares, so neither number was reachable by
+// arithmetic.
+const BASELINE = 568
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -31,6 +31,13 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 
 ## Gotchas
 
+- **`searchDomainsForCampaign` returns a shortlist, not an inventory.** It
+  stops once enough candidates qualify and hard-stops on a wall-clock budget
+  under the broker's upstream timeout (constants in `domains.service.ts`) —
+  an exhaustive check of 50 candidates under Route53 throttling backoff took
+  ~6 minutes, timed out every agent call, and resume-looped nine compliance
+  runs to death (2026-09-20..22). Budget exhausted with zero found is a 502
+  (retryable), never an empty list.
 - **Vercel registrar buys are asynchronous orders.** `buySingleDomain` 2xx means "order accepted", not "domain bought" — an order can still fail on Vercel's side (completion is typically ~13s). `completeDomainRegistration` polls `getRegistrarOrder` and only stamps `submitted`/`registrantVerifiedAt` once the order reports completed; the real orderId is persisted as `Domain.operationId`. Never treat the buy response alone as proof of registration.
 - `forwardRef(() => CampaignsModule)` — circular with campaigns. Keep new edges to the campaigns side as forwardRefs to avoid breaking module init.
 - `WebsiteView` uses a localStorage-issued visitor UUID; treat it as advisory, not authoritative analytics.

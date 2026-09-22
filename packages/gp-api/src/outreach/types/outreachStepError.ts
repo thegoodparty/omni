@@ -15,6 +15,7 @@ export type OutreachStep =
   | 'peerlyJobCreation'
   | 'peerlyListAssignment'
   | 'dbWrite'
+  | 'payment'
   | 'unknown'
 
 export class OutreachStepError extends BadGatewayException {

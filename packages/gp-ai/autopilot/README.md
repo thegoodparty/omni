@@ -168,17 +168,26 @@ Additive: ClickUp comments and status drags keep resolving parks exactly as
 before.
 
 **Manual ops step (not done by this change — do this in the Slack app admin
-console for `gp_ai_bot`):**
+console for `GP Autopilot`, autopilot's own dedicated app; the shared
+`gp_ai_bot` app keeps serving the other gp-ai bots and is not touched):**
 
 - Enable Event Subscriptions on the app, pointed at this environment's
-  `https://<ai ALB host>/autopilot/slack`.
+  `https://<ai ALB host>/autopilot/slack`. Do this only AFTER the app's
+  signing secret is in `AI_SECRETS_<ENV>` as `AUTOPILOT_SLACK_SIGNING_SECRET`
+  and an apply has baked it — Slack's URL save sends a SIGNED
+  `url_verification` challenge the Lambda must verify.
 - Subscribe to the `message.channels` bot event.
 - Confirm the bot's OAuth scopes include `channels:history` — needed for the
-  `conversations.replies` thread-root read; `chat:write` (already granted for
+  `conversations.replies` thread-root read; `chat:write` (granted for
   park/notify) does NOT imply it.
-- `gp_ai_bot` must be a member of `#autopilot` for `chat.postMessage` (it was
-  invited 2026-09-19); Events API delivery does not require membership, but
+- `GP Autopilot` must be a member of `#autopilot` for `chat.postMessage`;
+  Events API delivery does not require membership, but
   `conversations.replies` does.
+- The app's bot token goes in `AI_SECRETS_<ENV>` as
+  `AUTOPILOT_SLACK_BOT_TOKEN` (Terraform maps it onto the runtime
+  `SLACK_BOT_TOKEN` env var for the Lambda and the agent task definitions;
+  the Lambda falls back to the shared `SLACK_BOT_TOKEN` key until the
+  dedicated one exists, the agent task defs REQUIRE it).
 - Confirm the bot's OAuth scopes include `pins:write` — needed to pin the
   status card message below. The pin itself is cosmetic (a failed pin never
   blocks the card from updating), so a missing scope degrades to an
@@ -250,7 +259,7 @@ Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`,
 | Var | Purpose |
 | --- | --- |
 | `AUTOPILOT_CLICKUP_API_KEY` | Plain env var (not Secrets Manager — see `handler.py`'s module docstring for why this Lambda stays that way) for the ClickUp reads/writes `supervisor.py` and `sweep.py` make. |
-| `SLACK_BOT_TOKEN` | Bot token for the supervisor's `chat.postMessage` calls (stall alerts, close-out summaries) and the Slack ingress's `conversations.replies` thread-root read. |
+| `SLACK_BOT_TOKEN` | Bot token for the supervisor's `chat.postMessage` calls (stall alerts, close-out summaries) and the Slack ingress's `conversations.replies` thread-root read. Sourced from the `AUTOPILOT_SLACK_BOT_TOKEN` key in `AI_SECRETS_<ENV>` (the dedicated "GP Autopilot" app), falling back to the shared `SLACK_BOT_TOKEN` key until that exists — see `modules/autopilot-bot/main.tf`. |
 | `AUTOPILOT_SLACK_CHANNEL` | Channel id those messages post to, and the channel the Slack ingress requires a reply to be in. |
 | `AUTOPILOT_SLACK_SIGNING_SECRET` | Verifies `POST /autopilot/slack` requests really came from Slack (v0 HMAC over the raw body). Missing/empty fails closed (every request 401s). |
 | `SWEEP_LOOKBACK_MINUTES` | How far back the sweep scans for missed transitions (default 45). |

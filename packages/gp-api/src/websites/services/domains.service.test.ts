@@ -730,14 +730,15 @@ describe('DomainsService', () => {
       // the token bucket and 502s the purchase call that follows.
       let inFlight = 0
       let maxInFlight = 0
+      // UNAVAILABLE so the shortlist early-exit never triggers and the full
+      // fan-out is exercised.
       mockRoute53.checkDomainAvailability.mockImplementation(async () => {
         inFlight++
         maxInFlight = Math.max(maxInFlight, inFlight)
         await Promise.resolve()
         inFlight--
-        return { Availability: DomainAvailability.AVAILABLE }
+        return { Availability: DomainAvailability.UNAVAILABLE }
       })
-      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
 
       await service.searchDomainsForCampaign(
         campaignWithUser,
@@ -747,6 +748,72 @@ describe('DomainsService', () => {
 
       expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledTimes(12)
       expect(maxInFlight).toBeLessThanOrEqual(5)
+    })
+
+    it('stops checking once enough candidates are found (shortlist)', async () => {
+      mockRoute53.checkDomainAvailability.mockResolvedValue({
+        Availability: DomainAvailability.AVAILABLE,
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      // 3 bare patterns × 6 TLDs = 18 candidates, all qualifying. Batch size
+      // 5 with a target of 6 means the second batch satisfies the target and
+      // the remaining 8 candidates are never checked.
+      const result = await service.searchDomainsForCampaign(
+        campaignWithUser,
+        ['voteoneill', 'oneillwins', 'electoneill'],
+        10,
+      )
+
+      expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledTimes(10)
+      expect(result.candidates).toHaveLength(10)
+    })
+
+    describe('time budget', () => {
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      it('returns partial results when the budget expires mid-search', async () => {
+        vi.useFakeTimers()
+        let calls = 0
+        mockRoute53.checkDomainAvailability.mockImplementation(() => {
+          calls++
+          // First batch resolves; the second hangs the way a throttled
+          // Route53 call in adaptive-retry backoff does.
+          return calls <= 5
+            ? Promise.resolve({ Availability: DomainAvailability.AVAILABLE })
+            : new Promise<never>(() => undefined)
+        })
+        mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+        const promise = service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['voteoneill', 'oneillwins'],
+          10,
+        )
+        await vi.advanceTimersByTimeAsync(21_000)
+        const result = await promise
+
+        expect(result.candidates).toHaveLength(5)
+      })
+
+      it('rejects 502 when the budget expires before anything is verified', async () => {
+        vi.useFakeTimers()
+        mockRoute53.checkDomainAvailability.mockImplementation(
+          () => new Promise<never>(() => undefined),
+        )
+
+        const promise = service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['voteoneill'],
+          10,
+        )
+        const assertion =
+          expect(promise).rejects.toBeInstanceOf(BadGatewayException)
+        await vi.advanceTimersByTimeAsync(21_000)
+        await assertion
+      })
     })
 
     it('does not fan out patterns that already include a TLD', async () => {

@@ -18,6 +18,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
 import {
+  CAMPAIGN_TURFS_QUERY_KEY,
   MAX_TURF_NAME_LENGTH,
   TURF_COLORS,
   turfColorLabel,
@@ -73,6 +74,9 @@ export default function EditTurfDialog({
       successSnackbar('List updated')
       await queryClient.invalidateQueries({
         queryKey: TURFS_QUERY_KEY,
+      })
+      await queryClient.invalidateQueries({
+        queryKey: CAMPAIGN_TURFS_QUERY_KEY,
       })
       onOpenChange(false)
     },

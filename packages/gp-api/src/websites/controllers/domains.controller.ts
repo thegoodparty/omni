@@ -156,8 +156,10 @@ export class DomainsController {
       'out across all approved TLDs, or include an explicit approved ' +
       'TLD (e.g. "janeforsenate.run"). Returns { candidates: ' +
       '[{ domain, price }] } for ranking. Returns only available ' +
-      'domains; an empty candidates list means nothing matched under ' +
-      'the cap. Read-only; safe to retry.',
+      'domains, as a shortlist: the search stops early once enough ' +
+      'candidates qualify, so it is not exhaustive. An empty ' +
+      'candidates list means nothing matched under the cap; a 502 ' +
+      'means availability checks timed out. Read-only; safe to retry.',
   })
   async searchDomains(
     @ReqCampaign() campaign: Campaign & { user: User },

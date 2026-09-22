@@ -119,6 +119,15 @@ model Outreach {
   // Set when the owning organization archives the row from the history
   // drawer; cleared on restore. Never set at creation.
   archivedAt                        DateTime?                          @map("archived_at")
+  // Groups multiple door-knocking turfs under one campaign — every turf
+  // in the group points at the campaign's anchor Outreach (the first
+  // turf drawn). NULL means "this outreach is its own campaign" (an
+  // anchor for a solo turf, or any non-door-knocking outreach). SetNull
+  // on delete so removing the anchor promotes each sibling to its own
+  // campaign rather than cascading them away — legacy rows stay null.
+  campaignOutreach                  Outreach?                          @relation("OutreachCampaign", fields: [campaignOutreachId], references: [id], onDelete: SetNull)
+  campaignOutreachId                Int?                               @map("campaign_outreach_id")
+  campaignSiblings                  Outreach[]                         @relation("OutreachCampaign")
   social                            OutreachSocial?
   robocall                          OutreachRobocall?
   textRecipients                    OutreachTextRecipient[]
@@ -132,5 +141,6 @@ model Outreach {
 
   @@index([campaignId])
   @@index([organizationSlug])
+  @@index([campaignOutreachId])
   @@map("outreach")
 }
