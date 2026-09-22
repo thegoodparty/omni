@@ -24,11 +24,15 @@ export type PollScheduledDateSelectorProps = {
   onChange: (date: Date | undefined) => void
 }
 
-type DisabledState =
+export type DisabledState =
   | { disabled: false }
   | { disabled: true; reason: string | undefined }
 
-const getDisabledState = (date: Date, now: Date): DisabledState => {
+// Exported for Serve SMS, which makes the same scheduling promise polls
+// already ships (fixed 11am local, at least 2 business days out, no more
+// than 30, weekends closed) and lifts this predicate rather than
+// re-deriving it — see docs/features/serve-sms.md, "Send timing".
+export const getDisabledState = (date: Date, now: Date): DisabledState => {
   const maxDate = addDays(now, 30)
 
   if (date <= addBusinessDays(now, 2)) {

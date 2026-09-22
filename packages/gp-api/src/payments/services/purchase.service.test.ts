@@ -17,6 +17,7 @@ import {
   PurchaseHandler,
   PurchaseType,
 } from '../purchase.types'
+import { PaymentType } from '../payments.types'
 import { PurchaseService } from './purchase.service'
 
 // Helper to create mock Stripe Response objects
@@ -199,6 +200,45 @@ describe('PurchaseService', () => {
       )
       expect(result.id).toBe('cs_test_abc123')
       expect(result.clientSecret).toBe('cs_secret_xyz')
+    })
+
+    // getPaymentType's default branch THROWS, so an unmapped PurchaseType
+    // makes checkout 500 with an error that mentions neither Serve nor SMS.
+    // This pins the mapping rather than the handler.
+    it('maps SERVE_TEXT to the outreach_purchase payment type', async () => {
+      const mockHandler: PurchaseHandler<unknown> = {
+        validatePurchase: vi.fn().mockResolvedValue(undefined),
+        calculateAmount: vi.fn().mockResolvedValue(3500),
+        getProductName: vi.fn().mockReturnValue('Constituent text messages'),
+      }
+      service.registerPurchaseHandler(PurchaseType.SERVE_TEXT, mockHandler)
+
+      mockStripeService.createCustomCheckoutSession.mockResolvedValue({
+        id: 'cs_test_serve_sms',
+        clientSecret: 'cs_secret_serve_sms',
+        amount: 35,
+      })
+
+      await service.createCheckoutSession({
+        user: mockUser,
+        dto: {
+          type: PurchaseType.SERVE_TEXT,
+          metadata: { outreachId: 42, organizationSlug: 'town-of-example' },
+        },
+        metadata: { organizationSlug: 'town-of-example' },
+      })
+
+      expect(
+        mockStripeService.createCustomCheckoutSession,
+      ).toHaveBeenCalledWith(
+        { id: mockUser.id, email: mockUser.email, customerId: undefined },
+        expect.objectContaining({
+          type: PaymentType.OUTREACH_PURCHASE,
+          purchaseType: PurchaseType.SERVE_TEXT,
+          amount: 3500,
+          productName: 'Constituent text messages',
+        }),
+      )
     })
 
     it('should throw error when no handler is registered', async () => {

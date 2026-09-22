@@ -488,6 +488,12 @@ export = async () => {
       AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
       SQS_QUEUE: queue.name,
+      // Where the per-send button in a fulfilment Slack message points. Not
+      // select()-ed by environment on purpose: gp-admin is a single
+      // deployment fronting dev and prod (see gp-webapp/appEnv.ts, which
+      // makes the same call for NEXT_PUBLIC_GP_ADMIN_URL), so preview, dev
+      // and prod all send staff to the same console.
+      GP_ADMIN_BASE_URL: 'https://admin.goodparty.org',
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
       CAMPAIGN_PLAN_INPUT_QUEUE_URL: select({
         preview: '',

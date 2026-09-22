@@ -38,12 +38,17 @@ import type {
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  SmsOutreachReplies,
   SmsOutreachResults,
   SocialDraftRequest,
   SocialDraftResponse,
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServeSmsCreateRequest,
+  ServeSmsCreateResponse,
+  ServeSmsDraftRequest,
+  ServeSmsDraftResponse,
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
   ServeSocialSaveRequest,
@@ -391,6 +396,25 @@ export type APIEndpoints = {
     Response: SmsDraftResponse
   }
 
+  // Serve sibling of the SMS draft endpoint above: same shape with the
+  // purpose field swapped to the serve vocabulary, org-scoped rather than
+  // campaign-scoped, and grounded in a serve voice config. Not yet mounted
+  // by any flow — the wiring ticket points SmsFlow's serve surface at this.
+  'POST /v1/outreach/serve/sms/draft': {
+    Request: ServeSmsDraftRequest
+    Response: ServeSmsDraftResponse
+  }
+
+  // Draft-first create for a Serve SMS send. Org-scoped: there is no
+  // campaign and no Peerly phone list, so the audience is resolved
+  // server-side from `voterFileFilterId` and the response carries the
+  // recipient count the pay step quotes. The controller is registered by the
+  // module-wiring ticket; until then this key types a route that 404s.
+  'POST /v1/outreach/serve/sms': {
+    Request: ServeSmsCreateRequest
+    Response: ServeSmsCreateResponse
+  }
+
   // Persists the social campaign atomically (spine row + satellite +
   // assets). Response is the created row so the hub updates without a
   // refetch.
@@ -430,6 +454,26 @@ export type APIEndpoints = {
   'GET /v1/outreach/serve/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Serve's org-scoped results reads. Siblings of
+  // `GET /v1/outreach/:id/results`, scoped by organizationSlug with
+  // campaignId pinned null so an org that holds both a Campaign and an
+  // ElectedOffice cannot read its Win results here.
+  'GET /v1/outreach/serve/:id/results': {
+    Request: {}
+    Response: SmsOutreachResults
+  }
+
+  // The read-only reply list: first name, content, and the CRM facts the
+  // expandable panel shows. Serve-only — reply CONTENT is stored only for
+  // sends that came back through the shared ingest, which is the Serve
+  // fulfilment path; Win's Peerly sweep records timestamps and never bodies.
+  // `total` is every reply on the send, so "Show all {n} responses" can name
+  // a number it has not fetched.
+  'GET /v1/outreach/serve/:id/replies': {
+    Request: { limit?: number; offset?: number }
+    Response: SmsOutreachReplies
   }
 
   // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows
