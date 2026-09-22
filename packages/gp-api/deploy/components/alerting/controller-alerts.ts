@@ -110,6 +110,51 @@ const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 const LOOKBACK_RANGE = '10m'
 const LOOKBACK_PROSE = '10 minutes'
 
+// The rule counts "Request completed" lines, which carry the status but not
+// the cause. The cause is on the exception lines logged for the same request,
+// and Loki cannot join the two — so the 2026-09-22 sms/draft page needed a
+// Loki session to learn it was a schema reject, not the gateway timeout the
+// message warns about. The notification now links straight to those lines
+// for the route that fired. Built around a sentinel because the endpoint is a
+// Grafana template expanded at fire time (`urlquery` is a Go text/template
+// builtin) and must not be URL-encoded with the rest, and `$ENV` is restored
+// after encoding so buildAlertDescription still substitutes it. An hour, not
+// the 10m window: one error keeps a page open ~20 minutes and it is read
+// later still.
+const GRAFANA_URL = 'https://goodparty.grafana.net'
+const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
+const ENDPOINT_SENTINEL = '__ENDPOINT__'
+const ENDPOINT_TEMPLATE = '{{ $labels.request_endpoint | urlquery }}'
+
+const errorLinesQuery = [
+  `{service_name="gp-api", deployment_environment_name="$ENV"}`,
+  `|= "${ENDPOINT_SENTINEL}"`,
+  '| json',
+  `| request_endpoint = "${ENDPOINT_SENTINEL}"`,
+  '| exception_type != ""',
+].join(' ')
+
+const errorLinesPane = encodeURIComponent(
+  JSON.stringify({
+    a: {
+      datasource: LOKI_DATASOURCE_UID,
+      queries: [
+        {
+          refId: 'A',
+          datasource: { uid: LOKI_DATASOURCE_UID },
+          expr: errorLinesQuery,
+        },
+      ],
+      range: { from: 'now-1h', to: 'now' },
+    },
+  }),
+)
+  .replace(/%24ENV/g, () => '$ENV')
+  .split(ENDPOINT_SENTINEL)
+  .join(ENDPOINT_TEMPLATE)
+
+const errorLinesLink = `${GRAFANA_URL}/explore?schemaVersion=1&panes=${errorLinesPane}`
+
 export const controllerAlerts = (controller: ControllerName): Alert[] => {
   // Every group that claims this controller, not the first one found. A shared
   // surface is owned by both products, and `find` silently told the second one
@@ -175,7 +220,7 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
         serverErrorsOnly
           ? `\`{{ $labels.request_endpoint }}\` returned ${countProse}server errors, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 500 or null). 4xx responses are deliberately excluded on this controller — see SERVER_ERRORS_ONLY in alerts.ts.`
           : `\`{{ $labels.request_endpoint }}\` returned ${countProse}unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
-        'Click *View in Grafana* to find the failing requests, then examine their logs and stack traces to understand why errors are occurring and ship fixes.',
+        `<${errorLinesLink}|Open this route's error lines> to read the exception each failing request logged (type, message, stack trace) before deciding what to fix. *View in Grafana* shows only the count that fired.`,
         `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
       ].join('\n\n'),
       notify: owners,

@@ -88,6 +88,16 @@ const TONE_STYLES: Record<SocialTone, string> = {
     'note to a friend.',
 }
 
+// The prompts ask for these lengths; the schema below does not enforce them.
+// The webapp counts the composed message (greeting + body + footer) and
+// blocks Continue past SMS_COMPOSED_MAX_LENGTH, so the server only refuses
+// a body that could never fit even bare. A tighter schema turned a polish of
+// an already-long draft into four identical retries and a 502 — nine of them
+// in the two weeks to 2026-09-22 — where the counter would have shown the
+// candidate the overage and let them trim.
+const FRESH_DRAFT_TARGET_LENGTH = 700
+const IMPROVE_DRAFT_TARGET_LENGTH = 800
+
 // The flow wraps the body in system-owned regions (identification intro
 // and opt-out footer), so the model must produce ONLY the middle and
 // leave headroom inside the composed cap. The structure and length rules
@@ -97,7 +107,8 @@ const DRAFT_SYSTEM_PROMPT = [
   'non-partisan local candidate draft the body of one SMS to voters.',
   'Rules:',
   '- Write in the first person, as the candidate.',
-  '- At most 700 characters. Line breaks and \"• \" bullet lines are',
+  `- At most ${FRESH_DRAFT_TARGET_LENGTH} characters. Line breaks and`,
+  '  \"• \" bullet lines are',
   '  allowed and encouraged where the structure calls for them. Emojis',
   '  are allowed sparingly as visual labels (a date or location line),',
   '  never as tone decoration. No hashtags.',
@@ -133,8 +144,10 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  Dropping one is a failure. Do not paraphrase specifics away.',
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
-  '- Keep roughly the same length; never exceed 800 characters. Keep',
-  "  the author's line breaks, bullets, and emojis. No hashtags; keep",
+  `- Keep roughly the same length, under ${IMPROVE_DRAFT_TARGET_LENGTH}`,
+  '  characters. If the original runs longer than that, tighten the',
+  '  phrasing until it fits; never drop a concrete detail to get there.',
+  "  Keep the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any website the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
   "- The message opens with the candidate's identification; keep it",
@@ -147,23 +160,8 @@ const IMPROVE_SYSTEM_PROMPT = [
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
-// The composed cap covers greeting + identification intro + body +
-// disclosures, and the model only writes the body — capping the schema at
-// the full composed limit let a legal response compose past the Continue
-// limit. Fresh drafts get the intro prepended client-side, so they reserve
-// headroom for it plus the fixed chrome (greeting, intro, blank lines,
-// paid-for-by + opt-out footer ≈ 200 chars); improve outputs already
-// contain the intro and reserve only the chrome — greeting, blank line,
-// and a footer whose committee name can run long (≈ 150 chars). The schema
-// is what makes the limit real: jsonCompletion retries on mismatch.
-const FRESH_DRAFT_MAX_LENGTH = 800
-const IMPROVE_DRAFT_MAX_LENGTH = SMS_COMPOSED_MAX_LENGTH - 150
-
-const FreshDraftSchema = z.object({
-  draft: z.string().min(1).max(FRESH_DRAFT_MAX_LENGTH),
-})
-const ImproveDraftSchema = z.object({
-  draft: z.string().min(1).max(IMPROVE_DRAFT_MAX_LENGTH),
+const DraftSchema = z.object({
+  draft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
 })
 
 @Injectable()
@@ -213,6 +211,14 @@ export class OutreachSmsGenerationService {
               '"""',
               input.currentDraft,
               '"""',
+              ...(input.currentDraft.length > IMPROVE_DRAFT_TARGET_LENGTH
+                ? [
+                    `The original runs ${input.currentDraft.length} ` +
+                      'characters; bring it under ' +
+                      `${IMPROVE_DRAFT_TARGET_LENGTH} without dropping a ` +
+                      'detail.',
+                  ]
+                : []),
               'Polish the message.',
             ].join('\n'),
           },
@@ -228,7 +234,7 @@ export class OutreachSmsGenerationService {
     try {
       const { object } = await this.llm.jsonCompletion({
         messages,
-        schema: input.currentDraft ? ImproveDraftSchema : FreshDraftSchema,
+        schema: DraftSchema,
         // High enough that Regenerate re-rolls produce a different draft.
         temperature: 0.8,
         maxTokens: 512,
