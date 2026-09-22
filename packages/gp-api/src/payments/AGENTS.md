@@ -4,7 +4,7 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 
 - `payments.controller.ts` — `POST /payments/events` (Stripe webhook receiver) and `PATCH /payments/fix-missing-customer-id` (admin maintenance).
 - `purchase.controller.ts` — checkout flows under `/payments/purchase/*`: create/complete Stripe Custom Checkout sessions, billing-portal redirects, and free-purchase fast paths. This is the entry point external callers (websites, outreach, polls) use.
-  One-time custom sessions pin `payment_method_types` to card / Amazon Pay — Stripe's automatic set would add BNPL options (Klarna, Affirm) that are off-brand for campaign charges (product call, Aug 2026), and US bank debit was dropped 2026-09-22 because it settles days after checkout (see "Draft-first outreach fulfillment").
+  One-time custom sessions pin `payment_method_types` to card / Amazon Pay and Pro subscription sessions to card — Stripe's automatic set would add BNPL options (Klarna, Affirm) that are off-brand for campaign charges (product call, Aug 2026), and US bank debit was dropped from both 2026-09-22 because it settles days after checkout (see "Draft-first outreach fulfillment").
 
 `PurchaseService` orchestrates a typed purchase → checkout session → fulfillment flow. `PaymentsService` is a thinner Stripe wrapper used internally; rarely the right place to start.
 
