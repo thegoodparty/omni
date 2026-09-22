@@ -63,35 +63,39 @@ export const ProPitchDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-[640px] overflow-y-auto">
-        {/* DialogHeader's own classes end in `sm:text-left`, so centering the
-            wrapped lines needs the sm: breakpoint spelled out too. */}
-        <DialogHeader className="items-center text-center sm:text-center">
-          <ProBadge size="large" />
-          <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
-            {MEMBERSHIP_COPY.pitch.title}
-          </DialogTitle>
-          <span className="inline-flex h-8 items-center rounded-full bg-info-50 px-3.5 text-[15px] font-medium text-primary">
-            {MEMBERSHIP_COPY.pitch.pill}
-          </span>
-        </DialogHeader>
-        <div className="grid gap-5 rounded-xl border border-info-light p-5 sm:grid-cols-2 sm:gap-6 sm:p-6">
-          {MEMBERSHIP_COPY.pitch.tiles.map(({ title, body }, index) => {
-            const Icon = TILE_ICONS[index]!
-            return (
-              <div key={title} className="flex flex-col gap-2">
-                <span
-                  className={`flex size-10 items-center justify-center rounded-full ${TILE_TINTS[index]}`}
-                >
-                  <Icon className="size-5" aria-hidden />
-                </span>
-                <p className="font-semibold">{title}</p>
-                <p className="text-sm text-base-muted-foreground">{body}</p>
-              </div>
-            )
-          })}
+      <DialogContent className="flex max-h-[88vh] max-w-[640px] flex-col">
+        {/* Only the body scrolls, so a short viewport never carries the Join
+            button off the bottom of the dialog. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+          {/* DialogHeader's own classes end in `sm:text-left`, so centering
+              the wrapped lines needs the sm: breakpoint spelled out too. */}
+          <DialogHeader className="items-center text-center sm:text-center">
+            <ProBadge size="large" />
+            <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
+              {MEMBERSHIP_COPY.pitch.title}
+            </DialogTitle>
+            <span className="inline-flex h-8 items-center rounded-full bg-info-50 px-3.5 text-[15px] font-medium text-primary">
+              {MEMBERSHIP_COPY.pitch.pill}
+            </span>
+          </DialogHeader>
+          <div className="grid gap-5 rounded-xl border border-info-light p-5 sm:grid-cols-2 sm:gap-6 sm:p-6">
+            {MEMBERSHIP_COPY.pitch.tiles.map(({ title, body }, index) => {
+              const Icon = TILE_ICONS[index]!
+              return (
+                <div key={title} className="flex flex-col gap-2">
+                  <span
+                    className={`flex size-10 items-center justify-center rounded-full ${TILE_TINTS[index]}`}
+                  >
+                    <Icon className="size-5" aria-hidden />
+                  </span>
+                  <p className="font-semibold">{title}</p>
+                  <p className="text-sm text-base-muted-foreground">{body}</p>
+                </div>
+              )
+            })}
+          </div>
         </div>
-        <DialogFooter className="sm:justify-center">
+        <DialogFooter className="shrink-0 sm:justify-center">
           <Button
             className="w-full sm:w-auto sm:min-w-[360px]"
             onClick={handleJoin}

@@ -82,8 +82,10 @@ describe('GateExplainerModal', () => {
 
   // DialogHeader's own classes end in `sm:text-left` and DialogFooter's in
   // `sm:flex-row`, so both need the sm: breakpoint restated or the desktop
-  // dialog left-aligns its wrapped lines and stacks its buttons.
-  it('centers the header and lays the footer out as a row on desktop', () => {
+  // dialog left-aligns its wrapped lines and stacks its buttons. The footer
+  // also has to sit OUTSIDE the scrolling body, or expanding the verification
+  // card scrolls the CTA off the bottom of a short viewport.
+  it('centers the header, rows the footer on desktop, and pins it outside the scrolling body', () => {
     render(
       <GateExplainerModal
         channel="sms"
@@ -93,11 +95,16 @@ describe('GateExplainerModal', () => {
       />,
     )
 
+    const content = document.querySelector('[data-slot="dialog-content"]')
+    const footer = document.querySelector('[data-slot="dialog-footer"]')
+
     expect(document.querySelector('[data-slot="dialog-header"]')).toHaveClass(
       'sm:text-center',
     )
-    expect(document.querySelector('[data-slot="dialog-footer"]')).toHaveClass(
-      'sm:flex-row-reverse',
+    expect(footer).toHaveClass('sm:flex-row-reverse', 'shrink-0')
+    expect(content).toHaveClass('flex-col')
+    expect(content?.querySelector('.overflow-y-auto')).not.toContainElement(
+      footer as HTMLElement,
     )
   })
 

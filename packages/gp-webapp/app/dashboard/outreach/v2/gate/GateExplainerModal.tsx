@@ -94,24 +94,28 @@ export const GateExplainerModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-[640px] overflow-y-auto">
-        {/* DialogHeader's own classes end in `sm:text-left`, so centering the
-            wrapped lines needs the sm: breakpoint spelled out too. */}
-        <DialogHeader className="items-center text-center sm:text-center">
-          <ProBadge size="large" />
-          <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
-            {title}
-          </DialogTitle>
-          {body && <DialogDescription>{body}</DialogDescription>}
-        </DialogHeader>
-        <ProPitchPanel
-          channel={channel}
-          hideValue={!needsPro}
-          verifyDefaultOpen={!needsPro}
-        />
+      <DialogContent className="flex max-h-[88vh] max-w-[640px] flex-col">
+        {/* Only the body scrolls: expanding the verification card on a short
+            viewport must not carry the CTA off the bottom of the dialog. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+          {/* DialogHeader's own classes end in `sm:text-left`, so centering
+              the wrapped lines needs the sm: breakpoint spelled out too. */}
+          <DialogHeader className="items-center text-center sm:text-center">
+            <ProBadge size="large" />
+            <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
+              {title}
+            </DialogTitle>
+            {body && <DialogDescription>{body}</DialogDescription>}
+          </DialogHeader>
+          <ProPitchPanel
+            channel={channel}
+            hideValue={!needsPro}
+            verifyDefaultOpen={!needsPro}
+          />
+        </div>
         {/* DOM order is primary then ghost, so row-reverse puts Later on the
             left on desktop while mobile stacks the primary on top. */}
-        <DialogFooter className="flex-col items-center sm:flex-row-reverse sm:justify-center">
+        <DialogFooter className="shrink-0 flex-col items-center sm:flex-row-reverse sm:justify-center">
           {cta && (
             <Button
               className="w-full sm:w-auto sm:min-w-[360px]"

@@ -30,11 +30,21 @@ describe('ProPitchDialog', () => {
 
   // DialogHeader's own classes end in `sm:text-left`, so without the sm:
   // breakpoint restated the desktop dialog left-aligns every wrapped line.
-  it('centers the header on desktop too', () => {
+  // The footer also has to sit OUTSIDE the scrolling body, or a short
+  // viewport scrolls the Join button off the bottom of the dialog.
+  it('centers the header and pins the footer outside the scrolling body', () => {
     render(<ProPitchDialog open onOpenChange={vi.fn()} />)
+
+    const content = document.querySelector('[data-slot="dialog-content"]')
+    const footer = document.querySelector('[data-slot="dialog-footer"]')
 
     expect(document.querySelector('[data-slot="dialog-header"]')).toHaveClass(
       'sm:text-center',
+    )
+    expect(footer).toHaveClass('shrink-0')
+    expect(content).toHaveClass('flex-col')
+    expect(content?.querySelector('.overflow-y-auto')).not.toContainElement(
+      footer as HTMLElement,
     )
   })
 
