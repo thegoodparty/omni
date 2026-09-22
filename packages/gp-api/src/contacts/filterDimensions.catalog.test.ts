@@ -227,6 +227,8 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
@@ -248,17 +250,33 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(dimensions.map((d) => d.key)).not.toContain('party')
   })
 
+  // Each mode sees the shared dimensions plus only its own. Stated
+  // symmetrically because both products now have exclusives — this used to
+  // assert Win-minus-win-only === Serve outright, which held only while
+  // `serve` was an empty set.
   it('returns the shared dimensions for both modes', () => {
-    const winOnlyKeys = new Set(
-      FILTER_DIMENSIONS.filter((d) => d.modes === 'win').map((d) => d.key),
-    )
+    const keysForMode = (mode: 'win' | 'serve') =>
+      new Set(
+        FILTER_DIMENSIONS.filter((d) => d.modes === mode).map((d) => d.key),
+      )
+    const winOnlyKeys = keysForMode('win')
+    const serveOnlyKeys = keysForMode('serve')
     const winKeys = buildService()
       .getFilterDimensions(organization('win-campaign'))
       .map((d) => d.key)
     const serveKeys = buildService()
       .getFilterDimensions(organization('eo-city-council'))
       .map((d) => d.key)
-    expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(serveKeys)
+
+    expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(
+      serveKeys.filter((key) => !serveOnlyKeys.has(key)),
+    )
+    // And each mode's exclusives actually reach it, so the filter above
+    // cannot pass by dropping both sides.
+    expect(winKeys).toEqual(expect.arrayContaining([...winOnlyKeys]))
+    expect(serveKeys).toEqual(expect.arrayContaining([...serveOnlyKeys]))
+    expect(winKeys.some((key) => serveOnlyKeys.has(key))).toBe(false)
+    expect(serveKeys.some((key) => winOnlyKeys.has(key))).toBe(false)
   })
 
   // Guards against a future .map() in the mode filter that reshapes

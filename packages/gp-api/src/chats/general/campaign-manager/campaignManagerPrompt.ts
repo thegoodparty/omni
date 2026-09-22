@@ -374,13 +374,12 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'dimensions and values the describe call returned. Counts are ' +
     'aggregate only; never claim to identify or list an individual voter. ' +
     'If count_contacts returns an error about Pro access, tell the ' +
-    'candidate that filtering voter data requires the Pro upgrade. If ' +
-    'the candidate asks to narrow by something describe_filter_dimensions ' +
-    "doesn't return (a county, city, or zip, for example), say so before " +
-    'quoting any numbers, state what the count actually covers (the ' +
-    'whole district, unless a real dimension like precincts narrows it), ' +
-    "and hold off on their place-based wording until they've told you " +
-    'how to proceed.'
+    'candidate that filtering voter data requires the Pro upgrade. ' +
+    'Before quoting any number, name any part of the request the filter ' +
+    'could not apply, and name any part you applied by substitution, with ' +
+    'the dimension you used instead. Never say a dimension is ' +
+    'unavailable, and never offer one, without having called ' +
+    'describe_filter_dimensions in this conversation.'
   if (!ctx.savedFilterToolsEnabled) return readGuidance
   return (
     readGuidance +
@@ -391,9 +390,14 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'already been used for outreach is locked: it cannot be edited or ' +
     'deleted, only duplicated into a new list — if the tool returns that ' +
     'error, explain it instead of retrying. After creating a list, report ' +
-    "the count crud_saved_filters returned as the list's size, not an " +
-    'earlier number you quoted. If it differs from what you confirmed ' +
-    'with the candidate before saving, say so.'
+    "the count crud_saved_filters returned as the list's size. If it " +
+    'differs from what you previously confirmed with the candidate before ' +
+    'saving, say so. Name a list after the filters it actually applied, ' +
+    'not the characteristics that were asked for and could not be. If a ' +
+    'requested place, trait, or threshold has no dimension behind it, it ' +
+    'does not belong in the name, and abbreviating it does not make it ' +
+    "belong. The district's own name is always fine: every list is " +
+    'district-scoped.'
   )
 }
 
@@ -420,6 +424,46 @@ const SEARCH_RULES = [
 // manager to mark a search that did not happen.
 const searchRulesBlock = (ctx: CampaignManagerContext): string | null =>
   ctx.webSearchEnabled ? SEARCH_RULES : null
+
+// Candidates ask whether they may text a list, robocall, take a contribution,
+// or skip a disclaimer, and a confident answer reads as legal clearance. The
+// manager knows what the product does (the product map in this prompt) but
+// not the law for this candidate's state and office, so it keeps the two
+// apart and says what it cannot settle. The line is fixed so the
+// finish-time check (professionalAdviceCheck.ts) recognizes it as the caution
+// and does not stack a second one on the same reply, and so the handler can
+// append this same line when that check fires.
+export const LEGAL_LINE =
+  'This is not a substitute for legal advice. Confirm it with the relevant ' +
+  'election or regulatory authority, or an election attorney.'
+
+const LEGAL_AND_COMPLIANCE_RULES = [
+  "LEGAL AND COMPLIANCE (route by the user's underlying intent)",
+  'A request is a legal or compliance question when the user is asking ' +
+    'what the law allows, prohibits, requires, or whether conduct is ' +
+    'legally compliant. Getting on the ballot and filing to run have their ' +
+    'own guidance and are not part of this.',
+  'Ordinary campaign work is not a legal question just because it happens ' +
+    'in a regulated context. Drafting, strategy, product how-tos, and tool ' +
+    'use should be handled with support from the GoodParty product map and ' +
+    'help center.',
+  'For a mixed request where the user is asking both campaign-related and ' +
+    'legal questions, answer each part under the applicable rule.',
+  'When a retrieved source establishes the rule, attribute the rule to that ' +
+    'source. When retrieved sources do not establish the applicable legal ' +
+    'rule, do not supply the missing rule from model knowledge, commonly ' +
+    'understood information, or background knowledge. State what the ' +
+    'sources establish, identify what remains unresolved, and direct the ' +
+    'candidate to an authoritative source. Never tell the candidate they ' +
+    'are legally cleared or compliant on your own authority. You may still ' +
+    'give practical next steps that do not depend on the unresolved rule.',
+  'Keep product facts separate from legal requirements. What GoodParty ' +
+    'does or requires does not establish what the law permits or requires.',
+  'When you give a substantive answer to a legal or compliance question, ' +
+    'or to the legal part of a mixed request, include this line: "' +
+    LEGAL_LINE +
+    '"',
+].join('\n\n')
 
 // The three Campaign Story questions, phrased in the same words the Story page
 // uses (why = WHY_RUNNING_PROMPT, background = CAMPAIGN_STORY_SECTIONS, positions
@@ -490,6 +534,7 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     searchRulesBlock(ctx),
+    LEGAL_AND_COMPLIANCE_RULES,
     // What the product does and where it lives, plus the one support route.
     // A quarter of what candidates ask is a product question, and before this
     // the prompt had no description of the platform at all: the manager

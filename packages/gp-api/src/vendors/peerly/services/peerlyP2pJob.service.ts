@@ -26,6 +26,32 @@ import {
   ListTestJobsResponseDto,
 } from '../schemas/peerlyP2pSms.schema'
 import { CreateJobParams, PeerlyJob } from '../peerly.types'
+import {
+  SEND_WINDOW_END,
+  resolveSendWindowStart,
+} from '../utils/sendWindowStart.util'
+
+// The schedule name is the only place Peerly echoes a job's window back to
+// us (GET job returns schedule_details.schedule_name, not the hours), so
+// the day + start ride in the name and `realignSchedule` reads them back
+// to decide whether a job created before the window was honored needs a
+// fresh schedule at approve.
+const scheduleWindowMarker = (date: string, startTime: string) =>
+  ` - ${date} ${startTime} - `
+const buildScheduleName = (
+  campaignId: number,
+  date: string,
+  startTime: string,
+) => {
+  const marker = scheduleWindowMarker(date, startTime)
+  return `GP P2P - Campaign ${campaignId}${marker}${formatISO(new Date())}`
+}
+
+export interface JobSendWindow {
+  campaignId: number
+  date: string
+  startTime: string
+}
 
 interface CreateP2pJobParams {
   campaignId: number
@@ -43,6 +69,8 @@ interface CreateP2pJobParams {
   didState?: string
   didNpaSubset?: string[]
   scheduledDate?: string
+  // The candidate's chosen "HH:mm" window open (Outreach.scheduledLocalTime).
+  scheduledStartTime?: string
 }
 
 interface UpdateP2pJobParams {
@@ -56,6 +84,7 @@ interface UpdateP2pJobParams {
   // endpoint, so a reschedule mints a fresh schedule and repoints the job's
   // schedule_id + start/end dates at it. Omitted, the job keeps its schedule.
   rescheduleDate?: string
+  rescheduleStartTime?: string
 }
 
 @Injectable()
@@ -80,6 +109,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     didState = P2P_JOB_DEFAULTS.DID_STATE,
     didNpaSubset = [],
     scheduledDate,
+    scheduledStartTime,
   }: CreateP2pJobParams): Promise<string> {
     // Peerly returns a 400 for oversized MMS template text; reject before
     // creating media and a schedule that would be orphaned by that failure.
@@ -106,9 +136,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       const dateOnly = scheduledDate?.slice(0, 10)
 
       const targetDate = dateOnly || 'no-date'
-      const createdAt = formatISO(new Date())
-      const scheduleName = `GP P2P - Campaign ${campaignId} - ${targetDate} - ${createdAt}`
-      scheduleId = await this.peerlyScheduleService.createSchedule(scheduleName)
+      const startTime = resolveSendWindowStart(scheduledStartTime)
+      scheduleId = await this.peerlyScheduleService.createSchedule(
+        buildScheduleName(campaignId, targetDate, startTime),
+        startTime,
+      )
 
       this.logger.info('Creating P2P job')
       jobId = await this.createJob({
@@ -174,6 +206,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     identityId,
     name,
     rescheduleDate,
+    rescheduleStartTime,
   }: UpdateP2pJobParams): Promise<void> {
     if (scriptText.length > P2P_SCRIPT_MAX_LENGTH) {
       throw new BadRequestException(P2P_ERROR_MESSAGES.SCRIPT_TOO_LONG)
@@ -191,9 +224,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
       let scheduleId: number | undefined
       if (rescheduleDate) {
-        const scheduleName = `GP P2P - Campaign ${campaignId} - ${rescheduleDate} - ${formatISO(new Date())}`
-        scheduleId =
-          await this.peerlyScheduleService.createSchedule(scheduleName)
+        const startTime = resolveSendWindowStart(rescheduleStartTime)
+        scheduleId = await this.peerlyScheduleService.createSchedule(
+          buildScheduleName(campaignId, rescheduleDate, startTime),
+          startTime,
+        )
       }
 
       const body = {
@@ -303,12 +338,27 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   // overwrites the WHOLE templates array with whatever is passed, so this
   // re-reads the job and echoes its templates (media by reference) rather
   // than risking a bare status write clearing the message.
-  async activateJob(jobId: string): Promise<void> {
+  // `window` (null for legacy rows with no stored time) lets the activation
+  // PUT also repoint a job whose schedule predates honoring the send time:
+  // the name marker says which hours the current schedule was minted with,
+  // so aligned jobs cost no extra vendor call.
+  async activateJob(
+    jobId: string,
+    window: JobSendWindow | null = null,
+  ): Promise<void> {
     const job = await this.getJob(jobId)
+    const realigned = window
+      ? await this.realignSchedule(job, window)
+      : undefined
     try {
       await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
         account_id: this.accountNumber,
         status: 'active',
+        ...(realigned && {
+          schedule_id: realigned,
+          start_date: window?.date,
+          end_date: window?.date,
+        }),
         can_use_mms: job.can_use_mms,
         templates: job.templates.map((template) => ({
           is_default: template.is_default,
@@ -334,6 +384,29 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     }
   }
 
+  // Best-effort: a failed mint must not block activation (the job would
+  // then never send), so it logs and the PUT keeps the existing schedule.
+  private async realignSchedule(
+    job: PeerlyJob,
+    { campaignId, date, startTime }: JobSendWindow,
+  ): Promise<number | undefined> {
+    const marker = scheduleWindowMarker(date, startTime)
+    if (job.schedule_details?.schedule_name?.includes(marker)) return undefined
+    try {
+      return await this.peerlyScheduleService.createSchedule(
+        buildScheduleName(campaignId, date, startTime),
+        startTime,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, jobId: job.id, date, startTime },
+        'Could not re-mint the job schedule at the honored send time; ' +
+          'activating on the existing schedule',
+      )
+      return undefined
+    }
+  }
+
   // Staff date edit: repoints the job's send window without touching the
   // message. The update PUT overwrites the whole templates array, so the
   // job is read first and its templates echoed by media_id — the
@@ -344,16 +417,14 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     jobId,
     campaignId,
     date,
-  }: {
-    jobId: string
-    campaignId: number
-    date: string
-  }): Promise<void> {
+    startTime,
+  }: JobSendWindow & { jobId: string }): Promise<void> {
     const job = await this.getJob(jobId)
     try {
-      const scheduleName = `GP P2P - Campaign ${campaignId} - ${date} - ${formatISO(new Date())}`
-      const scheduleId =
-        await this.peerlyScheduleService.createSchedule(scheduleName)
+      const scheduleId = await this.peerlyScheduleService.createSchedule(
+        buildScheduleName(campaignId, date, startTime),
+        startTime,
+      )
       await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
         account_id: this.accountNumber,
         // Echoed like templates: this runs on approve-activated jobs, and
@@ -411,8 +482,8 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         requested_initials: initials,
         ...(date && { requested_date: date }),
         requested_timeframe: 'CUSTOM',
-        requested_start_time: `${startTime ?? '09:00'}:00`,
-        requested_end_time: '21:00:00',
+        requested_start_time: `${resolveSendWindowStart(startTime)}:00`,
+        requested_end_time: `${SEND_WINDOW_END}:00`,
         requested_timezone: 'LOCAL',
       })
     } catch (error) {

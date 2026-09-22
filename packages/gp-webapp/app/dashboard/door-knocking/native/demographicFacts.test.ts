@@ -98,13 +98,18 @@ describe('voterDemographicFacts', () => {
   // org, so keeping the row would print "Not on file" — a claim about the
   // voter file where the truth is that this product does not state party to an
   // elected official at all.
-  it('omits the party row entirely on Serve', () => {
+  it('omits the party row entirely on Serve, and names the other two its own way', () => {
     const labels = voterDemographicFacts(
       target({ politicalParty: 'Democratic' }),
       true,
     ).map((fact) => fact.label)
-    expect(labels).toEqual(['Registered voter', 'Turnout likelihood'])
+    // The registration fact is the same on both rails — whether this person
+    // can take part — but Serve cannot name them a voter to say it.
+    expect(labels).toEqual(['Registered to vote', 'Turnout likelihood'])
     expect(labels).not.toContain('Political party')
+    for (const label of labels) {
+      expect(label.toLowerCase()).not.toContain('voter')
+    }
   })
 })
 

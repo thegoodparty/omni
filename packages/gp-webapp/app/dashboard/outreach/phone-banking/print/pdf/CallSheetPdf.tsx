@@ -9,6 +9,7 @@ import {
 } from '@react-pdf/renderer'
 import type {
   PhoneBankCallOutcome,
+  FollowUpAnswer,
   SupportAnswer,
 } from '@goodparty_org/contracts'
 import { GoodPartyLogo } from 'app/dashboard/door-knocking/print/pdf/GoodPartyLogo'
@@ -156,6 +157,23 @@ const SUPPORT_TICKS: Array<[SupportAnswer, string]> = [
   ['non_supporter', 'N'],
 ]
 
+// Serve's boxes for the same column, two-way because the question is. The
+// column keeps its width, so the grid is one definition for both surfaces —
+// the same trade door-knocking's `answerBoxes(isServe)` makes.
+const FOLLOW_UP_TICKS: Array<[FollowUpAnswer, string]> = [
+  ['yes', 'Y'],
+  ['no', 'N'],
+]
+
+const answerTicks = (
+  isServe: boolean,
+): Array<[SupportAnswer | FollowUpAnswer, string]> =>
+  isServe ? FOLLOW_UP_TICKS : SUPPORT_TICKS
+
+// The one heading that changes with the surface.
+const answerHeading = (isServe: boolean): string =>
+  isServe ? 'Follow-up Y N' : 'Support Y U N'
+
 // A form row gets one outlined box per outcome column — mutually exclusive,
 // so unlike the walk list's Y/N pairs there is nothing to label inside the
 // box; the header already names the column. A logged or skipped row merges
@@ -187,14 +205,20 @@ const OutcomeCells = ({ outcome }: { outcome: CallSheetAnswer }) => {
   )
 }
 
-const SupportLine = ({ support }: { support: CallSheetAnswer }) => {
-  if (support.kind === 'skip') return <Text style={styles.logged}>—</Text>
-  if (support.kind === 'logged') {
-    return <Text style={styles.logged}>{support.label}</Text>
+const AnswerLine = ({
+  answer,
+  isServe,
+}: {
+  answer: CallSheetAnswer
+  isServe: boolean
+}) => {
+  if (answer.kind === 'skip') return <Text style={styles.logged}>—</Text>
+  if (answer.kind === 'logged') {
+    return <Text style={styles.logged}>{answer.label}</Text>
   }
   return (
     <View style={styles.ticks}>
-      {SUPPORT_TICKS.map(([key, label]) => (
+      {answerTicks(isServe).map(([key, label]) => (
         <Fragment key={key}>
           <View style={styles.tickBox} />
           <Text style={styles.tickLabel}>{label}</Text>
@@ -204,7 +228,7 @@ const SupportLine = ({ support }: { support: CallSheetAnswer }) => {
   )
 }
 
-const CallRow = ({ row }: { row: CallSheetRow }) => (
+const CallRow = ({ row, isServe }: { row: CallSheetRow; isServe: boolean }) => (
   <View style={styles.row} wrap={false}>
     <View style={[styles.cell, { width: COLUMN.seq }]}>
       <Text style={styles.seqText}>{row.seq}</Text>
@@ -222,7 +246,7 @@ const CallRow = ({ row }: { row: CallSheetRow }) => (
     <OutcomeCells outcome={row.outcome} />
     <View style={[styles.cell, { width: COLUMN.support }]}>
       {row.persons.map((person) => (
-        <SupportLine key={person.key} support={person.support} />
+        <AnswerLine key={person.key} answer={person.answer} isServe={isServe} />
       ))}
     </View>
     <View style={[styles.cell, styles.lastCell, { width: NOTES_WIDTH }]}>
@@ -233,7 +257,7 @@ const CallRow = ({ row }: { row: CallSheetRow }) => (
   </View>
 )
 
-const HEADINGS: Array<[string, number]> = [
+const headings = (isServe: boolean): Array<[string, number]> => [
   ['#', COLUMN.seq],
   ['Name(s)', COLUMN.name],
   ['Phone', COLUMN.phone],
@@ -242,21 +266,21 @@ const HEADINGS: Array<[string, number]> = [
   ['Voicemail', COLUMN.voicemail],
   ['Wrong #', COLUMN.wrongNumber],
   ['Refused', COLUMN.refused],
-  ['Support Y U N', COLUMN.support],
+  [answerHeading(isServe), COLUMN.support],
   ['Notes', NOTES_WIDTH],
 ]
 
 // `fixed` repeats this at the top of every page, so a later page is still a
 // table and not ten unlabelled columns of handwriting.
-const HeaderRow = () => (
+const HeaderRow = ({ isServe }: { isServe: boolean }) => (
   <View style={styles.headerRow} fixed>
-    {HEADINGS.map(([label, width], index) => (
+    {headings(isServe).map(([label, width], index) => (
       <Text
         key={label}
         style={[
           styles.headerCell,
           { width },
-          index === HEADINGS.length - 1 ? styles.lastCell : {},
+          index === headings(isServe).length - 1 ? styles.lastCell : {},
         ]}
       >
         {label}
@@ -288,6 +312,9 @@ interface CallSheetPdfProps {
   sheetIndex: number
   sheetCount: number
   rows: CallSheetRow[]
+  // Which question the answer column asks. Paper is the only thing a
+  // volunteer has on the call, so it must ask what the app asks.
+  isServe: boolean
 }
 
 // The downloadable call sheet: the walk-list PDF's direct template, ruled
@@ -299,6 +326,7 @@ export const CallSheetPdf = ({
   sheetIndex,
   sheetCount,
   rows,
+  isServe,
 }: CallSheetPdfProps) => (
   <Document title={listName} author="GoodParty.org" subject="Call sheet">
     <Page size="LETTER" orientation="landscape" style={styles.page}>
@@ -312,7 +340,7 @@ export const CallSheetPdf = ({
           {/* Deliberately not interpolated (ENG-10938): one script prints
               once per sheet header above rows for up to 60 different
               people, so there's no single "active contact" to substitute
-              — the voter-name token stays a literal bracket here, same as
+              — the contact-name token stays a literal bracket here, same as
               the caller page shows for a list frozen before that field
               existed. Only the digital caller page (PhoneBankingEntryPanel)
               is single-contact enough to interpolate it. */}
@@ -322,8 +350,8 @@ export const CallSheetPdf = ({
             has none: this renders in Node, whose clock is UTC. */}
         <Text style={styles.disclaimer}>
           Answers already logged in the app are printed below. Log these in the
-          app when you&rsquo;re back online — nothing written here reaches your
-          voter records on its own.
+          app when you&rsquo;re back online — nothing written here reaches your{' '}
+          {isServe ? 'constituent' : 'voter'} records on its own.
         </Text>
       </View>
 
@@ -331,9 +359,9 @@ export const CallSheetPdf = ({
         <Text style={styles.empty}>This sheet has no calls.</Text>
       ) : (
         <>
-          <HeaderRow />
+          <HeaderRow isServe={isServe} />
           {rows.map((row) => (
-            <CallRow key={row.key} row={row} />
+            <CallRow key={row.key} row={row} isServe={isServe} />
           ))}
           <View style={styles.gridBottom} />
         </>

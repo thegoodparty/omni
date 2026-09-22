@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  FollowUpAnswerSchema,
   PhoneBankCallOutcomeSchema,
   SupportAnswerSchema,
   WillVoteAnswerSchema,
@@ -24,6 +25,7 @@ export const RecordPhoneBankingCallSchema = z
     personId: z.string().optional(),
     supportAnswer: SupportAnswerSchema.optional(),
     willVote: WillVoteAnswerSchema.optional(),
+    followUp: FollowUpAnswerSchema.optional(),
     note: z.string().max(PHONE_BANKING_CALL_NOTE_MAX_LENGTH).optional(),
     // After an answered upsert, log the entry's remaining un-logged
     // household members as answered too, in the same request.
@@ -67,6 +69,30 @@ export const RecordPhoneBankingCallSchema = z
     {
       message: 'willVote is only valid when outcome is answered',
       path: ['willVote'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.followUp === undefined ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'followUp is only valid when outcome is answered',
+      path: ['followUp'],
+    },
+  )
+  // The surfaces are alternatives, not a superset and a subset: one request
+  // carries Serve's answer or Win's two, never both. Enforced here rather
+  // than left to the clients, because the route accepts any HTTP caller and
+  // nothing between this parse and the upsert would reject the combination —
+  // which is what would let a Win row persist a followUp, or a Serve row a
+  // support answer, and make this column's meaning depend on who wrote it.
+  .refine(
+    (v) =>
+      v.followUp === undefined ||
+      (v.supportAnswer === undefined && v.willVote === undefined),
+    {
+      message: 'followUp is mutually exclusive with supportAnswer and willVote',
+      path: ['followUp'],
     },
   )
   .refine(

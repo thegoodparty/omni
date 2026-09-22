@@ -27,6 +27,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { Organization, OrganizationRole, User } from '../generated/prisma'
+import { AllowVolunteer } from './decorators/AllowVolunteer.decorator'
 import { OwnerOnly } from './decorators/OwnerOnly.decorator'
 import { ReqOrganization } from './decorators/ReqOrganization.decorator'
 import { ReqOrganizationRole } from './decorators/ReqOrganizationRole.decorator'
@@ -165,6 +166,25 @@ export class TeamController {
       actingUserId: user.id,
       targetUserId: userId,
       role: input.role,
+    })
+  }
+
+  // ENG-11137: self-removal. Declared before members/:userId so `me` can
+  // never reach the ParseIntPipe. The owner is rejected by removeMember's
+  // existing owner check — ownership transfer is the only way an owner
+  // leaves.
+  @Delete('members/me')
+  @UseOrganization()
+  @AllowVolunteer()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async leaveOrganization(
+    @ReqUser() user: User,
+    @ReqOrganization() organization: Organization,
+  ): Promise<void> {
+    await this.team.removeMember({
+      organization,
+      actingUserId: user.id,
+      targetUserId: user.id,
     })
   }
 

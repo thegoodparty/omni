@@ -52,6 +52,10 @@ has_step() {
   grep -q "^      - name: $1\$" "$WORKFLOW"
 }
 
+count_step() {
+  grep -c "^      - name: $1\$" "$WORKFLOW" || true
+}
+
 for env in dev prod; do
   env_dir="$ENVIRONMENTS_DIR/$env"
   [ -d "$env_dir" ] || continue
@@ -65,6 +69,19 @@ for env in dev prod; do
     # reverify fails the release on an off-by-one whose message names no root.
     has_step "reverify $env/$root" ||
       note "$env/$root has no 'reverify $env/$root' step, so its convergence is never confirmed and the convergence check fails on the count"
+
+    # Counting, not just asking whether one exists, because "at least one" is
+    # what let a duplicate through. Two people fixed the missing
+    # prod/alert-filter step at the same time, in different places in the file,
+    # so git merged both cleanly and the presence check above was satisfied
+    # twice over. The result applies the root twice per release and re-plans it
+    # twice, with both re-plans appending to one $PLAN_DIR/<root>.txt and racing
+    # to write one <root>.code that the convergence check then reads.
+    for step in apply reverify; do
+      n=$(count_step "$step $env/$root")
+      [ "$n" -le 1 ] ||
+        note "'$step $env/$root' appears $n times; the root is deployed more than once per release and its plan output is written by whichever copy finishes last"
+    done
   done < <(find "$env_dir" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
 
   for step in apply reverify; do

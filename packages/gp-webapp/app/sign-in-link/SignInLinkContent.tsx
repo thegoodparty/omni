@@ -9,8 +9,9 @@ import { ArrowRightIcon, Button, GoodPartyOrgLogoWordmark } from '@styleguide'
 /**
  * One-time sign-in link redemption page. Staff generate a Clerk sign-in token
  * for a real user and hand them
- * `/sign-in-link?__clerk_ticket=<token>`; redeeming it here signs that person
- * into their OWN account (not an impersonation session).
+ * `/sign-in-link?__clerk_ticket=<token>&uid=<clerk user id>`; redeeming it
+ * here signs that person into their OWN account (not an impersonation
+ * session).
  *
  * Redemption is **click-driven, never automatic on load**. Sign-in tokens are
  * one-time use, and email-security scanners (Microsoft Safe Links, etc.) and
@@ -55,25 +56,23 @@ const RETRYABLE_MESSAGE =
   'Something went wrong while signing you in. Please go to login to try again, or request a new link.'
 
 /**
- * Best-effort decode of the sign-in-token JWT payload. `sub` (the user id) lets
- * us tell whether the already-active session belongs to the person the ticket
- * is for; `st` is Clerk's ticket-type claim, which gates redemption to genuine
- * sign-in tokens. Decoding by hand rather than pulling in a JWT library is
- * deliberate: nothing here is a security decision the server doesn't re-make —
- * Clerk verifies the signature during the exchange, and the `st` check only
- * narrows what we're willing to send it.
+ * Best-effort decode of the sign-in-token JWT payload. `st` is Clerk's
+ * ticket-type claim, which gates redemption to genuine sign-in tokens. That is
+ * the ONLY claim read: sign-in tokens carry no `sub`/user claim, so the
+ * ticket's user id must come from the `uid` query param gp-api stamps onto the
+ * link. Decoding by hand rather than pulling in a JWT library is deliberate:
+ * nothing here is a security decision the server doesn't re-make — Clerk
+ * verifies the signature during the exchange, and the `st` check only narrows
+ * what we're willing to send it.
  */
-const decodeTicketClaims = (
-  ticket: string,
-): { sub: string | null; st: string | null } | null => {
+const decodeTicketClaims = (ticket: string): { st: string | null } | null => {
   try {
     const payload = ticket.split('.')[1]
     if (!payload) return null
     const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
     const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
-    const claims = JSON.parse(atob(padded)) as { sub?: unknown; st?: unknown }
+    const claims = JSON.parse(atob(padded)) as { st?: unknown }
     return {
-      sub: typeof claims.sub === 'string' ? claims.sub : null,
       st: typeof claims.st === 'string' ? claims.st : null,
     }
   } catch {
@@ -122,6 +121,13 @@ export default function SignInLinkContent() {
   const ticket = searchParams?.get('__clerk_ticket') ?? null
   const claims = ticket ? decodeTicketClaims(ticket) : null
   const isSignInToken = claims?.st === SIGN_IN_TOKEN_CLAIM
+  // The ticket's Clerk user id, stamped onto the URL by gp-api when it built
+  // the link (the token itself carries no user claim). Without it a signed-in
+  // recipient who re-opens their own link would be signed out and shown
+  // "already used" (the ticket is single-use). Advisory only: Clerk
+  // re-verifies the token on redemption, so a forged value can't sign anyone
+  // in.
+  const ticketUserId = searchParams?.get('uid') ?? null
 
   const redeem = async () => {
     if (!ticket) {
@@ -142,10 +148,9 @@ export default function SignInLinkContent() {
     setError(null)
     setRedeeming(true)
 
-    const ticketUserId = claims?.sub ?? null
     // Whoever (if anyone) was signed in when this attempt began. Lets us detect
-    // a session that appears *during* the redeem even when the ticket carries
-    // no `sub` claim.
+    // a session that appears *during* the redeem even when the link carries no
+    // `uid` to compare against.
     const initialUserId = clerk.user?.id ?? null
 
     // Has redemption effectively succeeded — i.e. is a session for the ticket's
@@ -159,7 +164,7 @@ export default function SignInLinkContent() {
       const currentUserId = clerk.user?.id ?? null
       if (!currentUserId) return false
       if (ticketUserId) return currentUserId === ticketUserId
-      // Fallback when the token carries no `sub` to compare: a session that
+      // Fallback for a link without a `uid` to compare: a session that
       // appeared (or changed) since this attempt started is the one the
       // exchange just established. Requiring a change from `initialUserId`
       // avoids treating a pre-existing, different session as a successful

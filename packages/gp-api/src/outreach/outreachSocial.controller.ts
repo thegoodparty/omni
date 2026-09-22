@@ -54,15 +54,14 @@ import {
   WIN_SOCIAL_VOICE,
 } from './services/outreachSocialGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
-
-const candidateName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
+import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // GET :id lives here rather than on OutreachController so detail reads stay
 // outside OutreachNotificationInterceptor — a 404 there fires a CAS failure
 // Slack meant for send attempts.
 @Controller('outreach')
-@UseCampaign()
+@UseCampaign({ include: { user: true } })
 @UseInterceptors(ZodResponseInterceptor)
 export class OutreachSocialController {
   constructor(
@@ -119,14 +118,14 @@ export class OutreachSocialController {
   @ResponseSchema(SocialDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @Body(new ZodValidationPipe(SocialDraftRequestSchema))
     input: SocialDraftRequest,
   ): Promise<SocialDraftResponse> {
     return {
       draft: await this.generationService.generateDraft(
         input,
-        candidateName(user),
+        ownerCandidateName(campaign),
         await this.resolveOffice(campaign),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
@@ -139,7 +138,7 @@ export class OutreachSocialController {
   @ResponseSchema(SocialGenerateResponseSchema)
   async generate(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @Body(new ZodValidationPipe(SocialGenerateRequestSchema))
     input: SocialGenerateRequest,
   ): Promise<SocialGenerateResponse> {
@@ -147,7 +146,7 @@ export class OutreachSocialController {
     return {
       assets: await this.generationService.generateAssets(
         input,
-        candidateName(user),
+        ownerCandidateName(campaign),
         await this.resolveOffice(campaign),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),

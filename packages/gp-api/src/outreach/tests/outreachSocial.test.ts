@@ -1027,6 +1027,7 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
       supporters: 1,
       unsure: 0,
       nonSupporters: 0,
+      byFollowUp: { yes: 0, no: 0 },
     })
   })
 
@@ -1071,6 +1072,43 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
     expect(res.status).toBe(HttpStatus.OK)
     expect(res.data.phoneBanking.supporters).toBe(1)
     expect(res.data.phoneBanking.unsure).toBe(2)
+    expect(res.data.phoneBanking.nonSupporters).toBe(0)
+  })
+
+  // The Serve half of the same tally. Both keys are reported even at zero, so
+  // a completed list nobody needed following up on still renders two rows
+  // rather than a table whose shape states the answer.
+  it('tallies the follow-up answers a serve call records', async () => {
+    const { outreachId, entries } = await buildList()
+    const [soloEntry, householdEntry] = entries
+    const [personA, personB] = householdEntry!.persons
+
+    // Asymmetric (1 yes, 2 no) so a swapped key between the two buckets
+    // fails rather than coincidentally matching.
+    for (const [entry, personId, followUp] of [
+      [soloEntry!, soloEntry!.persons[0]!.personId, 'yes'],
+      [householdEntry!, personA!.personId, 'no'],
+      [householdEntry!, personB!.personId, 'no'],
+    ] as const) {
+      const call = await postCall(entry.phoneBankingListId, {
+        entryId: entry.id,
+        outcome: 'answered',
+        personId,
+        followUp,
+      })
+      expect(call.status).toBe(HttpStatus.CREATED)
+    }
+
+    const res = await service.client.get(
+      `/v1/outreach/${outreachId}`,
+      pbOrgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.phoneBanking.byFollowUp).toEqual({ yes: 1, no: 2 })
+    // The Win tallies stay empty — one vocabulary per list.
+    expect(res.data.phoneBanking.supporters).toBe(0)
+    expect(res.data.phoneBanking.unsure).toBe(0)
     expect(res.data.phoneBanking.nonSupporters).toBe(0)
   })
 

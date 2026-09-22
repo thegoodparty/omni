@@ -1,5 +1,6 @@
+import jwt from 'jsonwebtoken'
 import { useTestService } from '@/test-service'
-import { Campaign } from '../generated/prisma'
+import { Campaign, OrganizationRole } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CampaignStoryRewriteService } from './services/campaignStoryRewrite.service'
 import { CampaignStoryService } from './services/campaignStory.service'
@@ -135,6 +136,54 @@ describe('CampaignStory routes', () => {
 
       expect(result.status).toBe(201)
       expect(result.data).toEqual({ rewrite: 'Polished text.' })
+      expect(spy).toHaveBeenCalledWith(
+        { field: 'why', text: REWRITE_TEXT },
+        'Johnny Goodparty',
+        campaign.id,
+      )
+      spy.mockRestore()
+    })
+
+    // The story is the OWNER's voice — a Campaign Manager's "Improve with
+    // AI" must not re-voice it as the manager (ENG-11139).
+    it('voices the rewrite as the campaign owner for a manager requester', async () => {
+      const manager = await service.prisma.user.create({
+        data: {
+          email: `manager-${Date.now()}@example.com`,
+          // SessionGuard's resolveUser only accepts Clerk-shaped ids.
+          clerkId: `user_manager_${Date.now()}`,
+          firstName: 'Mandy',
+          lastName: 'Manager',
+        },
+      })
+      await service.prisma.organizationMembership.create({
+        data: {
+          organizationSlug: orgSlug,
+          userId: manager.id,
+          role: OrganizationRole.campaignAdmin,
+        },
+      })
+      const rewriteService = service.app.get(CampaignStoryRewriteService)
+      const spy = vi
+        .spyOn(rewriteService, 'rewrite')
+        .mockResolvedValue({ rewrite: 'Polished text.' })
+
+      const result = await service.client.post(
+        REWRITE_URL,
+        { field: 'why', text: REWRITE_TEXT },
+        {
+          headers: {
+            ...headers,
+            Authorization: `Bearer ${jwt.sign(
+              { sub: manager.clerkId },
+              process.env.AUTH_SECRET!,
+              { expiresIn: '1h' },
+            )}`,
+          },
+        },
+      )
+
+      expect(result.status).toBe(201)
       expect(spy).toHaveBeenCalledWith(
         { field: 'why', text: REWRITE_TEXT },
         'Johnny Goodparty',

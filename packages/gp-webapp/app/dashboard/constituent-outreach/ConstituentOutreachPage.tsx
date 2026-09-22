@@ -47,6 +47,9 @@ const ConstituentOutreachContent = () => {
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
+  // The follow-up list the results drawer just saved, handed to the flow as
+  // its audience so "Call them back" lands on the who step already answered.
+  const [followUpListId, setFollowUpListId] = useState<number | undefined>()
   const seedOutreachDetail = useSeedOutreachDetail()
 
   // Mirrors OutreachHubPage's cache seeding: the save response is the
@@ -105,15 +108,22 @@ const ConstituentOutreachContent = () => {
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
-        onClose={() => setPhoneBankingFlowOpen(false)}
+        onClose={() => {
+          setPhoneBankingFlowOpen(false)
+          // Spent on close, so pressing the tile afterwards opens a plain
+          // flow rather than silently reusing the follow-up audience.
+          setFollowUpListId(undefined)
+        }}
         onSaved={handlePhoneBankingSaved}
         surface={SERVE_PHONE_BANKING_SURFACE}
+        preselectedListId={followUpListId}
       />
       <OutreachHistoryTable
         rows={outreaches ?? []}
         onRowClick={setDetailsRow}
         rowClickable={isDrawerRow}
         detailFetcher={fetchServeOutreachDetail}
+        isServe
       />
       <OutreachDetailsDrawer
         row={detailsRow}
@@ -121,6 +131,14 @@ const ConstituentOutreachContent = () => {
           if (!open) setDetailsRow(null)
         }}
         detailFetcher={fetchServeOutreachDetail}
+        isServe
+        onCallFollowUpList={(listId) => {
+          // Close the drawer first: the flow is a full-screen sheet, and two
+          // stacked sheets is the thing the CRM's own drawers avoid.
+          setDetailsRow(null)
+          setFollowUpListId(listId)
+          setPhoneBankingFlowOpen(true)
+        }}
       />
     </div>
   )

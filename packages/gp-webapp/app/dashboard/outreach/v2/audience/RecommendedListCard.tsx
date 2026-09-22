@@ -1,4 +1,4 @@
-import { Card } from '@styleguide'
+import { Card, cn } from '@styleguide'
 import type {
   RecommendedList,
   RecommendedListChannel,
@@ -12,6 +12,10 @@ interface RecommendedListCardProps {
   // Contacts counterpart with nothing on screen to explain the gap — this
   // caveat is the fix, not a count change (docs/features/recommended-lists.md).
   channel: RecommendedListChannel
+  // The card IS the chosen audience when a recommendation is selected but
+  // not saved yet (carried in from the voter data page); the picker below
+  // it has no row to highlight, so the selection has to read here.
+  selected?: boolean
   onSelect: () => void
 }
 
@@ -28,6 +32,7 @@ const formatCents = (cents: number): string =>
 export const RecommendedListCard = ({
   recommendation,
   channel,
+  selected = false,
   onSelect,
 }: RecommendedListCardProps) => {
   const { copy, count, voteGoalShare, estimatedCostCents } = recommendation
@@ -36,6 +41,7 @@ export const RecommendedListCard = ({
     <Card
       role="button"
       tabIndex={0}
+      aria-pressed={selected}
       data-testid="recommended-list-card"
       onClick={onSelect}
       onKeyDown={(event) => {
@@ -43,7 +49,10 @@ export const RecommendedListCard = ({
         event.preventDefault()
         onSelect()
       }}
-      className="cursor-pointer gap-1 p-4 text-left transition-colors hover:border-primary/50"
+      className={cn(
+        'cursor-pointer gap-1 p-4 text-left transition-colors hover:border-primary/50',
+        selected && 'border-primary bg-primary/5',
+      )}
     >
       <p className="font-medium text-foreground">{copy.title}</p>
       <p className="text-sm text-muted-foreground">{copy.criteriaSummary}</p>

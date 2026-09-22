@@ -551,7 +551,8 @@ Before a campaign can send P2P texts, it must complete 10DLC (10-digit long code
 | Route                         | Components                                                                                                                                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/dashboard/outreach`         | `OutreachPage` — create/list outreach campaigns. `OutreachCreateCards` (text + P2P options), `OutreachTable` (campaign list with P2P job status from Peerly), `FreeTextsBanner`, `OutreachContext` provider |
-| `/dashboard/voter-records`    | `VoterRecordsPage` — voter file types, custom audience builder. `/[type]` — detail page with download, schedule, script card                                                                                |
+| `/dashboard/outreach/v2/audience` | Audience step of the v2 outreach flow — recommended lists, custom audience builder, list details under `listDetails`                                                                                    |
+| `/dashboard/contacts`         | Contacts CRM — the voter/contact records surface, with download and outreach actions                                                                                                                        |
 | `/profile/texting-compliance` | TCR compliance form                                                                                                                                                                                         |
 
 ### Key Database Models

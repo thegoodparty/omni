@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  InternalServerErrorException,
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common'
@@ -16,7 +17,8 @@ export abstract class AwsService {
    * Handles AWS SDK errors by mapping them to appropriate HTTP exceptions
    * - User input errors (400s) -> BadRequestException
    * - Auth errors (401/403s) -> UnauthorizedException/ForbiddenException
-   * - AWS service errors (500s) -> BadGatewayException
+   * - Any other client fault -> InternalServerErrorException (we asked wrongly)
+   * - AWS service faults -> BadGatewayException (AWS is failing)
    * @param error - The AWS error to handle
    * @param message - Optional message to add to the error log
    */
@@ -51,9 +53,30 @@ export abstract class AwsService {
         case 'AccountProblem':
           throw new ForbiddenException(error.message)
 
-        // All other AWS errors (500s) are treated as gateway errors
+        // Everything else splits on who the SDK says was at fault, rather than
+        // falling through to 502 on the assumption that an unlisted name means
+        // AWS broke. The cases above are an allowlist of a dozen names, so the
+        // default was carrying every client fault nobody had thought to add —
+        // and calling them all "Error communicating with AWS service".
+        //
+        // 502 is the expensive half of that mistake, because it does not just
+        // mislabel: it tells the caller the failure is transient and worth
+        // retrying. A dev briefing tab believed it 768 times in a week, once
+        // every five minutes, against an S3 PermanentRedirect that could never
+        // have succeeded — its row points at a bucket named `seed` that lives
+        // in ap-south-1 and is not ours. The request was answered 122ms later
+        // with `$fault: "client"` and HTTP 301, which is AWS saying plainly
+        // that we asked wrongly.
+        //
+        // So a client fault we did not name is a 500: we built a bad request,
+        // the caller cannot fix it by changing theirs, and a retry cannot help.
+        // Only a server fault is a gateway error.
         default:
-          throw new BadGatewayException('Error communicating with AWS service')
+          throw error.$fault === 'client'
+            ? new InternalServerErrorException(
+                'A request to AWS could not be completed.',
+              )
+            : new BadGatewayException('Error communicating with AWS service')
       }
     }
 

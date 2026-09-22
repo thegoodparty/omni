@@ -81,6 +81,24 @@ variable "sweep_max_triggers" {
   default     = "10"
 }
 
+variable "flag_cleanup_ramp_days" {
+  description = "FLAG_CLEANUP_RAMP_DAYS: how long a prod flag must sit at 100% (all users, no partial targeting) before its flag-cleanup ticket is promoted to the story queue. Matches sweep.py's own DEFAULT_FLAG_CLEANUP_RAMP_DAYS; override lower to accelerate the first real use."
+  type        = string
+  default     = "7"
+}
+
+variable "github_app_id" {
+  description = "GitHub App id (not a secret) the sweep's merge-pending PR reads mint tokens as — the Delegate App, same identity agent/github_auth.py uses."
+  type        = string
+  default     = "3107048"
+}
+
+variable "github_app_installation_id" {
+  description = "The Delegate App's installation id on thegoodparty (not a secret)."
+  type        = string
+  default     = "117364330"
+}
+
 variable "shared_slack_notifier_lambda_arn" {
   description = "ARN of the shared Slack notifier Lambda to subscribe to failure notifications (empty disables)"
   type        = string
@@ -345,10 +363,42 @@ resource "aws_lambda_function" "autopilot_bot" {
       AUTOPILOT_CLICKUP_WEBHOOK_SECRET = try(local.ai_secrets["AUTOPILOT_CLICKUP_WEBHOOK_SECRET"], "")
       AUTOPILOT_CLICKUP_API_KEY        = try(local.ai_secrets["AUTOPILOT_CLICKUP_API_KEY"], "")
       SLACK_BOT_TOKEN                  = try(local.ai_secrets["SLACK_BOT_TOKEN"], "")
+      # Same Delegate App key the autopilot-agent-fargate task definitions
+      # already carry (see that module's agent_secrets local) — the sweep's
+      # merge-pending resolution pass (lambda/github_auth.py) mints its own
+      # short-lived installation token from it to read PR merge state. The
+      # two ids are REQUIRED by that module (no in-code fallback): a missing
+      # value fails soft to "no PR read this tick", never a stale identity.
+      GITHUB_APP_PRIVATE_KEY     = try(local.ai_secrets["GITHUB_APP_PRIVATE_KEY"], "")
+      GITHUB_APP_ID              = var.github_app_id
+      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      # ENG-11150: verifies the Slack Events API POSTs to /autopilot/slack
+      # (v0 HMAC over the raw body, same try(...) degrade-safe posture as the
+      # ClickUp secret above — an empty value makes verify_slack_signature
+      # reject every request rather than fail plan/apply on a key AI_SECRETS
+      # doesn't carry yet). Value is added to AI_SECRETS_<ENV> out-of-band
+      # (see docs/secrets.md); this only wires the reference.
+      AUTOPILOT_SLACK_SIGNING_SECRET = try(local.ai_secrets["AUTOPILOT_SLACK_SIGNING_SECRET"], "")
+      # ENG-11152: the sweep's flag-cleanup ramp pass reads a flag's prod
+      # rollout to decide when to promote its cleanup ticket. Same
+      # degrade-safe try(...) posture as every other AI_SECRETS entry above —
+      # an empty value makes _read_prod_flag_rollout skip the check (logged),
+      # never a stale credential. The project id is a plain value, not a
+      # secret: same hardcoded "694490" the autopilot-agent-fargate module's
+      # agent_environment carries for AMPLITUDE_PROD_PROJECT_ID (resolved
+      # live from the Experiment management API on 2026-09-17; see that
+      # module for the canonical source).
+      AMPLITUDE_MANAGEMENT_API_KEY = try(local.ai_secrets["AMPLITUDE_MANAGEMENT_API_KEY"], "")
+      AMPLITUDE_PROD_PROJECT_ID    = "694490"
 
       AUTOPILOT_SLACK_CHANNEL = var.autopilot_slack_channel
       SWEEP_LOOKBACK_MINUTES  = var.sweep_lookback_minutes
       SWEEP_MAX_TRIGGERS      = var.sweep_max_triggers
+      # ENG-11152: how long a prod flag must stay at 100% (all users, no
+      # partial targeting) before its cleanup ticket is promoted to the
+      # story queue. Default 7 days; lower it here to accelerate the first
+      # real use rather than editing sweep.py's own default.
+      FLAG_CLEANUP_RAMP_DAYS = var.flag_cleanup_ramp_days
 
       # ECS dispatch. Names are dispatch.py's exact env var names — NOT
       # ECS_SUBNET_IDS/ECS_SECURITY_GROUP_ID (clickup-bot's names): this

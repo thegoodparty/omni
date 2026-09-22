@@ -24,14 +24,24 @@ import {
 // crm/shared/*), which cannot be imported across packages — keep labels
 // aligned with it by eye.
 //
-// Precinct is filterable in the wizard but is deliberately NOT listed here.
-// Every dimension in this catalog carries its complete value vocabulary, and
-// precinct has none: its values are enumerated per district by
-// GET /v1/contacts/precincts (a precinct number is only unique within its
-// county, and the same district can hold anywhere from 0 to 579 of them).
-// Advertising the dimension without its values would invite the assistant to
-// invent precinct names that match nobody. Listing it needs a tool that can
-// enumerate them first. Top-issue remains absent as a blocked dimension.
+// Precinct is filterable in the wizard and is still NOT listed here, for the
+// original reason: every dimension in this catalog carries its complete
+// value vocabulary, and precinct has none: its values are enumerated per
+// district by GET /v1/contacts/precincts (a precinct number is only unique
+// within its county, and the same district can hold anywhere from 0 to 579
+// of them). Advertising the dimension without its values would invite the
+// assistant to invent precinct names that match nobody.
+//
+// What changed is that the enumeration this comment said it needed now
+// exists: the `list_precincts` tool reads that route and hands back the
+// encoded county|precinct values. So the assistant reaches precinct through
+// that tool instead of through this catalog, and the tool's own description
+// is what tells it the dimension exists — the two are registered together
+// and must stay that way. Until then the Chief of Staff told holders their
+// own precinct was not something it could filter on, while the wizard beside
+// it offered exactly that filter.
+//
+// Top-issue remains absent as a blocked dimension.
 //
 // Ethnicity is absent as a blocked dimension too, and unlike precinct it is
 // not coming back: the wire fields are gone from voterFilterBaseSchema and
@@ -216,6 +226,18 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
       key: field,
       label: bucket === 5 ? '5+' : String(bucket),
     })),
+  },
+  {
+    // The standing follow-up flag, not the follow-up answer on any one call
+    // or knock: it selects who is STILL owed, so a request already met drops
+    // out. Serve-only, the mirror of contactsMade above. `observed` because
+    // a person or a canvasser asserted it — nothing models or infers it.
+    key: 'followUp',
+    label: 'Follow-Up',
+    kind: 'boolean-group',
+    modes: 'serve',
+    provenance: 'observed',
+    values: [{ key: 'followUpRequested', label: 'Asked For Follow-Up' }],
   },
   {
     key: 'age',

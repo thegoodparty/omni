@@ -9,10 +9,13 @@ import {
 
 describe('callSheetRows', () => {
   it('emits one row per phone number, in seq order', () => {
-    const rows = callSheetRows([
-      entry({ id: 2, seq: 2, phone: '(312) 555-0102' }),
-      entry({ id: 1, seq: 1, phone: '(312) 555-0101' }),
-    ])
+    const rows = callSheetRows(
+      [
+        entry({ id: 2, seq: 2, phone: '(312) 555-0102' }),
+        entry({ id: 1, seq: 1, phone: '(312) 555-0101' }),
+      ],
+      false,
+    )
 
     expect(rows.map((row) => [row.seq, row.phone])).toEqual([
       [1, '(312) 555-0101'],
@@ -23,14 +26,17 @@ describe('callSheetRows', () => {
   // A 2-person number renders one row with both names and stacked per-person
   // Support/Notes cells — not one row per resident, unlike the walk list.
   it('stacks every named resident on a shared number inside one row', () => {
-    const rows = callSheetRows([
-      entry({
-        persons: [
-          person({ personId: 'person-1', name: 'Dorian Fen' }),
-          person({ personId: 'person-2', name: 'Marisol Vega' }),
-        ],
-      }),
-    ])
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [
+            person({ personId: 'person-1', name: 'Dorian Fen' }),
+            person({ personId: 'person-2', name: 'Marisol Vega' }),
+          ],
+        }),
+      ],
+      false,
+    )
 
     expect(rows).toHaveLength(1)
     expect(rows[0]?.persons.map((p) => p.name)).toEqual([
@@ -40,15 +46,15 @@ describe('callSheetRows', () => {
   })
 
   it('has no rows for a list with no entries', () => {
-    expect(callSheetRows([])).toEqual([])
+    expect(callSheetRows([], false)).toEqual([])
   })
 
   // A number nobody has called yet gets the blank tick-box form.
   it('prints a blank form for a number with no interaction', () => {
-    const rows = callSheetRows([entry({ persons: [person()] })])
+    const rows = callSheetRows([entry({ persons: [person()] })], false)
 
     expect(rows[0]?.outcome).toEqual({ kind: 'form' })
-    expect(rows[0]?.persons[0]?.support).toEqual({ kind: 'form' })
+    expect(rows[0]?.persons[0]?.answer).toEqual({ kind: 'form' })
   })
 
   // Answered / no answer / voicemail are informational: a callback may still
@@ -59,11 +65,14 @@ describe('callSheetRows', () => {
     ['no_answer', 'No answer'],
     ['voicemail', 'Voicemail'],
   ] as const)('prints a logged outcome for %s', (outcome, label) => {
-    const rows = callSheetRows([
-      entry({
-        persons: [person({ interaction: interaction({ outcome }) })],
-      }),
-    ])
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [person({ interaction: interaction({ outcome }) })],
+        }),
+      ],
+      false,
+    )
 
     expect(rows[0]?.outcome).toEqual({ kind: 'logged', label })
   })
@@ -75,90 +84,153 @@ describe('callSheetRows', () => {
     ['wrong_number', 'Wrong number — do not call again'],
     ['refused', 'Refused — do not call again'],
   ] as const)('prints a skip instruction for %s', (outcome, expected) => {
-    const rows = callSheetRows([
-      entry({
-        persons: [person({ interaction: interaction({ outcome }) })],
-      }),
-    ])
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [person({ interaction: interaction({ outcome }) })],
+        }),
+      ],
+      false,
+    )
 
     expect(rows[0]?.outcome).toEqual({ kind: 'skip', instruction: expected })
   })
 
   it('prints the recorded support answer instead of a blank form', () => {
-    const rows = callSheetRows([
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [
+            person({
+              interaction: interaction({
+                outcome: 'answered',
+                supportAnswer: 'supporter',
+              }),
+            }),
+          ],
+        }),
+      ],
+      false,
+    )
+
+    expect(rows[0]?.persons[0]?.answer).toEqual({
+      kind: 'logged',
+      label: 'Yes',
+    })
+  })
+
+  // Paper is the only thing a volunteer has on the call, so the answer column
+  // must ask its own surface's question — and must never read back the other
+  // surface's field, which a Serve list can carry from the pilot rows.
+  it('reads the follow-up answer on a serve sheet, never the support one', () => {
+    const entries = [
       entry({
         persons: [
           person({
             interaction: interaction({
               outcome: 'answered',
               supportAnswer: 'supporter',
+              followUp: 'no',
             }),
           }),
         ],
       }),
-    ])
+    ]
 
-    expect(rows[0]?.persons[0]?.support).toEqual({
+    expect(callSheetRows(entries, true)[0]?.persons[0]?.answer).toEqual({
+      kind: 'logged',
+      label: 'No',
+    })
+    expect(callSheetRows(entries, false)[0]?.persons[0]?.answer).toEqual({
       kind: 'logged',
       label: 'Yes',
     })
+  })
+
+  it('leaves a serve sheet blank when only a support answer was logged', () => {
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [
+            person({
+              interaction: interaction({
+                outcome: 'answered',
+                supportAnswer: 'supporter',
+              }),
+            }),
+          ],
+        }),
+      ],
+      true,
+    )
+
+    expect(rows[0]?.persons[0]?.answer).toEqual({ kind: 'form' })
   })
 
   // A call that connected but hasn't recorded this person's opinion yet
   // still gets a blank Support form — the outcome and the support answer
   // are independent facts.
   it('leaves the support form blank for a logged outcome nobody answered support for', () => {
-    const rows = callSheetRows([
-      entry({
-        persons: [
-          person({ interaction: interaction({ outcome: 'voicemail' }) }),
-        ],
-      }),
-    ])
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [
+            person({ interaction: interaction({ outcome: 'voicemail' }) }),
+          ],
+        }),
+      ],
+      false,
+    )
 
     expect(rows[0]?.outcome).toEqual({ kind: 'logged', label: 'Voicemail' })
-    expect(rows[0]?.persons[0]?.support).toEqual({ kind: 'form' })
+    expect(rows[0]?.persons[0]?.answer).toEqual({ kind: 'form' })
   })
 
   // Nothing to ask a person at a number that's already a dead end — the row's
   // skip instruction replaces every person's Support form, not just the
   // shared outcome cell.
   it('propagates the skip instruction to every person on a dead-end row', () => {
-    const rows = callSheetRows([
-      entry({
-        persons: [
-          person({
-            personId: 'person-1',
-            interaction: interaction({ outcome: 'wrong_number' }),
-          }),
-          person({ personId: 'person-2', name: 'Marisol Vega' }),
-        ],
-      }),
-    ])
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [
+            person({
+              personId: 'person-1',
+              interaction: interaction({ outcome: 'wrong_number' }),
+            }),
+            person({ personId: 'person-2', name: 'Marisol Vega' }),
+          ],
+        }),
+      ],
+      false,
+    )
 
     const expected = {
       kind: 'skip',
       instruction: 'Wrong number — do not call again',
     }
-    expect(rows[0]?.persons[0]?.support).toEqual(expected)
-    expect(rows[0]?.persons[1]?.support).toEqual(expected)
+    expect(rows[0]?.persons[0]?.answer).toEqual(expected)
+    expect(rows[0]?.persons[1]?.answer).toEqual(expected)
   })
 
   // A call reaches the whole household at once, so persons on the same entry
   // are expected to share an outcome; the row takes whichever interaction it
   // finds first as representative.
   it('takes the first recorded interaction as the row outcome', () => {
-    const rows = callSheetRows([
-      entry({
-        persons: [
-          person({
-            personId: 'person-1',
-            interaction: interaction({ outcome: 'answered' }),
-          }),
-          person({ personId: 'person-2', interaction: null }),
-        ],
-      }),
-    ])
+    const rows = callSheetRows(
+      [
+        entry({
+          persons: [
+            person({
+              personId: 'person-1',
+              interaction: interaction({ outcome: 'answered' }),
+            }),
+            person({ personId: 'person-2', interaction: null }),
+          ],
+        }),
+      ],
+      false,
+    )
 
     expect(rows[0]?.outcome).toEqual({ kind: 'logged', label: 'Answered' })
   })
@@ -174,7 +246,7 @@ describe('callSheetRows', () => {
         phone: `(312) 555-${String(i).padStart(4, '0')}`,
       }),
     )
-    const rows = callSheetRows(entries)
+    const rows = callSheetRows(entries, false)
 
     expect(sheetIndexesOf(rows)).toEqual([1, 2])
     expect(rows.filter((row) => row.sheetIndex === 1)).toHaveLength(60)
@@ -182,7 +254,7 @@ describe('callSheetRows', () => {
   })
 
   it('reports one sheet number for a list with no second sheet', () => {
-    const rows = callSheetRows([entry({ sheetIndex: 1 })])
+    const rows = callSheetRows([entry({ sheetIndex: 1 })], false)
 
     expect(sheetIndexesOf(rows)).toEqual([1])
   })

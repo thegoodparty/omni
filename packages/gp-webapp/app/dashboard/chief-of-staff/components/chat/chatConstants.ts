@@ -25,6 +25,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   read_community_issues: 'Reading your community issues',
   describe_filter_dimensions: 'Checking available filters',
   count_contacts: 'Counting matches',
+  list_precincts: 'Looking up precincts',
   crud_saved_filters: 'Working on your lists',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',

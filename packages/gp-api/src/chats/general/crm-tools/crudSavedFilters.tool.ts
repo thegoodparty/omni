@@ -33,7 +33,7 @@ export const MAX_SAVED_FILTER_NAME_LENGTH = 40
 const crudSavedFiltersInputSchema = voterFilterBaseSchema
   .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
   .extend({
-    action: z.enum(['list', 'create', 'update', 'delete']),
+    action: z.enum(['list', 'get', 'create', 'update', 'delete']),
     id: z.number().int().positive().optional(),
     name: z.string().min(1).max(MAX_SAVED_FILTER_NAME_LENGTH).optional(),
   })
@@ -51,54 +51,6 @@ const LOCKED_FILTER_ERROR =
   'This list has already been used for outreach and is locked: it cannot ' +
   'be edited or deleted, only duplicated into a new list. Explain this to ' +
   'the user instead of retrying.'
-
-// Silent, last-resort backstop: the prompt is what should stop this case
-// (it tells the model to disclose a missing filter before saving), but
-// this catches it anyway if that guidance doesn't hold, the same way the
-// Pro-access and locked-list checks below are never explained to the model
-// in advance either. The word list is short and case-insensitive on
-// purpose, not a place-name dictionary: a false positive only costs the
-// assistant one rename, and the resulting name is still accurate.
-// Exported so voterFilterBase.schema.test.ts can assert no schema field
-// ever represents one of these as a real, named-vocabulary narrowing
-// without this list (and isUnfilteredPlaceName's precincts-only
-// assumption) being revisited in the same change.
-export const PLACE_WORDS = [
-  'county',
-  'counties',
-  'city',
-  'cities',
-  'town',
-  'towns',
-  'township',
-  'townships',
-  'village',
-  'villages',
-  'borough',
-  'boroughs',
-  'parish',
-  'parishes',
-  'zip',
-  'zips',
-  'ward',
-  'wards',
-  'neighborhood',
-  'neighborhoods',
-]
-const PLACE_WORD_PATTERN = new RegExp(`\\b(${PLACE_WORDS.join('|')})\\b`, 'i')
-
-const UNFILTERED_PLACE_NAME_ERROR =
-  'This name includes a place, but the filter has no precinct narrowing, ' +
-  'so it actually covers the whole district: rename it without the ' +
-  'place word and tell the user that. If they want real geographic ' +
-  'narrowing, precincts are the one filter that provides it.'
-
-// True only when the name claims a geographic narrowing the filter didn't
-// apply. Precincts is the one real geographic filter key (county/city/zip
-// don't exist in the data), so its presence is what makes a place name
-// honest.
-const isUnfilteredPlaceName = (name: string, precincts: string[]): boolean =>
-  PLACE_WORD_PATTERN.test(name) && precincts.length === 0
 
 // Business-rule rejections (pro gate, incomplete-outreach activity condition,
 // Serve party rejection) come back as structured tool errors the model can
@@ -133,12 +85,17 @@ export const buildCrudSavedFiltersTool = (deps: {
     | 'findByIdAndOrganizationSlug'
     | 'filterAccessCheck'
   >
-  contacts: Pick<ContactsService, 'countContacts'>
+  contacts: Pick<ContactsService, 'countContacts' | 'countSegment'>
   organization: Organization
 }): LlmStreamTool<typeof crudSavedFiltersInputSchema> => ({
   description:
     "Manage this organization's saved contact lists (saved filters). " +
-    "action='list' returns { id, name } for every saved list; 'create' " +
+    "action='list' returns { id, name } for every saved list; 'get' " +
+    'returns { id, name, count } for ONE list by id and is the only way to ' +
+    "read a saved list's current size — ask it whenever you need that " +
+    'number, including when the list was discussed earlier in this ' +
+    'conversation, because a list can be narrowed after it is saved and an ' +
+    "earlier figure goes stale; 'create' " +
     'saves a new list from the same filter shape count_contacts uses ' +
     '(requires name, max 40 characters; compose filter fields from ' +
     "describe_filter_dimensions) and returns { id, name, count }; 'update' " +
@@ -158,15 +115,44 @@ export const buildCrudSavedFiltersTool = (deps: {
       const filters = await voterFileFilters.findByOrganizationSlug(
         organization.slug,
       )
+      // Deliberately no counts here. One count per saved list is the per-row
+      // N+1 that 504'd the lists index in prod; `get` answers for the one
+      // list the model actually needs.
       return { filters: filters.map(({ id, name }) => ({ id, name })) }
+    }
+    if (action === 'get') {
+      if (id === undefined) return { error: 'get requires id' }
+      const existing = await voterFileFilters.findByIdAndOrganizationSlug(
+        id,
+        organization.slug,
+      )
+      if (!existing) {
+        return {
+          error: `No saved list with id ${id} exists for this organization`,
+        }
+      }
+      try {
+        // By id, so a drawn boundary and the list's stored search both
+        // apply. Spreading this row's FILTER FIELDS into count_contacts
+        // instead would drop the boundary and quote the list's pre-boundary
+        // size — the inline count's schema carries neither `id` nor
+        // `geoPoly`, which is the same defect the edit wizard had.
+        const { count } = await contacts.countSegment(String(id), organization)
+        return { id: existing.id, name: existing.name, count }
+      } catch (error) {
+        if (
+          error instanceof BadRequestException ||
+          error instanceof ForbiddenException
+        ) {
+          return toToolError(error)
+        }
+        throw error
+      }
     }
     try {
       await voterFileFilters.filterAccessCheck(organization.slug)
       if (action === 'create') {
         if (!name) return { error: 'create requires name' }
-        if (isUnfilteredPlaceName(name, filter.precincts ?? [])) {
-          return { error: UNFILTERED_PLACE_NAME_ERROR }
-        }
         // Count before creating so a filter the org cannot count (non-Pro,
         // Serve party rejection, people-api outage) never leaves an orphan
         // list behind; the count is the same live number the route path
@@ -189,29 +175,6 @@ export const buildCrudSavedFiltersTool = (deps: {
         }
       }
       if (action === 'update') {
-        // Only check the place-name invariant when this call touches the
-        // fields that could break it: a name change or a precincts change.
-        // Checked against the resulting name/precincts pair, not just the
-        // incoming fields: clearing precincts without renaming would
-        // otherwise leave an already-named list's place claim stale and
-        // unflagged. `??`, not `||`: an explicit `precincts: []` in this
-        // call must override a non-empty existing value (clearing the
-        // narrowing is a real edit), while an absent key falls back to
-        // what's persisted.
-        const nameIsBeingTouched = name !== undefined
-        const precinctsAreBeingTouched = filter.precincts !== undefined
-        if (nameIsBeingTouched || precinctsAreBeingTouched) {
-          const effectiveName = name ?? existing.name
-          if (
-            effectiveName !== null &&
-            isUnfilteredPlaceName(
-              effectiveName,
-              filter.precincts ?? existing.precincts ?? [],
-            )
-          ) {
-            return { error: UNFILTERED_PLACE_NAME_ERROR }
-          }
-        }
         const payload = { ...filter, ...(name !== undefined && { name }) }
         if (Object.keys(payload).length === 0) {
           return {

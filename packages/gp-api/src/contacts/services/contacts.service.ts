@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common'
 import {
   MAX_OVERLAP_SAVED_FILTER_SETS,
+  FollowUpStatusSchema,
+  type FollowUpStatusResponse,
   SupportStatusRollupSchema,
   VoterLikelihoodSchema,
   type ContactStatuses,
@@ -16,10 +18,14 @@ import {
   type UpdateContactStatusInput,
   type VoterLikelihood,
   type PeoplePrecinctsResponse,
+  type DoorKnockingEvaluateResponse,
+  type GeoJsonPolygon,
+  MAX_RESULTS_PER_PAGE,
 } from '@goodparty_org/contracts'
 import {
   ContactStatusField,
   ContactStatusSource,
+  FollowUpStatus,
   Organization,
 } from '../../generated/prisma'
 import { FastifyReply } from 'fastify'
@@ -45,9 +51,14 @@ import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
+import { VoterFileFilterGeoService } from '@/voters/services/voterFileFilterGeo.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
+import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
+import { DoorKnockingEvaluateDTO } from '@/peopleDb/schemas/doorKnocking.schema'
+import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
+import type { Bbox } from '@goodparty_org/contracts'
 import {
   EXCLUDABLE_VOTER_COLUMNS,
   type ExcludableVoterColumn,
@@ -66,6 +77,9 @@ import {
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
+import { PolygonPreviewContactsDTO } from '../schemas/polygonPreviewContacts.schema'
+import { FilterPointsContactsDTO } from '../schemas/filterPointsContacts.schema'
+import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
 import type { VoterFileFilter } from '../../generated/prisma'
 import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
@@ -102,8 +116,38 @@ const ALL_CONTACTS_SEGMENT = 'all'
 // the route error-count rules counted 400 and excluded 403, so one free-tier
 // user hitting the gate paged the on-call — and the rules now exclude 400 too,
 // so the reason to keep it is the plain one: 403 is what "not entitled" means.
+// assertProAccess's refusal, which is NOT the filtering one above: the two
+// gates word themselves for different features and a caller recognising the
+// wrong string silently falls through to its generic branch. Named rather
+// than inlined so anything matching on it cannot drift from what throws it.
+export const PRO_FEATURE_REQUIRED_MESSAGE =
+  'This feature is only available for pro campaigns'
+
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
+
+// The bbox query's own ceiling (the contract caps it here), taken whole
+// rather than reused from door knocking's 20,000: that number is sized from
+// a 150-stop walk route, and a constituent list is not a walk route.
+const POLYGON_PREVIEW_MAX_PEOPLE = 50_000
+
+// Everywhere. The district is the boundary for a points read, and the SQL
+// scopes to it already — the bbox in that query exists to prefilter for a
+// drawn shape, and with no shape to prefilter for, a predicate that excludes
+// nothing is the correct one.
+const DISTRICT_WIDE_BBOX: Bbox = {
+  minLat: -90,
+  maxLat: 90,
+  minLng: -180,
+  maxLng: 180,
+}
+
+// Matched to MAX_RESULTS_PER_PAGE on purpose: the saved-list map draws its
+// dots through GET /v1/contacts under exactly this ceiling, so a list looks
+// the same on the draw step as it does the moment after it is saved. A
+// different number here would move dots on screen at save time for no
+// reason the holder could see.
+const MAP_POINTS_MAX = MAX_RESULTS_PER_PAGE
 
 // The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
 // `eo-` org's download drops this column from the projection instead
@@ -226,6 +270,7 @@ export type ContactsFilterResolutionInput = Partial<
 export class ContactsService {
   constructor(
     private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly voterFileFilterGeoService: VoterFileFilterGeoService,
     private readonly elections: ElectionsService,
     private readonly campaigns: CampaignsService,
     private readonly organizations: OrganizationsService,
@@ -236,6 +281,7 @@ export class ContactsService {
     private readonly activityConditionResolution: ActivityConditionResolutionService,
     private readonly voterQueryService: VoterQueryService,
     private readonly voterDownloadService: VoterDownloadService,
+    private readonly voterDoorKnockingService: VoterDoorKnockingService,
     private readonly peopleStatsService: StatsService,
     private readonly contactsMadeResolutionService: ContactsMadeResolutionService,
     private readonly logger: PinoLogger,
@@ -359,6 +405,24 @@ export class ContactsService {
     }
   }
 
+  // The exact inverse, and refused rather than ignored for the reason the
+  // party gate refuses: silently dropping an unsupported dimension returns a
+  // WIDER audience than the caller asked for, and a phone list built from it
+  // would call people nobody selected.
+  private assertNoFollowUpFilterForCampaign(
+    organization: Organization,
+    filterInput: Partial<VoterFileFilter>,
+  ): void {
+    if (
+      !this.hasElectedOfficeAccess(organization) &&
+      filterInput.followUpRequested
+    ) {
+      throw new BadRequestException(
+        'Follow-up filtering is not available for this organization',
+      )
+    }
+  }
+
   // Override-aware Voter Likelihood filtering (ENG-10838): a person manually
   // set to a bucket must match that bucket's filter even when their seed
   // disagrees, and vice versa. Runs off whatever `filters.voterStatus`
@@ -451,6 +515,7 @@ export class ContactsService {
       baseFilters,
     )
     this.assertNoContactsMadeFilterForElectedOffice(organization, filterInput)
+    this.assertNoFollowUpFilterForCampaign(organization, filterInput)
     return this.resolveVoterLikelihoodFilter(organization, baseFilters)
   }
 
@@ -466,6 +531,44 @@ export class ContactsService {
   // eo- org's filterInput carries no contactsMade selection
   // (assertNoContactsMadeFilterForElectedOffice), so hasElectedOfficeAccess
   // here is a defense-in-depth no-op, not the primary gate.
+  // A saved boundary, as an id set to intersect with everything else.
+  //
+  // Keyed on `geoPoly`, never on the member rows: a shape that enclosed
+  // nobody stores zero rows, and reading that as "no constraint" would serve
+  // the whole unrefined list — the one failure here that looks like success.
+  // An unsaved draft carries a shape but no `id` and so has nothing frozen
+  // to read; it resolves to empty for the same reason.
+  private async resolveGeoIdFilter(
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    if (!filterInput.geoPoly) return { kind: 'none' }
+    if (typeof filterInput.id !== 'number') return { kind: 'empty' }
+    const personIds = await this.voterFileFilterGeoService.personIdsFor(
+      filterInput.id,
+    )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
+  // The frozen members of a saved list's drawn boundary, for a caller
+  // counting that list's criteria inline (the edit wizard). Scoped through
+  // resolveCustomSegment, which 404s an id this organization does not own,
+  // so a client-supplied id cannot reach another org's membership.
+  private async resolveBoundaryFromSegment(
+    organization: Organization,
+    filterInput: CountContactsDTO,
+  ): Promise<IdFilterResolution> {
+    if (filterInput.boundaryFromSegmentId === undefined) {
+      return { kind: 'none' }
+    }
+    const segment = await this.resolveCustomSegment(
+      String(filterInput.boundaryFromSegmentId),
+      organization,
+    )
+    return this.resolveGeoIdFilter(segment)
+  }
+
   private async resolveIdFilterWithContactsMade(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -473,15 +576,33 @@ export class ContactsService {
     idResolution: IdFilterResolution
     contactsMadeIdOverrides?: IdOverrides
   }> {
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: filterInput.activityConditions,
-        supportStatus: filterInput.supportStatus,
-      },
+    const activityResolution =
+      await this.activityConditionResolution.resolveIdFilter(
+        organization.slug,
+        {
+          activityConditions: filterInput.activityConditions,
+          supportStatus: filterInput.supportStatus,
+        },
+      )
+    // Folded in BEFORE the elected-office return below, because a drawn
+    // boundary is a Serve feature and that return is the Serve path. Applied
+    // after it, the boundary would hold on the CSV and the counts and
+    // nowhere a holder actually looks.
+    const idResolution = intersectIdFilterResolutions(
+      activityResolution,
+      await this.resolveGeoIdFilter(filterInput),
     )
     if (this.hasElectedOfficeAccess(organization)) {
-      return { idResolution }
+      // Serve's own dimension takes the Win block's place rather than sitting
+      // beside it: an org is one surface or the other, and neither product
+      // can select the other's audience.
+      return {
+        idResolution: await this.resolveFollowUpRequested(
+          organization,
+          filterInput,
+          idResolution,
+        ),
+      }
     }
 
     const selected = extractContactsMadeSelection(filterInput)
@@ -512,6 +633,47 @@ export class ContactsService {
         contactsMadeResolution,
       ),
     }
+  }
+
+  // Serve's "who still owes a follow-up" dimension. It reads the STANDING
+  // flag (contact_current_status.follow_up), not the follow-up column on the
+  // interaction rows, so a request already met by a later call, a later
+  // knock, or the contact card's toggle drops out of the audience. That is
+  // the whole reason the field exists: AND-ed with an activity condition for
+  // one closed outreach, it answers "who from that campaign still needs
+  // calling back", and it shrinks as the official works it down — which the
+  // campaign's own byFollowUp.yes count, a frozen historical fact, cannot.
+  //
+  // Only ever a positive membership set, so unlike contactsMade there is no
+  // notIn or override shape to compose: nobody carries an implicit flag, and
+  // a person with no row is simply not in it.
+  private async resolveFollowUpRequested(
+    organization: Organization,
+    filterInput: ContactsFilterResolutionInput,
+    idResolution: IdFilterResolution,
+  ): Promise<IdFilterResolution> {
+    if (!filterInput.followUpRequested) {
+      return idResolution
+    }
+    if (idResolution.kind === 'empty') {
+      return idResolution
+    }
+
+    const personIds = await this.contactStatusService.personIdsByFieldValue(
+      organization.slug,
+      ContactStatusField.follow_up,
+      [FollowUpStatus.requested],
+    )
+    // Nobody flagged is an empty audience, not an absent filter — falling
+    // through to "no constraint" would hand back the whole district.
+    if (personIds.length === 0) {
+      return { kind: 'empty' }
+    }
+
+    return intersectIdFilterResolutions(idResolution, {
+      kind: 'filter',
+      idFilter: { in: personIds },
+    })
   }
 
   // Everything a saved list needs before it can be queried: the FilterObject
@@ -572,9 +734,7 @@ export class ContactsService {
   // off an individual person but, unlike findPerson, never call people-api.
   async assertProAccess(organization: Organization): Promise<void> {
     if (!(await this.isProAccess(organization))) {
-      throw new ForbiddenException(
-        'This feature is only available for pro campaigns',
-      )
+      throw new ForbiddenException(PRO_FEATURE_REQUIRED_MESSAGE)
     }
   }
 
@@ -790,8 +950,18 @@ export class ContactsService {
       filterInput,
     )
 
-    const { idResolution, contactsMadeIdOverrides } =
+    const { idResolution: filterResolution, contactsMadeIdOverrides } =
       await this.resolveIdFilterWithContactsMade(organization, filterInput)
+    // The edited list's own boundary, intersected with the criteria the
+    // holder is editing. The boundary is not part of the inline payload and
+    // is not being edited here — the wizard's update never sends geoPoly, so
+    // a partial PUT leaves it alone — which is exactly why the count has to
+    // go and find it. Counting without it promised a list 16x the size of
+    // the one the save would produce.
+    const idResolution = intersectIdFilterResolutions(
+      filterResolution,
+      await this.resolveBoundaryFromSegment(organization, filterInput),
+    )
     if (idResolution.kind === 'empty') {
       return this.withOrgDistrictResolution(organization, async () => ({
         count: 0,
@@ -821,6 +991,252 @@ export class ContactsService {
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
+  }
+
+  // How many people a SAVED list holds right now, by id.
+  //
+  // Takes a segment rather than a filter, which is the point: it resolves
+  // through segmentToFilters, exactly as every other read of a saved list
+  // does, so the frozen geo members of a drawn boundary and the list's own
+  // stored search are both applied without the caller having to know they
+  // exist. countContacts would also honour a boundary if handed the whole
+  // row — resolveGeoIdFilter reads `id` and `geoPoly` off whatever it is
+  // given — but the caller here holds an id, and casting a Prisma row into
+  // a DTO-shaped parameter to reach that path is a silent break waiting for
+  // either shape to move.
+  //
+  // The Chief of Staff's `crud_saved_filters` is the caller: an assistant
+  // quoting a number the list does not hold is the same defect as a map
+  // drawing people the count would miss.
+  async countSegment(
+    segment: string,
+    organization: Organization,
+  ): Promise<{ count: number }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const { filters, empty, idOverrides, contactsMadeIdOverrides } =
+      await this.segmentToFilters(segment, organization)
+    if (empty) {
+      return { count: 0 }
+    }
+
+    // A saved list's own stored search narrows it on every other read
+    // (ENG-10518), so a count that ignored it would overstate the list the
+    // holder actually sees.
+    const search = await this.segmentToSearch(segment, organization)
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async (districtParams) => {
+        const response = await this.voterQueryService.findPeople(
+          ListPeopleDTO.create({
+            ...districtParams,
+            resultsPerPage: 1,
+            page: 1,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            search: search || undefined,
+            groupByHousehold: false,
+          }),
+        )
+        return { count: response.pagination.totalResults }
+      },
+    )
+  }
+
+  // The draw step's answer to "how many of these are inside the shape?",
+  // asked while a boundary is still being dragged. Mirrors countContacts —
+  // same unsaved-draft grammar, same Pro gate, same district gate — and
+  // then narrows by geography the only way people_db allows: a bbox
+  // prefilter, because there is no geometry column to run ST_Contains
+  // against, followed by an in-process ray-cast that decides membership.
+  async polygonPreview(
+    { geoPoly, filters: filterInput }: PolygonPreviewContactsDTO,
+    organization: Organization,
+  ): Promise<{ count: number; audienceEmpty: boolean }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const resolved = await this.resolveSavedFilterForQuery(
+      organization,
+      filterInput,
+    )
+
+    // Two zeros that are indistinguishable on the wire and are not the same
+    // problem. "This shape encloses none of your audience" is a boundary to
+    // move; "your filters match nobody at all" is a zero no boundary can
+    // fix, and the criteria causing it are exactly the ones the map cannot
+    // shade. Flagged rather than thrown: a shape mid-drag is allowed to
+    // enclose nobody.
+    // Returned before the district gate, because this answer does not need a
+    // district: the local filters already matched nobody, so there is nothing
+    // to go and count. Inside the gate it was not "flagged rather than
+    // thrown" at all — an org whose office has no linked district got
+    // VOTER_DATA_UNAVAILABLE instead of the flag. Emptiness and district
+    // availability are unrelated, so one cannot stand in for the other.
+    if (resolved.empty) {
+      return { count: 0, audienceEmpty: true }
+    }
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId }) => {
+        const { people } = await this.evaluateWithinBbox(
+          districtId,
+          polygonBbox(geoPoly),
+          resolved,
+        )
+        const inside = people.filter((person) =>
+          pointInPolygon(person.lng, person.lat, geoPoly),
+        )
+        return { count: inside.length, audienceEmpty: false }
+      },
+    )
+  }
+
+  // The dots the draw step draws on: everyone the in-progress filters match,
+  // across the whole district, as bare coordinates.
+  //
+  // This exists because the step used to draw `ALL_SEGMENTS` — the district's
+  // entire contactable universe — under a pill counting only the filtered
+  // audience. Drawing a shape around visible dots then returned a number
+  // smaller than the dots enclosed, because most of them were never in the
+  // list being built. The map now shows the list, so the shape and the count
+  // are answering about one population.
+  //
+  // Names and addresses are deliberately absent. The step has no person
+  // overlay behind its dots, so the only thing it needs is where they are,
+  // and a district-wide read of a draft filter is the widest query in the
+  // CRM — the narrowest response it can serve is the right one.
+  async filterPoints(
+    { filters: filterInput }: FilterPointsContactsDTO,
+    organization: Organization,
+  ): Promise<{
+    points: { id: string; lat: number; lng: number }[]
+    truncated: boolean
+  }> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const resolved = await this.resolveSavedFilterForQuery(
+      organization,
+      filterInput,
+    )
+
+    // Filters that match nobody: an empty map, not an error, and not a
+    // district round trip. Mirrors polygonPreview's own short circuit,
+    // including its placement before the district gate — emptiness does not
+    // need a district to be true.
+    if (resolved.empty) {
+      return { points: [], truncated: false }
+    }
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId }) => {
+        const { people, truncated } =
+          await this.voterDoorKnockingService.evaluatePoints(
+            DoorKnockingEvaluateDTO.create({
+              districtId,
+              bbox: DISTRICT_WIDE_BBOX,
+              filters: resolved.filters,
+              idOverrides: resolved.idOverrides,
+              contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+              maxPeople: MAP_POINTS_MAX,
+            }),
+            // Same reason polygonPreview drops it: the rooftop gate is door
+            // knocking's routing rule, and a dot the holder is about to draw
+            // a shape around must be one the count will find.
+            { requireRooftopAccuracy: false },
+          )
+        return {
+          points: people.map(({ id, lat, lng }) => ({ id, lat, lng })),
+          truncated,
+        }
+      },
+    )
+  }
+
+  // Everyone a drawn boundary encloses, for freezing onto the list.
+  //
+  // Evaluated with NO demographic filters on purpose. The stored set is the
+  // geographic half of a list and nothing else: the criteria re-resolve on
+  // every read and intersect with it, so editing a list's filters can never
+  // invalidate a boundary nobody moved. Resolving it pre-filtered would tie
+  // the two together and make every criteria edit owe a fresh Databricks
+  // scan.
+  async resolveGeoMemberIds(
+    organization: Organization,
+    geoPoly: GeoJsonPolygon,
+  ): Promise<string[]> {
+    // The only Databricks fan-out on this service that was reachable without
+    // one. `filterAccessCheck`, the guard upstream on the voter-file route,
+    // only throws for a non-Pro `campaign-` slug, and `isProAccess` answers
+    // false for any slug that is neither `campaign-` nor `eo-` — so such an
+    // org passed the upstream check and reached a full bbox scan here.
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId }) => {
+        const { people } = await this.evaluateWithinBbox(
+          districtId,
+          polygonBbox(geoPoly),
+          { filters: {} },
+        )
+        return people
+          .filter((person) => pointInPolygon(person.lng, person.lat, geoPoly))
+          .map((person) => person.id)
+      },
+    )
+  }
+
+  private async evaluateWithinBbox(
+    districtId: string,
+    bbox: Bbox,
+    resolved: {
+      filters: FilterObject
+      idOverrides?: IdOverrides
+      contactsMadeIdOverrides?: IdOverrides
+    },
+  ): Promise<DoorKnockingEvaluateResponse> {
+    try {
+      return await this.voterDoorKnockingService.evaluate(
+        DoorKnockingEvaluateDTO.create({
+          districtId,
+          bbox,
+          filters: resolved.filters,
+          idOverrides: resolved.idOverrides,
+          contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+          maxPeople: POLYGON_PREVIEW_MAX_PEOPLE,
+        }),
+        // The contacts map draws every geocoded row, with no accuracy gate.
+        // Counting rooftop-only would answer about a different population
+        // than the one the holder just drew a shape around — every
+        // interpolated dot on their screen would be uncountable, which is
+        // how a shape over hundreds of visible dots came back as zero.
+        { requireRooftopAccuracy: false },
+      )
+    } catch (err) {
+      // evaluate rejects rather than truncates past maxPeople, and the only
+      // BadRequest it raises is that cap. Its wording is about turfs and
+      // stops, which is not what the holder drew here — and a constituent
+      // district reaches the cap on shapes they would call ordinary, so the
+      // refusal has to name something they can actually do.
+      if (err instanceof BadRequestException) {
+        throw new BadRequestException(
+          'This area holds too many people to count. Draw a smaller ' +
+            'boundary or narrow the list.',
+        )
+      }
+      throw err
+    }
   }
 
   // Saved-list overlap count (ENG-10840): how many of the in-progress
@@ -968,6 +1384,19 @@ export class ContactsService {
                 supportStatus: savedFilter.supportStatus,
               },
             )
+          // followUpRequested is in fieldsHandledSeparately, so
+          // convertVoterFileFilterToFilters above skipped it — without this
+          // the set would contribute everyone its activity conditions match
+          // rather than the flagged subset, and the strip would over-report.
+          // Unlike the voter-likelihood overrides this loop deliberately
+          // leaves unresolved, dropping this one does not refine the
+          // audience, it erases the whole constraint: a five-person
+          // follow-up list would count as everyone its campaign reached.
+          savedIdResolution = await this.resolveFollowUpRequested(
+            organization,
+            savedFilter,
+            savedIdResolution,
+          )
         } catch (error) {
           this.logger.warn(
             {
@@ -1123,6 +1552,48 @@ export class ContactsService {
     return { ...aggregates, outreachHistory }
   }
 
+  // The same payload as getListDetail for a filter that has not been saved
+  // — a recommended list's detail sheet. Same pro gate and the same filter
+  // translation countContacts gives an unsaved filter, so the figures agree
+  // with what saving it would show. No row, so no outreach history.
+  async getFilterDetail(
+    filterInput: CountContactsDTO,
+    organization: Organization,
+  ): Promise<ListDetailContactsResponse> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+
+    if (idResolution.kind === 'empty') {
+      return {
+        demographics: { people: 0, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 0,
+          robocall: 0,
+          phoneBanking: 0,
+          doorKnocking: 0,
+          polls: 0,
+        },
+        outreachHistory: [],
+      }
+    }
+
+    const aggregates = await this.fetchListDetailAggregates(
+      organization,
+      this.mergeIdFilter(baseFilters, idResolution),
+      idOverrides,
+      contactsMadeIdOverrides,
+    )
+    return { ...aggregates, outreachHistory: [] }
+  }
+
   // Demographics + reachable-by-channel aggregates shared by a saved list's
   // detail and the universe detail (ENG-10778 made the latter a second
   // caller). One call, and on Databricks one statement: the channel counts
@@ -1233,7 +1704,7 @@ export class ContactsService {
     // voterLikelihood is Win-only (ENG-10833) — Serve responses stay exactly
     // as they were (field omitted), so skip the lookup entirely for `eo-`
     // orgs rather than compute-and-drop it.
-    const [optedOutAt, supportStatus, voterLikelihoodOrNull] =
+    const [optedOutAt, supportStatus, voterLikelihoodOrNull, followUpOrNull] =
       await Promise.all([
         this.contactInteractionTextService.latestOptOutAt(
           organization.slug,
@@ -1255,15 +1726,25 @@ export class ContactsService {
               VoterLikelihoodSchema,
               () => seedVoterLikelihood(person.voterStatus),
             ),
+        // The mirror of the line above: Serve-only, so a Win response stays
+        // exactly as it was rather than carrying a flag that surface cannot
+        // set.
+        this.hasElectedOfficeAccess(organization)
+          ? this.effectiveFollowUp(organization.slug, person.id)
+          : Promise.resolve(null),
       ])
     const base = {
       ...this.stripPartyIfElectedOffice(organization, person),
       supportStatus,
       optedOutAt: optedOutAt ? optedOutAt.toISOString() : null,
     }
-    return voterLikelihoodOrNull === null
-      ? base
-      : { ...base, voterLikelihood: voterLikelihoodOrNull }
+    const withLikelihood =
+      voterLikelihoodOrNull === null
+        ? base
+        : { ...base, voterLikelihood: voterLikelihoodOrNull }
+    return followUpOrNull === null
+      ? withLikelihood
+      : { ...withLikelihood, followUp: followUpOrNull }
   }
 
   // Both editable statuses (ENG-10833) are Win-only. Rejects `eo-` orgs
@@ -1329,6 +1810,67 @@ export class ContactsService {
     ])
 
     return { voterLikelihood, supportStatus }
+  }
+
+  // Serve's standing follow-up flag, the mirror image of the gate above: this
+  // one rejects a WIN org, because the follow-up question only exists on the
+  // Serve surface and a candidate has no use for the flag it maintains. No
+  // Pro gate either — an ElectedOffice row is the entitlement, so a Serve org
+  // is license-equivalent to Pro and the upsell has nothing to sell.
+  //
+  // Interaction-sourced writes (a Serve call or knock answering the question)
+  // reach the same field through ContactStatusService.changeStatus from their
+  // own services; this is the by-hand toggle on the contact card, and the two
+  // are deliberately the same field so the latest of either wins.
+  async updateFollowUp(
+    personId: string,
+    value: FollowUpStatus,
+    organization: Organization,
+    actorUserId: number,
+  ): Promise<FollowUpStatusResponse> {
+    if (!this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        'Follow-up is not available for this organization',
+      )
+    }
+
+    // Resolves personId within the org's district (404s otherwise), the same
+    // guard the status PATCH leans on.
+    await this.findPerson(personId, organization)
+
+    await this.contactStatusService.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field: ContactStatusField.follow_up,
+      toValue: value,
+      source: ContactStatusSource.manual,
+      actorUserId,
+      // Nobody is born flagged, so clearing an unflagged person is a no-op
+      // rather than a logged transition that never happened — same seed the
+      // two interaction writers use.
+      fallbackFromValue: FollowUpStatus.cleared,
+    })
+
+    return {
+      followUp: await this.effectiveFollowUp(organization.slug, personId),
+    }
+  }
+
+  // No derived seed to fall back to: unlike voter likelihood (people-api's
+  // Voter_Status) and support status (the interaction rollup), nothing derives
+  // a follow-up request. Absence of an override IS the answer — nothing is
+  // owed — which is why `cleared` is the fallback rather than a lookup.
+  private effectiveFollowUp(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<FollowUpStatus> {
+    return this.effectiveStatus(
+      organizationSlug,
+      personId,
+      ContactStatusField.follow_up,
+      FollowUpStatusSchema,
+      () => FollowUpStatus.cleared,
+    )
   }
 
   private async derivedSupportStatus(
@@ -1399,6 +1941,41 @@ export class ContactsService {
             idOverrides,
             contactsMadeIdOverrides,
             groupByHousehold,
+            excludeColumns,
+            res,
+          ),
+    )
+  }
+
+  // The saved-list download for a filter that has not been saved — the voter
+  // data page's recommended-list sheet. Same pro gate and the same resolution
+  // a saved list gets, always as individual voters: the household grouping
+  // belongs to the built-in door-knocking segment alone.
+  async downloadFilter(
+    filter: VoterFilterBase,
+    res: FastifyReply,
+    organization: Organization,
+  ) {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException('Campaign is not pro')
+    }
+
+    const { filters, empty, idOverrides, contactsMadeIdOverrides } =
+      await this.resolveSavedFilterForQuery(organization, filter)
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
+    const excludeColumns = this.hasElectedOfficeAccess(organization)
+      ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
+      : undefined
+    return this.withOrgDistrictResolution(organization, (params) =>
+      empty
+        ? this.emptyDownload(res)
+        : this.streamPeopleDownload(
+            params,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            false,
             excludeColumns,
             res,
           ),
@@ -1586,6 +2163,7 @@ export class ContactsService {
       organization,
     )
     this.assertNoContactsMadeFilterForElectedOffice(organization, customSegment)
+    this.assertNoFollowUpFilterForCampaign(organization, customSegment)
 
     const { filters: baseFilters, idOverrides } =
       await this.resolveVoterLikelihoodFilter(

@@ -63,6 +63,10 @@ export const voterFilterBaseSchema = z.object({
   contactsMade3: z.boolean().optional(),
   contactsMade4: z.boolean().optional(),
   contactsMade5Plus: z.boolean().optional(),
+  // Serve's mirror of the Win-only contactsMade block above. Resolves
+  // against contact_current_status, not a voter-file column, so it is
+  // handled separately rather than by the generic field loop.
+  followUpRequested: z.boolean().optional(),
   businessOwnerYes: z.boolean().optional(),
   businessOwnerUnknown: z.boolean().optional(),
   educationNone: z.boolean().optional(),

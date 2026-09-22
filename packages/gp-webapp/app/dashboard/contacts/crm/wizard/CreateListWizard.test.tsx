@@ -22,6 +22,90 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
+// deck.gl and maplibre don't run in jsdom. The stub exposes the ring it was
+// handed and offers a button per scripted tap, so the boundary step can be
+// walked the way it is drawn.
+const BOUNDARY_TAPS: Array<[number, number]> = [
+  [-85.62, 44.75],
+  [-85.6, 44.75],
+  [-85.61, 44.77],
+]
+vi.mock('../map/ContactListMap', () => ({
+  __esModule: true,
+  default: function ContactListMapStub({
+    people,
+    contactPoints,
+    drawRing,
+    onDrawRingChange,
+  }: {
+    people?: unknown[]
+    contactPoints?: unknown[]
+    drawRing?: Array<[number, number]>
+    onDrawRingChange?: (ring: Array<[number, number]>) => void
+  }) {
+    return (
+      <div
+        data-testid="contact-map-stub"
+        data-people={(contactPoints ?? people ?? []).length}
+        data-ring={JSON.stringify(drawRing ?? [])}
+        data-draw-enabled={String(Boolean(onDrawRingChange))}
+      >
+        {BOUNDARY_TAPS.map((tap, index) => (
+          <button
+            key={index}
+            type="button"
+            onClick={() => onDrawRingChange?.([...(drawRing ?? []), tap])}
+          >
+            {`place point ${index + 1}`}
+          </button>
+        ))}
+      </div>
+    )
+  },
+}))
+
+// The boundary step's dots: the list being built, from POST
+// /v1/contacts/points. Answered in the shared beforeEach because the step
+// renders "Loading map…" in place of the map until it resolves, and several
+// tests reach the step and then look for the map.
+const mockBoundaryPoints = () =>
+  api.mock('POST /v1/contacts/points', {
+    status: 200,
+    data: { points: [], truncated: false },
+  })
+
+const mockDistrictPeople = () =>
+  api.mock('GET /v1/contacts', {
+    status: 200,
+    data: {
+      people: [],
+      pagination: {
+        totalResults: 0,
+        currentPage: 1,
+        pageSize: 20,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+    },
+  })
+
+// Serve's boundary step sits between the conditions and the name, and is
+// skippable — Continue is live with no shape.
+const skipBoundaryStep = async (
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> => {
+  await user.click(await screen.findByRole('button', { name: 'Continue' }))
+}
+
+const drawBoundary = async (
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> => {
+  for (const label of ['place point 1', 'place point 2', 'place point 3']) {
+    await user.click(await screen.findByRole('button', { name: label }))
+  }
+}
+
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseSnackbar = vi.mocked(useSnackbar)
 
@@ -91,6 +175,12 @@ beforeEach(() => {
   api.mock('GET /v1/contacts/precincts', {
     status: 200,
     data: { options: [], truncated: false },
+  })
+  mockDistrictPeople()
+  mockBoundaryPoints()
+  api.mock('POST /v1/contacts/polygon-preview', {
+    status: 200,
+    data: { count: 120, audienceEmpty: false },
   })
 })
 
@@ -181,7 +271,8 @@ describe('CreateListWizard — step navigation', () => {
   })
 
   // ENG-10750: Serve has no outreach, so its wizard drops the branch chooser
-  // entirely — a 2-step flow that opens directly on the constituent filters.
+  // entirely — it opens directly on the constituent filters. The boundary
+  // step then makes it three, and Win's stays at three of its own.
   it('opens Serve directly on the constituent filters step with no activity option', () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
@@ -191,7 +282,7 @@ describe('CreateListWizard — step navigation', () => {
     ).toBeInTheDocument()
     const stepper = screen.getByRole('progressbar', { name: 'Progress' })
     expect(stepper).toHaveAttribute('aria-valuenow', '1')
-    expect(stepper).toHaveAttribute('aria-valuemax', '2')
+    expect(stepper).toHaveAttribute('aria-valuemax', '3')
     expect(
       screen.queryByRole('radio', { name: /previous campaign activity/i }),
     ).not.toBeInTheDocument()
@@ -200,7 +291,78 @@ describe('CreateListWizard — step navigation', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('advances Serve to the name step as Step 2 of 2, with Back returning to filters', async () => {
+  it('gives Serve a boundary step between the conditions and the name, and Win none', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    const user = userEvent.setup()
+    const { unmount } = render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+
+    expect(
+      screen.getByRole('heading', {
+        name: 'What area should this list cover?',
+      }),
+    ).toBeInTheDocument()
+    unmount()
+
+    setContext({ isWinContext: true, isElectedOfficial: false })
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Name your list' }),
+    ).toBeInTheDocument()
+  })
+
+  // The whole point of POST /v1/contacts/points. The step used to draw
+  // ALL_SEGMENTS — the district's entire contactable universe — under a pill
+  // counting only the filtered audience, so a shape around visible dots came
+  // back holding fewer people than it enclosed.
+  it('draws the list being built, asking for it with the same filters the count uses', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    const bodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/contacts/points', ({ body }) => {
+      bodies.push(body as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          points: [
+            { id: 'a', lat: 44.76, lng: -85.62 },
+            { id: 'b', lat: 44.77, lng: -85.63 },
+          ],
+          truncated: false,
+        },
+      }
+    })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+
+    const map = await screen.findByTestId('contact-map-stub')
+    expect(map).toHaveAttribute('data-people', '2')
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toMatchObject({
+      filters: expect.objectContaining({ genderFemale: true }),
+    })
+  })
+
+  it('advances Serve to the name step as Step 3 of 3, with Back returning through the boundary', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
@@ -212,13 +374,21 @@ describe('CreateListWizard — step navigation', () => {
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
 
     expect(
       screen.getByRole('heading', { name: 'Name your list' }),
     ).toBeInTheDocument()
     const nameStepper = screen.getByRole('progressbar', { name: 'Progress' })
-    expect(nameStepper).toHaveAttribute('aria-valuenow', '2')
-    expect(nameStepper).toHaveAttribute('aria-valuemax', '2')
+    expect(nameStepper).toHaveAttribute('aria-valuenow', '3')
+    expect(nameStepper).toHaveAttribute('aria-valuemax', '3')
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      screen.getByRole('heading', {
+        name: 'What area should this list cover?',
+      }),
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
@@ -226,7 +396,40 @@ describe('CreateListWizard — step navigation', () => {
     ).toBeInTheDocument()
     const filtersStepper = screen.getByRole('progressbar', { name: 'Progress' })
     expect(filtersStepper).toHaveAttribute('aria-valuenow', '1')
-    expect(filtersStepper).toHaveAttribute('aria-valuemax', '2')
+    expect(filtersStepper).toHaveAttribute('aria-valuemax', '3')
+  })
+
+  it('keeps the drawn ring when Back returns to the boundary step', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await drawBoundary(user)
+    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
+      'data-ring',
+      JSON.stringify(BOUNDARY_TAPS),
+    )
+
+    const continueButton = await screen.findByRole('button', {
+      name: 'Continue',
+    })
+    await vi.waitFor(() => expect(continueButton).toBeEnabled(), {
+      timeout: 10_000,
+    })
+    await user.click(continueButton)
+    expect(
+      screen.getByRole('heading', { name: 'Name your list' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
+      'data-ring',
+      JSON.stringify(BOUNDARY_TAPS),
+    )
   })
 
   it('advances to the activity step 2 and disables the step-2 CTA until every row has a channel', async () => {
@@ -797,6 +1000,45 @@ describe('CreateListWizard — error handling', () => {
     expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(0)
     expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(0)
   })
+
+  // The save freezes the shape's membership with an UNFILTERED scan where
+  // the live preview applies the list's filters, so the same shape can
+  // preview at a few thousand and still exceed the cap here. gp-api words
+  // that refusal for whoever drew it, and a generic "Failed to create list"
+  // throws away the only thing telling them to draw smaller.
+  it('surfaces the cap refusal from the server rather than a generic failure', async () => {
+    const capMessage =
+      'This area holds too many people to count. Draw a smaller boundary ' +
+      'or narrow the list.'
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 400,
+      data: { message: capMessage },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Too big')
+    await clickSaveList(user)
+
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        capMessage,
+        expect.objectContaining({ autoHideDuration: 6000 }),
+      ),
+    )
+    expect(errorSnackbar).not.toHaveBeenCalledWith('Failed to create list')
+  })
 })
 
 describe('CreateListWizard — ENG-10709 List Created / Activity List Created analytics', () => {
@@ -857,6 +1099,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(
       await screen.findByRole('button', { name: /build your list \(250\)/i }),
     )
+    await skipBoundaryStep(user)
     await user.type(
       screen.getByLabelText(/list name/i),
       'Reachable constituents',
@@ -879,6 +1122,148 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       genderFemale: true,
     })
     expect(sentBody).not.toHaveProperty('activityConditions')
+    // The boundary step is skippable, and skipping it must not write an
+    // empty shape the server would then filter on.
+    expect(sentBody).not.toHaveProperty('geoPoly')
+  })
+
+  it('sends the drawn boundary as a closed geoPoly on create', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 103, name: 'Riverside block' } }
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await drawBoundary(user)
+
+    const continueButton = await screen.findByRole('button', {
+      name: 'Continue',
+    })
+    await vi.waitFor(() => expect(continueButton).toBeEnabled(), {
+      timeout: 10_000,
+    })
+    await user.click(continueButton)
+    await user.type(screen.getByLabelText(/list name/i), 'Riverside block')
+    await clickSaveList(user)
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({
+      geoPoly: {
+        type: 'Polygon',
+        coordinates: [[...BOUNDARY_TAPS, BOUNDARY_TAPS[0]]],
+      },
+    })
+  })
+
+  it('shows the polygon count on the name step once a boundary is drawn', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await drawBoundary(user)
+
+    const continueButton = await screen.findByRole('button', {
+      name: 'Continue',
+    })
+    await vi.waitFor(() => expect(continueButton).toBeEnabled(), {
+      timeout: 10_000,
+    })
+    await user.click(continueButton)
+
+    // 120 is the polygon preview's answer; 250 is the pre-boundary count the
+    // name step would otherwise still be quoting.
+    expect(await screen.findByText(/120 constituents match/i)).toBeVisible()
+    expect(
+      screen.queryByText(/250 constituents match/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('blocks Continue and says to move the boundary when it holds nobody', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('POST /v1/contacts/polygon-preview', {
+      status: 200,
+      data: { count: 0, audienceEmpty: false },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await drawBoundary(user)
+
+    expect(await screen.findByText(/no constituents here/i)).toBeInTheDocument()
+    await vi.waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
+      { timeout: 10_000 },
+    )
+  })
+
+  // The save re-runs the enclosing scan UNFILTERED to freeze the shape's
+  // membership, so a shape the preview refused is one the save will refuse
+  // too. Letting Continue through walks the holder all the way to naming a
+  // list that cannot be saved.
+  it('blocks Continue when the boundary count errors rather than settling', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('POST /v1/contacts/polygon-preview', {
+      status: 400,
+      data: {
+        message:
+          'This area holds too many people to count. Draw a smaller ' +
+          'boundary or narrow the list.',
+      },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await drawBoundary(user)
+
+    expect(
+      await screen.findByText(/too many people to count/i),
+    ).toBeInTheDocument()
+    await vi.waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
+      { timeout: 10_000 },
+    )
+  })
+
+  it('says the filters match nobody rather than blaming the boundary', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('POST /v1/contacts/polygon-preview', {
+      status: 200,
+      data: { count: 0, audienceEmpty: true },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await drawBoundary(user)
+
+    expect(
+      await screen.findByText(/no constituents match your filters yet/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/no constituents here/i)).not.toBeInTheDocument()
   })
 
   it('fires the Win-mode Activity List Created event with sourceCampaign + actionFilter for a single condition', async () => {

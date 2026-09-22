@@ -5,6 +5,7 @@ import { Text, Box, Flex, Select, Button, Checkbox } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
 import { InfoCard } from '@/app/dashboard/users/[id]/components/InfoCard'
 import { fetchDistrictTypes, fetchDistrictNames } from './district-actions'
+import { districtTypeLabel } from './districtTypeLabel'
 import { DISTRICT_FORM_SECTION_TITLE } from '@/app/dashboard/users/[id]/edit/constants'
 import type { DistrictTypeItem, DistrictNameItem } from '@goodparty_org/sdk'
 
@@ -165,7 +166,7 @@ export function DistrictPicker({
                 <Select.Item value={SELECT_NONE}>None</Select.Item>
                 {types.map((type) => (
                   <Select.Item key={type.id} value={type.L2DistrictType}>
-                    {type.L2DistrictType.replace(/_/g, ' ')}
+                    {districtTypeLabel(type.L2DistrictType, state)}
                   </Select.Item>
                 ))}
               </Select.Content>

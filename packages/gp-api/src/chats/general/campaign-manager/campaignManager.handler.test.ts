@@ -3,7 +3,7 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
-import { ChatScope } from '../../../generated/prisma'
+import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
@@ -28,6 +28,7 @@ import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.s
 import type { ElectionsService } from '@/elections/services/elections.service'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
+import { LEGAL_LINE } from './campaignManagerPrompt'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -669,101 +670,52 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
   })
 })
 
-describe('CampaignManagerHandler.resolveConversation — single ongoing thread', () => {
-  const buildHandlerWithStore = (
-    store: Partial<GeneralChatStoreService>,
-    chatStore: Partial<ChatStoreService>,
-  ): CampaignManagerHandler =>
-    new CampaignManagerHandler(
-      store as GeneralChatStoreService,
-      // resolveGreeting fetches the campaign for the first name; a null result
-      // makes it fall back to the no-name general greeting (no throw).
-      {
-        findFirst: vi.fn().mockResolvedValue(null),
-      } as unknown as CampaignsService,
-      chatStore as ChatStoreService,
-      WIN_CONSTITUENT_TABLES,
-    )
-
+describe('CampaignManagerHandler.seedConversation', () => {
   const params = {
     scope: ChatScope.campaign_assistant,
     organizationSlug: 'org-slug',
   }
 
-  it('resumes the latest conversation without creating or re-seeding it', async () => {
-    const findLatestByScope = vi.fn().mockResolvedValue({ id: 'existing-1' })
-    const createScopedConversation = vi.fn()
-    const appendMessage = vi.fn()
-    const handler = buildHandlerWithStore(
-      { findLatestByScope, createScopedConversation },
-      { appendMessage },
-    )
-
-    const res = await handler.resolveConversation(params, 42)
-
-    expect(res).toEqual({ conversationId: 'existing-1', created: false })
-    expect(findLatestByScope).toHaveBeenCalledWith({
-      ownerUserId: 42,
-      organizationSlug: 'org-slug',
-      scope: ChatScope.campaign_assistant,
-    })
-    expect(createScopedConversation).not.toHaveBeenCalled()
-    expect(appendMessage).not.toHaveBeenCalled()
-  })
-
-  it('creates and seeds a greeting when the candidate has no conversation yet', async () => {
-    const findLatestByScope = vi.fn().mockResolvedValue(null)
-    const createScopedConversation = vi.fn().mockResolvedValue({ id: 'new-1' })
-    const appendMessage = vi.fn().mockResolvedValue(undefined)
-    const handler = buildHandlerWithStore(
-      { findLatestByScope, createScopedConversation },
-      { appendMessage },
-    )
-
-    const res = await handler.resolveConversation(params, 42)
-
-    expect(res).toEqual({ conversationId: 'new-1', created: true })
-    expect(createScopedConversation).toHaveBeenCalledOnce()
-    expect(appendMessage).toHaveBeenCalledOnce()
-  })
-
-  it('seeds the general greeting even when the Campaign Story is incomplete', async () => {
-    const findLatestByScope = vi.fn().mockResolvedValue(null)
-    const createScopedConversation = vi.fn().mockResolvedValue({ id: 'new-2' })
+  it('seeds the first-name greeting into the new conversation', async () => {
     const appendMessage = vi.fn().mockResolvedValue(undefined)
     const findFirst = vi
       .fn()
       .mockResolvedValue({ id: 1, user: { firstName: 'Dana' } })
-    const read = vi.fn().mockResolvedValue({
-      why: null,
-      background: null,
-      positions: [],
-      complete: false,
-      missing: ['why', 'background', 'positions'],
-    } satisfies StoryState)
     const handler = new CampaignManagerHandler(
-      {
-        findLatestByScope,
-        createScopedConversation,
-      } as unknown as GeneralChatStoreService,
+      {} as GeneralChatStoreService,
       { findFirst } as unknown as CampaignsService,
       { appendMessage } as unknown as ChatStoreService,
       WIN_CONSTITUENT_TABLES,
-      undefined,
-      undefined,
-      { read } as unknown as CampaignStoryIntakeService,
     )
 
-    await handler.resolveConversation(params, 42)
+    await handler.seedConversation('new-1', params)
 
     expect(findFirst).toHaveBeenCalledWith({
       where: { organizationSlug: 'org-slug' },
       include: { user: true },
     })
+    expect(appendMessage).toHaveBeenCalledWith({
+      conversationId: 'new-1',
+      role: ChatMessageRole.assistant,
+      content: buildCampaignManagerGreeting('Dana'),
+    })
+  })
+
+  it('falls back to the no-name greeting when the campaign is missing', async () => {
+    const appendMessage = vi.fn().mockResolvedValue(undefined)
+    const handler = new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {
+        findFirst: vi.fn().mockResolvedValue(null),
+      } as unknown as CampaignsService,
+      { appendMessage } as unknown as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+
+    await handler.seedConversation('new-2', params)
+
     expect(appendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: buildCampaignManagerGreeting('Dana'),
-      }),
+      expect.objectContaining({ content: buildCampaignManagerGreeting() }),
     )
   })
 })
@@ -862,5 +814,26 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
       ctxWith({ story: completeStory }),
     )
     expect(reply).toContain(PRODUCT_OVERVIEW_OPENER)
+  })
+})
+
+describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
+  it('adds the legal line when the shared check fires', () => {
+    const answer =
+      'Under RCW 42.17A.405 that contribution is over the limit, and a ' +
+      'resident can file a complaint with the state commission.'
+
+    expect(buildHandler().finalizeAssistantText(answer)).toBe(
+      `\n\n${LEGAL_LINE}`,
+    )
+  })
+
+  it('does not duplicate an existing legal caution', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Under RCW 42.17A.405 that contribution is over the limit. ' +
+          LEGAL_LINE,
+      ),
+    ).toBeNull()
   })
 })

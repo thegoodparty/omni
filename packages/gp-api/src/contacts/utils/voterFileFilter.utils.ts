@@ -229,6 +229,8 @@ export const convertVoterFileFilterToFilters = (
     'contactsMade3',
     'contactsMade4',
     'contactsMade5Plus',
+    // Resolves against contact_current_status, not a voter-file column.
+    'followUpRequested',
     'independentAffinity',
     'ideologyConservative',
     'ideologyLiberal',

@@ -15,6 +15,7 @@ model ChatConversation {
 
   messages        ChatMessage[]
   messageFeedback ChatMessageFeedback[]
+  attachments     ChatAttachment[]
 
   annotation Annotation?
 

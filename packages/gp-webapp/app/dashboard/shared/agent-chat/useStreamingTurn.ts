@@ -9,6 +9,7 @@ import {
 import type {
   AgentChatClient,
   ChatMessageDto,
+  ChatMessageSegment,
   ChatStreamEvent,
 } from './chatClient'
 import {
@@ -91,7 +92,11 @@ export interface StreamingTurn {
   send: (
     conversationId: string,
     content: string,
-    opts?: { hidden?: boolean; clientMessageId?: string },
+    opts?: {
+      hidden?: boolean
+      clientMessageId?: string
+      attachmentIds?: string[]
+    },
   ) => Promise<void>
   // Synchronous "a turn is actively streaming" check (false once the stream is
   // done and the turn is merely settling). Consumers that push their own
@@ -167,7 +172,11 @@ export function useStreamingTurn(
     async (
       conversationId: string,
       content: string,
-      opts?: { hidden?: boolean; clientMessageId?: string },
+      opts?: {
+        hidden?: boolean
+        clientMessageId?: string
+        attachmentIds?: string[]
+      },
     ): Promise<void> => {
       const trimmed = content.trim()
       if (!conversationId || !trimmed) return
@@ -198,9 +207,27 @@ export function useStreamingTurn(
         ])
       }
 
-      // Build the turn as interleaved text + tool segments so pills render inline
-      // in stream order; consecutive text deltas coalesce into one block.
+      // Build the turn as interleaved text + tool + citation segments so they
+      // render inline in stream order; consecutive text deltas coalesce.
       const segments: LiveSegment[] = []
+      // What the server is persisting for this turn, which is NOT what the
+      // live row renders. A tool the scope consumed, or one `toolLabel` hides,
+      // draws no pill and so never enters `segments` — but it is still a
+      // segment in the transcript, and a widget tool replays from its args.
+      // Only read if persistence lags the whole window and the turn has to be
+      // rebuilt from what streamed; without it that rebuild silently drops
+      // every widget, and the card the user watched appear disappears.
+      const persisted: ChatMessageSegment[] = []
+      // 1-based counter for citation ordinals within this turn.
+      let citationOrdinal = 0
+      const pushPersistedText = (delta: string): void => {
+        const last = persisted[persisted.length - 1]
+        if (last && last.kind === 'text') {
+          last.text = (last.text ?? '') + delta
+          return
+        }
+        persisted.push({ kind: 'text', text: delta })
+      }
       const pushText = (delta: string): void => {
         const last = segments[segments.length - 1]
         if (last && last.kind === 'text') {
@@ -211,6 +238,7 @@ export function useStreamingTurn(
         } else {
           segments.push({ kind: 'text', text: delta })
         }
+        pushPersistedText(delta)
         setLiveSegments([...segments])
       }
 
@@ -232,6 +260,7 @@ export function useStreamingTurn(
             // Replay the caller's id on retry so the server's partial unique
             // index on (conversation_id, client_message_id) dedupes the turn.
             clientMessageId: opts?.clientMessageId ?? crypto.randomUUID(),
+            attachmentIds: opts?.attachmentIds,
             signal: abortController.signal,
           })
           [Symbol.asyncIterator]()
@@ -265,9 +294,39 @@ export function useStreamingTurn(
           const consumed = scope.onEvent?.(event, {
             textLength: () => segmentsTextLength(segments),
           })
+          // Recorded before the consumed check, and regardless of whether the
+          // tool has a visible label: the transcript keeps every tool call,
+          // and the two reasons a call renders no pill are both invisible to
+          // the server. Citations are always persisted so the replay on reload
+          // can reconstruct the inline chips at the same positions.
+          if (event.type === 'tool_call') {
+            persisted.push({
+              kind: 'tool',
+              toolName: event.toolName,
+              payload: event.args,
+            })
+          }
+          if (event.type === 'citation') {
+            persisted.push({
+              kind: 'citation',
+              attachmentId: event.attachmentId,
+              page: event.page ?? null,
+              quotedText: event.quotedText,
+            })
+          }
           if (consumed) continue
           if (event.type === 'text') {
             pushText(event.delta)
+          } else if (event.type === 'citation') {
+            citationOrdinal += 1
+            segments.push({
+              kind: 'citation',
+              ordinal: citationOrdinal,
+              attachmentId: event.attachmentId,
+              page: event.page ?? null,
+              quotedText: event.quotedText,
+            })
+            setLiveSegments([...segments])
           } else if (event.type === 'tool_call') {
             if (scope.toolLabel(event.toolName)) {
               segments.push({
@@ -367,9 +426,12 @@ export function useStreamingTurn(
           // throughout so a refetch that predates persistence can't blank it.
           if (canReconcile()) {
             // Poll for late persistence only when this turn produced content. A
-            // degenerate/empty stream has no turn to wait for.
+            // degenerate/empty stream has no turn to wait for. Measured on
+            // `persisted` rather than `segments`, so a turn whose only output
+            // was a consumed widget call waits for its row like any other
+            // instead of falling straight through to the local rebuild.
             let history = await chatApi.listMessages(conversationId)
-            if (segments.length > 0) {
+            if (persisted.length > 0) {
               const pollMs = doneSeen ? COMMIT_POLL_MS : DONELESS_COMMIT_POLL_MS
               const maxTries = doneSeen
                 ? COMMIT_MAX_TRIES
@@ -392,7 +454,11 @@ export function useStreamingTurn(
             // screen by appending what streamed. Clear the live render in the
             // same tick so the swap never double-renders or blanks.
             if (canReconcile()) {
-              if (segments.length === 0 || hasTurn(history)) {
+              // `persisted`, not `segments`: a turn whose only output was a
+              // consumed widget call renders no live segment, and gating on
+              // that would commit a transcript that does not yet contain the
+              // turn and blank the widget.
+              if (persisted.length === 0 || hasTurn(history)) {
                 setMessages(history)
                 // A stalled turn deferred its success handoff (we skipped it
                 // above because the server might still be generating). We are
@@ -407,16 +473,13 @@ export function useStreamingTurn(
                     id: doneMessageId ?? `local-${crypto.randomUUID()}`,
                     conversationId,
                     role: 'assistant',
-                    content: segments.reduce(
-                      (acc, s) => (s.kind === 'text' ? acc + s.text : acc),
+                    content: persisted.reduce(
+                      (acc, s) =>
+                        s.kind === 'text' ? acc + (s.text ?? '') : acc,
                       '',
                     ),
                     createdAt: new Date().toISOString(),
-                    segments: segments.map((s) =>
-                      s.kind === 'text'
-                        ? { kind: 'text' as const, text: s.text }
-                        : { kind: 'tool' as const, toolName: s.toolName },
-                    ),
+                    segments: persisted,
                   },
                 ])
               }

@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
 import type {
   ChatMessageDto,
   ChatMessageSegment,
@@ -32,6 +34,45 @@ vi.mock('../../data/chat-api', () => ({
 }))
 
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+
+// Attachments are flag-gated; the toggle lets the drag-and-drop block turn
+// them on without flipping the flag under every other test in this file.
+let attachmentsOn = false
+vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
+  useAttachmentsEnabled: () => ({ ready: true, enabled: attachmentsOn }),
+}))
+
+const uploadAttachmentMock = vi.fn()
+vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
+  ...(await orig<object>()),
+  uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+}))
+
+// deck.gl and maplibre don't run in jsdom. The stub reports how many people
+// the card handed the canvas, so the wiring from a tool payload through to the
+// map can be checked without pulling the real one in.
+vi.mock('../../../contacts/crm/map/ContactListMap', () => ({
+  __esModule: true,
+  default: function ContactListMapStub({ people }: { people: unknown[] }) {
+    return <div data-testid="contact-map-stub" data-people={people.length} />
+  },
+}))
+
+// The card reads the list's members through the org-scoped contacts route.
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => ({ slug: 'eo-test-org' }),
+}))
+
+const listMapPerson = (id: string) =>
+  makePerson({
+    id,
+    address: {
+      ...makePerson().address,
+      latitude: '44.7593',
+      longitude: '-85.6175',
+    },
+  })
 
 function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
   return (async function* () {
@@ -71,6 +112,8 @@ beforeEach(() => {
   // client; tests that assert the committed transcript override this.
   listMessagesMock.mockResolvedValue([])
   seq = 0
+  attachmentsOn = false
+  uploadAttachmentMock.mockReset()
   window.localStorage.clear()
 })
 
@@ -1052,5 +1095,223 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.getByLabelText(/ask a question/i)).not.toHaveFocus()
     await user.click(chip)
     expect(screen.getByLabelText(/ask a question/i)).toHaveFocus()
+  })
+
+  describe('list map card', () => {
+    const LIST = { listId: 16, name: 'Traverse Heights renters, 25-40' }
+
+    const mockListPeople = (count: number) => {
+      const people = Array.from({ length: count }, (_, i) =>
+        listMapPerson(`p${i}`),
+      )
+      api.mock('GET /v1/contacts', {
+        status: 200,
+        data: {
+          people,
+          pagination: {
+            totalResults: count,
+            currentPage: 1,
+            pageSize: count,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+        },
+      })
+    }
+
+    // The tool's ARGS are the payload, so the card can render from the live
+    // event before anything is persisted.
+    it('renders the card from a show_list_map call as the turn streams', async () => {
+      const user = userEvent.setup()
+      mockListPeople(3)
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_map' })
+      // Held open after the tool call, so the assertions below run while the
+      // turn is still streaming. With a stream that closes immediately the
+      // card on screen is the committed transcript's, and the test passes
+      // whether or not the live event ever rendered anything — which is the
+      // whole of what this test is for.
+      let endTurn: () => void
+      const turnEnded = new Promise<void>((resolve) => {
+        endTurn = resolve
+      })
+      streamMessageMock.mockReturnValue(
+        (async function* () {
+          yield { type: 'tool_call', toolName: 'show_list_map', args: LIST }
+          await turnEnded
+          yield { type: 'done' }
+        })(),
+      )
+      // The engine swaps the live row for the server transcript once the turn
+      // settles, and the live copy is dropped at that point — so without the
+      // committed turn here the card would appear and then vanish, and this
+      // would be asserting the gap rather than the feature.
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'where are they?'),
+        msg('assistant', 'Here they are.', {
+          id: 'a_stream',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active />)
+
+      await user.type(
+        screen.getByLabelText(/ask a question/i),
+        'where are they?',
+      )
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      // Mid-stream: nothing is persisted yet, so this card can only have come
+      // from the live tool_call.
+      expect(await screen.findByText(LIST.name)).toBeInTheDocument()
+      expect(await screen.findByText('3 constituents')).toBeInTheDocument()
+      expect(
+        await screen.findByRole('link', { name: 'Open list' }),
+      ).toHaveAttribute('href', '/dashboard/contacts/lists/16')
+
+      endTurn!()
+
+      // Anchored on text only the committed turn carries, because the count
+      // is already 1 while the turn is live — asserting it without waiting
+      // for the commit passes before the duplicate can appear.
+      expect(await screen.findByText('Here they are.')).toBeInTheDocument()
+
+      // And still exactly one: the live row and the persisted turn carry the
+      // same payload, so a live copy left behind after the settle draws the
+      // card twice.
+      await waitFor(() =>
+        expect(screen.getAllByTestId('contact-map-stub')).toHaveLength(1),
+      )
+    })
+
+    // And again from the transcript, which is the case the args-not-results
+    // design exists for: a reloaded conversation never passes through onEvent.
+    it('replays the card from a persisted show_list_map segment', async () => {
+      mockListPeople(2)
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'where are they?'),
+        msg('assistant', 'Here they are.', {
+          id: 'a_map',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv_map" />)
+
+      expect(await screen.findByText(LIST.name)).toBeInTheDocument()
+      expect(await screen.findByText('2 constituents')).toBeInTheDocument()
+      expect(await screen.findByTestId('contact-map-stub')).toHaveAttribute(
+        'data-people',
+        '2',
+      )
+    })
+
+    // The card IS the output, so the tool call must not also render as a
+    // status pill above it. Live the event is consumed before a pill exists;
+    // only the replayed transcript still carries the segment.
+    it('does not also show a tool pill for the replayed map segment', async () => {
+      mockListPeople(1)
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here they are.', {
+          id: 'a_pill',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv_map" />)
+
+      expect(await screen.findByText(LIST.name)).toBeInTheDocument()
+      expect(screen.queryByText('show_list_map')).not.toBeInTheDocument()
+    })
+  })
+})
+
+describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
+  const dragPayload = (files: File[]) => ({
+    dataTransfer: { types: ['Files'], files },
+  })
+
+  const renderBody = () => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    const { container } = render(
+      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+    )
+    return container.firstElementChild as HTMLElement
+  }
+
+  it('shows the drop overlay while dragging files and hides it on leave', () => {
+    attachmentsOn = true
+    const surface = renderBody()
+
+    fireEvent.dragEnter(surface, dragPayload([]))
+    expect(screen.getByText('Drop a file to attach it')).toBeInTheDocument()
+
+    fireEvent.dragLeave(surface, dragPayload([]))
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('uploads a supported dropped file through the attach path', async () => {
+    attachmentsOn = true
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    const surface = renderBody()
+    const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+    fireEvent.drop(surface, dragPayload([file]))
+
+    await waitFor(() =>
+      expect(uploadAttachmentMock).toHaveBeenCalledWith('conv', file),
+    )
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not upload an unsupported dropped file', async () => {
+    attachmentsOn = true
+    const surface = renderBody()
+    const file = new File(['x'], 'malware.exe', {
+      type: 'application/x-msdownload',
+    })
+
+    fireEvent.drop(surface, dragPayload([file]))
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
+  })
+
+  it('ignores drops while attachments are disabled', async () => {
+    const surface = renderBody()
+    const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+    fireEvent.dragEnter(surface, dragPayload([file]))
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+
+    fireEvent.drop(surface, dragPayload([file]))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
   })
 })

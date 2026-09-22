@@ -4,7 +4,6 @@ import {
   CHIEF_OF_STAFF_MODELS,
   ChiefOfStaffHandler,
 } from './chiefOfStaff.handler'
-import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { PrioritiesToolPort } from './services/prioritiesPort'
@@ -49,7 +48,6 @@ const TEST_TABLES = [
 ]
 
 describe('ChiefOfStaffHandler', () => {
-  let store: GeneralChatStoreService
   let context: ChiefOfStaffContextService
   let port: PrioritiesToolPort
 
@@ -63,9 +61,6 @@ describe('ChiefOfStaffHandler', () => {
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = 'test-key'
     port = buildPort()
-    store = {
-      createScopedConversation: vi.fn(),
-    } as unknown as GeneralChatStoreService
     context = {
       load: vi.fn(() =>
         Promise.resolve({
@@ -108,54 +103,15 @@ describe('ChiefOfStaffHandler', () => {
     }) as unknown as DistrictResolverService
 
   it('is a sensitive, Anthropic-only scope', () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
+    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
     expect(handler.scope).toBe(ChatScope.chief_of_staff)
     expect(handler.isSensitive).toBe(true)
     expect(handler.models).toEqual([...CHIEF_OF_STAFF_MODELS])
     expect(handler.models.every((m) => m.startsWith('claude'))).toBe(true)
   })
 
-  it('always creates a new conversation (never resumes the latest)', async () => {
-    // Each "new chat" must be its own conversation: resolveConversation always
-    // creates a fresh one rather than resuming the most recent.
-    store.createScopedConversation = vi.fn(() =>
-      Promise.resolve({ id: 'fresh' }),
-    ) as never
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
-    const result = await handler.resolveConversation(
-      { scope: ChatScope.chief_of_staff, organizationSlug: ORG },
-      USER_ID,
-    )
-    expect(result).toEqual({ conversationId: 'fresh', created: true })
-    expect(store.createScopedConversation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerUserId: USER_ID,
-        organizationSlug: ORG,
-        scope: ChatScope.chief_of_staff,
-      }),
-    )
-  })
-
   it('builds the safe v1 tool set (priorities + briefing reads)', async () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
+    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
     const ctx = await handler.loadContext('c1', USER_ID)
     const tools = handler.buildTools(ctx)
     // web_search is always present now (Anthropic native, gated at the LLM
@@ -169,25 +125,13 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('includes web_search (Anthropic native, no provider needed)', async () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
+    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
     const ctx = await handler.loadContext('c1', USER_ID)
     expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
   })
 
   it('builds a governance system prompt grounded in the context', async () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
+    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
     expect(prompt).toContain('Chief of Staff')
@@ -196,7 +140,6 @@ describe('ChiefOfStaffHandler', () => {
 
   it('registers constituent-data tools when provider + filters + table are present', async () => {
     const handler = new ChiefOfStaffHandler(
-      store,
       context,
       buildBriefings(),
       port,
@@ -213,7 +156,6 @@ describe('ChiefOfStaffHandler', () => {
 
   it('omits constituent-data tools without a scoped provider', async () => {
     const handler = new ChiefOfStaffHandler(
-      store,
       context,
       buildBriefings(),
       port,
@@ -229,7 +171,6 @@ describe('ChiefOfStaffHandler', () => {
 
   it('omits constituent-data tools when no table is configured', async () => {
     const handler = new ChiefOfStaffHandler(
-      store,
       context,
       buildBriefings(),
       port,
@@ -249,7 +190,6 @@ describe('ChiefOfStaffHandler', () => {
       toMandatoryFilters: vi.fn(),
     } as unknown as DistrictResolverService
     const handler = new ChiefOfStaffHandler(
-      store,
       context,
       buildBriefings(),
       port,
@@ -274,34 +214,6 @@ describe('ChiefOfStaffHandler', () => {
         summary: 'Residents have complained about road conditions.',
       },
     }
-
-    it('passes anchor and title to createScopedConversation', async () => {
-      store.createScopedConversation = vi.fn(() =>
-        Promise.resolve({ id: 'anchored' }),
-      ) as never
-      const handler = new ChiefOfStaffHandler(
-        store,
-        context,
-        buildBriefings(),
-        port,
-        [],
-      )
-      const result = await handler.resolveConversation(
-        {
-          scope: ChatScope.chief_of_staff,
-          organizationSlug: ORG,
-          anchor: ANCHOR,
-        },
-        USER_ID,
-      )
-      expect(result).toEqual({ conversationId: 'anchored', created: true })
-      expect(store.createScopedConversation).toHaveBeenCalledWith(
-        expect.objectContaining({
-          anchor: ANCHOR,
-          title: 'Fix the potholes on Main Street',
-        }),
-      )
-    })
 
     it('prompt contains anchored_issue block with snapshot title and summary', async () => {
       const contextWithAnchor = {
@@ -328,7 +240,6 @@ describe('ChiefOfStaffHandler', () => {
         ),
       } as unknown as ChiefOfStaffContextService
       const handler = new ChiefOfStaffHandler(
-        store,
         contextWithAnchor,
         buildBriefings(),
         port,
@@ -372,7 +283,6 @@ describe('ChiefOfStaffHandler', () => {
         ),
       } as unknown as ChiefOfStaffContextService
       const handler = new ChiefOfStaffHandler(
-        store,
         contextWithAnchor,
         buildBriefings(),
         port,
@@ -388,7 +298,6 @@ describe('ChiefOfStaffHandler', () => {
         getDetail: vi.fn(),
       }
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -405,7 +314,6 @@ describe('ChiefOfStaffHandler', () => {
 
     it('omits read_community_issues tool when port is absent', async () => {
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -423,7 +331,6 @@ describe('ChiefOfStaffHandler', () => {
   describe('help center tool', () => {
     const buildHelpCenterHandler = (helpCenter?: HelpCenterSearchService) =>
       new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -470,7 +377,6 @@ describe('ChiefOfStaffHandler', () => {
       voterFileFilters?: VoterFileFilterService
     }) =>
       new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -489,6 +395,18 @@ describe('ChiefOfStaffHandler', () => {
       const toolNames = Object.keys(handler.buildTools(ctx))
       expect(toolNames).toContain('describe_filter_dimensions')
       expect(toolNames).toContain('count_contacts')
+    })
+
+    // Precinct is the one filter dimension describe_filter_dimensions
+    // cannot carry — its values are per-district — so this tool is the only
+    // route to it. Without it registered the assistant tells an office
+    // holder their own precinct is not a dimension it can filter on, while
+    // the wizard beside it offers exactly that filter.
+    it('registers list_precincts alongside the other aggregate reads', async () => {
+      const handler = buildCrmHandler({ contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).toContain('list_precincts')
     })
 
     it('registers CRM tools whose descriptions carry the shared routing rules', async () => {
@@ -555,7 +473,6 @@ describe('ChiefOfStaffHandler', () => {
   describe('finalizeAssistantText (professional-advice backstop)', () => {
     it('appends the disclaimer to an eval-style legal-advice answer', () => {
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -576,7 +493,6 @@ describe('ChiefOfStaffHandler', () => {
 
     it('leaves an ordinary office answer untouched', () => {
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -591,7 +507,6 @@ describe('ChiefOfStaffHandler', () => {
 
     it("does not double the model's own disclaimer", () => {
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,

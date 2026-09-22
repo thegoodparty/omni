@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  FollowUpAnswerSchema,
   PhoneBankCallOutcomeSchema,
   SupportAnswerSchema,
   WillVoteAnswerSchema,
@@ -16,6 +17,10 @@ export const PhoneBankingInteractionSchema = z.object({
   outcome: PhoneBankCallOutcomeSchema,
   supportAnswer: SupportAnswerSchema.nullable(),
   willVote: WillVoteAnswerSchema.nullable(),
+  // Serve's answered-call answer, and null on every Win row — the write
+  // schema refuses it alongside supportAnswer/willVote, so that holds for any
+  // caller and not just ours. Also null on anything logged before it existed.
+  followUp: FollowUpAnswerSchema.nullable(),
   occurredAt: zCoerceDate(),
 })
 export type PhoneBankingInteraction = z.infer<
@@ -88,6 +93,15 @@ export const PhoneBankingOutreachDetailSchema = z.object({
   supporters: z.number().int(),
   unsure: z.number().int(),
   nonSupporters: z.number().int(),
+  // Serve's equivalent, and the reason it is a record rather than three more
+  // flat siblings: the answer is binary, the drawer renders whichever of the
+  // two tallies belongs to the list's surface, and `byOutcome` above is
+  // already the record-shaped precedent in this same object. A Win list's
+  // rows carry no followUp and a Serve list's carry no supportAnswer (the
+  // write schema refuses the mix), so exactly one of the two is ever
+  // non-zero — the drawer picks by surface rather than by which is populated,
+  // so a list with no calls yet still reads in its own vocabulary.
+  byFollowUp: z.record(FollowUpAnswerSchema, z.number().int()),
 })
 export type PhoneBankingOutreachDetail = z.infer<
   typeof PhoneBankingOutreachDetailSchema

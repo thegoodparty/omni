@@ -29,7 +29,7 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import { DoorKnockingTurfService } from './doorKnockingTurf.service'
-import { pointInPolygon, polygonBbox } from '../utils/geo.util'
+import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
 import {
   type BlockFace,
   coordinateKey,
@@ -39,8 +39,8 @@ import {
   sequenceBlockFaces,
 } from '../utils/blockFace.util'
 import {
-  EMPTY_TURF_MESSAGE,
   emptyAudienceMessage,
+  emptyTurfMessage,
 } from '../utils/emptyAudience.util'
 import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
 import { assertCampaignQuota } from '../utils/campaignQuota.util'
@@ -173,6 +173,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
     input: CreateDoorKnockingTurf,
     actorUserId: number,
   ): Promise<DoorKnockingTurf> {
+    // Which product's words a create failure speaks in. The `eo-` prefix is
+    // the whole rule, the same way every other Serve answer resolves it.
+    const isServe = organization.slug.startsWith('eo-')
+
     // Runs the same eligibility gate as every other voter-data read — a
     // Win campaign without downloadable voter data can't knock either.
     const districtId =
@@ -250,7 +254,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
           // route — and nothing about the polygon, which has not been looked
           // at yet, could change that. Raised before paying for a people-db
           // scan that can only come back empty.
-          throw new BadRequestException(emptyAudienceMessage(filter))
+          throw new BadRequestException(emptyAudienceMessage(filter, isServe))
         }
 
         const { people } = await this.peopleApi.evaluate({
@@ -261,7 +265,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
           excludePersonIds,
         })
-        const stops = this.buildStops(people, input.geoPoly)
+        const stops = this.buildStops(people, input.geoPoly, isServe)
 
         // Last gate before the only paid call in the system, and the sole
         // per-account limit: five campaigns a rolling day. A 500-stop daily
@@ -434,6 +438,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
   private buildStops(
     people: EvaluatedPerson[],
     polygon: GeoJsonPolygon,
+    isServe: boolean,
   ): PlannedStop[] {
     // Deterministic input order (addressKey, then person id) so the same
     // turf always yields the same stops, anchors, and vendor request.
@@ -444,7 +449,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
           a.addressKey.localeCompare(b.addressKey) || a.id.localeCompare(b.id),
       )
     if (inside.length === 0) {
-      throw new BadRequestException(EMPTY_TURF_MESSAGE)
+      throw new BadRequestException(emptyTurfMessage(isServe))
     }
 
     const byCoordinate = new Map<string, PlannedStop>()

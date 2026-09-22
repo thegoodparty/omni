@@ -64,11 +64,12 @@ export class AdminElectedOfficeController {
       throw new BadRequestException(MAGIC_LINK_NAME_REQUIRED_ERROR)
     }
 
-    const { user, token } = await this.usersService.provisionMagicLinkUser({
-      email,
-      firstName,
-      lastName,
-    })
+    const { user, token, clerkId } =
+      await this.usersService.provisionMagicLinkUser({
+        email,
+        firstName,
+        lastName,
+      })
 
     const prefill = personId
       ? await this.prefillFromBallotReady(user.id, personId)
@@ -83,9 +84,13 @@ export class AdminElectedOfficeController {
       await this.electedOfficeService.create({ userId: user.id })
     }
 
+    // `uid` carries the ticket's Clerk user id because the token itself has no
+    // user claim — the redemption page needs it to recognize an
+    // already-signed-in recipient instead of signing them out against a spent
+    // single-use ticket.
     const url = `${APP_ROOT}/serve/welcome?__clerk_ticket=${encodeURIComponent(
       token,
-    )}`
+    )}&uid=${encodeURIComponent(clerkId)}`
 
     this.logger.info(
       {

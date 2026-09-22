@@ -1,0 +1,35 @@
+enum ChatAttachmentSource {
+  UPLOAD
+  URL
+}
+
+enum ChatAttachmentStatus {
+  pending
+  processing
+  ready
+  failed
+}
+
+model ChatAttachment {
+  id             String               @id @default(uuid(7))
+  conversationId String               @map("conversation_id")
+  conversation   ChatConversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  ownerUserId    Int                  @map("owner_user_id")
+  ownerUser      User                 @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  source         ChatAttachmentSource
+  sourceUrl      String?              @map("source_url")
+  storageKey     String               @map("storage_key")
+  fileName       String               @map("file_name")
+  mimeType       String               @map("mime_type")
+  sizeBytes      Int                  @map("size_bytes")
+  pageCount      Int?                 @map("page_count")
+  status         ChatAttachmentStatus @default(pending)
+  extractedText  String?              @db.Text @map("extracted_text")
+  failureReason  String?              @map("failure_reason")
+  readyAt        DateTime?            @map("ready_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+
+  @@index([conversationId, status])
+  @@index([ownerUserId])
+  @@map("chat_attachment")
+}

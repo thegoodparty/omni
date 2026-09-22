@@ -38,8 +38,13 @@ export const STATUS_LABELS: Record<DoorKnockStatus, string> = {
 // "Not yet contacted" names the first meaning instead, which is what the bucket
 // is on a Serve walk for all but the pilot rows described under
 // `progressLegendOrder`.
+// `not_a_voter` moves for a different reason than `unknown`: the bucket means
+// the same thing on both surfaces — the person on file isn't who lives here —
+// but Serve cannot say "voter" for them. The DB enum keeps its name; only the
+// word a reader sees changes.
 const SERVE_STATUS_LABELS: Partial<Record<DoorKnockStatus, string>> = {
   unknown: 'Not yet contacted',
+  not_a_voter: 'Not a constituent',
 }
 
 // Every surface that prints a status word goes through this rather than

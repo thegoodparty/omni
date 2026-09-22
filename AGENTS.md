@@ -53,11 +53,13 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | The Python AI services + their infra   | `packages/gp-ai/AGENTS.md`                    |
 | **Writing any user-facing copy**       | **`docs/product-copy.md`**                    |
+| **Writing copy Win and Serve share**   | **`docs/product-vocabulary.md`** (voters vs constituents) |
 | **Shipping a user-facing feature**     | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
+| **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask for AWS access) |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
@@ -119,10 +121,19 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   titles are questions the user can answer, captions are one sentence of 20
   words or fewer, and nothing on screen explains how the system works. The
   voter outreach flows and onboarding are the reference implementations.
+- **Win and Serve do not share nouns.** Candidates have voters, an election
+  and a campaign; elected officials have constituents, an office and a term.
+  A string on a surface both products reach needs a mode-keyed copy object,
+  never a rename — `docs/product-vocabulary.md`, enforced by
+  `npm run check:serve-vocabulary -w packages/gp-webapp`.
 - **WET over premature DRY.** Don't extract a helper used in one place. Prefer the
   simplest approach first; don't over-engineer.
 - **Validation:** Zod everywhere. API responses validated at runtime via response
   schemas; never `.passthrough()` input schemas.
+- **Secrets:** never commit or print a plaintext secret, and never ask for AWS
+  credentials, console access, or an IAM grant — adding or rotating a secret is a
+  PR, not an access request. Nothing here needs a prod secret value in hand. Read
+  `docs/secrets.md` before touching one.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
   (gp-api, election-api). gp-api's `src/peopleDb/` mirrors this with
   `createPeopleDbBase(PEOPLE_MODELS.ModelName)` against a second, read-only

@@ -8,8 +8,16 @@ import {
 } from '@aws-sdk/client-route-53-domains'
 import { AwsService } from './aws.service'
 import { PinoLogger } from 'nestjs-pino'
+import { RETRY_MODES } from '@smithy/core/retry'
 
 const AWS_ROUTE_53_REGION = 'us-east-1'
+
+// Route53 Domains throttles account-wide at a very low rate. The SDK default
+// (standard mode, 3 attempts, ~1s of backoff) can't ride out a drained token
+// bucket, which chronically 502'd /domains/purchase right after the search
+// fanout. Adaptive mode adds a client-side rate limiter shared across this
+// singleton, so concurrent calls self-pace instead of racing into throttles.
+const ROUTE_53_DOMAINS_MAX_ATTEMPTS = 8
 
 @Injectable()
 export class AwsRoute53Service extends AwsService {
@@ -19,6 +27,8 @@ export class AwsRoute53Service extends AwsService {
     super(logger)
     this.domainsClient = new Route53DomainsClient({
       region: AWS_ROUTE_53_REGION,
+      retryMode: RETRY_MODES.ADAPTIVE,
+      maxAttempts: ROUTE_53_DOMAINS_MAX_ATTEMPTS,
     })
   }
 

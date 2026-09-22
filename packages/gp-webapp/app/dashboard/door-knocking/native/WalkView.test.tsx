@@ -25,6 +25,12 @@ import {
   STATUS_RGB,
 } from './statusPresentation'
 
+// useDoorScript (via PersonSheet) reads the viewer's org role; these tests
+// render without an OrganizationProvider, whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganizationRole: () => undefined,
+}))
+
 // The walk sheet's PDF export acknowledges the press with a toast, and the
 // provider that would carry it belongs to the app shell rather than to this
 // view.
@@ -1249,6 +1255,7 @@ describe('WalkView not-a-voter reason', () => {
       activityId: 'dk-1',
       outcome: 'not_a_voter',
       supportAnswer: null,
+      followUp: null,
       note: null,
       manual: false,
       actorName: null,
@@ -1919,6 +1926,7 @@ describe('WalkView auto-advance', () => {
                           activityId: 'dk-1',
                           outcome: 'not_home',
                           supportAnswer: null,
+                          followUp: null,
                           note: null,
                           manual: false,
                           actorName: null,

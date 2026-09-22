@@ -38,6 +38,7 @@ import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
+import FollowUpRow from './FollowUpRow'
 import NotesSection from './NotesSection'
 import StatusRow from './StatusRow'
 import {
@@ -48,7 +49,6 @@ import {
   StatusChangeActivityRow,
   TextActivityRow,
 } from './ActivityFeedEntry'
-import { SUPPORT_STATUS_ROLLUP_LABELS } from '@goodparty_org/contracts'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -337,13 +337,17 @@ const ActivitiesContent: React.FC = () => {
             return <RobocallActivityRow key={idx} activity={activity} />
           case 'PHONE_BANKING':
             return <PhoneBankingActivityRow key={idx} activity={activity} />
-          case 'STATUS_CHANGE':
-            // Belt-and-suspenders: the feed itself never returns this type
-            // for a Serve context (gp-api gates it on electedOfficeId), but
-            // a Serve org must never render it even if that ever changed.
-            return isWinContext ? (
+          case 'STATUS_CHANGE': {
+            // Belt-and-suspenders mirror of the field filter gp-api already
+            // applies: Win's editable statuses are Win facts and follow-up is
+            // Serve's, so neither surface can render the answer to a question
+            // its own canvassers never asked. Held back until the mode has
+            // settled, since the default reads Win.
+            const isServeField = activity.data.field === 'follow_up'
+            return isWinContextReady && isWinContext !== isServeField ? (
               <StatusChangeActivityRow key={idx} activity={activity} />
             ) : null
+          }
           default:
             // Exhaustiveness guard: a new ConstituentActivityType added to
             // the contract without a render branch here fails the build
@@ -396,9 +400,13 @@ const getIncomeBucket = (income: number | null) => {
 
 const PersonContent: React.FC<{
   person: Person
-  hidePoliticalParty: boolean
+  // Named for the surface, not for one of its consequences: this flag decides
+  // party visibility AND the card's whole vocabulary, and calling it
+  // `hidePoliticalParty` is why the voter wording below survived a vocabulary
+  // pass. Serve reads constituents; Win reads voters.
+  isServe: boolean
   showWinActivities: boolean
-}> = ({ person, hidePoliticalParty, showWinActivities }) => {
+}> = ({ person, isServe, showWinActivities }) => {
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
@@ -442,7 +450,10 @@ const PersonContent: React.FC<{
           of the Support Status Field below and the OptedInChip that used to
           render next to the name above. Self-gates on Win so Serve's
           rendering (the Field below, no opt-in display) is untouched. */}
-      <StatusRow person={person} hidePoliticalParty={hidePoliticalParty} />
+      <StatusRow person={person} hidePoliticalParty={isServe} />
+      {/* Serve's only editable per-contact status, self-gating the same way
+          StatusRow does for Win. */}
+      <FollowUpRow person={person} isServe={isServe} />
       <div className="flex flex-col gap-6">
         <NotesSection personId={person.id} />
 
@@ -490,26 +501,23 @@ const PersonContent: React.FC<{
           <Field label="Cell Phone Number" value={person.cellPhone} />
           <Field label="Landline" value={person.landline} />
         </InfoSection>
-        <InfoSection
-          title="Voter Demographics"
-          icon={<LuClipboardList size={24} />}
-        >
-          {/* Win moved this to the StatusRow's editable dropdown (ENG-10836)
-              — Serve keeps the read-only Field unchanged. */}
-          {hidePoliticalParty ? (
-            <Field
-              label="Support Status"
-              value={
-                SUPPORT_STATUS_ROLLUP_LABELS[person.supportStatus ?? 'unknown']
-              }
-            />
-          ) : null}
-          <Field label="Registered Voter" value={person.registeredVoter} />
-          <Field label="Voter Status" value={person.voterStatus} />
-          {!hidePoliticalParty && (
+        {/* Win's voter-file card. Serve renders nothing here at all: the
+            three rows it used to carry were a support status Serve can never
+            set (gp-api rejects the write for an `eo-` org — ContactsService
+            .updateContactStatus, ENG-10833) plus registration and turnout
+            propensity, and an official does not ask whether a constituent
+            votes or how reliably. A card with no rows is not a card, so the
+            whole section is Win-only rather than an empty shell. */}
+        {!isServe && (
+          <InfoSection
+            title="Voter Demographics"
+            icon={<LuClipboardList size={24} />}
+          >
+            <Field label="Registered Voter" value={person.registeredVoter} />
+            <Field label="Voter Status" value={person.voterStatus} />
             <Field label="Political Party" value={person.politicalParty} />
-          )}
-        </InfoSection>
+          </InfoSection>
+        )}
 
         <InfoSection
           title="Demographic Information"
@@ -610,7 +618,7 @@ export default function PersonOverlay(): React.JSX.Element {
               <PersonContent
                 key={person.id}
                 person={person}
-                hidePoliticalParty={isElectedOfficial}
+                isServe={isElectedOfficial}
                 showWinActivities={isWinContext}
               />
             )

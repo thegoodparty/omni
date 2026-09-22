@@ -52,15 +52,18 @@ vi.mock('next/navigation', () => ({
 const POST_AUTH = '/post-auth-redirect'
 
 // Build a minimal JWT (header.payload.signature) whose payload carries the
-// given claims, matching the shape `decodeTicketClaims` parses.
+// given claims, matching the shape `decodeTicketClaims` parses. A real Clerk
+// sign-in token carries only the ticket-type claim (`st`) — no user claim; the
+// ticket's user id travels as the `uid` query param gp-api stamps onto the
+// link.
 const makeTicket = (claims: Record<string, unknown>): string => {
   const b64 = (obj: Record<string, unknown>) =>
     Buffer.from(JSON.stringify(obj)).toString('base64url')
   return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(claims)}.signature`
 }
 
-const ticketFor = (sub: string, st = 'sign_in_token') =>
-  new URLSearchParams({ __clerk_ticket: makeTicket({ sub, st }) })
+const ticketFor = (uid: string, st = 'sign_in_token') =>
+  new URLSearchParams({ __clerk_ticket: makeTicket({ st }), uid })
 
 const signInButton = () => screen.getByRole('button', { name: /^sign in$/i })
 
@@ -127,7 +130,8 @@ describe('SignInLinkContent', () => {
 
   it('rejects a ticket with no `st` claim at all', async () => {
     mockSearchParams = new URLSearchParams({
-      __clerk_ticket: makeTicket({ sub: 'user_ticket' }),
+      __clerk_ticket: makeTicket({}),
+      uid: 'user_ticket',
     })
 
     render(<SignInLinkContent />)
@@ -185,10 +189,31 @@ describe('SignInLinkContent', () => {
     fireEvent.click(signInButton())
 
     await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
-    // Same user: we must NOT burn the one-time ticket, and must not error.
+    // Same user: we must NOT burn the one-time ticket, and must not error —
+    // and critically must NOT sign the recipient out of their own session
+    // (this is what a link re-open after a successful first redemption
+    // looks like).
     expect(mockSignInCreate).not.toHaveBeenCalled()
     expect(mockSignOut).not.toHaveBeenCalled()
     expect(screen.queryByText(/couldn’t sign you in/i)).not.toBeInTheDocument()
+  })
+
+  it('signs out and redeems on a legacy link without a uid when a session is active', async () => {
+    mockUser = { id: 'user_existing' }
+    mockSearchParams = new URLSearchParams({
+      __clerk_ticket: makeTicket({ st: 'sign_in_token' }),
+    })
+
+    render(<SignInLinkContent />)
+    fireEvent.click(signInButton())
+
+    await waitFor(() =>
+      expect(mockSetActive).toHaveBeenCalledWith({ session: 'sess-1' }),
+    )
+    // Without a uid there is no way to recognize the session as the ticket
+    // user's, so the pre-uid behavior (clear it, then redeem) is preserved.
+    expect(mockSignOut).toHaveBeenCalledTimes(1)
+    expect(window.location.href).toBe(POST_AUTH)
   })
 
   it('redeems only once on a rapid double-click (does not double-spend the ticket)', async () => {

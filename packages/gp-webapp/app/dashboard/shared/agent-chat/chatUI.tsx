@@ -1,18 +1,22 @@
 'use client'
 
 import type { Ref, ReactNode } from 'react'
+import { useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, GoodPartyOrgLogo, IconButton, Textarea } from '@styleguide'
 import {
+  PaperclipIcon,
   SearchIcon,
   SendIcon,
   SparklesIcon,
+  XMarkIcon,
 } from '@styleguide/components/ui/icons'
 import type { LiveSegment } from './streaming'
 import ChatPill from '../ai-chat/ChatPill'
 import { DictationMicButton } from '../dictation/DictationMicButton'
 import type { UseDictationAppendResult } from '../dictation/useDictationAppend'
+import type { ChatAttachmentState } from './chatAttachments-api'
 
 // Module-level so react-markdown gets a stable plugins identity across the
 // per-tick re-renders of a streaming turn (a fresh [remarkGfm] each render
@@ -65,13 +69,31 @@ export function AssistantAvatar(): React.JSX.Element {
 // structured widgets), matching the streaming and reloaded layouts.
 export function AssistantRow({
   children,
+  fullWidth = false,
 }: {
   children: ReactNode
+  /**
+   * Let the column take the whole chat width instead of shrinking to its
+   * content. For a turn carrying a card that is read rather than spoken — a
+   * map — where a bubble's width is the wrong measure. Bubbles inside keep
+   * their own `self-start`, so only a child that asks for the width takes it.
+   */
+  fullWidth?: boolean
 }): React.JSX.Element {
   return (
-    <div className="flex max-w-full items-start gap-2 self-start">
+    <div
+      className={`flex max-w-full items-start gap-2 ${
+        fullWidth ? 'w-full' : 'self-start'
+      }`}
+    >
       <AssistantAvatar />
-      <div className="flex min-w-0 max-w-full flex-col gap-2">{children}</div>
+      <div
+        className={`flex min-w-0 max-w-full flex-col gap-2 ${
+          fullWidth ? 'flex-1' : ''
+        }`}
+      >
+        {children}
+      </div>
     </div>
   )
 }
@@ -185,20 +207,53 @@ export function ToolPillRow({
   )
 }
 
+// A superscript citation chip rendered inline in the assistant text. Clicking
+// opens the cited attachment via the presigned download URL. When no click
+// handler is provided the chip renders as non-interactive static text.
+export function CitationChip({
+  ordinal,
+  onCitationClick,
+}: {
+  ordinal: number
+  onCitationClick?: () => void
+}): React.JSX.Element {
+  if (onCitationClick) {
+    return (
+      <button
+        type="button"
+        onClick={onCitationClick}
+        className="relative -top-0.5 inline-flex cursor-pointer items-center justify-center rounded px-0.5 py-0 text-[10px] font-semibold leading-none text-primary hover:underline"
+        aria-label={`Open source ${ordinal}`}
+      >
+        [{ordinal}]
+      </button>
+    )
+  }
+  return (
+    <sup className="text-[10px] font-semibold text-muted-foreground">
+      [{ordinal}]
+    </sup>
+  )
+}
+
 // Render a turn's segments in stream order: text as markdown bubbles, tool
-// calls as inline pills, so a search/read pill sits between the sentences it
-// interrupted instead of stacked in a row above the whole reply. `toolLabel`
-// maps a tool name to its pill label (return null to hide a tool, e.g. a
-// bookkeeping tool or one rendered as its own widget). Consecutive tool
-// segments coalesce into one pill row, which shimmers while any tool in it is
-// still `running`. Shared by the live turn (running set/cleared as tools fly)
-// and reloaded history (persisted segments, never running).
+// calls as inline pills, and citation chips at the positions where the model
+// cited a source. `toolLabel` maps a tool name to its pill label (return null
+// to hide a tool). Consecutive tool segments coalesce into one pill row.
+// `onCitationClick` is called with `(attachmentId, page)` when a chip is
+// clicked — the caller resolves the presigned URL and handles errors.
+// Shared by the live turn and reloaded history (persisted segments).
 export function InlineSegments({
   segments,
   toolLabel,
+  onCitationClick,
 }: {
   segments: LiveSegment[]
   toolLabel: (toolName: string) => string | null
+  onCitationClick?: (
+    attachmentId: string,
+    page: number | null | undefined,
+  ) => void
 }): React.JSX.Element {
   const blocks: ReactNode[] = []
   let pendingPills: string[] = []
@@ -223,6 +278,22 @@ export function InlineSegments({
         pendingPills.push(label)
         if (seg.running) pendingRunning = true
       }
+      return
+    }
+    if (seg.kind === 'citation') {
+      flushPills(String(i))
+      const { ordinal, attachmentId, page } = seg
+      blocks.push(
+        <CitationChip
+          key={`citation-${i}`}
+          ordinal={ordinal}
+          onCitationClick={
+            onCitationClick
+              ? () => onCitationClick(attachmentId, page)
+              : undefined
+          }
+        />,
+      )
       return
     }
     flushPills(String(i))
@@ -264,6 +335,62 @@ export function ThinkingRow({
   )
 }
 
+// A single attachment chip shown above the textarea while awaiting send.
+function AttachmentChip({
+  attachment,
+  onRemove,
+}: {
+  attachment: ChatAttachmentState
+  onRemove: (id: string) => void
+}): React.JSX.Element {
+  const statusLine =
+    attachment.status === 'processing'
+      ? attachment.pageCount !== null
+        ? `Reading, ${attachment.pageCount} pages`
+        : 'Reading...'
+      : attachment.status === 'failed'
+        ? `Failed: ${attachment.failureReason ?? 'unknown error'}`
+        : null
+
+  return (
+    <span className="inline-flex max-w-[180px] shrink-0 items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs text-muted-foreground">
+      <PaperclipIcon className="size-3 shrink-0" aria-hidden />
+      <span className="truncate">{statusLine ?? attachment.fileName}</span>
+      <button
+        type="button"
+        aria-label={`Remove ${attachment.fileName}`}
+        onClick={() => onRemove(attachment.id)}
+        className="ml-0.5 shrink-0 rounded-full hover:text-foreground"
+      >
+        <XMarkIcon className="size-3" aria-hidden />
+      </button>
+    </span>
+  )
+}
+
+// Pull the http(s) URLs out of pasted text so a pasted link attaches with no
+// separate URL form. Trailing sentence punctuation that rides along with a
+// paste is stripped; anything the URL parser rejects is skipped.
+export const extractHttpUrls = (text: string): string[] => {
+  const matches = text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []
+  const urls: string[] = []
+  for (const raw of matches) {
+    const candidate = raw.replace(/[.,;:!?]+$/, '')
+    try {
+      const { protocol } = new URL(candidate)
+      if (
+        (protocol === 'http:' || protocol === 'https:') &&
+        !urls.includes(candidate)
+      ) {
+        urls.push(candidate)
+      }
+    } catch {
+      // matched by the loose regex but not a parseable URL
+    }
+  }
+  return urls
+}
+
 // The message composer: a pill-shaped input with a send button. The consumer
 // owns the value and clears it on submit; `onSubmit` fires on Enter or the
 // button, and the button is disabled while empty. Pass `dictation` (from
@@ -271,6 +398,13 @@ export function ThinkingRow({
 // it adds a voice-input mic, the branded AI send icon, and the animated
 // gradient border shared with Chief of Staff and the draft launcher. Omit it
 // and the composer is plain — no mic, send arrow, simple border.
+//
+// Pass `attachments`, `onAttachFile`, `onAttachLink`, and `onRemoveAttachment`
+// to enable attachments (chief_of_staff scope only, gated by the
+// serve-chat-attachments flag): the paperclip opens the system file picker
+// directly, and pasting text that contains a URL attaches each link — there is
+// no separate URL form. `guardAcknowledged`/`onGuardAcknowledge` control the
+// one-time safety notice shown above the form.
 export function ChatComposer({
   value,
   onChange,
@@ -281,6 +415,12 @@ export function ChatComposer({
   dictation,
   leadingSlot,
   ariaLabel,
+  attachments,
+  onAttachFile,
+  onAttachLink,
+  onRemoveAttachment,
+  guardAcknowledged,
+  onGuardAcknowledge,
 }: {
   value: string
   onChange: (value: string) => void
@@ -294,7 +434,20 @@ export function ChatComposer({
   leadingSlot?: ReactNode
   // Accessible name for the input. Omit to fall back to the placeholder.
   ariaLabel?: string
+  // Attachment props — omit entirely to hide the paperclip affordance.
+  attachments?: ChatAttachmentState[]
+  onAttachFile?: (file: File) => void
+  // Called for each http(s) URL found in text pasted into the composer.
+  onAttachLink?: (url: string) => void
+  onRemoveAttachment?: (attachmentId: string) => void
+  // Guard copy notice. Show when `false`; hide permanently after acknowledge.
+  guardAcknowledged?: boolean
+  onGuardAcknowledge?: () => void
 }): React.JSX.Element {
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const attachmentsEnabled = attachments !== undefined && !!onAttachFile
+
   // A textarea keeps Enter for newlines, so submit is wired by hand: Enter
   // sends, Shift+Enter inserts a break, and the Enter that commits an IME
   // candidate (CJK and other composed input) must not send. The guard mirrors
@@ -313,6 +466,38 @@ export function ChatComposer({
     e.preventDefault()
     submit()
   }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const file = e.target.files?.[0]
+    if (file && onAttachFile) {
+      onAttachFile(file)
+      // Reset so the same file can be re-selected after removal.
+      e.target.value = ''
+    }
+  }
+
+  // A pasted URL attaches as a link in place — the text stays in the composer
+  // (a link occurs naturally in the message) while the parse kicks off.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (!attachmentsEnabled || !onAttachLink) return
+    for (const url of extractHttpUrls(e.clipboardData.getData('text'))) {
+      onAttachLink(url)
+    }
+  }
+
+  const chipRow =
+    attachments && attachments.length > 0 ? (
+      <div className="flex flex-wrap gap-1 px-1 pt-1">
+        {attachments.map((a) => (
+          <AttachmentChip
+            key={a.id}
+            attachment={a}
+            onRemove={onRemoveAttachment ?? (() => undefined)}
+          />
+        ))}
+      </div>
+    ) : null
+
   const controls = (
     <>
       {leadingSlot}
@@ -324,11 +509,25 @@ export function ChatComposer({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onComposerKeyDown}
+        onPaste={handlePaste}
         placeholder={placeholder}
         aria-label={ariaLabel}
         disabled={disabled}
         className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm leading-snug shadow-none focus-visible:ring-0"
       />
+      {attachmentsEnabled ? (
+        // Ghost like the mic: a secondary affordance, not a primary action.
+        <IconButton
+          type="button"
+          variant="ghost"
+          aria-label="Attach a file"
+          disabled={disabled}
+          onClick={() => fileInputRef.current?.click()}
+          className="static shrink-0 rounded-full"
+        >
+          <PaperclipIcon className="size-5" aria-hidden />
+        </IconButton>
+      ) : null}
       {dictation ? (
         <DictationMicButton
           dictation={dictation}
@@ -357,21 +556,72 @@ export function ChatComposer({
     e.preventDefault()
     submit()
   }
+
+  const guardBanner =
+    attachmentsEnabled && guardAcknowledged === false ? (
+      <div
+        role="note"
+        className="mb-1 flex items-center justify-between gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+      >
+        <span>
+          Don&apos;t upload closed-session, privileged, or active-litigation
+          material.
+        </span>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={onGuardAcknowledge}
+          className="shrink-0 rounded-full hover:text-foreground"
+        >
+          <XMarkIcon className="size-3.5" aria-hidden />
+        </button>
+      </div>
+    ) : null
+
+  const fileInput = attachmentsEnabled ? (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept=".pdf,.docx,.txt,image/jpeg,image/png"
+      className="hidden"
+      onChange={handleFileChange}
+      aria-hidden
+      tabIndex={-1}
+    />
+  ) : null
+
   // rounded-3xl reads as a pill at the one-line min height and stays a sane
   // rounded rectangle once the composer grows; items-end keeps the send button
   // on the last line of a multiline draft.
-  return dictation ? (
-    <form onSubmit={handleSubmit}>
-      <ChatPill rounded="3xl" innerClassName="items-end gap-1 py-1 pr-1 pl-4">
-        {controls}
-      </ChatPill>
-    </form>
-  ) : (
-    <form
-      className="flex min-h-12 items-end gap-1 rounded-3xl border border-border bg-card py-1 pr-1 pl-4"
-      onSubmit={handleSubmit}
-    >
-      {controls}
-    </form>
+  if (dictation) {
+    return (
+      <>
+        {guardBanner}
+        {fileInput}
+        <form onSubmit={handleSubmit}>
+          <ChatPill
+            rounded="3xl"
+            innerClassName="flex-col gap-0 py-1 pr-1 pl-4"
+          >
+            {chipRow}
+            <div className="flex w-full items-end gap-1">{controls}</div>
+          </ChatPill>
+        </form>
+      </>
+    )
+  }
+
+  return (
+    <>
+      {guardBanner}
+      {fileInput}
+      <form
+        className="flex min-h-12 flex-col gap-0 rounded-3xl border border-border bg-card py-1 pr-1 pl-4"
+        onSubmit={handleSubmit}
+      >
+        {chipRow}
+        <div className="flex items-end gap-1">{controls}</div>
+      </form>
+    </>
   )
 }

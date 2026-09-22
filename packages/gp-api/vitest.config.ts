@@ -59,11 +59,15 @@ export default defineConfig({
     // Pulumi's separate dependency tree), but the alert definitions under it
     // are plain functions, and a wrong one is only ever discovered by a page
     // that misleads whoever it wakes.
+    // seed/ is here for the same reason as deploy/: it is not application code,
+    // but it writes to a real database and its mistakes are invisible until
+    // someone hits them in a preview environment days later.
     include: [
       'src/**/*.test.ts',
       'scripts/**/*.test.ts',
       'perf/**/*.test.ts',
       'deploy/**/*.test.ts',
+      'seed/**/*.test.ts',
     ],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),
     clearMocks: true,

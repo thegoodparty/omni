@@ -5,7 +5,11 @@ export type ComposeFlowType = 'text' | 'robocall'
 // linking surface — is what fires `ClickCreate` and runs the channel gate now,
 // and flattening every task CTA to `deep_link` would lose the attribution the
 // in-place launch used to report.
-export type ComposeSource = 'campaign_manager' | 'campaign_tracker'
+export type ComposeSource =
+  | 'campaign_manager'
+  | 'campaign_tracker'
+  // The voter data page's "Choose a channel" picker.
+  | 'voter_data'
 
 // A task CTA links into the hub rather than mounting a flow in place: the hub
 // owns the one instance of each channel flow (and the gates in front of them),

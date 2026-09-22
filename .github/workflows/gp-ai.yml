@@ -234,15 +234,29 @@ jobs:
             autopilot-agent-playwright) echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
           esac >> "$GITHUB_OUTPUT"
 
-          # Only the autopilot Dockerfile bakes in a second, named build
-          # context (a runbooks checkout — see its header comment), and only
-          # the -playwright variant needs Chromium installed. Repo-root
-          # relative because actions/checkout puts CI's cwd at the repo root,
-          # not packages/gp-ai. Every other service gets empty values, which
-          # docker/build-push-action treats as "nothing extra".
+          # Only the autopilot Dockerfile bakes in named build contexts beyond
+          # its own subtree: a runbooks checkout (see its header comment) and,
+          # since ENG-11149, the full omni checkout ("omni-checkout") the
+          # Dockerfile's warm-image bake COPYs rather than cloning again over
+          # the network. This job's own actions/checkout above is already
+          # exactly that checkout — repo-root relative because actions/checkout
+          # puts CI's cwd at the repo root, not packages/gp-ai. Only the
+          # -playwright variant needs Chromium installed. Every other service
+          # gets empty values, which docker/build-push-action treats as
+          # "nothing extra".
+          # Multi-line heredoc, not a comma-joined single line: build-contexts
+          # is a newline-delimited list (same shape as the `key: |` YAML block
+          # form docker/build-push-action's docs use), and a comma-joined
+          # value would be parsed as one context named "runbooks" whose path
+          # is the literal string "packages/runbooks,omni-checkout=.".
           case "${{ matrix.service }}" in
             autopilot-agent|autopilot-agent-playwright)
-              echo "build-contexts=runbooks=packages/runbooks" >> "$GITHUB_OUTPUT"
+              {
+                echo "build-contexts<<BUILD_CONTEXTS_EOF"
+                echo "runbooks=packages/runbooks"
+                echo "omni-checkout=."
+                echo "BUILD_CONTEXTS_EOF"
+              } >> "$GITHUB_OUTPUT"
               ;;
             *)
               echo "build-contexts=" >> "$GITHUB_OUTPUT"

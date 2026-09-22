@@ -36,6 +36,56 @@ describe('RecordPhoneBankingCallSchema', () => {
     )
   })
 
+  it('accepts a serve answered call carrying only followUp', () => {
+    const call = {
+      entryId: 1,
+      outcome: 'answered',
+      personId: 'p1',
+      followUp: 'yes',
+    }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).not.toThrow()
+  })
+
+  it('rejects followUp when outcome is not answered', () => {
+    const call = { entryId: 1, outcome: 'voicemail', followUp: 'yes' }
+    expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(
+      /followUp is only valid when outcome is answered/,
+    )
+  })
+
+  // The two surfaces are alternatives, and the route takes any HTTP caller —
+  // nothing downstream of this parse would reject the combination, so a
+  // crafted body could otherwise make the column's meaning depend on who
+  // wrote the row.
+  it('rejects followUp alongside either win answer', () => {
+    const base = { entryId: 1, outcome: 'answered', personId: 'p1' }
+    const message =
+      /followUp is mutually exclusive with supportAnswer and willVote/
+
+    expect(() =>
+      RecordPhoneBankingCallSchema.parse({
+        ...base,
+        followUp: 'yes',
+        supportAnswer: 'supporter',
+      }),
+    ).toThrow(message)
+    expect(() =>
+      RecordPhoneBankingCallSchema.parse({
+        ...base,
+        followUp: 'yes',
+        willVote: 'yes',
+      }),
+    ).toThrow(message)
+    expect(() =>
+      RecordPhoneBankingCallSchema.parse({
+        ...base,
+        followUp: 'no',
+        supportAnswer: 'non_supporter',
+        willVote: 'no',
+      }),
+    ).toThrow(message)
+  })
+
   it('rejects an answered call with no personId', () => {
     const call = { entryId: 1, outcome: 'answered' }
     expect(() => RecordPhoneBankingCallSchema.parse(call)).toThrow(

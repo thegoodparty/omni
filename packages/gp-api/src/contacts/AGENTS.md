@@ -63,9 +63,16 @@ fixes track under ENG-10744.
   condition, conditions AND across. Empty `actions` = membership in that
   outreach ("everyone it reached").
 - **Win vs Serve is the `eo-` org-slug prefix**, nothing else. Serve never
-  receives `politicalParty` (server-stripped) and party filters 400. Precinct
+  receives `politicalParty` (server-stripped) and party filters 400. The
+  person activity feed strips the same way and for the same reason
+  (`contactEngagement.service.ts`): a door-knock or phone-banking row's
+  `supportAnswer`/`willVote` are Win facts about a person, so both read null
+  for an `eo-` org. Stripped server-side rather than hidden per reader,
+  because that feed has two — the walk's person sheet and the Constituent Data
+  overlay — and one null fixes both plus whatever reads it next. Precinct
   is NOT in that set — it is offered to both, because a precinct is an
   administrative subdivision of the district an official already serves.
+- **Precinct is the one filter with no fixed vocabulary, and the assistant reaches it through a tool rather than the catalog.** `list_precincts` (crm-tools, registered beside `count_contacts` on both handlers) reads `GET /v1/contacts/precincts` and returns the ENCODED `county|precinct` values to pass straight into the `precincts` filter field. It exists because the catalog publishes each dimension's complete vocabulary and precinct's is per-district, so precinct stays absent from `filterDimensions.catalog.ts` and the tool's own description is what tells the model the dimension exists — the two must stay registered together. Before it, the assistant told holders their own precinct was not a dimension it could filter on while the wizard beside it offered exactly that filter; the filter plumbing was always there (`voterFilterBaseSchema.precincts`, which both `count_contacts` and `crud_saved_filters` inherit), only the discovery was missing.
 - **Precinct is the one filter with no fixed vocabulary.** Every other
   dimension declares its values in `filterDimensions.catalog.ts`; precinct's
   are enumerated per district, so it is deliberately absent from that catalog
@@ -114,12 +121,17 @@ gating is per-action inside the services (see Access control).
 | `GET /v1/contacts`                                                                 | List/search. Small page doubles as the typeahead backend                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `GET /v1/contacts/:id`                                                             | Person detail (+ derived `supportStatus`, `optedOutAt`)                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `GET /v1/contacts/stats`                                                           | District aggregates (stat cards; open to non-Pro)                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `POST /v1/contacts/count`                                                          | Live count for an unsaved filter (wizard running total; assistant `count_contacts` parity)                                                                                                                                                                                                                                                                                                                                                                 |
+| `POST /v1/contacts/count`                                                          | Live count for an unsaved filter (wizard running total; assistant `count_contacts` parity). Takes an optional `boundaryFromSegmentId`: the saved list being EDITED, whose drawn boundary is then intersected with the inline criteria. Only the boundary is read from it — every filter field still comes from the body, because those are what the holder is editing. Without it the edit wizard counted a boundaried list at its pre-boundary size (an inline filter carries neither `id` nor `geoPoly`, so `resolveGeoIdFilter` saw no boundary), so a list reading 339 on its detail sheet offered "Save changes (5,356)". Resolved through the org-scoped segment lookup, so a client-supplied id 404s unless this org owns it                                                                                                                                                                                                                                                                                                                                                                 |
 | `GET /v1/contacts/precincts`                                                       | The Precinct filter's option list: distinct `(County, Precinct)` in the org's district with a voter count each, capped at 5,000 with a `truncated` flag. Pro-gated, served to Win and Serve alike, and deliberately UNFILTERED — the list is the dimension's vocabulary, so it must not shrink as other filters narrow and strand an already-picked precinct                                                                                       |
 | `POST /v1/contacts/overlap-count`                                                  | Saved-list overlap for the wizard's "N (P%) voters already exist in lists you've saved" strip (ENG-10840): the in-progress selection AND'd with the union of the org's saved lists (capped at the 25 most recent, truncation logged). Same in-progress payload and Pro gate as `count`                                                                                                                                                                     |
+| `POST /v1/contacts/polygon-preview`                                                | Live count for a boundary drawn over an in-progress list: same unsaved-draft payload and gates as `count`, narrowed by a bbox prefilter plus an in-process ray-cast (people_db has no geometry column, so there is no ST_Contains to run). Returns `{ count, audienceEmpty }` — `audienceEmpty` separates "your filters match nobody" from "this shape holds none of your audience", which are the same zero on the wire and different problems. Over the query's cap it 400s rather than truncating                                                                                                 |
+| `POST /v1/contacts/points`                                                        | The dots the Serve wizard's draw step draws on: everyone the in-progress filters match across the whole district, as bare `{ id, lat, lng }`. Sibling of `polygon-preview` — same unsaved-draft payload and gates, minus the shape, because the map has to show the list before there is a shape to narrow it with. Names and addresses are deliberately absent (the step has no person overlay behind its dots, and this is the widest read in the CRM). Unlike its sibling it **truncates rather than 400s** past its cap (`MAX_RESULTS_PER_PAGE`, matching the saved-list map) and says so with `truncated` — a map that declines to draw teaches the holder less than a partial one                                                                                                 |
+| `GET /v1/campaigns/mine/recommended-lists/:variant/download` (recommendedLists module) | The saved-list CSV for a recommendation not saved yet: resolves the variant's global universe, then `ContactsService.downloadFilter` — `downloadContacts` fed an inline filter, always individual voters (`docs/features/recommended-lists.md`) |
+| `POST /v1/contacts/list-detail`                                                    | The same demographics + reachability for an UNSAVED filter — the body is the count endpoint's inline filter (`CountContactsDTO`), run through the same resolution. `outreachHistory` is always `[]`: nothing has been sent to a list that does not exist. Backs the voter data page's recommended-list detail sheet (`docs/features/recommended-lists.md`) |
 | `GET /v1/contacts/list-detail`                                                     | Saved-segment detail (`segment` param): demographics, reachable-by-channel (sms/robocall/phoneBanking/doorKnocking/polls), outreach history. Omitting `segment` returns the universe row's detail instead — the whole unfiltered district, `outreachHistory` always `[]` (ENG-10778). History excludes `doorKnocking` rows (the door-knock tool writes its own interaction rows) and orders null `date`s last with `createdAt` fallback fields (ENG-10776) |
 | `GET /v1/contacts/download`                                                        | Streaming CSV export: a curated ~76-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766, widened in DATA-2281), not the raw L2 columns. Serve downloads drop party, turnout propensity, and vote history **columns** entirely via projection (`SERVE_EXCLUDED_DOWNLOAD_COLUMNS`, which is `EXCLUDABLE_VOTER_COLUMNS` verbatim, ENG-10830) since a stream can't be post-processed                                                            |
 | `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404). `@AllowVolunteer()` (ENG-11057) — a volunteer gets full CRUD, but only on people reachable through an assigned outreach envelope; see Access control                                                                                                                                                                                                                                                          |
+| `PATCH /v1/contacts/:personId/follow-up`                                           | Serve's standing follow-up flag (`{ value: 'requested' \| 'cleared' }` → `{ followUp }`). 400s for a non-`eo-` org, the mirror of the status route's Serve rejection. Its own route rather than a third `field` on that one, whose response promises both of Win's editable statuses and which a Serve write can honestly supply neither of                                                                                                                       |
 | `POST /v1/contacts/:personId/interactions`                                         | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                      |
 | `GET /v1/contact-engagement/:id/activities`                                        | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                     |
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`  | Saved-filter CRUD; PUT/DELETE 409 once locked                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -139,6 +151,7 @@ id-list filter can't enumerate outside the org's district.
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `VoterFileFilter`                              | The saved filter (UI "list"). ~60 demographic columns, `search`, `supportStatus`, `firstUsedForOutreachAt` (the lock), org FK cascade, plus `recommendedVariant` / `recommendedChannel` / `recommendedIntent` / `recommendedModified` — provenance stamped at create when the list came from a recommended-list card, never a filter criterion (`docs/features/recommended-lists.md`) |
 | `VoterFileFilterActivityCondition`             | Owned condition rows: `outreachType` + `outreachId?` (null = any campaign of that channel) + `actions[]` (`ActivityConditionAction` enum; per-channel validity is Zod-enforced at the boundary, 400 otherwise)                                                                                                                                                                        |
+| `VoterFileFilterGeoMember`                     | The person-id set a drawn boundary resolved to, frozen at draw time. The GEOGRAPHIC half of a list, not its membership. `geoPoly` set with zero rows means the shape enclosed nobody and must resolve to empty, never to "no constraint"                                                                                                       |
 | `ContactInteractionText`                       | Per-recipient send truth: `outreachId` FK, `respondedAt`, `optedOutAt`, `sourceEventId`, `manual`. Unique `[outreachId, personId]`                                                                                                                                                                                                                                                    |
 | `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`, `sourceCallId`) — but **the outcome columns are only ever written by the manual log**; campaign-materialized rows have them null forever (ADR 0013)                                                                                                                                                                        |
 | `ContactInteractionDoorKnock`                  | `outcome`, three-way `supportAnswer`, `note`, `manual`, `sourceId`, `actorUserId`. Unique `[organizationSlug, sourceId]`. Written by the in-house door-knocking tool, never by outreach launch                                                                                                                                                                                        |
@@ -469,16 +482,73 @@ system-wide invariant that Serve never carries `voter_likelihood`
 overrides — a real (if currently UI-unreachable) gap in the shared module,
 not a speculative guard.
 
+### Serve's follow-up flag
+
+`ContactStatusField.follow_up` is the layered status model's fifth field and
+the only one Serve writes. It is deliberately not a column on the interaction
+tables: `contact_interaction_phone_banking.follow_up` and
+`contact_interaction_door_knock.follow_up` answer "did this ONE call or knock
+end owing this person something", which is immutable history, while this field
+answers "is anything still owed", which an official toggles as they work
+through people. Vocabulary is `FollowUpStatus { requested, cleared }`, with
+`cleared` a real value rather than a deleted row for the ADR 0007 reason —
+"who followed up, and when" is the question the feature exists to answer.
+
+Three writers, all through `ContactStatusService.changeStatus`:
+`ContactsService.updateFollowUp` (`source: manual`, `actorUserId` from
+`@ReqUser()`, no Pro gate — an `eo-` org clears `hasElectedOfficeAccess`
+outright), `PhoneBankingCallService.emitFollowUpEvents`
+(`source: phone_banking`, `sourceId` minted per save from
+`(interactionId, updatedAt)` so a corrected answer records a new event), and
+`ContactInteractionDoorKnockService.emitFollowUpEvent` (`source: door_knock`,
+`sourceId` stable per synced knock so a replay no-ops, same accepted
+correction limitation as the `willVote` twin above). Each carries the inverse
+of the likelihood writers' guard — `startsWith('eo-')` must be true — and
+`fallbackFromValue: FollowUpStatus.cleared`, since nothing derives this field
+and nobody is born flagged.
+
+**Latest answer wins**, including a caller's "no" clearing a flag set by hand
+on the contact card. Only-ever-raising was rejected: the flag's job is to say
+what is STILL owed, and a flag that only accumulates is one nobody trusts. The
+clear is its own event with its own actor.
+
+**No backfill** from the follow-up answers already on interaction rows —
+replaying history would raise flags on people whose request may long since
+have been met, and an official cannot tell a stale flag from a live one.
+
+**The audience side.** `voter_file_filter.follow_up_requested` is the saved-
+filter dimension that turns the flag into people you can act on. It is not a
+voter-file column: it resolves through
+`ContactStatusService.personIdsByFieldValue(follow_up, [requested])` into an
+`id: { in }` constraint, AND-composed via `intersectIdFilterResolutions` the
+same way `contactsMade` is, and it sits in `fieldsHandledSeparately` so the
+generic loop never tries to map it. Serve-only and the exact mirror of
+`contactsMade`: `resolveIdFilterWithContactsMade` takes one branch or the
+other, and `assertNoFollowUpFilterForCampaign` 400s a Win org rather than
+ignoring the key, because a silently-dropped dimension returns a WIDER
+audience than asked for and a phone list built from it calls people nobody
+selected. Nobody flagged resolves to an EMPTY audience, never an absent
+filter, for the same reason.
+
+AND-ed with an activity condition pinned to one outreach, it expresses "who
+from that closed campaign still needs calling back" — which is what the
+results drawer's follow-up block saves, and what phone banking then builds a
+call sheet from. Because it reads the standing flag, that list shrinks as the
+official works it down, while the campaign's own `byFollowUp.yes` count is
+frozen history and can only grow; the two are supposed to disagree.
+
+`ContactEngagementService` filters the feed's `contact_status_event` read by
+field rather than skipping it for Serve: `field: follow_up` for an `eo-` org,
+`field: { not: follow_up }` otherwise, so neither surface can read back the
+answer to a question its own canvassers never asked. `findPerson` includes
+`followUp` on the person payload for `eo-` orgs only, the exact mirror of
+`voterLikelihood`'s Win-only inclusion.
+
 ### Saved-filter lifecycle
 
 Create/edit via the wizard (or the assistant's `crud_saved_filters`) →
-`voters/voter-file` CRUD. The assistant is told to disclose when a
-candidate's ask has no real filter behind it (a county, city, or zip, for
-example) and to confirm with them before counting or saving under that
-wording. As a last-resort backstop, `crud_saved_filters` also silently
-refuses to create or rename a list under a name the filter cannot back up
-(a place word with no precinct narrowing behind it). At first outreach
-launch `stampFirstUsedForOutreach` claims the lock atomically
+`voters/voter-file` CRUD. At first outreach launch
+`stampFirstUsedForOutreach` claims the lock atomically
 (`updateMany WHERE first_used_for_outreach_at IS NULL`) — after that,
 PUT/DELETE 409 ("duplicate to edit"; the webapp reposts criteria as a
 copy). The stamp happens **before** the channel guard in materialization,
@@ -561,6 +631,15 @@ free-tier rules are inherited, never re-implemented. **No tool returns an
 individual voter row** — aggregates, dimension metadata, and filter
 ids/names only. `describe_filter_dimensions` reads
 `filterDimensions.catalog.ts`, the single mode-aware vocabulary source.
+`crud_saved_filters` gained `action='get'`, the only way to read a SAVED
+list's current size: `list` returns ids and names, `create` counts the filter
+it was handed, and nothing answered "how big is list 7 now" — so the
+assistant quoted whatever figure appeared earlier in the conversation, which
+goes stale the moment a boundary is drawn on that list. It counts via
+`ContactsService.countSegment`, which resolves by segment and therefore
+applies the frozen geo members and the stored search the way every other
+read of that list does. Counts stay OFF `action='list'` deliberately: one
+count per saved list is the per-row N+1 that 504'd the lists index in prod.
 Most catalog entries carry an optional `provenance` mark
 (`observed` | `modeled` | `derived`) and the catalog exports the one rule
 string that tells the model what a mark obliges it to say

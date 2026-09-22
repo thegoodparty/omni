@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
   Badge,
@@ -41,6 +40,8 @@ import { useContactsTable } from '../ContactsTableProvider'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { OUTREACH_CHANNEL_NOUNS } from '../shared/outreachChannelLabels'
 import CrmSheet from '../shared/CrmSheet'
+import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
+import ListMapSection from '../map/ListMapSection'
 import ListFilterSummary from './ListFilterSummary'
 import ReachabilityGrid from './ReachabilityGrid'
 import DeleteListDialog from './DeleteListDialog'
@@ -82,6 +83,7 @@ export default function ListDetailSheet({
 
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [duplicateOpen, setDuplicateOpen] = useState(false)
+  const openChannelPicker = useOpenChannelPicker()
 
   const isUniverse = listId === ALL_SEGMENTS
 
@@ -284,7 +286,7 @@ export default function ListDetailSheet({
               onClick={handleDownload}
               loading={isPreparing}
             >
-              {!canUseProFeatures ? (
+              {isPreparing ? null : !canUseProFeatures ? (
                 <LockIcon className="size-4" />
               ) : (
                 <DownloadIcon className="size-4" />
@@ -296,18 +298,20 @@ export default function ListDetailSheet({
                 resolves. `segment` also excludes universe mode — that
                 row's own card carries its own Send outreach button. */}
             {segment && isWinContextReady && isWinContext && (
-              <Button className="h-11 flex-1 text-sm" asChild>
-                <Link
-                  href={`/dashboard/outreach?listId=${segment.id}`}
-                  onClick={() =>
-                    trackEvent(EVENTS.VoterData.SendOutreachClicked, {
-                      listId: segment.id,
-                      surface: 'listDetail',
-                    })
-                  }
-                >
-                  Send outreach
-                </Link>
+              <Button
+                className="h-11 flex-1 text-sm"
+                onClick={() => {
+                  trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                    listId: segment.id,
+                    surface: 'listDetail',
+                  })
+                  // The prototype swaps this drawer for "Choose a channel";
+                  // two full-height sheets never stack.
+                  onClose()
+                  openChannelPicker({ kind: 'list', segment })
+                }}
+              >
+                Send outreach
               </Button>
             )}
           </div>
@@ -345,6 +349,17 @@ export default function ListDetailSheet({
               segment={segment}
               isElectedOfficial={isElectedOfficial}
             />
+          )}
+
+          {/* Serve only, and not because of the Pro gate — an elected office
+              always clears that. Everywhere else in the CRM a list is a filter
+              summary and a set of counts, never the people themselves, and
+              putting names on a map is a different thing to reveal. An
+              officeholder is being asked to go and talk to these constituents,
+              so where they are IS the answer; a candidate's list is an
+              audience to send to and has no such use for it. */}
+          {!isUniverse && segment && isElectedOfficial && (
+            <ListMapSection segment={segment} />
           )}
 
           <div className="flex flex-col gap-2">
@@ -423,6 +438,7 @@ export default function ListDetailSheet({
             reachability={detailQuery.data?.reachability}
             isLoading={detailQuery.isLoading}
             isError={detailQuery.isError}
+            isWinContext={isWinContextReady && isWinContext}
           />
 
           {!isUniverse && (

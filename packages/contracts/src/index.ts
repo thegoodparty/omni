@@ -120,10 +120,17 @@ export {
   type NotAVoterStatus,
   NotAVoterReasonSchema,
   type NotAVoterReason,
+  FollowUpStatusSchema,
+  type FollowUpStatus,
+  UpdateFollowUpInputSchema,
+  type UpdateFollowUpInput,
+  FollowUpStatusResponseSchema,
+  type FollowUpStatusResponse,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
   DO_NOT_KNOCK_LABELS,
   NOT_A_VOTER_LABELS,
+  FOLLOW_UP_STATUS_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 
@@ -737,6 +744,42 @@ export {
 } from './chats/Chat.schema'
 
 export {
+  ShowListMapSchema,
+  type ShowListMap,
+} from './chats/ChiefOfStaffWidgets.schema'
+
+export {
+  CHAT_ATTACHMENT_MAX_BYTES,
+  CHAT_ATTACHMENT_MAX_PAGES,
+  CHAT_ATTACHMENTS_PER_CONVERSATION,
+  CHAT_ATTACHMENT_ALLOWED_MIME_TYPES,
+  CHAT_ATTACHMENT_SOURCE_VALUES,
+  ChatAttachmentSourceSchema,
+  type ChatAttachmentSource,
+  CHAT_ATTACHMENT_STATUS_VALUES,
+  ChatAttachmentStatusSchema,
+  type ChatAttachmentStatus,
+  ChatAttachmentSchema,
+  type ChatAttachment,
+  PresignRequestSchema,
+  type PresignRequest,
+  PresignResponseSchema,
+  type PresignResponse,
+  FinalizeRequestSchema,
+  type FinalizeRequest,
+  LinkAttachRequestSchema,
+  type LinkAttachRequest,
+  LinkAttachResponseSchema,
+  type LinkAttachResponse,
+  ChatAttachmentListResponseSchema,
+  type ChatAttachmentListResponse,
+  ChatAttachmentDownloadResponseSchema,
+  type ChatAttachmentDownloadResponse,
+  ChatMessageSegmentCitationPayloadSchema,
+  type ChatMessageSegmentCitationPayload,
+} from './chats/ChatAttachment.schema'
+
+export {
   MeetingAgentDispatchKindSchema,
   type MeetingAgentDispatchKind,
   DispatchMeetingAgentRequestSchema,
@@ -1173,7 +1216,11 @@ export {
   type PhoneBankingOutreachDetail,
 } from './phoneBanking/PhoneBankingList.schema'
 
-export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'
+export {
+  CONSTITUENT_NAME_TOKEN,
+  CONTACT_NAME_TOKENS,
+  VOTER_NAME_TOKEN,
+} from './phoneBanking/PhoneBankingScript.const'
 
 export {
   TEST_FIXTURE_STATE_VALUES,

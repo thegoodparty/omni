@@ -243,7 +243,7 @@ describe('SessionGuard — impersonating flag', () => {
     it('allows an agent token on a non-McpController route with a valid marker', async () => {
       class CampaignsController {}
       const req = buildRequest('agent-tok')
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+
       const headers = req.headers as unknown as Record<string, string>
       headers['x-mcp-internal-marker'] = MARKER
       const ctx = buildContextForClass(req, CampaignsController)
@@ -255,7 +255,7 @@ describe('SessionGuard — impersonating flag', () => {
     it('rejects an agent token on a non-McpController route without a valid marker', async () => {
       class CampaignsController {}
       const req = buildRequest('agent-tok')
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+
       const headers = req.headers as unknown as Record<string, string>
       headers['x-mcp-internal-marker'] = 'wrong-marker'
       const ctx = buildContextForClass(req, CampaignsController)

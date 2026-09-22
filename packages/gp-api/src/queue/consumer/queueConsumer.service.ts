@@ -55,6 +55,7 @@ import {
   AgentExperimentResultSchema,
   DomainEmailForwardingMessage,
   CvStatusPollMessageSchema,
+  ExtractChatAttachmentMessageSchema,
   Nightly10DlcReportMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
@@ -72,6 +73,7 @@ import {
   TcrComplianceStatusCheckMessage,
 } from '../queue.types'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
+import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
@@ -171,6 +173,7 @@ export class QueueConsumerService {
     private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
     private readonly hubspotSingleSend: HubspotSingleSendService,
+    private readonly chatAttachments: ChatAttachmentsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -467,6 +470,14 @@ export class QueueConsumerService {
         }
         return await this.ordinanceQualityLoop.handleStep(step.data)
       }
+      case QueueType.EXTRACT_CHAT_ATTACHMENT:
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
+            queueMessage.data,
+          )
+          await this.chatAttachments.runExtraction(attachmentId)
+          return true
+        })
       default:
         this.logger.warn(
           { messageId: message.MessageId, body: message.Body },

@@ -152,9 +152,12 @@ resource "aws_lambda_permission" "autopilot_bot_alb_invoke" {
 
 # No x-api-key condition (unlike serve_analyze/ddhq_matcher): auth is the
 # HMAC signature the Lambda itself verifies against the request body
-# (AUTOPILOT_CLICKUP_WEBHOOK_SECRET), the same posture as clickup_bot's
-# single, unconditional listener rule. Priority 30: shared-infra's own rules
-# on this listener top out at 25 (dev) / 20 (prod) as of this writing.
+# (AUTOPILOT_CLICKUP_WEBHOOK_SECRET / AUTOPILOT_SLACK_SIGNING_SECRET), the
+# same posture as clickup_bot's single, unconditional listener rule. One rule
+# forwards BOTH paths to the same Lambda/target group — handler.py itself
+# branches on the ALB-supplied `path` to tell ClickUp's webhook from Slack's
+# Events API (ENG-11150). Priority 30: shared-infra's own rules on this
+# listener top out at 25 (dev) / 20 (prod) as of this writing.
 resource "aws_lb_listener_rule" "autopilot_bot" {
   listener_arn = data.aws_lb_listener.https.arn
   priority     = 30
@@ -166,7 +169,7 @@ resource "aws_lb_listener_rule" "autopilot_bot" {
 
   condition {
     path_pattern {
-      values = ["/autopilot/webhook"]
+      values = ["/autopilot/webhook", "/autopilot/slack"]
     }
   }
 

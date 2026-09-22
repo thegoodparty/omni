@@ -8,6 +8,7 @@ import {
   ALERT_OWNERSHIP,
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
   GLOBAL_ALERTS,
+  ROUTE_ERROR_THRESHOLDS,
   SERVER_ERRORS_ONLY,
 } from '../alerts'
 import { controllerAlerts } from './controller-alerts'
@@ -105,10 +106,23 @@ describe('controllerAlerts', () => {
     }
   })
 
-  // A controller with no public routes (currently `mcp`) has nothing to watch,
-  // and grafana.ts skips empty rule groups rather than fail preview.
-  it('builds nothing for a controller with no routes', () => {
-    expect(controllerAlerts('mcp')).toHaveLength(0)
+  // `mcp` generated no rule at all until 2026-09-17. Its only handler is
+  // `@All()`, which generate-route-types.ts did not recognise, so the
+  // controller reached CONTROLLER_NAMES with an empty ROUTE_MAP and the loop
+  // below it had nothing to iterate — while POST /v1/mcp served 24,736 requests
+  // in 30 days and GET another 69,016.
+  //
+  // Both live methods are named rather than just asserting a rule exists: the
+  // generator expands `@All()` across every method fastify registers, and a
+  // regression to one of them would still produce a rule that looks right and
+  // watches half the endpoint.
+  it('watches every method the mcp @All() handler answers', () => {
+    const alert = onlyAlert('mcp')
+
+    expect(alert.expr).toContain('GET /v1/mcp')
+    expect(alert.expr).toContain('POST /v1/mcp')
+    expect(alert.disabled).toBe(false)
+    expect([alert.notify ?? []].flat()).toEqual(['serve-bugs', 'win-bugs'])
   })
 
   // The rule now reads the whole gp-api stream, so the endpoint pattern is the
@@ -491,5 +505,100 @@ describe('every controller is accounted for', () => {
       undeclared,
       "a hand-written rule in GLOBAL_ALERTS already queries these controllers' routes, but nothing pairs the two — delete that rule and the controller goes silent with every test still green",
     ).toEqual([])
+  })
+})
+
+// Raising a controller's threshold buys quiet by giving up the first error or
+// two, which is a trade worth making on exactly one kind of route and a way to
+// go silent everywhere else. These are what keep an entry honest.
+describe('route error thresholds', () => {
+  const raised = Object.keys(ROUTE_ERROR_THRESHOLDS) as ControllerName[]
+
+  // The default is the whole safety story for every controller not listed: one
+  // error still pages. If this inverts, a typo in the map silences the estate.
+  it('leaves an unlisted controller paging on a single error', () => {
+    for (const controller of CONTROLLER_NAMES) {
+      if (ROUTE_MAP[controller].length === 0) continue
+      if (controller in ROUTE_ERROR_THRESHOLDS) continue
+
+      expect(onlyAlert(controller).threshold, `${controller}`).toBe(0)
+    }
+  })
+
+  it('applies the configured threshold to the generated rule', () => {
+    for (const controller of raised) {
+      expect(onlyAlert(controller).threshold, `${controller}`).toBe(
+        ROUTE_ERROR_THRESHOLDS[controller],
+      )
+    }
+  })
+
+  // An entry of 0 is the default wearing a costume: it reads as "measured and
+  // tuned" in a diff while changing nothing, and the next person to widen it
+  // starts from a number nobody chose.
+  it('never lists a controller at the default', () => {
+    for (const controller of raised) {
+      const threshold = ROUTE_ERROR_THRESHOLDS[controller]
+      expect(threshold, `${controller}`).toBeGreaterThan(0)
+      expect(
+        Number.isInteger(threshold),
+        `${controller} is not a whole count`,
+      ).toBe(true)
+    }
+  })
+
+  // The map is keyed by ControllerName, so a typo fails to compile — but an
+  // entry outlives the controller it names, and a silent no-op entry would
+  // absorb a future controller that reused the name.
+  it('names only controllers that have routes', () => {
+    for (const controller of raised) {
+      expect(ROUTE_MAP[controller].length, `${controller}`).toBeGreaterThan(0)
+    }
+  })
+
+  // Raising the bar on a rule that is provisioned disabled is a claim about
+  // nothing, and reads in review as though the route were covered.
+  it('only raises the bar on a rule that is actually enabled', () => {
+    for (const controller of raised) {
+      expect(onlyAlert(controller).disabled, `${controller}`).toBe(false)
+    }
+  })
+
+  // THE ONE THAT MATTERS. Giving up the first errors is only safe because a
+  // second rule still answers "is this route substantially broken" — on
+  // public-person-profiles that is the ratio rule, and it is what would have
+  // caught the August outage on its first window. Delete it and this map
+  // quietly becomes the thing that hides the next one.
+  it('keeps a hand-written rule covering every controller it quiets', () => {
+    for (const controller of raised) {
+      const paths = ROUTE_MAP[controller]
+        .map(({ endpoint }) => endpoint.split(' ')[1])
+        .filter((path): path is string => Boolean(path))
+
+      expect(
+        GLOBAL_ALERTS.some((alert) =>
+          paths.some((path) => alert.expr.includes(path)),
+        ),
+        `${controller} has a raised route-error threshold and no hand-written rule querying its routes, so a fault below that threshold now pages nobody at all`,
+      ).toBe(true)
+    }
+  })
+
+  // The notification is read by someone deciding how urgent this is, and "it
+  // returned errors" and "it returned more than two errors" are different
+  // incidents. The prose is generated, so it can drift from the evaluator.
+  it('states the count it took to fire, and only when raised', () => {
+    for (const controller of CONTROLLER_NAMES) {
+      if (ROUTE_MAP[controller].length === 0) continue
+
+      const alert = onlyAlert(controller)
+      const expected =
+        alert.threshold > 0 ? `more than ${alert.threshold} ` : ''
+
+      expect(alert.message, `${controller}`).toContain(`returned ${expected}`)
+      if (alert.threshold === 0) {
+        expect(alert.message, `${controller}`).not.toContain('more than')
+      }
+    }
   })
 })

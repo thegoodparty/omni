@@ -83,6 +83,29 @@ variable "escalation_repos" {
   default     = "thegoodparty/omni"
 }
 
+variable "bugs_channel_id" {
+  description = <<-EOT
+    Slack channel id where an analysis that ends without a PR announces that a
+    human now holds the ticket. The SAME channel as vars.GPBOT_PR_CHANNEL_ID in
+    the workflows (C022VR6PRQC, #bugs): a bot PR and a bot handoff are two
+    outcomes of the same run and belong in front of the same rotation.
+
+    An id, not a name, because chat.postMessage takes an id and a renamed
+    channel would otherwise break the post silently.
+
+    Unset disables the announcement, and the agent logs an ERROR each time it
+    would have made one. That is the deliberate shape of the switch: `needs-human`
+    with nobody told is the failure this exists to fix, so it must not be able to
+    return by way of an empty variable nobody noticed.
+
+    The app behind AI_SECRETS_<ENV>.SLACK_BOT_TOKEN has to be a member of it.
+    That is gp_ai_bot, which is already in #bugs — NOT the analytics app, which
+    is in #product-analytics only and answers not_in_channel everywhere else.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "shared_slack_notifier_lambda_arn" {
   description = "ARN of the shared Slack notifier Lambda function"
   type        = string
@@ -96,9 +119,9 @@ variable "task_cpu" {
 }
 
 variable "task_memory" {
-  description = "Memory for ECS Fargate task in MB"
+  description = "Memory for ECS Fargate task in MB. 8GB: NODE_OPTIONS grants Node a 6GB heap for gp-api's tsc/vitest, which a 4GB task cannot physically house."
   type        = string
-  default     = "4096"
+  default     = "8192"
 }
 
 data "aws_region" "current" {}
@@ -264,6 +287,13 @@ resource "aws_ecs_task_definition" "agent" {
     cpu_architecture        = "ARM64"
   }
 
+  # Same ENOSPC exposure autopilot-agent hit live at Fargate's 20 GiB
+  # default: an omni clone plus npm ci, workspace builds, and Prisma engines
+  # overflow it mid-run.
+  ephemeral_storage {
+    size_in_gib = 60
+  }
+
   container_definitions = jsonencode([
     {
       name  = "engineer-agent"
@@ -333,6 +363,16 @@ resource "aws_ecs_task_definition" "agent" {
         {
           name  = "GPBOT_ESCALATE_REPOS"
           value = var.escalation_repos
+        },
+        {
+          name  = "GPBOT_BUGS_CHANNEL_ID"
+          value = var.bugs_channel_id
+        },
+        # Same OOM class as autopilot-agent: gp-api's tsc/vitest overflow
+        # Node's default heap and burn agent turns on dead verify retries.
+        {
+          name  = "NODE_OPTIONS"
+          value = "--max-old-space-size=6144"
         }
       ]
     }

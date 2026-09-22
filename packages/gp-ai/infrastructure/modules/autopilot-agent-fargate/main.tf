@@ -187,6 +187,19 @@ locals {
     {
       name      = "AMPLITUDE_MANAGEMENT_API_KEY"
       valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AMPLITUDE_MANAGEMENT_API_KEY::"
+    },
+    {
+      # Clerk machine secret (ak_...) for the "autopilot-qa" machine in the
+      # DEV Clerk instance, scoped to the gp-api machine. The qa stage mints a
+      # short-TTL mt_ token from it at run start (gp-api's
+      # ElectionApiTokenService pattern — Clerk caps m2m token TTLs, so a
+      # static long-lived token is not an option) to call the
+      # AdminOrM2MGuard-protected test-fixtures API for QA users. Same
+      # dev-instance value in both AWS envs: qa always verifies against the
+      # dev deploy (test-fixtures 404s outside dev/preview), so prod rollout
+      # changes nothing here.
+      name      = "AUTOPILOT_MACHINE_SECRET"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_MACHINE_SECRET::"
     }
   ]
 
@@ -198,6 +211,46 @@ locals {
     {
       name  = "WORKSPACE_DIR"
       value = "/workspace"
+    },
+    # "DEV"/"PROD" below are Amplitude projects, not this AWS environment:
+    # autopilot's flag client (autopilot/agent/amplitude_flags.py) creates
+    # every flag in BOTH Amplitude projects — on at 100% in the dev project,
+    # 0% in prod — no matter which agent environment runs the stage, so both
+    # AWS envs carry all four values. Not var.environment-dependent on
+    # purpose. Ids resolved live from the Experiment management API on
+    # 2026-09-17; they only change if someone adds or deletes a deployment in
+    # the Amplitude UI (see .claude/skills/amplitude-flag/SKILL.md, which
+    # documents the same layout for the human-driven flow).
+    {
+      name  = "AMPLITUDE_DEV_PROJECT_ID"
+      value = "703396"
+    },
+    {
+      name  = "AMPLITUDE_DEV_DEPLOYMENT_IDS"
+      value = "13486"
+    },
+    {
+      name  = "AMPLITUDE_PROD_PROJECT_ID"
+      value = "694490"
+    },
+    {
+      name  = "AMPLITUDE_PROD_DEPLOYMENT_IDS"
+      value = "13485,53792"
+    },
+    # Where the qa stage's test-fixtures calls go. Deliberately the dev API in
+    # both AWS envs, same as the Amplitude ids above: qa verifies stories on
+    # the dev deploy, and the fixtures endpoints only exist there.
+    {
+      name  = "GP_API_DEV_BASE_URL"
+      value = "https://gp-api-dev.goodparty.org"
+    },
+    # gp-api's tsc/vitest overflow Node's default heap — the same OOM CI hit
+    # (release train fixed it with a 6GB NODE_OPTIONS); a live story run
+    # burned dozens of its turns retrying "JavaScript heap out of memory"
+    # verify commands before dying on the turn cap.
+    {
+      name  = "NODE_OPTIONS"
+      value = "--max-old-space-size=6144"
     }
   ]
 }
@@ -215,6 +268,14 @@ resource "aws_ecs_task_definition" "agent" {
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "ARM64"
+  }
+
+  # Fargate's 20 GiB default is not enough for a story run: an omni clone
+  # plus a worktree's npm ci, workspace builds, and Prisma engines overflowed
+  # it live (ENOSPC ~37 minutes into the first Story 2 run, killing the run
+  # mid-implementation with nothing parked on the card).
+  ephemeral_storage {
+    size_in_gib = 60
   }
 
   container_definitions = jsonencode([
@@ -256,6 +317,12 @@ resource "aws_ecs_task_definition" "agent_playwright" {
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "ARM64"
+  }
+
+  # Same ENOSPC reasoning as the base task definition above; qa runs clone
+  # the same repo and additionally carry the browser install.
+  ephemeral_storage {
+    size_in_gib = 60
   }
 
   container_definitions = jsonencode([

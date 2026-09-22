@@ -61,6 +61,19 @@ describe('buildDoorKnockingEvaluateSql', () => {
     )
   })
 
+  // The gate is a routing rule — you cannot walk a canvasser to a street
+  // segment — and it belongs to callers that route. A caller counting who
+  // lives inside a drawn area answers about the population its own map drew,
+  // and the contacts map applies no accuracy filter at all: with the gate on,
+  // every interpolated dot on screen was uncountable and a shape over
+  // hundreds of them came back zero.
+  it('drops the rooftop gate when the caller does not route to a door', () => {
+    const sql = build({ requireRooftopAccuracy: false }).sql
+    expect(sql).not.toContain('Residence_Addresses_LatLongAccuracy')
+    // Still the same bbox query otherwise — only the quality gate goes.
+    expect(sql).toContain('CAST(v.`Residence_Addresses_Latitude` AS DOUBLE)')
+  })
+
   it('casts the text coordinate columns and binds every bbox edge', () => {
     const { sql, params } = build()
     expect(sql).toContain('CAST(v.`Residence_Addresses_Latitude` AS DOUBLE)')

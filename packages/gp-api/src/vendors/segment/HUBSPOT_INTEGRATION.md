@@ -396,6 +396,14 @@ Created` above. The workflow maps them.
 
 When a visitor on a public `/people/*` page asks an unclaimed person to complete their profile, gp-api fires `Person Profile - Completion Requested`. A HubSpot workflow sends the nudge email off it.
 
+> **Status: this has never delivered a nudge in prod.** Both halves of the CRM side-effect are independently dead, and neither failure is visible in the shape you would expect, so check this before believing any number below.
+>
+> - **The event half** has emitted `result="sent"` exactly zero times since launch. Every submission resolves `Person.email` to null and skips, which is a deliberate skip rather than an error, so nothing is logged as a fault. Whether that is thin coverage or something upstream dropping the column is genuinely unresolved — the observed sample is single digits.
+> - **The count half** fails on every submission with `invalid_client (Client authentication failed)` from the shared Serve Databricks service principal, so `candidate_profile_requests` has never been written and no subject's contact status has ever been established. Fix is a credential rotation, not a deploy. Alerted on as `people-claim-request-crm-sync-failing`.
+> - **The contact-gap metric is therefore empty**, because it only records for events that were sent. `new_contact` vs `existing_contact` shares of "0 of 0" say nothing about the attribution cost below.
+>
+> A consequence worth internalising before reading any counter in this document: gp-api metric series did not carry per-task identity until the `service.instance.id` fix in `src/otel.ts`, so both prod tasks' cumulative counters collapsed into one oscillating series. `increase()` over such a series invents numbers — it reported 1,702 completion-request events in a 24h window whose true count was 4. Prefer counting the log lines until you have confirmed the fix is deployed.
+
 | Event Name                              | Resolves the contact by                                               | Fired From                                                                                                         |
 | --------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `Person Profile - Completion Requested` | `context.traits.email` — the **subject's** address, not the visitor's | `CrmPersonProfilesService.emitCompletionRequested` (detached from `POST /v1/public-person-profiles/claim-request`) |
@@ -407,7 +415,8 @@ The event is emitted server-side for that reason. gp-marketing already fires a b
 Rules:
 
 - Only `notify` submissions (a visitor nudging someone else) fire it — an owner claiming their own page does not.
-- No address on file means no event: HubSpot cannot route it to anyone, so sending it would only orphan a record. Watch `person_profile_completion_request_event_count_total{result="no_email"}` — that share is the ceiling on deliverable nudges, and it moves with data coverage rather than with this code.
+- No address on file means no event: HubSpot cannot route it to anyone, so sending it would only orphan a record. `person_profile_completion_request_event_count_total{result="no_email"}` is the ceiling on deliverable nudges, and it moves with data coverage rather than with this code. It is not alerted on, deliberately: the share is ~100% in the steady state, so a threshold on it is a rule that is always true once it has volume. The alert that used to do this (`people-completion-request-no-email-ratio`) was deleted for that reason and replaced by `people-person-contact-email-lookup-failing`, which fires on the lookup erroring — the one part of this that a human can act on.
+- An address is only required because the event has to reach a HubSpot contact. It is **not** required to accept a claim request: `POST /v1/public-person-profiles/claim-request` commits the row and answers 201 before any of this runs, and the required `requesterEmail` on that row is the **visitor's** address. A subject with no address on file loses the nudge, never the lead.
 - The claim request's id is the Segment `messageId`, which collapses a replay onto one email within Segment's deduplication window (~24h). That covers any retry; it is not a permanent guarantee.
 
 ### This creates HubSpot contacts, and that costs attribution

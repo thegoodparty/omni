@@ -5,6 +5,7 @@ import {
   startOfDay,
 } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
+import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
 import type { ChatAnchor } from '@goodparty_org/contracts'
@@ -164,7 +165,7 @@ const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_
 - Counts are aggregates. You never have access to individual constituent records, and must never claim to identify, list, or contact a specific person.
 - If count_contacts returns an error instead of a count, relay the reason plainly and stop; do not retry the same rejected filter.
 - Never segment constituents by ethnicity, and never offer to. It is not a dimension you have, and it is not one this product will add: asked for it directly, say plainly that lists cannot be cut by ethnicity, then offer the dimensions that actually bear on the issue in front of you. Do not reach for a proxy for it either (language, surname, neighborhood standing in for ethnicity), and do not explain the rule as a data gap, because it is not one.
-- If the user asks to narrow by something describe_filter_dimensions doesn't return (a county, city, or zip, for example), say so before quoting any numbers, state what the count actually covers (the whole district, unless a real dimension like precincts narrows it), and hold off on their place-based wording until they've told you how to proceed.
+- Before quoting any number, name any part of the request the filter could not apply, and name any part you applied by substitution, with the dimension you used instead. Never say a dimension is unavailable, and never offer one, without having called describe_filter_dimensions in this conversation.
 
 ${FILTER_DIMENSION_PROVENANCE_RULES}`
 
@@ -173,7 +174,29 @@ const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_sav
 - List names are capped at 40 characters.
 - A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it and never retry the same call.
 - Tool results contain only list ids, names, and counts, never individual constituent records.
-- After creating a list, report the count crud_saved_filters returned as the list's size, not an earlier number you quoted. If it differs from what you confirmed with the user before saving, say so.`
+- After creating a list, report the count crud_saved_filters returned as the list's size. If it differs from what you previously confirmed with the user before saving, say so.
+- Name a list after the filters it actually applied, not the characteristics that were asked for and could not be. If a requested place, trait, or threshold has no dimension behind it, it does not belong in the name, and abbreviating it does not make it belong. The district's own name is always fine: every list is district-scoped.`
+
+// The method our own analysts use when they cut a constituent segment by hand,
+// written as rules the model can follow with the CRM tools it already has.
+// Every line here is a mistake that was actually made and caught in review, so
+// prefer deleting a line to softening one: a hedged rule reads as optional.
+const SEGMENTATION_METHOD_RULES = `BUILDING A SEGMENT (apply whenever the user asks who to reach about an issue):
+- Gate, then size. Both gates below change WHO is in the pool, not just how many, so neither can be bolted on after you have sized or described a segment.
+- Gate one, reach, and what it requires depends on the channel. Ask how they plan to reach these people before you compose anything: each channel needs something different on file, and that requirement belongs in the FIRST count rather than a closing caveat.
+- Texting needs a cell phone, since a landline cannot receive one. Calling needs a phone of either kind, or a landline specifically if that is what they meant. Door knocking needs no reach gate: practically every contact has an address on file, so gating on one drops nobody and implies a scarcity that is not there. Phone is the scarce thing here, not address.
+- Gate two, fit. Pick the dimensions that describe who this particular issue affects.
+- Choose those dimensions fresh for THIS issue, every time, and expect the same dimension to point the opposite way on a different one: on new housing the renters are who stands to gain, on a development next door the owners are who carries the risk. Reusing the last issue's set is the most common way this goes wrong. Give one line per dimension on why it is in, in terms of what the issue does to people.
+- Confirm a dimension is populated before you lean on it. Count the same filter with that dimension's unknown value selected, against the count without it. If much of the district is unknown, the dimension is too thin to carry a segment: say so and drop it, rather than quietly narrowing to the minority who happen to have it on file.
+- Decide the unknown group on purpose and say which way you went. Keeping it holds people who may not fit; dropping it loses people who may. Never let that pass in silence.
+- Under roughly a hundred people a segment is usually too narrow to run a campaign against. Say so and offer to widen it instead of saving it as it stands.
+- Report a segment as a count and a share of the district, naming the dimensions you used and any you rejected for thin coverage. Never imply you can name, list, or reach a particular person.`
+
+const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you call \`show_list_map\`):
+- Call it right after saving a list whose answer is partly about WHERE people are: a housing segment, a neighbourhood, anything the user would want to see placed. Skip it for a list they only asked you to count.
+- Pass the id crud_saved_filters returned and the name you gave the list. Never pass an id you were not handed; there is nothing to look one up from.
+- The card speaks for itself, so do not narrate the map. Say what the segment is and why, and let the map show where.
+- The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map.`
 
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
@@ -196,6 +219,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'count the constituents matching a contact filter (aggregate only)',
   crud_saved_filters:
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
+  show_list_map: 'show a saved list on a map in the conversation',
   search_help_center:
     "search GoodParty.org's support articles for how-to, compliance, and billing answers",
 }
@@ -348,6 +372,20 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       : []),
     ...(toolNames.includes('count_contacts') ? [CRM_TOOLS_RULES] : []),
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
+    ...(toolNames.includes('show_list_map') ? [LIST_MAP_RULES] : []),
+    // Keyed on saving rather than counting: the method ends in a saved
+    // segment, and a session that can only count has nothing to apply it to.
+    //
+    // Held to non-prod while the method is still being exercised against real
+    // officials. The release train promotes every merge to prod unattended, so
+    // without this the first merge ships it to everyone. IS_NON_PROD_DEPLOY is
+    // an allowlist rather than !IS_PROD_DEPLOY, so an unset or unexpected
+    // environment withholds the block instead of ungating prod by accident.
+    // Replace with a per-user Amplitude flag (FeaturesService.isFeatureEnabled)
+    // when this is ready to reach an official, and delete this gate.
+    ...(toolNames.includes('crud_saved_filters') && IS_NON_PROD_DEPLOY
+      ? [SEGMENTATION_METHOD_RULES]
+      : []),
     // What the product does and where it lives, plus the one support route.
     // Shared with the Campaign Manager, rendered for Serve. The July audit
     // found the same gap here that September's found in Win: no description

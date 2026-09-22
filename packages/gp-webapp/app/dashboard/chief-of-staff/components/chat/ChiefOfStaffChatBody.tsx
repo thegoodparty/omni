@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button } from '@styleguide'
+import { Badge, Button, toast } from '@styleguide'
 import {
   ASSISTANT_BUBBLE,
   AssistantMarkdown,
@@ -33,6 +33,20 @@ import type {
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
+import { ShowListMapSchema, type ShowListMap } from '@goodparty_org/contracts'
+import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
+import ChatListMap from './ChatListMap'
+import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
+import {
+  uploadChatAttachment,
+  linkChatAttachment,
+  deleteChatAttachment,
+  listChatAttachments,
+  downloadChatAttachment,
+  isSupportedAttachmentFile,
+  linkErrorMessage,
+  type ChatAttachmentState,
+} from '../../../shared/agent-chat/chatAttachments-api'
 
 interface Props {
   /**
@@ -143,6 +157,19 @@ const CHAT_SUGGESTIONS = [
  * intro on first open, a typed-in seeded greeting, deferred conversation
  * creation, hidden kickoffs, starter chips, and quick prompts.
  */
+const LIST_MAP_TOOL = 'show_list_map'
+
+// Pulls the widget payload back out of a persisted turn. Returns null for
+// every turn without one, which is nearly all of them.
+const listMapFromSegments = (
+  segments: ChatMessageSegment[],
+): ShowListMap | null => {
+  const segment = segments.find((s) => s.toolName === LIST_MAP_TOOL)
+  if (!segment) return null
+  const parsed = ShowListMapSchema.safeParse(segment.payload)
+  return parsed.success ? parsed.data : null
+}
+
 export default function ChiefOfStaffChatBody({
   conversationIdOverride,
   opener,
@@ -177,6 +204,7 @@ export default function ChiefOfStaffChatBody({
     message: string
     retryable: boolean
   } | null>(null)
+  const [liveListMap, setLiveListMap] = useState<ShowListMap | null>(null)
   const [introProgress, setIntroProgress] = useState(0)
   // True once anything has been sent this session (visible OR hidden). Gates the
   // with-greeting starter chips off after a hidden kickoff (which adds no user
@@ -196,6 +224,7 @@ export default function ChiefOfStaffChatBody({
   const creatingRef = useRef(false)
   const loadRequestedRef = useRef(false)
   const lastUserContentRef = useRef('')
+  const lastAttachmentIdsRef = useRef<string[]>([])
   // Tracks the pendingKickoff value that has already fired (not a boolean): the
   // parent clears pendingKickoff on close and re-sets the same sentinel on
   // reopen with the body still mounted, so a value guard lets that reopen fire.
@@ -209,6 +238,28 @@ export default function ChiefOfStaffChatBody({
     [composerRef],
   )
 
+  const attachmentsEnabled = useAttachmentsEnabled('chief_of_staff')
+
+  const [attachments, setAttachments] = useState<ChatAttachmentState[]>([])
+
+  const GUARD_KEY = 'serve-chat-attachments-guard'
+  const [guardAcknowledged, setGuardAcknowledged] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(GUARD_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  const handleGuardAcknowledge = useCallback((): void => {
+    try {
+      window.localStorage.setItem(GUARD_KEY, '1')
+    } catch {
+      // private mode / storage disabled
+    }
+    setGuardAcknowledged(true)
+  }, [])
+
   const toolLabel = useCallback(
     (name: string): string => toolDisplayName(name),
     [],
@@ -217,11 +268,86 @@ export default function ChiefOfStaffChatBody({
   const { messages, setMessages, visibleSegments, sending, send } =
     useStreamingTurn(chatApi, {
       toolLabel,
-      onTurnStart: () => setStreamError(null),
+      onTurnStart: () => {
+        setStreamError(null)
+        setLiveListMap(null)
+      },
+      // Cleared on settle as well as on start. The commit empties
+      // liveSegments and swaps in the persisted transcript, whose segment
+      // carries this same payload — so holding the live copy any longer
+      // renders the card twice, once in the streaming row and once in
+      // history, until the next message happens to clear it.
+      onTurnSettle: () => setLiveListMap(null),
       onError: (message, retryable) => setStreamError({ message, retryable }),
+      onEvent: (event) => {
+        // The ARGS carry the payload, which is why this reads tool_call and
+        // not tool_result: args are what the segment persists, so the same
+        // payload replays on reload.
+        if (event.type === 'tool_call' && event.toolName === LIST_MAP_TOOL) {
+          const parsed = ShowListMapSchema.safeParse(event.args)
+          if (parsed.success) setLiveListMap(parsed.data)
+          // Consumed either way: a payload we cannot parse is still not a
+          // pill the user should see.
+          return true
+        }
+        return false
+      },
     })
 
   const busy = sending || loading
+
+  // Poll for attachment status updates while any are pending/processing.
+  const hasPending = attachments.some(
+    (a) => a.status === 'pending' || a.status === 'processing',
+  )
+  useEffect(() => {
+    if (!attachmentsEnabled.enabled) return
+    if (!conversationId) return
+    if (!hasPending) return
+    let cancelled = false
+    const id = setInterval(() => {
+      void listChatAttachments(conversationId)
+        .then((updated) => {
+          if (cancelled) return
+          setAttachments((prev) => {
+            if (prev.length === 0) return prev
+            const temps = prev.filter((a) => a.id.startsWith('temp-'))
+            if (temps.length === 0) return updated
+            const updatedIds = new Set(updated.map((a) => a.id))
+            return [...updated, ...temps.filter((t) => !updatedIds.has(t.id))]
+          })
+        })
+        .catch((err) => {
+          reportErrorToSentry(err, {
+            surface: 'chief-of-staff-chat',
+            phase: 'attachment-poll',
+          })
+        })
+    }, 3000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [attachmentsEnabled.enabled, conversationId, hasPending])
+
+  const handleRemoveAttachment = useCallback(
+    async (id: string): Promise<void> => {
+      // Optimistically remove from UI
+      setAttachments((prev) => prev.filter((a) => a.id !== id))
+      // Only call DELETE if the id is a real server id (not a temp-* optimistic entry)
+      if (conversationId && !id.startsWith('temp-')) {
+        try {
+          await deleteChatAttachment(conversationId, id)
+        } catch (err) {
+          reportErrorToSentry(err, {
+            surface: 'chief-of-staff-chat',
+            phase: 'attachment-delete',
+          })
+        }
+      }
+    },
+    [conversationId],
+  )
 
   // Contents whose persisted USER turn is hidden from the transcript: the
   // caller's reload sentinels plus anything sent hidden this session.
@@ -409,11 +535,193 @@ export default function ChiefOfStaffChatBody({
     }
   }, [conversationId, chatApi, onConversationCreated, queryClient, historyKey])
 
+  const handleAttachFile = useCallback(
+    async (file: File): Promise<void> => {
+      const cid = conversationId ?? (await ensureConversationId())
+      if (!cid) return
+      const tempId = `temp-${crypto.randomUUID()}`
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          fileName: file.name,
+          status: 'pending',
+          pageCount: null,
+          failureReason: null,
+        },
+      ])
+      try {
+        const result = await uploadChatAttachment(cid, file)
+        setAttachments((prev) =>
+          prev.map((a) => (a.id === tempId ? result : a)),
+        )
+      } catch (err) {
+        reportErrorToSentry(err, {
+          surface: 'chief-of-staff-chat',
+          phase: 'attachment-upload',
+        })
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === tempId
+              ? { ...a, status: 'failed', failureReason: 'Upload failed' }
+              : a,
+          ),
+        )
+      }
+    },
+    [conversationId, ensureConversationId],
+  )
+
+  const handleAttachLink = useCallback(
+    async (url: string): Promise<void> => {
+      const cid = conversationId ?? (await ensureConversationId())
+      if (!cid) return
+      const tempId = `temp-${crypto.randomUUID()}`
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          fileName: url,
+          status: 'pending',
+          pageCount: null,
+          failureReason: null,
+        },
+      ])
+      try {
+        const result = await linkChatAttachment(cid, url)
+        if (result.ok) {
+          setAttachments((prev) => {
+            const mapped = prev.map((a) =>
+              a.id === tempId ? result.attachment : a,
+            )
+            const seen = new Set<string>()
+            return mapped.filter((a) => {
+              if (seen.has(a.id)) return false
+              seen.add(a.id)
+              return true
+            })
+          })
+        } else {
+          setAttachments((prev) =>
+            prev.map((a) =>
+              a.id === tempId
+                ? {
+                    ...a,
+                    status: 'failed',
+                    failureReason: linkErrorMessage(result.error),
+                  }
+                : a,
+            ),
+          )
+        }
+      } catch (err) {
+        reportErrorToSentry(err, {
+          surface: 'chief-of-staff-chat',
+          phase: 'attachment-link',
+        })
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === tempId
+              ? {
+                  ...a,
+                  status: 'failed',
+                  failureReason: "Couldn't attach that link. Try again.",
+                }
+              : a,
+          ),
+        )
+      }
+    },
+    [conversationId, ensureConversationId],
+  )
+
+  // Drag-and-drop anywhere on the chat surface attaches the dropped files
+  // through the same upload path as the paperclip. dragenter/dragleave fire on
+  // every child crossed, so a depth counter decides when the pointer actually
+  // left the surface.
+  const dragDepthRef = useRef(0)
+  const [dragActive, setDragActive] = useState(false)
+
+  const dragHasFiles = (e: React.DragEvent): boolean =>
+    Array.from(e.dataTransfer.types).includes('Files')
+
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent): void => {
+      if (!attachmentsEnabled.enabled || !dragHasFiles(e)) return
+      e.preventDefault()
+      dragDepthRef.current += 1
+      setDragActive(true)
+    },
+    [attachmentsEnabled.enabled],
+  )
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent): void => {
+      if (!attachmentsEnabled.enabled || !dragHasFiles(e)) return
+      // preventDefault is what makes the surface a valid drop target.
+      e.preventDefault()
+    },
+    [attachmentsEnabled.enabled],
+  )
+
+  const handleDragLeave = useCallback((e: React.DragEvent): void => {
+    if (!dragHasFiles(e)) return
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragActive(false)
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent): void => {
+      if (!attachmentsEnabled.enabled) return
+      e.preventDefault()
+      dragDepthRef.current = 0
+      setDragActive(false)
+      for (const file of Array.from(e.dataTransfer.files)) {
+        if (isSupportedAttachmentFile(file)) {
+          void handleAttachFile(file)
+        } else {
+          toast.error(
+            `Can't attach ${file.name}. Use a PDF, DOCX, TXT, JPEG, or PNG.`,
+          )
+        }
+      }
+    },
+    [attachmentsEnabled.enabled, handleAttachFile],
+  )
+
+  const handleCitationClick = useCallback(
+    async (
+      attachmentId: string,
+      page: number | null | undefined,
+    ): Promise<void> => {
+      if (!conversationId) return
+      // Open the tab immediately while the user gesture is still live so browsers
+      // don't block the popup. Navigate it to the presigned URL once fetched.
+      const tab = window.open('', '_blank')
+      const result = await downloadChatAttachment(conversationId, attachmentId)
+      if (!result) {
+        tab?.close()
+        toast.error('Source unavailable')
+        return
+      }
+      const url = page != null ? `${result.url}#page=${page}` : result.url
+      if (tab) {
+        tab.location.href = url
+      } else {
+        toast.error('Allow pop-ups in your browser to open sources')
+      }
+    },
+    [conversationId],
+  )
+
   // The shared send path. `hidden` skips the optimistic user bubble AND drops
   // the persisted user turn from the rendered transcript, so a kickoff streams a
   // reply without ever showing the prompt that triggered it.
   const deliver = useCallback(
-    async (content: string, opts?: { hidden?: boolean }): Promise<boolean> => {
+    async (
+      content: string,
+      opts?: { hidden?: boolean; attachmentIds?: string[] },
+    ): Promise<boolean> => {
       const trimmed = content.trim()
       if (!trimmed || sending || creatingRef.current) return false
       setStreamError(null)
@@ -452,10 +760,23 @@ export default function ChiefOfStaffChatBody({
           },
         ])
       }
-      await send(id, trimmed, { hidden: true })
+      const readyAttachmentIds = !opts?.hidden
+        ? (opts?.attachmentIds ??
+          attachments.filter((a) => a.status === 'ready').map((a) => a.id))
+        : []
+      if (!opts?.hidden) lastAttachmentIdsRef.current = readyAttachmentIds
+      await send(id, trimmed, {
+        hidden: true,
+        ...(readyAttachmentIds.length > 0 && {
+          attachmentIds: readyAttachmentIds,
+        }),
+      })
+      // Clear chips after send — the conversation's server-side attachment
+      // list persists; the chip row resets so the user starts fresh.
+      if (!opts?.hidden) setAttachments([])
       return true
     },
-    [sending, playback, ensureConversationId, send, setMessages],
+    [sending, playback, ensureConversationId, send, setMessages, attachments],
   )
 
   const sendContent = useCallback(
@@ -474,12 +795,16 @@ export default function ChiefOfStaffChatBody({
   const onRetry = useCallback((): void => {
     setStreamError(null)
     const content = lastUserContentRef.current
+    const attachmentIds = lastAttachmentIdsRef.current
     if (content && conversationId) {
-      void send(conversationId, content, { hidden: true })
+      void send(conversationId, content, {
+        hidden: true,
+        ...(attachmentIds.length > 0 && { attachmentIds }),
+      })
       return
     }
     if (content) {
-      void deliver(content, { hidden: false })
+      void deliver(content, { hidden: false, attachmentIds })
       return
     }
     // No user turn to replay — a load error. Reload the conversation.
@@ -545,9 +870,19 @@ export default function ChiefOfStaffChatBody({
     visibleMessages,
     visibleSegments,
     playback,
+    // The map is the one thing that can grow the transcript without any of
+    // the above changing: onEvent consumes the show_list_map call, so a turn
+    // that draws a map and says nothing pushes no segment and commits no
+    // message until it settles. Without this the card renders below the fold
+    // and the follow-scroll has nothing to react to.
+    liveListMap,
   ])
 
-  const working = sending && visibleSegments.length === 0
+  // `liveListMap` counts as something on screen. onEvent consumes the
+  // show_list_map call, so a turn that draws a map and says nothing pushes no
+  // segment at all — without this the thinking row would sit under a rendered
+  // map until the commit poll landed.
+  const working = sending && visibleSegments.length === 0 && !liveListMap
 
   const history = useMemo(
     () =>
@@ -556,10 +891,24 @@ export default function ChiefOfStaffChatBody({
         role: m.role,
         content: m.content,
         feedback: m.feedback ?? null,
+        // Replayed from the persisted tool segment rather than remembered
+        // from the live stream: a reloaded transcript never passes through
+        // onEvent, and a map that only existed in the session that made it
+        // would vanish under the user the moment they refreshed.
+        listMap: listMapFromSegments(m.segments ?? []),
+        // The map segment is dropped from the inline run, not just rendered
+        // alongside it. Live, onEvent consumes the event so no pill is ever
+        // built; on replay the segment is still in the transcript and would
+        // project to a status pill reading `show_list_map` above the card it
+        // already drew. The ordinance flow splits its present_* segments out
+        // for the same reason.
         live:
           m.role === 'user'
             ? null
-            : segmentsToLive(m.segments ?? [], m.content),
+            : segmentsToLive(
+                (m.segments ?? []).filter((s) => s.toolName !== LIST_MAP_TOOL),
+                m.content,
+              ),
       })),
     [visibleMessages],
   )
@@ -607,8 +956,12 @@ export default function ChiefOfStaffChatBody({
     // that runs after this one. Do NOT stopPropagation: Radix dismisses popovers
     // from a document-level pointerdown, so that would strand the history popover.
     <div
-      className="flex min-h-0 flex-1 flex-col select-text"
+      className="relative flex min-h-0 flex-1 flex-col select-text"
       data-vaul-no-drag
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       onPointerDown={(e) => {
         const target = e.target
         if (!(target instanceof Element)) return
@@ -620,6 +973,13 @@ export default function ChiefOfStaffChatBody({
         })
       }}
     >
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-background/80">
+          <span className="text-sm font-medium text-foreground">
+            Drop a file to attach it
+          </span>
+        </div>
+      )}
       <div
         ref={scrollRef}
         onScroll={onScroll}
@@ -650,8 +1010,17 @@ export default function ChiefOfStaffChatBody({
           m.live === null ? (
             <UserBubble key={m.id}>{m.content}</UserBubble>
           ) : (
-            <AssistantRow key={m.id}>
-              <InlineSegments segments={m.live} toolLabel={toolLabel} />
+            <AssistantRow key={m.id} fullWidth={Boolean(m.listMap)}>
+              <InlineSegments
+                segments={m.live}
+                toolLabel={toolLabel}
+                onCitationClick={
+                  attachmentsEnabled.enabled && conversationId
+                    ? handleCitationClick
+                    : undefined
+                }
+              />
+              {m.listMap ? <ChatListMap {...m.listMap} /> : null}
               {showMessageActions && conversationId && m.content ? (
                 <MessageActionBar
                   conversationId={conversationId}
@@ -665,9 +1034,22 @@ export default function ChiefOfStaffChatBody({
           ),
         )}
 
-        {visibleSegments.length > 0 ? (
-          <AssistantRow>
-            <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
+        {/* The map is its own reason to render this row. A turn can consist
+            of nothing but the show_list_map call, and onEvent consumes that
+            event rather than pushing a segment, so gating the row on
+            segments alone hid the map until the transcript reloaded. */}
+        {visibleSegments.length > 0 || liveListMap ? (
+          <AssistantRow fullWidth={Boolean(liveListMap)}>
+            <InlineSegments
+              segments={visibleSegments}
+              toolLabel={toolLabel}
+              onCitationClick={
+                attachmentsEnabled.enabled && conversationId
+                  ? handleCitationClick
+                  : undefined
+              }
+            />
+            {liveListMap ? <ChatListMap {...liveListMap} /> : null}
           </AssistantRow>
         ) : null}
 
@@ -782,8 +1164,28 @@ export default function ChiefOfStaffChatBody({
                 />
               ) : undefined
             }
+            {...(attachmentsEnabled.enabled
+              ? {
+                  attachments,
+                  onAttachFile: (file) => void handleAttachFile(file),
+                  onAttachLink: (url) => void handleAttachLink(url),
+                  onRemoveAttachment: (id) => void handleRemoveAttachment(id),
+                  guardAcknowledged,
+                  onGuardAcknowledge: handleGuardAcknowledge,
+                }
+              : {})}
           />
         </div>
+        {attachmentsEnabled.enabled &&
+          attachments.filter((a) => a.status === 'ready').length > 0 && (
+            <p className="mx-auto mt-1 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">
+              Reading:{' '}
+              {attachments
+                .filter((a) => a.status === 'ready')
+                .map((a) => a.fileName)
+                .join(', ')}
+            </p>
+          )}
         {disclaimer && (
           <p className="mx-auto mt-2 w-full max-w-[608px] text-center text-[11px] text-muted-foreground">
             {disclaimer}

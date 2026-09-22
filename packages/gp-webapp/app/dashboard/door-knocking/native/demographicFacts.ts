@@ -100,7 +100,12 @@ export const voterDemographicFacts = (
   isServe = false,
 ): DemographicFact[] =>
   withFallback([
-    { label: 'Registered voter', value: yesNo(target.registeredVoter) },
+    {
+      // The fact is the same on both rails — whether this person can take
+      // part — but Serve cannot name them a voter to say it.
+      label: isServe ? 'Registered to vote' : 'Registered voter',
+      value: yesNo(target.registeredVoter),
+    },
     // **"Turnout likelihood", not the canvas's "Voter status".**
     // `Voter_Status` holds turnout propensity (Super / Likely / Unreliable /
     // Unlikely), while "voter status" in this industry means active-or-inactive

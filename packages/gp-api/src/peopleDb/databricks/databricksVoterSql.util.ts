@@ -966,13 +966,21 @@ export const buildDoorKnockingEvaluateSql = (
     bbox: Bbox
     maxPeople: number
     excludePersonIds?: readonly string[]
+    // Door knocking needs rooftop accuracy because it routes a human to a
+    // door; a street-segment interpolation is not a place you can knock.
+    // A count of who lives inside a drawn area needs no such thing, and
+    // applying it there counts a different population than the caller's own
+    // map drew — the contacts map has no accuracy gate at all, so every
+    // interpolated dot on screen was silently uncountable. Defaults to the
+    // door-knocking rule so that path is unchanged.
+    requireRooftopAccuracy?: boolean
   },
 ): DbxStatement => {
   const bag = createBag()
   const scope = buildScopeSql(bag, args)
   const parts = [
     scope,
-    `AND ${ROOFTOP_ONLY}`,
+    ...(args.requireRooftopAccuracy === false ? [] : [`AND ${ROOFTOP_ONLY}`]),
     `AND ${latDouble} BETWEEN ${bag.bind(num(args.bbox.minLat))}` +
       ` AND ${bag.bind(num(args.bbox.maxLat))}`,
     `AND ${lngDouble} BETWEEN ${bag.bind(num(args.bbox.minLng))}` +

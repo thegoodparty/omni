@@ -28,6 +28,12 @@ import {
   withUpdatedNote,
 } from './doorNotes'
 
+// useDoorScript reads the viewer's org role; these tests render without an
+// OrganizationProvider, whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganizationRole: () => undefined,
+}))
+
 // The knock form owns the dictation stack and its own mutation; this file is
 // about what the sheet itself puts on screen.
 vi.mock('./RecordKnockForm', () => ({
@@ -704,6 +710,7 @@ describe('PersonSheet activity feed', () => {
       activityId,
       outcome,
       supportAnswer: null,
+      followUp: null,
       note: null,
       manual: false,
       actorName: null,
@@ -834,6 +841,7 @@ describe('PersonSheet voter support', () => {
       activityId,
       outcome: 'answered',
       supportAnswer,
+      followUp: null,
       note: null,
       manual: false,
       actorName: null,

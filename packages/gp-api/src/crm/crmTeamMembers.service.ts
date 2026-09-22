@@ -7,6 +7,7 @@ import { HubspotService } from './hubspot.service'
 import { AssociationLabelsService } from './associationLabels.service'
 import { CRMTeamMemberContactProperties, HubSpot } from './crm.types'
 import { extractExistingContactId } from './util/hubspotErrors.util'
+import { isTestUser } from '../users/util/users.util'
 
 const ROLE_TO_TEAM_ROLE: Record<OrganizationRole, HubSpot.TeamRole> = {
   owner: HubSpot.TeamRole.OWNER,
@@ -60,6 +61,13 @@ export class CrmTeamMembersService {
       this.logger.debug(
         { email: params.email },
         'HubSpot not configured — skipping team member contact sync',
+      )
+      return
+    }
+    if (isTestUser({ email: params.email })) {
+      this.logger.debug(
+        { email: params.email },
+        'skipping HubSpot team member contact sync for a test user',
       )
       return
     }

@@ -16,13 +16,15 @@ import {
 } from '../observability/person-profiles.metrics'
 import { PersonLookupService } from './person-lookup.service'
 
-// Person-grain HubSpot linkage. `mart_civics.people` is the canonical person
-// mart — one row per `gp_person_id`, which IS the `personId` this endpoint
-// receives (election-api's `Person.id` is the same value). `hs_contact_id` is
-// scalar only where the identity cluster carries exactly one HubSpot contact,
-// and null otherwise, so an ambiguous person resolves to nothing rather than to
-// an arbitrary contact.
-const CIVICS_PEOPLE_TABLE = 'goodparty_data_catalog.mart_civics.people'
+// Person-grain HubSpot linkage. `serve_agent_people` passes the canonical
+// person mart's id crosswalk into the Serve mart, which is the only schema this
+// credential can read. One row per `gp_person_id`, which IS the `personId` this
+// endpoint receives (election-api's `Person.id` is the same value).
+// `hs_contact_id` is scalar only where the identity cluster carries exactly one
+// HubSpot contact, and null otherwise, so an ambiguous person resolves to
+// nothing rather than to an arbitrary contact.
+const PERSON_CROSSWALK_TABLE =
+  'goodparty_data_catalog.mart_serve_agents.serve_agent_people'
 
 // Defence in depth before the id reaches SQL. The DTO already validates
 // `personId` as a UUID (`z.guid`), but this builder interpolates rather than
@@ -315,7 +317,7 @@ export class CrmPersonProfilesService extends createPrismaBase(
     if (!UUID_PATTERN.test(personId)) return { status: 'unavailable' }
 
     const { rows } = await this.databricks.query(
-      `SELECT hs_contact_id FROM ${CIVICS_PEOPLE_TABLE} ` +
+      `SELECT hs_contact_id FROM ${PERSON_CROSSWALK_TABLE} ` +
         `WHERE gp_person_id = '${personId}' LIMIT 1`,
     )
 

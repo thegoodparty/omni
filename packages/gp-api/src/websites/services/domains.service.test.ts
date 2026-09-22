@@ -31,12 +31,22 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpStatus,
   NotFoundException,
 } from '@nestjs/common'
 import { DomainAvailability } from '@aws-sdk/client-route-53-domains'
+import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
+import { VercelError } from '@vercel/sdk/models/vercelerror'
+import { AuthCodeRequester } from '../domains.types'
 
 const mockUser = createMockUser()
+
+const mockRequester: AuthCodeRequester = {
+  authSource: 'user',
+  userId: mockUser.id,
+  email: mockUser.email,
+}
 
 const mockDomain: Domain = {
   id: 1,
@@ -71,6 +81,8 @@ describe('DomainsService', () => {
     createMXRecords: ReturnType<typeof vi.fn>
     createTXTVerificationRecord: ReturnType<typeof vi.fn>
     getDomainDetails: ReturnType<typeof vi.fn>
+    getDomainAuthCode: ReturnType<typeof vi.fn>
+    isVercelNotFoundError: ReturnType<typeof vi.fn>
   }
   let mockForwardEmail: {
     getDomain: ReturnType<typeof vi.fn>
@@ -80,6 +92,7 @@ describe('DomainsService', () => {
     updateDomainAlias: ReturnType<typeof vi.fn>
   }
   let mockQueue: { sendMessage: ReturnType<typeof vi.fn> }
+  let mockLogger: PinoLogger
   let mockPrisma: {
     domain: {
       findMany: ReturnType<typeof vi.fn>
@@ -119,6 +132,8 @@ describe('DomainsService', () => {
           boughtAt: 1700000000000,
         },
       }),
+      getDomainAuthCode: vi.fn().mockResolvedValue('AuthC0de!'),
+      isVercelNotFoundError: vi.fn().mockReturnValue(false),
     }
     mockForwardEmail = {
       getDomain: vi.fn().mockResolvedValue(null),
@@ -177,6 +192,8 @@ describe('DomainsService', () => {
       ),
     }
 
+    mockLogger = createMockLogger()
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         { provide: PrismaService, useValue: mockPrisma },
@@ -187,7 +204,7 @@ describe('DomainsService', () => {
         { provide: ForwardEmailService, useValue: mockForwardEmail },
         { provide: QueueProducerService, useValue: mockQueue },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: PinoLogger, useValue: mockLogger },
         DomainsService,
       ],
     }).compile()
@@ -295,6 +312,183 @@ describe('DomainsService', () => {
 
       expect(result).toHaveProperty('domain')
       expect(result).toHaveProperty('message')
+    })
+  })
+
+  describe('getDomainTransferAuthCode', () => {
+    // The SDK error constructors require a live fetch Request/Response pair,
+    // so build instances off the prototype to keep `instanceof` meaningful.
+    const buildVercelError = (
+      errorClass: { prototype: object },
+      message: string,
+      statusCode?: number,
+    ): Error =>
+      Object.assign(Object.create(errorClass.prototype), {
+        message,
+        ...(statusCode === undefined ? {} : { statusCode }),
+      }) as Error
+
+    beforeEach(() => {
+      mockPrisma.domain.findUnique.mockResolvedValue({
+        status: DomainStatus.registered,
+        website: { campaignId: 42 },
+      })
+    })
+
+    it('returns the auth code from Vercel', async () => {
+      const result = await service.getDomainTransferAuthCode(
+        'test-domain.com',
+        mockRequester,
+      )
+
+      expect(mockVercel.getDomainAuthCode).toHaveBeenCalledWith(
+        'test-domain.com',
+      )
+      expect(result).toBe('AuthC0de!')
+    })
+
+    it('never persists the auth code', async () => {
+      // The code is a bearer credential for moving the domain off our account.
+      // Storing it would turn any read of the domain table into the ability to
+      // transfer away every campaign's domain.
+      await service.getDomainTransferAuthCode('test-domain.com', mockRequester)
+
+      expect(mockPrisma.domain.update).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.updateMany).not.toHaveBeenCalled()
+      expect(mockPrisma.domain.create).not.toHaveBeenCalled()
+    })
+
+    it('refuses a domain with no campaign row without ever calling Vercel', async () => {
+      // goodparty.org and our other infrastructure domains sit in the same
+      // Vercel team and would otherwise get a transfer code handed out.
+      mockPrisma.domain.findUnique.mockResolvedValue(null)
+
+      await expect(
+        service.getDomainTransferAuthCode('goodparty.org', mockRequester),
+      ).rejects.toBeInstanceOf(NotFoundException)
+      expect(mockVercel.getDomainAuthCode).not.toHaveBeenCalled()
+    })
+
+    it('tells support to escalate when we have no row, rather than denying we registered it', async () => {
+      // Deleting a campaign cascades the domain row away while the
+      // registration lives on, and that candidate is exactly the person who
+      // needs the code. The message has to distinguish that from "not ours".
+      mockPrisma.domain.findUnique.mockResolvedValue(null)
+
+      await expect(
+        service.getDomainTransferAuthCode('orphaned.com', mockRequester),
+      ).rejects.toThrow(/escalate to engineering/)
+    })
+
+    it('looks the domain up by name alone, so a stalled purchase is still transferable', async () => {
+      await service.getDomainTransferAuthCode('test-domain.com', mockRequester)
+
+      expect(mockPrisma.domain.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { name: 'test-domain.com' } }),
+      )
+    })
+
+    it('records the issuance, attributed to the requesting admin', async () => {
+      await service.getDomainTransferAuthCode('test-domain.com', mockRequester)
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'test-domain.com',
+          campaignId: 42,
+          requestedByUserId: mockUser.id,
+          requestedByEmail: mockUser.email,
+          authSource: 'user',
+        }),
+        'Domain transfer auth code issued',
+      )
+    })
+
+    it('records an m2m issuance by email, and marks the identity unverified', async () => {
+      // gp-admin runs on a separate Clerk instance, so this email is whoever
+      // gp-admin said was signed in rather than an identity we checked. An
+      // auditor has to be able to tell that apart from a verified session.
+      await service.getDomainTransferAuthCode('test-domain.com', {
+        authSource: 'm2m',
+        email: 'dee@goodparty.org',
+      })
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestedByEmail: 'dee@goodparty.org',
+          requestedByUserId: undefined,
+          authSource: 'm2m',
+        }),
+        'Domain transfer auth code issued',
+      )
+    })
+
+    it('does not record an issuance when Vercel refuses', async () => {
+      // A rejected attempt logged identically to a successful one would leave
+      // an auditor unable to tell who actually walked away with a code.
+      mockVercel.getDomainAuthCode.mockRejectedValue(
+        buildVercelError(
+          DomainCannotBeTransferedOutUntil,
+          'The domain cannot be transfered out until 2026-05-02.',
+          HttpStatus.CONFLICT,
+        ),
+      )
+
+      await expect(
+        service.getDomainTransferAuthCode('brand-new.run', mockRequester),
+      ).rejects.toBeInstanceOf(ConflictException)
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Domain transfer auth code issued',
+      )
+    })
+
+    it('maps a Vercel 404 to NotFoundException', async () => {
+      mockVercel.isVercelNotFoundError.mockReturnValue(true)
+      mockVercel.getDomainAuthCode.mockRejectedValueOnce(new Error('404'))
+
+      await expect(
+        service.getDomainTransferAuthCode('not-ours.com', mockRequester),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('surfaces the ICANN 60-day lock as a ConflictException carrying the unlock date', async () => {
+      // Freshly purchased domains cannot be transferred out for 60 days. The
+      // date in Vercel's message is the only thing support can act on, so it
+      // has to survive the translation instead of collapsing into a 500.
+      mockVercel.getDomainAuthCode.mockRejectedValue(
+        buildVercelError(
+          DomainCannotBeTransferedOutUntil,
+          'The domain cannot be transfered out until 2026-05-02.',
+          HttpStatus.CONFLICT,
+        ),
+      )
+
+      await expect(
+        service.getDomainTransferAuthCode('brand-new.run', mockRequester),
+      ).rejects.toBeInstanceOf(ConflictException)
+      await expect(
+        service.getDomainTransferAuthCode('brand-new.run', mockRequester),
+      ).rejects.toThrow(/2026-05-02/)
+    })
+
+    it('reports a registrar 403 as our token scope problem, not the domain', async () => {
+      // The registrar API rejects tokens without Owner scope on the team. A
+      // bare 500 here would send support chasing the candidate's domain.
+      mockVercel.getDomainAuthCode.mockRejectedValue(
+        buildVercelError(VercelError, 'Not authorized', HttpStatus.FORBIDDEN),
+      )
+
+      await expect(
+        service.getDomainTransferAuthCode('test-domain.com', mockRequester),
+      ).rejects.toThrow(/VERCEL_TOKEN likely lacks Owner scope/)
+    })
+
+    it('rethrows unexpected Vercel failures rather than reporting the domain missing', async () => {
+      mockVercel.getDomainAuthCode.mockRejectedValue(new Error('Vercel is 500'))
+
+      await expect(
+        service.getDomainTransferAuthCode('test-domain.com', mockRequester),
+      ).rejects.toThrow('Vercel is 500')
     })
   })
 
@@ -529,6 +723,30 @@ describe('DomainsService', () => {
           'voteforoneill.site',
         ].sort(),
       )
+    })
+
+    it('bounds concurrent availability checks to the batch size', async () => {
+      // Route53 Domains throttles account-wide; an unbounded fanout drains
+      // the token bucket and 502s the purchase call that follows.
+      let inFlight = 0
+      let maxInFlight = 0
+      mockRoute53.checkDomainAvailability.mockImplementation(async () => {
+        inFlight++
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        await Promise.resolve()
+        inFlight--
+        return { Availability: DomainAvailability.AVAILABLE }
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      await service.searchDomainsForCampaign(
+        campaignWithUser,
+        ['voteoneill', 'oneillwins'],
+        10,
+      )
+
+      expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledTimes(12)
+      expect(maxInFlight).toBeLessThanOrEqual(5)
     })
 
     it('does not fan out patterns that already include a TLD', async () => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -31,6 +31,10 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 // click Download, so this has no effect on them.
 vi.mock('../shared/useContactsDownload', () => ({
   useContactsDownload: vi.fn(),
+}))
+const openChannelPicker = vi.fn()
+vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
+  useOpenChannelPicker: () => openChannelPicker,
 }))
 // The real DropdownMenuItem depends on Radix context provided by its
 // DropdownMenu/DropdownMenuContent ancestors (createContextScope) and throws
@@ -125,6 +129,7 @@ beforeEach(() => {
   setContext()
   mockedUseContactsDownload.mockReturnValue({
     download: downloadFn,
+    downloadFromHref: vi.fn(),
     isPreparing: false,
   })
   api.mock('GET /v1/contacts/list-detail', {
@@ -302,6 +307,34 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
   })
 
+  it('hides the robocall and text reachability tiles in Serve mode', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('Phone banking')).toBeInTheDocument()
+    expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
+    expect(screen.queryByText('Text')).not.toBeInTheDocument()
+  })
+
+  it('keeps the Win-only tiles hidden until isWinContextReady settles', async () => {
+    setContext({ isWinContextReady: false })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('Phone banking')).toBeInTheDocument()
+    expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
+    expect(screen.queryByText('Text')).not.toBeInTheDocument()
+  })
+
   it('suppresses the details heading until isWinContextReady settles', async () => {
     setContext({ isWinContextReady: false })
     api.mock('GET /v1/voters/voter-file/filters', {
@@ -395,7 +428,7 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
     // ENG-10809: the universe row's own card carries Send outreach — the
     // sheet footer must never duplicate it, unlike the saved-list branch.
     expect(
-      screen.queryByRole('link', { name: 'Send outreach' }),
+      screen.queryByRole('button', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
   })
 
@@ -429,6 +462,23 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
     expect(downloadButton.querySelector('.lucide-lock')).toBeInTheDocument()
   })
 
+  it('shows only the spinner in place of the download icon while preparing', async () => {
+    mockedUseContactsDownload.mockReturnValue({
+      download: downloadFn,
+      downloadFromHref: vi.fn(),
+      isPreparing: true,
+    })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    const downloadButton = await screen.findByRole('button', {
+      name: 'Download list',
+    })
+    expect(downloadButton).toBeDisabled()
+    expect(downloadButton.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(downloadButton.querySelector('.lucide-download')).toBeNull()
+  })
+
   it('does not fire Segment Viewed for the universe (there is no segment)', async () => {
     render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
 
@@ -441,19 +491,29 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
 // for an eo- org, so the sheet footer's outreach CTA is Win-only. The
 // Download affordance stays for both modes.
 describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () => {
-  it('shows the Send outreach footer link for Win', async () => {
+  // The prototype closes the details drawer and opens "Choose a channel" in
+  // its place — two full-height sheets never stack.
+  it('closes the sheet and opens the channel picker on this list for Win', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [{ id: 42, name: 'GOTV text list' }],
     })
+    const onClose = vi.fn()
 
-    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    render(<ListDetailSheet listId="42" onClose={onClose} />)
 
-    // ENG-10762: the footer link carries the saved list's id so the
-    // outreach page can preselect it.
-    expect(
-      await screen.findByRole('link', { name: 'Send outreach' }),
-    ).toHaveAttribute('href', '/dashboard/outreach?listId=42')
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
+    )
+    expect(onClose).toHaveBeenCalled()
+    expect(openChannelPicker).toHaveBeenCalledWith({
+      kind: 'list',
+      segment: expect.objectContaining({ id: 42 }),
+    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { listId: 42, surface: 'listDetail' },
+    )
   })
 
   it('hides Send outreach for Serve while keeping Download', async () => {
@@ -469,7 +529,7 @@ describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () =>
       await screen.findByRole('button', { name: 'Download list' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'Send outreach' }),
+      screen.queryByRole('button', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
   })
 
@@ -484,7 +544,7 @@ describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () =>
 
     await screen.findByText('GOTV text list')
     expect(
-      screen.queryByRole('link', { name: 'Send outreach' }),
+      screen.queryByRole('button', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
   })
 })
@@ -542,6 +602,7 @@ describe('ListDetailSheet — DeleteListDialog (unlocked list)', () => {
       data: {},
     })
     const user = userEvent.setup()
+    const removeQueries = vi.spyOn(testQueryClient, 'removeQueries')
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByTestId('list-detail-delete-trigger'))
@@ -555,6 +616,13 @@ describe('ListDetailSheet — DeleteListDialog (unlocked list)', () => {
     )
     await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(null))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    // A deleted list's members outlive it otherwise: the global staleTime is
+    // five minutes, so re-opening /lists/42 inside that window would redraw
+    // the deleted list's constituents from cache with no request. Removed
+    // rather than invalidated — there is nothing to re-read once it is gone.
+    expect(removeQueries).toHaveBeenCalledWith({
+      queryKey: ['list-people', 'test-org', '42'],
+    })
   })
 
   it('delete raced 409: locked-message error snackbar, dialog closes, no navigation', async () => {
@@ -796,7 +864,7 @@ describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
     expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(0)
   })
 
-  it('fires Send Outreach Clicked with surface listDetail + listId from the footer link', async () => {
+  it('fires Send Outreach Clicked with surface listDetail + listId from the footer button', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [unlockedSegment],
@@ -805,7 +873,9 @@ describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
-    await user.click(await screen.findByRole('link', { name: 'Send outreach' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
+    )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.SendOutreachClicked,
       { listId: 42, surface: 'listDetail' },

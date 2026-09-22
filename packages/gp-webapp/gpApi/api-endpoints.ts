@@ -75,6 +75,7 @@ import type {
   RecommendedListChannel,
   RecommendedListIntent,
   RecommendedListsResponse,
+  RecommendedListVariant,
   MyAssignmentsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -117,10 +118,12 @@ import type {
   ContactNoteInput,
   ContactNoteListResponse,
   ContactStatuses,
+  FollowUpStatusResponse,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   SupportStatusRollup,
   UpdateContactStatusInput,
+  UpdateFollowUpInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
@@ -669,6 +672,15 @@ export type APIEndpoints = {
     Response: undefined
   }
 
+  // Self-removal (ENG-11137): any member — volunteer included — can leave
+  // the active org; the owner is rejected (400, ownership transfer is the
+  // only way an owner leaves). Same cascade as the owner-driven delete:
+  // membership and outreach assignments go together.
+  'DELETE /v1/organizations/team/members/me': {
+    Request: {}
+    Response: undefined
+  }
+
   // Mirrors gp-api's GET /v1/eligibility (EligibilitySchema in
   // @goodparty_org/contracts). Drives the org switcher's "run for" actions.
   'GET /v1/eligibility': {
@@ -941,6 +953,95 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'POST /v1/chats/:conversationId/attachments/presign': {
+    Request: {
+      conversationId: string
+      fileName: string
+      mimeType: string
+      sizeBytes: number
+    }
+    Response: {
+      attachmentId: string
+      uploadUrl: string
+      uploadFields: Record<string, string>
+      storageKey: string
+    }
+  }
+
+  'POST /v1/chats/:conversationId/attachments': {
+    Request: { conversationId: string; storageKey: string }
+    Response: {
+      id: string
+      source: 'upload' | 'link'
+      sourceUrl: string | null
+      fileName: string
+      mimeType: string
+      sizeBytes: number
+      pageCount: number | null
+      status: 'pending' | 'processing' | 'ready' | 'failed'
+      failureReason: string | null
+      createdAt: string
+    }
+  }
+
+  'POST /v1/chats/:conversationId/attachments/link': {
+    Request: { conversationId: string; url: string }
+    Response:
+      | {
+          ok: true
+          attachment: {
+            id: string
+            source: 'upload' | 'link'
+            sourceUrl: string | null
+            fileName: string
+            mimeType: string
+            sizeBytes: number
+            pageCount: number | null
+            status: 'pending' | 'processing' | 'ready' | 'failed'
+            failureReason: string | null
+            createdAt: string
+          }
+        }
+      | {
+          ok: false
+          error:
+            | 'unreachable'
+            | 'blocked_url'
+            | 'unsupported_content_type'
+            | 'too_large'
+            | 'timeout'
+            | 'attachment_limit_reached'
+        }
+  }
+
+  'GET /v1/chats/:conversationId/attachments': {
+    Request: { conversationId: string }
+    Response: {
+      attachments: Array<{
+        id: string
+        source: 'upload' | 'link'
+        sourceUrl: string | null
+        fileName: string
+        mimeType: string
+        sizeBytes: number
+        pageCount: number | null
+        status: 'pending' | 'processing' | 'ready' | 'failed'
+        failureReason: string | null
+        createdAt: string
+      }>
+    }
+  }
+
+  'DELETE /v1/chats/:conversationId/attachments/:attachmentId': {
+    Request: { conversationId: string; attachmentId: string }
+    Response: void
+  }
+
+  'GET /v1/chats/:conversationId/attachments/:attachmentId/download': {
+    Request: { conversationId: string; attachmentId: string }
+    Response: { url: string; expiresAt: string }
+  }
+
   'GET /v1/ordinances': {
     Request: {}
     Response: OrdinanceListResponse
@@ -1101,11 +1202,15 @@ export type APIEndpoints = {
     Response: { token: string }
   }
 
+  // `geoPoly` narrows the saved list by a drawn boundary. Null clears one; on
+  // the PUT, omitting it keeps whatever the row already holds, like every
+  // other key of this partial update.
   'POST /v1/voters/voter-file/filter': {
     Request: {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      geoPoly?: GeoJsonPolygon | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1114,6 +1219,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      geoPoly?: GeoJsonPolygon | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1122,9 +1228,13 @@ export type APIEndpoints = {
     Response: SegmentResponse[]
   }
   'GET /v1/campaigns/mine/recommended-lists': {
+    // No channel = the global universes the voter data page lists (every
+    // intent, no contactability cut). A variant asks for that one universe
+    // regardless of intent, for a flow entered from that page.
     Request: {
-      channel: RecommendedListChannel
+      channel?: RecommendedListChannel
       intent?: RecommendedListIntent
+      variant?: RecommendedListVariant
     }
     Response: RecommendedListsResponse
   }
@@ -1146,6 +1256,10 @@ export type APIEndpoints = {
     Request: UpdateContactStatusInput
     Response: ContactStatuses
   }
+  'PATCH /v1/contacts/:personId/follow-up': {
+    Request: UpdateFollowUpInput
+    Response: FollowUpStatusResponse
+  }
   'GET /v1/contacts/:id': {
     Request: {}
     Response: Person
@@ -1163,6 +1277,46 @@ export type APIEndpoints = {
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
     Response: { count: number }
+  }
+  // How many of an in-progress list fall inside a boundary being drawn. The
+  // filter half is the same unsaved-draft grammar `POST /v1/contacts/count`
+  // takes — there is no saved filter row yet — but nested under `filters`
+  // rather than spread, because the shape rides beside it.
+  // `audienceEmpty` separates "your filters match nobody" from "this shape
+  // holds none of your audience": the same zero on the wire, and two
+  // different things to go and fix.
+  'POST /v1/contacts/polygon-preview': {
+    Request: {
+      geoPoly: GeoJsonPolygon
+      filters: {
+        activityConditions?: ActivityConditionInput[]
+        supportStatus?: SupportStatusRollup[]
+      } & Record<string, unknown>
+    }
+    Response: { count: number; audienceEmpty: boolean }
+  }
+  // The dots the draw step draws on: everyone the in-progress filters match,
+  // across the whole district, as bare coordinates.
+  //
+  // Sibling of polygon-preview and takes the same draft payload minus the
+  // shape, because the map has to show the list before there is a shape to
+  // narrow it with. Names and addresses are deliberately not in the
+  // response — the step has no person overlay behind its dots.
+  //
+  // `truncated` rather than a refusal: past the cap this returns the first
+  // page of dots and says so, the way every other map in the CRM does. A map
+  // that declines to draw teaches the holder less than a partial one.
+  'POST /v1/contacts/points': {
+    Request: {
+      filters: {
+        activityConditions?: ActivityConditionInput[]
+        supportStatus?: SupportStatusRollup[]
+      } & Record<string, unknown>
+    }
+    Response: {
+      points: { id: string; lat: number; lng: number }[]
+      truncated: boolean
+    }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
@@ -1293,6 +1447,15 @@ export type APIEndpoints = {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
     // unfiltered district.
     Request: { segment?: number }
+    Response: ListDetailContactsResponse
+  }
+  // The same payload for a filter that has not been saved (a recommended
+  // list's detail sheet); the body is the count endpoint's inline filter.
+  'POST /v1/contacts/list-detail': {
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: ListDetailContactsResponse
   }
 

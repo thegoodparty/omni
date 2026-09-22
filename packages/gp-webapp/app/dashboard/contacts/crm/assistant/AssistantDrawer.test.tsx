@@ -124,6 +124,11 @@ describe('AssistantDrawer', () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ['list-detail', 'test-org'],
     })
+    // The members, not just the summary: the assistant can rewrite a list's
+    // filters, and the map draws who is in it.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['list-people', 'test-org'],
+    })
   })
 
   it('does not invalidate the lists queries on unrelated tool events', async () => {
