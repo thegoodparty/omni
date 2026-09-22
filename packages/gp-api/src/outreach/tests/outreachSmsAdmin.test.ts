@@ -368,7 +368,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.approvedBy).toBe('cas@goodparty.org')
       expect(updated.approvedAt).not.toBeNull()
       expect(updated.canvassRequestedAt).not.toBeNull()
-      expect(activateJob).toHaveBeenCalledWith('peerly-job-1')
+      expect(activateJob).toHaveBeenCalledWith('peerly-job-1', null)
       // The approval notice: request-shaped blocks under the approved
       // header, to the CAS channel.
       expect(slackMessage).toHaveBeenCalledTimes(1)
@@ -392,6 +392,13 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+      })
+      // Activation carries the same window so a job whose schedule was
+      // minted before the send time was honored gets realigned.
+      expect(activateJob).toHaveBeenCalledWith('peerly-job-1', {
+        campaignId,
         date: SEND_LOCAL_DATE,
         startTime: '18:00',
       })
@@ -857,6 +864,23 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(approved.status).toBe(HttpStatus.CREATED)
     })
 
+    it('re-mints the job schedule at the stored send time', async () => {
+      const row = await seedOutreach({ scheduledLocalTime: '18:00' })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(updateJobSchedule).toHaveBeenCalledWith({
+        jobId: 'peerly-job-1',
+        campaignId,
+        date: NEW_LOCAL_DATE,
+        startTime: '18:00',
+      })
+    })
+
     it('moves an unbooked send without touching the booking machinery', async () => {
       const row = await seedOutreach()
 
@@ -870,6 +894,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         jobId: 'peerly-job-1',
         campaignId,
         date: NEW_LOCAL_DATE,
+        startTime: '09:00',
       })
       expect(clearCanvassers).not.toHaveBeenCalled()
       expect(requestCanvassers).not.toHaveBeenCalled()
@@ -1037,6 +1062,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         jobId: 'peerly-job-1',
         campaignId,
         date: NEW_LOCAL_DATE,
+        startTime: '09:00',
       })
       expect(clearCanvassers).not.toHaveBeenCalled()
       expect(requestCanvassers).not.toHaveBeenCalled()

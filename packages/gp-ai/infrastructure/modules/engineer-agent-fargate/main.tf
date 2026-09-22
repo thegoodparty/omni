@@ -287,6 +287,13 @@ resource "aws_ecs_task_definition" "agent" {
     cpu_architecture        = "ARM64"
   }
 
+  # Same ENOSPC exposure autopilot-agent hit live at Fargate's 20 GiB
+  # default: an omni clone plus npm ci, workspace builds, and Prisma engines
+  # overflow it mid-run.
+  ephemeral_storage {
+    size_in_gib = 60
+  }
+
   container_definitions = jsonencode([
     {
       name  = "engineer-agent"

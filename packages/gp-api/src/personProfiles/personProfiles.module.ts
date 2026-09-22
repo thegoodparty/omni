@@ -70,6 +70,6 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
       useFactory: serveDatabricksProviderFactory,
     },
   ],
-  exports: [PersonProfilesService],
+  exports: [PersonProfilesService, MarketingRevalidationService],
 })
 export class PersonProfilesModule {}

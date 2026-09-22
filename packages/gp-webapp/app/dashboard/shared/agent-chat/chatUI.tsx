@@ -1,12 +1,11 @@
 'use client'
 
 import type { Ref, ReactNode } from 'react'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn, GoodPartyOrgLogo, IconButton, Textarea } from '@styleguide'
 import {
-  FolderOpenIcon,
   PaperclipIcon,
   SearchIcon,
   SendIcon,
@@ -369,78 +368,27 @@ function AttachmentChip({
   )
 }
 
-// Inline URL input shown when the user picks "link" from the paperclip menu.
-function AttachLinkInput({
-  onSubmit,
-  onCancel,
-  onChooseFile,
-}: {
-  onSubmit: (url: string) => void
-  onCancel: () => void
-  // When provided, renders a "Choose file" button that opens the file picker.
-  onChooseFile?: () => void
-}): React.JSX.Element {
-  const [url, setUrl] = useState('')
-  const isValidUrl = (u: string): boolean => {
+// Pull the http(s) URLs out of pasted text so a pasted link attaches with no
+// separate URL form. Trailing sentence punctuation that rides along with a
+// paste is stripped; anything the URL parser rejects is skipped.
+export const extractHttpUrls = (text: string): string[] => {
+  const matches = text.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []
+  const urls: string[] = []
+  for (const raw of matches) {
+    const candidate = raw.replace(/[.,;:!?]+$/, '')
     try {
-      const { protocol } = new URL(u)
-      return protocol === 'http:' || protocol === 'https:'
+      const { protocol } = new URL(candidate)
+      if (
+        (protocol === 'http:' || protocol === 'https:') &&
+        !urls.includes(candidate)
+      ) {
+        urls.push(candidate)
+      }
     } catch {
-      return false
+      // matched by the loose regex but not a parseable URL
     }
   }
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter' && isValidUrl(url.trim())) {
-      e.preventDefault()
-      onSubmit(url.trim())
-    } else if (e.key === 'Escape') {
-      onCancel()
-    }
-  }
-  return (
-    <div className="flex items-center gap-1 px-1 py-1">
-      {onChooseFile ? (
-        <IconButton
-          type="button"
-          aria-label="Choose file"
-          onClick={onChooseFile}
-          className="shrink-0 rounded-full"
-          size="small"
-        >
-          <FolderOpenIcon className="size-4" aria-hidden />
-        </IconButton>
-      ) : null}
-      <input
-        autoFocus
-        type="url"
-        placeholder="Paste a URL..."
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        onKeyDown={handleKeyDown}
-        className="min-w-0 flex-1 rounded-full border border-border bg-transparent px-3 py-1 text-sm focus:outline-none"
-        aria-label="Attachment URL"
-      />
-      <IconButton
-        type="button"
-        aria-label="Attach link"
-        disabled={!isValidUrl(url.trim())}
-        onClick={() => isValidUrl(url.trim()) && onSubmit(url.trim())}
-        className="shrink-0 rounded-full"
-        size="small"
-      >
-        <SendIcon className="size-4" aria-hidden />
-      </IconButton>
-      <IconButton
-        type="button"
-        aria-label="Cancel link"
-        onClick={onCancel}
-        className="shrink-0 rounded-full"
-        size="small"
-      >
-        <XMarkIcon className="size-4" aria-hidden />
-      </IconButton>
-    </div>
-  )
+  return urls
 }
 
 // The message composer: a pill-shaped input with a send button. The consumer
@@ -452,9 +400,11 @@ function AttachLinkInput({
 // and the composer is plain — no mic, send arrow, simple border.
 //
 // Pass `attachments`, `onAttachFile`, `onAttachLink`, and `onRemoveAttachment`
-// to enable the paperclip affordance (chief_of_staff scope only, gated by the
-// serve-chat-attachments flag). `guardAcknowledged`/`onGuardAcknowledge`
-// control the one-time safety notice shown above the form.
+// to enable attachments (chief_of_staff scope only, gated by the
+// serve-chat-attachments flag): the paperclip opens the system file picker
+// directly, and pasting text that contains a URL attaches each link — there is
+// no separate URL form. `guardAcknowledged`/`onGuardAcknowledge` control the
+// one-time safety notice shown above the form.
 export function ChatComposer({
   value,
   onChange,
@@ -487,6 +437,7 @@ export function ChatComposer({
   // Attachment props — omit entirely to hide the paperclip affordance.
   attachments?: ChatAttachmentState[]
   onAttachFile?: (file: File) => void
+  // Called for each http(s) URL found in text pasted into the composer.
   onAttachLink?: (url: string) => void
   onRemoveAttachment?: (attachmentId: string) => void
   // Guard copy notice. Show when `false`; hide permanently after acknowledge.
@@ -494,8 +445,6 @@ export function ChatComposer({
   onGuardAcknowledge?: () => void
 }): React.JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  // linkMode: false = closed, 'link' = URL input open
-  const [linkMode, setLinkMode] = useState(false)
 
   const attachmentsEnabled = attachments !== undefined && !!onAttachFile
 
@@ -508,7 +457,6 @@ export function ChatComposer({
   // guards an empty send).
   const submit = (): void => {
     if (disabled || dictation?.active || value.trim().length === 0) return
-    setLinkMode(false)
     onSubmit()
   }
   const onComposerKeyDown = (
@@ -528,9 +476,13 @@ export function ChatComposer({
     }
   }
 
-  const handleLinkSubmit = (url: string): void => {
-    setLinkMode(false)
-    onAttachLink?.(url)
+  // A pasted URL attaches as a link in place — the text stays in the composer
+  // (a link occurs naturally in the message) while the parse kicks off.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    if (!attachmentsEnabled || !onAttachLink) return
+    for (const url of extractHttpUrls(e.clipboardData.getData('text'))) {
+      onAttachLink(url)
+    }
   }
 
   const chipRow =
@@ -557,17 +509,20 @@ export function ChatComposer({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onComposerKeyDown}
+        onPaste={handlePaste}
         placeholder={placeholder}
         aria-label={ariaLabel}
         disabled={disabled}
         className="min-w-0 flex-1 border-0 bg-transparent px-2 py-2.5 text-sm leading-snug shadow-none focus-visible:ring-0"
       />
       {attachmentsEnabled ? (
+        // Ghost like the mic: a secondary affordance, not a primary action.
         <IconButton
           type="button"
-          aria-label="Attach file or link"
+          variant="ghost"
+          aria-label="Attach a file"
           disabled={disabled}
-          onClick={() => setLinkMode((m) => !m)}
+          onClick={() => fileInputRef.current?.click()}
           className="static shrink-0 rounded-full"
         >
           <PaperclipIcon className="size-5" aria-hidden />
@@ -649,16 +604,6 @@ export function ChatComposer({
             innerClassName="flex-col gap-0 py-1 pr-1 pl-4"
           >
             {chipRow}
-            {linkMode ? (
-              <AttachLinkInput
-                onSubmit={handleLinkSubmit}
-                onCancel={() => setLinkMode(false)}
-                onChooseFile={() => {
-                  setLinkMode(false)
-                  fileInputRef.current?.click()
-                }}
-              />
-            ) : null}
             <div className="flex w-full items-end gap-1">{controls}</div>
           </ChatPill>
         </form>
@@ -675,16 +620,6 @@ export function ChatComposer({
         onSubmit={handleSubmit}
       >
         {chipRow}
-        {linkMode ? (
-          <AttachLinkInput
-            onSubmit={handleLinkSubmit}
-            onCancel={() => setLinkMode(false)}
-            onChooseFile={() => {
-              setLinkMode(false)
-              fileInputRef.current?.click()
-            }}
-          />
-        ) : null}
         <div className="flex items-end gap-1">{controls}</div>
       </form>
     </>

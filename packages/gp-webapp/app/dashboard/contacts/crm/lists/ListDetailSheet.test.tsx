@@ -307,6 +307,34 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
   })
 
+  it('hides the robocall and text reachability tiles in Serve mode', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('Phone banking')).toBeInTheDocument()
+    expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
+    expect(screen.queryByText('Text')).not.toBeInTheDocument()
+  })
+
+  it('keeps the Win-only tiles hidden until isWinContextReady settles', async () => {
+    setContext({ isWinContextReady: false })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('Phone banking')).toBeInTheDocument()
+    expect(screen.queryByText('Robocall')).not.toBeInTheDocument()
+    expect(screen.queryByText('Text')).not.toBeInTheDocument()
+  })
+
   it('suppresses the details heading until isWinContextReady settles', async () => {
     setContext({ isWinContextReady: false })
     api.mock('GET /v1/voters/voter-file/filters', {

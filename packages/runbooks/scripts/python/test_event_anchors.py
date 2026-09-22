@@ -421,11 +421,18 @@ def test_find_call_sites_fails_toward_not_declaring_when_block_not_found(capsys)
     assert "EVENTS block not locatable" in captured.err
 
 
-def test_find_call_sites_four_live_repo_cases_verified():
-    """Verify the four key live-repo cases from the real-repo check still work.
+def test_find_call_sites_live_repo_cases_verified():
+    """Verify the key live-repo cases from the real-repo check still work.
     These are integration tests that scan real files to ensure the fixes don't
     regress on actual data. Uses the real read_repo_files (not a hand-rolled scan) so this
-    test exercises the actual test-file/generated-output exclusion, not a stale copy of it."""
+    test exercises the actual test-file/generated-output exclusion, not a stale copy of it.
+
+    Each case asserts unconditionally once the repo is present. They used to be wrapped in
+    `if hits:`, which meant a retired subject made the case pass while verifying nothing —
+    exactly what happened when DATA-2424 retired the fourth case's event. A named subject
+    that disappears must fail loudly and say so, and the presence assertion is what does
+    that. The subject cannot be derived from the registry instead: selecting it by the
+    property under test makes every following assertion tautological."""
     import pathlib
 
     repo = pathlib.Path("../../../..").resolve()
@@ -457,41 +464,28 @@ def test_find_call_sites_four_live_repo_cases_verified():
         f"{test_file_primaries[:5]}"
     )
 
-    # Case 1: Onboarding - Registration Completed (has declaration + call sites)
-    hits = ea.find_call_sites(
-        "Onboarding - Registration Completed",
-        reg.get("Onboarding - Registration Completed"),
-        files
-    )
-    kinds = {h["kind"] for h in hits}
-    if hits:
-        assert "declaration" in kinds, "Should have declaration in registry file"
-        assert "key_path" in kinds, "Should have key_path call sites"
+    # Case 1: declaration plus key-path call sites.
+    subject = "Onboarding - Registration Completed"
+    assert subject in reg, f"{subject} left the registry — repoint this case"
+    kinds = {h["kind"] for h in ea.find_call_sites(subject, reg[subject], files)}
+    assert "declaration" in kinds, "Should have declaration in registry file"
+    assert "key_path" in kinds, "Should have key_path call sites"
 
-    # Case 2: Dashboard - Path to Victory: Click Learn More (declaration-only)
-    hits = ea.find_call_sites(
-        "Dashboard - Path to Victory: Click Learn More",
-        reg.get("Dashboard - Path to Victory: Click Learn More"),
-        files
-    )
-    if hits:
-        kinds = {h["kind"] for h in hits}
-        assert "declaration" in kinds or not kinds, "Should be declaration-only or empty"
+    # Case 2: declaration-only, i.e. dispatched dynamically or genuinely unreferenced.
+    subject = "Dashboard - Path to Victory: Click Learn More"
+    assert subject in reg, f"{subject} left the registry — repoint this case"
+    kinds = {h["kind"] for h in ea.find_call_sites(subject, reg[subject], files)}
+    assert kinds == {"declaration"}, f"Should be declaration-only, got {sorted(kinds)}"
 
-    # Case 3: Voter Outreach - Campaign Approved (raw string literal)
-    hits = ea.find_call_sites("Voter Outreach - Campaign Approved", None, files)
-    if hits:
-        assert all(h["kind"] == "literal" for h in hits), "Should be literal hits"
+    # Case 3: a raw string literal with no registry entry, found by the literal search.
+    subject = "Voter Outreach - Campaign Approved"
+    hits = ea.find_call_sites(subject, None, files)
+    assert hits, f"{subject} should still be found by literal search — repoint this case"
+    assert all(h["kind"] == "literal" for h in hits), "Should be literal hits"
 
-    # Case 4: Navigation - Dashboard: Click Door Knocking (declaration-only)
-    hits = ea.find_call_sites(
-        "Navigation - Dashboard: Click Door Knocking",
-        reg.get("Navigation - Dashboard: Click Door Knocking"),
-        files
-    )
-    if hits:
-        kinds = {h["kind"] for h in hits}
-        assert "declaration" in kinds or not kinds, "Should be declaration-only or empty"
+    # The fourth case named `Navigation - Dashboard: Click Door Knocking`, retired by
+    # DATA-2424. It is gone rather than repointed: it asserted declaration-only, which is
+    # Case 2's property on a second example, so the coverage it carried is already here.
 
 
 PAGES = [
@@ -1403,3 +1397,88 @@ def test_unsaved_edits_ignores_a_row_the_state_has_never_heard_of():
     field reads as an edit — which is the safe direction: refuse rather than overwrite."""
     parsed = {"Unknown": {"fires_on": "something"}}
     assert ea._unsaved_edits(parsed, {}) == ["Unknown"]
+
+
+def _queued(confidence, url, **kw):
+    entry = {"fires_on": "Somewhere in the app, on click.", "url": url,
+             "confidence": confidence, "flag_reason": "", "evidence": "a.tsx:1",
+             "disposition": "new", "reason": "", "first_seen": "2026-09-11",
+             "last_seen": "2026-09-11", "written_date": ""}
+    entry.update(kw)
+    return entry
+
+
+def test_accept_confident_accepts_a_high_confidence_row_with_a_url():
+    state = {"E": _queued("high", "/dashboard")}
+    out, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == ["E"]
+    assert out["E"]["disposition"] == "accepted"
+    assert "2026-09-21" in out["E"]["reason"]
+    # The caller's state is not mutated, matching merge_verdicts.
+    assert state["E"]["disposition"] == "new"
+
+
+def test_accept_confident_leaves_a_flagged_row_queued():
+    state = {"E": _queued("low", "", flag_reason="no_route")}
+    out, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == []
+    assert out["E"]["disposition"] == "new"
+
+
+def test_accept_confident_skips_a_high_confidence_row_with_no_url():
+    # A confident prose line with no path is still a row a person should look at.
+    state = {"E": _queued("high", "")}
+    _, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == []
+
+
+def test_accept_confident_never_overwrites_a_decision_a_human_made():
+    state = {
+        "Dismissed": _queued("high", "/x", disposition="dismissed", reason="autotrack"),
+        "Accepted": _queued("high", "/y", disposition="accepted", reason="checked it"),
+    }
+    out, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == []
+    assert out["Dismissed"]["reason"] == "autotrack"
+    assert out["Accepted"]["reason"] == "checked it"
+
+
+def test_accept_confident_accepts_an_open_row_the_reviewer_left_queued():
+    state = {"E": _queued("high", "/dashboard", disposition="open")}
+    _, accepted = ea.accept_confident(state, "2026-09-21")
+
+    assert accepted == ["E"]
+
+
+def test_accepted_rows_drop_out_of_the_review_queue_so_only_flagged_ones_remain():
+    # This is the point of the bulk accept: 362 rows is not a real review ask, and the
+    # rendered queue is what a human actually opens.
+    state = {"Confident": _queued("high", "/dashboard"),
+             "Flagged": _queued("low", "", flag_reason="no_route")}
+    out, _ = ea.accept_confident(state, "2026-09-21")
+    rendered = ea.render_review_artifact(out, "2026-09-21")
+
+    assert "## Flagged" in rendered
+    assert "## Confident" not in rendered
+
+
+def test_main_accept_confident_saves_and_reports_what_is_left(tmp_path, capsys):
+    state_path = tmp_path / "anchors.json"
+    state_path.write_text(json.dumps({
+        "Confident": _queued("high", "/dashboard"),
+        "Flagged": _queued("low", "", flag_reason="dynamic_dispatch"),
+    }))
+
+    rc = ea.main(["--state", str(state_path), "--accept-confident",
+                  "--today", "2026-09-21"])
+
+    assert rc == 0
+    saved = json.loads(state_path.read_text())
+    assert saved["Confident"]["disposition"] == "accepted"
+    assert saved["Flagged"]["disposition"] == "new"
+    out = capsys.readouterr().out
+    assert "accepted 1" in out and "1 left queued" in out

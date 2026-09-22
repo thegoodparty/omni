@@ -28,6 +28,12 @@ import {
   withUpdatedNote,
 } from './doorNotes'
 
+// useDoorScript reads the viewer's org role; these tests render without an
+// OrganizationProvider, whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganizationRole: () => undefined,
+}))
+
 // The knock form owns the dictation stack and its own mutation; this file is
 // about what the sheet itself puts on screen.
 vi.mock('./RecordKnockForm', () => ({
@@ -1076,7 +1082,6 @@ describe('PersonSheet demographic information', () => {
       levelOfEducation: 'Graduate Degree',
       estimatedIncomeAmount: 82000,
       language: 'Spanish',
-      ethnicityGroup: 'Hispanic',
       ...overrides,
     })
 
@@ -1118,7 +1123,6 @@ describe('PersonSheet demographic information', () => {
       ['Level of education', 'Graduate Degree'],
       ['Estimated household income', '$75k - $100k'],
       ['Language', 'Spanish'],
-      ['Ethnicity group', 'Hispanic'],
     ])
     expect(within(demographicCard()).queryByText('Registered voter')).toBeNull()
   })
@@ -1145,7 +1149,7 @@ describe('PersonSheet demographic information', () => {
 
     expect(within(voterCard()).getAllByText('Not on file')).toHaveLength(3)
     expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
-      9,
+      8,
     )
   })
 

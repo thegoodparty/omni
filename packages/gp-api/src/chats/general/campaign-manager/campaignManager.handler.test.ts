@@ -28,6 +28,7 @@ import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.s
 import type { ElectionsService } from '@/elections/services/elections.service'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
+import { LEGAL_LINE } from './campaignManagerPrompt'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -813,5 +814,26 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
       ctxWith({ story: completeStory }),
     )
     expect(reply).toContain(PRODUCT_OVERVIEW_OPENER)
+  })
+})
+
+describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
+  it('adds the legal line when the shared check fires', () => {
+    const answer =
+      'Under RCW 42.17A.405 that contribution is over the limit, and a ' +
+      'resident can file a complaint with the state commission.'
+
+    expect(buildHandler().finalizeAssistantText(answer)).toBe(
+      `\n\n${LEGAL_LINE}`,
+    )
+  })
+
+  it('does not duplicate an existing legal caution', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Under RCW 42.17A.405 that contribution is over the limit. ' +
+          LEGAL_LINE,
+      ),
+    ).toBeNull()
   })
 })

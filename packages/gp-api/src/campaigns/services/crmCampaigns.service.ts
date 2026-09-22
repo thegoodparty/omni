@@ -11,7 +11,7 @@ import { AssociationLabelsService } from '../../crm/associationLabels.service'
 import { CampaignsService } from './campaigns.service'
 import { SlackService } from '../../vendors/slack/services/slack.service'
 import { Campaign, Prisma, User } from '../../generated/prisma'
-import { getUserFullName } from '../../users/util/users.util'
+import { getUserFullName, isTestUser } from '../../users/util/users.util'
 import { formatDateForCRM } from '../../crm/util/cms.util'
 import { CrmUsersService } from '../../users/services/crmUsers.service'
 import { UsersService } from '../../users/services/users.service'
@@ -494,6 +494,23 @@ export class CrmCampaignsService {
     const { data: campaignData, userId } = campaign
     const { hubspotId: existingHubspotId } = campaignData
 
+    const user = await this.users.findByCampaign(campaign)
+    if (!user) {
+      const message = `No user found for campaign ${campaignId}`
+      this.logger.error(message)
+      await this.slack.errorMessage({
+        message,
+      })
+      return
+    }
+    if (isTestUser({ email: user.email })) {
+      this.logger.debug(
+        { campaignId, email: user.email },
+        'skipping HubSpot company sync for a test campaign',
+      )
+      return
+    }
+
     const crmCompanyProperties =
       await this.calculateCRMCompanyProperties(campaign)
 
@@ -517,16 +534,6 @@ export class CrmCampaignsService {
 
     if (!crmCompany) {
       return //no throw or error here to keep execution from stopping
-    }
-
-    const user = await this.users.findByCampaign(campaign)
-    if (!user) {
-      const message = `No user found for campaign ${campaignId}`
-      this.logger.error(message)
-      await this.slack.errorMessage({
-        message,
-      })
-      return
     }
 
     const { metaData } = user

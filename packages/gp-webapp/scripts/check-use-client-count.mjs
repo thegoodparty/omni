@@ -426,7 +426,13 @@ import { dirname, join, relative } from 'node:path'
 // server component can do neither. The Statistics card itself added nothing:
 // it already existed inside OutreachDetailsDrawer.tsx, which is already a
 // client component, and this change only swapped which endpoint it reads.
-const BASELINE = 574
+// 2026-09-21: 566 -> 564. SurveyAnimation and QuestionAnimation deleted with
+// the two door-knocking empty states that rendered them.
+// 2026-09-22: 567 on merging main into serve-sms. Neither side's number
+// survives: this branch counted up from a base main has since moved off, and
+// main's 564 predates the three Serve SMS client components above. Measured
+// rather than derived — the script was run against the merged tree.
+const BASELINE = 567
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

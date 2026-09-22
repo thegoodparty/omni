@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
+  LEGAL_LINE,
 } from './campaignManagerPrompt'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import type { Organization } from '../../../generated/prisma'
 
 const ctx = (
@@ -455,6 +457,91 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(prompt).toContain('rests on an assumption')
       expect(prompt).toContain('say plainly which part is the assumption')
     }
+  })
+
+  it('defines a legal question by intent, with tools on or off', () => {
+    const allOff = ctx({
+      webSearchEnabled: false,
+      helpCenterToolEnabled: false,
+    })
+    for (const prompt of [
+      buildCampaignManagerSystemPrompt(ctx()),
+      buildCampaignManagerSystemPrompt(allOff),
+    ]) {
+      expect(prompt).toContain('underlying intent')
+      expect(prompt).toContain('what the law allows, prohibits, requires')
+      expect(prompt).toContain('Getting on the ballot and filing to run')
+    }
+  })
+
+  it('attributes the rule to a source or says none established it', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('attribute the rule to that source')
+    expect(prompt).toContain(
+      'do not supply the missing rule from model knowledge',
+    )
+    expect(prompt).toContain('identify what remains unresolved')
+    expect(prompt).toContain('practical next steps')
+  })
+
+  it('keeps product facts separate from legal requirements', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Keep product facts separate from legal requirements',
+    )
+    expect(prompt).toContain(
+      'does not establish what the law permits or requires',
+    )
+  })
+
+  it('keeps ordinary campaign work out of the legal route', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('Ordinary campaign work is not a legal question')
+    expect(prompt).toContain(
+      'Drafting, strategy, product how-tos, and tool use',
+    )
+  })
+
+  it('handles mixed product and legal requests part by part', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('For a mixed request')
+    expect(prompt).toContain('answer each part under the applicable rule')
+  })
+
+  it('pins the legal line to one the finish-time check recognizes', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(`include this line: "${LEGAL_LINE}"`)
+    // A statute-citing reply that carries the line gets nothing appended.
+    expect(
+      professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
+    ).toBeNull()
+  })
+
+  // Same rule as Serve, same wording about proxies, this prompt's voice. It
+  // rides with the CRM guidance because that is the block describing what the
+  // voter file can be cut by.
+  it('refuses to segment voters by ethnicity', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        organization: { slug: 'org-1' } as Organization,
+        crmToolsEnabled: true,
+      }),
+    )
+    expect(prompt).toContain('Never segment voters by ethnicity')
+    expect(prompt).toContain('lists cannot be cut by ethnicity')
+    expect(prompt).toContain('do not explain the rule as a data gap')
+  })
+
+  // Unlike the list-cutting rule above, this one is not hung off the CRM
+  // tools: it is a policy boundary, so it ships with the guardrails and holds
+  // for a candidate with no voter-file access at all.
+  it('refuses exclusionary planning by ethnicity without the CRM tools', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Never help decide who to reach or skip on the basis of ethnicity',
+    )
+    expect(prompt).toContain('used as a proxy')
+    expect(prompt).toContain('in aggregate is a')
   })
 
   it('never invents facts (candidate-in-control guardrail)', () => {

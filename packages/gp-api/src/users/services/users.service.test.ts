@@ -14,6 +14,7 @@ import {
   type ResolvedActorIdentity,
 } from './users.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { CrmUsersService } from './crmUsers.service'
 import { UserAvatarService } from './userAvatar.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
@@ -1870,11 +1871,15 @@ describe('UsersService', () => {
     let clerkClient: ClerkClient
     let analyticsService: AnalyticsService
     let stripeService: StripeService
+    let marketingRevalidation: MarketingRevalidationService
 
     beforeEach(() => {
       clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
       analyticsService = service.app.get<AnalyticsService>(AnalyticsService)
       stripeService = service.app.get<StripeService>(StripeService)
+      marketingRevalidation = service.app.get<MarketingRevalidationService>(
+        MarketingRevalidationService,
+      )
     })
 
     it('deletes the DB record and calls clerkClient.users.deleteUser when user has a clerkId', async () => {
@@ -1925,6 +1930,68 @@ describe('UsersService', () => {
       })
       expect(found).toBeNull()
       expect(deleteUserSpy).not.toHaveBeenCalled()
+    })
+
+    it('revalidates the public person page when the deleted user had a personId', async () => {
+      const personId = randomUUID()
+      const targetUser = await service.prisma.user.create({
+        data: {
+          email: 'claimed-profile-delete@example.com',
+          clerkId: null,
+          personId,
+        },
+      })
+      vi.spyOn(analyticsService, 'track').mockResolvedValue(
+        {} as Awaited<ReturnType<typeof analyticsService.track>>,
+      )
+      const revalidateSpy = vi
+        .spyOn(marketingRevalidation, 'revalidatePerson')
+        .mockResolvedValue(undefined)
+
+      await usersService.deleteUser(targetUser.id, targetUser.id)
+
+      expect(revalidateSpy).toHaveBeenCalledWith(personId)
+    })
+
+    it('does not revalidate when the deleted user had no personId', async () => {
+      const targetUser = await service.prisma.user.create({
+        data: {
+          email: 'no-person-delete@example.com',
+          clerkId: null,
+        },
+      })
+      vi.spyOn(analyticsService, 'track').mockResolvedValue(
+        {} as Awaited<ReturnType<typeof analyticsService.track>>,
+      )
+      const revalidateSpy = vi
+        .spyOn(marketingRevalidation, 'revalidatePerson')
+        .mockResolvedValue(undefined)
+
+      await usersService.deleteUser(targetUser.id, targetUser.id)
+
+      expect(revalidateSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not revalidate when the deletion rolls back on a Clerk failure', async () => {
+      const targetUser = await service.prisma.user.create({
+        data: {
+          email: 'rollback-no-revalidate@example.com',
+          clerkId: 'clerk_rollback_revalidate_id',
+          personId: randomUUID(),
+        },
+      })
+      vi.spyOn(clerkClient.users, 'deleteUser').mockRejectedValue(
+        new Error('Clerk API error'),
+      )
+      const revalidateSpy = vi
+        .spyOn(marketingRevalidation, 'revalidatePerson')
+        .mockResolvedValue(undefined)
+
+      await expect(
+        usersService.deleteUser(targetUser.id, targetUser.id),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(revalidateSpy).not.toHaveBeenCalled()
     })
 
     it('rolls back DB delete and throws BadGatewayException when Clerk deleteUser fails', async () => {

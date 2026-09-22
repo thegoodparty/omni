@@ -17,7 +17,7 @@ import { User } from '../generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
-import { ownerCandidateName } from './util/ownerCandidateName.util'
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 
 @Controller('outreach')
 @UseCampaign({ include: { user: true } })

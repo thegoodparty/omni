@@ -11,10 +11,12 @@ import {
   composeTalkingPointsBullets,
   parseTalkingPoints,
 } from './talkingPointsCard'
+import { useOrganizationRole } from '@shared/organization-picker'
 import {
   buildIntro,
   buildScriptIssues,
   buildServeIntro,
+  buildTeamMemberIntro,
   buildVolunteerIntro,
   type ScriptIssue,
 } from './doorScriptContent'
@@ -54,6 +56,12 @@ export const useDoorScript = (
   // Whether the person holding the phone is the candidate or a volunteer for
   // them. Not derivable from the campaign: a volunteer's is null either way.
   const canvasser = useDoorKnockingCanvasser()
+  // A Campaign Manager walks the candidate branch below (they are not a
+  // volunteer), so the role is what stops the script claiming they are
+  // running for office (ENG-11139). Undefined — a solo campaign, or the org
+  // list not carrying roles — reads as the owner, which is what every walk
+  // was before teams existed.
+  const role = useOrganizationRole()
   const campaignId = campaign?.id
 
   // Null for a list with no stored card, and for a stored value this version
@@ -113,7 +121,13 @@ export const useDoorScript = (
   }
 
   return {
-    intro: buildIntro(user, campaign),
+    intro:
+      role && role !== 'owner'
+        ? buildTeamMemberIntro(user, {
+            name: campaign?.ownerName ?? '',
+            office: campaign?.positionName ?? campaign?.office ?? '',
+          })
+        : buildIntro(user, campaign),
     // The stored card replaces the stances rather than joining them: both are
     // answers to "what do I say here", and a door is not the place to read
     // two. A list frozen before the points step has no card, and the stances

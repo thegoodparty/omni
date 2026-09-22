@@ -54,7 +54,7 @@ import {
   WIN_SOCIAL_VOICE,
 } from './services/outreachSocialGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
-import { ownerCandidateName } from './util/ownerCandidateName.util'
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // GET :id lives here rather than on OutreachController so detail reads stay

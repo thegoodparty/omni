@@ -438,6 +438,7 @@ export default function ListDetailSheet({
             reachability={detailQuery.data?.reachability}
             isLoading={detailQuery.isLoading}
             isError={detailQuery.isError}
+            isWinContext={isWinContextReady && isWinContext}
           />
 
           {!isUniverse && (

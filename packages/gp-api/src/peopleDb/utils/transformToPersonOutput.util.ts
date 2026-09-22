@@ -75,19 +75,6 @@ export const mapEducation = (
   return null
 }
 
-export const mapEthnicity = (
-  value: string | null | undefined,
-): PersonOutputFormat['ethnicityGroup'] => {
-  if (!value) return null
-  const v = value.toLowerCase()
-  if (v === 'east and south asian') return 'Asian'
-  if (v === 'european') return 'European'
-  if (v === 'hispanic and portuguese') return 'Hispanic'
-  if (v === 'likely african-american') return 'African American'
-  if (v === 'other') return 'Other'
-  return null
-}
-
 export const mapBusinessOwner = (
   value: string | null | undefined,
 ): PersonOutputFormat['businessOwner'] => {
@@ -183,7 +170,6 @@ export function transformToPersonOutput(
     homeowner: mapHomeowner(person.Homeowner_Probability_Model),
     businessOwner: mapBusinessOwner(person.Business_Owner),
     levelOfEducation: mapEducation(person.Education_Of_Person),
-    ethnicityGroup: mapEthnicity(person.EthnicGroups_EthnicGroup1Desc),
     language: mapLanguage(person.Language_Code),
     estimatedIncomeAmount: person.Estimated_Income_Amount_Int,
     householdId: person.householdId ?? null,

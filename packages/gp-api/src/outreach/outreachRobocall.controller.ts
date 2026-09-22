@@ -55,7 +55,7 @@ import {
   areaCodeFromE164UsNumber,
   resolveRobocallAreaCode,
 } from './util/robocallAreaCode.util'
-import { ownerCandidateName } from './util/ownerCandidateName.util'
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // Robocall endpoints. The compose surface (script draft, number rental,

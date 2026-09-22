@@ -110,10 +110,10 @@ const REGISTERED_VOTER_LABELS: Record<string, string> = {
 //    prior contacts made, support status, previous activity, phone presence,
 //    registration. A canvasser cannot say any of them out loud, and a model
 //    handed them will try.
-//  - `ethnicity`. It is modeled rather than observed, and unlike the
-//    life-circumstance dimensions here it maps to no local issue without going
-//    through a stereotype. Left out pending a product decision rather than
-//    included with a warning attached.
+//  - `ethnicity`, which is no longer a filter at all. It was left out here
+//    pending a product decision; that decision came back as a flat no, so the
+//    dimension is gone from the catalog and the wire (see
+//    PeopleFilters.schema.ts). This entry stays as the record of why.
 //
 // What survives is life circumstance, which is what actually decides whether a
 // candidate leads with schools, property taxes, or transit. The prompt still

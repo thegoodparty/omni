@@ -42,6 +42,11 @@ import {
 // it offered exactly that filter.
 //
 // Top-issue remains absent as a blocked dimension.
+//
+// Ethnicity is absent as a blocked dimension too, and unlike precinct it is
+// not coming back: the wire fields are gone from voterFilterBaseSchema and
+// PeopleFilters, so there is nothing left for an entry here to name. See
+// PeopleFilters.schema.ts for the rule.
 
 export type FilterDimensionMode = 'win' | 'serve' | 'both'
 
@@ -411,21 +416,6 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
       { key: 'educationCollegeDegree', label: 'College Degree' },
       { key: 'educationGraduateDegree', label: 'Graduate Degree' },
       { key: 'educationUnknown', label: 'Unknown' },
-    ],
-  },
-  {
-    key: 'ethnicity',
-    label: 'Ethnicity',
-    kind: 'boolean-group',
-    modes: 'both',
-    provenance: 'modeled',
-    values: [
-      { key: 'ethnicityAfricanAmerican', label: 'African American' },
-      { key: 'ethnicityAsian', label: 'Asian' },
-      { key: 'ethnicityEuropean', label: 'European' },
-      { key: 'ethnicityHispanic', label: 'Hispanic' },
-      { key: 'ethnicityOther', label: 'Other' },
-      { key: 'ethnicityUnknown', label: 'Unknown' },
     ],
   },
   {

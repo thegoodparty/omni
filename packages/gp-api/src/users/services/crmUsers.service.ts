@@ -19,6 +19,7 @@ import { FilterOperatorEnum } from '@hubspot/api-client/lib/codegen/crm/contacts
 import { PinoLogger } from 'nestjs-pino'
 import { WrapperType } from 'src/shared/types/utility.types'
 import { extractExistingContactId } from '../../crm/util/hubspotErrors.util'
+import { isTestUser } from '../util/users.util'
 
 @Injectable()
 export class CrmUsersService {
@@ -188,6 +189,13 @@ export class CrmUsersService {
     user: User,
     additionalCrmContactProperties?: Partial<CRMContactProperties>,
   ) {
+    if (isTestUser({ email: user.email })) {
+      this.logger.debug(
+        { email: user.email },
+        'skipping HubSpot contact sync for a test user',
+      )
+      return
+    }
     const { id: userId, email, metaData } = user
     let { hubspotId: crmContactId } = metaData || {}
 
@@ -245,6 +253,14 @@ export class CrmUsersService {
     pageUri: string,
     hutk?: string,
   ) {
+    const email = fields.find((field) => field.name === 'email')?.value
+    if (email && isTestUser({ email })) {
+      this.logger.debug(
+        { formId, email },
+        'skipping HubSpot form submission for a test user',
+      )
+      return
+    }
     if (!this.hubspot.client.config.accessToken) {
       this.logger.debug(
         'No API key found for HubSpot client skipping form submission',

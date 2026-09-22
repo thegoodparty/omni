@@ -3,10 +3,6 @@ import { VALUE_MAPPERS } from './valueMappers.util'
 
 describe('VALUE_MAPPERS', () => {
   it('maps every wire value to the value the voter file stores', () => {
-    expect(VALUE_MAPPERS.ethnicity('Asian')).toBe('East and South Asian')
-    expect(VALUE_MAPPERS.ethnicity('African American')).toBe(
-      'Likely African-American',
-    )
     expect(VALUE_MAPPERS.presenceOfChildren('Yes')).toBe('Y')
     expect(VALUE_MAPPERS.presenceOfChildren('No')).toBe('N')
     expect(VALUE_MAPPERS.educationLevel('Graduate Degree')).toBe(
@@ -42,7 +38,6 @@ describe('VALUE_MAPPERS', () => {
   // so there is no 'No' to map.
   it('passes an unrecognized value through unchanged', () => {
     expect(VALUE_MAPPERS.veteranStatus('Yes')).toBe('Yes')
-    expect(VALUE_MAPPERS.ethnicity('Klingon')).toBe('Klingon')
     expect(VALUE_MAPPERS.gender('X')).toBe('X')
   })
 })

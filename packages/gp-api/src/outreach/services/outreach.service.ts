@@ -263,6 +263,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         didState,
         didNpaSubset,
         scheduledDate: createOutreachDto.date,
+        scheduledStartTime: createOutreachDto.scheduledLocalTime,
       })
     } catch (err) {
       // Peerly content rejections (400) are the user's to fix — propagate
@@ -613,6 +614,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         // US sends — unscheduled (Peerly holds P2P jobs for canvassers
         // anyway) beats a wrong-day send for that transient set.
         scheduledDate: outreach.scheduledLocalDate ?? undefined,
+        scheduledStartTime: outreach.scheduledLocalTime ?? undefined,
       })
     } catch (err) {
       // Peerly content rejections (400) are the user's to fix — propagate
