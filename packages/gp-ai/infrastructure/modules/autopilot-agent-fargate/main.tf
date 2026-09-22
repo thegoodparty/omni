@@ -181,8 +181,16 @@ locals {
       valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:GITHUB_APP_PRIVATE_KEY::"
     },
     {
+      # Autopilot's OWN Slack app ("GP Autopilot"), not the shared gp_ai_bot
+      # token the other gp-ai bots use — see the matching comment in
+      # modules/autopilot-bot/main.tf. Env name stays SLACK_BOT_TOKEN (what
+      # shared.slack_client and agent/feedback.py read); only the source key
+      # differs. NO fallback is possible here (ECS resolves valueFrom at task
+      # START and a missing JSON key kills the task), so the
+      # AUTOPILOT_SLACK_BOT_TOKEN key must exist in AI_SECRETS_<ENV> before
+      # this revision deploys.
       name      = "SLACK_BOT_TOKEN"
-      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:SLACK_BOT_TOKEN::"
+      valueFrom = "arn:aws:secretsmanager:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:secret:AI_SECRETS_${upper(var.environment)}:AUTOPILOT_SLACK_BOT_TOKEN::"
     },
     {
       name      = "AMPLITUDE_MANAGEMENT_API_KEY"

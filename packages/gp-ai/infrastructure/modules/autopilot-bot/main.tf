@@ -362,7 +362,15 @@ resource "aws_lambda_function" "autopilot_bot" {
       # a future rotation that drops the key can't break plan either.
       AUTOPILOT_CLICKUP_WEBHOOK_SECRET = try(local.ai_secrets["AUTOPILOT_CLICKUP_WEBHOOK_SECRET"], "")
       AUTOPILOT_CLICKUP_API_KEY        = try(local.ai_secrets["AUTOPILOT_CLICKUP_API_KEY"], "")
-      SLACK_BOT_TOKEN                  = try(local.ai_secrets["SLACK_BOT_TOKEN"], "")
+      # Autopilot posts as its OWN Slack app ("GP Autopilot",
+      # AUTOPILOT_SLACK_BOT_TOKEN), never the shared gp_ai_bot token the
+      # other gp-ai bots use — so rotating or breaking one app can't take
+      # down the other's posting. The runtime env name stays SLACK_BOT_TOKEN
+      # (what supervisor.py reads); only the SOURCE key differs. Fallback to
+      # the shared token keeps autopilot working until the dedicated key
+      # lands in AI_SECRETS_<ENV>; drop the middle try() arm after both envs
+      # carry it.
+      SLACK_BOT_TOKEN = try(local.ai_secrets["AUTOPILOT_SLACK_BOT_TOKEN"], local.ai_secrets["SLACK_BOT_TOKEN"], "")
       # Same Delegate App key the autopilot-agent-fargate task definitions
       # already carry (see that module's agent_secrets local) — the sweep's
       # merge-pending resolution pass (lambda/github_auth.py) mints its own
