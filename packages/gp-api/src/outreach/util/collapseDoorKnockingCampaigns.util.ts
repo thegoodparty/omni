@@ -83,8 +83,14 @@ export function collapseDoorKnockingCampaigns<T extends MinimalOutreach>(
     // Fixed here rather than at each surface because the history table and
     // the drawer both read this row — a guard per surface is the arrangement
     // that let the badge keep lying after the counts beside it were fixed.
+    // "Every turf is either shelved or done." An archived sibling does not
+    // block the campaign, and it cannot be made to: archive does not require
+    // completion, `completeCampaign` deliberately skips archived turfs (a
+    // shelved turf is one the candidate put away), and the confirm dialog
+    // does not count them either. Counting one here would strand the
+    // campaign at `in_progress` with nothing left that could finish it.
     const everyTurfCompleted = siblings.every(
-      (s) => s.status === OutreachStatus.completed,
+      (s) => s.archivedAt !== null || s.status === OutreachStatus.completed,
     )
     const status =
       !everyTurfCompleted && anchor.status === OutreachStatus.completed

@@ -2119,6 +2119,54 @@ describe('door-knocking routes', () => {
         )
       })
 
+      // Archive does not require completion, so an archived turf can sit at
+      // `in_progress` forever. The client's confirm counts only UNARCHIVED
+      // unfinished turfs, so finishing one here would make the press wider
+      // than the number the candidate agreed to.
+      it('does not finish a turf the candidate has already shelved', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        const [first, second] = turfIds
+        await service.client.post(
+          `/v1/door-knocking/turfs/${first}/archive`,
+          { archived: true },
+          orgHeaders(),
+        )
+
+        expect((await completeCampaign(anchorId)).status).toBe(201)
+
+        const shelved = await envelopeFor(first!)
+        expect(shelved.status).toBe(OutreachStatus.in_progress)
+        expect((await envelopeFor(second!)).status).toBe(
+          OutreachStatus.completed,
+        )
+      })
+
+      // Deleting a turf is a tombstone: the turf goes, its envelope stays,
+      // and the collapse still counts that envelope when it decides whether
+      // the campaign is done. So the write has to reach it — otherwise it
+      // sits at `in_progress` with nothing able to move it and the campaign
+      // can never read Done again, one turf deletion wide.
+      it('still reaches the envelope of a deleted turf', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        const [first, second] = turfIds
+        const deleted = await service.client.delete(
+          `/v1/door-knocking/turfs/${first}`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+        expect(deleted.status).toBeLessThan(300)
+
+        expect((await completeCampaign(anchorId)).status).toBe(201)
+
+        // Both envelopes, even though only one turf is still live — which is
+        // what lets `collapseDoorKnockingCampaigns` read the campaign done.
+        expect((await envelopeFor(first!)).status).toBe(
+          OutreachStatus.completed,
+        )
+        expect((await envelopeFor(second!)).status).toBe(
+          OutreachStatus.completed,
+        )
+      })
+
       // There is no completion timestamp anywhere, so idempotence is asserted
       // on the envelope's `updatedAt`, same as the per-turf pair.
       it('writes nothing on a second press', async () => {

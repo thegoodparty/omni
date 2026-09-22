@@ -366,8 +366,21 @@ export const OutreachDetailsDrawer = ({
   // campaign of one is still a campaign, and one code path is what keeps the
   // two from drifting.
   const campaignLifecycle = useCampaignLifecycle(anchorOutreachId)
+  // The CAMPAIGN's shelf, not the anchor turf's. `collapseDoorKnockingCampaigns`
+  // says a campaign is archived only once every turf is, so reading the
+  // anchor's own flag here would contradict the history row two inches away:
+  // shelving the first turf from its walk leaves the campaign on the active
+  // list while this drawer badged it Archived and offered Restore. Computed
+  // off the same predicate the server rollup uses, so the two agree by
+  // construction. A campaign with no live turfs left falls back to the row.
+  const campaignArchived =
+    campaignTurfs.length > 0 && campaignTurfs.every((turf) => turf.archivedAt)
   const isArchived = Boolean(
-    isDoorKnocking ? doorKnocking?.archivedAt : row?.archivedAt,
+    isDoorKnocking
+      ? campaignTurfs.length > 0
+        ? campaignArchived
+        : row?.archivedAt
+      : row?.archivedAt,
   )
   // Shared by both archive writers below. The detail carries the turf's own
   // `archivedAt`, so a stale cache entry would reopen the drawer on the
@@ -407,10 +420,20 @@ export const OutreachDetailsDrawer = ({
   // the unconditional pair that used to sit in `onSuccess` above is gone.
   const toggleArchive = () => {
     if (!isDoorKnocking) return archiveMutation.mutate()
+    // Mirror the server's own rollup rather than reading the anchor's row out
+    // of the response: the anchor's turf may be tombstoned and absent from it,
+    // which would report the campaign un-archived right after archiving it.
     const onSuccess = (turfs: DoorKnockingTurf[]) =>
       applyArchivedAt(
-        turfs.find((turf) => turf.outreachId === anchorOutreachId)
-          ?.archivedAt ?? null,
+        turfs.length > 0 && turfs.every((turf) => turf.archivedAt)
+          ? turfs.reduce<Date | null>(
+              (latest, turf) =>
+                turf.archivedAt && (!latest || turf.archivedAt > latest)
+                  ? turf.archivedAt
+                  : latest,
+              null,
+            )
+          : null,
       )
     return isArchived
       ? campaignLifecycle.restore({ onSuccess })
@@ -430,6 +453,25 @@ export const OutreachDetailsDrawer = ({
   // A sibling row's confirm is the child's, but its clicks land outside this
   // drawer exactly like the two below, so the drawer has to know one is up.
   const [turfConfirmOpen, setTurfConfirmOpen] = useState(false)
+  // A per-turf Done from the sibling list moves the campaign without going
+  // through this drawer's own mutation, so the history row's snapshot goes
+  // stale — and the footer reads that snapshot. Finishing the LAST unfinished
+  // turf that way would otherwise leave the footer with nothing at all: Mark
+  // campaign done is withheld once nothing is unfinished, and Archive needs
+  // the row to read `done`. Handled as an event rather than derived from the
+  // turf list, because `row` is the hub's snapshot and does not update when
+  // the context does — a reactive version would re-fire forever.
+  const handleTurfCompleted = (turfId: number) => {
+    if (!row) return
+    queryClient.invalidateQueries({ queryKey: outreachDetailQueryKey(row.id) })
+    if (unfinished.some((turf) => turf.id !== turfId)) return
+    setOutreaches(
+      outreaches.map((o) =>
+        o.id === row.id ? { ...o, status: 'completed' } : o,
+      ),
+    )
+  }
+
   const markCampaignDone = () =>
     campaignLifecycle.markDone({
       onSuccess: () => {
@@ -1052,6 +1094,7 @@ export const OutreachDetailsDrawer = ({
                 anchorOutreachId={anchorOutreachId}
                 outreachId={row.id}
                 onConfirmOpenChange={setTurfConfirmOpen}
+                onTurfCompleted={handleTurfCompleted}
               />
             )}
 

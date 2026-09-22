@@ -367,10 +367,18 @@ export class DoorKnockingTurfService extends createPrismaBase(
   ): Promise<DoorKnockingTurf[]> {
     const { turfs, completedNow } = await this.client.$transaction(
       async (tx) => {
+        // `archivedAt: null` is load-bearing, not belt-and-braces. Archive
+        // does not require completion, so an archived turf can sit at
+        // `in_progress` indefinitely — and the client's confirm counts only
+        // UNARCHIVED unfinished turfs, because a shelved turf is one the
+        // candidate has already put away. Without this the dialog would say
+        // "1 turf isn't done yet" and the press would finish two, which is
+        // exactly the blast-radius invariant `campaignTurfScope` states.
         const { count } = await tx.outreach.updateMany({
           where: {
             ...campaignEnvelopeScope(anchorId, organizationSlug),
             status: OutreachStatus.in_progress,
+            archivedAt: null,
           },
           data: { status: OutreachStatus.completed },
         })

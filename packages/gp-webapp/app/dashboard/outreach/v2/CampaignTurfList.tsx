@@ -40,6 +40,11 @@ interface CampaignTurfListProps {
   // reports that one is open and the drawer decides what it means, rather
   // than the drawer owning a dialog for a mutation it has no turf for.
   onConfirmOpenChange?: (open: boolean) => void
+  // Raised with the turf's own id once a per-row Done lands. The campaign's
+  // status lives on the history row, which is a snapshot the hub holds and
+  // this write never goes through — so the drawer has to be told, or its
+  // footer keeps reading a campaign that is no longer in progress.
+  onTurfCompleted?: (turfId: number) => void
 }
 
 const percentLabel = (numerator: number, denominator: number): string => {
@@ -51,6 +56,7 @@ export const CampaignTurfList = ({
   anchorOutreachId,
   outreachId,
   onConfirmOpenChange,
+  onTurfCompleted,
 }: CampaignTurfListProps) => {
   const query = useQuery(campaignTurfsQueryOptions(anchorOutreachId))
   const turfs = query.data ?? []
@@ -73,6 +79,7 @@ export const CampaignTurfList = ({
             turf={turf}
             outreachId={outreachId}
             onConfirmOpenChange={onConfirmOpenChange}
+            onTurfCompleted={onTurfCompleted}
           />
         ))}
       </div>
@@ -87,13 +94,19 @@ interface TurfRowProps {
   turf: DoorKnockingTurf
   outreachId: number
   onConfirmOpenChange?: (open: boolean) => void
+  onTurfCompleted?: (turfId: number) => void
 }
 
 // `Continue knocking` on a per-turf row deep-links into that turf's walk,
 // carrying `outreachId=<anchor>` so closing the walk reopens THIS drawer —
 // the same handoff the drawer's own "Continue knocking" footer uses on the
 // single-turf branch above.
-const TurfRow = ({ turf, outreachId, onConfirmOpenChange }: TurfRowProps) => {
+const TurfRow = ({
+  turf,
+  outreachId,
+  onConfirmOpenChange,
+  onTurfCompleted,
+}: TurfRowProps) => {
   const [markDoneTarget, setMarkDoneTarget] = useState<MarkDoneTarget | null>(
     null,
   )
@@ -147,7 +160,11 @@ const TurfRow = ({ turf, outreachId, onConfirmOpenChange }: TurfRowProps) => {
               disabled={pending}
               onClick={() => {
                 // Nothing to warn about on a fully logged turf.
-                if (unlogged <= 0) return lifecycle.markDone()
+                if (unlogged <= 0) {
+                  return lifecycle.markDone({
+                    onSuccess: () => onTurfCompleted?.(turf.id),
+                  })
+                }
                 openConfirm(true)
               }}
             >
@@ -189,7 +206,12 @@ const TurfRow = ({ turf, outreachId, onConfirmOpenChange }: TurfRowProps) => {
         // us, and a failure then leaves a dialog the candidate can retry from
         // rather than a snackbar behind a sheet they stopped looking at.
         onConfirm={() =>
-          lifecycle.markDone({ onSuccess: () => openConfirm(false) })
+          lifecycle.markDone({
+            onSuccess: () => {
+              openConfirm(false)
+              onTurfCompleted?.(turf.id)
+            },
+          })
         }
       />
     </Card>

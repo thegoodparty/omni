@@ -161,6 +161,20 @@ describe('collapseDoorKnockingCampaigns', () => {
     expect(result[0]?.status).toBe(done)
   })
 
+  // A shelved turf is out of the reckoning. `completeCampaign` skips it and
+  // the confirm dialog does not count it, so counting it here would leave a
+  // campaign reading In progress with nothing left that could finish it.
+  it('is done when the only unfinished turf is archived', () => {
+    const result = collapseDoorKnockingCampaigns([
+      dk(1, null, '2026-01-01T00:00:00Z', done),
+      dk(2, 1, '2026-01-02T00:00:00Z', going, '2026-06-01T00:00:00Z'),
+    ])
+
+    expect(result[0]?.status).toBe(done)
+    // Not every turf is shelved, so the campaign is still on the active list.
+    expect(result[0]?.archivedAt).toBeNull()
+  })
+
   it('leaves an unfinished anchor alone', () => {
     // The correction only ever walks a campaign BACK from done. An anchor
     // that is still going stays going, whatever its siblings say.
