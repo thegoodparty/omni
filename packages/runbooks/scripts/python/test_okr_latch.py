@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import okr_latch as ol
+from analytics_event_health import RETIREMENT_FLOOR_PCT
 
 WATCHED = {"Dashboard - Campaign Plan Viewed": "win_active_candidates_30d"}
 W0 = date(2026, 7, 6)
@@ -115,8 +116,8 @@ def test_since_is_the_first_broken_week_of_the_run_not_the_last():
     # weeks[-1] instead of the run's start, the first assertion below fails (it would
     # read the seventh week's date instead of the fifth week's).
     key = "Dashboard - Campaign Plan Viewed"
-    # reference = mean(700, 700, 10, 10) = 355, threshold = 17.75. Trailing broken run is
-    # the last three weeks (10, 10, 8, each < 17.75); week index 1 (700) is not broken and
+    # reference = mean(700, 700, 10, 10) = 355, threshold = 35.5. Trailing broken run is
+    # the last three weeks (10, 10, 8, each < 35.5); week index 1 (700) is not broken and
     # stops the walk, so the run starts at index 2 (day 14), not index 4 (day 28, the last).
     series = {key: _weeks([700, 700, 10, 10, 8])}
     fresh_state = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=35))
@@ -161,19 +162,24 @@ def test_consecutive_is_recounted_from_the_series_each_run_not_incremented():
 
 
 def test_a_noisy_week_in_the_band_does_not_clear_an_existing_latch():
-    # R14 / Critical 1. Reviewer's exact repro: a single week at 40 against a reference of
-    # 682.5 is still a 94% drop -- clearly not a real recovery -- but it crosses the OLD
-    # single-threshold drop condition (`not _is_broken`, since 40 sits just above the 5%
-    # break floor of 34.125). RECOVERY_PCT's much higher bar (341.25) means this "band" week
-    # (neither broken by the tight floor nor recovered) must not drop the record or destroy
-    # the sticky reference, and `latched` must stay sticky even though this week alone does
-    # not extend the trailing broken run.
+    # R14 / Critical 1. Reviewer's repro, re-derived for LATCH_BREAK_PCT: a single week at
+    # 150 against a reference of 682.5 is still a 78% drop -- clearly not a real recovery --
+    # but it crosses the OLD single-threshold drop condition (`not _is_broken`, since 150
+    # sits above the 10% break floor of 68.25). RECOVERY_PCT's much higher bar (341.25)
+    # means this "band" week (neither broken by the tight floor nor recovered) must not drop
+    # the record or destroy the sticky reference, and `latched` must stay sticky even though
+    # this week alone does not extend the trailing broken run.
+    #
+    # This fixture used to use 40, the band value for the old 5% floor. At 10% that is a
+    # BROKEN week: the test would still pass while exercising the broken path instead of
+    # the band, which is precisely the kind of silently-decorative fixture this branch has
+    # been bitten by. The band is now (68.25, 341.25).
     key = "Dashboard - Campaign Plan Viewed"
     prior = {key: {
         "metric": "win_active_candidates_30d", "since": "2026-08-03",
         "reference": 682.5, "consecutive": 4, "latched": True,
     }}
-    series = {key: _weeks([700, 680, 660, 690, 20, 18, 22, 40])}
+    series = {key: _weeks([700, 680, 660, 690, 20, 18, 22, 150])}
     state = ol.update_latches(prior, series, WATCHED, today=W0 + timedelta(days=56))
     assert key in state, (
         "a band week (neither broken nor recovered) must not drop the record"
@@ -279,15 +285,17 @@ def test_consecutive_counts_the_trailing_run_not_every_broken_week():
 
 
 def test_is_broken_boundary_is_strict_not_inclusive():
-    # Minor 5. `_is_broken` uses a strict `<`, matching detect_anomaly. Changing it to `<=`
-    # passes every other test in this file, because none of them puts a value exactly on
-    # the threshold. reference=100 makes the break floor exactly 5; current=5 sits exactly
-    # on it and must NOT count as broken.
+    # Minor 5. `_is_broken` uses a strict `<`. Changing it to `<=` passes every other test
+    # in this file, because none of them puts a value exactly on the threshold.
+    # reference=100 makes the break floor exactly 10 under LATCH_BREAK_PCT; current=10 sits
+    # exactly on it and must NOT count as broken. The old fixture's 5 was the boundary of
+    # the 5% shared floor; at 10% it is well inside the broken region and would stop
+    # testing the comparison operator at all.
     key = "Dashboard - Campaign Plan Viewed"
-    series = {key: _weeks([100, 100, 100, 100, 5])}
+    series = {key: _weeks([100, 100, 100, 100, 10])}
     state = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=35))
     assert key not in state, (
-        "current exactly at RETIREMENT_FLOOR_PCT * reference is not broken (strict <)"
+        "current exactly at LATCH_BREAK_PCT * reference is not broken (strict <)"
     )
 
 
@@ -316,7 +324,7 @@ def test_malformed_prior_state_degrades_instead_of_raising():
 
 def test_prior_missing_since_degrades_instead_of_indexerror():
     # Fix round 3, item 1. Reviewer's exact repro: a prior with `reference`/`consecutive`/
-    # `latched` but no `since` at all, reaching the band path (this week, 40, is neither
+    # `latched` but no `since` at all, reaching the band path (this week, 150, is neither
     # broken by the tight floor nor recovered against 682.5). Before this fix, the since
     # fallback `weeks[len(weeks) - consecutive]` indexed `weeks[len(weeks)]` when
     # `consecutive == 0` and raised IndexError -- every record this module ever writes
@@ -325,7 +333,7 @@ def test_prior_missing_since_degrades_instead_of_indexerror():
     key = "Dashboard - Campaign Plan Viewed"
     prior = {key: {"metric": "win_active_candidates_30d", "reference": 682.5,
                     "consecutive": 4, "latched": True}}  # no "since"
-    series = {key: _weeks([700, 680, 660, 690, 20, 18, 22, 40])}
+    series = {key: _weeks([700, 680, 660, 690, 20, 18, 22, 150])}
     state = ol.update_latches(prior, series, WATCHED, today=W0 + timedelta(days=56))
     # Must not raise. Degrading the whole record to "no prior" means this specific band
     # week (not itself broken by the tight floor) produces no record rather than crashing.
@@ -393,4 +401,35 @@ def test_densify_never_fills_backward_past_the_first_observed_week():
     assert key not in state, (
         "two real weeks is too little history to judge -- backward-filled fabricated "
         "history must not manufacture enough weeks to produce a (wrong) verdict"
+    )
+
+
+def test_a_ninety_percent_drop_is_broken_though_the_shared_retirement_floor_misses_it():
+    # Why LATCH_BREAK_PCT exists. The 2026-07-31 incident ran at 676.5/week and collapsed
+    # to 32. RETIREMENT_FLOOR_PCT puts the break line at 33.8, so the entire incident sat
+    # 1.8 fires/week from invisible, and a drop only slightly shallower than the real one
+    # -- 34/week, still a 95% drop -- is past the shared floor entirely. The latch-specific
+    # floor puts the line at 67.65 and sees it.
+    key = "Dashboard - Campaign Plan Viewed"
+    series = {key: _weeks([676, 677, 676, 677, 34])}
+    state = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=35))
+    assert state[key]["reference"] == 676.5
+    assert state[key]["consecutive"] == 1, (
+        "the break week must be seen -- one week short of latching, not unseen"
+    )
+    assert 34 > RETIREMENT_FLOOR_PCT * 676.5, (
+        "fixture guard: this count must be INVISIBLE to the shared floor, or the test "
+        "passes without the latch-specific one"
+    )
+
+
+def test_the_latch_floor_is_its_own_and_leaves_the_shared_one_alone():
+    # RETIREMENT_FLOOR_PCT is what detect_anomaly runs over all ~581 events with, and what
+    # the retirement classification keys on. Tightening the latch must not move it -- that
+    # would rewrite the digest for every event on the list, which is not what this ticket
+    # is for.
+    assert RETIREMENT_FLOOR_PCT == 0.05
+    assert ol.LATCH_BREAK_PCT > RETIREMENT_FLOOR_PCT
+    assert ol.RECOVERY_PCT > ol.LATCH_BREAK_PCT, (
+        "recovery must stay a strictly higher bar than break, or there is no band"
     )

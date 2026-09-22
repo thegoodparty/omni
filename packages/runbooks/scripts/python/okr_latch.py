@@ -20,25 +20,34 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any, Mapping, Sequence
 
-from analytics_event_health import (
-    ABSOLUTE_FLOOR,
-    MIN_BASELINE_WEEKS,
-    RETIREMENT_FLOOR_PCT,
-)
+from analytics_event_health import ABSOLUTE_FLOOR, MIN_BASELINE_WEEKS
 
 # A single bad week is usually ingestion lag or a holiday, not a break. Two consecutive
 # weeks costs one week of delay against a failure mode that ran undetected for a month.
 LATCH_AFTER_WEEKS = 2
 
+# Deliberately NOT analytics_event_health.RETIREMENT_FLOOR_PCT (0.05), which this module
+# used to reuse. Two reasons, and the first is why the fix is scoped here rather than
+# applied at the source: that floor is shared with detect_anomaly, which runs over all ~581
+# catalog events, and with the retirement classification, so moving it would rewrite the
+# digest for every event on the list. The second is that 5% is simply too lenient for the
+# failure this module exists to catch. Run the 2026-07-31 incident's own numbers: a
+# 676.5 fires/week instrument fell to 32 in the break week, which puts the shared floor at
+# 33.8 — a 94.5% drop that cleared detection by 1.8 fires a week, with anything marginally
+# shallower walking straight past it. At 0.10 a week is broken when it is below a tenth of
+# the reference, so a 90% drop or worse is caught, and only the handful of OKR-anchored
+# legs are affected.
+LATCH_BREAK_PCT = 0.10
+
 # RECOVERY is a different question than BROKEN, and the review that found this (R14,
-# DATA-2421) is why it gets its own bar instead of reusing RETIREMENT_FLOOR_PCT. The break
-# floor is calibrated to catch a drop as early as possible; using the same 5% line to decide
-# when to let go means a single noisy week just above that floor (still a 90%+ drop) clears
-# the latch and destroys the sticky reference — the exact era-2 failure this module exists
-# to prevent, reachable from one bad week instead of four. RECOVERY_PCT sits well above the
-# break floor so ordinary noise in a broken instrument's counts can't cross it, and well
-# below a real recovery so it doesn't hold one hostage. The value is a judgement call, not
-# one the tests pin down: every value roughly between 0.06 and 0.95 satisfies all of them.
+# DATA-2421) is why it gets its own bar instead of reusing the break floor. The break floor
+# is calibrated to catch a drop as early as possible; using that same line to decide when to
+# let go means a single noisy week just above it (still a ~90% drop) clears the latch and
+# destroys the sticky reference — the exact era-2 failure this module exists to prevent,
+# reachable from one bad week instead of four. RECOVERY_PCT sits well above the break floor
+# so ordinary noise in a broken instrument's counts can't cross it, and well below a real
+# recovery so it doesn't hold one hostage. The value is a judgement call, not one the tests
+# pin down: every value roughly between 0.22 and 0.95 satisfies all of them.
 RECOVERY_PCT = 0.5
 
 # KNOWN LIMITATION, accepted 2026-09-21 (DATA-2421 pre-mortem item c).
@@ -68,11 +77,12 @@ def _reference(weeks: Sequence[tuple[date, int]]) -> float | None:
 
 
 def _is_broken(current: int, reference: float) -> bool:
-    """Same thresholds as detect_anomaly, held against a fixed reference rather than a
-    rolling one. Below ABSOLUTE_FLOOR a percentage is meaningless, so require zero."""
+    """Held against a fixed reference rather than detect_anomaly's rolling one, and at the
+    latch's own tighter floor rather than the shared retirement one — see LATCH_BREAK_PCT.
+    Below ABSOLUTE_FLOOR a percentage is meaningless, so require zero."""
     if reference < ABSOLUTE_FLOOR:
         return current == 0
-    return current < RETIREMENT_FLOOR_PCT * reference
+    return current < LATCH_BREAK_PCT * reference
 
 
 def _is_recovered(current: int, reference: float) -> bool:
