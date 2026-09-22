@@ -26,9 +26,9 @@ const PERSON_1 = { personId: 'person-1', phone: '+13035550101' }
 const PERSON_2 = { personId: 'person-2', phone: '(303) 555-0102' }
 
 const RESULTS_CSV = [
-  'Contact Phone Number,Message Text,Sent At',
-  '3035550101,The potholes on Elm are getting worse,2026-08-11T15:04:05.000Z',
-  '+1 (303) 555-0102,STOP,2026-08-11T16:00:00.000Z',
+  'Contact Phone Number,Message Text,Sent At,Send Direction',
+  '3035550101,The potholes on Elm are getting worse,2026-08-11T15:04:05.000Z,INBOUND',
+  '+1 (303) 555-0102,STOP,2026-08-11T16:00:00.000Z,INBOUND',
 ].join('\n')
 
 let outreach: Outreach
@@ -259,7 +259,7 @@ describe('POST /v1/outreach/admin/results/:outreachId', () => {
 
   it('refuses a file cut off mid-value before anything is written', async () => {
     const result = await upload(
-      'phone_number,message_text\n3035550101,"cut off here',
+      'phone_number,message_text,send_direction\n3035550101,"cut off here',
       false,
     )
     expect(result.status).toBe(400)
@@ -268,7 +268,7 @@ describe('POST /v1/outreach/admin/results/:outreachId', () => {
 
   it('refuses a file whose rows can none of them be used', async () => {
     const result = await upload(
-      'phone_number,message_text\n,nothing to attach this to\n',
+      'phone_number,message_text,send_direction\n,nothing to attach this to,INBOUND\n',
       false,
     )
     expect(result.status).toBe(400)
@@ -366,10 +366,10 @@ describe('POST /v1/outreach/admin/results/:outreachId — body size', () => {
   // fallback and the test stays off the network.
   const bigCsv = (rows: number) => {
     const content = 'The crossing on Elm still needs work. '.repeat(6)
-    const lines = ['Contact Phone Number,Message Text,Sent At']
+    const lines = ['Contact Phone Number,Message Text,Sent At,Send Direction']
     for (let i = 0; i < rows; i += 1) {
       const phone = i % 2 === 0 ? '3035550101' : '3035550102'
-      lines.push(`${phone},${content},2026-08-11T15:04:05.000Z`)
+      lines.push(`${phone},${content},2026-08-11T15:04:05.000Z,INBOUND`)
     }
     return lines.join('\n')
   }

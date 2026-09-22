@@ -8,7 +8,8 @@ import {
 } from './checkResultsFile'
 import { MAX_RESULTS_FILE_BYTES } from '../types'
 
-const GOOD = 'phone_number,message_text\n5551234567,Fix Elm St\n'
+const GOOD =
+  'phone_number,message_text,send_direction\n5551234567,Fix Elm St,INBOUND\n'
 
 const blockerFor = (csv: string, fileName = 'results.csv') =>
   uploadBlocker(checkResultsFile({ fileName, csv }))
@@ -38,9 +39,11 @@ describe('checkResultsFile', () => {
   })
 
   it('refuses a file with a header but no usable rows', () => {
-    expect(blockerFor('phone_number,message_text\n,No phone here\n')).toBe(
-      NO_USABLE_ROWS_MESSAGE
-    )
+    expect(
+      blockerFor(
+        'phone_number,message_text,send_direction\n,No phone here,INBOUND\n'
+      )
+    ).toBe(NO_USABLE_ROWS_MESSAGE)
   })
 
   // The motivating bug. This rule has to hold wherever the check runs, which
@@ -48,9 +51,12 @@ describe('checkResultsFile', () => {
   // keeping their own copies.
   it('refuses a file that was cut off inside a quoted reply', () => {
     const whole =
-      'phone_number,message_text\n5551234567,"Fix Elm St"\n5559876543,"Yes"\n'
+      'phone_number,message_text,send_direction\n' +
+      '5551234567,"Fix Elm St",INBOUND\n5559876543,"Yes",INBOUND\n'
     expect(blockerFor(whole)).toBeNull()
-    expect(blockerFor(whole.slice(0, -4))).toMatch(/incomplete/i)
+    expect(blockerFor(whole.slice(0, whole.lastIndexOf('"Yes"') + 3))).toMatch(
+      /incomplete/i
+    )
   })
 
   it('reports the parse error rather than a generic refusal', () => {

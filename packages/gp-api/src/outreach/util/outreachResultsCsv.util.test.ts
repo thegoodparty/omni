@@ -29,8 +29,8 @@ describe('parseResultsCsv', () => {
   it('reads the pipeline header spellings', () => {
     const result = ok(
       parseResultsCsv(
-        'Contact Phone Number,Message Text,Sent At\n' +
-          '3035550101,Fix the potholes,2026-08-11T15:04:05.000Z\n',
+        'Contact Phone Number,Message Text,Sent At,Send Direction\n' +
+          '3035550101,Fix the potholes,2026-08-11T15:04:05.000Z,INBOUND\n',
       ),
     )
     expect(result.rows).toEqual([
@@ -45,7 +45,10 @@ describe('parseResultsCsv', () => {
 
   it('reads the snake_case spellings as the same columns', () => {
     const result = ok(
-      parseResultsCsv('phone_number,message_text\n3035550101,Hello\n'),
+      parseResultsCsv(
+        'phone_number,message_text,send_direction\n' +
+          '3035550101,Hello,INBOUND\n',
+      ),
     )
     expect(result.rows).toEqual([{ phone: '3035550101', content: 'Hello' }])
   })
@@ -53,10 +56,10 @@ describe('parseResultsCsv', () => {
   it('keeps a reply that contains commas, quotes and newlines intact', () => {
     const result = ok(
       parseResultsCsv(
-        'phone_number,message_text\n' +
+        'phone_number,message_text,send_direction\n' +
           '3035550101,"Two things, actually:\n' +
           '1) the ""crossing"" on Elm\n' +
-          '2) the streetlight"\n',
+          '2) the streetlight",INBOUND\n',
       ),
     )
     expect(result.rows[0]?.content).toBe(
@@ -66,13 +69,16 @@ describe('parseResultsCsv', () => {
 
   it('refuses a file cut off inside a quoted value rather than undercounting it', () => {
     const result = parseResultsCsv(
-      'phone_number,message_text\n3035550101,"the tail of this file is mis',
+      'phone_number,message_text,send_direction\n' +
+        '3035550101,"the tail of this file is mis',
     )
     expect(result).toEqual({ ok: false, error: TRUNCATED_MESSAGE })
   })
 
   it('names the column that is missing, and what it could have been called', () => {
-    const result = parseResultsCsv('phone_number,when\n3035550101,today\n')
+    const result = parseResultsCsv(
+      'phone_number,when,send_direction\n3035550101,today,INBOUND\n',
+    )
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error).toContain('message_text or Message Text')
@@ -82,7 +88,9 @@ describe('parseResultsCsv', () => {
   it('skips a row with no phone and reports the spreadsheet line', () => {
     const result = ok(
       parseResultsCsv(
-        'phone_number,message_text\n3035550101,Hello\n,Orphan reply\n',
+        'phone_number,message_text,send_direction\n' +
+          '3035550101,Hello,INBOUND\n' +
+          ',Orphan reply,INBOUND\n',
       ),
     )
     expect(result.rows).toHaveLength(1)
@@ -91,16 +99,65 @@ describe('parseResultsCsv', () => {
 
   it('treats an empty timestamp cell as no timestamp, not a bad one', () => {
     const result = ok(
-      parseResultsCsv('phone_number,message_text,sent_at\n3035550101,Hi,\n'),
+      parseResultsCsv(
+        'phone_number,message_text,sent_at,send_direction\n' +
+          '3035550101,Hi,,INBOUND\n',
+      ),
     )
     expect(result.rows).toEqual([{ phone: '3035550101', content: 'Hi' }])
     expect(result.skipped).toEqual([])
   })
 
+  // The fulfilment export is a message log: it carries the official's own
+  // outbound text to every recipient alongside the replies. Ingesting those
+  // would turn one send to 54 people into 54 fabricated responses.
+  it('keeps only inbound rows, skipping the outbound half of the exchange', () => {
+    const result = ok(
+      parseResultsCsv(
+        'phone_number,message_text,send_direction\n' +
+          '3035550101,Budget hearing Tuesday.,OUTBOUND\n' +
+          '3035550101,I will be there,INBOUND\n' +
+          '3035550102,Budget hearing Tuesday.,Outbound\n',
+      ),
+    )
+    expect(result.rows).toEqual([
+      { phone: '3035550101', content: 'I will be there' },
+    ])
+    expect(result.skipped).toEqual([
+      { line: 2, reason: 'OUTBOUND row' },
+      { line: 4, reason: 'OUTBOUND row' },
+    ])
+  })
+
+  // Matches the poll pipeline, whose model types send_direction as required
+  // while carrier / send_status / error_code are Optional. Defaulting to
+  // "inbound" would silently accept the whole log.
+  it('refuses a file with no direction column rather than assuming inbound', () => {
+    const result = parseResultsCsv(
+      'phone_number,message_text\n3035550101,Hello\n',
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain('send_direction or Send Direction')
+  })
+
+  it('skips a row whose direction cell is blank', () => {
+    const result = ok(
+      parseResultsCsv(
+        'phone_number,message_text,send_direction\n' +
+          '3035550101,Hi,\n' +
+          '3035550102,Hey,INBOUND\n',
+      ),
+    )
+    expect(result.rows).toHaveLength(1)
+    expect(result.skipped).toEqual([{ line: 2, reason: 'no send direction' }])
+  })
+
   it('ignores blank lines between rows', () => {
     const result = ok(
       parseResultsCsv(
-        'phone_number,message_text\n3035550101,Hi\n\n3035550102,Hey\n',
+        'phone_number,message_text,send_direction\n' +
+          '3035550101,Hi,INBOUND\n\n3035550102,Hey,INBOUND\n',
       ),
     )
     expect(result.rows).toHaveLength(2)
@@ -109,7 +166,8 @@ describe('parseResultsCsv', () => {
 })
 
 describe('checkResultsCsv', () => {
-  const csv = 'phone_number,message_text\n3035550101,Hi\n'
+  const csv =
+    'phone_number,message_text,send_direction\n3035550101,Hi,INBOUND\n'
 
   it('refuses a nameless or empty file before parsing it', () => {
     expect(checkResultsCsv({ fileName: '  ', csv })).toEqual({

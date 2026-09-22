@@ -25,7 +25,11 @@ import {
  * See docs/features/serve-sms.md, "Layer 1: Delivery", Inbound.
  */
 
-export type ResultsCsvField = 'phone' | 'content' | 'receivedAt'
+export type ResultsCsvField =
+  | 'phone'
+  | 'content'
+  | 'receivedAt'
+  | 'sendDirection'
 
 // Compared after `normalizeResultsHeader`, which lowercases and folds
 // underscores and runs of whitespace into single spaces. That one fold is
@@ -34,13 +38,35 @@ const HEADER_ALIASES: Record<ResultsCsvField, string[]> = {
   phone: ['phone', 'phone number', 'contact phone number'],
   content: ['content', 'message', 'message text'],
   receivedAt: ['received at', 'sent at'],
+  sendDirection: ['send direction', 'direction'],
 }
 
 const ACCEPTED_HEADERS: Record<ResultsCsvField, string> = {
   phone: 'phone_number or Contact Phone Number',
   content: 'message_text or Message Text',
   receivedAt: 'sent_at or Sent At (optional)',
+  sendDirection: 'send_direction or Send Direction',
 }
+
+/**
+ * The fulfilment export is a message LOG: it carries the official's outbound
+ * text to every recipient alongside the replies. Only inbound rows are
+ * replies, and the column is required rather than assumed, because assuming
+ * would turn one send to 54 people into 54 fabricated responses — every
+ * recipient marked as having replied, with the campaign text as their words.
+ *
+ * Matches the poll pipeline exactly, which is the point: the same file feeds
+ * both. `serve/classify/data_loader.py` filters on
+ * `send_direction.upper() == "INBOUND"` with `inbound_only` defaulting to
+ * True, and its model types `send_direction: str` as required while its
+ * neighbours `carrier` / `send_status` / `error_code` are Optional — so a
+ * file without the column fails there too.
+ *
+ * Auto-replies are deliberately NOT filtered: the poll pipeline reads
+ * `Is Automatic Reply?` but never excludes on it, and diverging here would
+ * make the two products disagree about what a response is.
+ */
+const INBOUND_DIRECTION = 'INBOUND'
 
 /**
  * Byte length, not character count: a UTF-8 reply body is routinely wider
@@ -204,9 +230,12 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
   const contentIndex = indexOfField('content')
   const receivedAtIndex = indexOfField('receivedAt')
 
+  const sendDirectionIndex = indexOfField('sendDirection')
+
   const missing: ResultsCsvField[] = []
   if (phoneIndex === -1) missing.push('phone')
   if (contentIndex === -1) missing.push('content')
+  if (sendDirectionIndex === -1) missing.push('sendDirection')
   if (missing.length > 0) {
     return {
       ok: false,
@@ -223,6 +252,18 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     const cells = rows[index]
     if (!cells || isBlankRow(cells)) continue
     const line = index + 1
+
+    // Outbound rows are the official's own message, not a reply. Skipped
+    // rather than rejected: a whole-file refusal would be wrong for a file
+    // that is exactly right and simply contains both halves of the exchange.
+    const direction = (cells[sendDirectionIndex] ?? '').trim().toUpperCase()
+    if (direction !== INBOUND_DIRECTION) {
+      skipped.push({
+        line,
+        reason: direction === '' ? 'no send direction' : `${direction} row`,
+      })
+      continue
+    }
 
     const rawReceivedAt =
       receivedAtIndex === -1 ? '' : (cells[receivedAtIndex] ?? '').trim()

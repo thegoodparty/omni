@@ -29,8 +29,11 @@ vi.mock('./gateway', () => ({
 import { commitResultsUpload, dryRunResultsUpload } from './actions'
 
 const WHOLE =
-  'phone_number,message_text\n5551234567,"Fix Elm St"\n5559876543,"Yes"\n'
-const TRUNCATED = WHOLE.slice(0, -4)
+  'phone_number,message_text,send_direction\n' +
+  '5551234567,"Fix Elm St",INBOUND\n5559876543,"Yes",INBOUND\n'
+// Cut inside the last quoted value, which is the shape the rule is about —
+// an offset from the end stops landing there as soon as a column is added.
+const TRUNCATED = WHOLE.slice(0, WHOLE.lastIndexOf('"Yes"') + 3)
 
 beforeEach(() => {
   mockUpload.mockReset()

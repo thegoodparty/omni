@@ -17,7 +17,11 @@ import {
 // raw file text is what gets uploaded — a poll's file has to reach S3 byte for
 // byte, exactly as fulfilment produced it.
 
-export type ResultsCsvField = 'phone' | 'content' | 'receivedAt'
+export type ResultsCsvField =
+  | 'phone'
+  | 'content'
+  | 'receivedAt'
+  | 'sendDirection'
 
 // Compared after `normalizeHeader`, which lowercases and folds underscores
 // and runs of whitespace into single spaces. That one fold is what makes
@@ -26,15 +30,31 @@ const HEADER_ALIASES: Record<ResultsCsvField, string[]> = {
   phone: ['phone', 'phone number', 'contact phone number'],
   content: ['content', 'message', 'message text'],
   receivedAt: ['received at', 'sent at'],
+  sendDirection: ['send direction', 'direction'],
 }
 
-export const REQUIRED_FIELDS: ResultsCsvField[] = ['phone', 'content']
+export const REQUIRED_FIELDS: ResultsCsvField[] = [
+  'phone',
+  'content',
+  'sendDirection',
+]
 
 export const ACCEPTED_HEADERS: Record<ResultsCsvField, string> = {
   phone: 'phone_number or Contact Phone Number',
   content: 'message_text or Message Text',
   receivedAt: 'sent_at or Sent At (optional)',
+  sendDirection: 'send_direction or Send Direction',
 }
+
+/**
+ * The fulfilment export is a message log carrying the official's outbound
+ * text alongside the replies, so only inbound rows are responses. Mirrors
+ * the server's parser and the poll pipeline
+ * (`serve/classify/data_loader.py`, which filters on
+ * `send_direction.upper() == "INBOUND"`). This copy is a preflight — the
+ * server decides — but the two must agree or the preview lies about counts.
+ */
+const INBOUND_DIRECTION = 'INBOUND'
 
 export function normalizeHeader(header: string): string {
   return header
@@ -177,10 +197,17 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
   const phoneIndex = indexOfField('phone')
   const contentIndex = indexOfField('content')
   const receivedAtIndex = indexOfField('receivedAt')
+  const sendDirectionIndex = indexOfField('sendDirection')
 
-  const missing = REQUIRED_FIELDS.filter((field) =>
-    field === 'phone' ? phoneIndex === -1 : contentIndex === -1
-  )
+  // Index-driven rather than a per-field ternary: the ternary silently
+  // reported the wrong column the moment a third required field was added.
+  const indexOf: Record<ResultsCsvField, number> = {
+    phone: phoneIndex,
+    content: contentIndex,
+    receivedAt: receivedAtIndex,
+    sendDirection: sendDirectionIndex,
+  }
+  const missing = REQUIRED_FIELDS.filter((field) => indexOf[field] === -1)
   if (missing.length > 0) {
     return {
       ok: false,
@@ -195,6 +222,7 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     content: headerRow[contentIndex].trim(),
     receivedAt:
       receivedAtIndex === -1 ? null : headerRow[receivedAtIndex].trim(),
+    sendDirection: headerRow[sendDirectionIndex].trim(),
   }
 
   const parsedRows: OutreachResultsUploadRow[] = []
@@ -206,6 +234,15 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     if (isBlankRow(cells)) continue
     dataRows += 1
     const line = index + 1
+
+    const direction = (cells[sendDirectionIndex] ?? '').trim().toUpperCase()
+    if (direction !== INBOUND_DIRECTION) {
+      skipped.push({
+        line,
+        reason: direction === '' ? 'no send direction' : `${direction} row`,
+      })
+      continue
+    }
 
     const rawReceivedAt =
       receivedAtIndex === -1 ? '' : (cells[receivedAtIndex] ?? '').trim()

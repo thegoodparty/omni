@@ -137,9 +137,11 @@ export function ResultsUploader({
       </Heading>
       <Text size="2" color="gray" as="p">
         The CSV fulfilment produced, as it came out of the texting tool. Needs a
-        phone column ({ACCEPTED_HEADERS.phone}) and a message column (
-        {ACCEPTED_HEADERS.content}). A timestamp column ({' '}
-        {ACCEPTED_HEADERS.receivedAt}) is used if it is there.
+        phone column ({ACCEPTED_HEADERS.phone}), a message column (
+        {ACCEPTED_HEADERS.content}) and a direction column (
+        {ACCEPTED_HEADERS.sendDirection}) — only inbound rows are counted as
+        replies. A timestamp column ({ACCEPTED_HEADERS.receivedAt}) is used if
+        it is there.
       </Text>
 
       <Box mt="3">

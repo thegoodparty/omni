@@ -21,7 +21,7 @@ const report = (
 const input = {
   outreachId: 42,
   fileName: 'results.csv',
-  csv: 'phone_number,message_text\n5551234567,Hi\n',
+  csv: 'phone_number,message_text,send_direction\n5551234567,Hi,INBOUND\n',
   sourceLabel: 'gp-admin upload by staff@goodparty.org',
 }
 

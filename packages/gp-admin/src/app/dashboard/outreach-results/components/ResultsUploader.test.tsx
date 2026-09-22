@@ -60,7 +60,9 @@ beforeEach(() => {
 })
 
 const GOOD_CSV =
-  'Contact Phone Number,Message Text\n5551234567,Fix Elm St\n5559876543,STOP\n5550000000,Yes please\n'
+  'Contact Phone Number,Message Text,Send Direction\n' +
+  '5551234567,Fix Elm St,INBOUND\n5559876543,STOP,INBOUND\n' +
+  '5550000000,Yes please,INBOUND\n'
 
 const setup = () =>
   render(
@@ -170,7 +172,9 @@ describe('ResultsUploader', () => {
     await screen.findByText('fast.csv')
 
     // The abandoned read lands late with a file that would parse fine.
-    releaseSlow('phone_number,message_text\n5551111111,From the stale file\n')
+    releaseSlow(
+      'phone_number,message_text,send_direction\n5551111111,From the stale file,INBOUND\n'
+    )
     await waitFor(() => {
       expect(screen.queryByText('slow.csv')).toBeNull()
     })
