@@ -127,7 +127,6 @@ describe('demographicFacts', () => {
       'Level of education',
       'Estimated household income',
       'Language',
-      'Ethnicity group',
     ])
   })
 

@@ -151,6 +151,20 @@ export const convertVoterFileFilterToFilters = (
     'registeredVoterTrue',
     'registeredVoterFalse',
     'registeredVoterUnknown',
+    // Never a filter criterion: nobody may subset constituents or voters by
+    // ethnicity (PeopleFilters.schema.ts). Rows saved before that rule still
+    // carry the six columns, so they are dropped here rather than read — such
+    // a list recounts to the rest of its filter instead of breaking in the
+    // middle of someone's outreach. They belong in THIS set and not in
+    // `fieldsHandledSeparately` below: that set means "a dedicated block
+    // consumes it", and the generic loop copies any unclaimed `true` boolean
+    // straight through to the people filter.
+    'ethnicityAfricanAmerican',
+    'ethnicityAsian',
+    'ethnicityEuropean',
+    'ethnicityHispanic',
+    'ethnicityOther',
+    'ethnicityUnknown',
     // Resolved by the activity-condition/support-status resolution engine
     // (CRM feature 4 task 05), not this generic key->filter loop — an
     // activityConditions array of objects or a supportStatus string array
@@ -199,12 +213,6 @@ export const convertVoterFileFilterToFilters = (
     'educationCollegeDegree',
     'educationGraduateDegree',
     'educationUnknown',
-    'ethnicityAsian',
-    'ethnicityEuropean',
-    'ethnicityHispanic',
-    'ethnicityAfricanAmerican',
-    'ethnicityOther',
-    'ethnicityUnknown',
     'businessOwnerYes',
     'businessOwnerUnknown',
     'hasChildrenYes',
@@ -360,20 +368,6 @@ export const convertVoterFileFilterToFilters = (
       educationValues.length === 1
         ? { eq: educationValues[0] }
         : { in: educationValues }
-  }
-
-  const ethnicityValues: string[] = []
-  if (segment.ethnicityAsian) ethnicityValues.push('Asian')
-  if (segment.ethnicityEuropean) ethnicityValues.push('European')
-  if (segment.ethnicityHispanic) ethnicityValues.push('Hispanic')
-  if (segment.ethnicityAfricanAmerican) ethnicityValues.push('African American')
-  if (segment.ethnicityOther) ethnicityValues.push('Other')
-  if (segment.ethnicityUnknown) ethnicityValues.push('Unknown')
-  if (ethnicityValues.length > 0) {
-    filters['ethnicity'] =
-      ethnicityValues.length === 1
-        ? { eq: ethnicityValues[0] }
-        : { in: ethnicityValues }
   }
 
   const businessOwnerValues: string[] = []

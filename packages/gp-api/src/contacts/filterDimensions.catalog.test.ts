@@ -160,7 +160,19 @@ describe('FILTER_DIMENSIONS provenance', () => {
     expect(overlap).toEqual([])
   })
 
-  // Pinned so a quiet downgrade (e.g. ethnicity -> observed) fails here with
+  // Nobody may subset constituents or voters by ethnicity. The catalog is
+  // what the assistants are allowed to know exists, so a re-added entry here
+  // is how the rule would come back first, in either product's mode.
+  it('offers no way to filter by ethnicity, in either mode', () => {
+    const keys = FILTER_DIMENSIONS.map((d) => d.key)
+    expect(keys).not.toContain('ethnicity')
+    const valueKeys = FILTER_DIMENSIONS.flatMap((d) =>
+      'values' in d && d.values ? d.values.map((v) => v.key) : [],
+    )
+    expect(valueKeys.filter((k) => k.startsWith('ethnicity'))).toEqual([])
+  })
+
+  // Pinned so a quiet downgrade (e.g. homeowner -> observed) fails here with
   // a readable diff instead of silently reaching the model.
   it('pins the modeled set', () => {
     const modeled = FILTER_DIMENSIONS.filter(
@@ -171,7 +183,6 @@ describe('FILTER_DIMENSIONS provenance', () => {
         'audience',
         'businessOwner',
         'education',
-        'ethnicity',
         'homeowner',
         'ideology',
         'income',
@@ -279,8 +290,5 @@ describe('ContactsService.getFilterDimensions', () => {
       (d) => !UNCLASSIFIED_PROVENANCE_DIMENSIONS.has(d.key),
     )
     expect(classified.every((d) => typeof d.provenance === 'string')).toBe(true)
-    expect(dimensions.find((d) => d.key === 'ethnicity')?.provenance).toBe(
-      'modeled',
-    )
   })
 })

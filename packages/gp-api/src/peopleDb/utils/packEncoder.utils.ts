@@ -33,7 +33,6 @@ export type PackRow = {
   Education_Of_Person: string | null
   Estimated_Income_Amount_Int: number | null
   Language_Code: string | null
-  EthnicGroups_EthnicGroup1Desc: string | null
   registered: boolean
   hasCellPhone: boolean
   hasLandline: boolean
@@ -75,7 +74,6 @@ const MAPPED_DIMS = [
   ['presenceOfChildren', 'presenceOfChildren', 'Presence_Of_Children'],
   ['homeowner', 'homeowner', 'Homeowner_Probability_Model'],
   ['educationLevel', 'educationLevel', 'Education_Of_Person'],
-  ['ethnicity', 'ethnicity', 'EthnicGroups_EthnicGroup1Desc'],
 ] as const satisfies ReadonlyArray<
   readonly [string, keyof typeof VALUE_MAPPERS, keyof PackRow]
 >

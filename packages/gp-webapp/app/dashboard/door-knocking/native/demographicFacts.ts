@@ -140,7 +140,6 @@ export const demographicFacts = (
     | 'levelOfEducation'
     | 'estimatedIncomeAmount'
     | 'language'
-    | 'ethnicityGroup'
   >,
 ): DemographicFact[] =>
   withFallback([
@@ -165,5 +164,4 @@ export const demographicFacts = (
       value: incomeRangeLabel(target.estimatedIncomeAmount),
     },
     { label: 'Language', value: target.language },
-    { label: 'Ethnicity group', value: target.ethnicityGroup },
   ])

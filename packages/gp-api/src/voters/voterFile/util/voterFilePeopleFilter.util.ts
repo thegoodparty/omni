@@ -37,10 +37,6 @@ const CUSTOM_FILTER_TO_FIELD: Record<
   gender_unknown: 'genderUnknown',
   has_cell_phone: 'hasCellPhone',
   has_landline: 'hasLandline',
-  ethnicity_european: 'ethnicityEuropean',
-  ethnicity_asian: 'ethnicityAsian',
-  ethnicity_hispanic: 'ethnicityHispanic',
-  ethnicity_african_american: 'ethnicityAfricanAmerican',
 }
 
 // Per-channel population rules, mirroring segmentsToFiltersMap.const.ts (the

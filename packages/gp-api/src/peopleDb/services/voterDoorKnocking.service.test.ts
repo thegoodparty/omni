@@ -44,7 +44,6 @@ const residentRow = (id: string, addressKey = ADDRESS_KEY): DbxResidentRow => ({
   Education_Of_Person: 'Completed Graduate School Likely',
   Estimated_Income_Amount_Int: 82000,
   Language_Code: 'Spanish',
-  EthnicGroups_EthnicGroup1Desc: 'Hispanic and Portuguese',
 })
 
 // A person with nothing on file. This is the common case in the voter file,
@@ -61,7 +60,6 @@ const sparseRow = (id: string): DbxResidentRow => ({
   Education_Of_Person: null,
   Estimated_Income_Amount_Int: null,
   Language_Code: null,
-  EthnicGroups_EthnicGroup1Desc: null,
 })
 
 type MeasureArgs = {
@@ -249,7 +247,6 @@ describe('VoterDoorKnockingService', () => {
           levelOfEducation: 'Graduate Degree',
           estimatedIncomeAmount: 82000,
           language: 'Spanish',
-          ethnicityGroup: 'Hispanic',
         },
       ])
       // Household context stays name-only: a non-target resident is context for
@@ -300,7 +297,6 @@ describe('VoterDoorKnockingService', () => {
         businessOwner: null,
         levelOfEducation: null,
         estimatedIncomeAmount: null,
-        ethnicityGroup: null,
       })
     })
 
