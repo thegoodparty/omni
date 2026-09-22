@@ -5,6 +5,10 @@ import { useQuery } from '@tanstack/react-query'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { Button, Card, Progress } from '@styleguide'
 import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
+import {
+  turfStage,
+  turfStatusLabel,
+} from 'app/dashboard/door-knocking/native/turfLifecycle'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
 
 // The compact in-drawer sibling list for a door-knocking campaign anchor.
@@ -74,23 +78,44 @@ const TurfRow = ({ turf, outreachId }: TurfRowProps) => {
   const walkHref = `/dashboard/door-knocking?walkTurfId=${turf.id}&outreachId=${outreachId}`
   const progress =
     turf.peopleCount > 0 ? (turf.loggedCount / turf.peopleCount) * 100 : 0
+  // The campaign read is scoped on `deletedAt` only, so a shelved sibling is
+  // still in this list — and without this it rendered identically to an
+  // active one, Continue included, deep-linking into a walk for a list the
+  // candidate had already put away. `turfStage` is the canonical check;
+  // nothing here re-derives it from `archivedAt`.
+  const archived = turfStage(turf) === 'archived'
   return (
     <Card className="gap-2 rounded-lg p-3">
       <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
-          className="h-3 w-3 shrink-0 rounded-full"
+          className={`h-3 w-3 shrink-0 rounded-full ${
+            archived ? 'opacity-40' : ''
+          }`}
           style={{ backgroundColor: turf.color }}
         />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+        <span
+          className={`min-w-0 flex-1 truncate text-sm font-medium ${
+            archived ? 'text-muted-foreground' : 'text-foreground'
+          }`}
+        >
           {turf.name}
         </span>
-        <Link
-          href={walkHref}
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          Continue
-        </Link>
+        {archived ? (
+          // A label rather than a disabled link: there is nothing to press,
+          // and the rail's own archived rings are dimmed rather than removed
+          // for the same reason — shelved is a state, not a deletion.
+          <span className="text-sm font-medium text-muted-foreground">
+            {turfStatusLabel(turf)}
+          </span>
+        ) : (
+          <Link
+            href={walkHref}
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Continue
+          </Link>
+        )}
       </div>
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>

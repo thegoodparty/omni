@@ -56,6 +56,10 @@ import {
 } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ExportWalkSheetButton } from 'app/dashboard/door-knocking/native/ExportWalkSheetButton'
+import {
+  CAMPAIGN_TURFS_QUERY_KEY,
+  TURFS_QUERY_KEY,
+} from 'app/dashboard/door-knocking/native/turfQueries'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { shortOutreachDate } from './outreachDate.util'
@@ -370,6 +374,14 @@ export const OutreachDetailsDrawer = ({
       queryClient.invalidateQueries({
         queryKey: outreachDetailQueryKey(row?.id ?? -1),
       })
+      // And the two caches the door-knocking write above actually moves. The
+      // comment on `mutationFn` already names the rail as the reason this
+      // routes through the turf's endpoint, but flushing only the detail left
+      // the rail and this drawer's own sibling list showing the turf active.
+      // Same pair `turfLifecycle` and `DeleteTurfControl` invalidate, and
+      // unconditional because a non-door-knocking archive matches neither key.
+      queryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: CAMPAIGN_TURFS_QUERY_KEY })
       onOpenChange(false)
     },
     onError: () =>
