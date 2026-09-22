@@ -1174,6 +1174,29 @@ def run_monitor(
     # going silent from the warehouse not having loaded that week by looking at the other
     # events' rows, and a filtered mapping would silently revert this ticket's fix.
     series = weekly_series(weekly, current_monday)
+
+    # okr_latch caps its zero-fill at the most recent week ANY event has rows for, which
+    # is what stops a warehouse outage false-latching every leg at once. But a frozen cap
+    # is silent: the monitor keeps running, every verdict quietly ages, and nothing says
+    # the data stopped arriving. Read through okr_latch's own function rather than
+    # recomputing the same max here — a second derivation could disagree with the cap that
+    # caused the staleness. With ~581 events in a 63-day window there are rows for a
+    # completed week unless the pipeline has genuinely broken, so this is not chatty.
+    last_complete_week = current_monday - timedelta(days=7)
+    warehouse_last_loaded = ol._warehouse_last_loaded(series)
+    warehouse_lag_problems: list[str] = []
+    if warehouse_last_loaded is not None and warehouse_last_loaded < last_complete_week:
+        warehouse_lag_problems.append(
+            f"The warehouse has loaded no event rows past the week of "
+            f"{warehouse_last_loaded.isoformat()}, but the most recent complete week is "
+            f"{last_complete_week.isoformat()}. Every dormancy verdict below is as of the "
+            f"older week, and a break in the missing weeks is invisible to the latch."
+        )
+    # anchor_problems, not read_problems: this is not an anchor read failure, and it must
+    # not take the read-failure path that holds every latch open — a leg that genuinely
+    # recovered in the weeks that DID load still has to be allowed to clear.
+    anchor_problems += warehouse_lag_problems
+
     prior_latches = load_prior_latches(state_path)
     latches = ol.update_latches(prior_latches, series, watched_by_key, today)
     # Keyed on read_problems, not on the per-metric all-historical entries in
@@ -1196,6 +1219,9 @@ def run_monitor(
         }
     result["latches"] = latches
     result["anchor_problems"] = anchor_problems
+    # Carried separately as well so the Slack build can tier it yellow; the digest reads
+    # anchor_problems and needs no such distinction.
+    result["warehouse_lag_problems"] = warehouse_lag_problems
 
     # Walk `records`, not `flagged`: a latched break is by construction one whose
     # detect_anomaly has gone quiet, so its record already ranks 99 and has dropped out of
@@ -1270,6 +1296,11 @@ def build_slack_triage(
     # overwrites headline and action on every item it is handed, and this text is
     # run-level and authored here, so it is not the judge's to rewrite.
     # Spliced as a block rather than inserted one at a time, which would reverse them.
+    # Warehouse staleness rides in anchor_problems so it reaches the digest's degraded
+    # line, but it is an operational condition rather than a broken guard, so it is held
+    # out here and re-added below as yellow. Excluded by membership in the lag list, not
+    # by matching the text, so a genuine read failure in the same run keeps its red.
+    lag_problems = result.get("warehouse_lag_problems") or []
     triage["items"][:0] = [
         {
             "id": "(OKR dormancy checks)",
@@ -1285,7 +1316,23 @@ def build_slack_triage(
                        "gp-data-platform, then re-run."),
         }
         for problem in result.get("anchor_problems") or []
+        if problem not in lag_problems
     ]
+    # Yellow for the same reason the okr: tag items are: a lagging load is worth saying
+    # out loud, but it resolves itself when the pipeline catches up, and forcing a red
+    # post every week through a multi-day outage is the alert fatigue this digest avoids.
+    triage["items"].extend([
+        {
+            "id": "(warehouse freshness)",
+            "event_type": "(warehouse freshness)",
+            "rank": 5, "okr": "run-level",
+            "rules_tier": "yellow", "tier": "yellow",
+            "headline": problem,
+            "action": ("Check the Databricks load for the Amplitude event tables before "
+                       "acting on this run's dormancy verdicts."),
+        }
+        for problem in lag_problems
+    ])
     # Same reasoning, added after run_triage for the same reason: a stale okr: tag is
     # slow-moving governance drift, not a broken pipe, so it goes in yellow (never red,
     # and it must never flip red_open below) — forcing a post every week on a persistent

@@ -2009,3 +2009,136 @@ def test_digest_renders_the_okr_tag_problems_section_after_the_latch_table():
 def test_digest_omits_the_okr_tag_problems_section_when_there_are_none():
     out = eh.render_digest_section(_render_result(okr_tag_problems=[]), _NO_CHANGES)
     assert "### OKR tags the semantic layer does not back" not in out
+
+
+# --- warehouse freshness (DATA-2421 Part B) -----------------------------------
+#
+# okr_latch caps its zero-fill at the most recent week ANY event has rows for, which
+# is what stops a warehouse outage false-latching every leg at once. Nothing reported
+# when that cap froze, so the monitor ran happily against stale data and said nothing.
+
+
+def _stale_warehouse_env(tmp_path, oldest_offset):
+    """Weekly rows that stop `oldest_offset` weeks before MONDAY, i.e. a lagging load."""
+    weekly = [{"event_type": _TRACKER, "week_start": MONDAY - timedelta(days=7 * o),
+               "n": 500}
+              for o in range(oldest_offset, oldest_offset + 5)]
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=2000)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+    return eh.run_monitor(
+        _fake_query(catalog, weekly), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+
+
+def test_a_warehouse_behind_the_last_complete_week_is_reported(tmp_path):
+    # Rows stop two weeks back, so the latch's zero-fill silently freezes there and no
+    # leg is judged for the most recent complete week at all.
+    result, _ = _stale_warehouse_env(tmp_path, oldest_offset=2)
+
+    problems = result["anchor_problems"]
+    assert len(problems) == 1, problems
+    # Both weeks named: "behind" is useless without saying behind what, and by how much.
+    assert "2026-06-08" in problems[0]  # last week any event has rows for
+    assert "2026-06-15" in problems[0]  # the most recent complete week
+    assert result["warehouse_lag_problems"] == problems
+
+
+def test_a_current_warehouse_reports_no_staleness(tmp_path):
+    # Rows through the most recent complete week: the normal case, and with ~581 events
+    # in a 63-day window it is the case on every run the pipeline is healthy.
+    result, _ = _stale_warehouse_env(tmp_path, oldest_offset=1)
+
+    assert result["anchor_problems"] == []
+    assert result["warehouse_lag_problems"] == []
+
+
+def test_an_empty_weekly_result_does_not_claim_staleness(tmp_path):
+    # No rows at all is a different failure with no week to name, and every event reads
+    # as dormant on its own. Claiming a specific lag here would be a fabricated date.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+
+    assert result["warehouse_lag_problems"] == []
+
+
+def test_a_stale_warehouse_does_not_hold_the_latch_clear_open(tmp_path):
+    # It goes in anchor_problems, never read_problems: read_problems holds every latch
+    # open against a failed anchor read, and a lagging warehouse is not an anchor read
+    # failure. A leg that genuinely recovered must still be allowed to clear.
+    weekly = [{"event_type": _TRACKER, "week_start": MONDAY - timedelta(days=7 * o),
+               "n": 1000} for o in range(2, 7)]
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=5000)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={_TRACKER: _latch(reference=1000.0)})
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, weekly), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+
+    assert result["warehouse_lag_problems"] != []
+    assert _TRACKER not in result["latches"], (
+        "the staleness report must not behave like a failed anchor read and hold a "
+        "recovered latch open"
+    )
+
+
+def test_the_staleness_item_posts_yellow_and_never_flips_red(monkeypatch):
+    # Yellow, like the okr: tag items: a lagging load is an operational condition the
+    # digest should say out loud, not a broken guard. It must also appear exactly once,
+    # even though it is carried in anchor_problems, whose other entries splice as red.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    lag = ("The warehouse has loaded no event rows past the week of 2026-06-08, but the "
+           "most recent complete week is 2026-06-15.")
+    result = _render_result(
+        anchor_problems=[lag], warehouse_lag_problems=[lag], proposals=[],
+        flagged=[{"event_type": "A", "status": "dormant", "rank": 8, "okr": None,
+                  "on_watchlist": False, "elevated": False, "anomaly": None,
+                  "event_count_30d": 0, "last_seen_date": None, "instrumented_pr": None,
+                  "divergence": None, "gpmeta": None}])
+    changes = {"new": ["A"], "escalated": [], "resolved": [], "still_open": []}
+
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+
+    matching = [i for i in triage["items"] if i["headline"] == lag]
+    assert len(matching) == 1, "carried in anchor_problems, but not ALSO spliced as red"
+    assert matching[0]["tier"] == "yellow"
+    assert not any(i.get("tier") == "red" for i in triage["items"]), (
+        "a lagging warehouse must not flip red_open and force a weekly post"
+    )
+
+
+def test_a_stale_warehouse_alone_does_not_force_a_slack_post(monkeypatch):
+    # Mirrors the okr: tag gate. Yellow means it rides along with a post that was going
+    # to happen; it does not manufacture one on an otherwise quiet week.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    lag = "The warehouse has loaded no event rows past the week of 2026-06-08."
+    result = _render_result(anchor_problems=[lag], warehouse_lag_problems=[lag],
+                            proposals=[])
+
+    assert eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None) is None
+
+
+def test_a_real_anchor_problem_still_posts_red_alongside_a_stale_warehouse(monkeypatch):
+    # The exclusion is by identity against the lag list, not by pattern-matching text, so
+    # a genuine read failure in the same run keeps its red tier.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    lag = "The warehouse has loaded no event rows past the week of 2026-06-08."
+    result = _render_result(anchor_problems=["GP_DATA_PLATFORM_READ_TOKEN is not set", lag],
+                            warehouse_lag_problems=[lag], proposals=[])
+
+    triage = eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None)
+
+    assert triage is not None
+    tiers = {i["headline"]: i["tier"] for i in triage["items"]}
+    assert tiers["GP_DATA_PLATFORM_READ_TOKEN is not set"] == "red"
+    assert tiers[lag] == "yellow"
