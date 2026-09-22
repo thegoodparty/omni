@@ -392,6 +392,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       imageUrl,
       scheduledLocalDate,
       sendSeq,
+      paidRecipientCap,
     } = input
     const { organization, official, sendKey } = context
     const organizationSlug = organization.slug
@@ -430,9 +431,12 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // than the official bought. Truncation is deliberate over refusal —
       // a paid send that reaches the people it paid for beats one that
       // reaches nobody because the list gained a row.
-      const { paidRecipientCap } = input
+      // `> 0` as well as defined: a zero ceiling is never a real
+      // authorization, it is a missing or miscomputed one, and truncating a
+      // paid send to nobody is worse than ignoring a bad cap.
       const overCap =
         paidRecipientCap !== undefined &&
+        paidRecipientCap > 0 &&
         resolved.recipients.length > paidRecipientCap
       if (overCap) {
         this.logger.warn(

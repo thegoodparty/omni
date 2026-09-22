@@ -534,6 +534,7 @@ export class QueueConsumerService {
         scheduledLocalDate: true,
         voterFileFilterId: true,
         billableTextCount: true,
+        textCount: true,
       },
     })
 
@@ -551,6 +552,7 @@ export class QueueConsumerService {
       scheduledLocalDate,
       voterFileFilterId,
       billableTextCount,
+      textCount,
     } = outreach
 
     if (!message || !scheduledLocalDate || !voterFileFilterId) {
@@ -575,10 +577,13 @@ export class QueueConsumerService {
       message,
       imageUrl: imageUrl ?? undefined,
       scheduledLocalDate,
-      // What was actually paid for. The delivery layer will not hand
-      // fulfilment more numbers than this, however much the saved list has
-      // grown between checkout and the send date.
-      paidRecipientCap: billableTextCount ?? undefined,
+      // The audience the official authorized, which is `textCount` — NOT
+      // `billableTextCount`. The latter is what Stripe was charged, and
+      // `markFreeTextsConsumed` sets it to textCount minus the free-text
+      // allowance, so a send fully covered by the offer carries 0. Capping
+      // on that would truncate a legitimate send to nobody and hand
+      // fulfilment an empty file.
+      paidRecipientCap: textCount ?? undefined,
     })
 
     // `terminalReason` means nothing was handed off and nothing ever will be.

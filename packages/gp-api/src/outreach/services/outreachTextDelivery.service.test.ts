@@ -531,6 +531,26 @@ describe('OutreachTextDeliveryService', () => {
     )
   })
 
+  // A send fully covered by the free-texts offer carries billableTextCount 0.
+  // Capping on a zero ceiling would hand fulfilment an empty file for a
+  // legitimate send, so a non-positive cap is ignored rather than obeyed.
+  it('ignores a zero cap instead of truncating the send to nobody', async () => {
+    const { outreach, filter } = await seedSend()
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([person('p-1', '5551230001'), person('p-2', '5551230002')]),
+    )
+
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+        paidRecipientCap: 0,
+      }),
+    )
+
+    expect(result.recipientCount).toBe(2)
+    expect(handoffPort.send).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves a shrunken audience alone rather than padding it', async () => {
     const { outreach, filter } = await seedSend()
     vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
