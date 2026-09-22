@@ -298,6 +298,14 @@ def test_is_broken_boundary_is_strict_not_inclusive():
         "current exactly at LATCH_BREAK_PCT * reference is not broken (strict <)"
     )
 
+    # The other side of the same line, which is what pins the floor to a tenth rather
+    # than to anything merely tighter than the shared 5%: one fire below the boundary IS
+    # broken. Without this, a floor of 0.06 satisfies every other test in this file while
+    # missing most of the 90% drops the owner asked for.
+    just_over = {key: _weeks([1000, 1000, 1000, 1000, 99])}
+    state = ol.update_latches({}, just_over, WATCHED, today=W0 + timedelta(days=35))
+    assert key in state, "a 90.1% drop is below a tenth of the reference and is broken"
+
 
 def test_malformed_prior_state_degrades_instead_of_raising():
     # Minor 7. A persisted record that isn't even a mapping (a corrupted state file could

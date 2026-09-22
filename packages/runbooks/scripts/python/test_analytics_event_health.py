@@ -2043,6 +2043,8 @@ def test_a_warehouse_behind_the_last_complete_week_is_reported(tmp_path):
     assert "2026-06-08" in problems[0]  # last week any event has rows for
     assert "2026-06-15" in problems[0]  # the most recent complete week
     assert result["warehouse_lag_problems"] == problems
+    # And it reaches the digest, not just the result dict.
+    assert problems[0] in eh.render_digest_section(result, _NO_CHANGES)
 
 
 def test_a_current_warehouse_reports_no_staleness(tmp_path):
