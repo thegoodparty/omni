@@ -35,7 +35,8 @@ interface DoorKnockingPageGateProps {
   campaign: Campaign | null
   summary?: EcanvasserSummary
   // Whether candidate success has connected this campaign to eCanvasser. The
-  // flag-off arm's entitlement, resolved server-side in `page.tsx`.
+  // flag-off arm's entitlement, resolved server-side in `page.tsx`. Undefined
+  // means the read failed or has not happened, never "not connected".
   hasEcanvasser?: boolean
   // `?listId=` / `?recommended=` off the page. Only the native arm has a
   // create flow to open on them; the eCanvasser dashboard has no audience
@@ -221,10 +222,15 @@ export default function DoorKnockingPageGate({
     )
   }
   // Control, and it has an entitlement of its own that nothing used to check:
-  // the eCanvasser connection. Unsettled reads as connected, so a slow or
-  // failed server read shows the dashboard it always did rather than telling
-  // a connected campaign their feature is off.
-  if (hasEcanvasser === false) {
+  // the eCanvasser connection. Two ways of not knowing, and both fall through
+  // to the dashboard rather than to this card. `hasEcanvasser === undefined`
+  // is a slow or failed server read, and telling a connected campaign their
+  // feature is off is worse than showing them the dashboard they had. `!ready`
+  // is an unsettled FLAG, and the card would be a claim about the wrong arm
+  // entirely: a flag-on campaign with no eCanvasser connection would flash
+  // "isn't turned on" before its map arrived. Same rule the Serve bounce above
+  // follows — an unsettled flag is not an off flag.
+  if (ready && hasEcanvasser === false) {
     return (
       <DoorKnockingUnavailableView pathname={pathname} campaign={campaign} />
     )

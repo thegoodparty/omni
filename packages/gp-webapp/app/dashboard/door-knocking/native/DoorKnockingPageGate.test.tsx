@@ -243,6 +243,26 @@ describe('DoorKnockingPageGate', () => {
     expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
   })
 
+  // An unsettled FLAG is a different not-knowing from an unsettled read, and
+  // the card is wrong for it in a louder way: this campaign may be about to
+  // get the native map, so claiming the feature is off would flash a
+  // contradiction on every cold load. Production always passes the prop, so
+  // the unsettled-read test above cannot catch this one.
+  it('does not show the card while the flag is unsettled', () => {
+    setState({ ready: false, enabled: false })
+    render(
+      <DoorKnockingPageGate
+        {...props}
+        campaign={{} as Campaign}
+        hasEcanvasser={false}
+      />,
+    )
+    expect(
+      screen.queryByText("Door knocking isn't turned on for your campaign"),
+    ).toBeNull()
+    expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
+  })
+
   // The Serve bounce runs first, so a Serve org never reaches the card that
   // names a campaign.
   it('still bounces a flag-off Serve org rather than showing the card', () => {
