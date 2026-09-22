@@ -155,17 +155,15 @@ export class DomainsController {
       '(e.g. ["janeforsenate", "voteforjane"]), which the server fans ' +
       'out across all approved TLDs, or include an explicit approved ' +
       'TLD (e.g. "janeforsenate.run"). Returns { candidates: ' +
-      '[{ domain, price }], partial } for ranking. Returns only ' +
-      'available domains, as a shortlist: the search stops early once ' +
-      'enough candidates qualify, so it is not exhaustive. An empty ' +
-      'candidates list means nothing matched under the cap; a 502 ' +
-      'means availability checks timed out. When partial is true the ' +
-      'list is a floor — some candidates went unchecked because the ' +
-      'registrar rate limited us, the time budget ran out, or the ' +
-      'pattern set expanded past the per-search cap, so a domain ' +
-      'missing from it has not been shown to be taken; retry after a ' +
-      'short wait, or with a narrower pattern set, if nothing listed ' +
-      'is usable. Read-only; safe to retry.',
+      '[{ domain, price }] } for ranking. Returns only available ' +
+      'domains, as a shortlist: the search stops early once enough ' +
+      'candidates qualify, so it is not exhaustive. An empty ' +
+      'candidates list is authoritative — every candidate was checked ' +
+      'and none matched under the cap. If any candidate could not be ' +
+      'checked (registrar rate limiting, time budget, or a pattern set ' +
+      'larger than the per-search cap) and nothing else qualified, the ' +
+      'call fails with a 502 rather than returning an empty list. ' +
+      'Read-only; safe to retry.',
   })
   async searchDomains(
     @ReqCampaign() campaign: Campaign & { user: User },

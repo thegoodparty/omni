@@ -47,10 +47,11 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 - **A throttled availability check is not a taken domain.** Route53
   throttling surfaces as a 503 (`AwsService.handleAwsError`) and returns the
   `UNCHECKED` sentinel, so it is counted rather than folded into "unavailable".
-  Any search that dropped candidates that way — or ran out of time budget, or
-  truncated at `MAX_AVAILABILITY_CHECKS` — comes back with `partial: true`,
-  meaning the list is a floor. Callers must not read a missing domain as taken
-  when `partial` is set.
+  An empty candidate list is therefore authoritative: it is only returned when
+  every candidate got a real verdict. If anything went unchecked — throttled,
+  truncated at `MAX_AVAILABILITY_CHECKS`, or cut off by the time budget — and
+  nothing else qualified, the search raises a 502 instead. Never return an
+  empty list the caller could read as "the namespace is taken".
 - **Vercel registrar buys are asynchronous orders.** `buySingleDomain` 2xx means "order accepted", not "domain bought" — an order can still fail on Vercel's side (completion is typically ~13s). `completeDomainRegistration` polls `getRegistrarOrder` and only stamps `submitted`/`registrantVerifiedAt` once the order reports completed; the real orderId is persisted as `Domain.operationId`. Never treat the buy response alone as proof of registration.
 - `forwardRef(() => CampaignsModule)` — circular with campaigns. Keep new edges to the campaigns side as forwardRefs to avoid breaking module init.
 - `WebsiteView` uses a localStorage-issued visitor UUID; treat it as advisory, not authoritative analytics.

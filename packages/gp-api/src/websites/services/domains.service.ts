@@ -97,9 +97,9 @@ const SEARCH_TIME_BUDGET_MS = 20_000
 // purchase path — so the post-fanout count needs its own ceiling.
 const MAX_AVAILABILITY_CHECKS = 50
 
-// Separates "Route53 says this domain is taken" from "we never got to ask".
-// Collapsing the two is what let throttling quietly shorten a result list
-// that still had candidates in it, which the empty-list 502 does not cover.
+// Separates "Route53 says this domain is taken" from "we never got to ask",
+// so an empty result caused by throttling raises instead of reporting that
+// nothing matched.
 const UNCHECKED = Symbol('unchecked')
 
 const DOMAIN_PURCHASE_ADVISORY_LOCK_KEY = 918_275
@@ -675,18 +675,20 @@ export class DomainsService
         },
         'domain search hit its time budget; returning what was found',
       )
-      if (found.length === 0) {
-        throw new BadGatewayException(
-          'Domain availability checks timed out before any candidate ' +
-            'could be verified. Retry shortly.',
-        )
-      }
     }
 
-    return {
-      candidates: found,
-      partial: unchecked > 0 || outOfBudget || truncated,
+    // An empty list is only honest when every candidate got a real verdict.
+    // If anything was throttled, truncated, or cut off by the budget, we did
+    // not learn that nothing matched — we learned nothing. Saying so as an
+    // error is what stops the caller concluding the namespace is taken.
+    if (found.length === 0 && (unchecked > 0 || truncated || outOfBudget)) {
+      throw new BadGatewayException(
+        'Domain availability checks could not be completed for any ' +
+          'candidate. Retry shortly.',
+      )
     }
+
+    return { candidates: found }
   }
 
   // Not the shared sleep util: the loser of the race must not keep the event

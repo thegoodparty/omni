@@ -797,7 +797,6 @@ describe('DomainsService', () => {
         const result = await promise
 
         expect(result.candidates).toHaveLength(5)
-        expect(result.partial).toBe(true)
       })
 
       it('rejects 502 when the budget expires before anything is verified', async () => {
@@ -894,7 +893,7 @@ describe('DomainsService', () => {
         10,
       )
 
-      expect(result).toEqual({ candidates: [], partial: false })
+      expect(result).toEqual({ candidates: [] })
     })
 
     it('caps availability checks after the TLD fan-out, not before it', async () => {
@@ -906,16 +905,18 @@ describe('DomainsService', () => {
       })
       mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
 
-      const result = await service.searchDomainsForCampaign(
-        campaignWithUser,
-        ['vote{last_name}(1|2|3|4|5|6|7|8|9)'],
-        10,
-      )
+      // Truncating and then finding nothing is not the same as checking
+      // everything and finding nothing, so this raises rather than returning
+      // an empty list the caller would read as "the namespace is taken".
+      await expect(
+        service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['vote{last_name}(1|2|3|4|5|6|7|8|9)'],
+          10,
+        ),
+      ).rejects.toBeInstanceOf(BadGatewayException)
 
       expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledTimes(50)
-      // Truncation drops candidates just as surely as throttling does, so it
-      // has to reach the caller the same way.
-      expect(result.partial).toBe(true)
     })
 
     it('reports a throttled candidate as unchecked, not as unavailable', async () => {
@@ -940,10 +941,9 @@ describe('DomainsService', () => {
       expect(result.candidates.map((c) => c.domain)).toEqual([
         'vote-oneill.run',
       ])
-      expect(result.partial).toBe(true)
     })
 
-    it('leaves partial false when every candidate was actually checked', async () => {
+    it('returns an authoritative empty list when every candidate was checked', async () => {
       mockRoute53.checkDomainAvailability.mockResolvedValue({
         Availability: DomainAvailability.UNAVAILABLE,
       })
@@ -955,12 +955,12 @@ describe('DomainsService', () => {
         10,
       )
 
-      expect(result).toEqual({ candidates: [], partial: false })
+      expect(result).toEqual({ candidates: [] })
     })
 
-    it('marks a throttle-shortened list partial even when it found candidates', async () => {
-      // The budget 502 only fires on an empty list. A search that returns
-      // three real candidates while twenty went unchecked still has to say so.
+    it('still returns the candidates it found when others were throttled', async () => {
+      // Throttling elsewhere must not discard real results — only an empty
+      // result is ambiguous enough to raise.
       let calls = 0
       mockRoute53.checkDomainAvailability.mockImplementation(() => {
         calls += 1
@@ -980,7 +980,25 @@ describe('DomainsService', () => {
       )
 
       expect(result.candidates.length).toBeGreaterThan(0)
-      expect(result.partial).toBe(true)
+    })
+
+    it('rejects 502 when every candidate was throttled rather than checked', async () => {
+      // Without this the caller gets an empty list and concludes the whole
+      // pattern catalogue is taken, when in fact nothing was ever checked.
+      mockRoute53.checkDomainAvailability.mockImplementation(() => {
+        throw new ServiceUnavailableException(
+          'AWS is rate limiting this request.',
+        )
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      await expect(
+        service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['vote-{last_name}.(run|bio)'],
+          10,
+        ),
+      ).rejects.toBeInstanceOf(BadGatewayException)
     })
   })
 
