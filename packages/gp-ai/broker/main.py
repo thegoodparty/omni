@@ -226,11 +226,19 @@ async def lifespan(app: FastAPI):
     upstream_client = httpx.AsyncClient(base_url="https://api.anthropic.com", timeout=300)
     s3_client = boto3.client("s3")
     sqs_client = boto3.client("sqs")
-    # Shared async client used by agent_mcp_proxy and the /http/fetch endpoint's
-    # non-browser paths. 30s suits short gp-api/MCP calls; the /http/fetch
-    # endpoint routes through PlaywrightBrowserFetcher below — plain httpx is
-    # 403'd by Cloudflare's JS challenge on muni sites.
+    # Client for the /http/fetch endpoint's non-browser paths; 30s suits
+    # arbitrary external fetches. The endpoint routes through
+    # PlaywrightBrowserFetcher below — plain httpx is 403'd by Cloudflare's JS
+    # challenge on muni sites.
     http_client = httpx.AsyncClient(timeout=30)
+    # Dedicated client for the agent MCP proxy into gp-api. Tool calls there
+    # can legitimately outlast 30s (domain search fans out vendor availability
+    # checks; submit-to-peerly chains four Peerly calls; the purchase endpoint
+    # polls the registrar order), and a broker-side timeout surfaces to the
+    # agent as gp_api_unavailable — which resume-looped nine compliance runs
+    # to their cap on 2026-09-20..22. Read gets headroom; connect stays tight
+    # so a down gp-api still fails fast.
+    agent_mcp_client = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
     # Dedicated client for the Braintrust proxy. A 30s cap is too tight for the
     # end-of-run /logs3 trace flush (batched spans); a timeout there 502s and
     # silently loses telemetry with no retry. 300s matches the anthropic client.
@@ -330,13 +338,14 @@ async def lifespan(app: FastAPI):
     app.dependency_overrides[agent_mcp_get_agent_mcp_secret] = lambda: secrets.agent_mcp_token_secret
     app.dependency_overrides[agent_mcp_get_agent_fleet_id] = lambda: secrets.agent_fleet_clerk_id
     app.dependency_overrides[agent_mcp_get_gp_api_base_url] = lambda: secrets.gp_api_base_url
-    app.dependency_overrides[agent_mcp_get_http_client] = lambda: http_client
+    app.dependency_overrides[agent_mcp_get_http_client] = lambda: agent_mcp_client
 
     try:
         yield
     finally:
         await upstream_client.aclose()
         await http_client.aclose()
+        await agent_mcp_client.aclose()
         await braintrust_client.aclose()
         await browser_fetcher.aclose()
 
