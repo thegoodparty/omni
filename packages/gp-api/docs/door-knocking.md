@@ -54,6 +54,20 @@ Many turfs make one campaign, and the campaign has no table. The anchor's
 id; `collapseDoorKnockingCampaigns.util.ts` folds them for every history
 surface, which reads the anchor and never a sibling.
 
+Folding means the anchor's row stands in for the campaign, so any column read
+off it is answering about one turf. `status` is the one the collapse corrects.
+Completion is written per TURF (`complete` takes a turf id and updates that
+turf's envelope), so an anchor finished ahead of its siblings made the whole
+campaign read Done in outreach history with turfs still unwalked. The util
+walks that back to `in_progress` unless every sibling is `completed`, which is
+exact because a door-knocking envelope's status only ever moves `in_progress`
+to `completed`: create writes the first, `complete` writes the second, and
+archive and delete touch their own columns instead. Fixed in the collapse
+rather than at each surface because the history table and the details drawer
+both read this one row. The counts are NOT corrected the same way. There is no
+campaign-level rollup of doors, people or logged, so those surfaces withhold
+the figure instead; see the outreach `AGENTS.md` in gp-webapp.
+
 So a campaign's NAME is a column on an envelope, and `CreateDoorKnockingTurf`
 carries two names for two different things: `name` titles the turf, and
 `campaignName` titles the campaign. The create writes
