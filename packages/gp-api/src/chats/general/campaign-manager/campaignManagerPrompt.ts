@@ -68,6 +68,10 @@ export interface CampaignManagerContext {
   // Anthropic key). The ballot guidance below reads this so it never tells the
   // manager to search when it has no search tool.
   webSearchEnabled: boolean
+  // Whether the campaign has Pro, from the campaign row. null when the
+  // campaign could not be resolved, and the product map then says nothing
+  // about Pro.
+  isPro: boolean | null
   // Current Campaign Story answers + which are still missing (null when no
   // campaign resolved). Drives the intake in the system prompt.
   story: StoryState | null
@@ -535,7 +539,7 @@ export const buildCampaignManagerSystemPrompt = (
     // back to GoodParty users, and named a different support route each time.
     // Shared with the Chief of Staff, rendered for Win. See
     // ../product-knowledge/AGENTS.md.
-    ...buildProductKnowledgeBlocks('win', ctx.helpCenterToolEnabled),
+    ...buildProductKnowledgeBlocks('win', ctx.helpCenterToolEnabled, ctx.isPro),
     GUARDRAILS,
   ]
     .filter((b): b is string => b !== null)

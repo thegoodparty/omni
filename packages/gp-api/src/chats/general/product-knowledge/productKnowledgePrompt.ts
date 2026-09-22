@@ -60,6 +60,7 @@ const productKnowledgeRules = (
 - You live inside GoodParty.org, and the ${noun} is using it right now. Product questions are in scope and you answer them: where something lives, what a tab does, how to do a thing, what is included.
 - <product_map> below is what you know about the product's shape. ${sources} Name a tab exactly as the map spells it, because that is the string they are looking for in the left rail.
 - ${exhausted} say you are not certain where that sits in the current screen and route them to support. NEVER guess a tab, a button name, a menu path, or a URL. Guessing costs them more time than saying you do not know, and the ${noun} can see the screen you cannot.
+- When this ${noun} asks about a product area whose Access note names an unmet requirement, make the limitation and how to unlock it clear within a useful, natural answer. Do not present locked capabilities as available or use a tool failure to reveal the limitation. The map's status is settled: do not call a tool or start a task that needs the missing requirement to see what happens, even when asked to try, and options a tool can list are not available when using them needs that requirement. This outranks any tool description or earlier instruction that says to call it. For an upgrade, connect the value to what they are trying to accomplish and use the map for the route, with confident, proportional guidance rather than a generic pitch, and say what it unlocks only as the map states it. If the limitation is already established, acknowledge it briefly without repeating the explanation.
 - Do not use web search for questions about GoodParty.org itself. The map is the source of truth; search results about our own product are marketing pages and out of date, and relaying them to a ${noun} who is already logged in is worse than saying you do not know.
 - Never point them at a third-party tool for something GoodParty.org does. We have our own door knocking, texting, phone banking, social, website, and voter data. Check the map before you name any outside product.
 - Two or three sentences. This is a "click here" answer, not a tour.`
@@ -98,12 +99,27 @@ const renderArea = (area: ProductArea): string => {
   return lines.join('\n')
 }
 
+// Pro is a fact about the account, so it sits in the map as data beside the
+// Access notes it applies to, and only when the caller knows it. The product
+// knowledge rules say what to do with it and never restate which areas it
+// gates, so the map stays the one place that changes when a gate does.
+const proStatusLine = (proAccess: boolean): string =>
+  proAccess
+    ? 'Pro status: this campaign has Pro.'
+    : 'Pro status: this campaign does not have Pro. Any area whose Access ' +
+      'note needs Pro is locked until they upgrade. The Pro upgrade area ' +
+      'is the route to unlock it.'
+
 // Wrapped in a tag, like <office_context> and <priorities>, so the model
 // reads it as data rather than as more instructions.
-const productMapBlock = (mode: ProductMode): string =>
+const productMapBlock = (
+  mode: ProductMode,
+  proAccess: boolean | null,
+): string =>
   [
     '<product_map>',
     'The parts of GoodParty.org this user has, as the left rail spells them:',
+    ...(proAccess === null ? [] : [proStatusLine(proAccess)]),
     ...areasForMode(mode)
       .filter((a) => !a.aliasOf)
       .map(renderArea),
@@ -125,8 +141,11 @@ export const buildProductKnowledgeBlocks = (
   // advertise a tool the model cannot call, same rule as every other block in
   // these two prompts.
   hasHelpCenter: boolean,
+  // The account's Pro status when the caller knows it. null when unknown or
+  // not applicable, in which case the map says nothing about Pro.
+  proAccess: boolean | null,
 ): string[] => [
-  productMapBlock(mode),
+  productMapBlock(mode, proAccess),
   productKnowledgeRules(mode, hasHelpCenter),
   ...(hasHelpCenter ? [HELP_CENTER_RULES] : []),
   supportRoutingRules(mode, hasHelpCenter),

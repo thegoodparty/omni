@@ -82,6 +82,14 @@ often than the map:
   eight different routes between them. Everything a user gets sent to comes
   from those constants, and all three are duplicated in gp-webapp
   (`app/shared/utils/supportContact.ts`) — change both sides together.
+- **Name an unmet gate before describing what it locks.** The map's `Access`
+  notes say what each area needs; the account's Pro status reaches the map
+  as one data line when the caller passes it (the third argument of
+  `buildProductKnowledgeBlocks`; the Chief of Staff passes `null`, so its map
+  says nothing about Pro). The rule reads both and names no feature, so a
+  new gate added to the map is covered without a prompt edit. Before this,
+  a candidate without Pro was walked through every voter-file filter and
+  told at the first count that filtering needs Pro.
 
 ## Why the assistants answer support questions at all
 

@@ -40,6 +40,7 @@ const ctx = (
   raceId: null,
   webSearchEnabled: true,
   helpCenterToolEnabled: false,
+  isPro: null,
   story: null,
   plan: null,
   ...over,
@@ -49,6 +50,19 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('frames the agent as a campaign manager', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt.toLowerCase()).toContain('campaign manager')
+  })
+
+  // The product map's status line is the only place the prompt says whether
+  // this campaign has Pro; the generic access rule reads it from there.
+  it('tells the manager when the campaign is locked out of Pro areas', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx({ isPro: false }))
+    expect(prompt).toContain('Pro status: this campaign does not have Pro')
+  })
+
+  it('tells the manager when the campaign has Pro', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx({ isPro: true }))
+    expect(prompt).toContain('Pro status: this campaign has Pro.')
+    expect(prompt).not.toContain('does not have Pro')
   })
 
   it('injects the office, location, and weeks-to-election when present', () => {

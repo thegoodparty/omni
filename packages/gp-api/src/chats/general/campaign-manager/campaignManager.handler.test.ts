@@ -73,6 +73,7 @@ const ctxWith = (
   raceId: null,
   webSearchEnabled: true,
   helpCenterToolEnabled: false,
+  isPro: null,
   story: null,
   plan: null,
   ...over,
@@ -206,6 +207,65 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
     const handler = buildContextHandler(fakeProvider, WIN_CONSTITUENT_TABLES)
     const ctx = await handler.loadContext('c1', 7)
     expect(ctx.constituentToolEnabled).toBe(false)
+  })
+})
+
+// The flag the product map's status line reads. Taken from the campaign row
+// the handler already loads, and absent means not Pro, the same rule the
+// contacts service applies when it gates a filter.
+describe('CampaignManagerHandler.loadContext (Pro status)', () => {
+  const buildHandlerForRow = (
+    row: Record<string, unknown> | null,
+  ): CampaignManagerHandler => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: 'win-campaign' }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: { findFirst: vi.fn(() => Promise.resolve(row)) },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    return new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+  }
+
+  it("carries the row's Pro flag into the context", async () => {
+    const handler = buildHandlerForRow({
+      id: 5,
+      details: {},
+      data: {},
+      user: null,
+      isPro: true,
+    })
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.isPro).toBe(true)
+  })
+
+  it('treats a row without the flag as not Pro', async () => {
+    const handler = buildHandlerForRow({
+      id: 5,
+      details: {},
+      data: {},
+      user: null,
+    })
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.isPro).toBe(false)
+  })
+
+  // Unknown is a third state, not "no": the map then says nothing about Pro
+  // rather than telling a campaign it may well have that it is locked out.
+  it('leaves the flag unknown when the campaign does not resolve', async () => {
+    const handler = buildHandlerForRow(null)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.isPro).toBeNull()
   })
 })
 

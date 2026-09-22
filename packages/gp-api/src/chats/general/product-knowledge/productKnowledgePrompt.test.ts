@@ -7,12 +7,12 @@ import {
 } from './productKnowledgePrompt'
 
 const render = (mode: 'win' | 'serve') =>
-  buildProductKnowledgeBlocks(mode, true).join('\n\n')
+  buildProductKnowledgeBlocks(mode, true, null).join('\n\n')
 
 describe('product knowledge blocks', () => {
   it('wraps the map in a tag, so it reads as data not instructions', () => {
     for (const mode of ['win', 'serve'] as const) {
-      const map = buildProductKnowledgeBlocks(mode, true)[0] ?? ''
+      const map = buildProductKnowledgeBlocks(mode, true, null)[0] ?? ''
       expect(map.startsWith('<product_map>'), mode).toBe(true)
       expect(map.trimEnd().endsWith('</product_map>'), mode).toBe(true)
     }
@@ -48,7 +48,7 @@ describe('product knowledge blocks', () => {
   // the product does, not something the assistant can do.
   it('names the fallback even when the search tool did not register', () => {
     for (const mode of ['win', 'serve'] as const) {
-      const prompt = buildProductKnowledgeBlocks(mode, false).join('\n\n')
+      const prompt = buildProductKnowledgeBlocks(mode, false, null).join('\n\n')
       expect(prompt, mode).toContain(HELP_CENTER_URL)
     }
   })
@@ -132,7 +132,9 @@ describe('product knowledge blocks', () => {
 
     it('says nothing about a help center when the tool is absent', () => {
       for (const mode of ['win', 'serve'] as const) {
-        const prompt = buildProductKnowledgeBlocks(mode, false).join('\n\n')
+        const prompt = buildProductKnowledgeBlocks(mode, false, null).join(
+          '\n\n',
+        )
         expect(prompt).not.toContain('HELP CENTER')
         expect(prompt).not.toContain('search_help_center')
         expect(prompt).toContain('Answer from it and nothing else')
@@ -159,5 +161,64 @@ describe('product knowledge blocks', () => {
     expect(render('serve')).toMatch(
       /separate product for people running for office/,
     )
+  })
+
+  // Pro is the one account fact the map carries. It renders as data beside
+  // the Access notes, only when the caller knows it, so a prompt that passes
+  // null (Serve today) is unchanged.
+  describe('Pro status in the map', () => {
+    const map = (mode: 'win' | 'serve', proAccess: boolean | null): string =>
+      buildProductKnowledgeBlocks(mode, true, proAccess)[0] ?? ''
+
+    it('says the campaign is locked out of Pro areas when it has no Pro', () => {
+      const block = map('win', false)
+      expect(block).toContain('Pro status: this campaign does not have Pro')
+      expect(block).toContain('locked until they upgrade')
+    })
+
+    it('says the campaign has Pro when it does', () => {
+      const block = map('win', true)
+      expect(block).toContain('Pro status: this campaign has Pro.')
+      expect(block).not.toContain('does not have Pro')
+    })
+
+    it('says nothing about Pro when the caller does not know', () => {
+      for (const mode of ['win', 'serve'] as const) {
+        const prompt = buildProductKnowledgeBlocks(mode, true, null).join(
+          '\n\n',
+        )
+        expect(prompt, mode).not.toContain('Pro status:')
+      }
+    })
+  })
+
+  // The rule that reads the status line. Generic on purpose: it names no
+  // feature, so when an Access note in the map changes, the behavior follows
+  // without a prompt edit.
+  describe('unmet access requirements', () => {
+    const accessRule = (mode: 'win' | 'serve'): string => {
+      const rules = buildProductKnowledgeBlocks(mode, true, null)[1] ?? ''
+      const bullet = rules
+        .split('\n- ')
+        .find((b) => b.includes('Access note names an unmet requirement'))
+      expect(bullet, mode).toBeDefined()
+      return bullet ?? ''
+    }
+
+    it('tells both assistants not to present a locked area as available', () => {
+      for (const mode of ['win', 'serve'] as const) {
+        expect(accessRule(mode)).toMatch(
+          /Do not present locked capabilities as available/,
+        )
+      }
+    })
+
+    it('names no feature, tab, or tool in the rule', () => {
+      for (const mode of ['win', 'serve'] as const) {
+        expect(accessRule(mode)).not.toMatch(
+          /voter|Voter Data|Know Your Opponent|count_contacts|precinct/i,
+        )
+      }
+    })
   })
 })

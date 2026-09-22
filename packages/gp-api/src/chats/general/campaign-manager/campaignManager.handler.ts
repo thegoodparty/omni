@@ -187,6 +187,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   savedFilterToolsEnabled: false,
   helpCenterToolEnabled: false,
   raceId: null,
+  isPro: null,
   // Overridden by the early-return sites below: web search does not depend on
   // the campaign resolving, so a campaign we could not load must not silently
   // lose it.
@@ -358,6 +359,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       organization,
       crmToolsEnabled,
       savedFilterToolsEnabled,
+      isPro: campaign.isPro ?? false,
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
       helpCenterToolEnabled: !!this.helpCenter,

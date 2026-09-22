@@ -393,6 +393,9 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...buildProductKnowledgeBlocks(
       'serve',
       toolNames.includes('search_help_center'),
+      // Serve's only gate today is per-poll payment, which is not an account
+      // state, so the map carries no Pro line for it.
+      null,
     ),
     INSTRUCTIONS_BLOCK,
     // Last on purpose: every tool rule block above pulls toward more detail,
