@@ -279,6 +279,8 @@ nothing. `idOverrides` is omitted entirely when no likelihood filter is
 selected or the org has zero overrides, so the SQL is byte-identical to
 before this ticket in that case.
 
+**Saved-list overlap count's saved sets DO honour a drawn boundary** (ENG follow-up to the boundary work): `resolveSavedFilterSets` composes each saved list's frozen `VoterFileFilterGeoMember` rows into that set's id resolution, alongside its activity conditions and its follow-up flag. Without it a boundaried list joined the union at its pre-boundary size — every person its criteria matched anywhere in the district — and the wizard's strip told the holder a new list was already covered by an audience that list does not hold (measured: 5,356 contributed where the list held 339). A shape enclosing nobody drops the set entirely rather than contributing its unbounded criteria, the same way an activity condition resolving to nobody already does.
+
 **Saved-list overlap count's saved sets are NOT override-aware** (a
 deliberate, scoped-out gap): `resolveSavedFilterSets` converts each saved
 `VoterFileFilter` straight through `convertVoterFileFilterToFilters` with no
