@@ -643,8 +643,11 @@ export class StripeService {
       mode: 'payment',
       // Explicit list: Stripe's automatic set adds BNPL options (Klarna,
       // Affirm) that are off-brand for campaign charges (product call,
-      // Aug 19). Card, bank debit, and Amazon Pay stay.
-      payment_method_types: ['card', 'us_bank_account', 'amazon_pay'],
+      // Aug 19). Bank debit is excluded on purpose: it completes checkout
+      // 'unpaid' and settles days later, which does not fit a text with a
+      // send date two days out and left a candidate's paid sends stranded
+      // (2026-09-21). Only methods that confirm at checkout stay.
+      payment_method_types: ['card', 'amazon_pay'],
       ...(customerId
         ? { customer: customerId }
         : email
