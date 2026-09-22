@@ -124,10 +124,15 @@ const DoorKnockingUnavailableView = ({
   <DashboardLayout pathname={pathname} campaign={campaign}>
     <div className="mx-auto flex w-full max-w-[560px] flex-col py-10">
       <Card>
+        {/* A real heading rather than `CardTitle`, which renders a plain
+            `div`: this card is the whole of the page in this state, so
+            without one a screen reader gets a page with no heading at all.
+            `VoterDataUnavailableState` — the empty state this copy follows —
+            does the same. */}
         <CardHeader>
-          <CardTitle className="text-2xl font-semibold text-foreground">
+          <h2 className="text-2xl font-semibold text-foreground">
             Door knocking isn&apos;t turned on for your campaign
-          </CardTitle>
+          </h2>
         </CardHeader>
         <CardContent>
           <p className="text-base text-muted-foreground">

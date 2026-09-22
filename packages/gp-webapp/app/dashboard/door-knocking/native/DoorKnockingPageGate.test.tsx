@@ -218,8 +218,14 @@ describe('DoorKnockingPageGate', () => {
       />,
     )
     expect(screen.queryByTestId('ecanvasser-dashboard')).toBeNull()
+    // By ROLE, not by text. `getByText` passes against the plain `div` that
+    // `CardTitle` renders, so it cannot catch the card losing its heading —
+    // which is exactly what the flag-gate e2e caught after this test was
+    // green.
     expect(
-      screen.getByText("Door knocking isn't turned on for your campaign"),
+      screen.getByRole('heading', {
+        name: "Door knocking isn't turned on for your campaign",
+      }),
     ).toBeVisible()
   })
 
@@ -258,7 +264,9 @@ describe('DoorKnockingPageGate', () => {
       />,
     )
     expect(
-      screen.queryByText("Door knocking isn't turned on for your campaign"),
+      screen.queryByRole('heading', {
+        name: "Door knocking isn't turned on for your campaign",
+      }),
     ).toBeNull()
     expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
   })
@@ -272,7 +280,9 @@ describe('DoorKnockingPageGate', () => {
       <DoorKnockingPageGate {...props} campaign={null} hasEcanvasser={false} />,
     )
     expect(
-      screen.queryByText("Door knocking isn't turned on for your campaign"),
+      screen.queryByRole('heading', {
+        name: "Door knocking isn't turned on for your campaign",
+      }),
     ).toBeNull()
     expect(router.replace).toHaveBeenCalledWith(
       '/dashboard/constituent-outreach',
