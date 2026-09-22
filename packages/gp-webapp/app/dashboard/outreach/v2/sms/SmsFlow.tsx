@@ -1195,6 +1195,7 @@ export const SmsFlow = ({
         )
       ) : stepId === 'compose' ? (
         <SmsComposeStep
+          isServe={surface.isServe}
           tone={tone}
           onToneChange={handleToneChange}
           audienceName={selectedList?.name ?? audience.builderName}
