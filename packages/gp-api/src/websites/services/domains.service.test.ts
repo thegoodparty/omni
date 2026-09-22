@@ -797,6 +797,7 @@ describe('DomainsService', () => {
         const result = await promise
 
         expect(result.candidates).toHaveLength(5)
+        expect(result.partial).toBe(true)
       })
 
       it('rejects 502 when the budget expires before anything is verified', async () => {
