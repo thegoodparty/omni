@@ -25,7 +25,8 @@ import {
   type SmsStandardsRule,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
+import { EmailService } from 'src/email/email.service'
+import { ASSET_DOMAIN, WEBAPP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
@@ -53,6 +54,24 @@ export interface P2pOutreachImageInput {
   mimetype: string
 }
 
+const paymentFailedEmailBody = (user: User, sendDate: Date | null) => {
+  const greeting = user.firstName ? `Hi ${user.firstName},` : 'Hi,'
+  const when = sendDate
+    ? ` scheduled for ${formatDate(sendDate, DateFormats.usDate)}`
+    : ''
+  return [
+    greeting,
+    '',
+    `Your bank payment for the text campaign${when} did not go through, ` +
+      'so those texts were not sent and you were not charged.',
+    '',
+    'To send them, schedule the campaign again with a different payment ' +
+      `method at ${WEBAPP_ROOT}/dashboard/outreach.`,
+    '',
+    'Questions? Email help@goodparty.org.',
+  ].join('\n')
+}
+
 const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
   opt_out_line: 'add an opt-out line ("Reply STOP to opt out.")',
   first_name_token: 'use the {first_name} personalization token',
@@ -73,6 +92,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly materializationService: OutreachMaterializationService,
     private readonly s3: S3Service,
     private readonly stripeService: StripeService,
+    private readonly emailService: EmailService,
   ) {
     super()
   }
@@ -710,6 +730,81 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       where: { id },
       select: { id: true, archivedAt: true },
     })
+  }
+
+  /**
+   * The failure counterpart of finalizeOutreachPurchase, reached from the
+   * checkout.session.async_payment_failed webhook: a delayed payment (ACH)
+   * behind a checkout that completed 'unpaid' will never settle, so the draft
+   * the completion deferred would otherwise sit hidden in pending_payment
+   * forever. Claimed with the same CAS shape as finalize and additionally
+   * guarded on projectId, so a draft a concurrent finalize already sent to
+   * Peerly is never marked failed; a redelivery finds no row to claim and
+   * notifies nobody twice.
+   */
+  async failOutreachPurchase(
+    outreachId: number,
+    campaignId: number,
+    checkoutSessionId: string,
+  ): Promise<void> {
+    const claimed = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        campaignId,
+        status: OutreachStatus.pending_payment,
+        projectId: null,
+      },
+      data: { status: OutreachStatus.failed },
+    })
+    if (claimed.count === 0) {
+      return
+    }
+
+    const outreach = await this.model.findUniqueOrThrow({
+      where: { id: outreachId },
+      include: { campaign: { include: { user: true } } },
+    })
+    // The claim matched a real campaignId, so this is a p2p draft with a
+    // campaign; only org-only social rows have none.
+    const campaign = outreach.campaign!
+    const user = campaign.user
+    if (!user) {
+      return
+    }
+
+    try {
+      await this.notificationService.notifyFailure({
+        user,
+        campaign,
+        createOutreachDto: {
+          outreachType: outreach.outreachType,
+          script: outreach.script ?? undefined,
+          date: outreach.date?.toISOString(),
+        },
+        step: 'payment',
+        error: new Error(
+          `Bank payment did not settle for checkout session ${checkoutSessionId}`,
+        ),
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, campaignId },
+        'Payment-failed CAS notification failed',
+      )
+    }
+
+    try {
+      await this.emailService.sendEmail({
+        to: user.email,
+        subject: 'Your text campaign payment did not go through',
+        message: paymentFailedEmailBody(user, outreach.date),
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, campaignId },
+        'Payment-failed candidate email failed',
+      )
+    }
   }
 
   // Durable payment link for cancel-before-send. Idempotent by shape (same

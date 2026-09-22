@@ -29,6 +29,7 @@ import type {
   ResolveP2pJobGeographyServices,
 } from '../util/campaignGeography.util'
 import type { CreateOutreachSchema } from '../schemas/createOutreachSchema'
+import { EmailService } from 'src/email/email.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachService, type P2pOutreachImageInput } from './outreach.service'
@@ -45,6 +46,8 @@ const mockTcrFindFirst = vi.fn()
 const mockPeerlyCreateJob = vi.fn()
 const mockResolveP2pJobGeography = vi.fn()
 const mockNotifySuccess = vi.fn()
+const mockNotifyFailure = vi.fn()
+const mockSendEmail = vi.fn()
 const mockFindVoterFileFilter = vi.fn()
 const mockFilterAccessCheck = vi.fn()
 const mockMaterializeOutreach = vi.fn()
@@ -117,6 +120,10 @@ describe('OutreachService', () => {
     mockResolveP2pJobGeography.mockReset()
     mockNotifySuccess.mockReset()
     mockNotifySuccess.mockResolvedValue(undefined)
+    mockNotifyFailure.mockReset()
+    mockNotifyFailure.mockResolvedValue(undefined)
+    mockSendEmail.mockReset()
+    mockSendEmail.mockResolvedValue(undefined)
     mockFindVoterFileFilter.mockReset()
     mockFilterAccessCheck.mockReset()
     mockFilterAccessCheck.mockResolvedValue(undefined)
@@ -161,7 +168,14 @@ describe('OutreachService', () => {
         },
         {
           provide: OutreachNotificationService,
-          useValue: { notifySuccess: mockNotifySuccess },
+          useValue: {
+            notifySuccess: mockNotifySuccess,
+            notifyFailure: mockNotifyFailure,
+          },
+        },
+        {
+          provide: EmailService,
+          useValue: { sendEmail: mockSendEmail },
         },
         {
           provide: VoterFileFilterService,
@@ -717,6 +731,69 @@ describe('OutreachService', () => {
           p2pImage,
         ),
       ).rejects.toThrow(/step "tcrLookup"/)
+    })
+  })
+
+  describe('failOutreachPurchase', () => {
+    const unpaidDraft = {
+      id: 42,
+      campaignId: 1,
+      outreachType: OutreachType.p2p,
+      status: OutreachStatus.failed,
+      script: 'hello voter',
+      date: new Date('2026-09-16T17:00:00.000Z'),
+      campaign: { ...mockCampaign, user: mockUser },
+    }
+
+    it('marks the unpaid draft failed and tells CAS and the candidate', async () => {
+      mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+      mockOutreachFindUniqueOrThrow.mockResolvedValue(unpaidDraft)
+
+      await service.failOutreachPurchase(42, 1, 'cs_failed')
+
+      expect(mockOutreachUpdateMany).toHaveBeenCalledWith({
+        where: {
+          id: 42,
+          campaignId: 1,
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        },
+        data: { status: OutreachStatus.failed },
+      })
+      expect(mockNotifyFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user: mockUser,
+          campaign: unpaidDraft.campaign,
+          step: 'payment',
+        }),
+      )
+      expect(mockSendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: mockUser.email,
+          message: expect.stringContaining('September 16, 2026'),
+        }),
+      )
+    })
+
+    it('does nothing when the draft was already finalized or failed', async () => {
+      mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+
+      await service.failOutreachPurchase(42, 1, 'cs_failed')
+
+      expect(mockOutreachFindUniqueOrThrow).not.toHaveBeenCalled()
+      expect(mockNotifyFailure).not.toHaveBeenCalled()
+      expect(mockSendEmail).not.toHaveBeenCalled()
+    })
+
+    it('still emails the candidate when the CAS post fails', async () => {
+      mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+      mockOutreachFindUniqueOrThrow.mockResolvedValue(unpaidDraft)
+      mockNotifyFailure.mockRejectedValue(new Error('slack down'))
+
+      await expect(
+        service.failOutreachPurchase(42, 1, 'cs_failed'),
+      ).resolves.toBeUndefined()
+      expect(mockSendEmail).toHaveBeenCalled()
     })
   })
 

@@ -180,5 +180,11 @@ export class OutreachModule {
       (sessionId, metadata) =>
         this.outreachPurchaseHandler.executePostPurchase(sessionId, metadata),
     )
+
+    this.purchaseService.registerCheckoutSessionPaymentFailedHandler(
+      PurchaseType.TEXT,
+      (sessionId, metadata) =>
+        this.outreachPurchaseHandler.executePaymentFailed(sessionId, metadata),
+    )
   }
 }

@@ -235,6 +235,35 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     return 0
   }
 
+  async executePaymentFailed(
+    sessionId: string,
+    rawMetadata: unknown,
+  ): Promise<void> {
+    if (
+      !rawMetadata ||
+      typeof rawMetadata !== 'object' ||
+      !('outreachId' in rawMetadata) ||
+      !('campaignId' in rawMetadata)
+    ) {
+      return
+    }
+
+    const outreachId = Number(rawMetadata.outreachId)
+    const campaignId = Number(rawMetadata.campaignId)
+    if (!outreachId || !campaignId) {
+      return
+    }
+
+    await this.outreachService.failOutreachPurchase(
+      outreachId,
+      campaignId,
+      sessionId,
+    )
+    this.logger.info(
+      `Outreach ${outreachId} marked failed: payment ${sessionId} never settled`,
+    )
+  }
+
   async executePostPurchase(
     paymentIntentId: string,
     rawMetadata: unknown,

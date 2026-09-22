@@ -107,6 +107,8 @@ export class PaymentEventsService {
         return await this.checkoutSessionCompletedHandler(event)
       case WebhookEventType.CheckoutSessionAsyncPaymentSucceeded:
         return await this.checkoutSessionAsyncPaymentSucceededHandler(event)
+      case WebhookEventType.CheckoutSessionAsyncPaymentFailed:
+        return await this.checkoutSessionAsyncPaymentFailedHandler(event)
       case WebhookEventType.CheckoutSessionExpired:
         return await this.checkoutSessionExpiredHandler(event)
       case WebhookEventType.CustomerSubscriptionDeleted:
@@ -751,6 +753,28 @@ export class PaymentEventsService {
       )
       throw error
     }
+  }
+
+  // checkout.session.async_payment_failed: the delayed payment (ACH) behind a
+  // checkout that completed 'unpaid' will never settle, so the fulfillment
+  // completeCheckoutSession deferred will never be triggered. Nothing was
+  // delivered and nothing was charged; the purchase type unwinds the state it
+  // parked at checkout. Logged at error because a candidate who saw a success
+  // screen now has a purchase that silently went nowhere.
+  async checkoutSessionAsyncPaymentFailedHandler(
+    event: Stripe.CheckoutSessionAsyncPaymentFailedEvent,
+  ): Promise<void> {
+    const session = event.data.object
+    this.logger.error(
+      {
+        sessionId: session.id,
+        userId: session.metadata?.userId,
+        purchaseType: session.metadata?.purchaseType,
+        paymentStatus: session.payment_status,
+      },
+      '[WEBHOOK] Delayed payment failed after checkout completed',
+    )
+    await this.purchaseService.failCheckoutSession(session)
   }
 
   async checkoutSessionExpiredHandler(
