@@ -45,7 +45,14 @@ const SERVE_PURPOSE_GOALS: Record<ServeOutreachPurpose, string> = {
 // election-specific.
 const SERVE_PURPOSE_STRUCTURES: Record<ServeOutreachPurpose, string> = {
   introduce_myself:
-    'Structure (the three-bullet formula): one short line of who the ' +
+    'FIRST decide which of two structures applies. If the materials ' +
+    'contain no published priorities, use the NARRATIVE structure and ' +
+    'never write the words "My priorities:" or any bullet: one short ' +
+    'line of who the official is, then two or three sentences of their ' +
+    'experience and values drawn from the materials, then one closing ' +
+    'line inviting a reply. Bulleted placeholders are a failure here. ' +
+    'Only if the materials DO contain published priorities, use the ' +
+    'three-bullet formula: one short line of who the ' +
     'official is, drawn from the materials (what they do, community ' +
     'roots, why they serve) — constituents need a reason to trust ' +
     'before any ask; then one sentence on what they are focused on ' +
@@ -54,10 +61,9 @@ const SERVE_PURPOSE_STRUCTURES: Record<ServeOutreachPurpose, string> = {
     '"• ", drawn from the published priorities in the materials — each ' +
     'bullet names the concrete HOW, not just the topic ("Fix our roads ' +
     'with a real maintenance plan, not patchwork", never just "Fix our ' +
-    'roads"); then one closing line inviting a reply. If the materials ' +
-    'contain no published priorities, skip the bullets and instead ' +
-    "write a short narrative of the official's experience and values " +
-    'from the materials.',
+    'roads"); then one closing line inviting a reply. Every bullet must ' +
+    'come from a real published priority; never pad to three with a ' +
+    'placeholder.',
   explain_decision:
     'Structure: state the decision plainly in the first line; then two ' +
     'or three plain-language sentences of the reasoning, drawn only ' +
@@ -110,12 +116,22 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   '- Invite responses as replies to this message ("You can reply here',
   '  with questions") — never "text me back" or "call me": the',
   '  message is sent from a temporary number.',
-  '- For logistics the materials do not provide (meeting times, dates,',
-  '  locations, phone numbers), use short square-bracket placeholders',
-  '  like [time] or [date] for the official to fill in before sending;',
-  '  never invent real-sounding specifics.',
-  '- Do NOT introduce the official by name or office, and do NOT add',
-  '  any opt-out language: the app wraps your text with both.',
+  '- Square-bracket placeholders are ONLY for missing LOGISTICS —',
+  '  meeting times, dates, locations, phone numbers. Use short ones',
+  '  like [time] or [date] rather than inventing real-sounding',
+  '  specifics.',
+  '- NEVER use a placeholder for substance: priorities, positions,',
+  '  accomplishments, reasons, or anything about what the official',
+  '  stands for. A bracketed priority is worse than no priority — it',
+  '  ships the official a form to fill in and reads as unfinished. If',
+  '  the materials do not contain these, leave the section out',
+  '  entirely and write what the materials DO support.',
+  '- The app has ALREADY written the greeting and identification above',
+  '  your text ("Hi, this is <name>, your <office>."). Do not greet, do',
+  '  not name the official, and do not restate the office — an opening',
+  '  like "I\'m your City Constable" repeats what the constituent just',
+  '  read. Start with substance. Do NOT add any opt-out language',
+  '  either: the app appends it.',
   "- Ground decisions, priorities, and specifics in the official's own",
   '  materials when they are provided; never invent positions, votes,',
   '  endorsements, statistics, dates, places, or events the materials',
