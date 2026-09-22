@@ -252,6 +252,34 @@ describe('SmsFlow (Serve surface)', () => {
     expect(await screen.findByText(OPT_OUT_FOOTER)).toBeInTheDocument()
     expect(screen.queryByText(/Paid for by/)).toBeNull()
   })
+
+  // "Campaign" is Win vocabulary: an elected official has an office and a
+  // term. This string lives on the shared compose step, which the
+  // per-surface records cannot reach, so it keys on the surface's own
+  // isServe flag rather than being renamed for everyone.
+  it('asks for a header image, not a campaign headshot', async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Add your header image')).toBeInTheDocument()
+    expect(screen.queryByText(/campaign headshot/i)).not.toBeInTheDocument()
+  })
 })
 
 // Unit-level guards on the surface itself, so the seam is pinned even where

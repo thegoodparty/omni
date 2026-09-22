@@ -49,7 +49,20 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
   friendly: <SmileIcon className="size-4" />,
 }
 
+// The image dropzone is the one string in this shared step that names the
+// product. "Campaign" is Win vocabulary (docs/product-vocabulary.md): an
+// elected official has an office and a term, not a campaign. Keyed rather
+// than renamed, because a candidate uploading a campaign headshot is the
+// right words for them.
+const IMAGE_DROPZONE_LABEL = {
+  win: 'Add your campaign headshot or logo',
+  serve: 'Add your header image',
+} as const
+
 interface SmsComposeStepProps {
+  // Copy only. The surface config carries this for exactly the strings the
+  // per-surface records cannot reach, which is what the label above is.
+  isServe: boolean
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   audienceName: string
@@ -93,6 +106,7 @@ const standardsFailureCopy = (
 }
 
 export const SmsComposeStep = ({
+  isServe,
   tone,
   onToneChange,
   audienceName,
@@ -237,7 +251,9 @@ export const SmsComposeStep = ({
               >
                 <ImageIcon className="size-6 text-muted-foreground" />
                 <span className="text-sm font-medium text-foreground">
-                  Add your campaign headshot or logo
+                  {isServe
+                    ? IMAGE_DROPZONE_LABEL.serve
+                    : IMAGE_DROPZONE_LABEL.win}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   Recipients see this in the message preview
