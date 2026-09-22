@@ -193,6 +193,14 @@ const RowMetric = ({
     )
   }
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
+    // Solo campaigns only. `OutreachDetail.doorKnocking` carries the ANCHOR
+    // turf's figures, not an aggregate across siblings, so a collapsed
+    // multi-turf row would print one turf's people under the whole
+    // campaign's name. Same guard and same reason as the drawer's Overview
+    // cells and progress bar; per-turf figures live on the sibling list.
+    if ((row.turfCount ?? 1) > 1) {
+      return <span className="text-muted-foreground">—</span>
+    }
     return (
       <DoorKnockingPeopleMetric
         id={row.id}
@@ -238,6 +246,11 @@ const RowResults = ({
     )
   }
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
+    // Anchor-only, exactly as above — and the dash is already this
+    // function's answer for a row with nothing to report.
+    if ((row.turfCount ?? 1) > 1) {
+      return <span className="text-muted-foreground">—</span>
+    }
     return (
       <DoorKnockingLoggedMetric id={row.id} detailFetcher={detailFetcher} />
     )
