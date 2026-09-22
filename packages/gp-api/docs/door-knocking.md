@@ -324,7 +324,7 @@ table is the plain-language version CS reads.
 | `votersPersuaded`       | People who answered `non_supporter` at one door and `supporter` at a later one                                               |
 | `uniqueTurfsCreated`    | Lists the organization has drawn and still has                                                                               |
 | `uniqueTurfsCompleted`  | The subset of those whose envelope reached `completed` ("End knocking session")                                              |
-| `lastCanvassActivityAt` | The newest `occurredAt` on any knock                                                                                         |
+| `lastCanvassActivityAt` | The newest `occurredAt` on any knock, as epoch millis. Omitted from the payload entirely when the org has never knocked |
 
 The edges worth knowing:
 
