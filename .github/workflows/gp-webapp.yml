@@ -64,6 +64,13 @@ jobs:
       - name: Guard Serve vocabulary
         run: npm run check:serve-vocabulary -w ${{ env.WORKSPACE }}
 
+      # An animation should be a designer's decision, not a default reached
+      # for because nothing cheaper was to hand. Nine accumulated over
+      # eighteen months with no moment where anyone was asked; five ended up
+      # dead and one sat at 2.4MB on a once-seen empty state.
+      - name: Guard animation assets
+        run: npm run check:animation-assets -w ${{ env.WORKSPACE }}
+
   # The vitest suite (~400 jsdom files) was the long pole of the single
   # Validate job (~11 of its ~14 minutes), and it gates both PR merge and the
   # release train's await-checks. Fan it out the same way gp-api does. No
