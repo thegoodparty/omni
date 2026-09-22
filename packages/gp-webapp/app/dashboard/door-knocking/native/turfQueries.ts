@@ -19,6 +19,15 @@ export const savedListsQueryOptions = queryOptions({
 // stale for a dual-role org.
 export const TURFS_QUERY_KEY = ['door-knocking-turfs'] as const
 
+// The prefix every campaign-turf entry hangs off, for invalidation. A
+// constant rather than a literal at each writer: the key is per-anchor, so
+// every mutation has to invalidate by PREFIX to reach the entry it just
+// invalidated the rail for, and four hand-typed copies of a string is how
+// one of them ends up not matching.
+export const CAMPAIGN_TURFS_QUERY_KEY = [
+  'door-knocking-campaign-turfs',
+] as const
+
 // One rail, two surfaces. `serve` is not derived here or anywhere below the
 // page: an org that holds both a Campaign and an ElectedOffice would derive
 // Win from the Campaign it happens to hold and show its Win lists on the Serve
@@ -45,7 +54,7 @@ export const turfsQueryOptions = (serve: boolean) =>
 // refresh the rail.
 export const campaignTurfsQueryOptions = (anchorOutreachId: number) =>
   queryOptions({
-    queryKey: ['door-knocking-campaign-turfs', anchorOutreachId],
+    queryKey: [...CAMPAIGN_TURFS_QUERY_KEY, anchorOutreachId],
     queryFn: () =>
       clientRequest('GET /v1/door-knocking/campaigns/:anchorId', {
         anchorId: String(anchorOutreachId),

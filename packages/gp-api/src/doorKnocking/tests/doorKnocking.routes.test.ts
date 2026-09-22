@@ -1938,6 +1938,87 @@ describe('door-knocking routes', () => {
         expect(anchorAfter.name).toBe('Fall canvass')
       })
     })
+
+    // The drawer's sibling read. It is the one turf endpoint whose `where`
+    // fans out on a relation (`route.outreach.OR`), so the thing worth
+    // pinning is which rows that fan-out reaches — and which it must not.
+    describe('campaign list', () => {
+      const listCampaign = (anchorId: number) =>
+        service.client.get(`/v1/door-knocking/campaigns/${anchorId}`, {
+          ...orgHeaders(),
+          validateStatus: () => true,
+        })
+
+      it('returns the anchor and every turf pointing at it', async () => {
+        const anchorRes = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        expect(anchorRes.status).toBe(201)
+        const anchorEnvelope = await envelopeFor(anchorRes.data.id)
+
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchorEnvelope.id,
+        })
+        expect(siblingRes.status).toBe(201)
+
+        const res = await listCampaign(anchorEnvelope.id)
+        expect(res.status).toBe(200)
+        // Both halves of the OR: the anchor matches on `id`, the sibling on
+        // `campaignOutreachId`. Ordered by creation, which is what makes the
+        // drawer's list stable as turfs are added.
+        expect(res.data.map((turf: { name: string }) => turf.name)).toEqual([
+          'Turf 1',
+          'Turf 2',
+        ])
+      })
+
+      it('leaves a solo campaign as a campaign of one', async () => {
+        const turf = await createTurf('Elm St turf')
+        const envelope = await envelopeFor(turf.id)
+
+        const res = await listCampaign(envelope.id)
+        expect(res.status).toBe(200)
+        expect(res.data).toHaveLength(1)
+        expect(res.data[0].id).toBe(turf.id)
+      })
+
+      it('returns nothing for an anchor belonging to another organization', async () => {
+        const anchorRes = await postTurf({ name: 'Turf 1' })
+        expect(anchorRes.status).toBe(201)
+        const envelope = await envelopeFor(anchorRes.data.id)
+
+        await service.prisma.organization.create({
+          data: { slug: 'someone-else', ownerId: service.user.id },
+        })
+        // Pro, so what refuses the read is the org scope and not the Pro
+        // gate every route here runs first — which would pass this test
+        // while proving nothing about isolation.
+        await service.prisma.campaign.create({
+          data: {
+            userId: service.user.id,
+            slug: 'someone-else-campaign',
+            organizationSlug: 'someone-else',
+            isPro: true,
+          },
+        })
+
+        // A real anchor id, asked for on someone else's behalf. The org scope
+        // is applied to the TURF, so a foreign anchorId cannot pull a turf out
+        // of another tenant — it comes back empty rather than 404, because the
+        // caller is not entitled to learn the id exists.
+        const res = await service.client.get(
+          `/v1/door-knocking/campaigns/${envelope.id}`,
+          {
+            headers: { 'x-organization-slug': 'someone-else' },
+            validateStatus: () => true,
+          },
+        )
+        expect(res.status).toBe(200)
+        expect(res.data).toEqual([])
+      })
+    })
   })
   describe('serve', () => {
     const PERSON_1 = '00000001-1111-1111-1111-111111111111'

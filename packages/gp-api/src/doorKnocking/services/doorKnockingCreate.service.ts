@@ -238,6 +238,16 @@ export class DoorKnockingCreateService extends createPrismaBase(
               id: input.campaignOutreachId,
               outreachType: OutreachType.nativeDoorKnocking,
               archivedAt: null,
+              // Anchors only. Without this a caller can pass a SIBLING's id:
+              // it matches on scope, type and archive state, so the new turf
+              // is written pointing at a sibling — and
+              // `collapseDoorKnockingCampaigns` resolves
+              // `campaignOutreachId ?? id` to an id with no anchor row in the
+              // result set, so the turf surfaces as a broken solo campaign
+              // instead of joining the one it asked for. The webapp always
+              // sends the anchor, so this closes an API-only hole rather than
+              // a reachable bug, and it corrupts silently rather than erroring.
+              campaignOutreachId: null,
               ...(scope.campaignId !== null
                 ? { campaignId: scope.campaignId }
                 : {

@@ -30,6 +30,7 @@ import {
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
+import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from '../turfQueries'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
@@ -1330,7 +1331,16 @@ export default function CreateListFlow({
       // on a partial failure buy each turf once.
       for (const row of created) onRemoveDraft(row.draft.clientId)
 
-      void queryClient.invalidateQueries({ queryKey: ['door-knocking-turfs'] })
+      void queryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })
+      // The campaign this press just added turfs to. Keyed per anchor, so
+      // the invalidation is by prefix — and it is a separate call because
+      // the key's top-level segment differs from the rail's, which prefix
+      // matching on `TURFS_QUERY_KEY` does not reach. Arriving through "Add
+      // another turf" with the outreach drawer still open is the case that
+      // showed the stale list.
+      void queryClient.invalidateQueries({
+        queryKey: CAMPAIGN_TURFS_QUERY_KEY,
+      })
       void queryClient.invalidateQueries({
         queryKey: ['door-knocking-saved-lists'],
       })
