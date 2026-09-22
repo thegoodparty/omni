@@ -55,6 +55,7 @@ export const ACCEPTED_HEADERS: Record<ResultsCsvField, string> = {
  * server decides — but the two must agree or the preview lies about counts.
  */
 const INBOUND_DIRECTION = 'INBOUND'
+const OUTBOUND_DIRECTION = 'OUTBOUND'
 
 export function normalizeHeader(header: string): string {
   return header
@@ -82,6 +83,13 @@ export type ParsedResultsCsv =
       columns: ResultsCsvColumnMap
       rows: OutreachResultsUploadRow[]
       skipped: SkippedResultsRow[]
+      /**
+       * The official's own outbound rows. Deliberately NOT in `skipped`:
+       * they read fine and are simply not replies, and listing them as
+       * failures told the operator "32 rows could not be read" about a
+       * perfectly good file.
+       */
+      outboundRows: number
       /** Non-empty data lines found, whether or not they survived validation. */
       dataRows: number
     }
@@ -227,6 +235,7 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
 
   const parsedRows: OutreachResultsUploadRow[] = []
   const skipped: SkippedResultsRow[] = []
+  let outboundRows = 0
   let dataRows = 0
 
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
@@ -236,10 +245,16 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     const line = index + 1
 
     const direction = (cells[sendDirectionIndex] ?? '').trim().toUpperCase()
+    if (direction === OUTBOUND_DIRECTION) {
+      outboundRows += 1
+      continue
+    }
     if (direction !== INBOUND_DIRECTION) {
+      // An unrecognised direction IS worth showing — unlike an outbound row,
+      // it may mean the file came from a tool whose vocabulary is new to us.
       skipped.push({
         line,
-        reason: direction === '' ? 'no send direction' : `${direction} row`,
+        reason: direction === '' ? 'no send direction' : 'unknown direction',
       })
       continue
     }
@@ -270,5 +285,12 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     parsedRows.push(result.data)
   }
 
-  return { ok: true, columns, rows: parsedRows, skipped, dataRows }
+  return {
+    ok: true,
+    columns,
+    rows: parsedRows,
+    skipped,
+    outboundRows,
+    dataRows,
+  }
 }

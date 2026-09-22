@@ -222,8 +222,15 @@ export class OutreachResultsAdminService extends createPrismaBase(
     // the operator uploaded: a row with no phone matched nobody, which is
     // what `unmatched` means, and counting it in both keeps the ingest's
     // invariant `matched + unmatched === rowsParsed` true of the report.
+    //
+    // Outbound rows are NOT folded in. They are the official's own message,
+    // one per recipient, so on a 32-person send they outnumber the replies
+    // three to one — counting them as unmatched reported 33 unmatched rows
+    // when exactly one reply came from a number not on the send, which is
+    // the number an operator acts on. They get their own count instead.
     return {
       rowsParsed: result.rowsParsed + parsed.skipped.length,
+      outboundRows: parsed.outboundRows,
       matched: result.matched,
       unmatched: result.unmatched + parsed.skipped.length,
       optOuts: result.optOuts,
