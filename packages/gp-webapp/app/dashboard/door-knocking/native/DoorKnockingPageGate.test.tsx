@@ -206,6 +206,59 @@ describe('DoorKnockingPageGate', () => {
     expect(router.replace).not.toHaveBeenCalled()
   })
 
+  // Control has an entitlement of its own: without the eCanvasser connection
+  // candidate success provisions, every panel on that dashboard reads zero.
+  it('shows the unavailable card for a flag-off campaign with no eCanvasser', () => {
+    setState({ ready: true, enabled: false })
+    render(
+      <DoorKnockingPageGate
+        {...props}
+        campaign={{} as Campaign}
+        hasEcanvasser={false}
+      />,
+    )
+    expect(screen.queryByTestId('ecanvasser-dashboard')).toBeNull()
+    expect(
+      screen.getByText("Door knocking isn't turned on for your campaign"),
+    ).toBeVisible()
+  })
+
+  it('renders the eCanvasser dashboard for a connected campaign', () => {
+    setState({ ready: true, enabled: false })
+    render(
+      <DoorKnockingPageGate
+        {...props}
+        campaign={{} as Campaign}
+        hasEcanvasser={true}
+      />,
+    )
+    expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
+  })
+
+  // Unsettled is not a refusal: a failed or slow server read must not tell a
+  // connected campaign their feature is off.
+  it('falls back to the dashboard when the eCanvasser read is unavailable', () => {
+    setState({ ready: true, enabled: false })
+    render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
+  })
+
+  // The Serve bounce runs first, so a Serve org never reaches the card that
+  // names a campaign.
+  it('still bounces a flag-off Serve org rather than showing the card', () => {
+    setState({ ready: true, enabled: false })
+    orgState.slug = 'eo-city-council'
+    render(
+      <DoorKnockingPageGate {...props} campaign={null} hasEcanvasser={false} />,
+    )
+    expect(
+      screen.queryByText("Door knocking isn't turned on for your campaign"),
+    ).toBeNull()
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/constituent-outreach',
+    )
+  })
+
   it('renders the native experience with no list carried in', () => {
     setState({ ready: true, enabled: true })
     render(<DoorKnockingPageGate {...props} />)

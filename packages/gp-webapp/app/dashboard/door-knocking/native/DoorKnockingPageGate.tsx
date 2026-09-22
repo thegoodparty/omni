@@ -34,6 +34,9 @@ interface DoorKnockingPageGateProps {
   pathname: string
   campaign: Campaign | null
   summary?: EcanvasserSummary
+  // Whether candidate success has connected this campaign to eCanvasser. The
+  // flag-off arm's entitlement, resolved server-side in `page.tsx`.
+  hasEcanvasser?: boolean
   // `?listId=` / `?recommended=` off the page. Only the native arm has a
   // create flow to open on them; the eCanvasser dashboard has no audience
   // step to preselect.
@@ -103,6 +106,38 @@ const DoorKnockingProLockedView = ({
   </DashboardLayout>
 )
 
+// Door knocking off the flag, for a campaign candidate success has not
+// connected. The eCanvasser dashboard behind this is a view onto a
+// third-party canvassing tool, so without that connection every panel on it
+// reads zero and a blank "Last updated" — a screen that looks broken rather
+// than one that says the feature is not on yet. Reached only by the outreach
+// hub's tile, which is deliberately still offered: this card names who can
+// turn it on, where hiding the tile would leave no way to ask.
+const DoorKnockingUnavailableView = ({
+  pathname,
+  campaign,
+}: {
+  pathname: string
+  campaign: Campaign | null
+}): React.JSX.Element => (
+  <DashboardLayout pathname={pathname} campaign={campaign}>
+    <div className="mx-auto flex w-full max-w-[560px] flex-col py-10">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-2xl font-semibold text-foreground">
+            Door knocking isn&apos;t turned on for your campaign
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-base text-muted-foreground">
+            Email support@goodparty.org and we&apos;ll get you set up.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  </DashboardLayout>
+)
+
 // The one treatment/control divergence point: flag on gets the native map
 // experience, flag off (or unsettled) renders the eCanvasser dashboard
 // exactly as before — for a candidate. A Serve org has no control arm to fall
@@ -122,6 +157,7 @@ export default function DoorKnockingPageGate({
   pathname,
   campaign,
   summary,
+  hasEcanvasser,
   preselectedListId,
   preselectedRecommendedVariant,
   walkTurfId,
@@ -182,6 +218,15 @@ export default function DoorKnockingPageGate({
         openCreateFlow={openCreateFlow}
         campaignOutreachId={campaignOutreachId}
       />
+    )
+  }
+  // Control, and it has an entitlement of its own that nothing used to check:
+  // the eCanvasser connection. Unsettled reads as connected, so a slow or
+  // failed server read shows the dashboard it always did rather than telling
+  // a connected campaign their feature is off.
+  if (hasEcanvasser === false) {
+    return (
+      <DoorKnockingUnavailableView pathname={pathname} campaign={campaign} />
     )
   }
   return (

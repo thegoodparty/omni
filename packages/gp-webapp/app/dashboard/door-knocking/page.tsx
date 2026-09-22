@@ -23,6 +23,20 @@ async function fetchEcanvasserSummary(): Promise<
   return response.data
 }
 
+// Whether candidate success has connected this campaign to eCanvasser, which
+// is the flag-off arm's own entitlement and the only thing that can put
+// numbers on its dashboard. `GET /ecanvasser/mine` answers it three ways and
+// all of them collapse to this boolean: a connected campaign gets its record,
+// an unconnected one gets 200 with a null body (the service's `findFirst`),
+// and a Serve org gets a 404 from the campaign guard because it has no
+// campaign to look one up for. Read server-side beside the summary rather
+// than through `EcanvasserProvider`, which the gate mounts BELOW itself
+// inside `DashboardLayout` and so cannot read.
+async function fetchHasEcanvasser(): Promise<boolean> {
+  const response = await serverFetch(apiRoutes.ecanvasser.mine)
+  return Boolean(response.data)
+}
+
 const meta = pageMetaData({
   title: 'Door Knocking | GoodParty.org',
   description: 'Door Knocking',
@@ -52,10 +66,12 @@ export default async function Page({
     { listId, recommended, walkTurfId, outreachId, create, campaignOutreachId },
     campaign,
     summary,
+    hasEcanvasser,
   ] = await Promise.all([
     searchParams,
     fetchUserCampaign(),
     fetchEcanvasserSummary(),
+    fetchHasEcanvasser(),
   ])
 
   // Carries a saved list from the outreach hub's door-knocking tile so the
@@ -73,6 +89,7 @@ export default async function Page({
     pathname: '/dashboard/door-knocking',
     campaign,
     summary,
+    hasEcanvasser,
     preselectedListId,
     preselectedRecommendedVariant,
     // "Continue knocking" on an outreach row. A turf rather than a list, and
