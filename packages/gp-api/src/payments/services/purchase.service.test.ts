@@ -371,6 +371,42 @@ describe('PurchaseService', () => {
     })
   })
 
+  describe('failCheckoutSession', () => {
+    it('dispatches to the payment-failed handler registered for the type', async () => {
+      const handler = vi.fn().mockResolvedValue(undefined)
+      service.registerCheckoutSessionPaymentFailedHandler(
+        PurchaseType.TEXT,
+        handler,
+      )
+      const session = mockCheckoutSession({
+        id: 'cs_failed',
+        metadata: {
+          purchaseType: PurchaseType.TEXT,
+          outreachId: '42',
+          campaignId: '111',
+        },
+      })
+
+      await service.failCheckoutSession(session)
+
+      expect(handler).toHaveBeenCalledExactlyOnceWith(
+        'cs_failed',
+        session.metadata,
+      )
+    })
+
+    it('is a no-op for a purchase type with nothing to unwind', async () => {
+      const session = mockCheckoutSession({
+        id: 'cs_failed',
+        metadata: { purchaseType: PurchaseType.POLL },
+      })
+
+      await expect(
+        service.failCheckoutSession(session),
+      ).resolves.toBeUndefined()
+    })
+  })
+
   describe('completeCheckoutSession', () => {
     it('should complete checkout session and run post-purchase handler', async () => {
       // Arrange

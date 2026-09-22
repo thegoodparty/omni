@@ -46,7 +46,10 @@ describe('PaymentEventsService', () => {
   }
   const crm = { getCrmCompanyOwnerName: vi.fn() }
   const tcrComplianceService = { enqueueAgenticKickoffIfNeeded: vi.fn() }
-  const purchaseService = { completeCheckoutSession: vi.fn() }
+  const purchaseService = {
+    completeCheckoutSession: vi.fn(),
+    failCheckoutSession: vi.fn(),
+  }
   const raceOpponentService = { autoCollectOnProUpgrade: vi.fn() }
   const robocallWebhookService = {
     cancelNotYetDialedForDetachedPaymentMethod: vi.fn(),
@@ -526,6 +529,37 @@ describe('PaymentEventsService', () => {
         expect.objectContaining({ userId: mockUser.id }),
         expect.stringContaining('active campaign'),
       )
+    })
+  })
+
+  describe('handleEvent — checkout.session.async_payment_failed', () => {
+    const failedEvent = {
+      type: WebhookEventType.CheckoutSessionAsyncPaymentFailed,
+      data: {
+        object: {
+          id: 'cs_ach_failed',
+          mode: CheckoutSessionMode.PAYMENT,
+          payment_status: 'unpaid',
+          metadata: { userId: '1', purchaseType: 'TEXT', outreachId: '42' },
+        },
+      },
+    } as unknown as Stripe.CheckoutSessionAsyncPaymentFailedEvent
+
+    it('hands the session to the purchase service to unwind, never to fulfill', async () => {
+      await service.handleEvent(failedEvent)
+
+      expect(
+        purchaseService.failCheckoutSession,
+      ).toHaveBeenCalledExactlyOnceWith(failedEvent.data.object)
+      expect(purchaseService.completeCheckoutSession).not.toHaveBeenCalled()
+    })
+
+    it('propagates an unwind failure so Stripe redelivers', async () => {
+      purchaseService.failCheckoutSession.mockRejectedValueOnce(
+        new Error('db down'),
+      )
+
+      await expect(service.handleEvent(failedEvent)).rejects.toThrow('db down')
     })
   })
 
