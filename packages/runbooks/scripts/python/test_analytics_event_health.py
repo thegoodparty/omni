@@ -1227,8 +1227,11 @@ def test_build_slack_triage_runs_on_changes(monkeypatch):
 def test_path_weekly_sql_filters_the_page_path_not_just_the_event():
     legs = [sa.Leg("Viewed", "/dashboard", None)]
     sql = eh.build_path_weekly_sql(legs)
-    assert "event_properties:path::string = '/dashboard'" in sql
-    assert "event_type = 'Viewed'" in sql
+    # The event predicate and the path predicate must be ANDed inside one clause — an OR
+    # would return every 'Viewed' row (4.46M) instead of the ~106k '/dashboard' slice,
+    # inflating the leg's counts and masking a real break. Asserting the two substrings
+    # separately (the old form of this test) can't catch that swap.
+    assert "(event_type = 'Viewed' and event_properties:path::string = '/dashboard')" in sql
     assert "mart_analytics.amplitude_events" in sql
 
 
