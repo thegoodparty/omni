@@ -404,14 +404,15 @@ import { dirname, join, relative } from 'node:path'
 // 568 + 2 (the boundary surfaces above) + 1 (FollowUpOutstandingSection):
 // both sides of this merge raised the ratchet from the same base, so the
 // count is the sum of the two, not either one of them.
-// 2026-09-21: main's own removals took this to 566 while this branch sat at
-// 572 (571 + CampaignTurfList, the drawer's per-campaign sibling list). The
-// merge is main's number plus this branch's own net addition, not either
-// side — and the turf-panel work that followed was net-neutral: it added
-// TurfPanel, TurfCard, removeTurfDialog, draftCounts, useDrawExpand and
-// useTeamOptions while deleting DrawToolbar, DrawFullScreen and
-// TurfDraftCard, and none of the new files carry the directive.
-const BASELINE = 567
+// 2026-09-21: main's removals took this to 564 (SurveyAnimation and
+// QuestionAnimation, deleted with the two door-knocking empty states that
+// rendered them) while this branch sat at 567. The merge is main's number
+// plus this branch's own net addition, not either side. The turf-panel work
+// is net-neutral: it added TurfPanel, TurfCard, removeTurfDialog,
+// draftCounts, useDrawExpand and useTeamOptions while deleting DrawToolbar,
+// DrawFullScreen and TurfDraftCard, and none of the new files carry the
+// directive.
+const BASELINE = 565
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
