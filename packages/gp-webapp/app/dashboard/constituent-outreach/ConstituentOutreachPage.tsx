@@ -26,6 +26,7 @@ import {
   useSeedOutreachDetail,
 } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
+import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 
 interface ConstituentOutreachPageProps {
   pathname?: string
@@ -51,6 +52,9 @@ const ConstituentOutreachContent = () => {
   // its audience so "Call them back" lands on the who step already answered.
   const [followUpListId, setFollowUpListId] = useState<number | undefined>()
   const seedOutreachDetail = useSeedOutreachDetail()
+  // Whether this rail offers door knocking at all. The door-knocking page gate
+  // is the treatment surface, so no exposure is tracked here.
+  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
 
   // Mirrors OutreachHubPage's cache seeding: the save response is the
   // created row, so the drawer and the "N platforms" metric never refetch
@@ -98,6 +102,9 @@ const ConstituentOutreachContent = () => {
         // on the rail and asking for one more press.
         onDoorKnockingClick={() =>
           router.push('/dashboard/door-knocking?create=1')
+        }
+        showDoorKnocking={
+          nativeDoorKnocking.ready && nativeDoorKnocking.enabled
         }
       />
       <SocialFlow

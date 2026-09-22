@@ -32,6 +32,14 @@ interface ServeChannelDefinition {
 // It is a navigation rather than a flow, which is why its handler is shaped
 // differently from the other two: the door-knocking map is its own route, and
 // the create flow lives inside it opening itself on an org with no lists.
+//
+// That route is also why the card is conditional. Win has a control arm behind
+// `native-door-knocking` — the eCanvasser dashboard, which is what the route
+// renders with the flag off — but Serve never had one: door knocking reached
+// this rail already native, so for a flag-off Serve org the card's only
+// destination is a Win-only legacy screen about an integration they have not
+// connected. Hidden rather than disabled for the reason the placeholder was
+// removed: a dead tile reads as broken.
 const SERVE_CHANNELS: ServeChannelDefinition[] = [
   {
     key: 'socialMedia',
@@ -57,18 +65,25 @@ interface ServeChannelCardsProps {
   onSocialClick: () => void
   onPhoneBankingClick: () => void
   onDoorKnockingClick: () => void
+  // Off until `native-door-knocking` resolves on, so an unsettled read shows
+  // two cards rather than a third that leads somewhere wrong.
+  showDoorKnocking: boolean
 }
 
 const ServeChannelCards = ({
   onSocialClick,
   onPhoneBankingClick,
   onDoorKnockingClick,
+  showDoorKnocking,
 }: ServeChannelCardsProps): React.JSX.Element => {
   const handlers: Record<string, () => void> = {
     socialMedia: onSocialClick,
     phoneBanking: onPhoneBankingClick,
     doorKnocking: onDoorKnockingClick,
   }
+  const channels = SERVE_CHANNELS.filter(
+    (channel) => channel.key !== 'doorKnocking' || showDoorKnocking,
+  )
   return (
     <section className="space-y-3">
       <div>
@@ -81,9 +96,10 @@ const ServeChannelCards = ({
       </div>
       {/* Three cards, so three columns. The width cap goes with the second
           card: at `max-w-md` a third tile is narrower than the ~220px the
-          candidate grid gives, and these are the same tiles. */}
+          candidate grid gives, and these are the same tiles. Two cards keep
+          the same column width rather than stretching to fill the cap. */}
       <div className="grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-3">
-        {SERVE_CHANNELS.map((channel) => (
+        {channels.map((channel) => (
           <ChannelCard
             key={channel.key}
             icon={channel.icon}
