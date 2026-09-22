@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { Timeout } from '@nestjs/schedule'
 import {
@@ -88,6 +89,18 @@ const AVAILABILITY_CHECK_BATCH_SIZE = 5
 // stop under the broker's timeout so the caller always gets what was found.
 const SEARCH_TARGET_CANDIDATE_COUNT = 6
 const SEARCH_TIME_BUDGET_MS = 20_000
+
+// MAX_PATTERN_CANDIDATES bounds SLDs *before* the TLD fanout below multiplies
+// each one across SUPPORTED_TLDS, so "all 50 candidates" was really up to 300
+// availability checks. The time budget stops a slow search but not the quota
+// a fast one spends, and Route53's bucket is account-wide and shared with the
+// purchase path — so the post-fanout count needs its own ceiling.
+const MAX_AVAILABILITY_CHECKS = 50
+
+// Separates "Route53 says this domain is taken" from "we never got to ask".
+// Collapsing the two is what let throttling quietly shorten a result list
+// that still had candidates in it, which the empty-list 502 does not cover.
+const UNCHECKED = Symbol('unchecked')
 
 const DOMAIN_PURCHASE_ADVISORY_LOCK_KEY = 918_275
 
@@ -582,7 +595,7 @@ export class DomainsService
     // unchanged so existing alternation syntax (e.g. `vote-x.(run|bio)`)
     // keeps working — but only when that TLD is on the allowlist, so an
     // explicit `candidate.com` can't bypass the "never offered" promise.
-    const candidates = Array.from(
+    const expandedCandidates = Array.from(
       new Set(
         expanded.flatMap((c) => {
           if (!c.includes('.')) {
@@ -593,8 +606,22 @@ export class DomainsService
       ),
     )
 
+    if (expandedCandidates.length > MAX_AVAILABILITY_CHECKS) {
+      this.logger.warn(
+        {
+          campaignId: campaign.id,
+          expanded: expandedCandidates.length,
+          cap: MAX_AVAILABILITY_CHECKS,
+          fn: 'searchDomainsForCampaign',
+        },
+        'candidate set exceeds the availability-check cap; truncating',
+      )
+    }
+    const candidates = expandedCandidates.slice(0, MAX_AVAILABILITY_CHECKS)
+
     const startedAt = new Date()
     const found: PatternedDomainCandidate[] = []
+    let unchecked = 0
     let outOfBudget = false
     for (let i = 0; i < candidates.length; i += AVAILABILITY_CHECK_BATCH_SIZE) {
       const remainingMs =
@@ -619,15 +646,17 @@ export class DomainsService
         break
       }
       for (const r of checked) {
-        if (r.status === 'fulfilled' && r.value !== null) {
-          found.push(r.value)
-        } else if (r.status === 'rejected') {
+        if (r.status === 'rejected') {
           const err =
             r.reason instanceof Error ? r.reason : new Error(String(r.reason))
           this.logger.warn(
             { err, fn: 'searchDomainsForCampaign' },
             'candidate availability check failed; skipping',
           )
+        } else if (r.value === UNCHECKED) {
+          unchecked += 1
+        } else if (r.value !== null) {
+          found.push(r.value)
         }
       }
       if (found.length >= SEARCH_TARGET_CANDIDATE_COUNT) {
@@ -653,7 +682,7 @@ export class DomainsService
       }
     }
 
-    return { candidates: found }
+    return { candidates: found, partial: unchecked > 0 || outOfBudget }
   }
 
   // Not the shared sleep util: the loser of the race must not keep the event
@@ -667,12 +696,23 @@ export class DomainsService
   private async checkPatternedCandidate(
     domain: string,
     maxPrice: number,
-  ): Promise<PatternedDomainCandidate | null> {
+  ): Promise<PatternedDomainCandidate | null | typeof UNCHECKED> {
     let availability: DomainAvailability | undefined
     try {
       const resp = await this.route53.checkDomainAvailability(domain)
       availability = resp.Availability
     } catch (error) {
+      // A throttled check never reached Route53, so it carries no verdict on
+      // the domain. Returning null reported it as taken, so a quota problem
+      // came back as a shorter list of real candidates — invisible unless the
+      // list was empty enough to trip the budget 502 above.
+      if (error instanceof ServiceUnavailableException) {
+        this.logger.warn(
+          { domain, fn: 'checkPatternedCandidate' },
+          'Route53 throttled the availability check; candidate not checked',
+        )
+        return UNCHECKED
+      }
       this.logger.warn(
         { err: error, domain, fn: 'checkPatternedCandidate' },
         'Route53 availability check failed; skipping candidate',

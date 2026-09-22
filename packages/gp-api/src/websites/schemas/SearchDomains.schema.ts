@@ -8,6 +8,7 @@ export const SearchDomainsResponseSchema = z.object({
       price: z.number(),
     }),
   ),
+  partial: z.boolean(),
 })
 
 export class SearchDomainsBodySchema extends createZodDto(

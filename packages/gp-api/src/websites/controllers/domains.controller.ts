@@ -155,11 +155,16 @@ export class DomainsController {
       '(e.g. ["janeforsenate", "voteforjane"]), which the server fans ' +
       'out across all approved TLDs, or include an explicit approved ' +
       'TLD (e.g. "janeforsenate.run"). Returns { candidates: ' +
-      '[{ domain, price }] } for ranking. Returns only available ' +
-      'domains, as a shortlist: the search stops early once enough ' +
-      'candidates qualify, so it is not exhaustive. An empty ' +
+      '[{ domain, price }], partial } for ranking. Returns only ' +
+      'available domains, as a shortlist: the search stops early once ' +
+      'enough candidates qualify, so it is not exhaustive. An empty ' +
       'candidates list means nothing matched under the cap; a 502 ' +
-      'means availability checks timed out. Read-only; safe to retry.',
+      'means availability checks timed out. When partial is true the ' +
+      'list is a floor — some candidates went unchecked because the ' +
+      'registrar rate limited us or the time budget ran out, so a ' +
+      'domain missing from it has not been shown to be taken; retry ' +
+      'after a short wait if nothing listed is usable. Read-only; ' +
+      'safe to retry.',
   })
   async searchDomains(
     @ReqCampaign() campaign: Campaign & { user: User },

@@ -28,6 +28,10 @@ export interface PatternedDomainCandidate {
 
 export interface PatternedDomainSearchResult {
   candidates: PatternedDomainCandidate[]
+  // True when at least one candidate went unchecked because Route53 throttled
+  // us. The list is then a floor, not the full set — a domain missing from it
+  // has not been shown to be taken.
+  partial: boolean
 }
 
 // GoodParty's approved campaign TLD allowlist. Must stay in sync with the
