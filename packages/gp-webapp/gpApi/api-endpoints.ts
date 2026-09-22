@@ -1455,6 +1455,24 @@ export type APIEndpoints = {
     Request: DoorKnockingArchiveRequest
     Response: DoorKnockingTurf
   }
+  // The campaign lifecycle: one request, every turf under the anchor, one
+  // server-side transaction. A route of its own rather than a scope parameter
+  // on the two above, so those stay per-turf — the walk's own
+  // `Move to archive` and its `finishAndArchive` press them, and a fan-out
+  // there would shelve a whole campaign when a canvasser finished one turf of
+  // it. Manager-only; a volunteer reaches neither. Both answer with the
+  // campaign's whole turf list, in the same order as the campaign read above,
+  // so a caller repaints from the response it already has.
+  'POST /v1/door-knocking/campaigns/:anchorId/complete': {
+    Request: {}
+    Response: DoorKnockingTurf[]
+  }
+  // Same body as the turf route. Every sibling it shelves gets ONE shared
+  // timestamp, and a sibling already shelved keeps its own date.
+  'POST /v1/door-knocking/campaigns/:anchorId/archive': {
+    Request: DoorKnockingArchiveRequest
+    Response: DoorKnockingTurf[]
+  }
   'GET /v1/door-knocking/turfs/:id/route': {
     Request: {}
     Response: DoorKnockingRoutePayload

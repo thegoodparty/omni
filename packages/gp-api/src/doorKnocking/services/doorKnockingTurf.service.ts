@@ -12,7 +12,12 @@ import {
 } from '../../generated/prisma'
 import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { lockTurf } from '../utils/turfLock.util'
-import { activeTurfScope, railTurfScope } from '../utils/turfScope.util'
+import {
+  activeTurfScope,
+  campaignEnvelopeScope,
+  campaignTurfScope,
+  railTurfScope,
+} from '../utils/turfScope.util'
 import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import {
   DoorKnockingTurfCounts,
@@ -52,6 +57,19 @@ type RoutedTurf = TurfWithRoute & {
     outreach: NonNullable<NonNullable<TurfWithRoute['route']>['outreach']>
   }
 }
+
+// The campaign read, as one value rather than three call sites that happen to
+// agree. The two campaign WRITES answer with the array
+// `GET campaigns/:anchorId` returns, so the drawer can repaint from the
+// mutation instead of refetching, and that only holds while the ordering is
+// shared rather than coincidental.
+const CAMPAIGN_READ = {
+  orderBy: { createdAt: Prisma.SortOrder.asc },
+  include: ROUTE_INCLUDE,
+} as const satisfies Pick<
+  Prisma.DoorKnockingTurfFindManyArgs,
+  'orderBy' | 'include'
+>
 
 const NO_COUNTS: DoorKnockingTurfCounts = {
   doorCount: 0,
@@ -146,28 +164,18 @@ export class DoorKnockingTurfService extends createPrismaBase(
   // returns empty. No surface filter here (the by-id routes do not carry one,
   // for the same reason `getTurf` does not): an id the caller already holds
   // cannot be made to cross a surface by asking for it on the wrong one.
+  //
+  // The `where` is shared with the two campaign writes below, which is what
+  // makes the set they touch exactly the set this read counted.
   async listCampaign(
     anchorId: number,
     organizationSlug: string,
   ): Promise<DoorKnockingTurf[]> {
     const rows = await this.model.findMany({
-      where: {
-        ...activeTurfScope(organizationSlug),
-        route: {
-          outreach: {
-            OR: [{ id: anchorId }, { campaignOutreachId: anchorId }],
-          },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-      include: ROUTE_INCLUDE,
+      where: campaignTurfScope(anchorId, organizationSlug),
+      ...CAMPAIGN_READ,
     })
-    const turfs = rows.map(assertRouted)
-    const counts = await this.counts.forRoutes(
-      organizationSlug,
-      turfs.map((turf) => turf.route.id),
-    )
-    return turfs.map((turf) => toResponse(turf, counts.get(turf.route.id)))
+    return this.withCountsMany(rows.map(assertRouted), organizationSlug)
   }
 
   // A soft-deleted turf is indistinguishable from one that never existed, so
@@ -335,6 +343,143 @@ export class DoorKnockingTurfService extends createPrismaBase(
     return this.withCounts(turf, organizationSlug)
   }
 
+  // "Mark the whole campaign done", and deliberately its own entry point
+  // rather than a flag on `complete` above. That route is pressed by the
+  // walk's own footer and by the rail's `finishAndArchive`, so widening it
+  // would let a canvasser finishing one turf close every other turf in the
+  // campaign — and completion has no undo anywhere in this product.
+  //
+  // Done still does not mean every door was knocked. There is no completeness
+  // precondition here for the same reason there is none on a single turf: the
+  // product's Done is "stop walking this", not "this list is exhausted". The
+  // client confirms when siblings are unfinished; the server does not refuse.
+  //
+  // ONE statement decides and applies the write set, which is why no advisory
+  // lock is taken. The per-turf lock exists to serialize a read-then-write,
+  // and this has neither: Postgres re-checks the predicate against any row a
+  // concurrent per-turf write took first. That same guard is what makes the
+  // press idempotent and what keeps a finished sibling's `updatedAt` still,
+  // since the outreach history sorts and reports off that column.
+  async completeCampaign(
+    anchorId: number,
+    organizationSlug: string,
+    actorUserId: number,
+  ): Promise<DoorKnockingTurf[]> {
+    const { turfs, completedNow } = await this.client.$transaction(
+      async (tx) => {
+        // Existence is decided BEFORE the write and against the ENVELOPES,
+        // which is the set the write touches. Deciding it afterwards from
+        // the live-turf read cannot tell "no such campaign" from "every turf
+        // tombstoned", and the throw would roll the write back — silently
+        // discarding it for the second case.
+        await this.assertCampaignExists(tx, anchorId, organizationSlug)
+
+        // `archivedAt: null` is load-bearing, not belt-and-braces. Archive
+        // does not require completion, so an archived turf can sit at
+        // `in_progress` indefinitely — and the client's confirm counts only
+        // UNARCHIVED unfinished turfs, because a shelved turf is one the
+        // candidate has already put away. Without this the dialog would say
+        // "1 turf isn't done yet" and the press would finish two, which is
+        // exactly the blast-radius invariant `campaignTurfScope` states.
+        const { count } = await tx.outreach.updateMany({
+          where: {
+            ...campaignEnvelopeScope(anchorId, organizationSlug),
+            status: OutreachStatus.in_progress,
+            archivedAt: null,
+          },
+          data: { status: OutreachStatus.completed },
+        })
+
+        // Read AFTER the write, unlike the per-turf methods, which fold the
+        // write into the row they read under their lock. A re-read is unsafe
+        // there because a racing delete would 404 an operation that actually
+        // succeeded; a LIST has no such failure, since a sibling tombstoned in
+        // the window simply drops out of the array, which is the answer the
+        // campaign read would give a moment later anyway.
+        //
+        // Empty is a legitimate answer here and must NOT throw: the write
+        // reaches tombstoned turfs' envelopes on purpose, so a campaign whose
+        // every turf has been deleted moves and then reports no live turfs.
+        const rows = await tx.doorKnockingTurf.findMany({
+          where: campaignTurfScope(anchorId, organizationSlug),
+          ...CAMPAIGN_READ,
+        })
+        return { turfs: rows.map(assertRouted), completedNow: count > 0 }
+      },
+    )
+
+    // Once for the campaign rather than once per turf, and behind the same
+    // guard as the write. Not because N events would corrupt anything — the
+    // nine totals are RUNNING TOTALS recomputed per event and copied onto a
+    // HubSpot property rather than summed, so N of them would write the same
+    // correct value N times. It is that each one costs an org-wide aggregate
+    // query, a Segment call and a HubSpot workflow run, and a campaign
+    // complete is one act. `uniqueTurfsCompleted` moves by N either way,
+    // since it counts envelopes rather than counting events.
+    if (completedNow) {
+      void this.stats
+        .emitCanvassingTotals(actorUserId, organizationSlug)
+        .catch(() => undefined)
+    }
+
+    return this.withCountsMany(turfs, organizationSlug)
+  }
+
+  // The campaign shelf, with the same posture as `setArchived`: it does NOT
+  // require a finished campaign, because a candidate who abandons one still
+  // needs it off the rail.
+  //
+  // ONE timestamp for the whole press, guaranteed by shape rather than by
+  // care — a single bound parameter on a single statement cannot vary across
+  // siblings. `archivedAt: null` is what stops a repeat press walking
+  // "archived since" forward, since a sibling already shelved is not matched
+  // and keeps its own date. Restore is the mirror and writes nothing the
+  // second time for the same reason.
+  //
+  // No rollup event, matching `setArchived`: archiving moves none of the nine
+  // totals, which count live turfs and completed status.
+  async setCampaignArchived(
+    anchorId: number,
+    organizationSlug: string,
+    archived: boolean,
+  ): Promise<DoorKnockingTurf[]> {
+    const turfs = await this.client.$transaction(async (tx) => {
+      await this.assertCampaignExists(tx, anchorId, organizationSlug)
+      await tx.outreach.updateMany({
+        where: {
+          ...campaignEnvelopeScope(anchorId, organizationSlug),
+          archivedAt: archived ? null : { not: null },
+        },
+        data: { archivedAt: archived ? new Date() : null },
+      })
+
+      const rows = await tx.doorKnockingTurf.findMany({
+        where: campaignTurfScope(anchorId, organizationSlug),
+        ...CAMPAIGN_READ,
+      })
+      return rows.map(assertRouted)
+    })
+    return this.withCountsMany(turfs, organizationSlug)
+  }
+
+  // A campaign exists for this caller if any envelope answers to the anchor
+  // within their org, tombstoned turfs included. Asked against the envelopes
+  // rather than the live turfs precisely because the two differ: a campaign
+  // whose every turf was deleted is unusual but real, and it still has
+  // envelopes the lifecycle writes must be able to move.
+  private async assertCampaignExists(
+    tx: Prisma.TransactionClient,
+    anchorId: number,
+    organizationSlug: string,
+  ): Promise<void> {
+    const envelopes = await tx.outreach.count({
+      where: campaignEnvelopeScope(anchorId, organizationSlug),
+    })
+    if (envelopes === 0) {
+      throw new NotFoundException('Campaign not found')
+    }
+  }
+
   // The advisory lock still serializes the three turf mutations against each
   // other, so archive cannot land between delete's read and its write. What it
   // no longer has to hold off is a knock freezing a route mid-transaction:
@@ -387,5 +532,20 @@ export class DoorKnockingTurfService extends createPrismaBase(
       turf.route.id,
     ])
     return toResponse(turf, counts.get(turf.route.id))
+  }
+
+  // The same read, batched: ONE aggregate across every sibling, whatever the
+  // campaign's size. Shared by the campaign read and the two campaign writes
+  // so a mutation's array is indistinguishable from the read's, which is what
+  // lets the drawer repaint from the response instead of refetching.
+  private async withCountsMany(
+    turfs: RoutedTurf[],
+    organizationSlug: string,
+  ): Promise<DoorKnockingTurf[]> {
+    const counts = await this.counts.forRoutes(
+      organizationSlug,
+      turfs.map((turf) => turf.route.id),
+    )
+    return turfs.map((turf) => toResponse(turf, counts.get(turf.route.id)))
   }
 }

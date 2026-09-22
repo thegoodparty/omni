@@ -500,6 +500,67 @@ describe('WalkView', () => {
     expect(screen.queryByRole('button', { name: 'Move to archive' })).toBeNull()
   })
 
+  // Same optional-prop shape as the archive above, and the same reason: a
+  // volunteer's list is never theirs to finish.
+  it('renders no Mark done button when the walk has no handler for it', async () => {
+    render(
+      <WalkView
+        turfId={3}
+        selectedStopId={null}
+        onSelectStop={vi.fn()}
+        liveLocation={{ status: 'off', fix: null, approximate: false }}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Mark this route done' }),
+    ).toBeNull()
+  })
+
+  // The manual half of the completion rule: the walk-exit stamp only fires on
+  // a fully logged route, so this is how a canvasser finishes one that is not.
+  it('confirms before marking a part-walked route done', async () => {
+    const onMarkDone = vi.fn()
+    render(<WalkHarness turfId={3} onMarkDone={onMarkDone} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Mark this route done' }),
+    )
+
+    expect(await screen.findByText('Mark this route done?')).toBeInTheDocument()
+    expect(onMarkDone).not.toHaveBeenCalled()
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Mark done' }),
+    )
+    expect(onMarkDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps knocking without writing when the confirm is dismissed', async () => {
+    const onMarkDone = vi.fn()
+    render(<WalkHarness turfId={3} onMarkDone={onMarkDone} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Mark this route done' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Keep knocking' }),
+    )
+
+    expect(onMarkDone).not.toHaveBeenCalled()
+  })
+
   // The canvas segments its bar by outcome. Ours was one blue bar with the
   // counts underneath, recorded as a deliberate departure — overturned by the
   // product owner on 2026-08-25 (audit item 14). `unknown` is deliberately not

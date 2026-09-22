@@ -780,12 +780,14 @@ endpoint must subscribe to `payment_method.attached`.
   `PhoneBankingCallService` (`src/phoneBanking/`, ENG-10915), in the same
   transaction as the interaction-row upsert that logs the last un-logged
   person, once every person on every entry has a row. `nativeDoorKnocking`
-  flips too, but on a different trigger: the canvasser ending the session
-  (`POST /v1/door-knocking/turfs/:id/complete`), not exhaustion of the roster
-  — a walk is routinely finished with doors left unlogged, so "every person
-  has a row" would almost never fire. The turf's `completedAt` is the source
-  of truth and the envelope's status is a mirror of it, because the envelope
-  needs a `campaignId` and Serve orgs knock without one; see
+  flips too, but on a different trigger: someone marking the list done
+  (`POST /v1/door-knocking/turfs/:id/complete`, or
+  `POST /v1/door-knocking/campaigns/:anchorId/complete` for every turf in a
+  campaign), not exhaustion of the roster — a walk is routinely finished with
+  doors left unlogged, so "every person has a row" would almost never fire.
+  There is no mirror and no `completedAt`: this row's `status` IS the
+  door-knocking lifecycle, which is why a Serve org gets an envelope
+  (`campaignId: null`) rather than the turf keeping columns of its own. See
   `docs/door-knocking.md`.
 - **Only the LEGACY robocall type materializes recipients; VO 2.0's robocall
   writes NO per-contact rows.** The legacy type (created via the generic `POST
@@ -827,20 +829,23 @@ endpoint must subscribe to `payment_method.attached`.
   drawer's archive/restore action. `OutreachService.setArchived` scopes the
   update by `organizationSlug` (not `campaignId`) and reads the response back
   from the persisted row rather than trusting the request body.
-- **Door knocking archives on the turf, and this row is mirrored off it.**
-  `DoorKnockingTurf.archivedAt` is what the list rail acts on, for the same
-  reason `completedAt` lives there: a Serve org archives a list it has no
-  envelope for. `DoorKnockingTurfService.setArchived` therefore writes both,
-  in one transaction, the same way it mirrors `status` on complete —
-  `updateMany` on `doorKnockingRouteId`, so a Serve org's missing envelope is a
-  no-op. Restore clears both. **The turf is the source and this is the
-  projection**, so the mirror writes the turf's timestamp rather than its own
-  `now`, and it runs BEFORE that method's idempotence guard so a list archived
-  before the mirror shipped can be repaired by pressing Archive again.
-  `DoorKnockingTurfService.setArchived` is still the ONLY writer of the pair:
-  the history drawer now offers Archive on a door-knocking row, but that button
-  calls the turf's endpoint, not `OutreachService.setArchived`, which can reach
-  the envelope alone. See `docs/door-knocking.md`.
+- **Door knocking's lifecycle lives on THIS row, and door knocking owns the
+  writes.** `DoorKnockingTurf` has no `completedAt`/`archivedAt` any more. The
+  turf-to-envelope mirror this bullet used to describe is gone, and so are the
+  ordering and shared-timestamp rules that existed only to keep two copies
+  honest: 3.0 writes an org-scoped envelope for a Serve org too
+  (`campaignId: null`), which removed the reason the columns lived on the turf.
+  `status` is completion, `archivedAt` is the shelf, and
+  `DoorKnockingTurfService` writes both — `complete` / `setArchived` for one
+  turf, `completeCampaign` / `setCampaignArchived` for every envelope in a
+  campaign (the anchor plus every row carrying its id in `campaignOutreachId`).
+  Each campaign write is ONE guarded `updateMany` (`status: in_progress` for
+  complete, `archivedAt: null` for archive), so the archive timestamp is a
+  single bound parameter shared across siblings and a repeat press moves
+  nothing. `OutreachService.setArchived` must still not be the way in for a
+  door-knocking row: the door-knocking methods are the ones carrying the turf
+  scope and the idempotence guards, and the history drawer's Archive button
+  calls them. See `docs/door-knocking.md`.
 - **`OutreachDetail.doorKnocking` is the door-knocking satellite block**, the
   sibling of `phoneBanking`, filled by `OutreachSocialService.findDetail` for a
   `nativeDoorKnocking` row. It needed no column: the envelope's

@@ -81,8 +81,10 @@ import {
 // walk — turf get, route serve, complete, interactions, do-not-knock,
 // not-a-voter — scoped to their own OutreachAssignment by the service layer
 // (see doorKnockingAccess.util.ts). Everything else (create, list, update,
-// delete, archive, pack, quota, address-preview, audience-check) stays
-// manager+ by the guard's default posture.
+// delete, archive, the two campaign-level lifecycle writes, pack, quota,
+// address-preview, audience-check) stays manager+ by the guard's default
+// posture. The campaign pair is the one worth naming: the assignment check is
+// per envelope, so it has no answer for a write that spans N of them.
 @Controller('door-knocking')
 export class DoorKnockingController {
   constructor(
@@ -306,6 +308,59 @@ export class DoorKnockingController {
   ) {
     await this.contacts.assertProAccess(organization)
     return this.turfService.setArchived(id, organization.slug, input.archived)
+  }
+
+  // The campaign-level pair, addressed by the ANCHOR outreach id: the same id
+  // `GET campaigns/:anchorId` above takes, resolved through the same shared
+  // scope, so the confirm dialog's count and the write's blast radius are the
+  // same rows.
+  //
+  // Two routes rather than a `scope` field on the turf pair above. Those are
+  // pressed by the walk's own footer and by `finishAndArchive`, so a flag that
+  // widened them would let a canvasser finishing one turf close or shelve all
+  // of them, and completion has no undo. They also differ in posture, in what
+  // they address, and in what they answer with.
+  //
+  // Manager+, with no @AllowVolunteer(). A volunteer's reach is an
+  // OutreachAssignment on ONE envelope, so there is no honest answer to "may
+  // this volunteer close N of them": requiring all N makes the route
+  // unreachable for a canvasser assigned to one turf, and requiring one lets
+  // them close a teammate's unwalked turf. Deciding a campaign is done despite
+  // unwalked doors is a judgement about where to stop spending field effort.
+  @Post('campaigns/:anchorId/complete')
+  @UseOrganization()
+  @ResponseSchema(z.array(DoorKnockingTurfSchema))
+  async completeCampaign(
+    @Param('anchorId', ParseIntPipe) anchorId: number,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.turfService.completeCampaign(
+      anchorId,
+      organization.slug,
+      user.id,
+    )
+  }
+
+  // Same body as the turf route, for the same reason: restore is this call
+  // with `archived: false`, so the shelf and the restore cannot drift apart in
+  // gating or shape.
+  @Post('campaigns/:anchorId/archive')
+  @UseOrganization()
+  @ResponseSchema(z.array(DoorKnockingTurfSchema))
+  async archiveCampaign(
+    @Param('anchorId', ParseIntPipe) anchorId: number,
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(DoorKnockingArchiveRequestSchema))
+    input: DoorKnockingArchiveRequest,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.turfService.setCampaignArchived(
+      anchorId,
+      organization.slug,
+      input.archived,
+    )
   }
 
   // A volunteer walks the route on the turf they were assigned (ENG-11051).
