@@ -831,6 +831,38 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     archivedAt: null,
   }
 
+  // The sibling list this drawer has always mounted, and which every test in
+  // this block now needs answered: the drawer reads the campaign's turfs for
+  // the Continue destination, the unfinished count and the archive gate.
+  const campaignTurf = (fields: Record<string, unknown> = {}) => ({
+    id: 12,
+    outreachId: 30,
+    voterFileFilterId: 4,
+    name: 'Elm St & 5th',
+    color: '#2563eb',
+    geoPoly: { type: 'Polygon', coordinates: [] },
+    doorCount: 4,
+    knockedDoorCount: 3,
+    peopleCount: 9,
+    loggedCount: 6,
+    routeSeconds: 900,
+    completed: false,
+    archivedAt: null,
+    createdAt: new Date('2026-08-10T00:00:00Z'),
+    updatedAt: new Date('2026-08-10T00:00:00Z'),
+    ...fields,
+  })
+
+  const mockCampaignTurfs = (turfs = [campaignTurf()]) =>
+    api.mock('GET /v1/door-knocking/campaigns/:anchorId', {
+      status: 200,
+      data: turfs as never,
+    })
+
+  beforeEach(() => {
+    mockCampaignTurfs()
+  })
+
   // `null` rather than `undefined` for "no block": an explicit `undefined`
   // argument takes the default, which would silently send the block anyway.
   const doorKnockingDetail = (
@@ -893,6 +925,9 @@ describe('OutreachDetailsDrawer — door knocking', () => {
         loggedCount: 0,
       }),
     })
+    // The zero is the CAMPAIGN's now, not the anchor's: any sibling with a
+    // logged door means somebody has started, so the label reads Continue.
+    mockCampaignTurfs([campaignTurf({ loggedCount: 0 })])
 
     render(
       <OutreachDetailsDrawer
@@ -987,28 +1022,39 @@ describe('OutreachDetailsDrawer — door knocking', () => {
   // envelope's, but the write goes through the TURF's endpoint — that is the
   // route the door-knocking rail invalidates against, and two writers for one
   // act is how a rail and a drawer come to disagree about one list.
-  it('archives a finished walk through the turf endpoint, not the envelope', async () => {
+  it('archives a finished walk through door knocking, not the envelope', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('completed'),
     })
-    let turfArchiveBody: unknown
-    let turfArchiveId: string | undefined
-    api.mock('POST /v1/door-knocking/turfs/:id/archive', ({ params, body }) => {
-      turfArchiveId = params.id
-      turfArchiveBody = body
-      return {
-        status: 200,
-        data: {
-          ...doorKnockingBlock,
-          archivedAt: new Date('2026-08-20T00:00:00Z'),
-        } as never,
-      }
-    })
+    mockCampaignTurfs([campaignTurf({ completed: true })])
+    let campaignArchiveBody: unknown
+    let campaignArchiveId: string | undefined
+    api.mock(
+      'POST /v1/door-knocking/campaigns/:anchorId/archive',
+      ({ params, body }) => {
+        campaignArchiveId = params.anchorId
+        campaignArchiveBody = body
+        return {
+          status: 200,
+          data: [
+            campaignTurf({
+              completed: true,
+              archivedAt: new Date('2026-08-20T00:00:00Z'),
+            }),
+          ] as never,
+        }
+      },
+    )
     let envelopeArchiveCalled = false
     api.mock('PATCH /v1/outreach/:id/archive', () => {
       envelopeArchiveCalled = true
       return { status: 200, data: { id: 30, archivedAt: null } }
+    })
+    let turfArchiveCalled = false
+    api.mock('POST /v1/door-knocking/turfs/:id/archive', () => {
+      turfArchiveCalled = true
+      return { status: 200, data: { ...doorKnockingBlock } as never }
     })
 
     const onOpenChange = vi.fn()
@@ -1023,10 +1069,12 @@ describe('OutreachDetailsDrawer — door knocking', () => {
       await screen.findByRole('button', { name: 'Move to archive' }),
     )
 
-    // The TURF's id, not the envelope's — the two are different numbers here
-    // precisely so a mix-up cannot pass.
-    expect(turfArchiveId).toBe('12')
-    expect(turfArchiveBody).toEqual({ archived: true })
+    // The ANCHOR's id, and the campaign route rather than the per-turf one:
+    // the turf endpoint is the walk's own, and pointing this button at it
+    // would shelve the anchor and leave every sibling on the rail.
+    expect(campaignArchiveId).toBe('30')
+    expect(campaignArchiveBody).toEqual({ archived: true })
+    expect(turfArchiveCalled).toBe(false)
     expect(envelopeArchiveCalled).toBe(false)
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(
@@ -1045,11 +1093,20 @@ describe('OutreachDetailsDrawer — door knocking', () => {
         archivedAt: new Date('2026-08-15T00:00:00Z') as never,
       }),
     })
-    let turfArchiveBody: unknown
-    api.mock('POST /v1/door-knocking/turfs/:id/archive', ({ body }) => {
-      turfArchiveBody = body
-      return { status: 200, data: { ...doorKnockingBlock } as never }
-    })
+    mockCampaignTurfs([
+      campaignTurf({
+        completed: true,
+        archivedAt: new Date('2026-08-15T00:00:00Z'),
+      }),
+    ])
+    let campaignArchiveBody: unknown
+    api.mock(
+      'POST /v1/door-knocking/campaigns/:anchorId/archive',
+      ({ body }) => {
+        campaignArchiveBody = body
+        return { status: 200, data: [campaignTurf()] as never }
+      },
+    )
 
     render(
       <OutreachDetailsDrawer
@@ -1061,18 +1118,216 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: 'Restore from archive' }),
     )
-    expect(turfArchiveBody).toEqual({ archived: false })
+    expect(campaignArchiveBody).toEqual({ archived: false })
   })
 
   // A tombstoned list leaves the envelope and its paid route standing with
   // nothing to describe. That is the one case the old id-only rendering was
   // right about, and it keeps it — including no archive button, since there is
   // no turf left to write.
+  // A campaign reads `in_progress` until EVERY turf is done, so an anchor
+  // finished ahead of its siblings still gets the `continue` footer. The
+  // destination has to be a turf with something left in it.
+  it('continues into the first unfinished turf, not the finished anchor', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+    mockCampaignTurfs([
+      campaignTurf({ id: 12, completed: true }),
+      campaignTurf({ id: 13 }),
+      campaignTurf({ id: 14 }),
+    ])
+
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...doorKnockingRow('in_progress'), turfCount: 3 }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const cta = await screen.findByRole('link', { name: 'Continue knocking' })
+    expect(cta).toHaveAttribute(
+      'href',
+      '/dashboard/door-knocking?walkTurfId=13&outreachId=30',
+    )
+  })
+
+  it('counts the unfinished turfs and says the press cannot be undone', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+    // One done, one archived, two active. An archived turf is one the
+    // candidate already put away, so it is not outstanding work.
+    mockCampaignTurfs([
+      campaignTurf({ id: 12, completed: true }),
+      campaignTurf({ id: 13, archivedAt: new Date('2026-08-12T00:00:00Z') }),
+      campaignTurf({ id: 14 }),
+      campaignTurf({ id: 15 }),
+    ])
+
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...doorKnockingRow('in_progress'), turfCount: 4 }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Mark campaign done' }),
+    )
+
+    expect(
+      await screen.findByText('Mark this campaign done?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "2 turfs aren't done yet. This marks them done too, and it can't be undone.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('marks the campaign done through the campaign route, not the turf one', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+    mockCampaignTurfs([campaignTurf({ id: 12 }), campaignTurf({ id: 13 })])
+    let completedAnchorId: string | undefined
+    api.mock(
+      'POST /v1/door-knocking/campaigns/:anchorId/complete',
+      ({ params }) => {
+        completedAnchorId = params.anchorId
+        return {
+          status: 200,
+          data: [campaignTurf({ completed: true })] as never,
+        }
+      },
+    )
+    let turfCompleteCalled = false
+    api.mock('POST /v1/door-knocking/turfs/:id/complete', () => {
+      turfCompleteCalled = true
+      return { status: 200, data: { ...doorKnockingBlock } as never }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...doorKnockingRow('in_progress'), turfCount: 2 }}
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Mark campaign done' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Mark done' }),
+    )
+
+    expect(completedAnchorId).toBe('30')
+    expect(turfCompleteCalled).toBe(false)
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
+
+  it('writes nothing when the confirm is dismissed', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+    mockCampaignTurfs([campaignTurf({ id: 12 }), campaignTurf({ id: 13 })])
+    let completeCalled = false
+    api.mock('POST /v1/door-knocking/campaigns/:anchorId/complete', () => {
+      completeCalled = true
+      return { status: 200, data: [campaignTurf()] as never }
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...doorKnockingRow('in_progress'), turfCount: 2 }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Mark campaign done' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Keep knocking' }),
+    )
+
+    expect(completeCalled).toBe(false)
+  })
+
+  // Already done, so there is nothing to finish and nothing to continue into.
+  it('offers neither Continue nor Mark campaign done once every turf is done', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+    mockCampaignTurfs([
+      campaignTurf({ id: 12, completed: true }),
+      campaignTurf({ id: 13, completed: true }),
+    ])
+
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...doorKnockingRow('in_progress'), turfCount: 2 }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await screen.findByText('Turfs in this campaign')
+    expect(
+      screen.queryByRole('link', { name: 'Continue knocking' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Mark campaign done' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The guard this replaced withheld Archive entirely on a multi-turf
+  // campaign, because the write it had took a turf id.
+  it('offers archive on a multi-turf campaign and pluralizes its note', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('completed'),
+    })
+    mockCampaignTurfs([
+      campaignTurf({ id: 12, completed: true }),
+      campaignTurf({ id: 13, completed: true }),
+      campaignTurf({ id: 14, completed: true }),
+    ])
+
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...doorKnockingRow('completed'), turfCount: 3 }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/This archives all 3 saved lists too/),
+    ).toBeInTheDocument()
+  })
+
   it('says so when the walk has no list left to report on', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('completed', null),
     })
+    // A tombstoned turf is excluded by the campaign read's own
+    // `deletedAt: null` scope, so the campaign has no turfs left either.
+    // That empty list is now what withholds the button, which is a strictly
+    // wider gate than the old one: a campaign whose ANCHOR was deleted but
+    // whose siblings live can still be archived.
+    mockCampaignTurfs([])
 
     render(
       <OutreachDetailsDrawer

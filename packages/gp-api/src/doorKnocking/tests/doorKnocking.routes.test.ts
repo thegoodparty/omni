@@ -6233,9 +6233,10 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(201)
     })
 
-    // ONE event for the campaign, not one per turf. The nine totals are
-    // org-wide running numbers, so N events would teach HubSpot that N lists
-    // finished N times.
+    // ONE event for the campaign, not one per turf. The totals it carries are
+    // running numbers, so N events would not be wrong so much as N times the
+    // cost: an org-wide aggregate, a Segment call and a HubSpot workflow run
+    // each.
     it('fires exactly once from a campaign complete', async () => {
       const first = await postTurf({ name: 'Turf 1' })
       const anchor = await envelopeFor(first.data.id)

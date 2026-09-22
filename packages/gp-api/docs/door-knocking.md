@@ -187,8 +187,14 @@ siblings are unfinished; the server does not refuse.
 
 **The rollup fires once.** `emitCanvassingTotals` sits behind the update's own
 `count > 0`, so N siblings produce one event and a second press produces none.
-Campaign archive emits nothing, matching the per-turf archive: it moves none of
-the nine totals.
+The nine totals are running numbers recomputed per event and copied onto a
+HubSpot property rather than summed, so firing N times would write the same
+value N times rather than inflate it — what one event saves is N org-wide
+aggregates, N Segment calls and N workflow runs. `uniqueTurfsCompleted` moves
+by the number of turfs either way, because it counts envelopes with
+`status = completed` and not events. Campaign archive emits nothing, matching
+the per-turf archive: archive touches none of the nine (the turf CTE filters
+on `deletedAt`, and the completed CTE reads `status`).
 
 **The response is the sibling array**, identical in shape and ordering to
 `GET campaigns/:anchorId` (shared `CAMPAIGN_READ` and `withCountsMany`), so the

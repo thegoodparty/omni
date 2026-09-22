@@ -24,10 +24,13 @@ import { canCompleteTurf, useTurfLifecycle } from './turfLifecycle'
 // meaning an answer is written down rather than a conversation happened. That
 // is the reading a canvasser has been watching climb all evening, so the list
 // stamping itself Done as they leave a 40/40 walk is the outcome they already
-// believe in. The card's own "Mark this list done" stays for every other case,
-// which is what makes erring toward not-completing cheap: the manual control is
-// one tap away, while an unwanted Done can only be undone by archiving and
-// restoring.
+// believe in. Erring toward not-completing is cheap because a manual control
+// is one tap away, while an unwanted Done can only be undone by archiving and
+// restoring. That was written about the saved-lists rail's own "Mark this list
+// done" card, which is deleted — so for a while there was no manual control
+// anywhere and this rule rested on a premise that had stopped being true.
+// `useWalkMarkDone` below and the outreach drawer's sibling rows are what make
+// it true again.
 //
 // Two states that are NOT finished, deliberately:
 //
@@ -90,6 +93,31 @@ export const useWalkArchive = (turf: DoorKnockingTurf | null) => {
     moveToArchive: (onSettled: () => void) =>
       lifecycle.finishAndArchive({ onSettled }),
     pending: lifecycle.pendingAction === 'completeAndArchive',
+  }
+}
+
+// The walk's own `Mark this route done`, beside the archive above and holding
+// its turf the same way, for the same reason.
+//
+// It exists because the rule at the top of this file names a manual control
+// that no longer exists anywhere. `useWalkCompletion` refuses to stamp an
+// unfinished walk on the argument that "the card's own 'Mark this list done'
+// stays for every other case" — that card was on the saved-lists rail, and the
+// rail is deleted, so since then the only way a list could become Done was to
+// log every knockable person on it. This button and the outreach drawer's
+// sibling rows are what make the argument true again. The exit rule itself is
+// unchanged: a canvasser leaving is still not a canvasser saying they are
+// finished, which is exactly why saying so has to be its own press.
+//
+// Unconditional here, like the archive. The confirm in front of it is
+// `WalkView`'s, because only the view knows how much of the route is logged.
+export const useWalkMarkDone = (turf: DoorKnockingTurf | null) => {
+  const startedAgainst = useRef<DoorKnockingTurf | null>(null)
+  if (turf) startedAgainst.current = turf
+  const lifecycle = useTurfLifecycle(startedAgainst.current ?? NO_WALK_TURF)
+  return {
+    markDone: () => lifecycle.markDone(),
+    pending: lifecycle.pendingAction === 'complete',
   }
 }
 

@@ -396,9 +396,13 @@ export class DoorKnockingTurfService extends createPrismaBase(
     )
 
     // Once for the campaign rather than once per turf, and behind the same
-    // guard as the write. The nine totals are org-wide running numbers, so N
-    // events would teach HubSpot that N lists finished N times, and a second
-    // press would say a campaign finished twice.
+    // guard as the write. Not because N events would corrupt anything — the
+    // nine totals are RUNNING TOTALS recomputed per event and copied onto a
+    // HubSpot property rather than summed, so N of them would write the same
+    // correct value N times. It is that each one costs an org-wide aggregate
+    // query, a Segment call and a HubSpot workflow run, and a campaign
+    // complete is one act. `uniqueTurfsCompleted` moves by N either way,
+    // since it counts envelopes rather than counting events.
     if (completedNow) {
       void this.stats
         .emitCanvassingTotals(actorUserId, organizationSlug)

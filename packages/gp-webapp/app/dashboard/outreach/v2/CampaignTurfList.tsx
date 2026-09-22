@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
@@ -8,7 +9,12 @@ import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/tu
 import {
   turfStage,
   turfStatusLabel,
+  useTurfLifecycle,
 } from 'app/dashboard/door-knocking/native/turfLifecycle'
+import {
+  MarkDoneDialog,
+  type MarkDoneTarget,
+} from 'app/dashboard/door-knocking/native/MarkDoneDialog'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
 
 // The compact in-drawer sibling list for a door-knocking campaign anchor.
@@ -28,6 +34,12 @@ import { DetailsSection } from './listDetails/ListDetailsMetric'
 interface CampaignTurfListProps {
   anchorOutreachId: number
   outreachId: number
+  // A row's confirm dialog portals out of the drawer this section sits in, so
+  // its clicks land as outside-interactions and would dismiss the sheet
+  // mid-write — the bug the drawer's own two confirms already record. The row
+  // reports that one is open and the drawer decides what it means, rather
+  // than the drawer owning a dialog for a mutation it has no turf for.
+  onConfirmOpenChange?: (open: boolean) => void
 }
 
 const percentLabel = (numerator: number, denominator: number): string => {
@@ -38,6 +50,7 @@ const percentLabel = (numerator: number, denominator: number): string => {
 export const CampaignTurfList = ({
   anchorOutreachId,
   outreachId,
+  onConfirmOpenChange,
 }: CampaignTurfListProps) => {
   const query = useQuery(campaignTurfsQueryOptions(anchorOutreachId))
   const turfs = query.data ?? []
@@ -55,7 +68,12 @@ export const CampaignTurfList = ({
           </p>
         )}
         {turfs.map((turf) => (
-          <TurfRow key={turf.id} turf={turf} outreachId={outreachId} />
+          <TurfRow
+            key={turf.id}
+            turf={turf}
+            outreachId={outreachId}
+            onConfirmOpenChange={onConfirmOpenChange}
+          />
         ))}
       </div>
       <Button asChild variant="outline" className="mt-3">
@@ -68,53 +86,87 @@ export const CampaignTurfList = ({
 interface TurfRowProps {
   turf: DoorKnockingTurf
   outreachId: number
+  onConfirmOpenChange?: (open: boolean) => void
 }
 
 // `Continue knocking` on a per-turf row deep-links into that turf's walk,
 // carrying `outreachId=<anchor>` so closing the walk reopens THIS drawer —
 // the same handoff the drawer's own "Continue knocking" footer uses on the
 // single-turf branch above.
-const TurfRow = ({ turf, outreachId }: TurfRowProps) => {
+const TurfRow = ({ turf, outreachId, onConfirmOpenChange }: TurfRowProps) => {
+  const [markDoneTarget, setMarkDoneTarget] = useState<MarkDoneTarget | null>(
+    null,
+  )
+  const lifecycle = useTurfLifecycle(turf)
   const walkHref = `/dashboard/door-knocking?walkTurfId=${turf.id}&outreachId=${outreachId}`
   const progress =
     turf.peopleCount > 0 ? (turf.loggedCount / turf.peopleCount) * 100 : 0
-  // The campaign read is scoped on `deletedAt` only, so a shelved sibling is
-  // still in this list — and without this it rendered identically to an
-  // active one, Continue included, deep-linking into a walk for a list the
-  // candidate had already put away. `turfStage` is the canonical check;
-  // nothing here re-derives it from `archivedAt`.
-  const archived = turfStage(turf) === 'archived'
+  // The campaign read is scoped on `deletedAt` only, so a shelved OR finished
+  // sibling is still in this list. Neither offers Continue: an archived list
+  // is one the candidate put away, and what Done takes away IS Knock (the
+  // rail's rule, recorded in `walkCompletion.ts`). This used to branch on
+  // archived alone, so a finished turf still deep-linked into a walk with
+  // nothing left to knock. Widening it is also what makes this section a
+  // legible answer to "which turfs aren't done", which is the question the
+  // campaign confirm counts.
+  const active = turfStage(turf) === 'active'
+  const unlogged = Math.max(0, turf.peopleCount - turf.loggedCount)
+  const pending = lifecycle.pendingAction === 'complete'
+  const openConfirm = (open: boolean) => {
+    setMarkDoneTarget(
+      open ? { kind: 'turf', name: turf.name, unloggedCount: unlogged } : null,
+    )
+    onConfirmOpenChange?.(open)
+  }
   return (
     <Card className="gap-2 rounded-lg p-3">
       <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
           className={`h-3 w-3 shrink-0 rounded-full ${
-            archived ? 'opacity-40' : ''
+            active ? '' : 'opacity-40'
           }`}
           style={{ backgroundColor: turf.color }}
         />
         <span
           className={`min-w-0 flex-1 truncate text-sm font-medium ${
-            archived ? 'text-muted-foreground' : 'text-foreground'
+            active ? 'text-foreground' : 'text-muted-foreground'
           }`}
         >
           {turf.name}
         </span>
-        {archived ? (
+        {active ? (
+          <>
+            {/* The first manual `markDone` caller in the product. The row's
+                second control, which is inside the four the rail's budget
+                allows, so no overflow menu. Muted and left of Continue so the
+                primary action keeps the right edge. */}
+            <button
+              type="button"
+              className="shrink-0 text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-60"
+              disabled={pending}
+              onClick={() => {
+                // Nothing to warn about on a fully logged turf.
+                if (unlogged <= 0) return lifecycle.markDone()
+                openConfirm(true)
+              }}
+            >
+              Mark done
+            </button>
+            <Link
+              href={walkHref}
+              className="shrink-0 text-sm font-medium text-primary hover:underline"
+            >
+              Continue
+            </Link>
+          </>
+        ) : (
           // A label rather than a disabled link: there is nothing to press,
           // and the rail's own archived rings are dimmed rather than removed
           // for the same reason — shelved is a state, not a deletion.
-          <span className="text-sm font-medium text-muted-foreground">
+          <span className="shrink-0 text-sm font-medium text-muted-foreground">
             {turfStatusLabel(turf)}
           </span>
-        ) : (
-          <Link
-            href={walkHref}
-            className="text-sm font-medium text-primary hover:underline"
-          >
-            Continue
-          </Link>
         )}
       </div>
       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -129,6 +181,17 @@ const TurfRow = ({ turf, outreachId }: TurfRowProps) => {
         </span>
       </div>
       <Progress value={progress} />
+      <MarkDoneDialog
+        target={markDoneTarget}
+        onOpenChange={openConfirm}
+        pending={pending}
+        // Held open until the write resolves: the dialog preventDefaults for
+        // us, and a failure then leaves a dialog the candidate can retry from
+        // rather than a snackbar behind a sheet they stopped looking at.
+        onConfirm={() =>
+          lifecycle.markDone({ onSuccess: () => openConfirm(false) })
+        }
+      />
     </Card>
   )
 }

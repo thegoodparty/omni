@@ -336,6 +336,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Reached from the Door knocking card on the outreach hub, not from a tab of its own',
       'Custom door-knocking surveys, so volunteers log answers in the field',
       'Summaries of interactions by day and by survey answer',
+      'A campaign can hold several turfs. Mark the whole campaign done, or one turf at a time, from its row in outreach history. Done does not require every door to have been knocked',
     ],
   },
 ]
