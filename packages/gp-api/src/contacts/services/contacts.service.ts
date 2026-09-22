@@ -1397,6 +1397,20 @@ export class ContactsService {
             savedFilter,
             savedIdResolution,
           )
+          // And the shape drawn on it. Without this a boundaried list joins
+          // the union at its PRE-boundary size — every person its criteria
+          // match anywhere in the district, not the ones inside the shape —
+          // and the strip tells the holder a new list is already covered by
+          // an audience that list does not hold. Measured on a real Serve
+          // org: 5,356 contributed where the list holds 339.
+          //
+          // It overstates in the one direction that matters, too: the strip
+          // exists to say "you may not need this list", so counting too
+          // many argues against building something the holder does need.
+          savedIdResolution = intersectIdFilterResolutions(
+            savedIdResolution,
+            await this.resolveGeoIdFilter(savedFilter),
+          )
         } catch (error) {
           this.logger.warn(
             {
