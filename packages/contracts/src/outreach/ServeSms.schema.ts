@@ -68,13 +68,13 @@ export type ServeSmsCreateResponse = z.infer<
 // fulfilment does not learn a second format.
 export const OutreachResultsUploadRowSchema = z.object({
   phone: z.string().min(1),
-  // Non-empty for the same reason `phone` is. A blank cell is not a reply,
-  // but it used to parse: the row reached the ingest, stored null content,
-  // and still fired a reply event that stamped `respondedAt` on the
-  // constituent — marking them as having answered when they said nothing,
-  // and advancing the send to completed off a file of blanks. Empty rows
-  // now land in `skipped` alongside the phone-less ones.
-  content: z.string().min(1),
+  // Deliberately NOT min(1): an inbound row with no text is a real reply.
+  // An MMS carrying only an image, a tapback, an emoji the export strips —
+  // the constituent did respond, and `respondedAt` should say so. Review
+  // asked for min(1) on the grounds that a blank marks a non-responder as
+  // having answered; that reasoning does not survive the direction filter,
+  // which is what actually separates a reply from the outbound half.
+  content: z.string(),
   receivedAt: z.coerce.date().optional(),
 })
 export type OutreachResultsUploadRow = z.infer<
