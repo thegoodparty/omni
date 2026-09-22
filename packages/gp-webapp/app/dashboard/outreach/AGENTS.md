@@ -147,13 +147,18 @@ is thin over `useOutreachProGatingV2Flag(false)` +
 channel; a Serve org and texting already cleared both resolve to `null`, and
 only `sms` (`twoStep`) can ever reach `verify`/`in_review`/`pin` — every other
 channel needs Pro alone. `GateBanner.tsx` is the footer's tinted one-liner
-(`null` off `requirement`), tapping it opens `GateExplainerModal.tsx` (the
-same "what Pro/verification unlock" cards as the Pro wizard's
-`InterstitialStep`, duplicated rather than shared — WET). `OutreachGate.tsx`
+(`null` off `requirement`), tapping it opens `GateExplainerModal.tsx`. Since
+the 2026-09-21 design the explainer and the Pro wizard's `InterstitialStep`
+share one `ProPitchPanel.tsx`: a channel-tinted value card (the channel's
+`PRO_COPY` headline plus its three `bullets`) and, for `sms` only, a
+collapsible "Campaign verification included" card holding the `$120`
+registration-fee pill. The explainer passes `hideValue` /
+`verifyDefaultOpen` for any requirement past `'pro'`, so an already-Pro
+candidate lands straight on the verification detail. `OutreachGate.tsx`
 renders the paused-flow screen itself: `'pro'` mounts `ProUpgradeFlow` on
 `PRO_UPGRADE_STEP.INTERSTITIAL` — or, with `hasDraft` false, on
-`PRO_UPGRADE_STEP.GUIDANCE`, since the interstitial's copy says the campaign
-"has been made" and will be kept for 90 days and there is no row to keep;
+`PRO_UPGRADE_STEP.GUIDANCE`, since the interstitial's copy pitches Pro as the
+way to send this campaign and there is no row to send;
 `'verify'` mounts `CampaignVerificationSteps`; `'pin'` mounts `PinDialog`
 behind a short notice card, taking its `onSuccess` as the gate's completion
 (a dismissal is still an exit — reading a verified PIN as a close dropped the
@@ -295,8 +300,10 @@ the `DELETE` lands. The gate events add `requirement`: `Gate.BannerViewed`
 once per banner APPEARANCE (a ref + a `[visible]` effect, the
 `MembershipBanner` pattern — a requirement moving on under a banner still on
 screen is not a second view), `Gate.ExplainerViewed` once per open, and
-`Gate.ExplainerCta` on every footer button including the dismiss, naming it
-in `cta` (`upgrade` | `verify` | `pin` | `dismiss`). The deep link's own
+`Gate.ExplainerCta` on every footer button including the "Later" dismiss,
+naming it in `cta` (`upgrade` | `verify` | `pin` | `dismiss`) — the dialog's
+X is not a footer button and reports nothing, so a `'pro'` explainer, whose
+only way out is the X, has no dismiss event. The deep link's own
 `ClickCreate` carries `resumed: true` when the arrival will resume a saved
 row, which the hub answers through its `resumesDraft` prop — the deep link
 cannot see the history itself, and without it a resume counts as a create.

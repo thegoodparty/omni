@@ -2150,9 +2150,7 @@ describe('CreateListFlow — the Pro gate', () => {
     advanceToRoute(rerender, {}, 'Tuesday evening')
 
     fireEvent.click(screen.getByText(GATE_LINE))
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Upgrade to Pro' }),
-    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Join Pro' }))
     await screen.findByTestId('pro-upgrade-flow')
 
     act(() => gateRef.set(PRO_GATE))

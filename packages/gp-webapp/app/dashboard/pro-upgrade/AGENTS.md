@@ -90,7 +90,7 @@ verification, and `guidance` becomes the first ordered step.
 | Candidate profile     | `candidate-profile`   | `CandidateProfileStep`   | Bio + policy priorities via `PUT /websites/mine`. Not in the purchase-only order; campaign verification collects it.                                                                                                                                                                     |
 | Payment               | `payment`             | `PaymentStep`            | Embedded Stripe Custom Checkout (`ui_mode: 'custom'`) + order summary. No redirect.                                                                                                                                                                                                      |
 | Success               | `success`             | `SuccessStep`            | Stripe `return_url` landing. Polls until `isPro` flips (see seam below). Purchase-only shows "Welcome to Pro" + an "Unlocked now" card, adds a "Still to do: verification" row and a "Start verification" CTA when `channel === 'sms'` or there is no channel (the standalone page, where `complete()` routes to campaign verification), a "Still to do: {next step}" row and a Continue CTA for the other channels, holds the CTA until Pro lands, then `complete()`. |
-| Interstitial (milestone 2) | none — `initialStep` only | `InterstitialStep`  | "Your first {noun} has been made" pause screen for a candidate gated out of an outreach channel mid-draft. Reads `channel` off the wizard context, renders the "Upgrade to Pro" card (numbered "1" + a free-texts pill for `sms`) and, for `sms` only, a second "Campaign verification" card. Continue → `goToNextStep` (always lands on `GUIDANCE`); "Finish later" → `exit`. Copy is `GATE_CHANNEL_LABEL` / `PRO_COPY` / `INTERSTITIAL_COPY` from `app/dashboard/outreach/v2/gate/gateCopy.ts`, shared with the outreach gate surfaces (`GateBanner` / `GateExplainerModal` / `OutreachGate`). |
+| Interstitial (milestone 2) | none — `initialStep` only | `InterstitialStep`  | "Join Pro to send this campaign" pause screen for a candidate gated out of an outreach channel mid-draft. Reads `channel` off the wizard context and renders a Pro badge, the title and `ProPitchPanel` — the same channel value card + (for `sms`) collapsible verification card the gate explainer shows. "Join Pro" → `goToNextStep` (always lands on `GUIDANCE`); "Maybe later" → `exit`. Copy is `PRO_COPY` / `PITCH_PANEL_COPY` / `INTERSTITIAL_COPY` from `app/dashboard/outreach/v2/gate/gateCopy.ts`, shared with the outreach gate surfaces (`GateBanner` / `GateExplainerModal` / `OutreachGate`). |
 
 **Two steps are intentionally NOT in `PRO_UPGRADE_STEP_ORDER`** (`filing-instructions`,
 `guidance`): they are off-order branches reached only by explicit nav from `status`,
@@ -131,7 +131,8 @@ heading-less look.
 `InterstitialStep` and this component share their channel/copy vocabulary via
 `app/dashboard/outreach/v2/gate/gateCopy.ts` (`GateChannel` = the same union as
 `ProUpgradeLaunchChannel`, `GATE_NOUN` / `GATE_CHANNEL_LABEL` / `PRO_COPY` /
-`INTERSTITIAL_COPY` / `RESUME_COPY` / `BANNER_COPY` / `EXPLAINER_COPY`) — the same file
+`PITCH_PANEL_COPY` / `INTERSTITIAL_COPY` / `RESUME_COPY` / `BANNER_COPY` /
+`EXPLAINER_COPY`) — the same file
 the outreach flows' own gate surfaces read. Treat that file's strings as
 verbatim design copy, not something to rewrite in passing.
 

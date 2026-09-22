@@ -5,10 +5,9 @@ import { render } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   EXPLAINER_COPY,
-  GATE_CHANNEL_TITLE,
   GATE_NOUN,
-  INTERSTITIAL_COPY,
-  PRO_CHANNEL_WHY,
+  PITCH_PANEL_COPY,
+  PRO_COPY,
 } from './gateCopy'
 import type { OutreachGateState } from './useOutreachGate'
 import { GateExplainerModal } from './GateExplainerModal'
@@ -56,7 +55,7 @@ describe('GateExplainerModal', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('shows the two-step title/body, the Pro badge, the channel block, and both step cards for a free texting channel', () => {
+  it('shows the join title, the texting value card and the collapsed verification card for a free texting channel', () => {
     render(
       <GateExplainerModal
         channel="sms"
@@ -66,32 +65,22 @@ describe('GateExplainerModal', () => {
       />,
     )
 
+    expect(screen.getByText(EXPLAINER_COPY.titleFree)).toBeInTheDocument()
+    expect(screen.getByText(PRO_COPY.sms.headline)).toBeInTheDocument()
+    PRO_COPY.sms.bullets.forEach((bullet) => {
+      expect(screen.getByText(bullet)).toBeInTheDocument()
+    })
+    expect(screen.getByText(PITCH_PANEL_COPY.verifyTitle)).toBeInTheDocument()
+    expect(screen.queryByText(PITCH_PANEL_COPY.verifyBody)).toBeNull()
     expect(
-      screen.getByText(EXPLAINER_COPY.titleTwoStep(GATE_NOUN.sms)),
+      screen.getByRole('button', { name: EXPLAINER_COPY.ctaJoin }),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(EXPLAINER_COPY.bodyTwoStep(GATE_NOUN.sms)),
-    ).toBeInTheDocument()
-    expect(screen.getByText(GATE_CHANNEL_TITLE.sms)).toBeInTheDocument()
-    expect(screen.getByText(PRO_CHANNEL_WHY.sms)).toBeInTheDocument()
-    // "Upgrade to Pro" is both the step card's title and the CTA button's
-    // label, so two matches is the correct count here.
-    expect(screen.getAllByText(INTERSTITIAL_COPY.proStep.title)).toHaveLength(2)
-    expect(
-      screen.getByText(INTERSTITIAL_COPY.verifyStep.title),
-    ).toBeInTheDocument()
-    expect(screen.getByText('1')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument()
-    expect(screen.getByText(INTERSTITIAL_COPY.proStep.pill)).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: EXPLAINER_COPY.ctaUpgrade }),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: EXPLAINER_COPY.dismissFree }),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: EXPLAINER_COPY.dismissPro }),
+    ).toBeNull()
   })
 
-  it('shows the one-step title/body and a single, unnumbered, pill-less card for a free non-texting channel', () => {
+  it('shows the channel value card and no verification card for a free non-texting channel', () => {
     render(
       <GateExplainerModal
         channel="robocall"
@@ -101,20 +90,12 @@ describe('GateExplainerModal', () => {
       />,
     )
 
-    expect(
-      screen.getByText(EXPLAINER_COPY.titleOneStep(GATE_NOUN.robocall)),
-    ).toBeInTheDocument()
-    expect(screen.getByText(EXPLAINER_COPY.bodyOneStep)).toBeInTheDocument()
-    expect(
-      screen.queryByText(INTERSTITIAL_COPY.verifyStep.title),
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText('1')).not.toBeInTheDocument()
-    expect(
-      screen.queryByText(INTERSTITIAL_COPY.proStep.pill),
-    ).not.toBeInTheDocument()
+    expect(screen.getByText(EXPLAINER_COPY.titleFree)).toBeInTheDocument()
+    expect(screen.getByText(PRO_COPY.robocall.headline)).toBeInTheDocument()
+    expect(screen.queryByText(PITCH_PANEL_COPY.verifyTitle)).toBeNull()
   })
 
-  it('shows the verify-only title/body and an unnumbered verification card for an already-Pro texting channel', () => {
+  it('shows the verify title, body and an open verification card for an already-Pro texting channel', () => {
     render(
       <GateExplainerModal
         channel="sms"
@@ -125,15 +106,13 @@ describe('GateExplainerModal', () => {
     )
 
     expect(
-      screen.getByText(EXPLAINER_COPY.titleVerifyOnly(GATE_NOUN.sms)),
+      screen.getByText(EXPLAINER_COPY.titleVerify(GATE_NOUN.sms)),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(EXPLAINER_COPY.bodyVerifyOnly(GATE_NOUN.sms)),
+      screen.getByText(EXPLAINER_COPY.bodyVerify(GATE_NOUN.sms)),
     ).toBeInTheDocument()
-    expect(
-      screen.queryByText(INTERSTITIAL_COPY.proStep.title),
-    ).not.toBeInTheDocument()
-    expect(screen.queryByText('2')).not.toBeInTheDocument()
+    expect(screen.queryByText(PRO_COPY.sms.headline)).toBeNull()
+    expect(screen.getByText(PITCH_PANEL_COPY.verifyBody)).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: EXPLAINER_COPY.ctaVerify }),
     ).toBeInTheDocument()
@@ -153,6 +132,9 @@ describe('GateExplainerModal', () => {
     )
 
     expect(
+      screen.getByText(EXPLAINER_COPY.titleVerify(GATE_NOUN.sms)),
+    ).toBeInTheDocument()
+    expect(
       screen.getByRole('button', { name: EXPLAINER_COPY.ctaPin }),
     ).toBeInTheDocument()
   })
@@ -167,8 +149,10 @@ describe('GateExplainerModal', () => {
       />,
     )
 
+    expect(screen.getByText(EXPLAINER_COPY.titleInReview)).toBeInTheDocument()
+    expect(screen.getByText(EXPLAINER_COPY.bodyInReview)).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: EXPLAINER_COPY.ctaUpgrade }),
+      screen.queryByRole('button', { name: EXPLAINER_COPY.ctaJoin }),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: EXPLAINER_COPY.ctaVerify }),
@@ -181,7 +165,7 @@ describe('GateExplainerModal', () => {
     ).toBeInTheDocument()
   })
 
-  it('closes then calls onUpgrade when the upgrade CTA is clicked', async () => {
+  it('closes then calls onUpgrade when the join CTA is clicked', async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
     const onUpgrade = vi.fn()
@@ -198,7 +182,7 @@ describe('GateExplainerModal', () => {
     )
 
     await user.click(
-      screen.getByRole('button', { name: EXPLAINER_COPY.ctaUpgrade }),
+      screen.getByRole('button', { name: EXPLAINER_COPY.ctaJoin }),
     )
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
@@ -208,25 +192,25 @@ describe('GateExplainerModal', () => {
   it('closes without calling any action CTA when dismissed', async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
-    const onUpgrade = vi.fn()
+    const onVerify = vi.fn()
     render(
       <GateExplainerModal
         channel="sms"
-        state={stateWith({ requirement: 'pro', twoStep: true })}
+        state={stateWith({ requirement: 'verify', twoStep: true })}
         open
         onOpenChange={onOpenChange}
-        onUpgrade={onUpgrade}
-        onVerify={vi.fn()}
+        onUpgrade={vi.fn()}
+        onVerify={onVerify}
         onPin={vi.fn()}
       />,
     )
 
     await user.click(
-      screen.getByRole('button', { name: EXPLAINER_COPY.dismissFree }),
+      screen.getByRole('button', { name: EXPLAINER_COPY.dismissPro }),
     )
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
-    expect(onUpgrade).not.toHaveBeenCalled()
+    expect(onVerify).not.toHaveBeenCalled()
   })
 
   it('fires one explainer view per open, and none while closed', () => {
@@ -283,7 +267,7 @@ describe('GateExplainerModal', () => {
     )
 
     await user.click(
-      screen.getByRole('button', { name: EXPLAINER_COPY.ctaUpgrade }),
+      screen.getByRole('button', { name: EXPLAINER_COPY.ctaJoin }),
     )
 
     expect(trackEventMock).toHaveBeenCalledWith(

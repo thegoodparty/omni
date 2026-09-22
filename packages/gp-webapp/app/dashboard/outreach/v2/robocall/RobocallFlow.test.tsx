@@ -2152,7 +2152,7 @@ describe('RobocallFlow', () => {
 
       await userEvent.click(screen.getByText(GATE_LINE))
       await userEvent.click(
-        await screen.findByRole('button', { name: 'Upgrade to Pro' }),
+        await screen.findByRole('button', { name: 'Join Pro' }),
       )
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
@@ -2253,7 +2253,7 @@ describe('RobocallFlow', () => {
 
       await userEvent.click(screen.getByText(GATE_LINE))
       await userEvent.click(
-        await screen.findByRole('button', { name: 'Upgrade to Pro' }),
+        await screen.findByRole('button', { name: 'Join Pro' }),
       )
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 

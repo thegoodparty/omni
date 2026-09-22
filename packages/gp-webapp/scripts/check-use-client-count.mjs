@@ -418,7 +418,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-19: 584 -> 585 for useDraftGate, the saved-draft/gate state the
 // texting and robocall flows both run on. It owns React state and effects,
 // so it can only run in the browser.
-const BASELINE = 585
+// 2026-09-21: 585 -> 586 for ProPitchPanel, the Pro pitch the gate explainer
+// and the wizard's interstitial now share. Its verification card is a
+// collapsible the candidate opens and closes, so it holds React state.
+const BASELINE = 586
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

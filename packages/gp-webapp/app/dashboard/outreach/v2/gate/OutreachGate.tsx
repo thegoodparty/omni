@@ -132,9 +132,9 @@ export const OutreachGate = ({
           />
         )}
         <ProUpgradeFlow
-          // With no draft behind the gate the interstitial's "has been made /
-          // saved for 90 days" copy has nothing to describe, so the wizard
-          // opens on the first step of its own purchase-only order instead.
+          // With no draft behind the gate the interstitial's "send this
+          // campaign" copy has nothing to describe, so the wizard opens on
+          // the first step of its own purchase-only order instead.
           initialStep={
             hasDraft ? PRO_UPGRADE_STEP.INTERSTITIAL : PRO_UPGRADE_STEP.GUIDANCE
           }

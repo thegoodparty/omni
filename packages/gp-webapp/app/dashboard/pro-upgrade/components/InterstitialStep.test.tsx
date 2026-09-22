@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import {
+  INTERSTITIAL_COPY,
+  PITCH_PANEL_COPY,
+  PRO_COPY,
+} from 'app/dashboard/outreach/v2/gate/gateCopy'
 import InterstitialStep from './InterstitialStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -30,82 +35,55 @@ describe('InterstitialStep', () => {
     setChannel('sms')
   })
 
-  it('renders the texting copy with both step cards and the free-texts pill', () => {
+  it('renders the join title, the texting value card and the verification card', () => {
     render(<InterstitialStep />)
 
-    expect(
-      screen.getByText('Your first text has been made'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "To send it, you need to upgrade to Pro and verify your campaign. We'll save it for 90 days.",
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByText('1')).toBeInTheDocument()
-    expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument()
-    expect(screen.getByText('Campaign verification')).toBeInTheDocument()
-    expect(
-      screen.getByText('Your first 5,000 texts are free'),
-    ).toBeInTheDocument()
+    expect(screen.getByText(INTERSTITIAL_COPY.title)).toBeInTheDocument()
+    expect(screen.getByText(PRO_COPY.sms.headline)).toBeInTheDocument()
+    PRO_COPY.sms.bullets.forEach((bullet) => {
+      expect(screen.getByText(bullet)).toBeInTheDocument()
+    })
+    expect(screen.getByText(PITCH_PANEL_COPY.verifyTitle)).toBeInTheDocument()
   })
 
-  it('renders the robocall copy with a single, unnumbered step card and no pill', () => {
+  it('renders the robocall value card and no verification card', () => {
     setChannel('robocall')
     render(<InterstitialStep />)
 
-    expect(
-      screen.getByText('Your first robocall has been made'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        "To send it, you need to upgrade to Pro. We'll save it for 90 days.",
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument()
-    expect(screen.queryByText('Campaign verification')).not.toBeInTheDocument()
-    expect(screen.queryByText('1')).not.toBeInTheDocument()
-    expect(
-      screen.queryByText('Your first 5,000 texts are free'),
-    ).not.toBeInTheDocument()
+    expect(screen.getByText(INTERSTITIAL_COPY.title)).toBeInTheDocument()
+    expect(screen.getByText(PRO_COPY.robocall.headline)).toBeInTheDocument()
+    expect(screen.queryByText(PITCH_PANEL_COPY.verifyTitle)).toBeNull()
   })
 
-  it('renders the door-knocking copy with the generic saved-work body', () => {
+  it('renders the door-knocking value card', () => {
     setChannel('door')
     render(<InterstitialStep />)
 
-    expect(
-      screen.getByText('Your first door knocking list has been made'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'To send it, you need to upgrade to Pro. Your work stays saved.',
-      ),
-    ).toBeInTheDocument()
+    expect(screen.getByText(PRO_COPY.door.headline)).toBeInTheDocument()
   })
 
-  it('advances to the next step when the upgrade CTA is clicked', async () => {
+  it('advances to the next step when the join CTA is clicked', () => {
     render(<InterstitialStep />)
 
-    screen.getByRole('button', { name: 'Upgrade for $10' }).click()
+    screen.getByRole('button', { name: INTERSTITIAL_COPY.cta }).click()
 
     expect(goToNextStep).toHaveBeenCalledTimes(1)
     expect(exit).not.toHaveBeenCalled()
   })
 
-  it('shows the channel-specific CTA label', () => {
+  it('keeps the same join CTA on every channel', () => {
     setChannel('robocall')
     render(<InterstitialStep />)
 
     expect(
-      screen.getByRole('button', { name: 'Upgrade to send my call' }),
+      screen.getByRole('button', { name: INTERSTITIAL_COPY.cta }),
     ).toBeInTheDocument()
   })
 
-  it('calls exit when Finish later is clicked', () => {
+  it('calls exit when Maybe later is clicked', () => {
     render(<InterstitialStep />)
 
-    screen.getByRole('button', { name: 'Finish later' }).click()
+    screen.getByRole('button', { name: INTERSTITIAL_COPY.dismiss }).click()
 
     expect(exit).toHaveBeenCalledTimes(1)
     expect(goToNextStep).not.toHaveBeenCalled()

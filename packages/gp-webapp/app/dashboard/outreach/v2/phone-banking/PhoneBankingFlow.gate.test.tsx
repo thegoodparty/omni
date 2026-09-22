@@ -261,9 +261,7 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     await screen.findAllByText('Write your call script')
 
     await user.click(await screen.findByText(GATE_LINE))
-    await user.click(
-      await screen.findByRole('button', { name: 'Upgrade to Pro' }),
-    )
+    await user.click(await screen.findByRole('button', { name: 'Join Pro' }))
     expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
 
     act(() => gateRef.set(PRO_GATE))

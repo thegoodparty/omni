@@ -1,8 +1,9 @@
 // Shared copy for the Pro-and-verification "gate" that blocks an outreach
 // channel until the candidate upgrades (and, for texting, also verifies their
-// campaign). Verbatim from the milestone 2 design; do not rewrite the strings
-// — a later task mounts this copy inside the outreach flows via the
-// embeddable ProUpgradeFlow / CampaignVerificationSteps.
+// campaign). Verbatim from the 2026-09-21 design export; do not rewrite the
+// strings. The gate screens, the explainer modal and the wizard's
+// interstitial all read from here, so a channel reads the same words wherever
+// it is stopped.
 export type GateChannel = 'sms' | 'robocall' | 'door' | 'phone-bank'
 
 export const GATE_NOUN: Record<GateChannel, string> = {
@@ -27,89 +28,85 @@ export const PRO_COPY: Record<
     reassure: string
     cta: string
     unlock: string
+    bullets: [string, string, string]
   }
 > = {
   sms: {
-    headline: 'Unlock text banking with Pro',
+    headline: 'Unlock SMS and target mobile phone numbers',
     subhead:
       'Texting real voters takes Pro. Your first campaign of up to 5,000 texts is free. $10 a month, cancel anytime.',
     reassure:
       'Your message is saved exactly as you wrote it. Upgrading is the only step left to send it.',
     cta: 'Upgrade for $10',
     unlock: 'Campaign-scale outreach',
+    bullets: [
+      '$10 per month, cancel anytime',
+      'Your message, delivered to every voter you picked',
+      'Scheduled for the day and time you choose',
+    ],
   },
   robocall: {
-    headline: 'Unlock robocalls with Pro',
+    headline: 'Unlock robocalls and target voters with landlines',
     subhead: 'Calling voters at scale takes Pro. $10 a month, cancel anytime.',
     reassure:
       'Your script and recording are saved. Upgrading is the only step left to send your call.',
     cta: 'Upgrade to send my call',
-    unlock: 'Recorded calls delivered to the voters you picked',
+    unlock: 'Your recording, delivered to every voter you picked',
+    bullets: [
+      '$10 per month, cancel anytime',
+      'Your recording, delivered to every voter you picked',
+      'Scheduled for the day and time you choose',
+    ],
   },
   door: {
-    headline: 'Unlock door knocking with Pro',
+    headline: 'Unlock door knocking and meet voters at home',
     subhead: 'Building your walk list takes Pro. $10 a month, cancel anytime.',
     reassure:
       'Your plan is saved. Upgrading is the only step left to build your walk list.',
     cta: 'Upgrade to build my walk list',
-    unlock: 'Walk lists, routes and door-by-door logging',
+    unlock: 'Addresses, routes and voter details, mapped for you',
+    bullets: [
+      '$10 per month, cancel anytime',
+      'Addresses, routes and voter details, mapped for you',
+      'Turf you can split across your volunteers',
+    ],
   },
   'phone-bank': {
-    headline: 'Unlock phone banking with Pro',
+    headline: 'Unlock phone banking and talk to voters one by one',
     subhead: 'Calling real voters takes Pro. $10 a month, cancel anytime.',
     reassure:
       'Your script is saved. Upgrading is the only step left to start calling.',
     cta: 'Upgrade to start calling',
-    unlock: 'Call lists with scripts and call-by-call logging',
+    unlock: 'Voter phone numbers, and a call list to work through',
+    bullets: [
+      '$10 per month, cancel anytime',
+      'Voter phone numbers, and a call list to work through',
+      'A script for every call, and a place to log the answer',
+    ],
   },
+}
+
+// The collapsible verification card inside ProPitchPanel (design:
+// proPitchPanel). Texting is the only channel the carriers gate, so this is
+// the only channel that shows it.
+export const PITCH_PANEL_COPY = {
+  verifyTitle: 'Campaign verification included',
+  verifyBody:
+    'Phone carriers verify every candidate before sending their messages.',
+  verifyRows: [
+    'We register your campaign',
+    'You receive a PIN to verify your identity',
+    'Start sending SMS campaigns once approved',
+  ],
+  verifyFeePill: 'We cover the $120 registration fee',
 }
 
 export const INTERSTITIAL_COPY = {
-  title: (channelLabel: string): string =>
-    `Your first ${channelLabel} has been made`,
-  bodyTexting:
-    "To send it, you need to upgrade to Pro and verify your campaign. We'll save it for 90 days.",
-  bodyRobocall:
-    "To send it, you need to upgrade to Pro. We'll save it for 90 days.",
-  bodyOther: 'To send it, you need to upgrade to Pro. Your work stays saved.',
-  finishLater: 'Finish later',
-  proStep: {
-    title: 'Upgrade to Pro',
-    body: 'Reach thousands of voters from your kitchen table.',
-    rows: (unlock: string): string[] => [
-      '$10 a month, cancel anytime',
-      'The voter data big campaigns pay for',
-      unlock,
-      'Results you can act on next time',
-    ],
-    pill: 'Your first 5,000 texts are free',
-  },
-  verifyStep: {
-    title: 'Campaign verification',
-    body: 'Phone carriers check every political sender before letting texts through.',
-    rows: [
-      'We collect your campaign details',
-      'We file the 10DLC registration for you',
-      'We wait on the carriers, usually 1 to 2 weeks, and tell you when it clears',
-    ],
-  },
-}
-
-// The explainer's per-channel "why Pro" block (design: PRO_CHANNEL_WHY).
-export const PRO_CHANNEL_WHY: Record<GateChannel, string> = {
-  sms: 'Pro covers the voter phone numbers, the drafts written for you, and the delivery, so a text you write can reach thousands of real voters.',
-  robocall:
-    'Pro covers the voter phone numbers, the recording, and the delivery, so one recording reaches every voter on your list.',
-  door: 'Pro covers the addresses, the walking route, and door-by-door logging, so you and your volunteers always know where to knock next.',
-  'phone-bank':
-    'Pro covers the voter phone numbers, the call script, and call-by-call logging, so every conversation is captured.',
-}
-
-export const GATE_CHANNEL_TITLE: Record<GateChannel, string> = {
-  sms: 'Text banking with Pro',
-  robocall: 'Robocalls with Pro',
-  door: 'Door knocking with Pro',
-  'phone-bank': 'Phone banking with Pro',
+  title: 'Join Pro to send this campaign',
+  titleAlreadyPro: 'Next: verify your campaign',
+  bodyAlreadyPro: 'You are on Pro already.',
+  cta: 'Join Pro',
+  dismiss: 'Maybe later',
 }
 
 // Post-upgrade resume copy (design: sgNextNoun / sgNextLine / proResumeCta).
@@ -169,36 +166,17 @@ export const BANNER_COPY = {
 }
 
 export const EXPLAINER_COPY = {
-  titleOneStep: (noun: string): string =>
-    `Pro is needed before this ${noun} can send`,
-  titleTwoStep: (noun: string): string =>
-    `Two things are needed before this ${noun} can send`,
-  titleVerifyOnly: (noun: string): string =>
+  titleFree: 'Join Pro to send this campaign',
+  titleVerify: (noun: string): string =>
     `One more step before this ${noun} can send`,
-  bodyOneStep:
-    'You can keep building now. Upgrading is the only step left before it goes out.',
-  bodyTwoStep: (noun: string): string =>
-    `You can keep building now. Both steps happen before the first ${noun} goes out.`,
-  bodyVerifyOnly: (noun: string): string =>
+  titleInReview: 'Your campaign verification is in review',
+  bodyVerify: (noun: string): string =>
     `Your ${noun} stays saved while we register your campaign with the carriers.`,
-  proRows: (unlock: string): string[] => [
-    '$10 a month, cancel anytime',
-    'The voter data big campaigns pay for',
-    unlock,
-    'Results you can act on next time',
-  ],
-  proBody: 'Reach thousands of voters from your kitchen table.',
-  verifyRows: [
-    'We collect your campaign details',
-    'We file the 10DLC registration for you',
-    'We wait on the carriers, usually 1 to 2 weeks, and tell you when it clears',
-  ],
-  verifyBody:
-    'Phone carriers check every political sender before letting texts through.',
-  ctaUpgrade: 'Upgrade to Pro',
+  bodyInReview:
+    'Phone carriers are reviewing your campaign, usually 1 to 2 weeks. We will tell you when it clears.',
+  ctaJoin: 'Join Pro',
   ctaVerify: 'Start verification',
   ctaPin: 'Enter your PIN',
-  dismissFree: 'Continue without Pro',
   dismissPro: 'Later',
 }
 

@@ -93,9 +93,9 @@ describe('OutreachGate', () => {
       )
     })
 
-    // The interstitial's copy says the campaign has been made and will be
-    // kept for 90 days. With nothing saved that is a lie, so the wizard opens
-    // on the first step of its own purchase-only order instead.
+    // The interstitial's copy pitches Pro as the way to send this campaign.
+    // With nothing saved there is no campaign, so the wizard opens on the
+    // first step of its own purchase-only order instead.
     it('starts on guidance when no draft stands behind the gate', () => {
       render(
         <OutreachGate
