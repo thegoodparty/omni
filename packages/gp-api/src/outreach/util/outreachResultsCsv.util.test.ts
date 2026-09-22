@@ -123,10 +123,11 @@ describe('parseResultsCsv', () => {
     expect(result.rows).toEqual([
       { phone: '3035550101', content: 'I will be there' },
     ])
-    expect(result.skipped).toEqual([
-      { line: 2, reason: 'OUTBOUND row' },
-      { line: 4, reason: 'OUTBOUND row' },
-    ])
+    // Counted, not "skipped": an outbound row read fine and is simply not a
+    // reply. Reporting it as a failed row told the operator that 32 rows of
+    // a correct 44-row file could not be read.
+    expect(result.outboundRows).toBe(2)
+    expect(result.skipped).toEqual([])
   })
 
   // Matches the poll pipeline, whose model types send_direction as required
@@ -150,6 +151,7 @@ describe('parseResultsCsv', () => {
       ),
     )
     expect(result.rows).toHaveLength(1)
+    expect(result.outboundRows).toBe(0)
     expect(result.skipped).toEqual([{ line: 2, reason: 'no send direction' }])
   })
 

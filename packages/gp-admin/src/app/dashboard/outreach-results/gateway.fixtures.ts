@@ -102,6 +102,7 @@ export const fixtureGateway: OutreachResultsGateway = {
 
     return {
       rowsParsed: parsed.rows.length,
+      outboundRows: parsed.outboundRows,
       matched,
       unmatched: parsed.rows.length - matched,
       optOuts,

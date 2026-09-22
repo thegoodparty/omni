@@ -11,6 +11,7 @@ const report = (
   overrides: Partial<OutreachResultsParseReport> = {}
 ): OutreachResultsParseReport => ({
   rowsParsed: 340,
+  outboundRows: 0,
   matched: 328,
   unmatched: 12,
   optOuts: 9,

@@ -87,6 +87,17 @@ export type OutreachResultsUploadRow = z.infer<
 // this send.
 export const OutreachResultsParseReportSchema = z.object({
   rowsParsed: z.number().int().nonnegative(),
+  /**
+   * Rows of the export that were the official's OWN outbound message, not
+   * replies. The fulfilment file is a message log and carries one per
+   * recipient, so this is routinely larger than every other count here.
+   *
+   * Counted separately rather than folded into `unmatched`, which it
+   * silently inflated: a 32-recipient send reported 33 unmatched rows when
+   * exactly one reply came from a number not on the send. `unmatched` is
+   * the number an operator acts on, so it has to mean only that.
+   */
+  outboundRows: z.number().int().nonnegative(),
   matched: z.number().int().nonnegative(),
   unmatched: z.number().int().nonnegative(),
   optOuts: z.number().int().nonnegative(),

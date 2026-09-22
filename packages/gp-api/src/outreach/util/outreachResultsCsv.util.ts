@@ -67,6 +67,7 @@ const ACCEPTED_HEADERS: Record<ResultsCsvField, string> = {
  * make the two products disagree about what a response is.
  */
 const INBOUND_DIRECTION = 'INBOUND'
+const OUTBOUND_DIRECTION = 'OUTBOUND'
 
 /**
  * Byte length, not character count: a UTF-8 reply body is routinely wider
@@ -107,6 +108,12 @@ export type ParsedResultsCsv =
       ok: true
       rows: OutreachResultsUploadRow[]
       skipped: SkippedResultsRow[]
+      /**
+       * The official's own outbound rows. NOT in `skipped`: they were read
+       * perfectly and are simply not replies, and reporting them as failures
+       * told the operator "32 rows could not be read" about a correct file.
+       */
+      outboundRows: number
     }
   | { ok: false; error: string }
 
@@ -247,6 +254,7 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
 
   const parsedRows: OutreachResultsUploadRow[] = []
   const skipped: SkippedResultsRow[] = []
+  let outboundRows = 0
 
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
     const cells = rows[index]
@@ -257,10 +265,17 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     // rather than rejected: a whole-file refusal would be wrong for a file
     // that is exactly right and simply contains both halves of the exchange.
     const direction = (cells[sendDirectionIndex] ?? '').trim().toUpperCase()
+    if (direction === OUTBOUND_DIRECTION) {
+      outboundRows += 1
+      continue
+    }
     if (direction !== INBOUND_DIRECTION) {
+      // A direction we do not recognise, including a blank cell. Unlike an
+      // outbound row this IS a problem worth showing: the file may be from a
+      // tool whose vocabulary we have not seen.
       skipped.push({
         line,
-        reason: direction === '' ? 'no send direction' : `${direction} row`,
+        reason: direction === '' ? 'no send direction' : `unknown direction`,
       })
       continue
     }
@@ -291,5 +306,5 @@ export function parseResultsCsv(text: string): ParsedResultsCsv {
     parsedRows.push(result.data)
   }
 
-  return { ok: true, rows: parsedRows, skipped }
+  return { ok: true, rows: parsedRows, skipped, outboundRows }
 }

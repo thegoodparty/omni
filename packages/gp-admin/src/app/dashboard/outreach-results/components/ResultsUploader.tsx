@@ -191,6 +191,20 @@ export function ResultsUploader({
             </DataList.Item>
           </DataList.Root>
 
+          {/* Informational, not amber: the export is a message log, so the
+              official's own outbound rows are expected and are the bulk of
+              the file. Saying "could not be read" about them made a correct
+              file look broken. */}
+          {parsed.outboundRows > 0 && (
+            <Callout.Root color="gray" mt="3">
+              <Callout.Text>
+                {parsed.outboundRows.toLocaleString()} outbound row
+                {parsed.outboundRows === 1 ? '' : 's'} skipped — that is the
+                official&apos;s own message to each recipient, not a reply.
+              </Callout.Text>
+            </Callout.Root>
+          )}
+
           {parsed.skipped.length > 0 && (
             <Callout.Root color="amber" mt="3">
               <Callout.Text>

@@ -202,6 +202,7 @@ describe('POST /v1/outreach/admin/results/:outreachId', () => {
     expect(result.status).toBe(201)
     expect(result.data).toEqual({
       rowsParsed: 2,
+      outboundRows: 0,
       matched: 2,
       unmatched: 0,
       optOuts: 1,
@@ -211,11 +212,35 @@ describe('POST /v1/outreach/admin/results/:outreachId', () => {
     expect(await statusOf(outreach.id)).toBe(OutreachStatus.in_progress)
   })
 
+  // The shape a real fulfilment export has: one outbound row per recipient
+  // plus a handful of replies. Those outbound rows used to be folded into
+  // `unmatched`, so a 2-recipient send with one off-send reply reported 3
+  // unmatched instead of 1 — and `unmatched` is the number the operator
+  // acts on.
+  it('reports outbound rows separately instead of inflating unmatched', async () => {
+    const csv = [
+      'Contact Phone Number,Message Text,Sent At,Send Direction',
+      '3035550101,Budget hearing Tuesday.,2026-08-11T15:00:00.000Z,OUTBOUND',
+      '+1 (303) 555-0102,Budget hearing Tuesday.,2026-08-11T15:00:01.000Z,OUTBOUND',
+      '3035550101,I will be there,2026-08-11T15:04:05.000Z,INBOUND',
+      '3035559999,Someone forwarded me this,2026-08-11T15:30:00.000Z,INBOUND',
+    ].join('\n')
+
+    const result = await upload(csv, true)
+
+    expect(result.status).toBe(201)
+    expect(result.data.outboundRows).toBe(2)
+    expect(result.data.rowsParsed).toBe(2)
+    expect(result.data.matched).toBe(1)
+    expect(result.data.unmatched).toBe(1)
+  })
+
   it('commits the same file through the shared ingest', async () => {
     const result = await upload(RESULTS_CSV, false)
 
     expect(result.data).toEqual({
       rowsParsed: 2,
+      outboundRows: 0,
       matched: 2,
       unmatched: 0,
       // Server-computed from the one opt-out predicate, not from anything
