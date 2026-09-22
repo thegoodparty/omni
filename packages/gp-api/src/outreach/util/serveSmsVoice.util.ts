@@ -1,5 +1,9 @@
 import { ServeOutreachPurpose } from '@goodparty_org/contracts'
-import { SmsVoiceConfig } from '../services/outreachSmsGeneration.service'
+import {
+  FRESH_DRAFT_TARGET_LENGTH,
+  IMPROVE_DRAFT_TARGET_LENGTH,
+  SmsVoiceConfig,
+} from '../services/outreachSmsGeneration.service'
 
 // The Serve half of the SMS compose voice. Everything else in
 // OutreachSmsGenerationService — the LLM call, the tone styles, the length
@@ -106,7 +110,8 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   'the body of one SMS to the constituents they serve.',
   'Rules:',
   '- Write in the first person, as the elected official.',
-  '- At most 700 characters. Line breaks and "• " bullet lines are',
+  `- At most ${FRESH_DRAFT_TARGET_LENGTH} characters. Line breaks and`,
+  '  "• " bullet lines are',
   '  allowed and encouraged where the structure calls for them. Emojis',
   '  are allowed sparingly as visual labels (a date or location line),',
   '  never as tone decoration. No hashtags.',
@@ -150,8 +155,10 @@ const SERVE_IMPROVE_SYSTEM_PROMPT = [
   '  Dropping one is a failure. Do not paraphrase specifics away.',
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
-  '- Keep roughly the same length; never exceed 800 characters. Keep',
-  "  the author's line breaks, bullets, and emojis. No hashtags; keep",
+  `- Keep roughly the same length, under ${IMPROVE_DRAFT_TARGET_LENGTH}`,
+  '  characters. If the original runs longer than that, tighten the',
+  '  phrasing until it fits; never drop a concrete detail to get there.',
+  "  Keep the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any web address the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
   "- The message opens with the official's identification; keep it",
