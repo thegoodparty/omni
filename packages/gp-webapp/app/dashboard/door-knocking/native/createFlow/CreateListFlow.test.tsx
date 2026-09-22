@@ -882,13 +882,35 @@ describe('CreateListFlow', () => {
         step="draw"
         ring={null}
         drawPointCount={0}
+        turfDrafts={[]}
         onClose={onClose}
       />,
     )
 
-    // Nothing drawn and nothing chosen: the X is not a question.
+    // Nothing drawn and nothing chosen: the X is not a question. `baseProps`
+    // carries a draft, and a committed turf is drawn work — so pristine has
+    // to say so.
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  // A turf that has been committed is no longer the live ring, and the flow's
+  // close clears the drafts — so a dirty check that only watched `ring` and
+  // `drawPointCount` would drop every boundary already cut without asking.
+  it('asks before closing on a committed turf with nothing under the cursor', () => {
+    const onClose = vi.fn()
+    render(
+      <CreateListFlow
+        {...baseProps}
+        step="draw"
+        ring={null}
+        drawPointCount={0}
+        onClose={onClose}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('confirms before the draw step’s X drops a drawn boundary', () => {
@@ -1455,13 +1477,15 @@ describe('CreateListFlow steps', () => {
   // into asks first, and a pristine one still closes on the first press.
   it('confirms a discard only once there is something to discard', () => {
     const onClose = vi.fn()
-    // Pristine means no shape either — a ring is work, however it got there.
+    // Pristine means no shape and no committed turf either — a boundary is
+    // work however it got there, and `closeFlow` clears the drafts.
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
         step="filters"
         ring={null}
         drawPointCount={0}
+        turfDrafts={[]}
         onClose={onClose}
       />,
     )
@@ -1475,6 +1499,7 @@ describe('CreateListFlow steps', () => {
         step="filters"
         ring={null}
         drawPointCount={0}
+        turfDrafts={[]}
         filters={{ partyDemocrat: true }}
         onClose={onClose}
       />,

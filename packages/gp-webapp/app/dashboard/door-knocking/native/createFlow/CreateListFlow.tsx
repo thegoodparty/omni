@@ -885,9 +885,20 @@ export default function CreateListFlow({
   // Anything the candidate typed, picked or drew. A pristine flow closes
   // without a question, which is the one thing that keeps the confirm from
   // becoming noise on the X nobody meant to press twice.
+  //
+  // `turfDrafts` is in here for its own sake, not because it is reachable
+  // without the rest: the flow opens on `purpose` (or on `who` with one
+  // already carried), and the draw stage sits behind a name step whose
+  // Continue requires a non-empty name — so a candidate holding drafts has
+  // always tripped `purpose` and `name` too. That is a coupling to stage
+  // order rather than a property of the flag, and what it would cost to
+  // rely on is silent: `closeFlow` calls `clearDrafts()`, so a dirty check
+  // that missed drawn turfs would throw a neighbourhood's worth of drawn
+  // boundaries away without asking.
   const dirty =
     ring !== null ||
     drawPointCount > 0 ||
+    turfDrafts.length > 0 ||
     name.trim().length > 0 ||
     purpose !== null ||
     savedListId !== null ||
