@@ -17,6 +17,13 @@ runs and for the stage-2 code investigation, which is agent work the schedule ca
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
   Set `DATABRICKS_HTTP_PATH` in `scripts/.env` and pick the profile with
   `DATABRICKS_CONFIG_PROFILE` if it is not the default. No PAT — the backfill shares this path.
+- **`GP_DATA_PLATFORM_READ_TOKEN`** (DATA-2421): a read-only Contents token on
+  `thegoodparty/gp-data-platform`, in 1Password under `Product-Analytics` / "GP Data
+  Platform Read Token". `sem_anchors.py` uses it to read that repo's `sem_*.yml` over the
+  GitHub API — the semantic layer this monitor derives its OKR watch set from. Without
+  it, every OKR dormancy check (the latch, the path-qualified legs, the `okr:` tag
+  validation) disables itself for the run, and the digest says so with a red "OKR
+  dormancy checks degraded" line rather than failing.
 - **Tools**: `uv`, `git`, `ripgrep` (`rg`), a clone of the omni monorepo (this package lives in it).
 - **Setup**: `cd scripts/python && uv sync`.
 - **Code axis**: `scripts/python/instrumentation_data/amplitude_event_provenance.csv` must be
