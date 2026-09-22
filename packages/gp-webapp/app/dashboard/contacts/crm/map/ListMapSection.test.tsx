@@ -176,7 +176,9 @@ describe('ListMapSection — boundary CTA', () => {
     await vi.waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.ConstituentData.ListBoundarySaved,
-        { listId: 7, cleared: false },
+        // `surface` distinguishes this from the same act performed on a map
+        // inside a Chief of Staff transcript.
+        { listId: 7, cleared: false, surface: 'listDetail' },
       ),
     )
   })

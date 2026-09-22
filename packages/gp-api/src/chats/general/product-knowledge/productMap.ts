@@ -238,6 +238,8 @@ const SERVE_AREAS: ProductArea[] = [
     inside: [
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
+      'A list shown on a map here has Draw an area / Edit area beside Open list, which narrows that list to the shape without leaving the conversation',
+      'A list already used for outreach is locked, so its map offers no draw button',
     ],
   },
   {
