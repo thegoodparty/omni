@@ -94,8 +94,10 @@ export const GateExplainerModal = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[640px]">
-        <DialogHeader className="items-center text-center">
+      <DialogContent className="max-h-[88vh] max-w-[640px] overflow-y-auto">
+        {/* DialogHeader's own classes end in `sm:text-left`, so centering the
+            wrapped lines needs the sm: breakpoint spelled out too. */}
+        <DialogHeader className="items-center text-center sm:text-center">
           <ProBadge size="large" />
           <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
             {title}
@@ -107,7 +109,9 @@ export const GateExplainerModal = ({
           hideValue={!needsPro}
           verifyDefaultOpen={!needsPro}
         />
-        <DialogFooter className="flex-col items-center sm:flex-col sm:justify-center">
+        {/* DOM order is primary then ghost, so row-reverse puts Later on the
+            left on desktop while mobile stacks the primary on top. */}
+        <DialogFooter className="flex-col items-center sm:flex-row-reverse sm:justify-center">
           {cta && (
             <Button
               className="w-full sm:w-auto sm:min-w-[360px]"

@@ -2,7 +2,6 @@
 
 import { useState, type ComponentType } from 'react'
 import {
-  Badge,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -77,10 +76,13 @@ export const ProPitchPanel = ({
   channel,
   hideValue = false,
   verifyDefaultOpen = false,
-}: ProPitchPanelProps): React.JSX.Element => {
+}: ProPitchPanelProps): React.JSX.Element | null => {
   const [verifyOpen, setVerifyOpen] = useState(verifyDefaultOpen)
   const tint = CHANNEL_TINT[channel]
   const ChannelIcon = CHANNEL_ICON[channel]
+  const showVerify = channel === 'sms'
+
+  if (hideValue && !showVerify) return null
 
   return (
     <div className="flex w-full flex-col gap-4 text-left">
@@ -110,7 +112,7 @@ export const ProPitchPanel = ({
           </div>
         </div>
       )}
-      {channel === 'sms' && (
+      {showVerify && (
         <Collapsible
           open={verifyOpen}
           onOpenChange={setVerifyOpen}
@@ -147,13 +149,9 @@ export const ProPitchPanel = ({
                   </div>
                 ))}
               </div>
-              <Badge
-                variant="soft"
-                shape="pill"
-                className="h-auto border-transparent bg-info-light px-3 py-1 text-info-dark"
-              >
+              <span className="w-fit rounded-full bg-info-light px-3 py-1 text-sm font-medium text-primary">
                 {PITCH_PANEL_COPY.verifyFeePill}
-              </Badge>
+              </span>
             </div>
           </CollapsibleContent>
         </Collapsible>

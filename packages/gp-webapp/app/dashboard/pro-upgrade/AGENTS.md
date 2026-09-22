@@ -130,7 +130,7 @@ heading-less look.
 
 `InterstitialStep` and this component share their channel/copy vocabulary via
 `app/dashboard/outreach/v2/gate/gateCopy.ts` (`GateChannel` = the same union as
-`ProUpgradeLaunchChannel`, `GATE_NOUN` / `GATE_CHANNEL_LABEL` / `PRO_COPY` /
+`ProUpgradeLaunchChannel`, `GATE_NOUN` / `PRO_COPY` /
 `PITCH_PANEL_COPY` / `INTERSTITIAL_COPY` / `RESUME_COPY` / `BANNER_COPY` /
 `EXPLAINER_COPY`) — the same file
 the outreach flows' own gate surfaces read. Treat that file's strings as

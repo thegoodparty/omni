@@ -13,32 +13,12 @@ export const GATE_NOUN: Record<GateChannel, string> = {
   'phone-bank': 'call list',
 }
 
-export const GATE_CHANNEL_LABEL: Record<GateChannel, string> = {
-  sms: 'text',
-  robocall: 'robocall',
-  door: 'door knocking list',
-  'phone-bank': 'call list',
-}
-
 export const PRO_COPY: Record<
   GateChannel,
-  {
-    headline: string
-    subhead: string
-    reassure: string
-    cta: string
-    unlock: string
-    bullets: [string, string, string]
-  }
+  { headline: string; bullets: [string, string, string] }
 > = {
   sms: {
     headline: 'Unlock SMS and target mobile phone numbers',
-    subhead:
-      'Texting real voters takes Pro. Your first campaign of up to 5,000 texts is free. $10 a month, cancel anytime.',
-    reassure:
-      'Your message is saved exactly as you wrote it. Upgrading is the only step left to send it.',
-    cta: 'Upgrade for $10',
-    unlock: 'Campaign-scale outreach',
     bullets: [
       '$10 per month, cancel anytime',
       'Your message, delivered to every voter you picked',
@@ -47,11 +27,6 @@ export const PRO_COPY: Record<
   },
   robocall: {
     headline: 'Unlock robocalls and target voters with landlines',
-    subhead: 'Calling voters at scale takes Pro. $10 a month, cancel anytime.',
-    reassure:
-      'Your script and recording are saved. Upgrading is the only step left to send your call.',
-    cta: 'Upgrade to send my call',
-    unlock: 'Your recording, delivered to every voter you picked',
     bullets: [
       '$10 per month, cancel anytime',
       'Your recording, delivered to every voter you picked',
@@ -60,11 +35,6 @@ export const PRO_COPY: Record<
   },
   door: {
     headline: 'Unlock door knocking and meet voters at home',
-    subhead: 'Building your walk list takes Pro. $10 a month, cancel anytime.',
-    reassure:
-      'Your plan is saved. Upgrading is the only step left to build your walk list.',
-    cta: 'Upgrade to build my walk list',
-    unlock: 'Addresses, routes and voter details, mapped for you',
     bullets: [
       '$10 per month, cancel anytime',
       'Addresses, routes and voter details, mapped for you',
@@ -73,11 +43,6 @@ export const PRO_COPY: Record<
   },
   'phone-bank': {
     headline: 'Unlock phone banking and talk to voters one by one',
-    subhead: 'Calling real voters takes Pro. $10 a month, cancel anytime.',
-    reassure:
-      'Your script is saved. Upgrading is the only step left to start calling.',
-    cta: 'Upgrade to start calling',
-    unlock: 'Voter phone numbers, and a call list to work through',
     bullets: [
       '$10 per month, cancel anytime',
       'Voter phone numbers, and a call list to work through',
@@ -103,8 +68,6 @@ export const PITCH_PANEL_COPY = {
 
 export const INTERSTITIAL_COPY = {
   title: 'Join Pro to send this campaign',
-  titleAlreadyPro: 'Next: verify your campaign',
-  bodyAlreadyPro: 'You are on Pro already.',
   cta: 'Join Pro',
   dismiss: 'Maybe later',
 }

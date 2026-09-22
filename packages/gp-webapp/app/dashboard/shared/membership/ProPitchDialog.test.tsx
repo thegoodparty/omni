@@ -28,6 +28,16 @@ describe('ProPitchDialog', () => {
     })
   })
 
+  // DialogHeader's own classes end in `sm:text-left`, so without the sm:
+  // breakpoint restated the desktop dialog left-aligns every wrapped line.
+  it('centers the header on desktop too', () => {
+    render(<ProPitchDialog open onOpenChange={vi.fn()} />)
+
+    expect(document.querySelector('[data-slot="dialog-header"]')).toHaveClass(
+      'sm:text-center',
+    )
+  })
+
   it('fires PitchViewed when the dialog opens', () => {
     render(<ProPitchDialog open onOpenChange={vi.fn()} />)
 

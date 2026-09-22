@@ -80,6 +80,27 @@ describe('GateExplainerModal', () => {
     ).toBeNull()
   })
 
+  // DialogHeader's own classes end in `sm:text-left` and DialogFooter's in
+  // `sm:flex-row`, so both need the sm: breakpoint restated or the desktop
+  // dialog left-aligns its wrapped lines and stacks its buttons.
+  it('centers the header and lays the footer out as a row on desktop', () => {
+    render(
+      <GateExplainerModal
+        channel="sms"
+        state={stateWith({ requirement: 'verify', twoStep: true })}
+        open
+        {...noop}
+      />,
+    )
+
+    expect(document.querySelector('[data-slot="dialog-header"]')).toHaveClass(
+      'sm:text-center',
+    )
+    expect(document.querySelector('[data-slot="dialog-footer"]')).toHaveClass(
+      'sm:flex-row-reverse',
+    )
+  })
+
   it('shows the channel value card and no verification card for a free non-texting channel', () => {
     render(
       <GateExplainerModal

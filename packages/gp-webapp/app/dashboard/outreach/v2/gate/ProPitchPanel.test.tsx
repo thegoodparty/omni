@@ -60,4 +60,10 @@ describe('ProPitchPanel', () => {
     })
     expect(screen.getByText(PITCH_PANEL_COPY.verifyTitle)).toBeInTheDocument()
   })
+
+  it('renders nothing when hideValue leaves a channel with no card at all', () => {
+    const { container } = render(<ProPitchPanel channel="robocall" hideValue />)
+
+    expect(container).toBeEmptyDOMElement()
+  })
 })

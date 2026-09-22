@@ -63,13 +63,15 @@ export const ProPitchDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[640px]">
-        <DialogHeader className="items-center text-center">
+      <DialogContent className="max-h-[88vh] max-w-[640px] overflow-y-auto">
+        {/* DialogHeader's own classes end in `sm:text-left`, so centering the
+            wrapped lines needs the sm: breakpoint spelled out too. */}
+        <DialogHeader className="items-center text-center sm:text-center">
           <ProBadge size="large" />
           <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl">
             {MEMBERSHIP_COPY.pitch.title}
           </DialogTitle>
-          <span className="inline-flex h-8 items-center rounded-full bg-info-light/45 px-3.5 text-[15px] font-medium text-primary">
+          <span className="inline-flex h-8 items-center rounded-full bg-info-50 px-3.5 text-[15px] font-medium text-primary">
             {MEMBERSHIP_COPY.pitch.pill}
           </span>
         </DialogHeader>
