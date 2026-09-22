@@ -156,8 +156,14 @@ export class DomainsController {
       'out across all approved TLDs, or include an explicit approved ' +
       'TLD (e.g. "janeforsenate.run"). Returns { candidates: ' +
       '[{ domain, price }] } for ranking. Returns only available ' +
-      'domains; an empty candidates list means nothing matched under ' +
-      'the cap. Read-only; safe to retry.',
+      'domains, as a shortlist: the search stops early once enough ' +
+      'candidates qualify, so it is not exhaustive. An empty ' +
+      'candidates list is authoritative — every candidate was checked ' +
+      'and none matched under the cap. If any candidate could not be ' +
+      'checked (registrar rate limiting, time budget, or a pattern set ' +
+      'larger than the per-search cap) and nothing else qualified, the ' +
+      'call fails with a 502 rather than returning an empty list. ' +
+      'Read-only; safe to retry.',
   })
   async searchDomains(
     @ReqCampaign() campaign: Campaign & { user: User },

@@ -19,6 +19,15 @@ export const savedListsQueryOptions = queryOptions({
 // stale for a dual-role org.
 export const TURFS_QUERY_KEY = ['door-knocking-turfs'] as const
 
+// The prefix every campaign-turf entry hangs off, for invalidation. A
+// constant rather than a literal at each writer: the key is per-anchor, so
+// every mutation has to invalidate by PREFIX to reach the entry it just
+// invalidated the rail for, and four hand-typed copies of a string is how
+// one of them ends up not matching.
+export const CAMPAIGN_TURFS_QUERY_KEY = [
+  'door-knocking-campaign-turfs',
+] as const
+
 // One rail, two surfaces. `serve` is not derived here or anywhere below the
 // page: an org that holds both a Campaign and an ElectedOffice would derive
 // Win from the Campaign it happens to hold and show its Win lists on the Serve
@@ -35,6 +44,21 @@ export const turfsQueryOptions = (serve: boolean) =>
         ? clientRequest('GET /v1/door-knocking/serve/turfs', {})
         : clientRequest('GET /v1/door-knocking/turfs', {})
       ).then((res) => res.data),
+  })
+
+// Every turf in a door-knocking campaign — the anchor Outreach plus every
+// row pointing at it via `campaignOutreachId`. Keyed off the anchor id so
+// the drawer's fetch and any later "add another turf" open share one entry;
+// invalidated alongside `TURFS_QUERY_KEY` because the mutations that touch
+// this list are the same ones (create, rename, archive, delete) that
+// refresh the rail.
+export const campaignTurfsQueryOptions = (anchorOutreachId: number) =>
+  queryOptions({
+    queryKey: [...CAMPAIGN_TURFS_QUERY_KEY, anchorOutreachId],
+    queryFn: () =>
+      clientRequest('GET /v1/door-knocking/campaigns/:anchorId', {
+        anchorId: String(anchorOutreachId),
+      }).then((res) => res.data),
   })
 
 // Both daily allowances, read before the create flow opens rather than at the
@@ -131,7 +155,7 @@ export const TURF_COLORS = [
   '#7c3aed',
   '#0d9488',
   '#db2777',
-  '#65a30d',
+  '#0891b2',
 ] as const
 
 // The canvas labels each swatch with the colour's name (`'aria-label':opt.label`
@@ -148,6 +172,19 @@ const TURF_COLOR_NAMES: Record<string, string> = {
   '#7c3aed': 'Purple',
   '#0d9488': 'Teal',
   '#db2777': 'Pink',
+  '#0891b2': 'Cyan',
+  // Off the palette, still named. Lime sat one slot from Green and the two
+  // read as the same colour in a row of eight swatches and as the same ring
+  // on a map. Cyan took the slot because the only real hue gaps left in the
+  // set are teal-to-blue and purple-to-pink, and the first has the clearer
+  // margin: cyan is a light blue-cyan against teal's dark green-cyan, where
+  // a magenta would sit between two brights. Turfs cut in lime before the
+  // swap keep it — the label is what stops such a turf announcing itself as
+  // "six five a three zero d".
+  //
+  // Eight maximally distinct hues is genuinely hard, and this is the second
+  // attempt at the eighth. If cyan reads as teal in use, the honest fix is
+  // SEVEN colours rather than a third hue nobody can name.
   '#65a30d': 'Lime',
 }
 
@@ -159,8 +196,8 @@ export const turfColorLabel = (color: string): string =>
 // The tick that marks the chosen swatch sits ON the swatch, so it inverts with
 // it — the same rule and the same crossover as the walk list's stop numeral on
 // its status circle, which is why the helper is shared rather than copied. A
-// fixed white tick failed on four of these eight (green, amber, teal and lime
-// all land above the crossover), which is the mark meant to make the choice
+// fixed white tick failed on three of these eight (green, amber and teal all
+// land above the crossover), which is the mark meant to make the choice
 // legible being the thing that isn't.
 export const turfColorTick = (color: string): string => readableInkOnHex(color)
 

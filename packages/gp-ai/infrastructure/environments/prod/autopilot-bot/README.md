@@ -41,8 +41,9 @@ Order matters — each step assumes the ones before it.
    must land together: add `AUTOPILOT_CLICKUP_API_KEY` (the current bot
    identity token, matching dev) and the webhook secret from step 3 to
    `AI_SECRETS_PROD`; verify `AMPLITUDE_MANAGEMENT_API_KEY`,
-   `AUTOPILOT_MACHINE_SECRET`, and (for Slack answer intake)
-   `AUTOPILOT_SLACK_SIGNING_SECRET` are present; then set
+   `AUTOPILOT_MACHINE_SECRET`, and (for Slack) `AUTOPILOT_SLACK_BOT_TOKEN`
+   plus `AUTOPILOT_SLACK_SIGNING_SECRET` (both from the dedicated
+   "GP Autopilot" app, same values as dev) are present; then set
    `autopilot_list_ids` in `terraform.auto.tfvars` to the prod board list and
    apply this root once.
 5. **Enable the no-deliveries alarm**: flip `no_deliveries_alarm_enabled`

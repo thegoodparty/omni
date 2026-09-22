@@ -952,6 +952,12 @@ export {
 export {
   SmsOutreachResultsSchema,
   type SmsOutreachResults,
+  SmsOutreachReplySchema,
+  type SmsOutreachReply,
+  SmsOutreachRepliesSchema,
+  type SmsOutreachReplies,
+  SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
+  SMS_OUTREACH_REPLIES_MAX_LIMIT,
 } from './outreach/OutreachResults.schema'
 
 export {
@@ -965,6 +971,28 @@ export {
   SmsDraftResponseSchema,
   type SmsDraftResponse,
 } from './outreach/OutreachSms.schema'
+export {
+  ServeSmsDraftRequestSchema,
+  type ServeSmsDraftRequest,
+  ServeSmsDraftResponseSchema,
+  type ServeSmsDraftResponse,
+  ServeSmsCreateRequestSchema,
+  type ServeSmsCreateRequest,
+  ServeSmsCreateResponseSchema,
+  type ServeSmsCreateResponse,
+  OutreachResultsUploadRowSchema,
+  type OutreachResultsUploadRow,
+  OutreachResultsParseReportSchema,
+  type OutreachResultsParseReport,
+  OutreachAwaitingResultsItemSchema,
+  type OutreachAwaitingResultsItem,
+  OutreachAwaitingResultsResponseSchema,
+  type OutreachAwaitingResultsResponse,
+  OutreachResultsTargetSchema,
+  type OutreachResultsTarget,
+  OutreachResultsUploadRequestSchema,
+  type OutreachResultsUploadRequest,
+} from './outreach/ServeSms.schema'
 export {
   SMS_APPROVAL_STATUS_VALUES,
   SmsApprovalStatusSchema,

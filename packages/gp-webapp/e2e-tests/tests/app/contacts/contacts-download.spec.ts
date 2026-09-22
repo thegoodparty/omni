@@ -10,11 +10,11 @@ import {
 import { setupProCampaignUser } from 'src/helpers/organizations'
 
 // The curated CSV contract: gp-api's DOWNLOAD_COLUMNS
-// (src/peopleDb/voter.select.ts) projects 76 columns under friendly headers, in
+// (src/peopleDb/voter.select.ts) projects 75 columns under friendly headers, in
 // a fixed order that people's spreadsheet and mail-house import mappings are
 // keyed on. Only the leading run is spelled out here — the count is what
 // catches a dropped, duplicated, or silently reordered column.
-const EXPECTED_COLUMN_COUNT = 76
+const EXPECTED_COLUMN_COUNT = 75
 const LEADING_HEADERS = [
   'Voter ID',
   'First Name',
@@ -49,7 +49,7 @@ const assertCuratedCsv = (csv: string): void => {
   const { columns, firstRow } = csvHead(csv)
   expect(columns.slice(0, LEADING_HEADERS.length)).toEqual(LEADING_HEADERS)
   expect(columns).toHaveLength(EXPECTED_COLUMN_COUNT)
-  // A 76-field CSV row carries at least 75 separators (more when a field quotes
+  // A 75-field CSV row carries at least 74 separators (more when a field quotes
   // its own comma), so this asserts a real, fully-projected data row rather
   // than a header-only file.
   expect(firstRow.split(',').length).toBeGreaterThanOrEqual(

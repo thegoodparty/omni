@@ -13,6 +13,10 @@ import {
   ContactsFilterResolutionInput,
   ContactsService,
 } from '@/contacts/services/contacts.service'
+import {
+  PhoneAudiencePerson,
+  resolveFilterAudience,
+} from '@/contacts/utils/audienceResolution.util'
 import { csvEscape } from '@/shared/util/csv.util'
 import { OrganizationsService } from '../../../organizations/services/organizations.service'
 import { P2pPhoneListRequestSchema } from '../schemas/p2pPhoneListRequest.schema'
@@ -25,12 +29,21 @@ import { VoterFileFilterService } from '@/voters/services/voterFileFilter.servic
 // file's SEGMENT_PAGE_SIZE for the sibling constant).
 const SEGMENT_PAGE_SIZE = 1000
 const MAX_PHONE_LIST_RECIPIENTS = 100_000
-const MAX_PHONE_LIST_PAGES =
-  Math.ceil(MAX_PHONE_LIST_RECIPIENTS / SEGMENT_PAGE_SIZE) + 1
 
 const CSV_HEADER_ROW = 'first_name,last_name,lead_phone,state,city,zip'
 
 type PhoneListRecipient = { personId: string; phone: string }
+
+// Peerly needs state, city, and zip for geo-targeting; null fields
+// produce blank CSV cells it counts as malformed leads. The people
+// response is a cast, not a parse, so address itself can be absent.
+const hasGeoTargetableAddress = (person: PhoneAudiencePerson) =>
+  Boolean(
+    person.address &&
+    person.address.state &&
+    person.address.city &&
+    person.address.zip,
+  )
 
 @Injectable()
 export class P2pPhoneListUploadService {
@@ -186,91 +199,42 @@ export class P2pPhoneListUploadService {
   }> {
     const recipients: PhoneListRecipient[] = []
     const rows = [CSV_HEADER_ROW]
-    // Spans every page: two voters sharing a cell phone must dedupe even
-    // when people-api splits them across pages (ENG-10801). Keeping the
-    // first person per number is deterministic given people-api's stable
-    // ordering, and it fixes the inbound sweep's phone->person mapping,
-    // which is ambiguous when a phone maps to more than one capture row.
-    const seenPhones = new Set<string>()
-    let excludedDuplicatePhoneCount = 0
 
-    let page = 1
-    while (true) {
-      // Guard against a runaway loop; the recipient cap below is the real
-      // bound. One page past the cap is the most a valid list can need.
-      if (page > MAX_PHONE_LIST_PAGES) {
-        throw new BadRequestException(
-          `Pagination exceeded ${MAX_PHONE_LIST_PAGES} pages — aborting`,
-        )
-      }
-      const { people } = await this.contactsService.findContactsForFilter(
-        // SMS reachability belongs to the channel, not the shared filter
-        // resolution — force it here regardless of what the request asked.
-        { ...filterInput, hasCellPhone: true },
-        // Page off the rows returned, never a count: the count no longer
-        // bounds the audience, and skipCount avoids a full-scan COUNT per page.
-        { resultsPerPage: SEGMENT_PAGE_SIZE, page, skipCount: true },
-        organization,
-        excludePersonIds,
+    const audience = resolveFilterAudience(this.contactsService, {
+      filterInput,
+      organization,
+      excludePersonIds,
+      pageSize: SEGMENT_PAGE_SIZE,
+      maxRecipients: MAX_PHONE_LIST_RECIPIENTS,
+      isEligible: hasGeoTargetableAddress,
+      limitExceededMessage:
+        `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
+        `phone-list limit — narrow the filter and try again.`,
+    })
+
+    let next = await audience.next()
+    while (!next.done) {
+      const person = next.value
+      recipients.push({ personId: person.id, phone: person.cellPhone })
+      rows.push(
+        [
+          person.firstName,
+          person.lastName,
+          person.cellPhone,
+          person.address.state,
+          person.address.city,
+          person.address.zip,
+        ]
+          .map(csvEscape)
+          .join(','),
       )
-
-      for (const person of people) {
-        // hasCellPhone: true is forced above; cellPhone is nullable on the
-        // Person contract regardless, so skip a row people-api can't
-        // guarantee a phone for rather than uploading an unusable CSV line.
-        if (!person.cellPhone) continue
-        // Peerly needs state, city, and zip for geo-targeting; null fields
-        // produce blank CSV cells it counts as malformed leads. The people
-        // response is a cast, not a parse, so address itself can be absent.
-        if (
-          !person.address ||
-          !person.address.state ||
-          !person.address.city ||
-          !person.address.zip
-        )
-          continue
-        if (seenPhones.has(person.cellPhone)) {
-          excludedDuplicatePhoneCount += 1
-          continue
-        }
-        seenPhones.add(person.cellPhone)
-        recipients.push({ personId: person.id, phone: person.cellPhone })
-        rows.push(
-          [
-            person.firstName,
-            person.lastName,
-            person.cellPhone,
-            person.address.state,
-            person.address.city,
-            person.address.zip,
-          ]
-            .map(csvEscape)
-            .join(','),
-        )
-      }
-
-      // The cap counts uploadable rows, not the raw filter match — people
-      // skipped above for a missing phone or address don't use up the
-      // budget. Checked per page so an oversized filter stops paging as
-      // soon as it exceeds the cap instead of resolving millions of rows.
-      if (recipients.length > MAX_PHONE_LIST_RECIPIENTS) {
-        throw new BadRequestException(
-          `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
-            `phone-list limit — narrow the filter and try again.`,
-        )
-      }
-
-      // A short (or empty) page is the last one — replaces the old
-      // pagination.hasNextPage check, which came from the total count and
-      // truncated the send whenever that count was floored.
-      if (people.length < SEGMENT_PAGE_SIZE) break
-      page += 1
+      next = await audience.next()
     }
 
     return {
       csvBuffer: Buffer.from(rows.join('\n') + '\n', 'utf-8'),
       recipients,
-      excludedDuplicatePhoneCount,
+      excludedDuplicatePhoneCount: next.value.excludedDuplicatePhoneCount,
     }
   }
 

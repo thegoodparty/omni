@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { TURFS_QUERY_KEY } from './turfQueries'
+import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 
 // The three states a saved list can be in, as one value rather than two
 // timestamps every caller re-derives. Archived wins over done because the shelf
@@ -127,6 +127,9 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
     onSuccess: async (_data, action) => {
       await queryClient.invalidateQueries({
         queryKey: TURFS_QUERY_KEY,
+      })
+      await queryClient.invalidateQueries({
+        queryKey: CAMPAIGN_TURFS_QUERY_KEY,
       })
       successSnackbar(SUCCESS_MESSAGE[action])
     },

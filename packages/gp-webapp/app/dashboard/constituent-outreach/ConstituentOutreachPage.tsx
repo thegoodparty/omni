@@ -22,24 +22,40 @@ import {
   SERVE_PHONE_BANKING_SURFACE,
 } from 'app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow'
 import {
+  SERVE_SMS_SURFACE,
+  SmsFlow,
+} from 'app/dashboard/outreach/v2/sms/SmsFlow'
+import {
   fetchServeOutreachDetail,
   useSeedOutreachDetail,
 } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import type { HistoryRow } from 'app/dashboard/outreach/v2/historyStatus.util'
+import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
+import { useServeSmsFlag } from '@shared/experiments/serveSmsFlag'
+import { clientRequest } from 'gpApi/typed-request'
 
 interface ConstituentOutreachPageProps {
   pathname?: string
   outreaches?: HistoryRow[]
 }
 
-// The three wired channels. Door knocking joined them in 3.0: a Serve turf
+// The four wired channels. Door knocking joined them in 3.0: a Serve turf
 // now gets an outreach envelope like every other channel's, so it has a row
 // here at all, and `GET /v1/outreach/serve/:id` fills its `doorKnocking`
-// detail block — which is what makes the row worth opening.
+// detail block — which is what makes the row worth opening. Anything left
+// off this list renders as plain content rather than a dead clickable.
+//
+// `text` is a Serve SMS send (the spine type the serve create writes; there
+// is no Peerly `p2p` row on this surface). Deliberately NOT gated on
+// `serve-sms-outreach`: only an org that has already sent has a text row at
+// all, and an org whose flag is later turned off would otherwise lose the
+// results for a send it paid for. The flag gates the way IN, not the record
+// of what already went out.
 const isDrawerRow = (row: HistoryRow): boolean =>
   row.outreachType === OUTREACH_TYPES.socialMedia ||
   row.outreachType === OUTREACH_TYPES.nativePhoneBanking ||
-  row.outreachType === OUTREACH_TYPES.nativeDoorKnocking
+  row.outreachType === OUTREACH_TYPES.nativeDoorKnocking ||
+  row.outreachType === OUTREACH_TYPES.text
 
 const ConstituentOutreachContent = () => {
   const router = useRouter()
@@ -47,10 +63,22 @@ const ConstituentOutreachContent = () => {
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
+  const [smsFlowOpen, setSmsFlowOpen] = useState(false)
+  // This card IS the treatment surface, so the exposure is tracked here (the
+  // hook's default) rather than suppressed. `ready` is read as well as
+  // `enabled`: a variant is `undefined` while it resolves, so gating on
+  // `enabled` alone renders the three-card grid and then pops a fourth card
+  // in — the flash the feature-flags doc names as the top anti-pattern.
+  // Until it resolves this surface is the pre-SMS one, unchanged.
+  const { ready: smsFlagReady, enabled: smsFlagEnabled } = useServeSmsFlag()
+  const smsMounted = smsFlagReady && smsFlagEnabled
   // The follow-up list the results drawer just saved, handed to the flow as
   // its audience so "Call them back" lands on the who step already answered.
   const [followUpListId, setFollowUpListId] = useState<number | undefined>()
   const seedOutreachDetail = useSeedOutreachDetail()
+  // Whether this rail offers door knocking at all. The door-knocking page gate
+  // is the treatment surface, so no exposure is tracked here.
+  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
 
   // Mirrors OutreachHubPage's cache seeding: the save response is the
   // created row, so the drawer and the "N platforms" metric never refetch
@@ -86,11 +114,48 @@ const ConstituentOutreachContent = () => {
     ])
   }
 
+  // Mirrors OutreachHubPage's refetchOutreaches, org-scoped. A paid SMS send
+  // only exists after the server finalizes it, so there is no create response
+  // to seed a row from the way social and phone banking have — the list is
+  // re-read instead.
+  //
+  // Best-effort, deliberately, and on two levels. `ignoreResponseError`
+  // mirrors `page.tsx` on this same route: `ofetch.raw` throws on any non-2xx
+  // and the `ElectedOffice` can go away between the access check and the
+  // read, so without it a 4xx becomes an exception rather than `ok: false`.
+  // The try/catch then covers the network level, which no flag reaches.
+  //
+  // Both matter because of where this runs. It is awaited by `SmsFlow`'s
+  // `handleScheduled`, which is awaited by `SmsReviewStep`'s completion
+  // handler, whose rejection path is the checkout form's `onError` — an
+  // error snackbar and a payment-failure state. The money has already moved
+  // by then. A stale history list is strictly better than telling someone
+  // their successful payment failed.
+  const refetchOutreaches = async () => {
+    try {
+      const { ok, data } = await clientRequest(
+        'GET /v1/outreach/serve',
+        {},
+        { ignoreResponseError: true },
+      )
+      if (ok) {
+        setOutreaches(data ?? [])
+      }
+    } catch {
+      // Intentionally empty: a failed refresh leaves the previously loaded
+      // rows in place, and the next page load reads the list again. Nothing
+      // here is worth failing a completed send over. See above.
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
       <ServeChannelCards
         onSocialClick={() => setSocialFlowOpen(true)}
         onPhoneBankingClick={() => setPhoneBankingFlowOpen(true)}
+        // Undefined while the flag is off or still resolving, which is what
+        // keeps the card out of the grid entirely.
+        onSmsClick={smsMounted ? () => setSmsFlowOpen(true) : undefined}
         // A navigation, not a flow: door knocking's create wizard is drawn
         // over its own map, which is a route rather than a drawer, and the map
         // is most of what the flow is for. `?create=1` so the card still opens
@@ -98,6 +163,9 @@ const ConstituentOutreachContent = () => {
         // on the rail and asking for one more press.
         onDoorKnockingClick={() =>
           router.push('/dashboard/door-knocking?create=1')
+        }
+        showDoorKnocking={
+          nativeDoorKnocking.ready && nativeDoorKnocking.enabled
         }
       />
       <SocialFlow
@@ -118,6 +186,20 @@ const ConstituentOutreachContent = () => {
         surface={SERVE_PHONE_BANKING_SURFACE}
         preselectedListId={followUpListId}
       />
+      {/* Mounted only behind the flag, not merely rendered closed: with the
+          flag off there is no flow in the tree at all, so no Serve SMS
+          request can be reached from this page by any route. No
+          `tcrCompliance` — 10DLC registration is a candidate committee's
+          obligation and a Serve org has none, which is why
+          SERVE_SMS_SURFACE drops the paid_for_by standards rule too. */}
+      {smsMounted && (
+        <SmsFlow
+          open={smsFlowOpen}
+          onClose={() => setSmsFlowOpen(false)}
+          onScheduled={refetchOutreaches}
+          surface={SERVE_SMS_SURFACE}
+        />
+      )}
       <OutreachHistoryTable
         rows={outreaches ?? []}
         onRowClick={setDetailsRow}

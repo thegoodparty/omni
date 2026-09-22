@@ -1,7 +1,9 @@
 'use client'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
 
+import { useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Badge,
   Button,
@@ -14,6 +16,7 @@ import {
 import { LockIcon } from '@styleguide/components/ui/icons'
 import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { useOrganization } from '@shared/organization-picker'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import DoorKnockingPage from '../components/DoorKnockingPage'
@@ -43,6 +46,9 @@ interface DoorKnockingPageGateProps {
   // `?create=1` — the hub's tile opening the create flow on arrival. Native
   // only, for the same reason as the two above.
   openCreateFlow?: boolean
+  // `?campaignOutreachId=` — the drawer's "Add another turf" opening the
+  // flow onto an existing campaign. Native only.
+  campaignOutreachId?: number
 }
 
 // Reached by URL or a stale tab rather than the sidebar — DashboardMenu hides
@@ -99,7 +105,19 @@ const DoorKnockingProLockedView = ({
 
 // The one treatment/control divergence point: flag on gets the native map
 // experience, flag off (or unsettled) renders the eCanvasser dashboard
-// exactly as before.
+// exactly as before — for a candidate. A Serve org has no control arm to fall
+// back to: the eCanvasser dashboard reports a third-party canvassing
+// integration that only a campaign can connect, and door knocking reached the
+// Serve rail already native, so this route simply does not exist for a
+// flag-off elected official. Bounced to the hub it came from rather than
+// rendered, because there is nothing here to show them and a Win-only legacy
+// screen reads as a broken page rather than an absent feature.
+//
+// Read off the org slug rather than `useElectedOffice`, which is the predicate
+// the Pro gate below uses: that query is async, and waiting on it would put a
+// spinner in front of every control-arm CANDIDATE on a page that otherwise
+// renders straight away. The slug is already resolved, and `eo-` is the same
+// prefix `NativeDoorKnockingPage` reads for its Serve vocabulary.
 export default function DoorKnockingPageGate({
   pathname,
   campaign,
@@ -109,10 +127,20 @@ export default function DoorKnockingPageGate({
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
+  campaignOutreachId,
 }: DoorKnockingPageGateProps) {
   const { ready, enabled } = useNativeDoorKnockingFlag(true)
   const { data: electedOffice, isPending: isElectedOfficePending } =
     useElectedOffice()
+  const router = useRouter()
+  const isServeOrg = Boolean(useOrganization()?.slug?.startsWith('eo-'))
+  const serveWithoutFlag = ready && !enabled && isServeOrg
+
+  useEffect(() => {
+    if (serveWithoutFlag) router.replace('/dashboard/constituent-outreach')
+  }, [serveWithoutFlag, router])
+
+  if (serveWithoutFlag) return null
 
   if (ready && enabled) {
     // The CRM's canUseProFeatures, which is also the predicate
@@ -152,6 +180,7 @@ export default function DoorKnockingPageGate({
         walkTurfId={walkTurfId}
         fromOutreachId={fromOutreachId}
         openCreateFlow={openCreateFlow}
+        campaignOutreachId={campaignOutreachId}
       />
     )
   }

@@ -23,6 +23,7 @@ const mockCampaignsService = {
 
 const mockOutreachService = {
   finalizeOutreachPurchase: vi.fn(),
+  failOutreachPurchase: vi.fn(),
   recordCheckoutSession: vi.fn(),
   markFreeTextsConsumed: vi.fn(),
 } as unknown as OutreachService
@@ -669,6 +670,29 @@ describe('OutreachPurchaseHandlerService', () => {
       const discount = await service.calculateDiscount(200, 1, 'p2p')
 
       expect(discount).toBe(calcTextAmountInCents(200))
+    })
+  })
+
+  describe('executePaymentFailed', () => {
+    it('fails the draft the session names, scoped to its campaign', async () => {
+      await service.executePaymentFailed('cs_failed', {
+        ...baseMetadata,
+        campaignId: '111',
+        outreachId: '123',
+      })
+
+      expect(
+        mockOutreachService.failOutreachPurchase,
+      ).toHaveBeenCalledExactlyOnceWith(123, 111, 'cs_failed')
+    })
+
+    it('ignores a session with no draft to unwind', async () => {
+      await service.executePaymentFailed('cs_failed', {
+        ...baseMetadata,
+        campaignId: 111,
+      })
+
+      expect(mockOutreachService.failOutreachPurchase).not.toHaveBeenCalled()
     })
   })
 

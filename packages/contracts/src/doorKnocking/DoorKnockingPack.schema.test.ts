@@ -261,7 +261,6 @@ describe('DoorKnockingResidents schemas', () => {
               levelOfEducation: 'Graduate Degree',
               estimatedIncomeAmount: 82000,
               language: 'Spanish',
-              ethnicityGroup: 'Hispanic',
             },
           ],
           otherResidents: [

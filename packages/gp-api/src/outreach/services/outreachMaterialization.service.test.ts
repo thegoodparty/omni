@@ -41,7 +41,6 @@ const makePerson = (id: string): Person => ({
   homeowner: null,
   businessOwner: null,
   levelOfEducation: null,
-  ethnicityGroup: null,
   language: 'English',
 })
 

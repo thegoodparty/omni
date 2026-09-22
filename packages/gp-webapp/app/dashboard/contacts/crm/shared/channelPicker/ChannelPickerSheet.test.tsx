@@ -13,6 +13,10 @@ vi.mock('../../ContactsTableProvider', () => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
+const doorKnockingFlag = { ready: true, enabled: true }
+vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
+  useNativeDoorKnockingFlag: () => doorKnockingFlag,
+}))
 
 const DETAIL = {
   demographics: { people: 20081, avgAge: 53, avgIncome: 136384 },
@@ -44,6 +48,8 @@ beforeEach(() => {
   testQueryClient.clear()
   api.reset()
   vi.clearAllMocks()
+  doorKnockingFlag.ready = true
+  doorKnockingFlag.enabled = true
   vi.mocked(useContactsTable).mockReturnValue({
     canUseProFeatures: true,
     isWinContext: true,
@@ -141,6 +147,27 @@ describe('ChannelPickerSheet', () => {
       'Robocall',
       'Social media',
     ])
+  })
+
+  // The row links into `/dashboard/door-knocking?create=1`, a param only the
+  // native page reads. Off the flag that lands on the eCanvasser dashboard,
+  // which has no audience step to hand this list to.
+  it('omits the door-knocking row when the native flag is off', async () => {
+    doorKnockingFlag.enabled = false
+    api.mock('GET /v1/contacts/list-detail', { status: 200, data: DETAIL })
+
+    render(
+      <ChannelPickerSheet
+        target={{ kind: 'list', segment: { id: 42, name: 'GOTV text list' } }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await screen.findByText('GOTV text list · 20,081 voters')
+    const names = screen
+      .getAllByRole('link')
+      .map((row) => within(row).getByRole('heading').textContent)
+    expect(names).toEqual(['Phone banking', 'SMS', 'Robocall', 'Social media'])
   })
 
   it('uses the recommendation filter and count for an unsaved recommendation', async () => {

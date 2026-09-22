@@ -220,6 +220,51 @@ export class DoorKnockingCreateService extends createPrismaBase(
           throw new NotFoundException('Voter file filter not found')
         }
 
+        // A caller adding a turf to an existing campaign names the anchor
+        // Outreach on the wire; we validate it belongs to this same scope
+        // (Win same campaign, Serve same org) and is still a live
+        // door-knocking envelope, so a client can't glue a new turf onto a
+        // stranger's campaign or an archived one. Any legacy solo turf
+        // remains its own anchor by leaving campaignOutreachId null.
+        //
+        // The anchor's own name comes back with it: a turf joining an
+        // existing campaign inherits that campaign's title rather than
+        // trusting one off the wire, so a late-added turf cannot rename a
+        // campaign it is only joining.
+        let anchorCampaignName: string | null = null
+        if (input.campaignOutreachId !== undefined) {
+          const anchor = await tx.outreach.findFirst({
+            where: {
+              id: input.campaignOutreachId,
+              outreachType: OutreachType.nativeDoorKnocking,
+              archivedAt: null,
+              // Anchors only. Without this a caller can pass a SIBLING's id:
+              // it matches on scope, type and archive state, so the new turf
+              // is written pointing at a sibling — and
+              // `collapseDoorKnockingCampaigns` resolves
+              // `campaignOutreachId ?? id` to an id with no anchor row in the
+              // result set, so the turf surfaces as a broken solo campaign
+              // instead of joining the one it asked for. The webapp always
+              // sends the anchor, so this closes an API-only hole rather than
+              // a reachable bug, and it corrupts silently rather than erroring.
+              campaignOutreachId: null,
+              ...(scope.campaignId !== null
+                ? { campaignId: scope.campaignId }
+                : {
+                    campaignId: null,
+                    organizationSlug: scope.organizationSlug,
+                  }),
+            },
+            select: { id: true, name: true },
+          })
+          if (!anchor) {
+            throw new BadRequestException(
+              'Campaign anchor outreach not found in this scope',
+            )
+          }
+          anchorCampaignName = anchor.name
+        }
+
         // The turf is inserted before the vendor call so the spend ledger can
         // name the turf that caused it, exactly as it did when the turf
         // already existed. The ledger holds a plain int and never joins, so a
@@ -352,7 +397,17 @@ export class DoorKnockingCreateService extends createPrismaBase(
             ...scope,
             outreachType: OutreachType.nativeDoorKnocking,
             status: OutreachStatus.in_progress,
-            name: turf.name,
+            // The CAMPAIGN's title, not this turf's — history surfaces read
+            // the anchor envelope and never a sibling, so this column is
+            // where a campaign is named. Written on every sibling too, so
+            // that deleting the anchor (which promotes the earliest survivor)
+            // cannot rename the campaign out from under the candidate.
+            //
+            // Three sources, narrowest first: a campaign being joined owns
+            // its name already, a campaign being created takes the one the
+            // wizard asked for, and a client that sends neither is the
+            // single-turf flow, where the turf's name IS the campaign's.
+            name: anchorCampaignName ?? input.campaignName ?? turf.name,
             voterFileFilterId: filter.id,
             doorKnockingRouteId: route.id,
             date: new Date(),
@@ -361,6 +416,9 @@ export class DoorKnockingCreateService extends createPrismaBase(
             // the same reason the route is: a canvasser who started the list
             // and a canvasser who picks it up next week read the same card.
             script: input.talkingPoints,
+            // Null on a solo turf; the anchor Outreach id when this turf
+            // joins an existing campaign (validated above).
+            campaignOutreachId: input.campaignOutreachId ?? null,
           },
         })
 

@@ -17,6 +17,7 @@ import {
   PurchaseHandler,
   PurchaseType,
 } from '../purchase.types'
+import { PaymentType } from '../payments.types'
 import { PurchaseService } from './purchase.service'
 
 // Helper to create mock Stripe Response objects
@@ -201,6 +202,45 @@ describe('PurchaseService', () => {
       expect(result.clientSecret).toBe('cs_secret_xyz')
     })
 
+    // getPaymentType's default branch THROWS, so an unmapped PurchaseType
+    // makes checkout 500 with an error that mentions neither Serve nor SMS.
+    // This pins the mapping rather than the handler.
+    it('maps SERVE_TEXT to the outreach_purchase payment type', async () => {
+      const mockHandler: PurchaseHandler<unknown> = {
+        validatePurchase: vi.fn().mockResolvedValue(undefined),
+        calculateAmount: vi.fn().mockResolvedValue(3500),
+        getProductName: vi.fn().mockReturnValue('Constituent text messages'),
+      }
+      service.registerPurchaseHandler(PurchaseType.SERVE_TEXT, mockHandler)
+
+      mockStripeService.createCustomCheckoutSession.mockResolvedValue({
+        id: 'cs_test_serve_sms',
+        clientSecret: 'cs_secret_serve_sms',
+        amount: 35,
+      })
+
+      await service.createCheckoutSession({
+        user: mockUser,
+        dto: {
+          type: PurchaseType.SERVE_TEXT,
+          metadata: { outreachId: 42, organizationSlug: 'town-of-example' },
+        },
+        metadata: { organizationSlug: 'town-of-example' },
+      })
+
+      expect(
+        mockStripeService.createCustomCheckoutSession,
+      ).toHaveBeenCalledWith(
+        { id: mockUser.id, email: mockUser.email, customerId: undefined },
+        expect.objectContaining({
+          type: PaymentType.OUTREACH_PURCHASE,
+          purchaseType: PurchaseType.SERVE_TEXT,
+          amount: 3500,
+          productName: 'Constituent text messages',
+        }),
+      )
+    })
+
     it('should throw error when no handler is registered', async () => {
       // Act & Assert
       await expect(
@@ -368,6 +408,42 @@ describe('PurchaseService', () => {
       // Assert: Should return synthetic response without calling handler
       expect(result.amount).toBe(0)
       expect(failingHandler).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('failCheckoutSession', () => {
+    it('dispatches to the payment-failed handler registered for the type', async () => {
+      const handler = vi.fn().mockResolvedValue(undefined)
+      service.registerCheckoutSessionPaymentFailedHandler(
+        PurchaseType.TEXT,
+        handler,
+      )
+      const session = mockCheckoutSession({
+        id: 'cs_failed',
+        metadata: {
+          purchaseType: PurchaseType.TEXT,
+          outreachId: '42',
+          campaignId: '111',
+        },
+      })
+
+      await service.failCheckoutSession(session)
+
+      expect(handler).toHaveBeenCalledExactlyOnceWith(
+        'cs_failed',
+        session.metadata,
+      )
+    })
+
+    it('is a no-op for a purchase type with nothing to unwind', async () => {
+      const session = mockCheckoutSession({
+        id: 'cs_failed',
+        metadata: { purchaseType: PurchaseType.POLL },
+      })
+
+      await expect(
+        service.failCheckoutSession(session),
+      ).resolves.toBeUndefined()
     })
   })
 
