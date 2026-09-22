@@ -33,11 +33,18 @@ const SERVE_SMS_REPLIES_COPY = {
   phoneLabel: 'Phone',
   locationLabel: 'Location',
   receivedLabel: 'Received',
-  // Two labels, because one press cannot always finish the list: the server
-  // caps a page at SMS_OUTREACH_REPLIES_MAX_LIMIT, so a send with more than
-  // that left to load gets the honest "more" rather than a promise of "all".
-  showAll: (total: number) => `Show all ${total.toLocaleString()} responses`,
-  showMore: 'Show more responses',
+  // The label says what ONE press will do, not how many responses exist. The
+  // server caps a page at SMS_OUTREACH_REPLIES_MAX_LIMIT, so on a large send
+  // a press loads that many and no more — "Show all 2,500 responses" was a
+  // promise the press could not keep, and it read as though the whole list
+  // were about to land in the drawer.
+  loadMore: (n: number) => `Load ${n.toLocaleString()} more`,
+  loadLast: (n: number) =>
+    n === 1 ? 'Load the last response' : `Load the last ${n} responses`,
+  // Position in the list, so the button is not the only thing telling you
+  // how much is left.
+  showingOf: (shown: number, total: number) =>
+    `Showing ${shown.toLocaleString()} of ${total.toLocaleString()}`,
   loadingMore: 'Loading…',
   count: (total: number) =>
     `${total.toLocaleString()} response${total === 1 ? '' : 's'}`,
@@ -182,14 +189,15 @@ export const ServeSmsRepliesSection = ({
     )
   }
 
-  // "All" only when one more press actually finishes the list, since a page
-  // is capped server-side. The header names `total`, and every one of those
-  // rows is now reachable, so the count is a promise the UI can keep.
+  // Bounded on purpose: a press loads one server page and stops. At a few
+  // thousand replies a single "show all" would put every row in the drawer
+  // at once, and nobody reads 2,500 texts by scrolling anyway — the answer
+  // to volume is filtering, which v1 does not have yet.
   const remaining = total - replies.length
   const moreLabel =
     remaining > SMS_OUTREACH_REPLIES_MAX_LIMIT
-      ? SERVE_SMS_REPLIES_COPY.showMore
-      : SERVE_SMS_REPLIES_COPY.showAll(total)
+      ? SERVE_SMS_REPLIES_COPY.loadMore(SMS_OUTREACH_REPLIES_MAX_LIMIT)
+      : SERVE_SMS_REPLIES_COPY.loadLast(remaining)
 
   return (
     <DetailsSection title={SERVE_SMS_REPLIES_COPY.sectionTitle}>
@@ -204,6 +212,11 @@ export const ServeSmsRepliesSection = ({
           ))}
         </ul>
       </div>
+      {repliesQuery.hasNextPage && (
+        <p className="text-xs text-muted-foreground">
+          {SERVE_SMS_REPLIES_COPY.showingOf(replies.length, total)}
+        </p>
+      )}
       {repliesQuery.hasNextPage && (
         <Button
           type="button"

@@ -210,26 +210,31 @@ describe('Serve SMS results — the reply list', () => {
     expect(screen.getByText('+13035550101')).toBeInTheDocument()
   })
 
-  it('offers "Show all {n} responses" while the page is short of the total', async () => {
+  // The label names what ONE press does, not the size of the list: 23 are
+  // left and one page clears them, so it offers exactly those.
+  it('offers to load the remainder when one press finishes the list', async () => {
     mockServeDrawer({ total: 24, replies: [reply()] })
 
     renderServeDrawer()
 
     expect(
-      await screen.findByRole('button', { name: 'Show all 24 responses' }),
+      await screen.findByRole('button', { name: 'Load the last 23 responses' }),
     ).toBeInTheDocument()
+    expect(screen.getByText('Showing 1 of 24')).toBeInTheDocument()
   })
 
-  // The server caps a page at SMS_OUTREACH_REPLIES_MAX_LIMIT (200), so a
-  // send with more than that still to load cannot honestly promise "all".
-  it('says "more" rather than "all" when one press cannot finish the list', async () => {
+  // The server caps a page at SMS_OUTREACH_REPLIES_MAX_LIMIT (200). The old
+  // label said "Show all 350 responses" here, which promised the drawer was
+  // about to hold every one of them — it was not, and at a few thousand it
+  // would have been an unusable promise to keep.
+  it('names the page size rather than the total when one press cannot finish', async () => {
     mockServeDrawer({ total: 350, replies: [reply()] })
 
     renderServeDrawer()
 
     expect(await screen.findByText('350 responses')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Show more responses' }),
+      screen.getByRole('button', { name: 'Load 200 more' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /Show all/ }),
@@ -264,8 +269,10 @@ describe('Serve SMS results — the reply list', () => {
     expect(screen.getByText('Response number 1')).toBeInTheDocument()
     expect(screen.queryByText('Response number 205')).not.toBeInTheDocument()
 
+    // 205 total minus the 10 already shown leaves 195, which one page
+    // clears — so the button offers exactly the remainder, not a page size.
     await userEvent.click(
-      screen.getByRole('button', { name: 'Show all 205 responses' }),
+      screen.getByRole('button', { name: 'Load the last 195 responses' }),
     )
 
     // The row past the old ceiling, which the capped-limit version could
@@ -273,7 +280,7 @@ describe('Serve SMS results — the reply list', () => {
     expect(await screen.findByText('Response number 205')).toBeInTheDocument()
     expect(screen.getByText('Response number 201')).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: /Show (all|more)/ }),
+      screen.queryByRole('button', { name: /^Load/ }),
     ).not.toBeInTheDocument()
   })
 
