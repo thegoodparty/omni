@@ -1,8 +1,8 @@
 'use client'
-import React, { useEffect } from 'react'
-import CongratulationsAnimation from '@shared/animations/CongratulationsAnimation'
+import React, { useEffect, useState } from 'react'
 import H1 from '@shared/typography/H1'
-import { Card, CardContent } from '@styleguide'
+import { Card, CardContent, ConfettiBurst } from '@styleguide'
+import { CheckIcon } from '@styleguide/components/ui/icons'
 import { LuSmartphone } from 'react-icons/lu'
 import Body1 from '@shared/typography/Body1'
 import { numberFormatter } from 'helpers/numberHelper'
@@ -26,6 +26,8 @@ export const PollPaymentSuccess: React.FC<PollPaymentSuccesProps> = ({
   redirectTo,
 }) => {
   const router = useRouter()
+  const [celebrate, setCelebrate] = useState(false)
+
   useEffect(() => {
     const timeout = setTimeout(() => {
       router.push(redirectTo)
@@ -33,10 +35,20 @@ export const PollPaymentSuccess: React.FC<PollPaymentSuccesProps> = ({
     return () => clearTimeout(timeout)
   }, [])
 
+  // A beat after mount rather than immediately, so the burst is not already
+  // half over by the time the page finishes painting.
+  useEffect(() => {
+    const timeout = setTimeout(() => setCelebrate(true), 150)
+    return () => clearTimeout(timeout)
+  }, [])
+
   return (
     <div className={className}>
-      <div className="relative h-40 w-40 mx-auto">
-        <CongratulationsAnimation loop />
+      {/* Sized to the burst, which overflows its 24px center box. */}
+      <div className="flex h-20 w-20 mx-auto mb-6 items-center justify-center">
+        <ConfettiBurst play={celebrate}>
+          <CheckIcon className="h-5 w-5 text-primary" />
+        </ConfettiBurst>
       </div>
       <H1 className="text-center mb-8">Payment successful!</H1>
       <Card>
