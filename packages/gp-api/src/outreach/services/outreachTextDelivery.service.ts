@@ -63,6 +63,15 @@ export interface RequestSendInput {
   scheduledLocalDate: string
   /** 1, then incremented per expansion. Keys the CSV so retries reuse it. */
   sendSeq: number
+  /**
+   * The number of texts this send was actually paid for. The audience is
+   * re-resolved live at send time, days after checkout, so the saved list
+   * can have GROWN — an edit, or people-db drift. Without a ceiling the
+   * send would text more constituents than were purchased and bill nobody
+   * for the difference. Undefined only for a legacy row with no recorded
+   * count, which is not capped rather than capped to zero.
+   */
+  paidRecipientCap?: number
 }
 
 export interface RequestSendResult {
@@ -118,6 +127,36 @@ const SERVER_ERROR_FLOOR: number = HttpStatus.INTERNAL_SERVER_ERROR
  * object is an idempotency record, not a deliverable, so the two products
  * sharing one bucket is fine. Split them by setting the first var.
  */
+/**
+ * Namespaces the recipient CSV per deployment, because the bucket is NOT
+ * per-deployment: preview stacks and local machines both read and write
+ * `serve-analyze-data-dev`. Outreach ids are per-database and every preview
+ * database starts at 1, so without this an unrelated stack's `1-1.csv` is a
+ * cache hit — `runClaimedSend` would skip audience resolution, parse someone
+ * else's recipients, capture them against THIS org, and hand their phone
+ * numbers to fulfilment.
+ *
+ * Derived from the queue name rather than OTEL_SERVICE_ENVIRONMENT because
+ * that is only ever 'preview' for every PR stack at once, and a local .env
+ * routinely sets it to 'prod'. `SQS_QUEUE` is already unique per deployment
+ * AND per developer — `pr-2025-Queue.fifo`, `develop-Queue.fifo`,
+ * `StephenT_Queue.fifo`.
+ *
+ * Throws when unset, matching resolveBucket: a missing value here is a
+ * deploy misconfiguration, and guessing a prefix is how the collision this
+ * exists to prevent comes back.
+ */
+const resolveSendKeyPrefix = (): string => {
+  const queue = process.env.SQS_QUEUE
+  if (!queue) {
+    throw new Error(
+      'SQS_QUEUE is required to hand off a text send: it namespaces the ' +
+        'recipient CSV so deployments sharing one bucket cannot collide',
+    )
+  }
+  return queue.replace(/[-_]?Queue\.fifo$/i, '').replace(/[^A-Za-z0-9_-]/g, '-')
+}
+
 const resolveBucket = (): string => {
   const bucket =
     process.env.OUTREACH_TEXT_CSVS_BUCKET || process.env.TEVYN_POLL_CSVS_BUCKET
@@ -230,7 +269,7 @@ export class OutreachTextDeliveryService extends createPrismaBase(
     // reuses this object instead of resampling a different audience. Polls
     // keys on an estimated completion date it relies on never changing; an
     // explicit counter beats a timestamp that happens to be stable.
-    const sendKey = `${outreachId}-${sendSeq}.csv`
+    const sendKey = `${resolveSendKeyPrefix()}/${outreachId}-${sendSeq}.csv`
 
     try {
       return await this.runSend(input, sendKey)
@@ -384,10 +423,37 @@ export class OutreachTextDeliveryService extends createPrismaBase(
             'opt-out scrub.',
         )
       }
+      // NEVER EXCEED WHAT WAS AUTHORIZED. Checkout priced the audience as it
+      // stood at draft; this resolution happens up to 30 days later against
+      // the live list. Shrinkage is fine (it is logged as overBilledBy by
+      // the consumer). Growth is not: it would hand fulfilment more numbers
+      // than the official bought. Truncation is deliberate over refusal —
+      // a paid send that reaches the people it paid for beats one that
+      // reaches nobody because the list gained a row.
+      const { paidRecipientCap } = input
+      const overCap =
+        paidRecipientCap !== undefined &&
+        resolved.recipients.length > paidRecipientCap
+      if (overCap) {
+        this.logger.warn(
+          {
+            outreachId,
+            sendSeq,
+            paidRecipientCap,
+            resolvedCount: resolved.recipients.length,
+          },
+          'Audience grew after checkout; truncating to the paid count so the ' +
+            'send cannot exceed what was authorized',
+        )
+      }
+      const recipients = overCap
+        ? resolved.recipients.slice(0, paidRecipientCap)
+        : resolved.recipients
+
       audienceResolved = true
       excludedDuplicateCount = resolved.excludedDuplicateCount
       excludedOptedOutCount = resolved.excludedOptedOutCount
-      csv = buildRecipientCsv(resolved.recipients)
+      csv = buildRecipientCsv(recipients)
       await this.s3Service.uploadFile(bucket, csv, sendKey, {
         contentType: 'text/csv',
       })

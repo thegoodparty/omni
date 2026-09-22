@@ -533,6 +533,7 @@ export class QueueConsumerService {
         imageUrl: true,
         scheduledLocalDate: true,
         voterFileFilterId: true,
+        billableTextCount: true,
       },
     })
 
@@ -544,8 +545,13 @@ export class QueueConsumerService {
       return true
     }
 
-    const { message, imageUrl, scheduledLocalDate, voterFileFilterId } =
-      outreach
+    const {
+      message,
+      imageUrl,
+      scheduledLocalDate,
+      voterFileFilterId,
+      billableTextCount,
+    } = outreach
 
     if (!message || !scheduledLocalDate || !voterFileFilterId) {
       this.logger.error(
@@ -569,6 +575,10 @@ export class QueueConsumerService {
       message,
       imageUrl: imageUrl ?? undefined,
       scheduledLocalDate,
+      // What was actually paid for. The delivery layer will not hand
+      // fulfilment more numbers than this, however much the saved list has
+      // grown between checkout and the send date.
+      paidRecipientCap: billableTextCount ?? undefined,
     })
 
     // `terminalReason` means nothing was handed off and nothing ever will be.
@@ -600,6 +610,19 @@ export class QueueConsumerService {
         recipientCount: result.recipientCount,
         excludedOptedOutCount: result.excludedOptedOutCount,
         excludedDuplicateCount: result.excludedDuplicateCount,
+        // What Stripe actually took, against what fulfilment actually got.
+        // The row is priced at checkout and the audience is re-scrubbed at
+        // send, so anyone who opts out in between was paid for and not
+        // texted. Logged rather than corrected: `billableTextCount` is the
+        // record of what was charged and must keep saying so, and the
+        // delivered set is already durable as OutreachTextRecipient rows.
+        // Whether a delta earns a refund is a product decision, not a
+        // silent one — this line is what makes it countable.
+        billableTextCount,
+        overBilledBy:
+          billableTextCount === null
+            ? null
+            : Math.max(0, billableTextCount - result.recipientCount),
       },
       'outreachTextSend: handed off to fulfilment',
     )

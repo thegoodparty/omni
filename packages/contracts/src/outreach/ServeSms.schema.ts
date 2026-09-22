@@ -68,7 +68,13 @@ export type ServeSmsCreateResponse = z.infer<
 // fulfilment does not learn a second format.
 export const OutreachResultsUploadRowSchema = z.object({
   phone: z.string().min(1),
-  content: z.string(),
+  // Non-empty for the same reason `phone` is. A blank cell is not a reply,
+  // but it used to parse: the row reached the ingest, stored null content,
+  // and still fired a reply event that stamped `respondedAt` on the
+  // constituent — marking them as having answered when they said nothing,
+  // and advancing the send to completed off a file of blanks. Empty rows
+  // now land in `skipped` alongside the phone-less ones.
+  content: z.string().min(1),
   receivedAt: z.coerce.date().optional(),
 })
 export type OutreachResultsUploadRow = z.infer<

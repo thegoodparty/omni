@@ -178,11 +178,11 @@ describe('OutreachTextDeliveryService', () => {
       recipientCount: 2,
       excludedOptedOutCount: 0,
       excludedDuplicateCount: 0,
-      sendKey: `${outreach.id}-1.csv`,
+      sendKey: `Some/${outreach.id}-1.csv`,
     })
     expect(findContactsForFilter).toHaveBeenCalledTimes(1)
 
-    const csv = s3.objects.get(`${BUCKET}/${outreach.id}-1.csv`)
+    const csv = s3.objects.get(`${BUCKET}/Some/${outreach.id}-1.csv`)
     expect(csv?.split('\n')[0]).toBe('id,firstName,lastName,cellPhone')
     expect(csv?.split('\n')).toHaveLength(3)
 
@@ -258,7 +258,7 @@ describe('OutreachTextDeliveryService', () => {
       }),
     )
 
-    expect(second.sendKey).toBe(`${outreach.id}-2.csv`)
+    expect(second.sendKey).toBe(`Some/${outreach.id}-2.csv`)
     expect(findContactsForFilter).toHaveBeenCalledTimes(2)
     expect((await recipientRows(outreach.id)).map((r) => r.personId)).toEqual([
       'p-1',
@@ -479,6 +479,72 @@ describe('OutreachTextDeliveryService', () => {
     )
 
     expect(handoffPort.send).toHaveBeenCalledTimes(1)
+  })
+
+  // Preview stacks and local machines share serve-analyze-data-dev, and every
+  // preview database starts its ids at 1. Without a per-deployment prefix,
+  // another stack's 1-1.csv is a cache hit: the send would skip audience
+  // resolution and hand THEIR phone numbers to fulfilment under this org.
+  it('namespaces the CSV key per deployment so a shared bucket cannot collide', async () => {
+    const { outreach, filter } = await seedSend()
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([person('p-1', '5551230001')]),
+    )
+
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+      }),
+    )
+
+    // 'Some' is SQS_QUEUE=Some_Queue.fifo in .env.test, stripped of its suffix.
+    expect(result.sendKey).toBe(`Some/${outreach.id}-1.csv`)
+    expect(vi.mocked(s3.uploadFile).mock.calls[0]?.[2]).toBe(result.sendKey)
+  })
+
+  // Checkout prices the audience at draft; this resolution runs up to 30
+  // days later against the live list. If it has grown, the send must not
+  // reach more people than were paid for.
+  it('never hands fulfilment more recipients than were paid for', async () => {
+    const { outreach, filter } = await seedSend()
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([
+        person('p-1', '5551230001'),
+        person('p-2', '5551230002'),
+        person('p-3', '5551230003'),
+      ]),
+    )
+
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+        paidRecipientCap: 2,
+      }),
+    )
+
+    expect(result.recipientCount).toBe(2)
+    expect(await recipientRows(outreach.id)).toHaveLength(2)
+    const handoff = vi.mocked(handoffPort.send).mock.calls[0]?.[0]
+    expect(handoff?.recipientCount).toBe(2)
+    expect(handoff?.csv.fileContent.toString().trim().split('\n')).toHaveLength(
+      3, // header + 2 recipients
+    )
+  })
+
+  it('leaves a shrunken audience alone rather than padding it', async () => {
+    const { outreach, filter } = await seedSend()
+    vi.spyOn(contacts, 'findContactsForFilter').mockResolvedValue(
+      peoplePage([person('p-1', '5551230001')]),
+    )
+
+    const result = await delivery.requestSend(
+      input(outreach.id, {
+        audience: { kind: 'savedFilter', voterFileFilterId: filter.id },
+        paidRecipientCap: 10,
+      }),
+    )
+
+    expect(result.recipientCount).toBe(1)
   })
 
   it('gives the claim back when the handoff fails, so a retry can run', async () => {
