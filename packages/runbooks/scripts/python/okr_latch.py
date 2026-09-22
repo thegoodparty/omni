@@ -271,6 +271,20 @@ def update_latches(
             "consecutive": consecutive,
             # Sticky: once latched, stays latched until recovery or de-declaration — even
             # through a band week that drops the trailing broken run below LATCH_AFTER_WEEKS.
-            "latched": bool(record.get("latched")) or consecutive >= LATCH_AFTER_WEEKS,
+            #
+            # The third clause is what stops an oscillation hiding. Reaching this line at
+            # all means a record already exists, and a record only exists because an
+            # earlier week was broken and no week since has recovered against the stored
+            # reference — so "a record exists AND this week is broken" *is* a second broken
+            # week in one unrecovered run, which is the binding constraint, not a looser
+            # one. Without it a leg flipping either side of the break line never strings
+            # two broken weeks together and produces no signal anywhere, because both the
+            # digest's dormant-anchor table and run_monitor's rank-0 branch key on
+            # `latched`. It needs no run counter and no second threshold.
+            "latched": (
+                bool(record.get("latched"))
+                or consecutive >= LATCH_AFTER_WEEKS
+                or _is_broken(current, reference)
+            ),
         }
     return state
