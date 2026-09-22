@@ -118,7 +118,8 @@ describe('MembershipChip', () => {
     const user = userEvent.setup()
     setup({ state: membership({ tier: 'free' }) })
 
-    expect(screen.getByText(MEMBERSHIP_COPY.chip.free)).toBeInTheDocument()
+    expect(screen.getByText(MEMBERSHIP_COPY.chip.joinLead)).toBeInTheDocument()
+    expect(screen.getByText(MEMBERSHIP_COPY.chip.joinTail)).toBeInTheDocument()
     expect(screen.queryByText(/^pitch:/)).toBeNull()
 
     await user.click(screen.getByRole('button'))

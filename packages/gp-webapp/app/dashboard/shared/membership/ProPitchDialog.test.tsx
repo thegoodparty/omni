@@ -17,12 +17,14 @@ beforeEach(() => {
 })
 
 describe('ProPitchDialog', () => {
-  it('renders the title and all six tile titles when open', () => {
+  it('renders the title, the price pill and every tile title when open', () => {
     render(<ProPitchDialog open onOpenChange={vi.fn()} />)
 
     expect(screen.getByText(MEMBERSHIP_COPY.pitch.title)).toBeInTheDocument()
-    MEMBERSHIP_COPY.pitch.tiles.forEach(({ title }) => {
+    expect(screen.getByText(MEMBERSHIP_COPY.pitch.pill)).toBeInTheDocument()
+    MEMBERSHIP_COPY.pitch.tiles.forEach(({ title, body }) => {
       expect(screen.getByText(title)).toBeInTheDocument()
+      expect(screen.getByText(body)).toBeInTheDocument()
     })
   })
 
@@ -57,14 +59,12 @@ describe('ProPitchDialog', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade')
   })
 
-  it('closes without navigating when Continue without Pro is clicked', async () => {
+  it('closes without navigating when the dialog is dismissed', async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
     render(<ProPitchDialog open onOpenChange={onOpenChange} />)
 
-    await user.click(
-      screen.getByRole('button', { name: MEMBERSHIP_COPY.pitch.dismiss }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Close' }))
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Membership.PitchDismiss,

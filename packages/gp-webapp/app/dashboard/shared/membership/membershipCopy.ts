@@ -18,23 +18,25 @@ export const MEMBERSHIP_COPY = {
     },
   },
   chip: {
-    free: '$10 a month',
+    // The free chip reads as three inline parts so the Pro badge sits between
+    // the words rather than leading them: "Join [PRO] for $10/mo".
+    joinLead: 'Join',
+    joinTail: 'for $10/mo',
     needsVerification: 'Verification needed',
     inReview: 'Verification in review',
     awaitingPin: 'Enter your PIN',
   },
   pitch: {
-    title: 'A complete voter outreach toolkit, built for political campaigns',
-    body: 'Pro gives you the data and tools to find voters, reach them, understand what matters, and decide what to do next.',
-    join: 'Join Pro for $10 a month',
-    dismiss: 'Continue without Pro',
+    title: 'Join Pro to unlock voter data and outreach',
+    pill: '$10 per month, cancel anytime',
+    join: 'Join Pro',
     tiles: [
       {
-        title: 'Voter data for your race',
+        title: 'Voter data',
         body: 'Find the voters most relevant to your campaign and create targeted lists.',
       },
       {
-        title: 'Texts, robocalls, and polls',
+        title: 'Robocalls & phone banking',
         body: 'Introduce yourself, share your message, and learn which issues matter most to voters.',
       },
       {
@@ -42,16 +44,8 @@ export const MEMBERSHIP_COPY = {
         body: 'Get routes, addresses, and voter details so you or your volunteers can meet people face to face.',
       },
       {
-        title: 'Social media content',
-        body: 'Use ready-made templates to stay visible and communicate consistently.',
-      },
-      {
-        title: 'Political texting support',
+        title: 'Campaign verification',
         body: 'Get help with the verification and carrier requirements needed to send campaign messages.',
-      },
-      {
-        title: 'Insights and next steps',
-        body: 'Understand your results quickly and get practical recommendations for your next move.',
       },
     ],
   },
