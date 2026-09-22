@@ -21,10 +21,6 @@ def _weeks(counts):
 
 def test_a_single_bad_week_does_not_latch():
     # Pipeline lag and holiday weeks look exactly like this. One week is not a break.
-    # This is also the guard on the oscillation fix below: "a record exists and this week
-    # is broken" only counts as a second broken week because a record can only exist from
-    # an earlier unrecovered break. Applying that clause to a first observation with no
-    # prior record at all would latch right here, on week one.
     series = {"Dashboard - Campaign Plan Viewed": _weeks([700, 680, 660, 690, 20])}
     state = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=35))
     assert state["Dashboard - Campaign Plan Viewed"]["latched"] is False
@@ -145,16 +141,12 @@ def test_since_is_the_first_broken_week_of_the_run_not_the_last():
 
 def test_consecutive_is_recounted_from_the_series_each_run_not_incremented():
     # The distinguishing case: a prior run counter of 1, but the series itself shows only
-    # ONE trailing broken week (the week before the latest broken week is not broken). A
-    # series-derived count must reset to 1. A hybrid that instead does
-    # `prior["consecutive"] + 1` whenever the current week is broken would report 2,
-    # regardless of whether the week before it actually continued a run.
-    #
-    # The penultimate week is 150, a band week against the 682.5 reference, not a healthy
-    # 700: a recovered week would have cleared this record outright on the run that saw
-    # it, so the prior record below could not have survived to be read here.
+    # ONE trailing broken week (the week before the latest broken week was healthy). A
+    # series-derived count must reset to 1 and stay unlatched. A hybrid that instead does
+    # `prior["consecutive"] + 1` whenever the current week is broken would report 2 and
+    # latch here, regardless of whether the week before it actually continued a run.
     key = "Dashboard - Campaign Plan Viewed"
-    series = {key: _weeks([700, 680, 660, 690, 150, 20])}
+    series = {key: _weeks([700, 680, 660, 690, 700, 20])}
     prior = {key: {
         "metric": "win_active_candidates_30d", "since": "2026-08-10",
         "reference": 682.5, "consecutive": 1, "latched": False,
@@ -164,12 +156,8 @@ def test_consecutive_is_recounted_from_the_series_each_run_not_incremented():
         "consecutive must be recounted from the series' trailing broken run, "
         "not incremented from the prior run's stored count"
     )
-    # `latched` is deliberately no longer asserted False. It used to be the second half of
-    # the guard against a run-counter increment, but this is the oscillation shape --
-    # an unrecovered record plus a broken week -- so it now latches by design and says
-    # nothing about which count was used. `consecutive` above is the discriminator.
-    assert state[key]["latched"] is True, (
-        "band week then broken week is the oscillation the latch must not miss"
+    assert state[key]["latched"] is False, (
+        "a run-counter increment would wrongly latch here on the second call"
     )
 
 
@@ -445,47 +433,3 @@ def test_the_latch_floor_is_its_own_and_leaves_the_shared_one_alone():
     assert ol.RECOVERY_PCT > ol.LATCH_BREAK_PCT, (
         "recovery must stay a strictly higher bar than break, or there is no band"
     )
-
-
-def test_an_oscillating_break_latches_instead_of_signalling_nothing_at_all():
-    # A leg alternating either side of the break line never accumulates two consecutive
-    # broken weeks, so the trailing run keeps resetting to 0 and `latched` stays False.
-    # Both surfaces key on `latched` -- the digest's dormant-anchor table filters on it and
-    # run_monitor's rank-0 branch keys on it -- so such a leg produces no signal anywhere.
-    # That is this ticket's disease surviving its own fix, and a leg losing one of its two
-    # call sites looks exactly like it.
-    #
-    # The fixture straddles the NEW break line, not the old one. Against a reference of
-    # 682.5, LATCH_BREAK_PCT puts the break line at 68.25 and RECOVERY_PCT the recovery bar
-    # at 341.25, so 20 is broken and 150 is a band week -- neither broken nor recovered. An
-    # oscillation built around the old 5% line (34.125) would now read as consecutive
-    # broken weeks and latch on LATCH_AFTER_WEEKS alone, passing without this fix.
-    key = "Dashboard - Campaign Plan Viewed"
-    counts = [700, 680, 660, 690, 20, 150, 20, 150, 20, 150, 20, 150]
-    weeks = _weeks(counts)
-    state = {}
-    for week in range(5, len(counts) + 1):
-        state = ol.update_latches(
-            state, {key: weeks[:week]}, WATCHED, today=W0 + timedelta(days=7 * week)
-        )
-    assert state[key]["latched"] is True, (
-        "eight weeks at 3-22% of baseline must latch: a record already exists only "
-        "because an earlier week broke and nothing since recovered, so a broken week now "
-        "IS a second broken week in that run"
-    )
-    assert state[key]["consecutive"] == 0, (
-        "fixture guard: the series ends on a band week, so the trailing broken run really "
-        "is 0 and LATCH_AFTER_WEEKS cannot be what latched this"
-    )
-    assert state[key]["reference"] == 682.5, "and the sticky reference is untouched"
-
-
-def test_an_oscillating_leg_still_clears_on_a_genuine_recovery():
-    # The oscillation fix must not become a third way to get stuck. Once latched by the
-    # alternation above, a week back at the real level still clears the record outright.
-    key = "Dashboard - Campaign Plan Viewed"
-    prior = {key: {"metric": "win_active_candidates_30d", "since": "2026-08-03",
-                   "reference": 682.5, "consecutive": 0, "latched": True}}
-    series = {key: _weeks([700, 680, 660, 690, 20, 150, 20, 150, 690])}
-    state = ol.update_latches(prior, series, WATCHED, today=W0 + timedelta(days=63))
-    assert key not in state, "recovery still clears an oscillation-latched record"

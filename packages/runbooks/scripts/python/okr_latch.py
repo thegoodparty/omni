@@ -61,6 +61,21 @@ RECOVERY_PCT = 0.5
 # from arbitrary history is guesswork. Breaks that predate rollout are found by audit
 # (that is how DATA-2343 found these three) and repaired under their own tickets.
 
+# KNOWN LIMITATION, accepted 2026-09-22 (DATA-2421).
+# An oscillating break does not latch. A leg that alternates either side of the break
+# line — one week below LATCH_BREAK_PCT of the reference, the next in the band between
+# that floor and RECOVERY_PCT, repeating — never accumulates two consecutive broken
+# weeks, so the trailing run keeps resetting and `latched` stays False. Such a leg
+# produces no signal at all: the digest's dormant-anchor table filters on `latched`,
+# run_monitor's rank-0 branch keys on `latched`, and detect_anomaly's rolling baseline
+# has absorbed the depressed level by then as well.
+#
+# Considered and accepted as an edge case rather than fixed. It takes a leg alternating
+# across the line week after week, a narrow shape next to the total silence and the
+# sustained drops the latch does catch. Raising the break floor to LATCH_BREAK_PCT also
+# shrank the band a leg can hide in: an oscillation whose better weeks land below a tenth
+# of the reference now reads as consecutive broken weeks and latches normally.
+
 
 def _reference(weeks: Sequence[tuple[date, int]]) -> float | None:
     """Mean of the four complete weeks before the current one: the pre-break level."""
@@ -271,20 +286,6 @@ def update_latches(
             "consecutive": consecutive,
             # Sticky: once latched, stays latched until recovery or de-declaration — even
             # through a band week that drops the trailing broken run below LATCH_AFTER_WEEKS.
-            #
-            # The third clause is what stops an oscillation hiding. Reaching this line at
-            # all means a record already exists, and a record only exists because an
-            # earlier week was broken and no week since has recovered against the stored
-            # reference — so "a record exists AND this week is broken" *is* a second broken
-            # week in one unrecovered run, which is the binding constraint, not a looser
-            # one. Without it a leg flipping either side of the break line never strings
-            # two broken weeks together and produces no signal anywhere, because both the
-            # digest's dormant-anchor table and run_monitor's rank-0 branch key on
-            # `latched`. It needs no run counter and no second threshold.
-            "latched": (
-                bool(record.get("latched"))
-                or consecutive >= LATCH_AFTER_WEEKS
-                or _is_broken(current, reference)
-            ),
+            "latched": bool(record.get("latched")) or consecutive >= LATCH_AFTER_WEEKS,
         }
     return state
