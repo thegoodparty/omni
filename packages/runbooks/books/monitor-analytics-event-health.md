@@ -69,7 +69,7 @@ instrumented-never-observed · 8 dormant (collapsed to a single tail line in the
 
 ```bash
 cd scripts/python
-uv run analytics_event_health.py
+uv run analytics_event_health.py --no-log
 ```
 
 Prints the dated digest section, inserts it newest-first at the top of
@@ -228,7 +228,8 @@ Set as constants at the top of `analytics_event_health.py`:
 
 - `DORMANT_DAYS = 30` — dormant cutoff and the deprecating -> retired holding window.
 - `RETIREMENT_FLOOR_PCT = 0.05` — current week below this fraction of the trailing 4-week
-  baseline = anomaly drop.
+  baseline = anomaly drop. The OKR-anchor latch does not use this floor: it has its own,
+  tighter `LATCH_BREAK_PCT = 0.10` in `okr_latch.py`.
 - `ABSOLUTE_FLOOR = 5` — baseline fires/week below which a fall to zero replaces the % rule.
 - `MIN_BASELINE_WEEKS = 5` — need the current week plus four complete baseline weeks to judge an anomaly.
 - `PROPOSAL_WINDOW_DAYS = 90` — surface watched-family events first seen within this window.
