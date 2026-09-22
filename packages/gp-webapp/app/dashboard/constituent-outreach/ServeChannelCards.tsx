@@ -5,7 +5,7 @@
 import { ChannelCard } from '@styleguide'
 import {
   DoorOpenIcon,
-  HeadphonesIcon,
+  HeadsetIcon,
   Share2Icon,
 } from '@styleguide/components/ui/icons'
 
@@ -50,7 +50,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
   {
     key: 'phoneBanking',
     label: 'Phone banking',
-    icon: <HeadphonesIcon />,
+    icon: <HeadsetIcon />,
     iconClassName: 'bg-destructive-light',
   },
   {

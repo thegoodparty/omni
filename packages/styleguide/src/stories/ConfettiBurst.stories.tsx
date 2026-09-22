@@ -7,7 +7,7 @@ import {
   CheckIcon,
   ClipboardListIcon,
   DoorOpenIcon,
-  HeadphonesIcon,
+  HeadsetIcon,
   MessageSquareIcon,
   PhoneIcon,
   Share2Icon,
@@ -80,7 +80,7 @@ const CENTERS = {
   pro: { label: 'Pro badge', node: <ProBadge /> },
   texting: { label: 'Texting', node: <MessageSquareIcon className="h-5 w-5 text-primary" /> }, // prettier-ignore
   robocall: { label: 'Robocall', node: <PhoneIcon className="h-5 w-5 text-primary" /> }, // prettier-ignore
-  phoneBanking: { label: 'Phone banking', node: <HeadphonesIcon className="h-5 w-5 text-primary" /> }, // prettier-ignore
+  phoneBanking: { label: 'Phone banking', node: <HeadsetIcon className="h-5 w-5 text-primary" /> }, // prettier-ignore
   doorKnocking: { label: 'Door knocking', node: <DoorOpenIcon className="h-5 w-5 text-primary" /> }, // prettier-ignore
   socialMedia: { label: 'Social', node: <Share2Icon className="h-5 w-5 text-primary" /> }, // prettier-ignore
   polls: { label: 'Polls', node: <ClipboardListIcon className="h-5 w-5 text-primary" /> }, // prettier-ignore

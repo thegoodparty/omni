@@ -128,7 +128,7 @@ export {
   MessageSquareMore as MessageSquareMoreIcon,
   CalendarClock as CalendarClockIcon,
   CircleDot as CircleDotIcon,
-  Headphones as HeadphonesIcon,
+  Headset as HeadsetIcon,
   Facebook as FacebookIcon,
   Instagram as InstagramIcon,
   Users as UsersIcon,
