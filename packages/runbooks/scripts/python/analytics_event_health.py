@@ -1298,8 +1298,9 @@ def build_slack_triage(
     # Spliced as a block rather than inserted one at a time, which would reverse them.
     # Warehouse staleness rides in anchor_problems so it reaches the digest's degraded
     # line, but it is an operational condition rather than a broken guard, so it is held
-    # out here and re-added below as yellow. Excluded by membership in the lag list, not
-    # by matching the text, so a genuine read failure in the same run keeps its red.
+    # out here and re-added below as yellow. Excluded by exact-text membership in the
+    # lag list — that is a real text match, but no genuine read-failure string can equal
+    # a lag string, so a genuine read failure in the same run still keeps its red.
     lag_problems = result.get("warehouse_lag_problems") or []
     triage["items"][:0] = [
         {

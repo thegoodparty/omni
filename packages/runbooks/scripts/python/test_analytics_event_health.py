@@ -2131,8 +2131,9 @@ def test_a_stale_warehouse_alone_does_not_force_a_slack_post(monkeypatch):
 
 
 def test_a_real_anchor_problem_still_posts_red_alongside_a_stale_warehouse(monkeypatch):
-    # The exclusion is by identity against the lag list, not by pattern-matching text, so
-    # a genuine read failure in the same run keeps its red tier.
+    # The exclusion is an exact-text membership check against the lag list. That is a
+    # real text match, but no genuine read-failure string can equal a lag string, so a
+    # genuine read failure in the same run still keeps its red tier.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     lag = "The warehouse has loaded no event rows past the week of 2026-06-08."
     result = _render_result(anchor_problems=["GP_DATA_PLATFORM_READ_TOKEN is not set", lag],
