@@ -367,6 +367,13 @@ export class DoorKnockingTurfService extends createPrismaBase(
   ): Promise<DoorKnockingTurf[]> {
     const { turfs, completedNow } = await this.client.$transaction(
       async (tx) => {
+        // Existence is decided BEFORE the write and against the ENVELOPES,
+        // which is the set the write touches. Deciding it afterwards from
+        // the live-turf read cannot tell "no such campaign" from "every turf
+        // tombstoned", and the throw would roll the write back — silently
+        // discarding it for the second case.
+        await this.assertCampaignExists(tx, anchorId, organizationSlug)
+
         // `archivedAt: null` is load-bearing, not belt-and-braces. Archive
         // does not require completion, so an archived turf can sit at
         // `in_progress` indefinitely — and the client's confirm counts only
@@ -389,16 +396,14 @@ export class DoorKnockingTurfService extends createPrismaBase(
         // succeeded; a LIST has no such failure, since a sibling tombstoned in
         // the window simply drops out of the array, which is the answer the
         // campaign read would give a moment later anyway.
+        //
+        // Empty is a legitimate answer here and must NOT throw: the write
+        // reaches tombstoned turfs' envelopes on purpose, so a campaign whose
+        // every turf has been deleted moves and then reports no live turfs.
         const rows = await tx.doorKnockingTurf.findMany({
           where: campaignTurfScope(anchorId, organizationSlug),
           ...CAMPAIGN_READ,
         })
-        // Lands after a write that cannot have touched anything: the envelope
-        // scope admits only envelopes whose turf is live and in this org, so
-        // no rows here means no rows there.
-        if (rows.length === 0) {
-          throw new NotFoundException('Campaign not found')
-        }
         return { turfs: rows.map(assertRouted), completedNow: count > 0 }
       },
     )
@@ -439,6 +444,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
     archived: boolean,
   ): Promise<DoorKnockingTurf[]> {
     const turfs = await this.client.$transaction(async (tx) => {
+      await this.assertCampaignExists(tx, anchorId, organizationSlug)
       await tx.outreach.updateMany({
         where: {
           ...campaignEnvelopeScope(anchorId, organizationSlug),
@@ -451,12 +457,27 @@ export class DoorKnockingTurfService extends createPrismaBase(
         where: campaignTurfScope(anchorId, organizationSlug),
         ...CAMPAIGN_READ,
       })
-      if (rows.length === 0) {
-        throw new NotFoundException('Campaign not found')
-      }
       return rows.map(assertRouted)
     })
     return this.withCountsMany(turfs, organizationSlug)
+  }
+
+  // A campaign exists for this caller if any envelope answers to the anchor
+  // within their org, tombstoned turfs included. Asked against the envelopes
+  // rather than the live turfs precisely because the two differ: a campaign
+  // whose every turf was deleted is unusual but real, and it still has
+  // envelopes the lifecycle writes must be able to move.
+  private async assertCampaignExists(
+    tx: Prisma.TransactionClient,
+    anchorId: number,
+    organizationSlug: string,
+  ): Promise<void> {
+    const envelopes = await tx.outreach.count({
+      where: campaignEnvelopeScope(anchorId, organizationSlug),
+    })
+    if (envelopes === 0) {
+      throw new NotFoundException('Campaign not found')
+    }
   }
 
   // The advisory lock still serializes the three turf mutations against each

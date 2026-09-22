@@ -2277,6 +2277,30 @@ describe('door-knocking routes', () => {
         expect(sibling.archivedAt).toBeNull()
       })
 
+      // Every turf deleted is unusual but real, and the envelopes are still
+      // there. The write has to land and answer with no live turfs, rather
+      // than 404 and roll itself back — which would strand the campaign on
+      // the active list, the very dead end the envelope scope exists to
+      // prevent.
+      it('archives a campaign whose every turf has been deleted', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        for (const turfId of turfIds) {
+          const deleted = await service.client.delete(
+            `/v1/door-knocking/turfs/${turfId}`,
+            { ...orgHeaders(), validateStatus: () => true },
+          )
+          expect(deleted.status).toBeLessThan(300)
+        }
+
+        const res = await archiveCampaign(anchorId, true)
+
+        expect(res.status).toBe(201)
+        expect(res.data).toEqual([])
+        for (const envelope of await envelopesFor(turfIds)) {
+          expect(envelope.archivedAt).not.toBeNull()
+        }
+      })
+
       // The write 404s where the read returns `[]`. Asserted together so the
       // asymmetry reads as a decision: a press has to fail visibly, and a 404
       // leaks no more than the empty list already does.
