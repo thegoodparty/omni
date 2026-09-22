@@ -905,13 +905,16 @@ describe('DomainsService', () => {
       })
       mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
 
-      await service.searchDomainsForCampaign(
+      const result = await service.searchDomainsForCampaign(
         campaignWithUser,
         ['vote{last_name}(1|2|3|4|5|6|7|8|9)'],
         10,
       )
 
       expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledTimes(50)
+      // Truncation drops candidates just as surely as throttling does, so it
+      // has to reach the caller the same way.
+      expect(result.partial).toBe(true)
     })
 
     it('reports a throttled candidate as unchecked, not as unavailable', async () => {

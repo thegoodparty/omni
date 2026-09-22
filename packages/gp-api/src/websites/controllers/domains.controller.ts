@@ -161,10 +161,11 @@ export class DomainsController {
       'candidates list means nothing matched under the cap; a 502 ' +
       'means availability checks timed out. When partial is true the ' +
       'list is a floor — some candidates went unchecked because the ' +
-      'registrar rate limited us or the time budget ran out, so a ' +
-      'domain missing from it has not been shown to be taken; retry ' +
-      'after a short wait if nothing listed is usable. Read-only; ' +
-      'safe to retry.',
+      'registrar rate limited us, the time budget ran out, or the ' +
+      'pattern set expanded past the per-search cap, so a domain ' +
+      'missing from it has not been shown to be taken; retry after a ' +
+      'short wait, or with a narrower pattern set, if nothing listed ' +
+      'is usable. Read-only; safe to retry.',
   })
   async searchDomains(
     @ReqCampaign() campaign: Campaign & { user: User },

@@ -606,7 +606,8 @@ export class DomainsService
       ),
     )
 
-    if (expandedCandidates.length > MAX_AVAILABILITY_CHECKS) {
+    const truncated = expandedCandidates.length > MAX_AVAILABILITY_CHECKS
+    if (truncated) {
       this.logger.warn(
         {
           campaignId: campaign.id,
@@ -682,7 +683,10 @@ export class DomainsService
       }
     }
 
-    return { candidates: found, partial: unchecked > 0 || outOfBudget }
+    return {
+      candidates: found,
+      partial: unchecked > 0 || outOfBudget || truncated,
+    }
   }
 
   // Not the shared sleep util: the loser of the race must not keep the event
