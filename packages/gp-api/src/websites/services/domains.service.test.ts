@@ -982,6 +982,23 @@ describe('DomainsService', () => {
       expect(result.candidates.length).toBeGreaterThan(0)
     })
 
+    it('rejects 502 when a transient AWS fault stopped every check', async () => {
+      // Not throttling: a server-fault outage. This used to return [], which
+      // the caller reads as "the whole namespace is taken".
+      mockRoute53.checkDomainAvailability.mockImplementation(() => {
+        throw new BadGatewayException('Error communicating with AWS service')
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      await expect(
+        service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['vote-{last_name}.(run|bio)'],
+          10,
+        ),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
     it('rejects 502 when every candidate was throttled rather than checked', async () => {
       // Without this the caller gets an empty list and concludes the whole
       // pattern catalogue is taken, when in fact nothing was ever checked.

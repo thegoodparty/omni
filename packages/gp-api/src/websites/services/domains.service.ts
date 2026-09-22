@@ -7,7 +7,6 @@ import {
   HttpStatus,
   Injectable,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common'
 import { Timeout } from '@nestjs/schedule'
 import {
@@ -708,22 +707,25 @@ export class DomainsService
       const resp = await this.route53.checkDomainAvailability(domain)
       availability = resp.Availability
     } catch (error) {
-      // A throttled check never reached Route53, so it carries no verdict on
-      // the domain. Returning null reported it as taken, so a quota problem
-      // came back as a shorter list of real candidates — invisible unless the
-      // list was empty enough to trip the budget 502 above.
-      if (error instanceof ServiceUnavailableException) {
+      // Only a rejected request carries a verdict: an invalid name or an
+      // unsupported TLD is one we can never register, so it is genuinely not
+      // a candidate. Everything else — throttling, an AWS outage, a fault we
+      // did not name — means the check never happened. Reporting those as
+      // null marked them "taken", so a transient outage across every
+      // candidate returned an empty list the caller reads as "the namespace
+      // is gone".
+      if (error instanceof BadRequestException) {
         this.logger.warn(
-          { domain, fn: 'checkPatternedCandidate' },
-          'Route53 throttled the availability check; candidate not checked',
+          { err: error, domain, fn: 'checkPatternedCandidate' },
+          'Route53 rejected the domain; skipping candidate',
         )
-        return UNCHECKED
+        return null
       }
       this.logger.warn(
         { err: error, domain, fn: 'checkPatternedCandidate' },
-        'Route53 availability check failed; skipping candidate',
+        'Route53 availability check did not complete; candidate not checked',
       )
-      return null
+      return UNCHECKED
     }
 
     if (availability !== DomainAvailability.AVAILABLE) {
