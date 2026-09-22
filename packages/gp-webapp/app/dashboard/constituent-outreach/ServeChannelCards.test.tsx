@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import ServeChannelCards from './ServeChannelCards'
 
-const renderCards = () => {
+const renderCards = (showDoorKnocking = true) => {
   const onSocialClick = vi.fn()
   const onPhoneBankingClick = vi.fn()
   const onDoorKnockingClick = vi.fn()
@@ -13,6 +13,7 @@ const renderCards = () => {
       onSocialClick={onSocialClick}
       onPhoneBankingClick={onPhoneBankingClick}
       onDoorKnockingClick={onDoorKnockingClick}
+      showDoorKnocking={showDoorKnocking}
     />,
   )
   return { onSocialClick, onPhoneBankingClick, onDoorKnockingClick }
@@ -82,5 +83,17 @@ describe('ServeChannelCards', () => {
     expect(screen.getByRole('button', { name: /Social media/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Door knocking/ })).toBeEnabled()
+  })
+
+  // Off the flag there is nothing behind the card: Serve has no eCanvasser
+  // control arm, so the route it pushes renders a Win-only legacy dashboard.
+  // Absent rather than disabled — a dead tile reads as broken.
+  it('omits the door-knocking card when the native flag is off', () => {
+    renderCards(false)
+
+    expect(screen.queryByText('Door knocking')).not.toBeInTheDocument()
+    expect(screen.getByText('Social media')).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(2)
   })
 })
