@@ -332,12 +332,14 @@ def test_malformed_prior_state_degrades_instead_of_raising():
 
 def test_prior_missing_since_degrades_instead_of_indexerror():
     # Fix round 3, item 1. Reviewer's exact repro: a prior with `reference`/`consecutive`/
-    # `latched` but no `since` at all, reaching the band path (this week, 150, is neither
-    # broken by the tight floor nor recovered against 682.5). Before this fix, the since
-    # fallback `weeks[len(weeks) - consecutive]` indexed `weeks[len(weeks)]` when
-    # `consecutive == 0` and raised IndexError -- every record this module ever writes
-    # itself sets `since`, so a record missing it is exactly the kind of untrustworthy
-    # persisted state Minor 7 already degrades rather than crashes on.
+    # `latched` but no `since` at all. Without `_sanitize_record`'s `since` guard this
+    # week (150, neither broken by the tight floor nor recovered against 682.5) would
+    # reach the band path and index the since fallback `weeks[len(weeks) - consecutive]`
+    # at `weeks[len(weeks)]` when `consecutive == 0`, raising IndexError. With the guard,
+    # the record missing `since` is degraded to "no prior" before the band path is ever
+    # reachable -- every record this module ever writes itself sets `since`, so a record
+    # missing it is exactly the kind of untrustworthy persisted state Minor 7 already
+    # degrades rather than crashes on.
     key = "Dashboard - Campaign Plan Viewed"
     prior = {key: {"metric": "win_active_candidates_30d", "reference": 682.5,
                     "consecutive": 4, "latched": True}}  # no "since"
@@ -437,6 +439,7 @@ def test_the_latch_floor_is_its_own_and_leaves_the_shared_one_alone():
     # would rewrite the digest for every event on the list, which is not what this ticket
     # is for.
     assert RETIREMENT_FLOOR_PCT == 0.05
+    assert ol.LATCH_BREAK_PCT == 0.10
     assert ol.LATCH_BREAK_PCT > RETIREMENT_FLOOR_PCT
     assert ol.RECOVERY_PCT > ol.LATCH_BREAK_PCT, (
         "recovery must stay a strictly higher bar than break, or there is no band"
