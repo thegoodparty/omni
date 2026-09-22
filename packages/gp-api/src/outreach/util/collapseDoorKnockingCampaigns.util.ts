@@ -1,4 +1,4 @@
-import { OutreachType } from '../../generated/prisma'
+import { OutreachStatus, OutreachType } from '../../generated/prisma'
 
 // A door-knocking campaign is many turfs under one Outreach anchor: the
 // anchor has `campaignOutreachId = null` and its siblings all carry that
@@ -21,6 +21,7 @@ type MinimalOutreach = {
   outreachType: OutreachType
   campaignOutreachId: number | null
   createdAt: Date
+  status: OutreachStatus | null
 }
 
 export type WithTurfCount<T> = T & { turfCount: number }
@@ -59,7 +60,29 @@ export function collapseDoorKnockingCampaigns<T extends MinimalOutreach>(
       siblings.reduce((earliest, s) =>
         s.createdAt < earliest.createdAt ? s : earliest,
       )
-    dkAnchors.push({ ...anchor, turfCount: siblings.length })
+    // The campaign's status, not the anchor turf's. Completion is written
+    // per TURF (`complete` takes a turf id and updates one envelope), and the
+    // collapse hands the anchor's row up as the campaign's — so a four-turf
+    // campaign read "Done" in outreach history the moment its anchor turf was
+    // finished, with three turfs unwalked.
+    //
+    // Safe to state as a flat rule because a door-knocking envelope's status
+    // only ever moves `in_progress` -> `completed`: create writes the first,
+    // `complete` writes the second, and archive and delete touch their own
+    // columns instead. So "not every turf completed" is exactly
+    // `in_progress`, with nothing else it could be.
+    //
+    // Fixed here rather than at each surface because the history table and
+    // the drawer both read this row — a guard per surface is the arrangement
+    // that let the badge keep lying after the counts beside it were fixed.
+    const everyTurfCompleted = siblings.every(
+      (s) => s.status === OutreachStatus.completed,
+    )
+    const status =
+      !everyTurfCompleted && anchor.status === OutreachStatus.completed
+        ? OutreachStatus.in_progress
+        : anchor.status
+    dkAnchors.push({ ...anchor, status, turfCount: siblings.length })
   }
 
   return [...nonDk, ...dkAnchors]

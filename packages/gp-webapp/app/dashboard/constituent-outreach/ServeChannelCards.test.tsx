@@ -6,8 +6,12 @@ import ServeChannelCards from './ServeChannelCards'
 
 // `onSmsClick` omitted by default: that is what the page passes while
 // `serve-sms-outreach` is off or still resolving, so it is the shape most of
-// these assertions are about.
-const renderCards = ({ withSms = false }: { withSms?: boolean } = {}) => {
+// these assertions are about. `showDoorKnocking` defaults on, which is the
+// settled state of its own flag.
+const renderCards = ({
+  withSms = false,
+  showDoorKnocking = true,
+}: { withSms?: boolean; showDoorKnocking?: boolean } = {}) => {
   const onSocialClick = vi.fn()
   const onPhoneBankingClick = vi.fn()
   const onDoorKnockingClick = vi.fn()
@@ -18,6 +22,7 @@ const renderCards = ({ withSms = false }: { withSms?: boolean } = {}) => {
       onPhoneBankingClick={onPhoneBankingClick}
       onDoorKnockingClick={onDoorKnockingClick}
       onSmsClick={withSms ? onSmsClick : undefined}
+      showDoorKnocking={showDoorKnocking}
     />,
   )
   return {
@@ -126,5 +131,17 @@ describe('ServeChannelCards', () => {
     expect(screen.getByRole('button', { name: /Social media/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Door knocking/ })).toBeEnabled()
+  })
+
+  // Off the flag there is nothing behind the card: Serve has no eCanvasser
+  // control arm, so the route it pushes renders a Win-only legacy dashboard.
+  // Absent rather than disabled — a dead tile reads as broken.
+  it('omits the door-knocking card when the native flag is off', () => {
+    renderCards({ showDoorKnocking: false })
+
+    expect(screen.queryByText('Door knocking')).not.toBeInTheDocument()
+    expect(screen.getByText('Social media')).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(2)
   })
 })

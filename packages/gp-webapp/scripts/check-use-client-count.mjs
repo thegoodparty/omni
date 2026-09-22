@@ -440,11 +440,12 @@ import { dirname, join, relative } from 'node:path'
 // draftCounts, useDrawExpand and useTeamOptions while deleting DrawToolbar,
 // DrawFullScreen and TurfDraftCard, and none of the new files carry the
 // directive.
-// 2026-09-22: 568 on the second merge of main into serve-sms. Measured
-// against the merged tree, not derived — both sides had moved the ratchet
-// from bases the other no longer shares, so neither number was reachable by
-// arithmetic.
-const BASELINE = 568
+// 2026-09-22: 568 on the second merge of main into serve-sms, then 567 on
+// the third. Measured against the merged tree each time, not derived — both
+// sides keep moving the ratchet from bases the other no longer shares, so
+// neither number is reachable by arithmetic. Tightened rather than left
+// slack: a ratchet a point above the real count silently permits one.
+const BASELINE = 567
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -5,7 +5,7 @@
 import { ChannelCard } from '@styleguide'
 import {
   DoorOpenIcon,
-  HeadphonesIcon,
+  HeadsetIcon,
   MessageSquareIcon,
   Share2Icon,
 } from '@styleguide/components/ui/icons'
@@ -35,9 +35,17 @@ interface ServeChannelDefinition {
 // route, and the create flow lives inside it, opening itself on an org with
 // no lists.
 //
-// SMS is the newest and the only gated one. The page reads
-// `serve-sms-outreach` and passes a handler only once the flag has resolved
-// on, so an org without it sees the three-card grid exactly as before.
+// That route is also why its card is conditional. Win has a control arm behind
+// `native-door-knocking` — the eCanvasser dashboard, which is what the route
+// renders with the flag off — but Serve never had one: door knocking reached
+// this rail already native, so for a flag-off Serve org the card's only
+// destination is a Win-only legacy screen about an integration they have not
+// connected.
+//
+// SMS is gated too, by `serve-sms-outreach`, but differently: the page reads
+// that flag and passes a handler only once it has resolved on, so this stays
+// hookless. Both cards are hidden rather than disabled, for the same reason
+// the placeholder was removed — a dead tile reads as broken.
 const SERVE_CHANNELS: ServeChannelDefinition[] = [
   {
     key: 'socialMedia',
@@ -60,7 +68,7 @@ const SERVE_CHANNELS: ServeChannelDefinition[] = [
   {
     key: 'phoneBanking',
     label: 'Phone banking',
-    icon: <HeadphonesIcon />,
+    icon: <HeadsetIcon />,
     iconClassName: 'bg-destructive-light',
   },
   {
@@ -78,10 +86,11 @@ interface ServeChannelCardsProps {
   // SMS is behind the `serve-sms-outreach` flag, and the flag is read by the
   // page rather than here so this stays a hookless presentational component
   // outside the 'use client' ratchet. Undefined means "no SMS on this
-  // render" — flag off, or still resolving — and the card is not rendered at
-  // all rather than rendered disabled: a tile that cannot be pressed reads as
-  // broken, which is the lesson the door-knocking placeholder left behind.
+  // render" — flag off, or still resolving.
   onSmsClick?: () => void
+  // Off until `native-door-knocking` resolves on, so an unsettled read shows
+  // two cards rather than a third that leads somewhere wrong.
+  showDoorKnocking: boolean
 }
 
 const ServeChannelCards = ({
@@ -89,6 +98,7 @@ const ServeChannelCards = ({
   onPhoneBankingClick,
   onDoorKnockingClick,
   onSmsClick,
+  showDoorKnocking,
 }: ServeChannelCardsProps): React.JSX.Element => {
   const handlers: Record<string, (() => void) | undefined> = {
     socialMedia: onSocialClick,
@@ -96,7 +106,14 @@ const ServeChannelCards = ({
     phoneBanking: onPhoneBankingClick,
     doorKnocking: onDoorKnockingClick,
   }
-  const channels = SERVE_CHANNELS.filter((channel) => handlers[channel.key])
+  // Two independent gates: a channel needs a handler at all (which is how
+  // SMS is switched off, since the page omits it until its flag resolves on),
+  // and door knocking additionally needs its own flag.
+  const channels = SERVE_CHANNELS.filter(
+    (channel) =>
+      Boolean(handlers[channel.key]) &&
+      (channel.key !== 'doorKnocking' || showDoorKnocking),
+  )
   return (
     <section className="space-y-3">
       <div>
@@ -107,13 +124,15 @@ const ServeChannelCards = ({
           Reach your constituents through these channels.
         </p>
       </div>
-      {/* One column per card, and the width cap grows with the count: at
-          `max-w-md` a third tile is narrower than the ~220px the candidate
-          grid gives, and these are the same tiles. `max-w-3xl`/3 and
-          `max-w-4xl`/4 both land near it, so the tiles are the same size
-          whichever side of the SMS flag this org is on. Both class strings
-          are written out in full because Tailwind scans source text and
-          never sees an interpolated one. */}
+      {/* One column per card, and the width cap grows with the count. Two
+          flags now move that count — SMS on, door knocking off — so it can
+          be anywhere from two to four. At `max-w-md` a third tile is
+          narrower than the ~220px the candidate grid gives, and these are
+          the same tiles; `max-w-3xl`/3 and `max-w-4xl`/4 both land near it,
+          so the tiles stay the same size whichever flags this org has. Two
+          cards keep the three-column width rather than stretching to fill
+          the cap. Both class strings are written out in full because
+          Tailwind scans source text and never sees an interpolated one. */}
       <div
         className={
           channels.length > 3

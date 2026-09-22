@@ -44,7 +44,11 @@ import { dirname, join, relative } from 'node:path'
 // (237KB) along with the two door-knocking empty states that rendered them,
 // which now use the standard Card empty state. The five already-dead
 // animations went in a separate PR.
-const BASELINE = 2
+// 2026-09-22: 2 -> 1. Removed CongratulationsAnimation (67KB); the two polls
+// success screens now fire the ConfettiBurst styleguide component instead.
+// highFive.json is the last one, and both of its callers are inside the
+// sunset website feature, so it leaves with those routes.
+const BASELINE = 1
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist', 'e2e-tests'])
