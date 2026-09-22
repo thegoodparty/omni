@@ -34,6 +34,10 @@ interface DoorKnockingPageGateProps {
   pathname: string
   campaign: Campaign | null
   summary?: EcanvasserSummary
+  // Whether candidate success has connected this campaign to eCanvasser. The
+  // flag-off arm's entitlement, resolved server-side in `page.tsx`. Undefined
+  // means the read failed or has not happened, never "not connected".
+  hasEcanvasser?: boolean
   // `?listId=` / `?recommended=` off the page. Only the native arm has a
   // create flow to open on them; the eCanvasser dashboard has no audience
   // step to preselect.
@@ -103,6 +107,43 @@ const DoorKnockingProLockedView = ({
   </DashboardLayout>
 )
 
+// Door knocking off the flag, for a campaign candidate success has not
+// connected. The eCanvasser dashboard behind this is a view onto a
+// third-party canvassing tool, so without that connection every panel on it
+// reads zero and a blank "Last updated" — a screen that looks broken rather
+// than one that says the feature is not on yet. Reached only by the outreach
+// hub's tile, which is deliberately still offered: this card names who can
+// turn it on, where hiding the tile would leave no way to ask.
+const DoorKnockingUnavailableView = ({
+  pathname,
+  campaign,
+}: {
+  pathname: string
+  campaign: Campaign | null
+}): React.JSX.Element => (
+  <DashboardLayout pathname={pathname} campaign={campaign}>
+    <div className="mx-auto flex w-full max-w-[560px] flex-col py-10">
+      <Card>
+        {/* A real heading rather than `CardTitle`, which renders a plain
+            `div`: this card is the whole of the page in this state, so
+            without one a screen reader gets a page with no heading at all.
+            `VoterDataUnavailableState` — the empty state this copy follows —
+            does the same. */}
+        <CardHeader>
+          <h2 className="text-2xl font-semibold text-foreground">
+            Door knocking isn&apos;t turned on for your campaign
+          </h2>
+        </CardHeader>
+        <CardContent>
+          <p className="text-base text-muted-foreground">
+            Email support@goodparty.org and we&apos;ll get you set up.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  </DashboardLayout>
+)
+
 // The one treatment/control divergence point: flag on gets the native map
 // experience, flag off (or unsettled) renders the eCanvasser dashboard
 // exactly as before — for a candidate. A Serve org has no control arm to fall
@@ -122,6 +163,7 @@ export default function DoorKnockingPageGate({
   pathname,
   campaign,
   summary,
+  hasEcanvasser,
   preselectedListId,
   preselectedRecommendedVariant,
   walkTurfId,
@@ -182,6 +224,20 @@ export default function DoorKnockingPageGate({
         openCreateFlow={openCreateFlow}
         campaignOutreachId={campaignOutreachId}
       />
+    )
+  }
+  // Control, and it has an entitlement of its own that nothing used to check:
+  // the eCanvasser connection. Two ways of not knowing, and both fall through
+  // to the dashboard rather than to this card. `hasEcanvasser === undefined`
+  // is a slow or failed server read, and telling a connected campaign their
+  // feature is off is worse than showing them the dashboard they had. `!ready`
+  // is an unsettled FLAG, and the card would be a claim about the wrong arm
+  // entirely: a flag-on campaign with no eCanvasser connection would flash
+  // "isn't turned on" before its map arrived. Same rule the Serve bounce above
+  // follows — an unsettled flag is not an off flag.
+  if (ready && hasEcanvasser === false) {
+    return (
+      <DoorKnockingUnavailableView pathname={pathname} campaign={campaign} />
     )
   }
   return (
