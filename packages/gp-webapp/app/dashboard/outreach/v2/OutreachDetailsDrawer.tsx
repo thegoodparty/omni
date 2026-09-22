@@ -336,6 +336,17 @@ export const OutreachDetailsDrawer = ({
   // anyway, because it arrives with the detail rather than with the table —
   // a row this drawer was opened from through a deep link has no cached copy
   // to be right or wrong about.
+  // Archive writes ONE turf's envelope (`setArchived` takes a turf id), and
+  // the drawer hands it the anchor's — so on a multi-turf campaign the button
+  // would shelve the anchor and leave every sibling on the rail while history
+  // read "Archived". Withheld rather than made to fan out: the same endpoint
+  // is the walk's own "Move to archive" and its `finishAndArchive`, so a
+  // server-side fan-out would shelve a whole campaign when a canvasser
+  // finished one turf of it — and archiving is one-way from this feature's
+  // UI. A campaign-level archive is follow-up work; until it exists this is
+  // the same call the Overview cells and the progress bar make for the same
+  // reason. Solo campaigns are unaffected, which is every list today.
+  const canArchiveFromDrawer = (row?.turfCount ?? 1) === 1
   const isArchived = Boolean(
     isDoorKnocking ? doorKnocking?.archivedAt : row?.archivedAt,
   )
@@ -472,15 +483,17 @@ export const OutreachDetailsDrawer = ({
     // the main table). Same action pair completed rows get.
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px]">
-        <Button
-          variant="outline"
-          className="flex-1"
-          disabled={archiveMutation.isPending}
-          onClick={() => archiveMutation.mutate()}
-        >
-          <ArchiveIcon className="size-4" />
-          {isArchived ? 'Restore from archive' : 'Move to archive'}
-        </Button>
+        {canArchiveFromDrawer && (
+          <Button
+            variant="outline"
+            className="flex-1"
+            disabled={archiveMutation.isPending}
+            onClick={() => archiveMutation.mutate()}
+          >
+            <ArchiveIcon className="size-4" />
+            {isArchived ? 'Restore from archive' : 'Move to archive'}
+          </Button>
+        )}
       </div>
     </div>
   ) : null
@@ -598,7 +611,8 @@ export const OutreachDetailsDrawer = ({
                 // archive, and a button that resolves to a rejected mutation is
                 // worse than one that arrives a beat late.
                 footerMode === 'done' &&
-                (!isDoorKnocking || Boolean(doorKnocking)) && (
+                (!isDoorKnocking || Boolean(doorKnocking)) &&
+                canArchiveFromDrawer && (
                   <Button
                     variant="outline"
                     className="w-full"
