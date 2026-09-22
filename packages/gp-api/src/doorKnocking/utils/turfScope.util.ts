@@ -62,3 +62,39 @@ export const railTurfScope = (
   ...activeTurfScope(organizationSlug),
   route: { outreach: { campaignId: scope.campaignId } },
 })
+
+/**
+ * Campaign membership, expressed on the ENVELOPE because that is the only
+ * place it exists: the anchor matches on its own id, every sibling on
+ * `campaignOutreachId`. Door knocking is the only writer of that column, so
+ * this cannot reach another channel's row.
+ */
+const campaignMembership = (anchorId: number): Prisma.OutreachWhereInput => ({
+  OR: [{ id: anchorId }, { campaignOutreachId: anchorId }],
+})
+
+/**
+ * The campaign's turfs and the campaign's envelopes: the SAME set, seen from
+ * the two ends of the 1:1:1 chain. Two values because the read hands back
+ * turfs and the lifecycle writes update envelopes.
+ *
+ * Composed from the same two halves rather than written out twice, and that
+ * is the whole point. A campaign-level write's blast radius has to be exactly
+ * the list its confirm dialog counted, and two hand-maintained `where`s are
+ * how those drift apart. Narrowing either half narrows both.
+ */
+export const campaignTurfScope = (
+  anchorId: number,
+  organizationSlug: string,
+): Prisma.DoorKnockingTurfWhereInput => ({
+  ...activeTurfScope(organizationSlug),
+  route: { outreach: campaignMembership(anchorId) },
+})
+
+export const campaignEnvelopeScope = (
+  anchorId: number,
+  organizationSlug: string,
+): Prisma.OutreachWhereInput => ({
+  ...campaignMembership(anchorId),
+  doorKnockingRoute: { turf: activeTurfScope(organizationSlug) },
+})
