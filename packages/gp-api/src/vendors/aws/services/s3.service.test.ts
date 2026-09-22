@@ -11,6 +11,7 @@ import {
   BadGatewayException,
   BadRequestException,
   ForbiddenException,
+  ServiceUnavailableException,
   InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common'
@@ -290,6 +291,29 @@ describe('S3Service', () => {
       await expect(
         service.uploadFile(bucket, mockFileBody, key),
       ).rejects.toThrow(BadGatewayException)
+    })
+
+    it.each([
+      'ThrottlingException',
+      'Throttling',
+      'TooManyRequestsException',
+      'RequestLimitExceeded',
+      'SlowDown',
+    ])('throws ServiceUnavailableException on %s', async (name) => {
+      // These five names are load-bearing: callers distinguish "we were rate
+      // limited" from "the request was wrong" by the 503, and a typo here
+      // routes throttling to a 500 that reads as a permanent failure.
+      const awsError = new ServiceException({
+        name,
+        message: 'Rate exceeded',
+        $fault: 'client',
+        $metadata: {},
+      })
+      mockUploadDone.mockRejectedValue(awsError)
+
+      await expect(
+        service.uploadFile(bucket, mockFileBody, key),
+      ).rejects.toThrow(ServiceUnavailableException)
     })
 
     it('throws BadRequestException on AWS validation errors', async () => {

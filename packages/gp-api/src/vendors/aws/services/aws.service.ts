@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   InternalServerErrorException,
+  ServiceUnavailableException,
   UnauthorizedException,
   ForbiddenException,
 } from '@nestjs/common'
@@ -52,6 +53,20 @@ export abstract class AwsService {
         case 'InsufficientPermissions':
         case 'AccountProblem':
           throw new ForbiddenException(error.message)
+
+        // Throttling is the one client fault a retry genuinely fixes, so it
+        // must not land in the 500 bucket below. Folding it in there told
+        // callers a drained token bucket was a bug in the request they sent,
+        // and left `checkPatternedCandidate` unable to tell "this domain is
+        // taken" apart from "we never got to ask".
+        case 'ThrottlingException':
+        case 'Throttling':
+        case 'TooManyRequestsException':
+        case 'RequestLimitExceeded':
+        case 'SlowDown':
+          throw new ServiceUnavailableException(
+            'AWS is rate limiting this request.',
+          )
 
         // Everything else splits on who the SDK says was at fault, rather than
         // falling through to 502 on the assumption that an unlisted name means

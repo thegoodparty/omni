@@ -89,6 +89,18 @@ const AVAILABILITY_CHECK_BATCH_SIZE = 5
 const SEARCH_TARGET_CANDIDATE_COUNT = 6
 const SEARCH_TIME_BUDGET_MS = 20_000
 
+// MAX_PATTERN_CANDIDATES bounds SLDs *before* the TLD fanout below multiplies
+// each one across SUPPORTED_TLDS, so "all 50 candidates" was really up to 300
+// availability checks. The time budget stops a slow search but not the quota
+// a fast one spends, and Route53's bucket is account-wide and shared with the
+// purchase path — so the post-fanout count needs its own ceiling.
+const MAX_AVAILABILITY_CHECKS = 50
+
+// Separates "Route53 says this domain is taken" from "we never got to ask",
+// so an empty result caused by throttling raises instead of reporting that
+// nothing matched.
+const UNCHECKED = Symbol('unchecked')
+
 const DOMAIN_PURCHASE_ADVISORY_LOCK_KEY = 918_275
 
 const DOMAIN_RESERVATION_KIND = {
@@ -582,7 +594,7 @@ export class DomainsService
     // unchanged so existing alternation syntax (e.g. `vote-x.(run|bio)`)
     // keeps working — but only when that TLD is on the allowlist, so an
     // explicit `candidate.com` can't bypass the "never offered" promise.
-    const candidates = Array.from(
+    const expandedCandidates = Array.from(
       new Set(
         expanded.flatMap((c) => {
           if (!c.includes('.')) {
@@ -593,8 +605,23 @@ export class DomainsService
       ),
     )
 
+    const truncated = expandedCandidates.length > MAX_AVAILABILITY_CHECKS
+    if (truncated) {
+      this.logger.warn(
+        {
+          campaignId: campaign.id,
+          expanded: expandedCandidates.length,
+          cap: MAX_AVAILABILITY_CHECKS,
+          fn: 'searchDomainsForCampaign',
+        },
+        'candidate set exceeds the availability-check cap; truncating',
+      )
+    }
+    const candidates = expandedCandidates.slice(0, MAX_AVAILABILITY_CHECKS)
+
     const startedAt = new Date()
     const found: PatternedDomainCandidate[] = []
+    let unchecked = 0
     let outOfBudget = false
     for (let i = 0; i < candidates.length; i += AVAILABILITY_CHECK_BATCH_SIZE) {
       const remainingMs =
@@ -619,15 +646,17 @@ export class DomainsService
         break
       }
       for (const r of checked) {
-        if (r.status === 'fulfilled' && r.value !== null) {
-          found.push(r.value)
-        } else if (r.status === 'rejected') {
+        if (r.status === 'rejected') {
           const err =
             r.reason instanceof Error ? r.reason : new Error(String(r.reason))
           this.logger.warn(
             { err, fn: 'searchDomainsForCampaign' },
             'candidate availability check failed; skipping',
           )
+        } else if (r.value === UNCHECKED) {
+          unchecked += 1
+        } else if (r.value !== null) {
+          found.push(r.value)
         }
       }
       if (found.length >= SEARCH_TARGET_CANDIDATE_COUNT) {
@@ -645,12 +674,17 @@ export class DomainsService
         },
         'domain search hit its time budget; returning what was found',
       )
-      if (found.length === 0) {
-        throw new BadGatewayException(
-          'Domain availability checks timed out before any candidate ' +
-            'could be verified. Retry shortly.',
-        )
-      }
+    }
+
+    // An empty list is only honest when every candidate got a real verdict.
+    // If anything was throttled, truncated, or cut off by the budget, we did
+    // not learn that nothing matched — we learned nothing. Saying so as an
+    // error is what stops the caller concluding the namespace is taken.
+    if (found.length === 0 && (unchecked > 0 || truncated || outOfBudget)) {
+      throw new BadGatewayException(
+        'Domain availability checks could not be completed for any ' +
+          'candidate. Retry shortly.',
+      )
     }
 
     return { candidates: found }
@@ -667,17 +701,35 @@ export class DomainsService
   private async checkPatternedCandidate(
     domain: string,
     maxPrice: number,
-  ): Promise<PatternedDomainCandidate | null> {
+  ): Promise<PatternedDomainCandidate | null | typeof UNCHECKED> {
+    // The invariant for every exit below: `null` means we *learned* this is
+    // not a candidate (rejected name, taken, over the cap). `UNCHECKED` means
+    // we failed to find out. Collapsing the second into the first is what
+    // makes an outage look like a namespace that is entirely taken.
     let availability: DomainAvailability | undefined
     try {
       const resp = await this.route53.checkDomainAvailability(domain)
       availability = resp.Availability
     } catch (error) {
+      // Only a rejected request carries a verdict: an invalid name or an
+      // unsupported TLD is one we can never register, so it is genuinely not
+      // a candidate. Everything else — throttling, an AWS outage, a fault we
+      // did not name — means the check never happened. Reporting those as
+      // null marked them "taken", so a transient outage across every
+      // candidate returned an empty list the caller reads as "the namespace
+      // is gone".
+      if (error instanceof BadRequestException) {
+        this.logger.warn(
+          { err: error, domain, fn: 'checkPatternedCandidate' },
+          'Route53 rejected the domain; skipping candidate',
+        )
+        return null
+      }
       this.logger.warn(
         { err: error, domain, fn: 'checkPatternedCandidate' },
-        'Route53 availability check failed; skipping candidate',
+        'Route53 availability check did not complete; candidate not checked',
       )
-      return null
+      return UNCHECKED
     }
 
     if (availability !== DomainAvailability.AVAILABLE) {
@@ -689,11 +741,12 @@ export class DomainsService
       const resp = await this.vercel.checkDomainPrice(domain)
       price = resp.price
     } catch (error) {
+      // A price we could not fetch is not a price over the cap.
       this.logger.warn(
-        { err: error, domain },
-        'Vercel price lookup failed; skipping candidate',
+        { err: error, domain, fn: 'checkPatternedCandidate' },
+        'Vercel price lookup did not complete; candidate not checked',
       )
-      return null
+      return UNCHECKED
     }
 
     if (price > maxPrice) {
