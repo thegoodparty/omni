@@ -307,8 +307,10 @@ date matches `run_date` (`gh run list --workflow analytics-governance.yml --limi
 its first 10 characters, not the whole string), then `gh run download <run_id> --name
 analytics-event-health-report --dir instrumentation_data` and verify the downloaded
 report's `run_date` field matches before proceeding (if not, fall through); else
-recompute live with `analytics_event_health.py --today "$run_date" --json …` (needs
-Databricks OAuth).
+recompute live with `analytics_event_health.py --today "$run_date" --no-log --json …`
+(needs Databricks OAuth; `--no-log` because this is a read-only recompute, and
+without it the run rewrites the git-tracked health log and state file that the
+scheduled run authors).
 
 **If all three paths fail** — stale local file, no CI run matching `run_date`, and no
 Databricks OAuth for the live recompute — stop and say so: name the `run_date` you
