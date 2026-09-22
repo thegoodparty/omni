@@ -80,7 +80,9 @@ pre-break reference survives only there). Useful flags:
 
 - `--today YYYY-MM-DD` — run "as of" a past date (replay / backfill).
 - `--json PATH` — also write the full per-event result JSON (gitignored; use it to dig into a flag).
-- `--no-log` — print only, do not write to the log.
+- `--no-log` — print only: writes neither the log nor the state file, so an ad-hoc local
+  run leaves the git-tracked `instrumentation_data/` files (the scheduled run authors
+  them) untouched. Use it for every local run you are not deliberately writing state from.
 - `--csv PATH` / `--watchlist PATH` / `--state PATH` — override the default locations.
 
 Read the digest top-down: the dormant-OKR-anchor latch table and any "OKR dormancy checks

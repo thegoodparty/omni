@@ -1128,6 +1128,24 @@ def _stub_run_monitor(*_args, **_kwargs):
     return result, changes
 
 
+def test_no_log_does_not_rewrite_the_tracked_state_file(monkeypatch, tmp_path):
+    # instrumentation_data/analytics_event_health_state.json is git-tracked and authored
+    # by the scheduled run. A local `--no-log` used to rewrite it anyway, dirtying a
+    # shared checkout with a diff that then has to be reverted by hand. --no-log means
+    # "this run leaves nothing behind", so the state write goes with the log write. The
+    # scheduled workflow does not pass --no-log, so the cron still advances the diff and
+    # still persists the latches' sticky references.
+    monkeypatch.setattr(eh, "run_monitor", _stub_run_monitor)
+    state = tmp_path / "s.json"
+    state.write_text('{"run_date": "2026-07-14", "flagged": {}, "latches": {}}\n')
+
+    assert eh.main(["--no-log", "--today", "2026-07-21", "--state", str(state)]) == 0
+
+    assert json.loads(state.read_text())["run_date"] == "2026-07-14", (
+        "--no-log must leave the cron-authored state file byte-identical"
+    )
+
+
 def test_main_passes_gap_slack_to_post_digest(monkeypatch, tmp_path):
     monkeypatch.setattr(eh, "run_monitor", _stub_run_monitor)
     import event_state_slack as slk
@@ -1520,7 +1538,10 @@ def test_main_persists_the_latches_for_the_next_run(monkeypatch, tmp_path):
 
     monkeypatch.setattr(eh, "run_monitor", _stub)
     state = tmp_path / "s.json"
-    assert eh.main(["--no-log", "--today", "2026-09-21", "--state", str(state)]) == 0
+    # A logging run, because --no-log now suppresses the state write too, and this test
+    # is about the state write. --log is redirected so it never touches the real log.
+    assert eh.main(["--log", str(tmp_path / "log.md"), "--today", "2026-09-21",
+                    "--state", str(state)]) == 0
     assert json.loads(state.read_text())["latches"] == latches
 
 
@@ -1848,7 +1869,9 @@ def test_main_state_write_survives_a_date_inside_a_latch_record(monkeypatch, tmp
 
     monkeypatch.setattr(eh, "run_monitor", _stub)
     state = tmp_path / "s.json"
-    assert eh.main(["--no-log", "--today", "2026-09-21", "--state", str(state)]) == 0
+    # Not --no-log: that now suppresses the state write this test is about.
+    assert eh.main(["--log", str(tmp_path / "log.md"), "--today", "2026-09-21",
+                    "--state", str(state)]) == 0
     assert json.loads(state.read_text())["latches"][_PATH_KEY]["first_seen"] == "2026-05-18"
 
 

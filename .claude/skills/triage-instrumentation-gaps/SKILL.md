@@ -242,7 +242,9 @@ locally as a CI artifact or a fresh local run:
 3. If neither works, recompute live (needs Databricks OAuth env vars — already global
    per this machine's setup):
    ```bash
-   uv run analytics_event_health.py --today "$run_date" \
+   # --no-log: this is a read-only recompute, and without it the run rewrites the
+   # git-tracked health log and state file that the scheduled run authors.
+   uv run analytics_event_health.py --today "$run_date" --no-log \
      --json instrumentation_data/analytics_event_health_report.json
    ```
 

@@ -1317,7 +1317,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--watchlist", type=Path, default=WATCHLIST, help="curated watchlist YAML")
     parser.add_argument("--json", type=Path, help="also write the full result JSON here")
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG, help="longitudinal log to write to")
-    parser.add_argument("--no-log", action="store_true", help="do not write to the log")
+    parser.add_argument(
+        "--no-log",
+        action="store_true",
+        help="print the digest only: write neither the log nor the state file, so a "
+        "local run leaves the git-tracked instrumentation_data/ files untouched",
+    )
     parser.add_argument(
         "--state",
         type=Path,
@@ -1401,7 +1406,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
                 print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)
 
-    if args.state:
+    # Gated on --no-log as well as --state: the state file is git-tracked and authored by
+    # the scheduled run, so a local ad-hoc run rewriting it dirties a shared checkout with
+    # a diff that has to be reverted by hand. --no-log means "leave nothing behind"; the
+    # scheduled workflow never passes it, so the cron still advances the diff and still
+    # persists the latches' sticky references.
+    if args.state and not args.no_log:
         state = {
             "run_date": today.isoformat(),
             "flagged": {r["event_type"]: r["status"] for r in result["flagged"]},
