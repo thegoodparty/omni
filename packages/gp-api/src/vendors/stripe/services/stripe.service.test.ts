@@ -114,6 +114,7 @@ describe('StripeService Pro subscription checkout', () => {
       const args = firstOrThrow(sessionsCreate.mock.calls)[0]
       expect(args.ui_mode).toBe('custom')
       expect(args.mode).toBe('subscription')
+      expect(args.payment_method_types).toEqual(['card'])
       expect(args.return_url).toBe(
         'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
