@@ -702,6 +702,10 @@ export class DomainsService
     domain: string,
     maxPrice: number,
   ): Promise<PatternedDomainCandidate | null | typeof UNCHECKED> {
+    // The invariant for every exit below: `null` means we *learned* this is
+    // not a candidate (rejected name, taken, over the cap). `UNCHECKED` means
+    // we failed to find out. Collapsing the second into the first is what
+    // makes an outage look like a namespace that is entirely taken.
     let availability: DomainAvailability | undefined
     try {
       const resp = await this.route53.checkDomainAvailability(domain)
@@ -737,11 +741,12 @@ export class DomainsService
       const resp = await this.vercel.checkDomainPrice(domain)
       price = resp.price
     } catch (error) {
+      // A price we could not fetch is not a price over the cap.
       this.logger.warn(
-        { err: error, domain },
-        'Vercel price lookup failed; skipping candidate',
+        { err: error, domain, fn: 'checkPatternedCandidate' },
+        'Vercel price lookup did not complete; candidate not checked',
       )
-      return null
+      return UNCHECKED
     }
 
     if (price > maxPrice) {

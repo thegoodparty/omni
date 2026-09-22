@@ -982,6 +982,25 @@ describe('DomainsService', () => {
       expect(result.candidates.length).toBeGreaterThan(0)
     })
 
+    it('rejects 502 when every price lookup failed', async () => {
+      // A price we could not fetch is not a price over the cap. Returning []
+      // here told the caller every available domain was too expensive.
+      mockRoute53.checkDomainAvailability.mockResolvedValue({
+        Availability: DomainAvailability.AVAILABLE,
+      })
+      mockVercel.checkDomainPrice.mockImplementation(() => {
+        throw new Error('vercel boom')
+      })
+
+      await expect(
+        service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['vote-{last_name}.(run|bio)'],
+          10,
+        ),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
     it('rejects 502 when a transient AWS fault stopped every check', async () => {
       // Not throttling: a server-fault outage. This used to return [], which
       // the caller reads as "the whole namespace is taken".
