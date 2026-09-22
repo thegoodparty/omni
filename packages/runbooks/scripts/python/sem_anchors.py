@@ -123,7 +123,7 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
         # take the whole digest down over a transient network blip.
         except (
             urllib.error.URLError,
-            urllib.error.HTTPError,
+            urllib.error.HTTPError,  # subclass of URLError; named explicitly for readability
             TimeoutError,
             http.client.IncompleteRead,
             http.client.RemoteDisconnected,

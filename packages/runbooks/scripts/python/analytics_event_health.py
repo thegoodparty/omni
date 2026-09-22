@@ -1138,6 +1138,9 @@ def run_monitor(
     ]
 
     watched_legs = [leg for legs in anchors.values() for leg in legs if leg.watched]
+    # Last-wins if two governed metrics ever anchor the same leg key — no overlap in the
+    # real declaration today, so this is latent. Not handled: an ambiguity here is a
+    # semantic-layer authoring problem to fix at the source, not something to paper over.
     watched_by_key = {
         leg.key: metric
         for metric, legs in anchors.items()

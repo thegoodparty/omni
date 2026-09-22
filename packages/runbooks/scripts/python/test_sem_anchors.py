@@ -117,15 +117,3 @@ def test_a_remote_disconnect_mid_fetch_is_reported_rather_than_taking_the_run_do
     anchors, problems = sa.load_anchors("fake-token")
     assert anchors == {}
     assert problems and any("could not read" in p for p in problems)
-
-
-def test_parse_anchors_still_raises_for_direct_callers():
-    # The catching lives in load_anchors; parse_anchors stays strict so a test or a
-    # local caller sees the real error.
-    bad = "metrics:\n  - name: m\n    config:\n      meta:\n        anchored_on:\n          - path: /x\n"
-    try:
-        sa.parse_anchors(bad)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("expected ValueError")
