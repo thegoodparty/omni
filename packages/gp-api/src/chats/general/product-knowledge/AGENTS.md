@@ -90,6 +90,10 @@ often than the map:
   new gate added to the map is covered without a prompt edit. Before this,
   a candidate without Pro was walked through every voter-file filter and
   told at the first count that filtering needs Pro.
+- The Campaign Manager keeps the open filter catalog available for explaining
+  Pro, but a known non-Pro campaign does not receive the count or precinct
+  tools. Its voter-data guidance treats catalog values as locked vocabulary,
+  not options the campaign can use now.
 
 ## Why the assistants answer support questions at all
 

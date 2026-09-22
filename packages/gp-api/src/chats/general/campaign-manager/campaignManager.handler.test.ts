@@ -495,7 +495,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       voterFileFilters,
     )
 
-  const CRM_ON = { organization: ORG, crmToolsEnabled: true }
+  const CRM_ON = { organization: ORG, crmToolsEnabled: true, isPro: true }
 
   it('registers both tools when contacts service, org, and flag are present', () => {
     const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
@@ -511,6 +511,24 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(descriptionOf(tools.count_contacts)).toContain(
       DATA_SOURCE_ROUTING_RULES,
     )
+  })
+
+  it('keeps only open CRM reads for a campaign without Pro', () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(
+      ctxWith({
+        ...CRM_ON,
+        isPro: false,
+        savedFilterToolsEnabled: true,
+      }),
+    )
+
+    expect(Object.keys(tools)).toContain('describe_filter_dimensions')
+    expect(Object.keys(tools)).toContain('crud_saved_filters')
+    expect(Object.keys(tools)).not.toContain('count_contacts')
+    expect(Object.keys(tools)).not.toContain('list_precincts')
   })
 
   it('omits both when crmToolsEnabled is false', () => {
@@ -682,7 +700,13 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       client: {
         campaign: {
           findFirst: vi.fn(() =>
-            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+            Promise.resolve({
+              id: 5,
+              isPro: true,
+              details: {},
+              data: {},
+              user: null,
+            }),
           ),
         },
         campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },

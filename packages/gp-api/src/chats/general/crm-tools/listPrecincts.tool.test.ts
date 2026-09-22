@@ -138,4 +138,10 @@ describe('buildListPrecinctsTool', () => {
       buildTool(vi.fn()).inputSchema.safeParse({ county: 'Buncombe' }).success,
     ).toBe(false)
   })
+
+  it('does not tell the model to test a known access limit', () => {
+    expect(buildTool(vi.fn()).description).toContain(
+      'Never call it to test a known access limit',
+    )
+  })
 })

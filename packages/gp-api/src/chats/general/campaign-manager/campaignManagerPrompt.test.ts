@@ -131,6 +131,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const on = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
@@ -148,10 +149,28 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(noOrg).not.toContain('count_contacts')
   })
 
+  it('treats the filter catalog as reference-only without Pro', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: false,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+
+    expect(prompt).toContain('describe_filter_dimensions')
+    expect(prompt).toContain('locked vocabulary')
+    expect(prompt).not.toContain('count_contacts')
+    expect(prompt).not.toContain('list_precincts')
+    expect(prompt).not.toContain("action='create'")
+  })
+
   it('advertises the saved-list tool only when it is registered', () => {
     const readOnly = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
@@ -162,6 +181,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
       ctx({
         crmToolsEnabled: true,
         savedFilterToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )

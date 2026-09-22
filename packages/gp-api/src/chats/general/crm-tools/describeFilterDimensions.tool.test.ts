@@ -85,4 +85,14 @@ describe('buildDescribeFilterDimensionsTool', () => {
     })
     expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })
+
+  it('does not equate supported dimensions with account access', () => {
+    const tool = buildDescribeFilterDimensionsTool({
+      contacts: { getFilterDimensions: vi.fn(() => []) },
+      organization: ORGANIZATION,
+    })
+    expect(tool.description).toContain(
+      'catalog describes vocabulary, not account access',
+    )
+  })
 })

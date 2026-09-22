@@ -439,27 +439,28 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // Aggregate-only CRM reads (describe dimensions + count), unconditional
-    // for Win once contacts + the org resolve. The org is bound from the
-    // resolved context; ContactsService enforces the pro gate and every
-    // other filter rule.
+    // The open catalog remains useful for explaining what Pro supports. The
+    // action tools stay absent when the campaign is known not to have access;
+    // unknown or stale-positive state still reaches the service backstop.
     if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
-      tools.count_contacts = buildCountContactsTool({
-        contacts: this.contacts,
-        organization: ctx.organization,
-      })
-      // Beside describe_filter_dimensions rather than with the saved-list
-      // tools: it IS the vocabulary read for the one dimension the catalog
-      // cannot carry, and a count is as entitled to a precinct as a saved
-      // list is.
-      tools.list_precincts = buildListPrecinctsTool({
-        contacts: this.contacts,
-        organization: ctx.organization,
-      })
+      if (ctx.isPro !== false) {
+        tools.count_contacts = buildCountContactsTool({
+          contacts: this.contacts,
+          organization: ctx.organization,
+        })
+        // Beside describe_filter_dimensions rather than with the saved-list
+        // tools: it IS the vocabulary read for the one dimension the catalog
+        // cannot carry, and a count is as entitled to a precinct as a saved
+        // list is.
+        tools.list_precincts = buildListPrecinctsTool({
+          contacts: this.contacts,
+          organization: ctx.organization,
+        })
+      }
       // Saved-filter CRUD goes through the same VoterFileFilterService paths
       // as the voter-file routes (Pro gate, completed-outreach validation,
       // org scoping, locked-filter conflict all inherited).

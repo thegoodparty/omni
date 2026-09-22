@@ -363,6 +363,15 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
 // promises a tool the model can't call.
 const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.crmToolsEnabled || !ctx.organization) return null
+  if (ctx.isPro === false) {
+    return (
+      'Use describe_filter_dimensions only when the candidate asks what ' +
+      'Pro filtering supports. Its output is locked vocabulary, not options ' +
+      'this campaign can use now. Do not offer to count voters or enumerate ' +
+      'precincts. Saved voter lists may be listed, but do not read their ' +
+      'counts or create, update, or delete them.'
+    )
+  }
   const readGuidance =
     'You can explore the voter file in aggregate: call ' +
     'describe_filter_dimensions to see every filterable dimension and its ' +
