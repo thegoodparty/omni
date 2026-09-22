@@ -1794,6 +1794,48 @@ def test_multiple_anchor_problems_reach_slack_in_order(monkeypatch):
                                                             "second problem"]
 
 
+def test_okr_tag_problem_reaches_slack_as_yellow_with_its_text_intact(monkeypatch):
+    # A stale okr: tag used to be reported only in the markdown log a bot commits — a
+    # surface nobody reads. Splice it into the triage like anchor_problems, but as
+    # yellow: slow-moving governance drift, not a broken pipe. There IS a real change
+    # this run (a new flagged event) so the quiet gate lets the post through and we can
+    # see the tag item survive run_triage (run_triage overwrites headline/action on every
+    # item it is handed, so the splice must happen after it, same as anchor_problems).
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    tag_problem = ("okr: tag on 'Old Event' (win_active_candidates_30d) — no governed "
+                   "metric declares this event in anchored_on. Either the instrument "
+                   "moved and the semantic layer needs updating, or the tag is stale.")
+    result = _render_result(
+        okr_tag_problems=[tag_problem], proposals=[],
+        flagged=[{"event_type": "A", "status": "dormant", "rank": 8, "okr": None,
+                  "on_watchlist": False, "elevated": False, "anomaly": None,
+                  "event_count_30d": 0, "last_seen_date": None, "instrumented_pr": None,
+                  "divergence": None, "gpmeta": None}])
+    changes = {"new": ["A"], "escalated": [], "resolved": [], "still_open": []}
+
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+
+    assert triage is not None
+    tag_item = next(i for i in triage["items"] if i["headline"] == tag_problem)
+    assert tag_item["tier"] == "yellow"
+    assert "Old Event" in tag_item["headline"]
+
+
+def test_okr_tag_problem_alone_does_not_force_a_post(monkeypatch):
+    # Mirrors test_build_slack_triage_quiet_run_returns_none_with_empty_items: a stale
+    # tag is slow governance drift, not an incident, so it must not turn into a forced
+    # weekly post the way a red anchor_problems item does.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = _render_result(
+        okr_tag_problems=["okr: tag on 'Old Event' (m) — no governed metric declares "
+                          "this event in anchored_on."],
+        proposals=[])
+
+    triage = eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None)
+
+    assert triage is None
+
+
 def test_main_state_write_survives_a_date_inside_a_latch_record(monkeypatch, tmp_path):
     # The state file is the only place the sticky reference lives, and its latch records
     # are authored by another module. A bare json.dumps would fail the whole run.

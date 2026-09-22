@@ -1283,6 +1283,25 @@ def build_slack_triage(
         }
         for problem in result.get("anchor_problems") or []
     ]
+    # Same reasoning, added after run_triage for the same reason: a stale okr: tag is
+    # slow-moving governance drift, not a broken pipe, so it goes in yellow (never red,
+    # and it must never flip red_open below) — forcing a post every week on a persistent
+    # tag mismatch is the alert-fatigue pattern this project's digest explicitly avoids.
+    # Appended rather than prepended: anchor_problems are run-level incidents that belong
+    # at the top, tag problems are secondary detail.
+    triage["items"].extend([
+        {
+            "id": "(okr tag check)",
+            "event_type": "(okr tag check)",
+            "rank": 5, "okr": "run-level",
+            "rules_tier": "yellow", "tier": "yellow",
+            "headline": problem,
+            "action": ("Point the okr: tag in monitored_events.yaml at the event(s) the "
+                       "semantic layer currently anchors, or remove it if the metric "
+                       "itself is retired."),
+        }
+        for problem in result.get("okr_tag_problems") or []
+    ])
     red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
     if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
         return None
