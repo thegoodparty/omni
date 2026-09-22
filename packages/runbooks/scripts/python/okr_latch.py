@@ -62,13 +62,22 @@ RECOVERY_PCT = 0.5
 # (that is how DATA-2343 found these three) and repaired under their own tickets.
 
 # KNOWN LIMITATION, accepted 2026-09-22 (DATA-2421).
-# An oscillating break does not latch. A leg that alternates either side of the break
-# line — one week below LATCH_BREAK_PCT of the reference, the next in the band between
-# that floor and RECOVERY_PCT, repeating — never accumulates two consecutive broken
-# weeks, so the trailing run keeps resetting and `latched` stays False. Such a leg
-# produces no signal at all: the digest's dormant-anchor table filters on `latched`,
-# run_monitor's rank-0 branch keys on `latched`, and detect_anomaly's rolling baseline
-# has absorbed the depressed level by then as well.
+# An oscillating break does not latch, and it doesn't for two different shapes.
+#
+# The accepted edge case: a leg that alternates either side of the break line — one week
+# below LATCH_BREAK_PCT of the reference, the next in the band between that floor and
+# RECOVERY_PCT, repeating — never accumulates two consecutive broken weeks, so the
+# trailing run keeps resetting and `latched` stays False. Such a leg produces no signal
+# at all: the digest's dormant-anchor table filters on `latched`, run_monitor's rank-0
+# branch keys on `latched`, and detect_anomaly's rolling baseline has absorbed the
+# depressed level by then as well.
+#
+# The other shape is this module working as designed, not a limitation: a broken week
+# alternating with a genuine recovery (at or above RECOVERY_PCT) also never latches,
+# because `_is_recovered` drops the record outright on each recovery week and
+# `update_latches` re-creates it from scratch at `consecutive == 1` the next time the leg
+# breaks. By this module's own definition a week back at or above half the pre-break
+# level *is* a recovery, so clearing the latch on each one is correct, not an omission.
 #
 # Considered and accepted as an edge case rather than fixed. It takes a leg alternating
 # across the line week after week, a narrow shape next to the total silence and the
