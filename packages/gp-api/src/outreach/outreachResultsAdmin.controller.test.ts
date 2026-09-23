@@ -438,7 +438,6 @@ describe('POST /v1/outreach/admin/results/:outreachId — body size', () => {
     // down mid-upload when it refuses one, so that request races and reports
     // EPIPE instead of a status. This fails the moment someone raises the
     // adapter's limit in src/app.ts instead of scoping it here.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const adapter = service.app.getHttpAdapter() as FastifyAdapter
     expect(adapter.getInstance().initialConfig.bodyLimit).toBe(
       FASTIFY_DEFAULT_BODY_LIMIT,
