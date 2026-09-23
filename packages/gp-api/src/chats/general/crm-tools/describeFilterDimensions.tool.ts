@@ -26,12 +26,9 @@ export const buildDescribeFilterDimensionsTool = (deps: {
 }): LlmStreamTool<typeof describeFilterDimensionsInputSchema> => ({
   description:
     "List every contact-filter dimension supported by this organization's " +
-    'voter data: ' +
     'dimension keys, allowed values, how each dimension came to exist ' +
     '(provenance), and the activity channels with their per-channel ' +
-    'outcome vocabularies. This catalog describes vocabulary, not account ' +
-    'access; use the conversation context to decide whether its dimensions ' +
-    'can be applied. Takes no input. Call this before composing any ' +
+    'outcome vocabularies. Takes no input. Call this before composing any ' +
     'count_contacts filter so you only use dimensions and values that ' +
     'actually exist — never invent one.\n\n' +
     FILTER_DIMENSION_PROVENANCE_RULES +

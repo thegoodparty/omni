@@ -200,7 +200,7 @@ describe('product knowledge blocks', () => {
       const rules = buildProductKnowledgeBlocks(mode, true, null)[1] ?? ''
       const bullet = rules
         .split('\n- ')
-        .find((b) => b.includes('Access note names an unmet requirement'))
+        .find((b) => b.includes('Access note indicates they do not have a '))
       expect(bullet, mode).toBeDefined()
       return bullet ?? ''
     }

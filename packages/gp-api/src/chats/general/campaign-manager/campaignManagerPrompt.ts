@@ -365,11 +365,9 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.crmToolsEnabled || !ctx.organization) return null
   if (ctx.isPro === false) {
     return (
-      'Use describe_filter_dimensions only when the candidate asks what ' +
-      'Pro filtering supports. Its output is locked vocabulary, not options ' +
-      'this campaign can use now. Do not offer to count voters or enumerate ' +
-      'precincts. Saved voter lists may be listed, but do not read their ' +
-      'counts or create, update, or delete them.'
+      'For non-Pro users, describe_filter_dimensions only highlights the ' +
+      'filtering options available if they upgrade to Pro.' +
+      'In these cases, expect count_contacts to return an error if the filter is Pro-gated.'
     )
   }
   const readGuidance =
@@ -379,8 +377,6 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'filter. Always describe before your first count, and only use ' +
     'dimensions and values the describe call returned. Counts are ' +
     'aggregate only; never claim to identify or list an individual voter. ' +
-    'If count_contacts returns an error about Pro access, tell the ' +
-    'candidate that filtering voter data requires the Pro upgrade. ' +
     'Before quoting any number, name any part of the request the filter ' +
     'could not apply, and name any part you applied by substitution, with ' +
     'the dimension you used instead. Never say a dimension is ' +
