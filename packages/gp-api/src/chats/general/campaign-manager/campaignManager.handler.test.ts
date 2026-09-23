@@ -513,7 +513,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     )
   })
 
-  it('keeps only open CRM reads for a campaign without Pro', () => {
+  it('keeps only the filter catalog for a campaign without Pro', () => {
     const tools = buildCrmHandler(
       buildContacts(),
       buildVoterFileFilters(),
@@ -526,9 +526,13 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     )
 
     expect(Object.keys(tools)).toContain('describe_filter_dimensions')
-    expect(Object.keys(tools)).toContain('crud_saved_filters')
-    expect(Object.keys(tools)).not.toContain('count_contacts')
-    expect(Object.keys(tools)).not.toContain('list_precincts')
+    for (const gated of [
+      'count_contacts',
+      'list_precincts',
+      'crud_saved_filters',
+    ]) {
+      expect(Object.keys(tools)).not.toContain(gated)
+    }
   })
 
   it('omits both when crmToolsEnabled is false', () => {

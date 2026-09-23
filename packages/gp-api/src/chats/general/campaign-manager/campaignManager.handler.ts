@@ -439,9 +439,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // The open catalog remains useful for explaining what Pro supports. The
-    // action tools stay absent when the campaign is known not to have access;
-    // unknown or stale-positive state still reaches the service backstop.
+    // The open catalog remains useful for explaining what Pro supports. Every
+    // other CRM tool stays absent when the campaign is known not to have
+    // access: a campaign without Pro cannot create a saved list, so listing
+    // them is empty and each other action is refused. Unknown or
+    // stale-positive state still reaches the service backstop.
     if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
@@ -460,16 +462,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           contacts: this.contacts,
           organization: ctx.organization,
         })
-      }
-      // Saved-filter CRUD goes through the same VoterFileFilterService paths
-      // as the voter-file routes (Pro gate, completed-outreach validation,
-      // org scoping, locked-filter conflict all inherited).
-      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
-        tools.crud_saved_filters = buildCrudSavedFiltersTool({
-          voterFileFilters: this.voterFileFilters,
-          contacts: this.contacts,
-          organization: ctx.organization,
-        })
+        // Saved-filter CRUD goes through the same VoterFileFilterService
+        // paths as the voter-file routes (Pro gate, completed-outreach
+        // validation, org scoping, locked-filter conflict all inherited).
+        if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+          tools.crud_saved_filters = buildCrudSavedFiltersTool({
+            voterFileFilters: this.voterFileFilters,
+            contacts: this.contacts,
+            organization: ctx.organization,
+          })
+        }
       }
     }
 

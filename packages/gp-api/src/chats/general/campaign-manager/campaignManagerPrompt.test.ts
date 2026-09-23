@@ -149,7 +149,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(noOrg).not.toContain('count_contacts')
   })
 
-  it('treats the filter catalog as reference-only without Pro', () => {
+  it('describes only the filter catalog without Pro', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
@@ -160,10 +160,10 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
 
     expect(prompt).toContain('describe_filter_dimensions')
-    expect(prompt).toContain('none of it can be applied')
+    expect(prompt).toContain('says nothing about who can filter')
     expect(prompt).not.toContain('count_contacts')
     expect(prompt).not.toContain('list_precincts')
-    expect(prompt).not.toContain("action='create'")
+    expect(prompt).not.toContain('crud_saved_filters')
   })
 
   it('advertises the saved-list tool only when it is registered', () => {
