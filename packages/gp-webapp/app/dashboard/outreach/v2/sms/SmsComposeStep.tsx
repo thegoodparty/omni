@@ -295,7 +295,14 @@ export const SmsComposeStep = ({
               placeholder="Write your message…"
               aria-label="Message body"
               aria-invalid={overLimit}
-              className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
+              // Borderless at rest so the field sits seamlessly inside the
+              // card, which is the design — but `focus-visible:ring-0` also
+              // removed the focus indicator, so the draft read as static
+              // text and nobody realised it could be edited. It is a WCAG
+              // 2.4.7 failure too: keyboard users had nothing to follow.
+              // The ring is restored on focus only; the resting state is
+              // unchanged.
+              className="min-h-[140px] resize-none rounded-md border-0 p-0 ring-offset-2 ring-offset-card outline-none focus-visible:ring-[3px] focus-visible:ring-components-input-focus [field-sizing:content]"
             />
             <p className="mt-3 text-xs text-muted-foreground whitespace-pre-line">
               {composeFooter(committeeName)}
