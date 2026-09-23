@@ -541,6 +541,41 @@ async def run_agent(
             )
 
             if message.is_error:
+                # A max_turns cut is NOT a fatal error — it just means the
+                # agent ran out of turns. If a valid (partial) artifact was
+                # written to /workspace/output/ before the cut, honor it:
+                # return the stats dict so the outer harness runs
+                # collect_output_artifact -> validate_artifact_contract ->
+                # publish.publish as usual, and gp-api's resume sweep can
+                # pick it up (data_quality.overall=partial -> AWAITING_RESUME).
+                # If nothing was written, collect_output_artifact raises
+                # FileNotFoundError and the run fails with a truthful reason
+                # code — better than today's opaque "unknown error".
+                #
+                # Regression: ENG-11176. Two compliance_setup Pro-candidate
+                # runs (susan-harman 01a088ef, nick-gessell 01a0a67d) stalled
+                # silently in prod because this branch collapsed
+                # error_max_turns and error_during_execution into the same
+                # AgentExecutionError, discarding a valid
+                # pending_website_live / wait_dns_propagation artifact. Both
+                # had done all their real work and would have completed via
+                # the resume sweep if the artifact had been honored.
+                #
+                # Mirrors the existing finalize-on-max-turns handling in
+                # run_evaluator_agent (see _MAX_TURNS_SUBTYPE above). Genuine
+                # errors (error_during_execution) and any other is_error
+                # subtype keep raising exactly as before.
+                if message.subtype == _MAX_TURNS_SUBTYPE:
+                    logger.warning(
+                        f"Agent hit max_turns after {num_turns} turns "
+                        f"(session={session_id}) — treating as completion; "
+                        "downstream publish decides on the artifact's merits"
+                    )
+                    return {
+                        "cost_usd": total_cost,
+                        "num_turns": num_turns,
+                        "session_id": session_id,
+                    }
                 raise AgentExecutionError(
                     f"Agent error after {num_turns} turns (session={session_id}): {message.result or 'unknown error'}"
                 )
