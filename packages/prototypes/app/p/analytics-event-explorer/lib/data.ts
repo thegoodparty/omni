@@ -100,12 +100,20 @@ export const deslug = (s: string) =>
   s ? s.replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase()) : ''
 
 const AMPLITUDE_ORG = 'goodparty'
-const AMPLITUDE_PROD_PROJECT = '694490'
 
-// UNVERIFIED deep-link pattern — the org slug and project id are confirmed from the
-// repo, the per-event route is a best guess. Correct it here and every link follows.
+// Amplitude's Govern URL takes the event identifier as a path segment, not a query.
+// The project slug is `default`, not the numeric id the Experiment URLs use. The
+// trailing query is reproduced verbatim from a working link, including the
+// double-encoded `All%2520Properties`, which is what Amplitude itself emits.
+//
+// Keyed on event_type: it is the taxonomy's identifier, and the display name is a
+// mutable label. They are identical for 588 of 592 events; the four that differ
+// (`session_start`, `session_end`, `Daily Ad Metrics`, and the campaign-plan download)
+// are the only ones where this choice is observable, and untested.
 export const amplitudeUrl = (eventType: string) =>
-  `https://app.amplitude.com/data/${AMPLITUDE_ORG}/${AMPLITUDE_PROD_PROJECT}/events?search=${encodeURIComponent(eventType)}`
+  `https://app.amplitude.com/data/${AMPLITUDE_ORG}/default/events/main/latest/` +
+  `${encodeURIComponent(eventType)}` +
+  '?view=All&eventsTab=Events&tab=DETAILS&propertyValidityFilter=All%2520Properties'
 
 export const prUrl = (pr: string) =>
   /^\d+$/.test(pr) ? `https://github.com/thegoodparty/omni/pull/${pr}` : pr

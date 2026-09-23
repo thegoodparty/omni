@@ -467,7 +467,13 @@
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
   function deslug(s) { return s ? s.replace(/[_-]+/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); }) : ''; }
-  function amplitudeUrl(t) { return 'https://app.amplitude.com/data/goodparty/694490/events?search=' + encodeURIComponent(t); }
+  // Path segment, not a query; project slug is `default`; trailing query copied
+  // verbatim from a working link, double-encoding included.
+  function amplitudeUrl(t) {
+    return 'https://app.amplitude.com/data/goodparty/default/events/main/latest/' +
+      encodeURIComponent(t) +
+      '?view=All&eventsTab=Events&tab=DETAILS&propertyValidityFilter=All%2520Properties';
+  }
   function prUrl(p) { return /^\d+$/.test(p) ? 'https://github.com/thegoodparty/omni/pull/' + p : p; }
 
   function sparkline(series, w, h) {
