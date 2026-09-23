@@ -5,6 +5,8 @@ import type {
   ReadCampaignOutput,
   SetDistrictOutput,
   UpdateCampaignM2MInput,
+  UpdateCommitteeNameInput,
+  UpdateCommitteeNameOutput,
 } from '@goodparty_org/contracts'
 import type {
   CampaignWithLiveContext,
@@ -66,5 +68,15 @@ export class CampaignsResource extends BaseResource {
     this.deleteRequest<void>(
       `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
         '/internal-testing-approval',
+    )
+
+  updateCommitteeName = (
+    campaignId: number,
+    input: UpdateCommitteeNameInput,
+  ): Promise<UpdateCommitteeNameOutput> =>
+    this.patchRequest<UpdateCommitteeNameOutput>(
+      `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
+        '/committee-name',
+      input,
     )
 }

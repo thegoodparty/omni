@@ -106,6 +106,7 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
         ? formatISO(tcrCompliance.internalTestingApprovedAt)
         : null,
       hasComplianceRecord: Boolean(tcrCompliance),
+      committeeName: tcrCompliance?.committeeName ?? null,
       ...cvState,
     }
   }
