@@ -1542,9 +1542,7 @@ describe('<ChiefOfStaffChatBody> attachment scope', () => {
   it('shows the paperclip for chief_of_staff scope when the flag is on', () => {
     attachmentsOn = true
     render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
-    expect(
-      screen.getByRole('button', { name: /attach/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
   })
 })
 
