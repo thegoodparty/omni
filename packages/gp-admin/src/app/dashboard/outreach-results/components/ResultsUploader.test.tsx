@@ -194,4 +194,35 @@ describe('ResultsUploader', () => {
     )
     await screen.findByText(/came from a number that was not on this send/)
   })
+
+  // A poll's report carries nulls, not zeroes: its file goes to the analysis
+  // pipeline rather than the ingest, so no recipient map was consulted. Both
+  // branches that read `unmatched` have to treat that as "not measured" —
+  // reading it as a count would put an unmatched warning on every poll.
+  it('does not warn when the counts were never measured', async () => {
+    mockDryRun.mockResolvedValue({
+      rowsParsed: 12,
+      outboundRows: 4,
+      matched: null,
+      unmatched: null,
+      optOuts: null,
+      committed: false,
+    })
+    render(
+      <Theme>
+        <ResultsUploader kind="poll" id="7" sendLabel="September poll" />
+      </Theme>
+    )
+    const user = await upload(GOOD_CSV)
+    await user.click(
+      await screen.findByRole('button', { name: /check this file/i })
+    )
+
+    await screen.findByText('12 rows, 4 outbound')
+    expect(screen.queryByText(/matched nobody/)).toBeNull()
+    expect(
+      screen.queryByText(/came from a number that was not on this send/)
+    ).toBeNull()
+    await screen.findByText(/nothing has been saved yet/)
+  })
 })

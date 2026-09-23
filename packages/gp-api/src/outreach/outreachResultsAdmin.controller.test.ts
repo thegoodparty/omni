@@ -551,6 +551,54 @@ describe('poll results through the same surface', () => {
     })
   })
 
+  // The SMS path deliberately allows a re-upload: its ingest is a CAS, so
+  // running it twice lands on the same rows. This path has no such property
+  // — S3 fires ObjectCreated on the write whether or not the bytes changed,
+  // so a second upload re-runs the analysis, and because that analysis is an
+  // LLM job it can return different themes than the official already read.
+  it('refuses a re-upload against a poll that already has results', async () => {
+    await service.prisma.poll.update({
+      where: { id: pollId },
+      data: { isCompleted: true, completedDate: new Date() },
+    })
+
+    const result = await service.client.post(
+      `${BASE}/poll/${pollId}`,
+      {
+        fileName: 'poll-results.csv',
+        csv: POLL_CSV,
+        dryRun: false,
+        sourceLabel: 'staff',
+      },
+      { validateStatus: () => true },
+    )
+
+    expect(result.status).toBe(409)
+    expect(uploadFile).not.toHaveBeenCalled()
+  })
+
+  // The dry run is refused on the same grounds rather than reporting a
+  // parse the operator could then act on: the answer is the same either way.
+  it('refuses the dry run against a completed poll too', async () => {
+    await service.prisma.poll.update({
+      where: { id: pollId },
+      data: { isCompleted: true, completedDate: new Date() },
+    })
+
+    const result = await service.client.post(
+      `${BASE}/poll/${pollId}`,
+      {
+        fileName: 'poll-results.csv',
+        csv: POLL_CSV,
+        dryRun: true,
+        sourceLabel: 'staff',
+      },
+      { validateStatus: () => true },
+    )
+
+    expect(result.status).toBe(409)
+  })
+
   // The read the upload page does before it accepts anything. It has its
   // own query and its own 404s, and it sources resultsReceivedAt from
   // `completedDate` rather than the send path's field — none of which the

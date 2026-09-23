@@ -402,9 +402,28 @@ export class OutreachResultsAdminService extends createPrismaBase(
   ): Promise<OutreachResultsParseReport> {
     const poll = await this.client.poll.findUnique({
       where: { id: pollId },
-      select: { id: true },
+      select: { id: true, isCompleted: true },
     })
     if (!poll) throw new NotFoundException(`No poll ${pollId}`)
+    // The SMS path lets a completed send be re-uploaded because its ingest
+    // CAS makes that idempotent. This path is not idempotent in the same
+    // way: S3 fires ObjectCreated whether or not the bytes changed, so a
+    // second upload re-runs the whole Fargate analysis. That is slow, it
+    // costs money, and because the analysis is an LLM run it can return
+    // DIFFERENT themes — so the official's issues would silently change
+    // under them for a poll they already read.
+    //
+    // Refused rather than de-duplicated, because a re-analysis is sometimes
+    // legitimately wanted (fulfilment returned the wrong file) and this
+    // service cannot tell that from a double-click. Making it explicit is
+    // its own change; silently re-running it is the thing to avoid now.
+    if (poll.isCompleted) {
+      throw new ConflictException(
+        `Poll ${pollId} already has results. Uploading again would re-run ` +
+          'the analysis and could change the themes already published. ' +
+          'Nothing was written.',
+      )
+    }
 
     // Validated for the same reason the SMS path is: a truncated or
     // wrong-shaped file caught here costs a second, and caught by the

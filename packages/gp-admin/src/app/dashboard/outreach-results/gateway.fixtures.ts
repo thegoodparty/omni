@@ -88,9 +88,26 @@ export const fixtureGateway: OutreachResultsGateway = {
     }
   },
 
-  upload: async (_kind, id, input): Promise<OutreachResultsParseReport> => {
+  upload: async (kind, id, input): Promise<OutreachResultsParseReport> => {
     const parsed = parseResultsCsv(input.csv)
     if (!parsed.ok) throw new Error(parsed.error)
+
+    if (!input.dryRun) committed.add(id)
+
+    // A poll's file is forwarded to the analysis pipeline rather than
+    // ingested, so the server has no recipient map to match against and
+    // returns nulls. Computing them here would show a fixture operator an
+    // unmatched warning that production can never raise.
+    if (kind === 'poll') {
+      return {
+        rowsParsed: parsed.rows.length,
+        outboundRows: parsed.outboundRows,
+        matched: null,
+        unmatched: null,
+        optOuts: null,
+        committed: !input.dryRun,
+      }
+    }
 
     let matched = 0
     let optOuts = 0
@@ -98,8 +115,6 @@ export const fixtureGateway: OutreachResultsGateway = {
       if (matchesRecipient(row.phone)) matched += 1
       if (looksLikeOptOut(row.content)) optOuts += 1
     }
-
-    if (!input.dryRun) committed.add(id)
 
     return {
       rowsParsed: parsed.rows.length,
