@@ -162,17 +162,48 @@ carries until this ships. Its description records the target definition:
 ## Migration
 
 `Voter Outreach - Campaign Completed` is live with 9,061 query volume. Two
-things are true across the cutover and both are deliberate:
+discontinuities land at the cutover, and both are worth knowing before reading
+any chart across it.
 
-1. **`medium` keeps its name**, so no chart filtering on it breaks.
-2. **Its values normalize and history is not backfilled.** Rows before the
-   cutover carry the `OutreachType` spellings (`p2p`, `nativeDoorKnocking`,
-   `events`) and no `fanout`; rows after carry the `TaskChannel` spellings. A
-   chart spanning the cutover has to accept both, or start after it.
+**1. The series steps UP, because it starts measuring a different thing.**
+Every completion in the last 90 days came from just two places: the
+campaign-manager log-progress modal (self-reported activity) and a native
+door-knocking walk session. Nothing product-observed was counted at all:
 
-`voterContacts`, `campaignName` and the old `method: 'native'` are dropped —
-superseded by `recipientCount` and the fanout/channel pair, and none had query
-volume.
+| `medium`       | events, 90d to 2026-09-23 | what it actually was           |
+| -------------- | ------------------------: | ------------------------------ |
+| `text`         |                       175 | a candidate typing a number in |
+| `socialMedia`  |                       122 | a candidate typing a number in |
+| `doorKnocking` |                       109 | walk sessions + manual logs    |
+| `events`       |                        73 | a candidate typing a number in |
+| `phoneBanking` |                        28 | a candidate typing a number in |
+| `robocall`     |                        27 | a candidate typing a number in |
+
+After the cutover, real sends are counted beside those. **`method` is the cut
+that separates them**: `manual` is self-reported, everything else is
+product-observed. A chart that does not split on it will show a step change at
+the cutover date and read it as growth.
+
+**2. One value changes spelling: `events` → `event`**, to match the contract
+enum. That is 73 events over 90 days, and it is the only live value affected —
+`p2p`, `nativeDoorKnocking` and `nativePhoneBanking` appear in the cross-walk
+defensively but have never been fired on this event. Any chart or cohort
+filtering `medium = events` has to accept both spellings across the cutover.
+
+There is no backfill. `fanout` is absent on every pre-cutover row, which is why
+`ce:Voter Outreach - All` cannot take its `fanout = one-to-many` filter until
+this ships.
+
+Three properties are dropped: `voterContacts` and `campaignName` (superseded by
+`recipientCount`; neither had query volume), and `price: 0` on the manual log
+(it was a hardcoded zero, not a measurement — the property is now absent where
+no cost exists, so an average price stops being diluted by it). `method` also
+loses the value `native`, replaced by `turf` and `campaign`.
+
+Door-knocking volume will FALL even as the rest rises: completion moved off the
+walk session, which fired every time a canvasser stopped for the evening, onto
+the turf being finished. A fifty-door list walked over three evenings used to
+report three campaigns and now reports one.
 
 **Cutover date: TBD — stamp it here and on the event's `gp-meta` block when
 this reaches prod.** Prod is reached only by the release train, so the date is
