@@ -83,7 +83,12 @@ const CrmFact = ({ label, value }: { label: string; value: string }) => (
 const ReplyRow = ({ reply }: { reply: SmsOutreachReply }) => {
   const [expanded, setExpanded] = useState(false)
   return (
-    <li className="border-t border-border px-3 py-3 first:border-t-0">
+    // `block` is not decoration: globals.css makes every <li> under a
+    // [data-slot] ancestor a flex ROW, and DashboardLayout's SidebarProvider
+    // is such an ancestor. Without it the name, the message and the expander
+    // sit side by side and the whitespace between them is dropped, so a reply
+    // reads "HeavenAppreciate you checking in".
+    <li className="block border-t border-border px-3 py-3 first:border-t-0">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-semibold">{displayName(reply)}</span>
         {reply.isOptOut && (

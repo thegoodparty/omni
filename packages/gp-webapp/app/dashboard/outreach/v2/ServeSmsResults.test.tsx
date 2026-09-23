@@ -193,6 +193,23 @@ describe('Serve SMS results — the reply list', () => {
     ).not.toBeInTheDocument()
   })
 
+  // globals.css gives every <li> under a [data-slot] ancestor `display: flex`,
+  // and DashboardLayout's SidebarProvider is one. Without an explicit display
+  // utility the name, the message and the expander render side by side and the
+  // whitespace between them is dropped ("DanaSunday hours would help a lot").
+  // jsdom never loads that stylesheet, so no rendering assertion in this file
+  // can see the breakage — this asserts the override itself, which is the only
+  // thing holding the row's layout together.
+  it('keeps the display override the dashboard-wide li rule requires', async () => {
+    mockServeDrawer()
+
+    renderServeDrawer()
+
+    const row = (await screen.findByText('Dana')).closest('li')
+    expect(row).not.toBeNull()
+    expect(row?.className).toMatch(/\b(block|flex-col|grid|list-item)\b/)
+  })
+
   it('opens the CRM panel on demand and keeps it shut until asked', async () => {
     mockServeDrawer()
 
