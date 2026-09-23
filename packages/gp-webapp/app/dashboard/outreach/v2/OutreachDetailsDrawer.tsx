@@ -41,12 +41,15 @@ import {
   RadioIcon,
   CircleSlashIcon,
   ReceiptIcon,
+  ShieldCheckIcon,
   Trash2Icon,
   UserMinusIcon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { VoterFileFilters } from 'helpers/types'
+import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
@@ -58,6 +61,7 @@ import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ExportWalkSheetButton } from 'app/dashboard/door-knocking/native/ExportWalkSheetButton'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import { RESUME_COPY, type GateChannel } from './gate/gateCopy'
 import { shortOutreachDate } from './outreachDate.util'
 import {
   fetchOutreachDetail,
@@ -71,6 +75,7 @@ import { socialPurposeLabel } from './socialPurposes'
 import {
   CONTINUE_LABELS,
   continueLabel,
+  draftFooterAction,
   listDetailsFooterMode,
   type ListDetailsLifecycle,
 } from './listDetails/footerMode'
@@ -145,6 +150,16 @@ interface OutreachDetailsDrawerProps {
   // Serve caller threads its org-scoped sibling the same bound-function way
   // SocialFlow's `surface` does, so this drawer never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // Milestone 2's saved drafts (design: the drawer's `verify` footer). The
+  // membership names the step still standing between the row and a send —
+  // with none passed a draft row gets no footer, which is the flag-off hub.
+  membership?: MembershipState | null
+  // The footer's CTA: back into the flow that saved the row, which opens on
+  // whatever the candidate still has to do. Owned by the hub, since it also
+  // owns the tile and deep-link ways in.
+  onResumeDraft?: (row: HistoryRow) => void
+  // History refetch once a draft is gone.
+  onDraftDeleted?: () => Promise<void> | void
 }
 
 interface DetailRow extends HistoryRow {
@@ -157,6 +172,9 @@ export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
   detailFetcher = fetchOutreachDetail,
+  membership = null,
+  onResumeDraft,
+  onDraftDeleted,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
@@ -183,6 +201,7 @@ export const OutreachDetailsDrawer = ({
   const [outreaches, setOutreaches] = useOutreach()
   const queryClient = useQueryClient()
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [draftDeleteConfirmOpen, setDraftDeleteConfirmOpen] = useState(false)
   const { errorSnackbar, successSnackbar } = useSnackbar()
   // Ids ride as mutation variables, never read from `row` in onSuccess:
   // the confirm dialogs portal outside the vaul drawer, so their clicks
@@ -200,6 +219,22 @@ export const OutreachDetailsDrawer = ({
     },
     onError: () =>
       errorSnackbar("Couldn't delete this list. Please try again."),
+  })
+  // A saved draft is the one row the typed outreach DELETE accepts. The
+  // history refetch is a courtesy — the row is gone once the 200 lands, so
+  // its failure must not read as a failed delete.
+  const deleteDraftMutation = useMutation({
+    mutationFn: ({ rowId }: { rowId: number; channel: GateChannel }) =>
+      clientRequest('DELETE /v1/outreach/:id', { id: String(rowId) }),
+    onSuccess: async (_data, { rowId, channel }) => {
+      trackEvent(EVENTS.Outreach.Draft.Deleted, { channel })
+      setOutreaches(outreaches.filter((o) => o.id !== rowId))
+      setDraftDeleteConfirmOpen(false)
+      onOpenChange(false)
+      await Promise.resolve(onDraftDeleted?.()).catch(() => undefined)
+    },
+    onError: () =>
+      errorSnackbar("Couldn't delete this draft. Please try again."),
   })
 
   // Cancel-before-send: only a paid, scheduled-not-started text campaign
@@ -368,7 +403,7 @@ export const OutreachDetailsDrawer = ({
   // Prototype byline verbs ("Scheduled for {date}" / "Sent {date}"); our
   // extra legacy statuses (Draft, In review, …) have no prototype verb and
   // keep the bare date.
-  const statusLabel = row ? getHistoryStatusLabel(row) : null
+  const statusLabel = row ? getHistoryStatusLabel(row, membership) : null
   const bylineVerb =
     statusLabel === 'Scheduled'
       ? 'Scheduled for'
@@ -414,6 +449,49 @@ export const OutreachDetailsDrawer = ({
   // footer vocabulary (its `automatic` predates cancel/delete existing for a
   // paid send), so these rows render their own footer node in the shared
   // footer's container anatomy.
+  // A saved draft (milestone 2) has one destructive act and one way forward,
+  // and the way forward is named for what still stands between the row and
+  // a send — the same word its status pill reads (design: the drawer's
+  // `verify` footer). Only the two drafting channels save one.
+  const draftChannel: GateChannel =
+    row?.outreachType === OUTREACH_TYPES.robocall ? 'robocall' : 'sms'
+  const draftLabel = row?.status === 'draft' ? statusLabel : null
+  const draftAction =
+    draftLabel === null
+      ? null
+      : draftFooterAction(draftLabel, RESUME_COPY[draftChannel].cta)
+  const draftFooter =
+    row && draftAction ? (
+      <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
+        <div className="mx-auto flex w-full max-w-[608px] items-center gap-3">
+          <Button
+            variant="ghost"
+            className="shrink-0 text-destructive hover:bg-destructive/10"
+            onClick={() => setDraftDeleteConfirmOpen(true)}
+          >
+            <Trash2Icon className="size-4" />
+            Delete
+          </Button>
+          <Button
+            size="large"
+            className="flex-1"
+            disabled={draftAction.disabled}
+            onClick={() => {
+              onOpenChange(false)
+              onResumeDraft?.(row)
+            }}
+          >
+            {draftAction.disabled ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : draftAction.label === 'Start verification' ? (
+              <ShieldCheckIcon className="size-4" />
+            ) : null}
+            {draftAction.label}
+          </Button>
+        </div>
+      </div>
+    ) : null
+
   const smsFooter = isCancelableSms ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
@@ -456,7 +534,11 @@ export const OutreachDetailsDrawer = ({
         onOpenChange={onOpenChange}
         title={row?.name || row?.title || 'Outreach details'}
         onInteractOutside={(event) => {
-          if (cancelConfirmOpen || deleteConfirmOpen) {
+          if (
+            cancelConfirmOpen ||
+            deleteConfirmOpen ||
+            draftDeleteConfirmOpen
+          ) {
             event.preventDefault()
           }
         }}
@@ -485,7 +567,7 @@ export const OutreachDetailsDrawer = ({
         }
         footer={
           row &&
-          (smsFooter ?? (
+          (draftFooter ?? smsFooter ?? (
             <ListDetailsFooter
               mode={footerMode}
               destructive={
@@ -1065,6 +1147,36 @@ export const OutreachDetailsDrawer = ({
               onClick={() => row && cancelMutation.mutate(row.id)}
             >
               Cancel campaign
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={draftDeleteConfirmOpen}
+        onOpenChange={setDraftDeleteConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes the saved campaign. This can not be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteDraftMutation.isPending}
+              onClick={() =>
+                row &&
+                deleteDraftMutation.mutate({
+                  rowId: row.id,
+                  channel: draftChannel,
+                })
+              }
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

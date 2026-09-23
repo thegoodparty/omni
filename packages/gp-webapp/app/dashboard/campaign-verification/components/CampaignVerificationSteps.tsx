@@ -31,8 +31,6 @@ interface CampaignVerificationStepsProps {
   onStepChange?: (step: VerificationStep) => void
   onExit: () => void
   onComplete: () => void
-  onDelete?: () => void
-  deleteLabel?: string
   completeLabel?: string
 }
 
@@ -45,8 +43,6 @@ const CampaignVerificationSteps = ({
   onStepChange,
   onExit,
   onComplete,
-  onDelete,
-  deleteLabel = 'Delete',
   completeLabel = 'Back to dashboard',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
   const [step, setStep] = useState<VerificationStep>(initialStep)
@@ -70,18 +66,6 @@ const CampaignVerificationSteps = ({
 
   return (
     <div>
-      {onDelete && step !== 'submitted' && (
-        <div className="mb-4 flex justify-end">
-          <Button
-            variant="ghost"
-            size="small"
-            className="text-base-muted-foreground"
-            onClick={onDelete}
-          >
-            {deleteLabel}
-          </Button>
-        </div>
-      )}
       {step === 'intro' && (
         <VerificationIntro
           onBack={onExit}

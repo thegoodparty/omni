@@ -815,11 +815,6 @@ describe('SmsFlow', () => {
         detailRequests.push(params.id)
         return { status: 200, data: draftDetail({ id: 55 }) }
       })
-      const deleted: string[] = []
-      api.mock('DELETE /v1/outreach/:id', ({ params }) => {
-        deleted.push(params.id)
-        return { status: 200, data: undefined }
-      })
       openFlow()
 
       await buildToName()
@@ -828,9 +823,8 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(detailRequests).toEqual(['55']))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
       // The flow is now working the existing row, not the one it tried to
-      // write: the gate's Delete targets 55.
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-      await waitFor(() => expect(deleted).toEqual(['55']))
+      // write.
+      expect(screen.queryByText('Review and verify')).not.toBeInTheDocument()
     })
 
     // The requirement clears while the upgrade's own success screen is
@@ -941,27 +935,6 @@ describe('SmsFlow', () => {
       expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     })
 
-    it('deletes the draft from the gate and closes the flow', async () => {
-      gateRef.set(FREE_GATE)
-      mockDraft()
-      mockFreeAudience()
-      const deleted: string[] = []
-      api.mock('DELETE /v1/outreach/:id', ({ params }) => {
-        deleted.push(params.id)
-        return { status: 200, data: undefined }
-      })
-      const { onClose, onScheduled } = openFlow()
-
-      await buildToName()
-      await saveDraft()
-      await screen.findByTestId('pro-upgrade-flow')
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-
-      await waitFor(() => expect(deleted).toEqual(['77']))
-      expect(onScheduled).toHaveBeenCalledTimes(2)
-      expect(onClose).toHaveBeenCalled()
-    })
-
     // The row is already gone once DELETE returns, so a history refetch that
     // fails afterwards must still close the sheet instead of leaving the
     // candidate on a spinner over a draft that no longer exists.
@@ -983,25 +956,6 @@ describe('SmsFlow', () => {
       expect(
         screen.queryByText("We couldn't save this draft. Try again."),
       ).not.toBeInTheDocument()
-    })
-
-    it('still closes the flow when the history refetch fails after a delete', async () => {
-      gateRef.set(FREE_GATE)
-      mockDraft()
-      mockFreeAudience()
-      api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
-      const { onClose, onScheduled } = openFlow()
-      onScheduled
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('refetch failed'))
-
-      await buildToName()
-      await saveDraft()
-      await screen.findByTestId('pro-upgrade-flow')
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-
-      await waitFor(() => expect(onClose).toHaveBeenCalled())
-      expect(onScheduled).toHaveBeenCalledTimes(2)
     })
 
     // Free tier loses the in-flow builder, and the custom purpose asks for
@@ -1097,26 +1051,6 @@ describe('SmsFlow', () => {
       )
     })
 
-    it('reports the deleted draft', async () => {
-      gateRef.set(FREE_GATE)
-      mockDraft()
-      mockFreeAudience()
-      api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
-      openFlow()
-
-      await buildToName()
-      await saveDraft()
-      await screen.findByTestId('pro-upgrade-flow')
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-
-      await waitFor(() =>
-        expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
-          EVENTS.Outreach.Draft.Deleted,
-          { channel: 'sms' },
-        ),
-      )
-    })
-
     // The banner rides every build-mode step, so its explainer can open the
     // gate long before there is a draft. Finishing there must hand the
     // candidate back the step they were on — landing them on schedule would
@@ -1151,27 +1085,6 @@ describe('SmsFlow', () => {
         screen.queryByText('When do you want to send it?'),
       ).not.toBeInTheDocument()
       expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
-    })
-
-    it('reports a failed delete instead of leaving the draft silently', async () => {
-      gateRef.set(FREE_GATE)
-      mockDraft()
-      mockFreeAudience()
-      api.mock('DELETE /v1/outreach/:id', {
-        status: 500,
-        data: { message: 'nope' },
-      })
-      const { onClose } = openFlow()
-
-      await buildToName()
-      await saveDraft()
-      await screen.findByTestId('pro-upgrade-flow')
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-
-      expect(
-        await screen.findByText("We couldn't delete this draft. Try again."),
-      ).toBeInTheDocument()
-      expect(onClose).not.toHaveBeenCalled()
     })
 
     it('renders no banner and keeps the schedule step with the flag off', async () => {

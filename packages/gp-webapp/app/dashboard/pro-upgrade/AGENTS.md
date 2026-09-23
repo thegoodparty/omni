@@ -116,7 +116,7 @@ and `goToPreviousStep` always calls `onExit`, both hardcoded in `ProUpgradeFlow`
 a channel flow's own sheet instead of navigating there (`OutreachGate`'s `'verify'`
 screen). It renders no chrome of its
 own (no `min-h-screen`, no nav, no `Stepper`) and takes `{ initialStep, onStepChange,
-onExit, onComplete, onDelete?, deleteLabel?, completeLabel? }` — `onStepChange` fires
+onExit, onComplete, completeLabel? }` — `onStepChange` fires
 on mount and on every transition so a caller-owned Stepper/URL can track the active
 step without this component reaching outside its props. `CampaignVerificationFlow` is
 now just the page frame (Exit link + `Stepper` bar) plus this component, mapping

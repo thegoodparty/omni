@@ -56,9 +56,24 @@ vi.mock('./sms/SmsFlow', () => ({
       </div>
     ) : null,
 }))
+// The drawer's draft footer CTA is the hub's `onResumeDraft`, so the stand-in
+// exposes it as a button.
 vi.mock('./OutreachDetailsDrawer', () => ({
-  OutreachDetailsDrawer: ({ row }: { row: { name?: string | null } | null }) =>
-    row ? <div data-testid="details-drawer">{row.name}</div> : null,
+  OutreachDetailsDrawer: ({
+    row,
+    onResumeDraft,
+  }: {
+    row: HistoryRow | null
+    onResumeDraft?: (row: HistoryRow) => void
+  }) =>
+    row ? (
+      <div data-testid="details-drawer">
+        {row.name}
+        <button type="button" onClick={() => onResumeDraft?.(row)}>
+          resume draft
+        </button>
+      </div>
+    ) : null,
 }))
 
 const { mockFetchOutreachDetail } = vi.hoisted(() => ({
@@ -192,9 +207,10 @@ const renderHub = (outreaches: HistoryRow[]) =>
     />,
   )
 
-// A draft row is the campaign's way back into the flow that saved it, so it
-// reopens that flow on the saved row rather than the read-only drawer.
-describe('OutreachHubPage — clicking a draft row resumes its flow', () => {
+// A draft row opens the drawer like every other row; the drawer's footer CTA
+// (design: the `verify` footer) is what sends it back into the flow that
+// saved it.
+describe('OutreachHubPage — resuming a draft from its drawer', () => {
   beforeEach(() => {
     mockUseFlag.mockReturnValue({ ready: true, enabled: true })
     mockUseMembershipState.mockReturnValue({
@@ -205,29 +221,36 @@ describe('OutreachHubPage — clicking a draft row resumes its flow', () => {
     mockFetchOutreachDetail.mockReset()
   })
 
-  it('opens the text flow on the saved draft', async () => {
+  it('opens the drawer on a draft row, whose CTA resumes the text flow', async () => {
     mockFetchOutreachDetail.mockResolvedValue({ id: 99, name: 'Draft blast' })
     renderHub([draftRow, sentRow])
 
     await userEvent.click(within(desktopTable()).getByText('Draft blast'))
+    expect(await screen.findByTestId('details-drawer')).toHaveTextContent(
+      'Draft blast',
+    )
+    expect(screen.queryByTestId('sms-flow')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'resume draft' }))
 
     expect(await screen.findByTestId('sms-flow')).toHaveTextContent(
       'resuming 99',
     )
     expect(mockFetchOutreachDetail).toHaveBeenCalledWith(99)
-    expect(screen.queryByTestId('details-drawer')).not.toBeInTheDocument()
   })
 
-  it('opens the robocall flow on a robocall draft', async () => {
+  it('resumes the robocall flow from a robocall draft', async () => {
     mockFetchOutreachDetail.mockResolvedValue({ id: 77, name: 'Draft call' })
     renderHub([robocallDraftRow, sentRow])
 
     await userEvent.click(within(desktopTable()).getByText('Draft call'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume draft' }),
+    )
 
     expect(await screen.findByTestId('robocall-flow')).toHaveTextContent(
       'resuming 77',
     )
-    expect(screen.queryByTestId('details-drawer')).not.toBeInTheDocument()
   })
 
   // A failed detail read must not be a dead end: the flow opens as a new
@@ -237,6 +260,9 @@ describe('OutreachHubPage — clicking a draft row resumes its flow', () => {
     renderHub([draftRow, sentRow])
 
     await userEvent.click(within(desktopTable()).getByText('Draft blast'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume draft' }),
+    )
 
     expect(await screen.findByTestId('sms-flow')).toHaveTextContent('fresh')
   })
@@ -274,6 +300,9 @@ describe('OutreachHubPage — clicking a draft row resumes its flow', () => {
     renderHub([draftRow, sentRow])
 
     await userEvent.click(within(desktopTable()).getByText('Draft blast'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'resume draft' }),
+    )
     await screen.findByTestId('sms-flow')
 
     expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(

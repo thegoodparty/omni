@@ -110,19 +110,6 @@ describe('OutreachGate', () => {
       )
     })
 
-    it('captions a failed delete beside the Delete button', () => {
-      render(
-        <OutreachGate
-          {...baseProps}
-          state={stateWith({ requirement: 'pro' })}
-          onDelete={vi.fn()}
-          deleteError
-        />,
-      )
-
-      expect(screen.getByText(GATE_NOTICE_COPY.deleteError)).toBeInTheDocument()
-    })
-
     it('passes onExit straight through', async () => {
       const onExit = vi.fn()
       render(
@@ -136,33 +123,6 @@ describe('OutreachGate', () => {
       mockProUpgradeFlow.mock.calls[0]![0].onExit()
 
       expect(onExit).toHaveBeenCalledTimes(1)
-    })
-
-    it('shows a ghost destructive Delete when onDelete is given', async () => {
-      const user = userEvent.setup()
-      const onDelete = vi.fn()
-      render(
-        <OutreachGate
-          {...baseProps}
-          state={stateWith({ requirement: 'pro' })}
-          onDelete={onDelete}
-        />,
-      )
-
-      await user.click(screen.getByRole('button', { name: /delete/i }))
-
-      expect(onDelete).toHaveBeenCalledTimes(1)
-    })
-
-    it('renders no Delete button when onDelete is omitted', () => {
-      render(
-        <OutreachGate
-          {...baseProps}
-          state={stateWith({ requirement: 'pro' })}
-        />,
-      )
-
-      expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
     })
 
     it('calls onComplete once Pro is done for a non-texting channel', () => {
@@ -332,14 +292,12 @@ describe('OutreachGate', () => {
     it('mounts CampaignVerificationSteps with the channel noun in completeLabel', () => {
       const onExit = vi.fn()
       const onComplete = vi.fn()
-      const onDelete = vi.fn()
       render(
         <OutreachGate
           {...baseProps}
           state={stateWith({ requirement: 'verify' })}
           onExit={onExit}
           onComplete={onComplete}
-          onDelete={onDelete}
         />,
       )
 
@@ -347,7 +305,6 @@ describe('OutreachGate', () => {
         expect.objectContaining({
           onExit,
           onComplete,
-          onDelete,
           completeLabel: GATE_NOTICE_COPY.backToNoun(GATE_NOUN.sms),
         }),
         undefined,
@@ -356,7 +313,7 @@ describe('OutreachGate', () => {
   })
 
   describe('requirement: pin', () => {
-    it('mounts PinDialog open with tcrCompliance and no Delete button', () => {
+    it('mounts PinDialog open with tcrCompliance', () => {
       const tcrCompliance = { status: 'submitted', peerlyIdentityId: 'p-1' }
       render(
         <OutreachGate
@@ -366,7 +323,6 @@ describe('OutreachGate', () => {
             // @ts-expect-error partial fixture, only status/peerlyIdentityId read
             tcrCompliance,
           })}
-          onDelete={vi.fn()}
         />,
       )
 
@@ -375,7 +331,6 @@ describe('OutreachGate', () => {
         undefined,
       )
       expect(screen.getByText(BANNER_COPY.awaitingPin)).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /delete/i })).toBeNull()
     })
 
     // The PIN is the last thing standing between the candidate and their
@@ -454,22 +409,6 @@ describe('OutreachGate', () => {
       )
 
       expect(onExit).toHaveBeenCalledTimes(1)
-    })
-
-    it('shows a ghost destructive Delete when onDelete is given', async () => {
-      const user = userEvent.setup()
-      const onDelete = vi.fn()
-      render(
-        <OutreachGate
-          {...baseProps}
-          state={stateWith({ requirement: 'in_review' })}
-          onDelete={onDelete}
-        />,
-      )
-
-      await user.click(screen.getByRole('button', { name: /delete/i }))
-
-      expect(onDelete).toHaveBeenCalledTimes(1)
     })
   })
 })

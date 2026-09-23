@@ -44,13 +44,7 @@ export interface DraftGate {
   setExplainerOpen: (open: boolean) => void
   savingDraft: boolean
   draftSaveError: boolean
-  deletingDraft: boolean
-  // A DELETE that failed. Without it the gate's Delete simply stopped
-  // spinning and the candidate was left looking at a draft they had asked
-  // twice to discard.
-  deleteError: boolean
   saveDraft: () => Promise<void>
-  deleteDraft: () => Promise<void>
   handleGateComplete: () => void
   handleGateExit: () => void
   openGateFromExplainer: () => void
@@ -58,8 +52,8 @@ export interface DraftGate {
 
 // The gate plumbing SmsFlow and RobocallFlow both need: the saved row, the
 // resume switch, the gate/explainer visibility, the origin that says what a
-// completion means, and the three writes (save, delete, complete) with their
-// analytics. The channel-specific parts — payload assembly, step ids, phone
+// completion means, and the save and completion with their analytics (a
+// draft is deleted from its history row's drawer, not from the gate). The channel-specific parts — payload assembly, step ids, phone
 // list derivation — stay in the flows behind `createDraft`/`goToResumeStep`.
 export const useDraftGate = ({
   channel,
@@ -81,8 +75,6 @@ export const useDraftGate = ({
   const [resumed, setResumed] = useState(Boolean(resumeDraft))
   const [savingDraft, setSavingDraft] = useState(false)
   const [draftSaveError, setDraftSaveError] = useState(false)
-  const [deletingDraft, setDeletingDraft] = useState(false)
-  const [deleteError, setDeleteError] = useState(false)
   const [gateOpen, setGateOpen] = useState(false)
   const [gateOrigin, setGateOrigin] = useState<GateOrigin>(null)
   const [explainerOpen, setExplainerOpen] = useState(false)
@@ -94,8 +86,6 @@ export const useDraftGate = ({
     setResumed(Boolean(resumeDraft))
     setSavingDraft(false)
     setDraftSaveError(false)
-    setDeletingDraft(false)
-    setDeleteError(false)
     setGateOpen(false)
     setGateOrigin(null)
     setExplainerOpen(false)
@@ -163,27 +153,6 @@ export const useDraftGate = ({
     setDraftSaveError(true)
   }
 
-  const deleteDraft = async (): Promise<void> => {
-    if (!savedDraft || deletingDraft) return
-    setDeletingDraft(true)
-    setDeleteError(false)
-    try {
-      await clientRequest('DELETE /v1/outreach/:id', {
-        id: String(savedDraft.id),
-      })
-    } catch {
-      setDeletingDraft(false)
-      setDeleteError(true)
-      return
-    }
-    trackEvent(EVENTS.Outreach.Draft.Deleted, { channel })
-    // The row is already gone server-side, so a failed history refetch must
-    // not strand the candidate on a spinner over a draft that no longer exists.
-    await onDraftSaved().catch(() => undefined)
-    setDeletingDraft(false)
-    onClose()
-  }
-
   // Finishing the gate means whatever the gesture that opened it was about.
   // A save or a resume hands the flow the row it can now schedule; the
   // banner's explainer with nothing saved hands the candidate back the step
@@ -224,10 +193,7 @@ export const useDraftGate = ({
     setExplainerOpen,
     savingDraft,
     draftSaveError,
-    deletingDraft,
-    deleteError,
     saveDraft,
-    deleteDraft,
     handleGateComplete,
     handleGateExit,
     openGateFromExplainer,

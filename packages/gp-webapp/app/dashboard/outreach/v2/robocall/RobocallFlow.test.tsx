@@ -2294,21 +2294,12 @@ describe('RobocallFlow', () => {
         detailRequests.push(params.id)
         return { status: 200, data: draftDetail({ id: 55 }) }
       })
-      const deleted: string[] = []
-      api.mock('DELETE /v1/outreach/:id', ({ params }) => {
-        deleted.push(params.id)
-        return { status: 200, data: undefined }
-      })
 
       await buildToCompose()
       await saveDraft()
 
       await waitFor(() => expect(detailRequests).toEqual(['55']))
       expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
-      // The flow is now working the existing row, not the one it tried to
-      // write: the gate's Delete targets 55.
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-      await waitFor(() => expect(deleted).toEqual(['55']))
     })
 
     // The requirement clears while the upgrade's own success screen is
@@ -2440,29 +2431,9 @@ describe('RobocallFlow', () => {
       )
     })
 
-    it('deletes the draft from the gate and closes the flow', async () => {
+    it('reports the saved draft', async () => {
       gateRef.set(FREE_GATE)
       mockSaveDraft()
-      const deleted: string[] = []
-      api.mock('DELETE /v1/outreach/:id', ({ params }) => {
-        deleted.push(params.id)
-        return { status: 200, data: undefined }
-      })
-      const onClose = vi.fn()
-
-      await buildToCompose(onClose)
-      await saveDraft()
-      await screen.findByTestId('pro-upgrade-flow')
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-
-      await waitFor(() => expect(deleted).toEqual(['77']))
-      expect(onClose).toHaveBeenCalled()
-    })
-
-    it('reports the saved draft and the deleted one', async () => {
-      gateRef.set(FREE_GATE)
-      mockSaveDraft()
-      api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
 
       await buildToCompose()
       await saveDraft()
@@ -2471,15 +2442,6 @@ describe('RobocallFlow', () => {
       expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
         EVENTS.Outreach.Draft.Saved,
         { channel: 'robocall' },
-      )
-
-      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
-
-      await waitFor(() =>
-        expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
-          EVENTS.Outreach.Draft.Deleted,
-          { channel: 'robocall' },
-        ),
       )
     })
 

@@ -186,15 +186,16 @@ const OutreachHubContent = ({
     [historyRows, seedOutreachDetail],
   )
 
-  // A draft row reopens the flow that saved it; every other row opens the
-  // read-only drawer.
+  // Every row opens the drawer. A draft row's drawer footer is the way back
+  // into the flow that saved it (design: the `verify` footer's "Upgrade to
+  // Pro" / "Start verification" / "Enter your PIN"), through the same
+  // openChannel the tile and the deep link use.
   const handleRowClick = (row: HistoryRow) => {
-    const channel = DRAFT_CHANNELS[row.outreachType ?? '']
-    if (draftsEnabled && row.status === 'draft' && channel) {
-      openChannel(channel, 'row', row)
-      return
-    }
     setDetailsRow(row)
+  }
+  const handleResumeDraft = (row: HistoryRow) => {
+    const channel = DRAFT_CHANNELS[row.outreachType ?? '']
+    if (channel) openChannel(channel, 'row', row)
   }
 
   // The deep link resolves the params and the channel gate; opening the right
@@ -394,6 +395,9 @@ const OutreachHubContent = ({
         onOpenChange={(open) => {
           if (!open) setDetailsRow(null)
         }}
+        membership={membership}
+        onResumeDraft={handleResumeDraft}
+        onDraftDeleted={refetchOutreaches}
       />
     </div>
   )

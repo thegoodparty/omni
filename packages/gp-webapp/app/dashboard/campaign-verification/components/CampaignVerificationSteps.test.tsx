@@ -182,46 +182,4 @@ describe('CampaignVerificationSteps', () => {
       screen.getByRole('button', { name: 'Back to my text' }),
     ).toBeInTheDocument()
   })
-
-  it('renders no delete affordance when onDelete is omitted', () => {
-    render(
-      <CampaignVerificationSteps onExit={onExit} onComplete={onComplete} />,
-    )
-
-    expect(
-      screen.queryByRole('button', { name: /delete/i }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('renders a delete button that calls onDelete when provided, with the caller label', async () => {
-    const user = userEvent.setup()
-    const onDelete = vi.fn()
-    render(
-      <CampaignVerificationSteps
-        onExit={onExit}
-        onComplete={onComplete}
-        onDelete={onDelete}
-        deleteLabel="Delete this text"
-      />,
-    )
-
-    await user.click(screen.getByRole('button', { name: 'Delete this text' }))
-
-    expect(onDelete).toHaveBeenCalledTimes(1)
-  })
-
-  it('hides the delete affordance once the confirmation is showing', () => {
-    render(
-      <CampaignVerificationSteps
-        initialStep="submitted"
-        onExit={onExit}
-        onComplete={onComplete}
-        onDelete={vi.fn()}
-      />,
-    )
-
-    expect(
-      screen.queryByRole('button', { name: /delete/i }),
-    ).not.toBeInTheDocument()
-  })
 })

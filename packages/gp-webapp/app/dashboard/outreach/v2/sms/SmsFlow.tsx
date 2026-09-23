@@ -1126,15 +1126,6 @@ export const SmsFlow = ({
           showInterstitial={draftGate.gateOrigin === 'save'}
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
-          onDelete={
-            savedDraft
-              ? () => {
-                  void draftGate.deleteDraft()
-                }
-              : undefined
-          }
-          deleting={draftGate.deletingDraft}
-          deleteError={draftGate.deleteError}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep selected={purpose} onSelect={handleSelectPurpose} />

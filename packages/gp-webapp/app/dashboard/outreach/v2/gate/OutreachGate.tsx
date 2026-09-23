@@ -2,11 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@styleguide'
-import {
-  ClockIcon,
-  ShieldCheckIcon,
-  Trash2Icon,
-} from '@styleguide/components/ui/icons'
+import { ClockIcon, ShieldCheckIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import ProUpgradeFlow from 'app/dashboard/pro-upgrade/components/ProUpgradeFlow'
 import { PRO_UPGRADE_STEP } from 'app/dashboard/pro-upgrade/proUpgradeStep'
@@ -27,11 +23,6 @@ interface OutreachGateProps {
   open: boolean
   onExit: () => void
   onComplete: () => void
-  onDelete?: () => void
-  deleting?: boolean
-  // A delete that failed. Silence here left the candidate looking at a draft
-  // they had already asked twice to discard.
-  deleteError?: boolean
   // Whether the Pro screen opens on the "Join Pro to send this campaign"
   // interstitial or straight on the wizard's first step. Only the save that
   // just wrote the draft shows the pitch (design: sgOpen's pause screen);
@@ -40,47 +31,16 @@ interface OutreachGateProps {
   showInterstitial?: boolean
 }
 
-const DeleteButton = ({
-  onDelete,
-  deleting,
-  deleteError,
-}: {
-  onDelete: () => void
-  deleting?: boolean
-  deleteError?: boolean
-}): React.JSX.Element => (
-  <div className="mb-4 flex flex-col items-end gap-1">
-    <Button
-      type="button"
-      variant="ghost"
-      size="small"
-      className="text-destructive hover:bg-destructive/10"
-      loading={deleting}
-      onClick={onDelete}
-    >
-      <Trash2Icon className="size-4" aria-hidden />
-      {GATE_NOTICE_COPY.delete}
-    </Button>
-    {deleteError && (
-      <p className="text-sm text-destructive">{GATE_NOTICE_COPY.deleteError}</p>
-    )}
-  </div>
-)
-
 // The gate screens themselves, mounted in place of a paused flow's step body:
 // the Pro interstitial, campaign verification, the PIN dialog, or an
-// in-review notice. Only the first gate screen a candidate can land on
-// (interstitial or in-review) offers Delete — verification renders its own,
-// and PIN has nothing left to abandon.
+// in-review notice. None of them offers Delete (design: no gate screen does)
+// — a saved draft is discarded from its history row's drawer.
 export const OutreachGate = ({
   channel,
   state,
   open,
   onExit,
   onComplete,
-  onDelete,
-  deleting,
-  deleteError,
   showInterstitial = true,
 }: OutreachGateProps): React.JSX.Element | null => {
   // THE SCREEN IS LATCHED FOR THE LIFE OF ONE OPEN, and must stay that way.
@@ -126,13 +86,6 @@ export const OutreachGate = ({
   if (screen === 'pro') {
     return (
       <div>
-        {onDelete && (
-          <DeleteButton
-            onDelete={onDelete}
-            deleting={deleting}
-            deleteError={deleteError}
-          />
-        )}
         <ProUpgradeFlow
           initialStep={
             showInterstitial
@@ -152,7 +105,6 @@ export const OutreachGate = ({
       <CampaignVerificationSteps
         onExit={onExit}
         onComplete={onComplete}
-        onDelete={onDelete}
         completeLabel={GATE_NOTICE_COPY.backToNoun(noun)}
       />
     )
@@ -185,13 +137,6 @@ export const OutreachGate = ({
   // screen === 'in_review'
   return (
     <div className="flex flex-col gap-4">
-      {onDelete && (
-        <DeleteButton
-          onDelete={onDelete}
-          deleting={deleting}
-          deleteError={deleteError}
-        />
-      )}
       <div className="flex flex-col items-center gap-6 rounded-xl border border-base-border bg-card p-6 text-center">
         <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
           <ClockIcon className="size-8 text-primary" aria-hidden />
