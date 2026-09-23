@@ -664,6 +664,16 @@ export const EVENTS = {
     CampaignCompleted: 'Candidacy - Campaign Completed',
     DebriefClicked: 'Candidacy - Debrief Clicked',
   },
+  ChiefOfStaff: {
+    DocumentAttached: 'Chief Of Staff - Document Attached',
+    LinkSubmitted: 'Chief Of Staff - Link Submitted',
+    LinkFetchFailed: 'Chief Of Staff - Link Fetch Failed',
+    SourceUnreachablePromptShown:
+      'Chief Of Staff - Source Unreachable Prompt Shown',
+    CitationOpened: 'Chief Of Staff - Citation Opened',
+    UploadGuardShown: 'Chief Of Staff - Upload Guard Shown',
+    ComposeHandoffOpened: 'Chief Of Staff - Compose Handoff Opened',
+  },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',
     BriefingViewed: 'Briefing Assistant - Briefing Viewed',

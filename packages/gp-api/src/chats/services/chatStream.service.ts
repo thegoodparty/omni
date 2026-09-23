@@ -27,6 +27,8 @@ import {
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 
 export type ChatStreamErrorCode =
   | 'conversation_not_found'
@@ -376,6 +378,7 @@ export class ChatStreamService {
     @Optional() private readonly chatAttachments?: ChatAttachmentsService,
     @Optional() private readonly s3?: S3Service,
     @Optional() private readonly features?: FeaturesService,
+    @Optional() private readonly analytics?: AnalyticsService,
   ) {
     this.logger.setContext(ChatStreamService.name)
   }
@@ -819,6 +822,38 @@ export class ChatStreamService {
       // and the finally writes the sentinel instead.
       const cleanFinish = !args.signal?.aborted && !tracedMetrics.errorCode
       await persistOnce(cleanFinish)
+      if (cleanFinish && this.analytics) {
+        const citationSegments = segments.filter(
+          (s) => s.kind === ChatMessageSegmentKind.citation,
+        )
+        if (citationSegments.length > 0) {
+          const turnIndex = history.length
+          for (const seg of citationSegments) {
+            const raw = seg.payload
+            const attachmentId =
+              raw &&
+              typeof raw === 'object' &&
+              'attachmentId' in raw &&
+              typeof raw.attachmentId === 'string'
+                ? raw.attachmentId
+                : null
+            if (attachmentId) {
+              void this.analytics
+                .track(
+                  args.ownerUserId,
+                  EVENTS.ChiefOfStaff.AttachedDocumentQueried,
+                  { documentId: attachmentId, turnIndex },
+                )
+                .catch((err: unknown) => {
+                  this.logger.error(
+                    { err, conversationId: args.conversationId },
+                    'failed to track AttachedDocumentQueried',
+                  )
+                })
+            }
+          }
+        }
+      }
       // Meter usage only on a clean finish; a partial/aborted turn's usage is
       // unreliable. Guarded so metering never breaks the turn.
       if (cleanFinish && args.onUsage) {
