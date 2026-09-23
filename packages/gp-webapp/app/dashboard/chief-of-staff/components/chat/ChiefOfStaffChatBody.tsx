@@ -733,12 +733,13 @@ export default function ChiefOfStaffChatBody({
     [conversationId],
   )
 
-  // Navigate-only for now: the draft-prefill plumbing (payload transport plus
-  // the SocialFlow seam that reads it) ships together in ENG-11162, so compose
-  // opens blank until that lands.
+  // Chief of staff users are Serve (elected officials): /dashboard/outreach is
+  // the Win hub behind candidateAccess() and bounces them to the marketing
+  // site. Navigate-only for now: the compose deep link and draft-prefill
+  // plumbing ship together in ENG-11162.
   const handleComposeHandoff = useCallback(
     (_payload: ComposeHandoffPayload): void => {
-      router.push('/dashboard/outreach?compose=social')
+      router.push('/dashboard/constituent-outreach')
     },
     [router],
   )
