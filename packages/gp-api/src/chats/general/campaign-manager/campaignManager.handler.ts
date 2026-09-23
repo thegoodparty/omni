@@ -41,8 +41,8 @@ import {
 import { buildCampaignStoryTool } from './campaignStoryTool'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
-  FILTER_CONSUMER_TOOL_NAMES,
   buildDescribeFilterDimensionsTool,
+  registeredFilterConsumers,
 } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
@@ -490,9 +490,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,
-        filterConsumers: FILTER_CONSUMER_TOOL_NAMES.filter(
-          (name) => name in filterTools,
-        ),
+        filterConsumers: registeredFilterConsumers(filterTools),
       })
       Object.assign(tools, filterTools)
     }

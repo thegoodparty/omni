@@ -42,10 +42,10 @@ overrideEnvForEvals()
 
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { z } from 'zod'
 import type { Organization } from '../../../../generated/prisma'
 import type { LlmMessage } from '@/llm/types/llmMessages.types'
 import type { LlmTool } from '@/llm/services/llm.service'
+import { WEB_SEARCH_STUB } from './fixtures/webSearchStub'
 import { LlmService } from '@/llm/services/llm.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
@@ -145,25 +145,6 @@ const PRECINCTS = [
   { county: 'Example County', precinct: '101', voters: 812 },
   { county: 'Example County', precinct: '102', voters: 640 },
 ]
-
-// Same stub as the legal eval: lets the model reach for search without a
-// real, slow, nondeterministic call. The snippet says nothing about the
-// product, so nothing in a reply about access can have come from here.
-const webSearchStub: LlmTool = {
-  description:
-    'Search the web for current public information. Returns page snippets.',
-  inputSchema: z.object({ query: z.string() }).strict(),
-  execute: () => ({
-    results: [
-      {
-        title: 'Political texting and calling rules',
-        snippet:
-          'Rules for campaign texts and calls vary by state and by whether ' +
-          'messages are sent one at a time or by an automated system.',
-      },
-    ],
-  }),
-}
 
 // One neutral article, so a gate named in a reply can only have come from
 // the map, not from something the help center said.
@@ -268,7 +249,7 @@ const ask = async (
     ...handler.buildTools(ctx),
     // The handler registers Anthropic's native search whenever the key is
     // present. The stub keeps the eval fast and deterministic.
-    web_search: webSearchStub,
+    web_search: WEB_SEARCH_STUB,
   }
   const messages: LlmMessage[] = [
     { role: 'system', content: handler.buildSystemPrompt(ctx) },

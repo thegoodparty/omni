@@ -204,35 +204,50 @@ describe('product knowledge blocks', () => {
         expect(prompt, mode).not.toContain('Pro status:')
       }
     })
+
+    // "this campaign" is Win's noun and Pro is Win's account state, so a
+    // Serve caller that passes a flag gets no line rather than the wrong one.
+    it('renders the status line for Win only', () => {
+      expect(map('serve', false)).not.toContain('Pro status:')
+      expect(map('serve', true)).not.toContain('Pro status:')
+    })
   })
 
   // The rule that reads the status line. Generic on purpose: it names no
   // feature, so when an Access note in the map changes, the behavior follows
   // without a prompt edit.
   describe('unmet access requirements', () => {
-    const accessRule = (mode: 'win' | 'serve'): string => {
-      const rules = buildProductKnowledgeBlocks(mode, true, null)[1] ?? ''
-      const bullet = rules
-        .split('\n- ')
-        .find((b) => b.includes('Access note says it needs Pro'))
-      expect(bullet, mode).toBeDefined()
+    const RULE_MARK = 'Access note says it needs Pro'
+    const accessRule = (proAccess: boolean): string => {
+      const rules = buildProductKnowledgeBlocks('win', true, proAccess)[1] ?? ''
+      const bullet = rules.split('\n- ').find((b) => b.includes(RULE_MARK))
+      expect(bullet, String(proAccess)).toBeDefined()
       return bullet ?? ''
     }
 
-    it('tells both assistants not to present a locked area as available', () => {
-      for (const mode of ['win', 'serve'] as const) {
-        expect(accessRule(mode)).toMatch(
+    it('tells the assistant not to present a locked area as available', () => {
+      for (const proAccess of [true, false]) {
+        expect(accessRule(proAccess)).toMatch(
           /Do not present the locked part as available/,
         )
       }
     })
 
     it('names no feature, tab, or tool in the rule', () => {
+      expect(accessRule(false)).not.toMatch(
+        /voter|Voter Data|Know Your Opponent|count_contacts|precinct/i,
+      )
+    })
+
+    // The rule reads the status line, so it renders only where that line
+    // does: never for an unknown status, and never for Serve.
+    it('omits the rule when the status line is absent', () => {
       for (const mode of ['win', 'serve'] as const) {
-        expect(accessRule(mode)).not.toMatch(
-          /voter|Voter Data|Know Your Opponent|count_contacts|precinct/i,
-        )
+        const rules = buildProductKnowledgeBlocks(mode, true, null)[1] ?? ''
+        expect(rules, mode).not.toContain(RULE_MARK)
       }
+      const serve = buildProductKnowledgeBlocks('serve', true, false)[1] ?? ''
+      expect(serve).not.toContain(RULE_MARK)
     })
   })
 })

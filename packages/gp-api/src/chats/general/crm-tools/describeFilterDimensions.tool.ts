@@ -20,7 +20,18 @@ export const FILTER_CONSUMER_TOOL_NAMES = [
   'crud_saved_filters',
 ] as const
 
-const prepareLine = (filterConsumers: readonly string[]): string =>
+export type FilterConsumerToolName = (typeof FILTER_CONSUMER_TOOL_NAMES)[number]
+
+// The subset a handler registered, read off its tool record so the
+// description follows the registration instead of restating its conditions.
+export const registeredFilterConsumers = (
+  registered: Record<string, unknown>,
+): FilterConsumerToolName[] =>
+  FILTER_CONSUMER_TOOL_NAMES.filter((name) => name in registered)
+
+const prepareLine = (
+  filterConsumers: readonly FilterConsumerToolName[],
+): string =>
   filterConsumers.length === 0
     ? 'Call this before naming any dimension or value so you only name ' +
       'ones that actually exist — never invent one.'
@@ -40,7 +51,7 @@ export interface DescribeFilterDimensionsOutput {
 export const buildDescribeFilterDimensionsTool = (deps: {
   contacts: Pick<ContactsService, 'getFilterDimensions'>
   organization: Organization
-  filterConsumers: readonly string[]
+  filterConsumers: readonly FilterConsumerToolName[]
 }): LlmStreamTool<typeof describeFilterDimensionsInputSchema> => ({
   description:
     'List every contact-filter dimension available to this organization: ' +

@@ -214,8 +214,17 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
 // the handler already loads, and absent means not Pro, the same rule the
 // contacts service applies when it gates a filter.
 describe('CampaignManagerHandler.loadContext (Pro status)', () => {
+  // The columns loadContext reads off the campaign row, so a typo here fails
+  // to compile instead of silently building a different context.
+  type CampaignRowLike = {
+    id: number
+    details: object
+    data: object
+    user: null
+    isPro?: boolean | null
+  }
   const buildHandlerForRow = (
-    row: Record<string, unknown> | null,
+    row: CampaignRowLike | null,
   ): CampaignManagerHandler => {
     const store = {
       findFirst: vi.fn(() =>
@@ -555,9 +564,25 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     ]) {
       expect(Object.keys(tools)).toContain(name)
     }
+  })
+
+  it('names both filter tools in the catalog when saved lists are on', () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }))
     expect(
       descriptionOf(tools.describe_filter_dimensions).split('\n\n')[0],
     ).toContain('for count_contacts or crud_saved_filters')
+  })
+
+  it('names the count tool alone in the catalog when saved lists are off', () => {
+    const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
+    const line = descriptionOf(tools.describe_filter_dimensions).split(
+      '\n\n',
+    )[0]
+    expect(line).toContain('for count_contacts')
+    expect(line).not.toContain('crud_saved_filters')
   })
 
   it('omits both when crmToolsEnabled is false', () => {

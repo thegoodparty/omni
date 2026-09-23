@@ -48,8 +48,14 @@ export const HELP_CENTER_URL = 'https://support.goodparty.org/knowledge-base'
 const productKnowledgeRules = (
   mode: ProductMode,
   hasHelpCenter: boolean,
+  proAccess: boolean | null,
 ): string => {
   const noun = mode === 'win' ? 'candidate' : 'user'
+  // Rendered with the status line it reads, and never without it: a rule
+  // that reads a line the map does not carry is inert text.
+  const accessRule = showsProStatus(mode, proAccess)
+    ? `- When this ${noun} asks about a product area whose Access note says it needs Pro and the Pro status line says they do not have it, say so and name where they unlock it as the map spells it. Do not present the locked part as available, and describe what Pro unlocks only as the map states it.\n`
+    : ''
   const sources = hasHelpCenter
     ? 'Answer from it, and from `search_help_center` for anything procedural it does not cover (see HELP CENTER below).'
     : 'Answer from it and nothing else.'
@@ -60,8 +66,7 @@ const productKnowledgeRules = (
 - You live inside GoodParty.org, and the ${noun} is using it right now. Product questions are in scope and you answer them: where something lives, what a tab does, how to do a thing, what is included.
 - <product_map> below is what you know about the product's shape. ${sources} Name a tab exactly as the map spells it, because that is the string they are looking for in the left rail.
 - ${exhausted} say you are not certain where that sits in the current screen and route them to support. NEVER guess a tab, a button name, a menu path, or a URL. Guessing costs them more time than saying you do not know, and the ${noun} can see the screen you cannot.
-- When this ${noun} asks about a product area whose Access note says it needs Pro and the Pro status line says they do not have it, say so and name where they unlock it as the map spells it. Do not present the locked part as available, and describe what Pro unlocks only as the map states it.
-- Do not use web search for questions about GoodParty.org itself. The map is the source of truth; search results about our own product are marketing pages and out of date, and relaying them to a ${noun} who is already logged in is worse than saying you do not know.
+${accessRule}- Do not use web search for questions about GoodParty.org itself. The map is the source of truth; search results about our own product are marketing pages and out of date, and relaying them to a ${noun} who is already logged in is worse than saying you do not know.
 - Never point them at a third-party tool for something GoodParty.org does. We have our own door knocking, texting, phone banking, social, website, and voter data. Check the map before you name any outside product.
 - Two or three sentences. This is a "click here" answer, not a tour.`
 }
@@ -99,6 +104,16 @@ const renderArea = (area: ProductArea): string => {
   return lines.join('\n')
 }
 
+// Pro is a Win account state. The status line and the rule that reads it
+// render together, for Win, when the caller knows the status. Serve has no
+// Pro and passes null; if it ever gains an account gate, the copy below needs
+// a mode-keyed version ("this campaign" is Win's noun), and this predicate is
+// where that change starts.
+const showsProStatus = (
+  mode: ProductMode,
+  proAccess: boolean | null,
+): proAccess is boolean => mode === 'win' && proAccess !== null
+
 // Pro is a fact about the account, so it sits in the map as data beside the
 // Access notes it applies to, and only when the caller knows it. The product
 // knowledge rules say what to do with it and never restate which areas it
@@ -119,7 +134,7 @@ const productMapBlock = (
   [
     '<product_map>',
     'The parts of GoodParty.org this user has, as the left rail spells them:',
-    ...(proAccess === null ? [] : [proStatusLine(proAccess)]),
+    ...(showsProStatus(mode, proAccess) ? [proStatusLine(proAccess)] : []),
     ...areasForMode(mode)
       .filter((a) => !a.aliasOf)
       .map(renderArea),
@@ -146,7 +161,7 @@ export const buildProductKnowledgeBlocks = (
   proAccess: boolean | null,
 ): string[] => [
   productMapBlock(mode, proAccess),
-  productKnowledgeRules(mode, hasHelpCenter),
+  productKnowledgeRules(mode, hasHelpCenter, proAccess),
   ...(hasHelpCenter ? [HELP_CENTER_RULES] : []),
   supportRoutingRules(mode, hasHelpCenter),
 ]

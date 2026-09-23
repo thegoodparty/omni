@@ -32,8 +32,8 @@ import {
 import { buildReadCommunityIssuesTool } from './services/communityIssueRead.tool'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import {
-  FILTER_CONSUMER_TOOL_NAMES,
   buildDescribeFilterDimensionsTool,
+  registeredFilterConsumers,
 } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
@@ -235,9 +235,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,
-        filterConsumers: FILTER_CONSUMER_TOOL_NAMES.filter(
-          (name) => name in crmTools,
-        ),
+        filterConsumers: registeredFilterConsumers(crmTools),
       })
       Object.assign(tools, crmTools)
     }

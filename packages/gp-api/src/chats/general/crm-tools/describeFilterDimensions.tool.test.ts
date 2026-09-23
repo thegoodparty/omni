@@ -7,11 +7,16 @@ import {
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import {
   buildDescribeFilterDimensionsTool,
+  registeredFilterConsumers,
   type DescribeFilterDimensionsOutput,
+  type FilterConsumerToolName,
 } from './describeFilterDimensions.tool'
 
 const ORGANIZATION = { slug: 'eo-council' } as Organization
-const CONSUMERS = ['count_contacts', 'crud_saved_filters']
+const CONSUMERS: FilterConsumerToolName[] = [
+  'count_contacts',
+  'crud_saved_filters',
+]
 
 // The instruction line is the first paragraph. The shared routing rules that
 // follow it name both filter tools as catalog labels, which is that
@@ -100,6 +105,17 @@ describe('buildDescribeFilterDimensionsTool', () => {
     expect(instructionLine(tool.description)).toContain(
       'before composing any filter for count_contacts or crud_saved_filters',
     )
+  })
+
+  it('reads the registered consumers off a tool record, in catalog order', () => {
+    expect(
+      registeredFilterConsumers({
+        crud_saved_filters: {},
+        web_search: {},
+        count_contacts: {},
+      }),
+    ).toEqual(['count_contacts', 'crud_saved_filters'])
+    expect(registeredFilterConsumers({ web_search: {} })).toEqual([])
   })
 
   it('names no filter tool when it was given none', () => {

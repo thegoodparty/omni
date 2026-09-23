@@ -46,7 +46,8 @@ productKnowledgePrompt.ts    renders per mode + the one support route
 ```
 
 Each assistant sees only the tabs its user actually has, plus one line that the
-other product exists. Both get the same rules and the same single support
+other product exists. Both get the same rules, apart from one Pro access rule that renders only for
+Win when the campaign's Pro status is known, and the same single support
 route, so the two never answer the same question differently.
 
 All of it lives in

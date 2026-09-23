@@ -435,8 +435,10 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       'If the user asks about the platform itself, never use the decline line',
     )
     expect(prompt).toContain('<product_map>')
-    // Serve passes no Pro flag, so its map carries no status line.
+    // Serve passes no Pro flag, so its map carries no status line and its
+    // rules carry no rule that reads one.
     expect(prompt).not.toContain('Pro status:')
+    expect(prompt).not.toContain('Access note says it needs Pro')
     expect(prompt).toContain('SUPPORT HANDOFFS')
   })
 

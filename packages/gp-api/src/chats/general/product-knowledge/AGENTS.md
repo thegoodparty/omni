@@ -83,12 +83,13 @@ often than the map:
   from those constants, and all three are duplicated in gp-webapp
   (`app/shared/utils/supportContact.ts`) — change both sides together.
 - **Name an unmet gate when describing what it locks.** The map's `Access`
-  notes say what each area needs; the account's Pro status reaches the map
+  notes say what each area needs; the campaign's Pro status reaches the map
   as one data line when the caller passes it (it is an argument of
-  `buildProductKnowledgeBlocks`; the Chief of Staff passes `null`, so its map
-  says nothing about Pro). The rule reads both and names Pro but no
-  feature, so a new Pro-gated area added to the map is covered without a
-  prompt edit.
+  `buildProductKnowledgeBlocks`). The rule that reads that line renders with
+  it and never without it, and only for Win, whose account state Pro is; the
+  Chief of Staff passes `null`, so its prompt carries neither. The rule names
+  Pro but no feature, so a new Pro-gated area added to the map is covered
+  without a prompt edit.
 
 ## Why the assistants answer support questions at all
 
