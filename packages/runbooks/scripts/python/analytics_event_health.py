@@ -807,6 +807,9 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
             "> **OKR markers are unavailable this run.** No event below is marked OKR, "
             "because the semantic layer could not be read. Red OKR items may render yellow."
         )
+    import anchor_alignment as aa  # local: it imports behavior_registry, which imports this
+
+    lines.extend(aa.render_section(result.get("anchor_alignment") or []))
     lines.append("")
     lines.append("### Flagged (ranked)")
     lines.append("")
@@ -1127,6 +1130,19 @@ def run_monitor(
     # anchor_problems and needs no such distinction.
     result["warehouse_lag_problems"] = warehouse_lag_problems
 
+    # local: anchor_alignment imports behavior_registry, which imports this module
+    import anchor_alignment as aa
+    import behavior_registry as br
+
+    # After the latches are final, so a finding's evidence quotes the same latch record
+    # the digest prints two sections above it.
+    result["anchor_alignment"] = aa.align(
+        br.load_behaviors(watchlist_path), anchors,
+        records_by_type={r["event_type"]: r for r in result["records"]},
+        series=series, code=code, watchlist_events=watchlist_events,
+        latches=latches, today=today,
+    )
+
     # Walk `records`, not `flagged`: a latched break is by construction one whose
     # detect_anomaly has gone quiet, so its record already ranks 99 and has dropped out of
     # `flagged` — and `flagged` is the only list digest_triage and the Slack quiet gate
@@ -1248,6 +1264,12 @@ def build_slack_triage(
         }
         for problem in lag_problems
     ])
+    import anchor_alignment as aa  # local: it imports behavior_registry, which imports this
+
+    # Yellow, and only case 2: a declaration behind the product is the one shape someone
+    # outside this loop has to hear about, and it rides along with a post rather than
+    # manufacturing one.
+    triage["items"].extend(aa.slack_items(result.get("anchor_alignment") or []))
     red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
     if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
         return None

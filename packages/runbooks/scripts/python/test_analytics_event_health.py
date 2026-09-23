@@ -1991,3 +1991,66 @@ def test_a_real_anchor_problem_still_posts_red_alongside_a_stale_warehouse(monke
     tiers = {i["headline"]: i["tier"] for i in triage["items"]}
     assert tiers["GP_DATA_PLATFORM_READ_TOKEN is not set"] == "red"
     assert tiers[lag] == "yellow"
+
+
+# --- registry vs semantic layer wired into the run ----------------------------
+
+
+def test_run_monitor_reports_alignment_findings(tmp_path):
+    dead = "Dashboard - Candidate Dashboard Viewed"
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8),
+               _cat(dead, "win_dashboard", "Old.", cnt30=0)]
+    watchlist = (
+        "behaviors:\n"
+        "  - id: weekly_active_candidates\n"
+        "    metric: win_active_candidates_30d\n"
+        "    product: win\n"
+        "    surfaces:\n"
+        f'      - {{path: a.tsx, label: dashboard_visit, instrumented_by: "{dead}"}}\n'
+        f'      - {{path: b.tsx, label: tracker, instrumented_by: "{_TRACKER}"}}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3},
+                   {"event_type": dead, "retired_date": "2026-07-13"}],
+        latches={}, watchlist=watchlist)
+    result, changes = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg("Viewed", "/dashboard", None),
+                           sa.Leg(dead, None, "historical"), sa.Leg(_TRACKER, None, None)]})
+    kinds = {f["kind"] for f in result["anchor_alignment"]}
+    assert "surface_on_historical_leg" in kinds
+    assert "declared_leg_unmonitored" in kinds  # Viewed[path=/dashboard] is named nowhere
+    digest = eh.render_digest_section(result, changes)
+    assert "### Registry vs semantic layer" in digest
+
+
+def test_alignment_case_2_reaches_slack_as_yellow_and_case_1_does_not(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = _render_result(
+        proposals=[],
+        anchor_alignment=[
+            {"case": 1, "kind": "metric_undeclared", "behavior_id": "b", "metric": "m",
+             "surface_label": None, "event_key": "", "suggested": "", "evidence": {},
+             "headline": "case one"},
+            {"case": 2, "kind": "declared_leg_dead_with_live_successor", "behavior_id": "b",
+             "metric": "m", "surface_label": "s", "event_key": "Old", "suggested": "New",
+             "evidence": {}, "headline": "case two"},
+        ],
+        flagged=[{"event_type": "A", "status": "dormant", "rank": 8, "okr": None,
+                  "on_watchlist": False, "elevated": False, "anomaly": None,
+                  "event_count_30d": 0, "last_seen_date": None, "instrumented_pr": None,
+                  "divergence": None, "gpmeta": None}])
+    changes = {"new": ["A"], "escalated": [], "resolved": [], "still_open": []}
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+    heads = [i["headline"] for i in triage["items"]]
+    assert "case two" in heads and "case one" not in heads
+    assert next(i for i in triage["items"] if i["headline"] == "case two")["tier"] == "yellow"
+
+
+def test_alignment_alone_does_not_force_a_post(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = _render_result(proposals=[], anchor_alignment=[
+        {"case": 2, "kind": "k", "behavior_id": "b", "metric": "m", "surface_label": None,
+         "event_key": "Old", "suggested": "New", "evidence": {}, "headline": "case two"}])
+    assert eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None) is None
