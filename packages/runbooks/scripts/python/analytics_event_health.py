@@ -801,13 +801,12 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
     for problem in result.get("anchor_problems") or []:
         lines.append("")
         lines.append(f"> **OKR dormancy checks degraded.** {problem}")
-    tag_problems = result.get("okr_tag_problems") or []
-    if tag_problems:
+    if result.get("okr_markers_unavailable"):
         lines.append("")
-        lines.append("### OKR tags the semantic layer does not back")
-        lines.append("")
-        for problem in tag_problems:
-            lines.append(f"- {problem}")
+        lines.append(
+            "> **OKR markers are unavailable this run.** No event below is marked OKR, "
+            "because the semantic layer could not be read. Red OKR items may render yellow."
+        )
     lines.append("")
     lines.append("### Flagged (ranked)")
     lines.append("")
@@ -1017,70 +1016,6 @@ def _latched_leg_record(
     return record
 
 
-def validate_okr_tags(
-    okr_by_event: Mapping[str, str],
-    anchors: Mapping[str, Sequence[Any]],
-) -> list[str]:
-    """Report `okr:` tags in monitored_events.yaml that the semantic layer does not back.
-
-    The tag is a local convenience copy; the declaration is the kernel. Two problem
-    classes, both worth saying out loud every run:
-
-    1. Unknown — the tagged event appears in no metric's anchored_on at all. This is
-       how the era-2 break went unescalated for a month: a tag pointing at a retired
-       event name.
-    2. Stale-to-historical — the tagged event is not live anywhere, but is declared as
-       an ``era: historical`` leg on a metric that still has a live leg elsewhere. The
-       instrument moved; the tag did not follow it. Reported with a softer message that
-       names the live leg(s) to point the tag at instead.
-
-    A tag whose event is historical on one metric but live on another is backed by a
-    live declaration and is not reported. Nor is a tag on a historical leg of a metric
-    whose every leg is historical — that metric has nowhere for the tag to move to, and
-    run_monitor's own anchor_problems check already reports the metric itself; reporting
-    the tag too would be duplicate noise under a different heading.
-
-    An empty ``anchors`` means the cross-repo read did not happen (no token, GitHub
-    down). Validating against nothing would report every tag as broken, so return
-    nothing instead.
-    """
-    if not anchors:
-        return []
-
-    all_events = {leg.event for legs in anchors.values() for leg in legs}
-    live_events = {leg.event for legs in anchors.values() for leg in legs if leg.watched}
-
-    # event -> live leg keys of every metric where the event is a historical leg AND
-    # that metric still has a live leg for the tag to move to.
-    stale_targets: dict[str, list[str]] = {}
-    for legs in anchors.values():
-        live_keys = [leg.key for leg in legs if leg.watched]
-        if not live_keys:
-            continue
-        for leg in legs:
-            if not leg.watched:
-                stale_targets.setdefault(leg.event, []).extend(live_keys)
-
-    problems = []
-    for event, metric in sorted(okr_by_event.items()):
-        if event in live_events:
-            continue
-        if event not in all_events:
-            problems.append(
-                f"okr: tag on '{event}' ({metric}) — no governed metric declares this event in "
-                f"anchored_on. Either the instrument moved and the semantic layer needs "
-                f"updating, or the tag is stale."
-            )
-        elif event in stale_targets:
-            targets = ", ".join(sorted(set(stale_targets[event])))
-            problems.append(
-                f"okr: tag on '{event}' ({metric}) — the semantic layer has moved this "
-                f"instrument on; that event is now historical. Point the tag at "
-                f"{targets} instead."
-            )
-    return problems
-
-
 def run_monitor(
     run_query: Callable[[str], Any],
     *,
@@ -1130,13 +1065,13 @@ def run_monitor(
     weekly = fetch_weekly(run_query) + fetch_path_weekly(run_query, watched_legs)
     code = load_code_axis(csv_path)
     watched_families, watchlist_events, dismissed_events = load_monitored_events(watchlist_path)
-    okr_for_digest = dict(watched_by_key)
-
     result = reconcile(
         catalog, weekly, code, today, watchlist_events, watched_families,
-        dismissed_events=dismissed_events, okr_by_event=okr_for_digest,
+        dismissed_events=dismissed_events, okr_by_event=watched_by_key,
     )
-    result["okr_tag_problems"] = validate_okr_tags({}, anchors)
+    # A failed read leaves every record unmarked. Say so, or a red OKR item quietly
+    # reads yellow the week the token expires.
+    result["okr_markers_unavailable"] = bool(read_problems) and not anchors
 
     current_monday = today - timedelta(days=today.weekday())
     # The WHOLE warehouse series, never a watched-only slice: update_latches tells a leg
@@ -1288,9 +1223,19 @@ def build_slack_triage(
         for problem in result.get("anchor_problems") or []
         if problem not in lag_problems
     ]
-    # Yellow for the same reason the okr: tag items are: a lagging load is worth saying
-    # out loud, but it resolves itself when the pipeline catches up, and forcing a red
-    # post every week through a multi-day outage is the alert fatigue this digest avoids.
+    if result.get("okr_markers_unavailable"):
+        triage["items"].insert(0, {
+            "id": "(okr markers)",
+            "event_type": "(okr markers)",
+            "rank": 0, "okr": "run-level",
+            "rules_tier": "red", "tier": "red",
+            "headline": ("OKR markers are unavailable this run: the semantic layer "
+                         "could not be read."),
+            "action": "Restore the semantic-layer read before trusting any tier below.",
+        })
+    # Yellow rather than red: a lagging load is worth saying out loud, but it resolves
+    # itself when the pipeline catches up, and forcing a red post every week through a
+    # multi-day outage is the alert fatigue this digest avoids.
     triage["items"].extend([
         {
             "id": "(warehouse freshness)",
@@ -1302,25 +1247,6 @@ def build_slack_triage(
                        "acting on this run's dormancy verdicts."),
         }
         for problem in lag_problems
-    ])
-    # Same reasoning, added after run_triage for the same reason: a stale okr: tag is
-    # slow-moving governance drift, not a broken pipe, so it goes in yellow (never red,
-    # and it must never flip red_open below) — forcing a post every week on a persistent
-    # tag mismatch is the alert-fatigue pattern this project's digest explicitly avoids.
-    # Appended rather than prepended: anchor_problems are run-level incidents that belong
-    # at the top, tag problems are secondary detail.
-    triage["items"].extend([
-        {
-            "id": "(okr tag check)",
-            "event_type": "(okr tag check)",
-            "rank": 5, "okr": "run-level",
-            "rules_tier": "yellow", "tier": "yellow",
-            "headline": problem,
-            "action": ("Point the okr: tag in monitored_events.yaml at the event(s) the "
-                       "semantic layer currently anchors, or remove it if the metric "
-                       "itself is retired."),
-        }
-        for problem in result.get("okr_tag_problems") or []
     ])
     red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
     if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
