@@ -53,7 +53,6 @@ const actions = (formUrl: string) => [
 
 export const WhatsNext = () => {
   const items = actions(data.request_form_url)
-  const live = items.filter((a) => a.href).length
 
   return (
     <Card className="border-dashed">
@@ -62,11 +61,6 @@ export const WhatsNext = () => {
           <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
             What&apos;s next
           </h2>
-          {live < 3 && (
-            <span className="text-xs text-muted-foreground">
-              placeholder — most of these are not wired up yet
-            </span>
-          )}
         </div>
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
           {items.map(({ icon: Icon, title, blurb, href, cta }) => (
@@ -89,7 +83,7 @@ export const WhatsNext = () => {
                   className="mt-2"
                   disabled
                 >
-                  {cta} <ExternalLink className="ml-1 h-3 w-3" />
+                  Coming soon
                 </Button>
               )}
             </div>

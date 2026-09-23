@@ -76,8 +76,13 @@ _WIN_REPORT = {
 # until the data dictionary names its source events (DATA-2473).
 USED_BY: dict[str, list[dict]] = {name: [_WIN_REPORT] for name in REPORT_CONSUMERS}
 
-# One link for both "request an event" and "report something broken".
-REQUEST_FORM_URL = "https://goodparty.clickup.com/90132012119/v/fm/2ky4jq2q-134133"
+# Intended for "request an event" and "report something broken", but deliberately
+# empty: the Analytics Questions ClickUp form asks for a product question, not a bug
+# report or an instrumentation request, so pointing those two exits at it would send
+# people somewhere that cannot take what they came to say. Both fall back to
+# "Coming soon", and the empty search state drops its form button, until an intake
+# that fits exists (DATA-2509).
+REQUEST_FORM_URL = ""
 
 
 def read_tab(tab: str) -> list[dict]:

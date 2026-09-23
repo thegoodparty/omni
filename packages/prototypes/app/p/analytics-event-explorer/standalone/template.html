@@ -690,14 +690,12 @@
       ['Ask a question', 'Not sure what you are looking at? Ask in #product-analytics.', SLACK, 'Open #product-analytics'],
       ['Dig into an area', 'See every event, gap and question for one product area in one place.', '', 'Coming soon']
     ];
-    var live = acts.filter(function (a) { return a[2]; }).length;
     document.getElementById('whatsnext').innerHTML =
-      '<div class="sechead" style="margin-bottom:2px"><span class="sectoggle" style="cursor:default">What\u2019s next</span>' +
-      (live < 3 ? '<span class="note" style="margin:0">placeholder \u2014 most of these are not wired up yet</span>' : '') + '</div>' +
+      '<div class="sechead" style="margin-bottom:2px"><span class="sectoggle" style="cursor:default">What\u2019s next</span></div>' +
       '<div class="nextgrid">' + acts.map(function (a) {
         return '<div class="nextcard"><div class="h">' + esc(a[0]) + '</div><p>' + esc(a[1]) + '</p>' +
           (a[2] ? '<a class="btn' + (a[0] === 'Ask a question' ? '' : ' primary') + '" href="' + esc(a[2]) + '" target="_blank" rel="noreferrer">' + esc(a[3]) + '</a>'
-                : '<button class="btn" disabled>' + esc(a[3]) + '</button>') + '</div>';
+                : '<button class="btn" disabled>Coming soon</button>') + '</div>';
       }).join('') + '</div>';
   }
 
