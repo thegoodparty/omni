@@ -74,24 +74,6 @@ export const WIN_ONLY_FILTER_FIELD_KEYS = [
 // shaded by them. Making such a list PICKABLE for Serve would mean copying it
 // minus its Win-only columns at create, which is a product decision about
 // whose list it then is, and no surface asks for it today.
-// Ethnicity option keys, written out rather than derived, because the
-// dimension is gone from `filters.config.ts` and there is nothing left to
-// derive them from. Rows saved before the no-subsetting rule still carry the
-// columns, and `savedListFilterKeys` re-expands every boolean column on a
-// row, so without this a Serve or Win draft re-checks an ethnicity pill in a
-// group nothing renders and the map shades to a cut nobody can see or clear —
-// the same phantom the party keys leave below, minus the eventual 400, since
-// gp-api no longer has a field to reject. Stripped for BOTH products: unlike
-// the Win-only set, this rule does not depend on who is asking.
-const BLOCKED_FILTER_KEYS = new Set([
-  'ethnicityAfricanAmerican',
-  'ethnicityAsian',
-  'ethnicityEuropean',
-  'ethnicityHispanic',
-  'ethnicityOther',
-  'ethnicityUnknown',
-])
-
 const WIN_ONLY_FILTER_KEYS = new Set(
   filterSections
     .flatMap((section) => section.fields)
@@ -131,7 +113,6 @@ export const savedListFilterKeys = (
     Object.entries(list ?? {}).filter(
       ([key, value]) =>
         typeof value === 'boolean' &&
-        !BLOCKED_FILTER_KEYS.has(key) &&
         !(isServe && WIN_ONLY_FILTER_KEYS.has(key)),
     ),
   ) as Record<string, boolean>

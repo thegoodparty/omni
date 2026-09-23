@@ -67,6 +67,7 @@ const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'education',
   'income_ranges',
   'language',
+  'ethnicity',
   'independent_affinity',
   'ideology',
   'gender',

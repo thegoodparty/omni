@@ -1082,6 +1082,7 @@ describe('PersonSheet demographic information', () => {
       levelOfEducation: 'Graduate Degree',
       estimatedIncomeAmount: 82000,
       language: 'Spanish',
+      ethnicityGroup: 'Hispanic',
       ...overrides,
     })
 
@@ -1123,6 +1124,7 @@ describe('PersonSheet demographic information', () => {
       ['Level of education', 'Graduate Degree'],
       ['Estimated household income', '$75k - $100k'],
       ['Language', 'Spanish'],
+      ['Ethnicity group', 'Hispanic'],
     ])
     expect(within(demographicCard()).queryByText('Registered voter')).toBeNull()
   })
@@ -1149,7 +1151,7 @@ describe('PersonSheet demographic information', () => {
 
     expect(within(voterCard()).getAllByText('Not on file')).toHaveLength(3)
     expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
-      8,
+      9,
     )
   })
 

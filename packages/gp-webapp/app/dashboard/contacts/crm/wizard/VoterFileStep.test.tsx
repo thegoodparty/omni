@@ -219,6 +219,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Level of education',
       'Household income range',
       'Language',
+      'Ethnicity',
       'Gender',
       'Cell phone',
       'Landline',
@@ -260,6 +261,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Level of education',
       'Household income range',
       'Language',
+      'Ethnicity',
       'Gender',
       'Cell phone',
       'Landline',
@@ -442,20 +444,19 @@ describe('VoterFileStep — per-group Select all', () => {
     )
 
     await user.click(
-      within(headerRowFor('Level of Education')).getByRole('button', {
+      within(headerRowFor('Ethnicity')).getByRole('button', {
         name: /select all/i,
       }),
     )
 
     expect(onFiltersChange).toHaveBeenCalledWith(
       expect.objectContaining({
-        educationNone: true,
-        educationHighSchoolDiploma: true,
-        educationTechnicalSchool: true,
-        educationSomeCollege: true,
-        educationCollegeDegree: true,
-        educationGraduateDegree: true,
-        educationUnknown: true,
+        ethnicityAfricanAmerican: true,
+        ethnicityAsian: true,
+        ethnicityEuropean: true,
+        ethnicityHispanic: true,
+        ethnicityOther: true,
+        ethnicityUnknown: true,
       }),
     )
   })
@@ -467,13 +468,12 @@ describe('VoterFileStep — per-group Select all', () => {
     render(
       <VoterFileStep
         filters={{
-          educationNone: true,
-          educationHighSchoolDiploma: true,
-          educationTechnicalSchool: true,
-          educationSomeCollege: true,
-          educationCollegeDegree: true,
-          educationGraduateDegree: true,
-          educationUnknown: true,
+          ethnicityAfricanAmerican: true,
+          ethnicityAsian: true,
+          ethnicityEuropean: true,
+          ethnicityHispanic: true,
+          ethnicityOther: true,
+          ethnicityUnknown: true,
         }}
         onFiltersChange={onFiltersChange}
         supportStatus={[]}
@@ -491,21 +491,19 @@ describe('VoterFileStep — per-group Select all', () => {
       />,
     )
 
-    const clearButton = within(headerRowFor('Level of Education')).getByRole(
-      'button',
-      { name: 'Clear' },
-    )
+    const clearButton = within(headerRowFor('Ethnicity')).getByRole('button', {
+      name: 'Clear',
+    })
     await user.click(clearButton)
 
     expect(onFiltersChange).toHaveBeenCalledWith(
       expect.objectContaining({
-        educationNone: false,
-        educationHighSchoolDiploma: false,
-        educationTechnicalSchool: false,
-        educationSomeCollege: false,
-        educationCollegeDegree: false,
-        educationGraduateDegree: false,
-        educationUnknown: false,
+        ethnicityAfricanAmerican: false,
+        ethnicityAsian: false,
+        ethnicityEuropean: false,
+        ethnicityHispanic: false,
+        ethnicityOther: false,
+        ethnicityUnknown: false,
       }),
     )
   })

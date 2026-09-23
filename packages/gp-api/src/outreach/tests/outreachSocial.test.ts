@@ -907,6 +907,7 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
     homeowner: null,
     businessOwner: null,
     levelOfEducation: null,
+    ethnicityGroup: null,
     language: 'English',
     ...overrides,
   })

@@ -18,32 +18,6 @@ describe('savedListFilterKeys', () => {
     ).toEqual({ partyDemocrat: true, partyRepublican: false })
   })
 
-  // Nobody may subset constituents or voters by ethnicity. A row saved before
-  // that rule still carries the six columns, and this function re-expands
-  // every boolean column on a row — so without the strip they would re-check
-  // pills in a group nothing renders and shade the map to a cut the user
-  // cannot see or clear.
-  it('strips the ethnicity keys a pre-rule row still carries', () => {
-    const saved = list({
-      partyDemocrat: true,
-      ethnicityHispanic: true,
-      ethnicityEuropean: true,
-    } as Partial<SegmentResponse>)
-
-    expect(savedListFilterKeys(saved)).toEqual({ partyDemocrat: true })
-  })
-
-  // Unlike the Win-only keys, this rule does not depend on who is asking.
-  it('strips them for Serve too, where the Win-only keys also go', () => {
-    const saved = list({
-      partyDemocrat: true,
-      homeownerYes: true,
-      ethnicityHispanic: true,
-    } as Partial<SegmentResponse>)
-
-    expect(savedListFilterKeys(saved, true)).toEqual({ homeownerYes: true })
-  })
-
   it('re-expands the ranges the backend stores as string arrays', () => {
     expect(
       savedListFilterKeys(

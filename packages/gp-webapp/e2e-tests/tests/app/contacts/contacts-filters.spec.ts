@@ -339,10 +339,17 @@ test('contacts filters: household and socioeconomic', async ({ page }) => {
   })
 })
 
-test('contacts filters: multi-filter combos', async ({ page }) => {
+test('contacts filters: ethnicity and multi-filter combos', async ({
+  page,
+}) => {
   test.setTimeout(TEST_TIMEOUT)
   const client = await setUpCrmContacts(page)
   const { wizard, unfiltered } = await openWizard(page)
+
+  await test.step('Filter: Ethnicity', async () => {
+    await probeCount(page, wizard, unfiltered, [['Ethnicity', 'Hispanic']])
+    await probeCount(page, wizard, unfiltered, [['Ethnicity', 'European']])
+  })
 
   let maleCount = 0
   let age2534Count = 0
@@ -381,7 +388,7 @@ test('contacts filters: multi-filter combos', async ({ page }) => {
     expect(comboCount).toBeLessThanOrEqual(maleCount)
   })
 
-  await test.step('Combo: Ages 35+, Landline, Children, Income $75-125k', async () => {
+  await test.step('Combo: Ages 35+, Landline, Children, Income $75-125k, Ethnicity', async () => {
     await probeCount(page, wizard, unfiltered, [
       ['Age', '35-49'],
       ['Age', '50-64'],
@@ -390,6 +397,8 @@ test('contacts filters: multi-filter combos', async ({ page }) => {
       ['Children', 'Yes'],
       ['Household Income Range', '$75k - $100k'],
       ['Household Income Range', '$100k - $125k'],
+      ['Ethnicity', 'European'],
+      ['Ethnicity', 'Hispanic'],
     ])
   })
 

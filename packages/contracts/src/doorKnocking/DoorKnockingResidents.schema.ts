@@ -90,6 +90,9 @@ export const DoorKnockingDemographicsShape = {
   // which stays null for an absent value while a present unrecognized one is
   // a real fact that maps to 'Other'.
   language: PersonSchema.shape.language.nullable(),
+  // `EthnicGroups_EthnicGroup1Desc`. Two other ethnicity columns exist on the
+  // Voter model and are used nowhere; don't reach for them.
+  ethnicityGroup: PersonSchema.shape.ethnicityGroup,
 } as const
 
 export const DoorKnockingResidentTargetSchema = z.object({

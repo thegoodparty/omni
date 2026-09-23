@@ -176,10 +176,6 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 //       Other-language speaker — the pack's copy of buildLanguageFilter's
 //       `OR ... IS NULL`. Now UNKNOWN/English/Spanish/Other, byte 0 meaning
 //       "no data" as it does in every other dim.
-//   4 — the ethnicity dim is gone. Nobody may subset constituents or voters
-//       by ethnicity (PeopleFilters.schema.ts), and this pack was shipping a
-//       per-person ethnicity byte to the browser, so the plane went with the
-//       filter rather than lingering as an unselectable shading option.
 //
 // Note this is the vocabulary axis and not `version`: a client reads the
 // bucket list out of the manifest, so one shipping the new keys reads an old
@@ -187,7 +183,7 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 // finds nothing for `languageUnknown`, which is the old pack honestly having
 // no such bucket. Bumping `version` would instead make every tab open across
 // the deploy reject the pack outright, which this change does not warrant.
-export const PACK_FORMAT_REVISION = 4
+export const PACK_FORMAT_REVISION = 3
 
 export const DoorKnockingPackManifestSchema = z
   .object({

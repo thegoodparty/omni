@@ -36,6 +36,7 @@ const VOTER_SELECT_COLUMNS = [
   'Presence_Of_Children',
   'Veteran_Status',
   'Voter_Status',
+  'EthnicGroups_EthnicGroup1Desc',
   'Age_Int',
   'VotingPerformanceEvenYearGeneral',
   'VotingPerformanceMinorElection',
@@ -104,6 +105,7 @@ export const DOWNLOAD_COLUMNS = [
     header: 'Combined General and Primary Likelihood to Vote',
   },
   { column: 'Residence_Addresses_ApartmentType', header: 'Apartment Type' },
+  { column: 'EthnicGroups_EthnicGroup1Desc', header: 'Ethnicity' },
   { column: 'Residence_Addresses_Latitude', header: 'Latitude' },
   { column: 'Residence_Addresses_Longitude', header: 'Longitude' },
   {

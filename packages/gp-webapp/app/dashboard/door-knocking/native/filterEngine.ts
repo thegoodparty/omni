@@ -173,8 +173,8 @@ export interface PolygonStats {
   partyMix: DimSlice[]
   // Same shape and the same pass, for the only other dim a FROZEN ROUTE can
   // also answer (its targets carry a live age and party and nothing else).
-  // Every other dim the pack carries — education, income and ten more —
-  // would build a breakdown that emptied itself the moment the list
+  // Every other dim the pack carries — education, income, ethnicity and ten
+  // more — would build a breakdown that emptied itself the moment the list
   // was knocked, so the sheet reports the two both sources have.
   ageMix: DimSlice[]
 }

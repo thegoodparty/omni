@@ -537,6 +537,7 @@ const PersonContent: React.FC<{
             value={getIncomeBucket(person.estimatedIncomeAmount)?.label ?? null}
           />
           <Field label="Language" value={person.language} />
+          <Field label="Ethnicity Group" value={person.ethnicityGroup} />
         </InfoSection>
 
         {showActivityFeed ? (

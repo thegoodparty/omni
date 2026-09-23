@@ -78,6 +78,7 @@ const demographicsOf = (
   levelOfEducation: livePerson?.levelOfEducation ?? null,
   estimatedIncomeAmount: livePerson?.estimatedIncomeAmount ?? null,
   language: livePerson?.language ?? null,
+  ethnicityGroup: livePerson?.ethnicityGroup ?? null,
 })
 
 @Injectable()

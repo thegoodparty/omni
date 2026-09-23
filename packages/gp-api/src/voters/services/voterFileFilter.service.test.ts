@@ -42,23 +42,9 @@ describe('voterFileFilterToAudience', () => {
 
   it('maps the rich list fields backed by an L2 column', async () => {
     const audience = await service.voterFileFilterToAudience(
-      filter({ hasCellPhone: true, hasLandline: true }),
-    )
-
-    expect(audience).toEqual({
-      has_cell_phone: true,
-      has_landline: true,
-    })
-  })
-
-  // Nobody may subset voters by ethnicity, and a row saved before that rule
-  // still carries the four columns. The export widens back to the rest of the
-  // filter rather than failing, so the list stays usable and stops narrowing
-  // by ethnicity.
-  it('drops the ethnicity columns a pre-rule row still carries', async () => {
-    const audience = await service.voterFileFilterToAudience(
       filter({
         hasCellPhone: true,
+        hasLandline: true,
         ethnicityEuropean: true,
         ethnicityAsian: true,
         ethnicityHispanic: true,
@@ -66,7 +52,14 @@ describe('voterFileFilterToAudience', () => {
       }),
     )
 
-    expect(audience).toEqual({ has_cell_phone: true })
+    expect(audience).toEqual({
+      has_cell_phone: true,
+      has_landline: true,
+      ethnicity_european: true,
+      ethnicity_asian: true,
+      ethnicity_hispanic: true,
+      ethnicity_african_american: true,
+    })
   })
 })
 
