@@ -205,22 +205,44 @@ export const sendTevynAPIPollMessage = async (
         type: 'section',
         text: {
           type: 'mrkdwn',
+          text: 'When the responses are back, upload the results CSV for *this poll* here:',
+        },
+      },
+      // A button, not a link in the text, so this message and a Serve SMS
+      // send's look the same to the person reading them. Fulfilment handles
+      // both, and the whole point of one upload surface is that they never
+      // have to work out which kind of send a message is about.
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            style: 'primary',
+            text: {
+              type: 'plain_text',
+              text: 'Upload results CSV',
+              emoji: true,
+            },
+            url: outreachResultsUploadUrl('poll', pollId),
+            action_id: 'poll_results_upload',
+          },
+        ],
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          // The CLI line is a fallback, not the path we want used: the page
+          // validates the file and reports on it before anything reaches the
+          // pipeline, and `cp` writes whatever it is handed. Kept until
+          // fulfilment has run on the page for a while, so a bad day on the
+          // upload surface never blocks a poll's results.
+          //
+          // Says POLLS out loud because fulfilment also handles Serve SMS
+          // sends, whose results reach the ingest rather than S3 — there is
+          // no bucket to copy a text send's replies into, so a `cp` borrowed
+          // from this message would look like it worked and deliver nothing.
           text: [
-            'Upload the results CSV here:',
-            '',
-            outreachResultsUploadUrl('poll', pollId),
-            '',
-            // The CLI line is a fallback, not the path we want used: the
-            // page validates the file and reports on it before anything
-            // reaches the pipeline, and `cp` writes whatever it is handed.
-            // Kept until fulfilment has run on the page for a while, so a
-            // bad day on the upload surface never blocks a poll's results.
-            //
-            // Says POLLS out loud because fulfilment also handles Serve SMS
-            // sends, whose results reach the ingest rather than S3 — there
-            // is no bucket to copy a text send's replies into, so a `cp`
-            // borrowed from this message would look like it worked and
-            // deliver nothing.
             '_Backup for POLLS only, if the upload page is unavailable. ' +
               'Text message results must go through the upload page._',
             `\`aws s3 cp /path/to/local/file.csv s3://${process.env.SERVE_ANALYSIS_BUCKET_NAME}/input/${pollId}.csv\``,
