@@ -350,7 +350,7 @@ export const Explore = () => {
             <CardContent className="space-y-2 p-6">
               <p className="font-medium">Nothing matches “{query}”.</p>
               <p className="text-sm text-muted-foreground">
-                That may mean we do not track it yet.
+                That may mean we do not measure it yet.
               </p>
               <div className="flex flex-wrap gap-2">
                 {data.request_form_url && (
@@ -360,7 +360,7 @@ export const Explore = () => {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Request an event
+                      Ask for it to be measured
                     </a>
                   </Button>
                 )}

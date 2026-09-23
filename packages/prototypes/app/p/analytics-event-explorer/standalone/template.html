@@ -684,17 +684,18 @@
   }
 
   function renderNext() {
+    // No "request an event" exit on purpose: nobody arrives wanting an event, they
+    // arrive wanting to know whether users do something. The form takes the question.
     var acts = [
-      ['Request an event', 'Nothing here measures what you need. File it so the next sweep picks it up.', FORM, 'Open the form'],
-      ['Report something broken', 'An event is firing wrong, double-counting, or its description is out of date.', FORM, 'Open the form'],
-      ['Ask a question', 'Not sure what you are looking at? Ask in #product-analytics.', SLACK, 'Open #product-analytics'],
+      ['Ask for something to be measured', 'Want to know whether users do X? File the question and it becomes a tracked question on this page.', FORM, 'Open the form'],
+      ['Something look wrong?', 'A number that cannot be right, an event firing twice, a description that is out of date.', SLACK, 'Open #product-analytics'],
       ['Dig into an area', 'See every event, gap and question for one product area in one place.', '', 'Coming soon']
     ];
     document.getElementById('whatsnext').innerHTML =
       '<div class="sechead" style="margin-bottom:2px"><span class="sectoggle" style="cursor:default">What\u2019s next</span></div>' +
       '<div class="nextgrid">' + acts.map(function (a) {
         return '<div class="nextcard"><div class="h">' + esc(a[0]) + '</div><p>' + esc(a[1]) + '</p>' +
-          (a[2] ? '<a class="btn' + (a[0] === 'Ask a question' ? '' : ' primary') + '" href="' + esc(a[2]) + '" target="_blank" rel="noreferrer">' + esc(a[3]) + '</a>'
+          (a[2] ? '<a class="btn' + (a[0] === 'Something look wrong?' ? '' : ' primary') + '" href="' + esc(a[2]) + '" target="_blank" rel="noreferrer">' + esc(a[3]) + '</a>'
                 : '<button class="btn" disabled>Coming soon</button>') + '</div>';
       }).join('') + '</div>';
   }
@@ -720,8 +721,8 @@
 
     if (searching && res.total === 0) {
       out += '<div class="empty"><b>Nothing matches &ldquo;' + esc(state.q) + '&rdquo;.</b>' +
-        '<p class="note">That may mean we do not track it yet.</p><div class="links">' +
-        (FORM ? '<a class="btn primary" href="' + esc(FORM) + '" target="_blank" rel="noreferrer">Request an event</a>' : '') +
+        '<p class="note">That may mean we do not measure it yet.</p><div class="links">' +
+        (FORM ? '<a class="btn primary" href="' + esc(FORM) + '" target="_blank" rel="noreferrer">Ask for it to be measured</a>' : '') +
         '<a class="btn" href="' + SLACK + '" target="_blank" rel="noreferrer">Ask in #product-analytics</a></div></div>';
     }
     if (searching && res.questions.length) {

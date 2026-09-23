@@ -2,10 +2,9 @@
 
 import {
   ExternalLink,
-  FilePlus2,
-  MessageSquare,
+  HelpCircle,
   Microscope,
-  Wrench,
+  TriangleAlert,
 } from 'lucide-react'
 import { Button, Card, CardContent } from '@goodparty_org/styleguide'
 import { data } from '../lib/data'
@@ -13,31 +12,25 @@ import { data } from '../lib/data'
 const SLACK = 'https://goodpartyorg.slack.com/archives/C0BECEK0603'
 
 /**
- * Finding an event is rarely the last step. These are the exits; the two that file
- * something both point at the same ClickUp intake form, which comes from the snapshot
- * so it is set in one place. "Dig into an area" is still a guess at a real need.
+ * There is deliberately no "request an event" exit. Nobody arrives wanting an event;
+ * they arrive wanting to know whether users do something, and the event is how we
+ * answer that. Asking them to name the instrument is the mental model this page
+ * exists to remove, so the intake takes the question and the instrument follows.
  */
 const actions = (formUrl: string) => [
   {
-    icon: FilePlus2,
-    title: 'Request an event',
+    icon: HelpCircle,
+    title: 'Ask for something to be measured',
     blurb:
-      'Nothing here measures what you need. File it so the next sweep picks it up.',
+      'Want to know whether users do X? File the question and it becomes a tracked question on this page.',
     href: formUrl,
     cta: 'Open the form',
   },
   {
-    icon: Wrench,
-    title: 'Report something broken',
+    icon: TriangleAlert,
+    title: 'Something look wrong?',
     blurb:
-      'An event is firing wrong, double-counting, or its description is out of date.',
-    href: formUrl,
-    cta: 'Open the form',
-  },
-  {
-    icon: MessageSquare,
-    title: 'Ask a question',
-    blurb: 'Not sure what you are looking at? Ask in #product-analytics.',
+      'A number that cannot be right, an event firing twice, a description that is out of date.',
     href: SLACK,
     cta: 'Open #product-analytics',
   },
@@ -51,19 +44,15 @@ const actions = (formUrl: string) => [
   },
 ]
 
-export const WhatsNext = () => {
-  const items = actions(data.request_form_url)
-
-  return (
-    <Card className="border-dashed">
-      <CardContent className="space-y-3 p-4">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-            What&apos;s next
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-4">
-          {items.map(({ icon: Icon, title, blurb, href, cta }) => (
+export const WhatsNext = () => (
+  <Card className="border-dashed">
+    <CardContent className="space-y-3 p-4">
+      <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
+        What&apos;s next
+      </h2>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+        {actions(data.request_form_url).map(
+          ({ icon: Icon, title, blurb, href, cta }) => (
             <div key={title} className="rounded-lg border p-3">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Icon className="h-4 w-4 text-muted-foreground" />
@@ -87,9 +76,9 @@ export const WhatsNext = () => {
                 </Button>
               )}
             </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
+          ),
+        )}
+      </div>
+    </CardContent>
+  </Card>
+)
