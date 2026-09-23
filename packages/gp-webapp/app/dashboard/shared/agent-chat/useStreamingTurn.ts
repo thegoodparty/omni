@@ -329,16 +329,23 @@ export function useStreamingTurn(
             setLiveSegments([...segments])
           } else if (event.type === 'tool_call') {
             const hasLabel = !!scope.toolLabel(event.toolName)
-            segments.push({
-              kind: 'tool',
-              toolName: event.toolName,
-              // Only shimmer for labeled tools (those rendered as pills).
-              ...(hasLabel && { running: true }),
-              // Carry the args so InlineSegments can render a CTA from the
-              // payload without a separate extraction pass.
-              ...(event.args !== undefined && { payload: event.args }),
-            })
-            setLiveSegments([...segments])
+            // Only track tool segments for labeled tools (rendered as pills) or
+            // compose_handoff (needs to reach InlineSegments as a CTA card).
+            // Unlabeled tools that are not compose_handoff are internal
+            // bookkeeping; pushing them breaks the ThinkingRow shimmer on surfaces
+            // that check visibleSegments.length === 0 (DraftChat, OrdinanceFlowChat).
+            if (hasLabel || event.toolName === 'compose_handoff') {
+              segments.push({
+                kind: 'tool',
+                toolName: event.toolName,
+                // Only shimmer for labeled tools (those rendered as pills).
+                ...(hasLabel && { running: true }),
+                // Carry the args so InlineSegments can render a CTA from the
+                // payload without a separate extraction pass.
+                ...(event.args !== undefined && { payload: event.args }),
+              })
+              setLiveSegments([...segments])
+            }
           } else if (event.type === 'tool_result') {
             // The tool finished; stop its pill shimmering. Clear the most recent
             // still-running segment for this tool (tools run one at a time).

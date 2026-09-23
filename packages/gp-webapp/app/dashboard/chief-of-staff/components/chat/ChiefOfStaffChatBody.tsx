@@ -745,7 +745,7 @@ export default function ChiefOfStaffChatBody({
       } catch {
         // private mode / storage disabled — compose will open without prefill
       }
-      router.push(`/dashboard/outreach/v2/social?handoff=${nonce}`)
+      router.push(`/dashboard/outreach?compose=social&handoff=${nonce}`)
     },
     [router],
   )
