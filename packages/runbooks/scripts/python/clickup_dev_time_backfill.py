@@ -57,7 +57,8 @@ METRIC_FIELDS = ['Technical Design Time', 'Total Dev Time', 'Estimated Dev Time'
 
 
 def call(method, path, token, params=None, payload=None):
-    for attempt in range(5):
+    retries = 0
+    while True:
         r = requests.request(
             method.upper(),
             f'{API}/{path.lstrip("/")}',
@@ -67,11 +68,13 @@ def call(method, path, token, params=None, payload=None):
             timeout=TIMEOUT,
         )
         if r.status_code == 429:
+            if retries >= 5:
+                raise RuntimeError(f'rate limited after 5 retries: {method} {path}')
+            retries += 1
             time.sleep(int(r.headers.get('Retry-After', 10)))
             continue
         r.raise_for_status()
         return r.json() if r.content else None
-    raise RuntimeError(f'rate limited after 5 attempts: {method} {path}')
 
 
 def fetch_tasks(list_id, token):
@@ -89,7 +92,9 @@ def fetch_tasks(list_id, token):
             },
         )
         tasks.extend(body['tasks'])
-        if body.get('last_page', True):
+        if 'last_page' not in body:
+            raise RuntimeError('ClickUp task page omitted last_page; refusing to guess')
+        if body['last_page']:
             return tasks
         page += 1
 
