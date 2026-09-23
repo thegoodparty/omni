@@ -131,6 +131,23 @@ describe('demographicFacts', () => {
     ])
   })
 
+  // Dropped for Serve on the same terms as the party row above, and for the
+  // same reason: gp-api nulls the field for an `eo-` org, so leaving it to
+  // `withFallback` would print "Not on file" about something this product
+  // does not tell an elected official (#1933).
+  it('omits the ethnicity row on Serve and keeps it on Win', () => {
+    const serveLabels = demographicFacts(
+      target({ ethnicityGroup: 'Hispanic' }),
+      true,
+    ).map((fact) => fact.label)
+    expect(serveLabels).not.toContain('Ethnicity group')
+    expect(
+      demographicFacts(target({ ethnicityGroup: 'Hispanic' })).map(
+        (fact) => fact.label,
+      ),
+    ).toContain('Ethnicity group')
+  })
+
   // One decision about absence, applied across both cards. A profile where some
   // fields say "Unknown", some say "No" and some vanish teaches a reader that
   // absence means something different each time — and splitting the card in two

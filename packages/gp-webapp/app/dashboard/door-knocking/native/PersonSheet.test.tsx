@@ -1155,6 +1155,16 @@ describe('PersonSheet demographic information', () => {
     )
   })
 
+  // The Serve half. gp-api nulls `ethnicityGroup` for an `eo-` org, and the
+  // row is dropped rather than left to print "Not on file" about a field this
+  // product does not state to an elected official (#1933) — so the card is one
+  // row shorter here than in the Win case above, not one "Not on file" longer.
+  it('drops the ethnicity row in serve mode', () => {
+    renderSheet([fullTarget({ ethnicityGroup: null })], undefined, true)
+
+    expect(within(demographicCard()).queryByText('Ethnicity group')).toBeNull()
+  })
+
   // The two presence-only columns hold a value meaning yes or nothing at all,
   // so absence is indistinguishable from unknown. Printing "No" would tell a
   // canvasser at the door that someone is not a veteran on no data at all.

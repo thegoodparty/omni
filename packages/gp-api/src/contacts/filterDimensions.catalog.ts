@@ -414,10 +414,18 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     ],
   },
   {
+    // Win-only, and the mode mark is the whole of what the assistant sees:
+    // `getFilterDimensions` drops it for an `eo-` org, so the Chief of Staff
+    // cannot learn the dimension exists, and
+    // `assertNoEthnicityFilterForElectedOffice` 400s it at the routes for the
+    // org that asks anyway. Serve may not subset constituents by ethnicity
+    // (#1933); that rule was applied to both products and narrowed to Serve
+    // in #1933's partial revert. Marked the same way affinity and ideology
+    // are — a permanent product rule, not a licensing one.
     key: 'ethnicity',
     label: 'Ethnicity',
     kind: 'boolean-group',
-    modes: 'both',
+    modes: 'win',
     provenance: 'modeled',
     values: [
       { key: 'ethnicityAfricanAmerican', label: 'African American' },

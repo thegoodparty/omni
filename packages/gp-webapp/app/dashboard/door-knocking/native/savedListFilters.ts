@@ -48,6 +48,13 @@ export const WIN_ONLY_FILTER_FIELD_KEYS = [
   'political_party',
   'voter_likely',
   'contacts_made',
+  // Serve may not subset constituents by ethnicity (#1933), so the group is
+  // hidden in the create flow and its option keys are stripped here. Sitting
+  // in this list rather than a set of its own is what makes a pre-rule saved
+  // row safe: `savedListFilterKeys` re-expands every boolean column on a row,
+  // so without it a Serve draft re-checks an ethnicity pill in a group
+  // nothing renders and the map shades to a cut nobody can see or clear.
+  'ethnicity',
 ]
 
 // Those fields' option keys, derived from the config rather than written out

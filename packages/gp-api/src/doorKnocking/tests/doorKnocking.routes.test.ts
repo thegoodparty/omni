@@ -3415,7 +3415,12 @@ describe('door-knocking routes', () => {
       }
 
       type ServedStops = Array<{
-        addresses: Array<{ targets: Array<{ politicalParty: string | null }> }>
+        addresses: Array<{
+          targets: Array<{
+            politicalParty: string | null
+            ethnicityGroup: string | null
+          }>
+        }>
       }>
 
       const servedParties = (stops: ServedStops) =>
@@ -3442,6 +3447,34 @@ describe('door-knocking routes', () => {
         expect(servedParties(res.data.stops as ServedStops)).toContain(
           'Democratic',
         )
+      })
+
+      // The same leak, the same road, one rule later. #1933 barred subsetting
+      // by ethnicity for both products; the Win half was reverted, so the
+      // per-target value must still never reach an elected official.
+      it('nulls ethnicityGroup on every target for a Serve (eo-) org', async () => {
+        const res = await serveTurf('ethnicity')
+
+        expect(res.status).toBe(200)
+        const groups = (res.data.stops as ServedStops)
+          .flatMap((stop) => stop.addresses)
+          .flatMap((address) => address.targets)
+          .map((target) => target.ethnicityGroup)
+        expect(groups.length).toBeGreaterThan(0)
+        expect(groups.every((group) => group === null)).toBe(true)
+      })
+
+      // The other half, so the assertion above cannot pass vacuously.
+      it('keeps ethnicityGroup for a Win org', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(
+          (res.data.stops as ServedStops)
+            .flatMap((stop) => stop.addresses)
+            .flatMap((address) => address.targets)
+            .map((target) => target.ethnicityGroup),
+        ).toContain('Hispanic')
       })
 
       // The flag every downstream surface reads instead of re-deriving the

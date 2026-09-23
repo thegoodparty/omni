@@ -150,11 +150,17 @@ const DISTRICT_WIDE_BBOX: Bbox = {
 const MAP_POINTS_MAX = MAX_RESULTS_PER_PAGE
 
 // The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
-// `eo-` org's download drops this column from the projection instead
+// `eo-` org's download drops these columns from the projection instead
 // (ENG-10696). Only downloadVoterFilePeople (the separate outreach/task-flow
-// audience download) uses it alone; the CRM download excludes the wider
-// SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830).
-const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
+// audience download) uses this narrow pair; the CRM download excludes the
+// wider SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830). Ethnicity
+// joins party here rather than only in the wider set because this endpoint
+// is the other way a Serve list leaves as a file, and #1933's rule is about
+// the list that reaches someone's hands, not about which route built it.
+const SERVE_EXCLUDED_VOTER_FILE_COLUMNS: ExcludableVoterColumn[] = [
+  'Parties_Description',
+  'EthnicGroups_EthnicGroup1Desc',
+]
 
 // The recommended-list dimensions a Serve org may not filter on. Keep in
 // step with the `modes: 'win'` marks in filterDimensions.catalog.ts — the
@@ -295,7 +301,8 @@ export class ContactsService {
 
   // The filter vocabulary the AI assistant may describe and validate against,
   // mode-filtered: an `eo-` (Serve) org never sees Win-only dimensions
-  // (party), mirroring assertNoPartyFilterForElectedOffice on the read side.
+  // (party, ethnicity), mirroring assertNoPartyFilterForElectedOffice and
+  // assertNoEthnicityFilterForElectedOffice on the read side.
   getFilterDimensions(organization: Organization): FilterDimension[] {
     const excludedMode = this.hasElectedOfficeAccess(organization)
       ? 'win'
@@ -308,17 +315,31 @@ export class ContactsService {
   // Single choke point for the server-enforced Serve party-visibility rule
   // (ENG-10696): findContacts (list + typeahead) and findPerson (detail) both
   // route every people-api row through this before it reaches the response.
-  private stripPartyIfElectedOffice(
+  //
+  // `ethnicityGroup` rides the same choke point rather than earning its own.
+  // Serve may not subset constituents by ethnicity (#1933), and a per-person
+  // value on the contact record is the individual-level half of that rule —
+  // #1933's partial revert narrowed the rule to Serve but did not soften it
+  // there. Two fields, one pass, so a third can never be added to one reader
+  // and forgotten in the other.
+  private stripWinOnlyFieldsIfElectedOffice(
     organization: Organization,
     person: PersonOutput,
   ): PersonOutput {
     if (!this.hasElectedOfficeAccess(organization)) return person
     const stripped = { ...person }
     delete stripped.politicalParty
+    // Nulled where party is deleted, because the two are shaped differently
+    // in the contract: `politicalParty` is optional, so absence is
+    // expressible, while `ethnicityGroup` is a required nullable key and
+    // null IS its absent value. Same result on the wire — no value reaches
+    // an `eo-` org — and the Serve readers drop the row rather than printing
+    // the null (PersonOverlay, demographicFacts).
+    stripped.ethnicityGroup = null
     return stripped
   }
 
-  private stripPartyFromList(
+  private stripWinOnlyFieldsFromList(
     organization: Organization,
     response: PeopleListResponse,
   ): PeopleListResponse {
@@ -326,7 +347,7 @@ export class ContactsService {
     return {
       ...response,
       people: response.people.map((person) =>
-        this.stripPartyIfElectedOffice(organization, person),
+        this.stripWinOnlyFieldsIfElectedOffice(organization, person),
       ),
     }
   }
@@ -354,6 +375,24 @@ export class ContactsService {
     if (this.hasPartyFilterForElectedOffice(organization, filters)) {
       throw new BadRequestException(
         'Political party filtering is not available for this organization',
+      )
+    }
+  }
+
+  // Win-only, and the exact shape of the party gate above because the key
+  // reaches the converted FilterObject the same way. Nobody subsets
+  // constituents by ethnicity: the rule went in for both products (#1933)
+  // and was narrowed to Serve when Win's half was reverted, so this is now
+  // what enforces it rather than the field's absence from the wire. Refused
+  // rather than dropped, for the reason the party gate refuses — silently
+  // ignoring a dimension returns a WIDER audience than the caller asked for.
+  private assertNoEthnicityFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): void {
+    if (this.hasElectedOfficeAccess(organization) && 'ethnicity' in filters) {
+      throw new BadRequestException(
+        'Ethnicity filtering is not available for this organization',
       )
     }
   }
@@ -510,6 +549,7 @@ export class ContactsService {
   ): Promise<{ filters: FilterObject; idOverrides?: IdOverrides }> {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    this.assertNoEthnicityFilterForElectedOffice(organization, baseFilters)
     this.assertNoRecommendedListFilterForElectedOffice(
       organization,
       baseFilters,
@@ -871,6 +911,7 @@ export class ContactsService {
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoEthnicityFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
@@ -893,7 +934,7 @@ export class ContactsService {
               effectiveSearch,
             ),
     )
-    return this.stripPartyFromList(organization, response)
+    return this.stripWinOnlyFieldsFromList(organization, response)
   }
 
   // The activity-condition/support-status resolution engine can compose to
@@ -1358,15 +1399,29 @@ export class ContactsService {
         // request on this; the union here can't do that (one bad saved
         // list would break the strip for every other list), so it drops
         // just this set instead.
-        if (
-          this.hasPartyFilterForElectedOffice(organization, savedBaseFilters)
-        ) {
+        //
+        // `ethnicity` is dropped on the same terms and for the same reason:
+        // Serve may not subset by it (#1933), the write path does not assert
+        // it either, and a pre-rule row still carries the six columns. The
+        // predicate is named in the log rather than folded into one message,
+        // because "which rule dropped this list" is the whole question
+        // someone reads this line to answer.
+        const droppedPredicate = this.hasPartyFilterForElectedOffice(
+          organization,
+          savedBaseFilters,
+        )
+          ? 'party'
+          : this.hasElectedOfficeAccess(organization) &&
+              'ethnicity' in savedBaseFilters
+            ? 'ethnicity'
+            : null
+        if (droppedPredicate) {
           this.logger.warn(
             {
               organizationSlug: organization.slug,
               voterFileFilterId: savedFilter.id,
             },
-            'Saved-list overlap count dropped a saved list carrying a party predicate for an elected-office organization',
+            `Saved-list overlap count dropped a saved list carrying a ${droppedPredicate} predicate for an elected-office organization`,
           )
           return null
         }
@@ -1492,7 +1547,7 @@ export class ContactsService {
       organization,
       fetchPeoplePage,
     )
-    return this.stripPartyFromList(organization, response)
+    return this.stripWinOnlyFieldsFromList(organization, response)
   }
 
   // Demographics + reachable-by-channel counts + outreach history for a
@@ -1748,7 +1803,7 @@ export class ContactsService {
           : Promise.resolve(null),
       ])
     const base = {
-      ...this.stripPartyIfElectedOffice(organization, person),
+      ...this.stripWinOnlyFieldsIfElectedOffice(organization, person),
       supportStatus,
       optedOutAt: optedOutAt ? optedOutAt.toISOString() : null,
     }
@@ -1941,6 +1996,7 @@ export class ContactsService {
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoEthnicityFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
@@ -1977,6 +2033,7 @@ export class ContactsService {
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.resolveSavedFilterForQuery(organization, filter)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoEthnicityFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
       ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
@@ -2039,6 +2096,7 @@ export class ContactsService {
   ): Promise<number> {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoEthnicityFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(
@@ -2066,6 +2124,7 @@ export class ContactsService {
   ): Promise<void> {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoEthnicityFilterForElectedOffice(organization, filters)
     this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(organization, (params) =>
@@ -2080,7 +2139,7 @@ export class ContactsService {
         undefined,
         groupByHousehold,
         this.hasElectedOfficeAccess(organization)
-          ? [PARTY_DOWNLOAD_COLUMN]
+          ? SERVE_EXCLUDED_VOTER_FILE_COLUMNS
           : undefined,
         res,
       ),

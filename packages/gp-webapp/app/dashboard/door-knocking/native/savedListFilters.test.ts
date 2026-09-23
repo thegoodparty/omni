@@ -76,6 +76,23 @@ describe('savedListFilterKeys', () => {
     })
   })
 
+  // Ethnicity joined WIN_ONLY_FILTER_FIELD_KEYS rather than getting a set of
+  // its own, so a pre-rule row cut on the Win surface cannot seed a Serve
+  // draft with pills in a group nothing renders (#1933).
+  it('drops the ethnicity keys for Serve and keeps them for Win', () => {
+    const legacy = list({
+      ethnicityHispanic: true,
+      ethnicityAsian: false,
+      genderFemale: true,
+    })
+
+    expect(savedListFilterKeys(legacy, true)).toEqual({ genderFemale: true })
+    expect(savedListFilterKeys(legacy)).toMatchObject({
+      ethnicityHispanic: true,
+      ethnicityAsian: false,
+    })
+  })
+
   // An empty array is not a criterion, and marking one would print a
   // disclosure about a filter the list does not apply.
   it('marks nothing for a list carrying empty criteria arrays', () => {

@@ -13,14 +13,15 @@ import {
 } from 'src/helpers/crm-contacts-e2e'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 
-// Independent affinity and ideology are Win-only (gp-api 400s both for an
-// eo- org via assertNoRecommendedListFilterForElectedOffice), so they can
+// Independent affinity, ideology and ethnicity are Win-only (gp-api 400s all
+// three for an eo- org via assertNoRecommendedListFilterForElectedOffice and
+// assertNoEthnicityFilterForElectedOffice), so they can
 // only be exercised against a real Win Pro org — contacts-filters.spec.ts covers the
 // third new dimension (hasAnyPhone, available to both Win and Serve) and the
 // Win-only gate's negative space (both groups absent from the Serve wizard)
 // against its existing elected-office user. This file is the positive half:
 // a Win user actually selecting affinity and ideology.
-test.describe('Win contacts filters: independent affinity + ideology', () => {
+test.describe('Win contacts filters: independent affinity + ideology + ethnicity', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
@@ -96,6 +97,24 @@ test.describe('Win contacts filters: independent affinity + ideology', () => {
     )
     expect(conservativeCount).toBeGreaterThan(0)
     expect(conservativeCount).toBeLessThan(unfiltered)
+
+    // Ethnicity is Win-only for a different reason than the two above — a
+    // product rule about who may be subset, not about what a contested
+    // election means (#1933 removed it for both products; the Win half was
+    // reverted). contacts-filters.spec.ts holds the negative half, that the
+    // group never renders for an `eo-` org.
+    await expect(wizardPillGroup(wizard, 'Ethnicity')).toBeVisible({
+      timeout: 10_000,
+    })
+    const hispanicCount = await probe(
+      page,
+      wizard,
+      unfiltered,
+      'Ethnicity',
+      'Hispanic',
+    )
+    expect(hispanicCount).toBeGreaterThan(0)
+    expect(hispanicCount).toBeLessThan(unfiltered)
 
     // Unknown covers the ~40% of the file with no modeled ideology and must
     // not be silently dropped — it still has to return a real settled count.

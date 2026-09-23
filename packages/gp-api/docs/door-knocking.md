@@ -1567,6 +1567,16 @@ way, and a client reads the bucket list out of the manifest, so a tab open
 across the deploy reads an old three-value pack correctly and simply finds no
 `languageUnknown` bucket in it.
 
+**`PACK_FORMAT_REVISION` is now 5.** 4 dropped the ethnicity plane when
+ethnicity subsetting came out of both products (#1933); 5 put it back, because
+that removal was right for Serve and wrong for Win, and Win's create-flow
+preview shades on the dim. The counter does not rewind to 3 — a revision-4
+buffer has no ethnicity plane in it, so reusing 3 would serve those cached
+buffers as current and the preview would quietly ignore an ethnicity pill the
+server count applies. The plane is district-scoped like party's, and Serve is
+held off it by the same three gates party uses rather than by the plane's
+absence.
+
 ### Language: Other is not Unknown
 
 `Language_Code` is nullable with no sentinel, so "speaks something else" and
