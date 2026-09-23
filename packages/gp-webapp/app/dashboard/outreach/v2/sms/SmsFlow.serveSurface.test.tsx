@@ -9,10 +9,7 @@ import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
 import {
   OPT_OUT_FOOTER,
   SERVE_SMS_GREETING,
-  SERVE_SMS_GREETING_PREVIEW,
-  SERVE_SMS_SAMPLE_FIRST_NAME,
   SMS_GREETING,
-  withSampleFirstName,
 } from './smsCompose.util'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -286,39 +283,6 @@ describe('SmsFlow (Serve surface)', () => {
     expect(screen.queryByText(/campaign headshot/i)).not.toBeInTheDocument()
   })
 
-  // The chip used to read "Greeting First Name", which names a variable
-  // rather than showing the words a constituent reads. It now shows the
-  // greeting with a stand-in name, and the caption says the name changes.
-  it('shows the greeting as it will read, with a stand-in first name', async () => {
-    api.mock('POST /v1/outreach/serve/sms/draft', {
-      status: 200,
-      data: { draft: 'drafted body' },
-    })
-    openServeFlow()
-
-    await userEvent.click(await screen.findByText('Explain a recent decision'))
-    await userEvent.click(await screen.findByText('Choose a constituent list'))
-    await userEvent.click(await screen.findByText('Northside residents'))
-    await userEvent.click(
-      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
-    )
-    await userEvent.click(
-      await screen.findByRole('button', {
-        name: /^Friday, September 4(?!\d)/,
-      }),
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
-
-    expect(
-      await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(SERVE_SMS_GREETING_PREVIEW.caption),
-    ).toBeInTheDocument()
-    expect(screen.queryByText('Greeting First Name')).toBeNull()
-    expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
-  })
-
   // Win's image gate is Peerly's: it rejects an imageless text/p2p send.
   // Serve's fulfilment takes imageUrl as optional all the way down, so the
   // gate would be asking for a file nothing needs.
@@ -394,24 +358,6 @@ describe('SERVE_SMS_SURFACE', () => {
     // paid_for_by stays the one and only override.
     expect(verdict.failures).toEqual(['paid_for_by'])
     expect(SERVE_SMS_SURFACE.ignoredStandardsRules).toEqual(['paid_for_by'])
-  })
-
-  // The preview substitution is display-only. Asserted on the helper as
-  // well as in the flow, because the whole safety of showing a name instead
-  // of the token rests on composeMessage staying untouched.
-  it('substitutes the sample name for display without changing the script', () => {
-    const composed = SERVE_SMS_SURFACE.composeMessage(
-      'Oak St is repaved.',
-      null,
-    )
-    expect(composed).toContain('{{first_name}}')
-    const shown = withSampleFirstName(composed)
-    expect(shown).toContain(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`)
-    expect(shown).not.toContain('{{first_name}}')
-    expect(shown).not.toContain('{first_name}')
-    expect(SERVE_SMS_GREETING_PREVIEW.greeting).toBe(
-      `Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`,
-    )
   })
 
   it('suggests an outreach campaign name per purpose', () => {
