@@ -43,6 +43,7 @@ import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
 import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
+import type { ChatScope } from '../../../shared/agent-chat/chatClient'
 import {
   uploadChatAttachment,
   linkChatAttachment,
@@ -128,6 +129,12 @@ interface Props {
    * it; the issue and ordinance docks don't.
    */
   showMessageActions?: boolean
+  /**
+   * The chat scope used to gate attachment support. Defaults to
+   * 'chief_of_staff' so existing CoS callers need no change; Campaign Manager
+   * passes 'campaign_assistant' to correctly suppress the paperclip.
+   */
+  scope?: ChatScope
 }
 
 /**
@@ -196,6 +203,7 @@ export default function ChiefOfStaffChatBody({
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
   showMessageActions = false,
+  scope = 'chief_of_staff',
 }: Props): React.JSX.Element {
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -257,7 +265,7 @@ export default function ChiefOfStaffChatBody({
     [composerRef],
   )
 
-  const attachmentsEnabled = useAttachmentsEnabled('chief_of_staff')
+  const attachmentsEnabled = useAttachmentsEnabled(scope)
 
   const [attachments, setAttachments] = useState<ChatAttachmentState[]>([])
 

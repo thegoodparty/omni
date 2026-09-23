@@ -340,6 +340,7 @@ export function CampaignManagerChatProvider({
         // Overridden because `title` is sentence-cased ("Campaign manager") but
         // the agent's name reads as a proper noun in prose.
         disclaimer="Campaign Manager can make mistakes. Check important details."
+        scope="campaign_assistant"
         hiddenMessageContents={hiddenMessageContents}
         showMessageActions
       />

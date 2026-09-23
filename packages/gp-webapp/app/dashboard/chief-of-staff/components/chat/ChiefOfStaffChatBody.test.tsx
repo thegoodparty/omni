@@ -37,9 +37,14 @@ vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
 // Attachments are flag-gated; the toggle lets the drag-and-drop block turn
 // them on without flipping the flag under every other test in this file.
+// The mock respects scope so the paperclip scope regression tests work without
+// touching the real GrowthBook client.
 let attachmentsOn = false
 vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
-  useAttachmentsEnabled: () => ({ ready: true, enabled: attachmentsOn }),
+  useAttachmentsEnabled: (scope: string) => ({
+    ready: true,
+    enabled: attachmentsOn && scope === 'chief_of_staff',
+  }),
 }))
 
 const uploadAttachmentMock = vi.fn()
@@ -1515,6 +1520,29 @@ describe('<ChiefOfStaffChatBody>', () => {
       expect(await screen.findByText(LIST.name)).toBeInTheDocument()
       expect(screen.queryByText('show_list_map')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('<ChiefOfStaffChatBody> attachment scope', () => {
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+  })
+
+  it('hides the paperclip for campaign_assistant scope even when the flag is on', () => {
+    attachmentsOn = true
+    render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
+    // ChatComposer only renders the attachment trigger when attachmentsEnabled.enabled.
+    // With campaign_assistant scope the mock returns enabled:false, so no paperclip.
+    expect(
+      screen.queryByRole('button', { name: /attach/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the paperclip for chief_of_staff scope when the flag is on', () => {
+    attachmentsOn = true
+    render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
+    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
   })
 })
 
