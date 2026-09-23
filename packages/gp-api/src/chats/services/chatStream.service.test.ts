@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
   ChatAttachmentSource,
@@ -1834,6 +1836,11 @@ describe('ChatStreamService', () => {
 
       const fakeLlmSrc = new FakeLlmServiceWithSource()
 
+      const analyticsTrack = vi.fn().mockResolvedValue(undefined)
+      const fakeAnalytics = {
+        track: analyticsTrack,
+      } as unknown as AnalyticsService
+
       const svc = new ChatStreamService(
         attachmentsStore.asService(),
         fakeLlmSrc as unknown as LlmService,
@@ -1842,9 +1849,17 @@ describe('ChatStreamService', () => {
         fakeChatAttachments.asService(),
         fakeS3.asService(),
         fakeFeatures.asService(),
+        fakeAnalytics,
       )
 
-      return { attachmentsStore, fakeChatAttachments, fakeS3, fakeLlmSrc, svc }
+      return {
+        attachmentsStore,
+        fakeChatAttachments,
+        fakeS3,
+        fakeLlmSrc,
+        svc,
+        analyticsTrack,
+      }
     }
 
     it('skips attachment loading when flag is off', async () => {
@@ -2097,6 +2112,79 @@ describe('ChatStreamService', () => {
       expect(payload.attachmentId).toBe('att-cite')
       expect(payload.quotedText).toBe('allocate $500K')
       expect(payload.charRange).toEqual([28, 42])
+    })
+
+    it('tracks AttachedDocumentQueried exactly once per turn, not per citation', async () => {
+      const row = (id: string, storageKey: string): AttachmentRow => ({
+        id,
+        storageKey,
+        fileName: `${id}.txt`,
+        mimeType: 'text/plain',
+        pageCount: null,
+        source: ChatAttachmentSource.UPLOAD,
+        sourceUrl: null,
+        status: ChatAttachmentStatus.ready,
+        extractedText: 'The council resolves to allocate $500K.',
+      })
+      const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
+        flagEnabled: true,
+        rows: [row('att-a', 'key-a'), row('att-b', 'key-b')],
+      })
+
+      fakeLlmSrc.setScript([
+        { kind: 'text', delta: 'Per the documents, ' },
+        {
+          kind: 'source',
+          sourceType: 'document',
+          id: 'src-1',
+          filename: 'att-a',
+          providerMetadata: {
+            anthropic: {
+              citedText: 'allocate',
+              startCharIndex: 28,
+              endCharIndex: 36,
+            },
+          },
+        },
+        { kind: 'text', delta: 'and also ' },
+        {
+          kind: 'source',
+          sourceType: 'document',
+          id: 'src-2',
+          filename: 'att-b',
+          providerMetadata: {
+            anthropic: {
+              citedText: '$500K',
+              startCharIndex: 37,
+              endCharIndex: 42,
+            },
+          },
+        },
+        { kind: 'text', delta: 'the budget is set.' },
+      ])
+
+      await collect(svc.stream(baseStreamArgs()))
+
+      expect(analyticsTrack).toHaveBeenCalledTimes(1)
+      expect(analyticsTrack).toHaveBeenCalledWith(
+        OWNER_ID,
+        EVENTS.ChiefOfStaff.AttachedDocumentQueried,
+        { documentId: 'att-a', turnIndex: expect.any(Number) },
+      )
+    })
+
+    it('does not track AttachedDocumentQueried for a turn without citations', async () => {
+      const { fakeLlmSrc, svc, analyticsTrack } = buildAttachmentService({
+        flagEnabled: true,
+        rows: [],
+      })
+
+      fakeLlmSrc.setScript([
+        { kind: 'text', delta: 'plain answer, no sources' },
+      ])
+      await collect(svc.stream(baseStreamArgs()))
+
+      expect(analyticsTrack).not.toHaveBeenCalled()
     })
 
     it('injects only the requested attachment IDs when attachmentIds is set', async () => {
