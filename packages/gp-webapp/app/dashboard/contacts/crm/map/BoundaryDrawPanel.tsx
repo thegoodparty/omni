@@ -144,11 +144,16 @@ export default function BoundaryDrawPanel({
           </span>
         ) : (
           <div className="pointer-events-auto flex items-center gap-2">
+            {/* Disabled on an empty active part rather than left live to
+                do nothing. Adding a shape makes the new, empty part active,
+                so this is the state right after "+" — and the control bar
+                is still up because ANOTHER part has corners. */}
             <IconButton
               type="button"
               variant="outline"
               aria-label="Undo last point"
               className="bg-card hover:bg-card"
+              disabled={active.length === 0}
               onClick={() => replaceActive(active.slice(0, -1))}
             >
               <Undo2Icon className="size-[18px]" />
