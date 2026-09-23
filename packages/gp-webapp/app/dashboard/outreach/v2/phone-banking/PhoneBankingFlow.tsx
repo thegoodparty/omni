@@ -707,11 +707,11 @@ export const PhoneBankingFlow = ({
                 label: 'Continue',
                 onClick: () => {
                   // Nothing is written until the candidate can have the list:
-                  // a gated Continue opens the gate and the mutation waits for
-                  // it to clear.
+                  // a gated Continue shows the ready screen as a preview, and
+                  // the gate opens from there (design: the download step's
+                  // download and Continue both open it).
                   if (gate.requirement !== null) {
-                    setGateOrigin('create')
-                    setGateOpen(true)
+                    setStepId('download')
                     return
                   }
                   createMutation.mutate()
@@ -719,7 +719,15 @@ export const PhoneBankingFlow = ({
                 disabled: createMutation.isPending,
                 loading: createMutation.isPending,
               }
-            : null
+            : stepId === 'download'
+              ? {
+                  label: 'Continue',
+                  onClick: () => {
+                    setGateOrigin('create')
+                    setGateOpen(true)
+                  },
+                }
+              : null
 
   return (
     <OutreachFlowShell
@@ -881,6 +889,23 @@ export const PhoneBankingFlow = ({
         />
       ) : saved && createResponse ? (
         <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
+      ) : stepId === 'download' ? (
+        // The gated preview: what the list will be, priced off the picked
+        // audience, with nothing written yet.
+        <DownloadStep
+          pending={{
+            personCount: Math.min(
+              audience.reachableCount ?? 0,
+              sheetCount * PHONE_BANKING_SHEET_SIZE,
+            ),
+            sheetCount,
+          }}
+          audienceLabel={audienceLabel}
+          onDownloadGated={() => {
+            setGateOrigin('create')
+            setGateOpen(true)
+          }}
+        />
       ) : null}
     </OutreachFlowShell>
   )

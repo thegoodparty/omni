@@ -127,6 +127,10 @@ interface RobocallFlowProps {
   // Fired once a draft is written or discarded, so the hub's history reflects
   // it; the same refetch a settled payment does.
   onDraftSaved?: () => Promise<void>
+  // The drawer's "Upgrade to Pro" already made the pitch, so that resume
+  // opens the wizard on its first step; a tile or deep-link resume shows the
+  // pause screen first.
+  resumeStartsOnWizard?: boolean
 }
 
 // Flow state is flat client state owned here (phase 1 TDD pattern): reopening
@@ -141,6 +145,7 @@ export const RobocallFlow = ({
   preselectedRecommendedVariant,
   resumeDraft = null,
   onDraftSaved,
+  resumeStartsOnWizard = false,
 }: RobocallFlowProps) => {
   const gate = useOutreachGate('robocall')
   const [stepId, setStepId] = useState<StepId>('purpose')
@@ -184,12 +189,6 @@ export const RobocallFlow = ({
   // no resumed row the flow is byte-identical to the pre-gate one.
   const buildMode = gate.requirement !== null && !resumed
   const stepOrder = buildMode ? BUILD_STEP_ORDER : STEP_ORDER
-  // A free candidate on the build path can reach neither the in-flow builder
-  // nor a saved list's reach count: both go through the Pro-gated voter-file
-  // reads, which 403 for them. Recommended lists carry their own counts, so
-  // that is the whole audience step in this mode. An ungated elected
-  // official is also free-tier and keeps everything.
-  const freeBuildMode = buildMode && gate.membership?.tier === 'free'
 
   const recommendedListIntent = purpose
     ? intentForOutreachPurpose(purpose)
@@ -210,7 +209,6 @@ export const RobocallFlow = ({
     recommendedListIntent,
     preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
-    reachCountDisabled: freeBuildMode,
   })
   const { reset: resetAudience } = audience
 
@@ -808,7 +806,10 @@ export const RobocallFlow = ({
           channel="robocall"
           state={gate}
           open
-          showInterstitial={draftGate.gateOrigin === 'save'}
+          showInterstitial={
+            draftGate.gateOrigin === 'save' ||
+            (draftGate.gateOrigin === 'resume' && !resumeStartsOnWizard)
+          }
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
           onChromeChange={setGateChrome}
@@ -829,12 +830,6 @@ export const RobocallFlow = ({
             selectedId={audience.selectedListId}
             onSelect={audience.onSelect}
             onStartBuilder={audience.startBuilder}
-            // Only a gated free candidate loses the builder: its count calls
-            // go through the Pro-gated voter-file read, and an ungated
-            // elected official is on the free tier but can use it.
-            hideBuilder={freeBuildMode}
-            hideSavedLists={freeBuildMode}
-            onChoosePurpose={() => setStepId('purpose')}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}

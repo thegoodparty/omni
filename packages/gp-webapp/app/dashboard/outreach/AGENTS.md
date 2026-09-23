@@ -253,38 +253,31 @@ mounts them in front of Build route, its one paid write.
 reachable if the candidate can get into the flow, so with the flag on the
 tiles (`v2/ChannelTileGrid.tsx`) and the `?compose=` deep link
 (`components/OutreachComposeDeepLink.tsx`) stop refusing a free candidate
-for text, robocall and phone banking, and a `draft` row in the history
-reopens the flow that saved it instead of the details drawer (see
-`v2/OutreachHubPage.tsx`'s row). Door knocking keeps its tile gate and its
-page's own Pro lock: it navigates away, and every `/v1/door-knocking` read
-the map needs is still Pro-gated server-side, so the in-flow gate its create
-flow carries is unreachable until those reads open.
+for text, robocall, phone banking and door knocking. Door knocking's page
+(`door-knocking/native/DoorKnockingPageGate.tsx`) admits a free campaign
+under the same flag, since the four reads its map needs (`GET turfs`, `GET
+pack`, `GET quota`, `POST audience-check`) are open to one server-side; only
+Build route, the Geoapify spend, is still gated, and that is where its
+create flow's in-flow gate stands.
 
 **Five outreach routes are relaxed for the build path** (`POST
 /v1/outreach/sms/draft`, `POST /v1/outreach/robocall/draft`, `POST
 /v1/outreach/robocall/number`, `POST /v1/outreach/robocall/audio/presign`,
-`POST /v1/outreach/robocall/compliance`), plus `POST
-/v1/voters/voter-file/filter` outside the module. Everything else a paid send
-touches still requires Pro — see `packages/gp-api/src/outreach/AGENTS.md`.
+`POST /v1/outreach/robocall/compliance`), plus, outside the module, `POST
+/v1/voters/voter-file/filter` and the four count reads the audience step
+prices a list with (`POST /v1/contacts/count`, `POST
+/v1/contacts/overlap-count`, `GET` and `POST /v1/contacts/list-detail`) and
+door knocking's four map reads. Everything else a paid send touches still
+requires Pro — see `packages/gp-api/src/outreach/AGENTS.md`.
 
-**A free candidate on the build path gets recommended lists and nothing
-else.** Both voter-file reads the audience step would otherwise make are
-Pro-gated and 403 for them: the in-flow builder's count, and a saved list's
-reach count (`GET /v1/contacts/list-detail`). So `buildMode &&
-gate.membership?.tier === 'free'` passes `hideBuilder` AND `hideSavedLists`
-to `OutreachAudienceStep` and `reachCountDisabled` to `useOutreachAudience`,
-which turns the list-detail query off rather than letting it fire and fail.
-Recommendation cards carry their own counts, so Continue enables on a
-selected card, and whichever way a card is accepted its count is kept against
-the saved list id it ends up as (`recommendationSnapshot` in the hook). BOTH
-branches record it and both have to: `createRecommendedList` for a card saved
-for the first time, and `trackRecommendationReused` for one that already
-resolved to a list the candidate had. Selecting the list drops
-`selectedRecommendation`, so without the snapshot the very first free build
-reached review with no People row and no total. That count is what the
-build-mode review summary prices off; where no count is known at all the People and total rows
-are omitted, since a 0 reads as an empty audience and a $0.00 reads as free.
-`GET /v1/contacts/list-detail` stays Pro — it is not on the relaxed list.
+**A free candidate on the build path gets the whole audience step** (design:
+"All lists" and "Create a new list" sit under the recommended card for
+everyone). The count reads that price a saved or built list are open to a
+free campaign server-side, so nothing here branches on the tier; the one
+free-tier wrinkle left is that a recommendation accepted straight off its
+card keeps the card's own count against the saved list it becomes
+(`recommendationSnapshot` in the hook), which is what the schedule and review
+steps read until list-detail answers.
 
 **Known limits.** Two rough edges are accepted for this milestone rather than
 overlooked. A mid-session flag flip while the candidate is building changes

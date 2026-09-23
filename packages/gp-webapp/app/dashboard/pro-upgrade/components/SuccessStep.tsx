@@ -16,6 +16,7 @@ import {
 } from '@shared/hooks/CampaignProvider'
 import Confetti from 'app/dashboard/questions/components/Confetti'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { ConfettiField } from './ConfettiField'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // `isPro` flips server-side only when the Stripe `checkout.session.completed`
@@ -64,7 +65,7 @@ const SuccessStep = (): React.JSX.Element => {
   // progresses) once `isPro` flips. The same card also lives on the profile
   // page as a secondary location, but the dashboard is the primary
   // post-upgrade destination (ENG-10361).
-  const { purchaseOnly, channel, complete } = useProUpgradeWizard()
+  const { purchaseOnly, channel, complete, exit } = useProUpgradeWizard()
   const [pollExpired, setPollExpired] = useState(false)
 
   useEffect(() => {
@@ -97,91 +98,96 @@ const SuccessStep = (): React.JSX.Element => {
         ? null
         : { noun: NEXT_NOUN[channel], body: NEXT_STEP_BODY[channel] }
 
+    // Design: the "paid" screen — confetti through the column, the PRO badge
+    // in its circle, the unlocked / still-to-do card, and a footer of Finish
+    // later beside the next step, pinned to the bottom of the host's column.
     return (
-      <>
-        <Confetti />
-        <div className="mx-auto flex max-w-[448px] flex-col items-center gap-6 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-primary-light">
-            <ProBadge size="large" />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <h1 className="text-[32px] leading-[44px] font-semibold">
-              Welcome to Pro
-            </h1>
-            <Body2 className="text-base-muted-foreground">
+      <div className="relative flex min-h-full flex-1 flex-col gap-3">
+        <ConfettiField />
+        <div className="relative flex flex-col items-center gap-4 pt-2 text-center">
+          <span className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary-light">
+            <ProBadge />
+          </span>
+          <div className="flex max-w-[440px] flex-col items-center gap-2">
+            <h1 className="text-2xl font-semibold">Welcome to Pro</h1>
+            <p className="text-[15px] leading-relaxed text-base-muted-foreground">
               {nextStep
                 ? `Payment successful. Your next step is to ${nextStep.noun}.`
                 : VERIFICATION_BODY}
-            </Body2>
+            </p>
           </div>
+        </div>
 
-          <div className="w-full rounded-xl border border-base-border text-left">
-            <div className="flex gap-3 p-4">
-              <CheckCircleIcon
-                className="mt-0.5 size-5 shrink-0 text-primary"
+        <div className="relative overflow-hidden rounded-xl border border-base-border bg-card text-left">
+          <div className="flex items-start gap-3 px-4 py-3.5">
+            <CheckCircleIcon
+              className="mt-0.5 size-[18px] shrink-0 text-primary"
+              aria-hidden
+            />
+            <div className="flex min-w-0 flex-col gap-2">
+              <p className="font-semibold">Unlocked now</p>
+              <ul className="flex flex-col gap-1.5">
+                {UNLOCKED_ROWS.map((row) => (
+                  <li
+                    key={row}
+                    className="flex items-start gap-2 text-sm text-base-muted-foreground"
+                  >
+                    <CheckIcon
+                      className="mt-0.5 size-3.5 shrink-0 text-primary"
+                      aria-hidden
+                    />
+                    {row}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 border-t border-base-border px-4 py-3.5">
+            {nextStep ? (
+              <ClipboardListIcon
+                className="mt-0.5 size-[18px] shrink-0 text-primary"
                 aria-hidden
               />
-              <div>
-                <p className="font-semibold">Unlocked now</p>
-                <ul className="mt-2 flex flex-col gap-1.5">
-                  {UNLOCKED_ROWS.map((row) => (
-                    <li
-                      key={row}
-                      className="flex gap-2 text-sm text-base-muted-foreground"
-                    >
-                      <CheckIcon
-                        className="mt-0.5 size-4 shrink-0 text-primary"
-                        aria-hidden
-                      />
-                      {row}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            {nextStep ? (
-              <div className="flex gap-3 border-t border-base-border p-4">
-                <ClipboardListIcon
-                  className="mt-0.5 size-5 shrink-0 text-primary"
-                  aria-hidden
-                />
-                <div>
-                  <p className="font-semibold">Still to do: {nextStep.noun}</p>
-                  <p className="mt-1 text-sm text-base-muted-foreground">
-                    {nextStep.body}
-                  </p>
-                </div>
-              </div>
             ) : (
-              <div className="flex gap-3 border-t border-base-border p-4">
-                <ShieldCheckIcon
-                  className="mt-0.5 size-5 shrink-0 text-primary"
-                  aria-hidden
-                />
-                <div>
-                  <p className="font-semibold">Still to do: verification</p>
-                  <p className="mt-1 text-sm text-base-muted-foreground">
-                    Add your campaign filing details, we register your texting
-                    account with the carriers, and you get a PIN when it clears,
-                    usually 1 to 2 weeks.
-                  </p>
-                </div>
-              </div>
+              <ShieldCheckIcon
+                className="mt-0.5 size-[18px] shrink-0 text-primary"
+                aria-hidden
+              />
             )}
+            <div className="flex min-w-0 flex-col gap-2">
+              <p className="font-semibold">
+                {nextStep
+                  ? `Still to do: ${nextStep.noun}`
+                  : 'Still to do: verification'}
+              </p>
+              <p className="text-sm text-base-muted-foreground">
+                {nextStep
+                  ? nextStep.body
+                  : 'Add your campaign filing details, we register your texting account with the carriers, and you get a PIN when it clears, usually 1 to 2 weeks.'}
+              </p>
+            </div>
           </div>
+        </div>
 
+        <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+          <Button
+            variant="ghost"
+            size="large"
+            className="w-full sm:w-auto"
+            onClick={exit}
+          >
+            Finish later
+          </Button>
           <Button
             size="large"
-            className="w-full"
+            className="w-full sm:w-auto sm:min-w-[360px]"
             onClick={handleContinue}
             disabled={!data?.isPro && !pollExpired}
           >
             {nextStep ? 'Continue' : 'Start verification'}
           </Button>
         </div>
-      </>
+      </div>
     )
   }
 

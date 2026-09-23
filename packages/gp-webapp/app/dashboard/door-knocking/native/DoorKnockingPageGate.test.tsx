@@ -9,6 +9,12 @@ const electedOfficeState: { data: object | null; isPending: boolean } = {
   isPending: false,
 }
 
+const { mockProGatingFlag } = vi.hoisted(() => ({
+  mockProGatingFlag: vi.fn(() => ({ ready: true, enabled: false })),
+}))
+vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
+  useOutreachProGatingV2Flag: () => mockProGatingFlag(),
+}))
 vi.mock('app/shared/experiments/nativeDoorKnockingFlag', () => ({
   useNativeDoorKnockingFlag: () => flagState,
 }))
@@ -89,6 +95,16 @@ describe('DoorKnockingPageGate', () => {
     expect(
       screen.getByRole('link', { name: 'Upgrade to Pro' }),
     ).toHaveAttribute('href', '/dashboard/pro-upgrade')
+  })
+
+  // Under outreach-pro-gating-v2 the map's reads are open to a free campaign
+  // and the create flow gates Build route, so the page admits them.
+  it('renders the native experience for a non-Pro campaign under the pro gating flag', () => {
+    mockProGatingFlag.mockReturnValue({ ready: true, enabled: true })
+    setState({ ready: true, enabled: true })
+    render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.getByTestId('native-door-knocking')).toBeVisible()
+    mockProGatingFlag.mockReturnValue({ ready: true, enabled: false })
   })
 
   it('renders the upgrade view when there is no campaign at all', () => {

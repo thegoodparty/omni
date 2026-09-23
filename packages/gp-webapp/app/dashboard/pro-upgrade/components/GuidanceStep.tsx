@@ -151,7 +151,9 @@ const GuidanceStep = (): React.JSX.Element => {
             variant="ghost"
             size="large"
             className="w-full sm:w-auto"
-            onClick={exit}
+            // Launched from an outreach flow the pitch is behind this step;
+            // on the standalone page there is nothing behind it but the exit.
+            onClick={channel ? goToPreviousStep : exit}
           >
             Back
           </Button>

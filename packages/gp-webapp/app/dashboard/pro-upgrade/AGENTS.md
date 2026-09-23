@@ -107,6 +107,12 @@ explicitly refuses to resolve it from a URL. The only way in is `ProUpgradeFlow`
 embeddable flow there directly. From it, `goToNextStep` always lands on `GUIDANCE`
 and `goToPreviousStep` always calls `onExit`, both hardcoded in `ProUpgradeFlow`
 (index-based resolution would no-op, since it isn't in `proUpgradeStepOrder(true)`).
+The reverse is hardcoded too: with a `channel` set (only the embedded flow
+sets one), Back off `GUIDANCE` returns to the interstitial rather than exiting,
+so a candidate who pressed Join Pro can read the pitch again and "Maybe later"
+is the one way out. Which screen the embedded flow OPENS on is the gate's
+`showInterstitial`: the pitch after a save or a tile/deep-link resume, the
+wizard directly from the explainer's Join Pro or the draft drawer's own CTA.
 
 ## Embeddable verification steps (milestone 2)
 

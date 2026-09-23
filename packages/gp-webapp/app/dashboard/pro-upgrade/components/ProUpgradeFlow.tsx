@@ -84,13 +84,19 @@ export const ProUpgradeFlow = ({
       onExit()
       return
     }
+    // Inside an outreach flow the pitch stands in front of the wizard, so
+    // Back off its first step returns to it; "Maybe later" there is the exit.
+    if (currentStep === PRO_UPGRADE_STEP.GUIDANCE && channel) {
+      setCurrentStep(PRO_UPGRADE_STEP.INTERSTITIAL)
+      return
+    }
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       setCurrentStep(PRO_UPGRADE_STEP.STATUS)
       return
     }
     if (orderIndex > 0) setCurrentStep(stepOrder[orderIndex - 1]!)
     else onExit()
-  }, [currentStep, orderIndex, stepOrder, onExit])
+  }, [currentStep, orderIndex, stepOrder, onExit, channel])
 
   const value = useMemo<ProUpgradeWizardContextValue>(
     () => ({

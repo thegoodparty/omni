@@ -413,6 +413,7 @@ export const EVENTS = {
       EinViewed: 'Pro Upgrade - EIN Viewed',
       EinContinue: 'Pro Upgrade - EIN: Click continue',
       EinHoverHelp: 'Pro Upgrade - EIN: Hover help',
+      EinInstructionsEmail: 'Pro Upgrade - EIN: Click email me these steps',
       CandidateProfileViewed: 'Pro Upgrade - Candidate Profile Viewed',
       FilingDetailsViewed: 'Pro Upgrade - Filing Details Viewed',
       PaymentViewed: 'Pro Upgrade - Payment Viewed',

@@ -5076,25 +5076,15 @@ describe('door-knocking routes', () => {
             loop: false,
           },
         ],
-        ['get', '/v1/door-knocking/turfs', undefined],
         ['get', `/v1/door-knocking/turfs/${turfId}`, undefined],
         ['put', `/v1/door-knocking/turfs/${turfId}`, { name: 'Renamed' }],
         ['get', `/v1/door-knocking/turfs/${turfId}/route`, undefined],
-        ['get', '/v1/door-knocking/pack', undefined],
-        // No voter data on it at all, and gated anyway: it answers how much
-        // routing the org may still buy, which is a number about the
-        // entitlement rather than one the unentitled need.
-        ['get', '/v1/door-knocking/quota', undefined],
         // ADR 0010: a read of voter data, so it is gated with the rest.
         [
           'post',
           '/v1/door-knocking/address-preview',
           { geoPoly: GEO_POLY, filters: {} },
         ],
-        // Reads no voter data itself, and gated anyway: it reports ON an
-        // audience, and a candidate who cannot route a list has no use for
-        // knowing whether it is empty.
-        ['post', '/v1/door-knocking/audience-check', { filters: {} }],
         [
           'post',
           '/v1/door-knocking/interactions',
@@ -5165,6 +5155,27 @@ describe('door-knocking routes', () => {
           'This feature is only available for pro campaigns',
         )
       }
+    })
+
+    // The four reads the create flow needs before Build route are open to a
+    // free campaign (outreach-pro-gating-v2): it can list, draw and shape a
+    // list behind the in-flow gate; only the paid create is refused.
+    it('admits a non-Pro organization to the reads the create flow needs', async () => {
+      await createTurf()
+      await downgrade()
+
+      const turfs = await service.client.get('/v1/door-knocking/turfs', opts())
+      expect(turfs.status).toBe(200)
+      const quota = await service.client.get('/v1/door-knocking/quota', opts())
+      expect(quota.status).toBe(200)
+      const check = await service.client.post(
+        '/v1/door-knocking/audience-check',
+        { filters: {} },
+        opts(),
+      )
+      expect(check.status).not.toBe(403)
+      const pack = await service.client.get('/v1/door-knocking/pack', opts())
+      expect(pack.status).not.toBe(403)
     })
 
     // The org lapsing mid-pilot is exactly the case the two holes exist for:

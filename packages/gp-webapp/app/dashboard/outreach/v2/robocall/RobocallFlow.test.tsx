@@ -2014,11 +2014,26 @@ describe('RobocallFlow', () => {
     }
 
     // Truthful for a free campaign: gp-api refuses list-detail without Pro.
+    // The count reads are open to a free campaign now, so the picker prices
+    // a saved list the same way it does for Pro.
     const mockFreeAudience = () => {
       let listDetailCalls = 0
       api.mock('GET /v1/contacts/list-detail', () => {
         listDetailCalls += 1
-        return { status: 403, data: { message: 'Pro subscription required' } }
+        return {
+          status: 200,
+          data: {
+            demographics: { people: 1500, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: null,
+              robocall: 900,
+              phoneBanking: null,
+              doorKnocking: null,
+              polls: null,
+            },
+            outreachHistory: [],
+          },
+        }
       })
       api.mock('GET /v1/campaigns/mine/recommended-lists', {
         status: 200,
@@ -2108,11 +2123,9 @@ describe('RobocallFlow', () => {
     const buildToCompose = async (onClose: () => void = vi.fn()) => {
       mockDraft()
       mockSavedLists()
-      const listDetailCalls = mockFreeAudience()
+      mockFreeAudience()
       render(<RobocallFlow open onClose={onClose} />)
       fireEvent.click(screen.getByText('Persuade likely voters'))
-      // Recommendations only: the picker offers no saved lists here.
-      expect(screen.queryByText('Choose a voter list')).not.toBeInTheDocument()
       await userEvent.click(await screen.findByText('Persuadable independents'))
       await userEvent.click(
         await screen.findByRole('button', { name: /Continue \(900\)/ }),
@@ -2129,7 +2142,6 @@ describe('RobocallFlow', () => {
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
       )
-      return listDetailCalls
     }
 
     const saveDraft = () =>
@@ -2172,19 +2184,15 @@ describe('RobocallFlow', () => {
     // The whole free build path, with every Pro-gated read answering the way
     // gp-api really answers it: nothing asks list-detail for a count, and
     // the build ends on compose with no review or schedule step behind it.
-    it('reaches compose without a list-detail read', async () => {
+    it('reaches compose with the audience priced', async () => {
       gateRef.set(FREE_GATE)
       mockSaveDraft()
-      // buildToCompose registers the audience mocks itself and hands back the
-      // live counter. Registering a second set here would leave this test
-      // counting a handler msw had already replaced.
-      const listDetailCalls = await buildToCompose()
+      await buildToCompose()
 
       expect(
         screen.queryByRole('button', { name: 'Save draft' }),
       ).not.toBeInTheDocument()
       expect(screen.queryByText('Review your campaign')).not.toBeInTheDocument()
-      expect(listDetailCalls()).toBe(0)
     })
 
     // The FIRST time a recommendation is taken there is no saved list yet, so
@@ -2195,7 +2203,7 @@ describe('RobocallFlow', () => {
       mockSaveDraft()
       mockDraft()
       mockSavedLists()
-      const listDetailCalls = mockFreeAudience()
+      mockFreeAudience()
       api.mock('GET /v1/campaigns/mine/recommended-lists', {
         status: 200,
         data: [NEW_RECOMMENDATION],
@@ -2228,8 +2236,6 @@ describe('RobocallFlow', () => {
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
       )
-
-      expect(listDetailCalls()).toBe(0)
     })
 
     // The banner's gate opens the wizard on its first step, whose Back is the

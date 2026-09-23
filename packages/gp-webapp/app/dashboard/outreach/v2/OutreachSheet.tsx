@@ -152,7 +152,7 @@ export const OutreachSheet = ({
               hasContentBelow && 'border-t border-border',
             )}
           >
-            <div className="mx-auto flex w-full max-w-[608px] flex-col gap-2">
+            <div className="mx-auto flex w-full max-w-[608px] flex-col gap-6">
               {footer}
             </div>
           </DrawerFooter>

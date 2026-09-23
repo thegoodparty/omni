@@ -2035,7 +2035,12 @@ and still isn't, on either the nav or the page.
 ## The Pro gate (ENG-10888)
 
 **Every route in `src/doorKnocking/` is Pro-gated except the two suppression
-writes.** The gate is `ContactsService.assertProAccess(organization)`, called at
+writes and the four reads the create flow needs before its one paid write.**
+The reads (`GET /turfs`, `GET /pack`, `GET /quota`, `POST /audience-check`)
+opened with outreach-pro-gating-v2: a free campaign can list, draw and shape
+a list behind the create flow's in-flow gate, and `POST /turfs`, the Geoapify
+spend, is where it is refused. `POST /address-preview` stays gated because it
+returns addresses (ADR 0010). The gate is `ContactsService.assertProAccess(organization)`, called at
 the top of each controller method — the CRM's own predicate, reused rather than
 reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
 `isPro` and an `eo-` (Serve) org stays license-equivalent to Pro here exactly as
@@ -2051,16 +2056,16 @@ either status would stay quiet and the convention rests on the semantics.
 | ----------------------- | ------ |
 | `POST /turfs`           | yes    |
 | `POST /serve/turfs`     | yes    |
-| `GET /turfs`            | yes    |
+| `GET /turfs`            | **no** |
 | `GET /serve/turfs`      | yes    |
 | `GET /turfs/:id`        | yes    |
 | `PUT /turfs/:id`        | yes    |
 | `DELETE /turfs/:id`     | yes    |
 | `GET /turfs/:id/route`  | yes    |
-| `GET /pack`             | yes    |
-| `GET /quota`            | yes    |
+| `GET /pack`             | **no** |
+| `GET /quota`            | **no** |
 | `POST /address-preview` | yes    |
-| `POST /audience-check`  | yes    |
+| `POST /audience-check`  | **no** |
 | `POST /interactions`    | yes    |
 | `POST /do-not-knock`    | **no** |
 | `POST /not-a-voter`     | **no** |

@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  Button,
   Card,
   cn,
   Popover,
@@ -77,19 +76,6 @@ interface OutreachAudienceStepProps {
   selectedId: number | null
   onSelect: (id: number) => void
   onStartBuilder: () => void
-  // Drops the picker's "Create a new list" entry: a free candidate picks
-  // from what is already there (recommended and saved lists) rather than
-  // cutting a new audience they cannot reach yet.
-  hideBuilder?: boolean
-  // Recommendations only. A saved list's reach count comes from the
-  // Pro-gated list-detail read, so on the free build path the picker can
-  // offer a list it cannot count or price — the cards carry their own
-  // counts and are the only audience that works there.
-  hideSavedLists?: boolean
-  // With the builder gone, a purpose that recommends nothing (custom) and a
-  // campaign with no saved lists leaves nothing to pick — the way out is
-  // another purpose, so the empty state offers it.
-  onChoosePurpose?: () => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
   // "All lists" in picker mode only.
   recommendations: RecommendedList[]
@@ -174,9 +160,6 @@ export const OutreachAudienceStep = ({
   selectedId,
   onSelect,
   onStartBuilder,
-  hideBuilder = false,
-  hideSavedLists = false,
-  onChoosePurpose,
   recommendations,
   recommendationsLoading,
   recommendationsError,
@@ -332,14 +315,6 @@ export const OutreachAudienceStep = ({
   // it is a user-initiated follow-up, not part of the landing.
   const initialLoading = listsLoading || recommendationsLoading
 
-  // Builder hidden, no cards, no saved lists: the picker can only say "No
-  // saved lists yet.", so the step says what to do instead.
-  const nothingToPick =
-    hideBuilder &&
-    !initialLoading &&
-    cards.length === 0 &&
-    (hideSavedLists || lists.length === 0)
-
   if (initialLoading) {
     return (
       <div className="space-y-6">
@@ -431,21 +406,7 @@ export const OutreachAudienceStep = ({
         </div>
       )}
 
-      {nothingToPick ? (
-        <div
-          data-testid="outreach-audience-empty"
-          className="flex flex-col items-start gap-3 rounded-xl border border-base-border p-4"
-        >
-          <p className="text-sm text-muted-foreground">
-            Pick a purpose to see recommended voter lists.
-          </p>
-          {onChoosePurpose && (
-            <Button type="button" variant="outline" onClick={onChoosePurpose}>
-              Choose a purpose
-            </Button>
-          )}
-        </div>
-      ) : hideSavedLists ? null : (
+      {
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase text-primary">All lists</p>
           <Popover open={open} onOpenChange={setOpen}>
@@ -521,7 +482,7 @@ export const OutreachAudienceStep = ({
               className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
             >
               <div className="divide-y divide-border">
-                {!hideBuilder && (
+                {
                   <button
                     type="button"
                     onClick={() => {
@@ -542,7 +503,7 @@ export const OutreachAudienceStep = ({
                       </span>
                     </span>
                   </button>
-                )}
+                }
                 {lists.length === 0 && !listsLoading && (
                   <p className="p-4 text-sm text-muted-foreground">
                     No saved lists yet.
@@ -576,7 +537,7 @@ export const OutreachAudienceStep = ({
             </PopoverContent>
           </Popover>
         </div>
-      )}
+      }
       {pricePerContact > 0 && (
         <p className="text-sm text-muted-foreground">
           {copy.unitCostLabel} ${pricePerContact.toFixed(3)}

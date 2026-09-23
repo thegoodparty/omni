@@ -181,13 +181,39 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
   })
 
-  it('free candidate: the sheets Continue opens the gate instead of creating the list', async () => {
+  // Design: a free candidate sees the ready screen as a preview of the list
+  // they would get, and both its download and its Continue open the gate.
+  it('free candidate: the sheets Continue previews the ready screen, whose Continue opens the gate', async () => {
     gateRef.set(FREE_GATE)
     const createCalls = mockCreateList()
     render(<PhoneBankingFlow open onClose={vi.fn()} />)
     await advanceToSheets()
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      (await screen.findAllByText('Your call sheet is ready')).length,
+    ).toBeGreaterThan(0)
+    expect(createCalls).toHaveLength(0)
+    expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+    expect(createCalls).toHaveLength(0)
+  })
+
+  it('free candidate: the preview download opens the gate instead of a file', async () => {
+    gateRef.set(FREE_GATE)
+    const createCalls = mockCreateList()
+    render(<PhoneBankingFlow open onClose={vi.fn()} />)
+    await advanceToSheets()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Your call sheet is ready')
+
+    await user.click(
+      screen.getByRole('button', { name: /Download call sheet/ }),
+    )
 
     expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
     expect(createCalls).toHaveLength(0)
@@ -202,6 +228,8 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     const createCalls = mockCreateList()
     render(<PhoneBankingFlow open onClose={vi.fn()} />)
     await advanceToSheets()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Your call sheet is ready')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByTestId('pro-upgrade-flow')
 
@@ -219,22 +247,20 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     ).toBeGreaterThan(0)
   })
 
-  it('free candidate: leaving the gate lands back on the sheets step', async () => {
+  it('free candidate: leaving the gate lands back on the ready screen', async () => {
     gateRef.set(FREE_GATE)
     const onClose = vi.fn()
     render(<PhoneBankingFlow open onClose={onClose} />)
     await advanceToSheets()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Your call sheet is ready')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByTestId('pro-upgrade-flow')
 
     await user.click(screen.getByRole('button', { name: 'Finish later' }))
 
     expect(
-      (
-        await screen.findAllByText(
-          'How many call sheets would you like me to create?',
-        )
-      ).length,
+      (await screen.findAllByText('Your call sheet is ready')).length,
     ).toBeGreaterThan(0)
     expect(onClose).not.toHaveBeenCalled()
   })

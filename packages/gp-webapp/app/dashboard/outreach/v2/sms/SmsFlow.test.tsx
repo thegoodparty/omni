@@ -554,12 +554,26 @@ describe('SmsFlow', () => {
       existingFilterId: null,
     }
 
-    // Truthful for a free campaign: gp-api refuses list-detail without Pro.
+    // The count reads are open to a free campaign now, so the picker prices
+    // a saved list the same way it does for Pro.
     const mockFreeAudience = () => {
       let listDetailCalls = 0
       api.mock('GET /v1/contacts/list-detail', () => {
         listDetailCalls += 1
-        return { status: 403, data: { message: 'Pro subscription required' } }
+        return {
+          status: 200,
+          data: {
+            demographics: { people: 1500, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 900,
+              robocall: null,
+              phoneBanking: null,
+              doorKnocking: null,
+              polls: null,
+            },
+            outreachHistory: [],
+          },
+        }
       })
       api.mock('GET /v1/campaigns/mine/recommended-lists', {
         status: 200,
@@ -635,8 +649,6 @@ describe('SmsFlow', () => {
     // written (design: the locked "when" step).
     const buildToName = async () => {
       await userEvent.click(screen.getByText('Introduce myself to voters'))
-      // Recommendations only: the picker offers no saved lists here.
-      expect(screen.queryByText('Choose a voter list')).not.toBeInTheDocument()
       await userEvent.click(await screen.findByText('Persuadable independents'))
       await userEvent.click(
         await screen.findByRole('button', { name: /Continue \(900\)/ }),
@@ -665,10 +677,10 @@ describe('SmsFlow', () => {
     // The whole free build path, with every Pro-gated read answering the way
     // gp-api really answers it: nothing asks list-detail for a count, and
     // the name step only asks for the name.
-    it('reaches the name step without a list-detail read', async () => {
+    it('reaches the name step with the audience priced', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
-      const listDetailCalls = mockFreeAudience()
+      mockFreeAudience()
       openFlow()
 
       await buildToName()
@@ -678,7 +690,6 @@ describe('SmsFlow', () => {
       )
       expect(screen.queryByText('Send date')).not.toBeInTheDocument()
       expect(screen.queryByText('Review and verify')).not.toBeInTheDocument()
-      expect(listDetailCalls()).toBe(0)
     })
 
     // The FIRST time a recommendation is taken there is no saved list yet, so
@@ -687,7 +698,7 @@ describe('SmsFlow', () => {
     it('saves a recommendation taken for the first time and reaches the name step', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
-      const listDetailCalls = mockFreeAudience()
+      mockFreeAudience()
       api.mock('GET /v1/campaigns/mine/recommended-lists', {
         status: 200,
         data: [NEW_RECOMMENDATION],
@@ -729,7 +740,6 @@ describe('SmsFlow', () => {
       expect(
         (screen.getByLabelText('Campaign name') as HTMLInputElement).value,
       ).toMatch(/ — SMS$/)
-      expect(listDetailCalls()).toBe(0)
     })
 
     // The banner's gate opens the wizard on its first step, whose Back is the
@@ -980,34 +990,6 @@ describe('SmsFlow', () => {
       expect(
         screen.queryByText("We couldn't save this draft. Try again."),
       ).not.toBeInTheDocument()
-    })
-
-    // Free tier loses the in-flow builder, and the custom purpose asks for
-    // no recommendations: with no saved lists either there is nothing to
-    // pick, so the step has to say what to do instead of sitting on a
-    // disabled Continue.
-    it('offers a way out when a free candidate has nothing to pick', async () => {
-      gateRef.set(FREE_GATE)
-      mockDraft()
-      mockFreeAudience()
-      api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
-      openFlow()
-
-      await userEvent.click(screen.getByText('Write my own message'))
-
-      expect(
-        await screen.findByText(
-          'Pick a purpose to see recommended voter lists.',
-        ),
-      ).toBeInTheDocument()
-      expect(screen.queryByText('Choose a voter list')).not.toBeInTheDocument()
-      await userEvent.click(
-        screen.getByRole('button', { name: 'Choose a purpose' }),
-      )
-
-      expect(
-        await screen.findByText('Introduce myself to voters'),
-      ).toBeInTheDocument()
     })
 
     it('keeps the builder for an ungated elected official', async () => {

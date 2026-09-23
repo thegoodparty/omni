@@ -121,7 +121,7 @@ describe('PaymentStep', () => {
     expect(requestBody?.returnUrl).toMatch(/\/dashboard\/pro-upgrade\/success$/)
 
     // Order summary reads the live amount from the session, not a hardcode.
-    expect(screen.getByText('Pro Plan')).toBeInTheDocument()
+    expect(screen.getByText('Pro subscription')).toBeInTheDocument()
     expect(screen.getByText('$10.00/mo')).toBeInTheDocument()
 
     expect(trackEventMock).toHaveBeenCalledWith(

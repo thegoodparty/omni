@@ -123,6 +123,10 @@ const OutreachHubContent = ({
   // and a campaign can hold one draft of each.
   const [robocallResumeDraft, setRobocallResumeDraft] =
     useState<OutreachDetail | null>(null)
+  // Which gesture resumed the draft. The drawer's own CTA already made the
+  // Pro pitch, so it opens the wizard directly; a tile or deep link lands on
+  // the pause screen first.
+  const [resumeSource, setResumeSource] = useState<ResumeSource | null>(null)
   // Seeds a `?compose=` deep link handed over (a tracker/manager task's due
   // date, Know Your Opponent's suggested message, a CRM list). Held per open
   // and cleared on close, so a later tile click starts clean.
@@ -153,6 +157,7 @@ const OutreachHubContent = ({
       if (openingChannelRef.current) return
       const openWith = (draft: OutreachDetail | null) => {
         openingChannelRef.current = false
+        setResumeSource(draft ? source : null)
         if (draft) {
           trackEvent(EVENTS.Outreach.Draft.Resumed, {
             channel: GATE_CHANNEL[channel],
@@ -341,6 +346,7 @@ const OutreachHubContent = ({
         }}
         onScheduled={refetchOutreaches}
         resumeDraft={robocallResumeDraft}
+        resumeStartsOnWizard={resumeSource === 'row'}
         campaignPlanDueDate={composeSeeds?.due}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
         preselectedRecommendedVariant={
@@ -370,6 +376,7 @@ const OutreachHubContent = ({
         }}
         onScheduled={refetchOutreaches}
         resumeDraft={resumeDraft}
+        resumeStartsOnWizard={resumeSource === 'row'}
         tcrCompliance={tcrCompliance}
         campaignPlanDueDate={composeSeeds?.due}
         initialScript={composeSeeds?.script}

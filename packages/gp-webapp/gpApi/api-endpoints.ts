@@ -786,6 +786,15 @@ export type APIEndpoints = {
     }
   }
 
+  // The EIN step's "Email me these steps": the six IRS how-to steps, sent
+  // to the authenticated user's own email. No body, same scoping as above.
+  'POST /v1/campaigns/mine/ein-instructions/email': {
+    Request: {}
+    Response: {
+      success: boolean
+    }
+  }
+
   // Accepts a multipart PDF upload and stores it as a public share link.
   // The file part is sent as FormData — pass `{}` as the typed payload and
   // supply `{ body: formData }` via the overrides argument of clientRequest.

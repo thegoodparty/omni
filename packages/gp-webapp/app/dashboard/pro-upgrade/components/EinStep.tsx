@@ -133,14 +133,27 @@ const EinStep = (): React.JSX.Element => {
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
+      <h1
+        className={
+          purchaseOnly
+            ? 'mb-2 text-xl font-semibold'
+            : 'text-[32px] leading-[44px] font-semibold mb-1.5'
+        }
+      >
         What is your campaign EIN?
       </h1>
-      <Body2 className="text-base-muted-foreground mb-6">
-        {purchaseOnly
-          ? 'Every campaign needs an EIN (Employer Identification Number) to comply with regulations.'
-          : "Every campaign needs one to access voter data and texting. If you don't have one for your campaign, you can get a free EIN from the IRS in just a few minutes."}
-      </Body2>
+      {purchaseOnly ? (
+        <p className="mb-6 text-base text-base-muted-foreground">
+          Every campaign needs an EIN (Employer Identification Number) to comply
+          with regulations.
+        </p>
+      ) : (
+        <Body2 className="text-base-muted-foreground mb-6">
+          Every campaign needs one to access voter data and texting. If you
+          don&apos;t have one for your campaign, you can get a free EIN from the
+          IRS in just a few minutes.
+        </Body2>
+      )}
 
       {showEinError && (
         <StyledAlert severity="error" className="mb-6">
@@ -159,9 +172,22 @@ const EinStep = (): React.JSX.Element => {
           trackEvent(EVENTS.ProUpgrade.Compliance.EinHoverHelp)
         }
         helperText={
-          // Purchase-only puts the whole IRS how-to in the collapsible below,
-          // so this link would be a second route to the same page.
-          purchaseOnly ? undefined : (
+          // Purchase-only puts the IRS how-to in the collapsible below, so
+          // its helper points at where an existing EIN is looked up instead
+          // (design: the EIN step's caption).
+          purchaseOnly ? (
+            <>
+              Find this on your IRS determination letter or through the{' '}
+              <a
+                href="https://apps.irs.gov/app/eos/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+              >
+                IRS Tax Exempt Organization Search
+              </a>
+            </>
+          ) : (
             <a
               href="https://sa.www4.irs.gov/applyein/legalStructure"
               target="_blank"

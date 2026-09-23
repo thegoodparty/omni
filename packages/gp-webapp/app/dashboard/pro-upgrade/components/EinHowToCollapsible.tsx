@@ -8,11 +8,14 @@ import {
   CollapsibleTrigger,
 } from '@styleguide'
 import {
-  ChevronDownIcon,
-  ChevronUpIcon,
   ExternalLinkIcon,
+  MailIcon,
+  MinusIcon,
+  PlusIcon,
 } from '@styleguide/components/ui/icons'
-import Body2 from '@shared/typography/Body2'
+import { clientRequest } from 'gpApi/typed-request'
+import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 const IRS_EIN_URL = 'https://sa.www4.irs.gov/applyein/legalStructure'
 
@@ -25,8 +28,27 @@ const STEPS = [
   "Submit, you'll get your EIN right away and can download the confirmation letter.",
 ]
 
+// Design: the EIN step's "How to get a free EIN" card — the six IRS steps,
+// then a footer that mails them to the candidate or opens the IRS tool.
 export const EinHowToCollapsible = (): React.JSX.Element => {
   const [open, setOpen] = useState(false)
+  const [emailing, setEmailing] = useState(false)
+  const { errorSnackbar, successSnackbar } = useSnackbar()
+
+  const handleEmail = async (): Promise<void> => {
+    if (emailing) return
+    setEmailing(true)
+    trackEvent(EVENTS.ProUpgrade.Compliance.EinInstructionsEmail)
+    try {
+      // No body: gp-api sends to the caller's own email.
+      await clientRequest('POST /v1/campaigns/mine/ein-instructions/email', {})
+      successSnackbar('EIN steps sent to your email.')
+    } catch {
+      errorSnackbar('Something went wrong. Please try again.')
+    } finally {
+      setEmailing(false)
+    }
+  }
 
   return (
     <Collapsible
@@ -35,46 +57,62 @@ export const EinHowToCollapsible = (): React.JSX.Element => {
       className="rounded-xl border border-base-border"
     >
       <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 p-4 text-left">
-        <span>
+        <span className="text-[15px]">
           <span className="font-semibold">How to get a free EIN </span>
           <span className="text-base-muted-foreground">(3 to 5 min)</span>
         </span>
         {open ? (
-          <ChevronUpIcon
-            className="size-5 text-base-muted-foreground"
+          <MinusIcon
+            className="size-[18px] shrink-0 text-base-muted-foreground"
             aria-hidden
           />
         ) : (
-          <ChevronDownIcon
-            className="size-5 text-base-muted-foreground"
+          <PlusIcon
+            className="size-[18px] shrink-0 text-base-muted-foreground"
             aria-hidden
           />
         )}
       </CollapsibleTrigger>
       <CollapsibleContent className="px-4 pb-4">
-        <ol className="rounded-lg border border-base-border">
-          {STEPS.map((text, index) => (
-            <li
-              key={text}
-              className="flex gap-3 border-t border-base-border px-3.5 py-3 first:border-t-0"
+        <div className="overflow-hidden rounded-xl border border-base-border bg-card">
+          <ol>
+            {STEPS.map((text, index) => (
+              <li
+                key={text}
+                className="flex min-h-16 items-center gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"
+              >
+                <span className="min-w-4 text-sm font-bold text-primary">
+                  {index + 1}.
+                </span>
+                <span className="text-sm leading-relaxed">{text}</span>
+              </li>
+            ))}
+          </ol>
+          <div className="flex flex-wrap items-center gap-3 border-t border-base-border p-3.5">
+            <p className="w-full text-[13px] text-base-muted-foreground">
+              The online tool is open Monday to Friday and issues your EIN
+              immediately.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="small"
+              loading={emailing}
+              onClick={() => void handleEmail()}
             >
-              <span className="min-w-4 text-sm font-semibold text-primary">
-                {index + 1}.
-              </span>
-              <span className="text-sm leading-relaxed">{text}</span>
-            </li>
-          ))}
-        </ol>
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Body2 className="w-full text-base-muted-foreground">
-            The online tool is open Monday to Friday and issues your EIN
-            immediately.
-          </Body2>
-          <Button asChild variant="ghost" size="small">
-            <a href={IRS_EIN_URL} target="_blank" rel="noopener noreferrer">
-              <ExternalLinkIcon /> Open IRS.gov
-            </a>
-          </Button>
+              <MailIcon /> Email me these steps
+            </Button>
+            <Button
+              asChild
+              variant="ghost"
+              size="small"
+              className="text-primary"
+            >
+              <a href={IRS_EIN_URL} target="_blank" rel="noopener noreferrer">
+                <ExternalLinkIcon /> Open IRS.gov
+              </a>
+            </Button>
+          </div>
         </div>
       </CollapsibleContent>
     </Collapsible>

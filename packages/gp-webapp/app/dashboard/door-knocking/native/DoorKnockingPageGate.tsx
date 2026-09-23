@@ -13,6 +13,7 @@ import {
 } from '@styleguide'
 import { LockIcon } from '@styleguide/components/ui/icons'
 import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
@@ -111,6 +112,8 @@ export default function DoorKnockingPageGate({
   openCreateFlow,
 }: DoorKnockingPageGateProps) {
   const { ready, enabled } = useNativeDoorKnockingFlag(true)
+  // Exposure belongs to the membership surfaces, not this page.
+  const { enabled: gatedInFlow } = useOutreachProGatingV2Flag(false)
   const { data: electedOffice, isPending: isElectedOfficePending } =
     useElectedOffice()
 
@@ -128,14 +131,11 @@ export default function DoorKnockingPageGate({
     // the upgrade card at the org most entitled to the feature, on every cold
     // load. DashboardMenu holds its own elected-office decisions the same way.
     //
-    // `outreach-pro-gating-v2` does NOT open this page. The create flow
-    // carries the milestone's in-flow gate, but every /v1/door-knocking read
-    // the map needs — the pack, GET turfs, the quota, audience-check — still
-    // runs assertProAccess server-side, so a free candidate admitted here
-    // would get a permanently failed pack rather than a map they could draw
-    // on. Opening those voter-data reads is an unmade product decision; until
-    // it is made, the lock stays and the in-flow gate is unreachable.
-    if (!campaign?.isPro) {
+    // Under `outreach-pro-gating-v2` this page admits a free campaign: the
+    // reads the map needs (the pack, GET turfs, the quota, audience-check)
+    // are open to one server-side, and the create flow gates Build route,
+    // the one paid write. Off the flag the lock stays.
+    if (!campaign?.isPro && !gatedInFlow) {
       if (isElectedOfficePending) {
         return (
           <DashboardLayout pathname={pathname} campaign={campaign}>
