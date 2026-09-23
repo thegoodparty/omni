@@ -16,7 +16,10 @@ re-running this script.
 
 `time_in_status` reports the MOST RECENT entry into a status, not the first.
 A task that moved backward and re-entered "in progress" measures its final
-stint, not the whole span.
+stint, not the whole span. That can put the "in progress" anchor after the end
+of the window (re-opened after shipping, or a hand-entered date that predates
+dev start), which would yield a negative duration; those are reported and left
+empty rather than written.
 
 Usage:
     uv run clickup_dev_time_backfill.py --dry-run
@@ -158,6 +161,7 @@ def main():
     field_ids = {} if args.dry_run else ensure_metric_fields(args.list_id, token)
 
     writes = 0
+    negatives = []
     print(f'\n{"TD":>6} {"Dev":>6} {"Est":>6}  task')
     for task in sorted(tasks, key=lambda t: t['name']):
         entered = history.get(task['id'], {})
@@ -171,6 +175,10 @@ def main():
                 dev_start, date_field_value(task, SHIPPED_GOAL_FIELD)
             ),
         }
+        for name in METRIC_FIELDS:
+            if values[name] is not None and values[name] < 0:
+                negatives.append((task['name'], name, values[name]))
+                values[name] = None
         cells = ' '.join(
             f'{"-" if values[n] is None else values[n]:>6}' for n in METRIC_FIELDS
         )
@@ -195,6 +203,8 @@ def main():
         1 for t in tasks if history.get(t['id'], {}).get(START_STATUS) is not None
     )
     print(f'\n{len(tasks)} tasks, {measured} with a "{START_STATUS}" timestamp')
+    for task_name, field_name, value in negatives:
+        print(f'left empty: {field_name} was {value}d on "{task_name[:50]}"')
 
     if args.dry_run:
         print('dry run: nothing written')
