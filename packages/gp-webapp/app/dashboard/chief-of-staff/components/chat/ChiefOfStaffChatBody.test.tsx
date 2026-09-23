@@ -37,9 +37,13 @@ vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
 
 // Attachments are flag-gated; the toggle lets the drag-and-drop block turn
 // them on without flipping the flag under every other test in this file.
+// The mock mirrors the real hook's scope guard: only chief_of_staff is enabled.
 let attachmentsOn = false
 vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
-  useAttachmentsEnabled: () => ({ ready: true, enabled: attachmentsOn }),
+  useAttachmentsEnabled: (scope: string) => ({
+    ready: true,
+    enabled: attachmentsOn && scope === 'chief_of_staff',
+  }),
 }))
 
 const uploadAttachmentMock = vi.fn()
@@ -1127,6 +1131,47 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.getByLabelText(/ask a question/i)).not.toHaveFocus()
     await user.click(chip)
     expect(screen.getByLabelText(/ask a question/i)).toHaveFocus()
+  })
+
+  describe('scope prop — paperclip visibility', () => {
+    const renderWithScope = (
+      scope?: 'chief_of_staff' | 'campaign_assistant',
+    ) => {
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([])
+      return render(
+        scope !== undefined ? (
+          <ChiefOfStaffChatBody active scope={scope} />
+        ) : (
+          <ChiefOfStaffChatBody active />
+        ),
+      )
+    }
+
+    beforeEach(() => {
+      attachmentsOn = true
+    })
+
+    it('hides the paperclip when scope is not chief_of_staff (campaign_assistant)', () => {
+      renderWithScope('campaign_assistant')
+      expect(
+        screen.queryByRole('button', { name: 'Attach a file' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows the paperclip when scope is chief_of_staff', () => {
+      renderWithScope('chief_of_staff')
+      expect(
+        screen.getByRole('button', { name: 'Attach a file' }),
+      ).toBeInTheDocument()
+    })
+
+    it('shows the paperclip when scope is omitted (backwards-compat default)', () => {
+      renderWithScope()
+      expect(
+        screen.getByRole('button', { name: 'Attach a file' }),
+      ).toBeInTheDocument()
+    })
   })
 
   describe('list map card', () => {

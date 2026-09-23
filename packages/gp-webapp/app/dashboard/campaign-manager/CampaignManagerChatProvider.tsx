@@ -318,6 +318,7 @@ export function CampaignManagerChatProvider({
         title="Campaign manager"
         subtitle="Always on, focused on your week"
         chatApi={campaignManagerChatApi}
+        scope="campaign_assistant"
         analyticsLabel="campaign-manager-chat"
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         // The greeting rides on `opener` alone. This only keeps the entries

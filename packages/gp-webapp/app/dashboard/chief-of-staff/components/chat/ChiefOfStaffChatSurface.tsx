@@ -11,7 +11,10 @@ import {
 import ChiefOfStaffChatBody, {
   type ChatSuggestion,
 } from './ChiefOfStaffChatBody'
-import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import type {
+  AgentChatClient,
+  ChatScope,
+} from '../../../shared/agent-chat/chatClient'
 
 interface Props {
   open: boolean
@@ -27,6 +30,12 @@ interface Props {
   subtitle?: string
   /** Scope config threaded to the body. All default to Chief of Staff. */
   chatApi?: AgentChatClient
+  /**
+   * Attachment scope threaded to the body. Defaults to 'chief_of_staff'.
+   * Campaign Manager must pass 'campaign_assistant' so the paperclip is
+   * suppressed (the backend only allows presign for chief_of_staff scope).
+   */
+  scope?: ChatScope
   analyticsLabel?: string
   historyKey?: readonly unknown[]
   defaultIntro?: string[]
@@ -69,6 +78,7 @@ export default function ChiefOfStaffChatSurface({
   title = 'Chief of Staff',
   subtitle = 'Always on, working on your week',
   chatApi,
+  scope,
   analyticsLabel,
   historyKey,
   defaultIntro,
@@ -123,6 +133,7 @@ export default function ChiefOfStaffChatSurface({
           opener={opener}
           onSelectConversation={setSelectedId}
           chatApi={chatApi}
+          scope={scope}
           analyticsLabel={analyticsLabel}
           historyKey={historyKey}
           defaultIntro={defaultIntro}

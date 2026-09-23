@@ -29,6 +29,7 @@ import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type {
   AgentChatClient,
   ChatMessageDto,
+  ChatScope,
 } from '../../../shared/agent-chat/chatClient'
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
@@ -72,6 +73,13 @@ interface Props {
    * Issues callers are unchanged; Campaign Manager passes its own.
    */
   chatApi?: AgentChatClient
+  /**
+   * The chat scope passed to useAttachmentsEnabled. Defaults to
+   * 'chief_of_staff' so every caller that omits it keeps the same behaviour.
+   * Campaign Manager must pass its own scope so it never shows the paperclip
+   * affordance (the backend only allows presign for chief_of_staff).
+   */
+  scope?: ChatScope
   analyticsLabel?: string
   historyKey?: readonly unknown[]
   /** Default intro played on the first chat when no `opener` is given. */
@@ -191,6 +199,7 @@ export default function ChiefOfStaffChatBody({
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
   showMessageActions = false,
+  scope = 'chief_of_staff',
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -251,7 +260,7 @@ export default function ChiefOfStaffChatBody({
     [composerRef],
   )
 
-  const attachmentsEnabled = useAttachmentsEnabled('chief_of_staff')
+  const attachmentsEnabled = useAttachmentsEnabled(scope)
 
   const [attachments, setAttachments] = useState<ChatAttachmentState[]>([])
 
