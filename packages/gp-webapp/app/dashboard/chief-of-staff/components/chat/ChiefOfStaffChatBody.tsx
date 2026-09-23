@@ -54,6 +54,7 @@ import {
   linkErrorMessage,
   type ChatAttachmentState,
 } from '../../../shared/agent-chat/chatAttachments-api'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 interface Props {
   /**
@@ -286,6 +287,27 @@ export default function ChiefOfStaffChatBody({
     }
     setGuardAcknowledged(true)
   }, [])
+
+  useEffect(() => {
+    if (attachmentsEnabled.enabled && guardAcknowledged === false) {
+      void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, {})
+    }
+  }, [attachmentsEnabled.enabled, guardAcknowledged])
+
+  const reportedFailedIdsRef = useRef(new Set<string>())
+  useEffect(() => {
+    for (const attachment of attachments) {
+      if (
+        attachment.status === 'failed' &&
+        !reportedFailedIdsRef.current.has(attachment.id)
+      ) {
+        reportedFailedIdsRef.current.add(attachment.id)
+        void trackEvent(EVENTS.ChiefOfStaff.SourceUnreachablePromptShown, {
+          promptContext: attachment.failureReason ?? 'unknown',
+        })
+      }
+    }
+  }, [attachments])
 
   const toolLabel = useCallback(
     (name: string): string => toolDisplayName(name),
@@ -582,6 +604,12 @@ export default function ChiefOfStaffChatBody({
         setAttachments((prev) =>
           prev.map((a) => (a.id === tempId ? result : a)),
         )
+        void trackEvent(EVENTS.ChiefOfStaff.DocumentAttached, {
+          sourceType: 'file',
+          fileType: file.type || (file.name.split('.').pop() ?? ''),
+          byteSize: file.size,
+          pageCount: result.pageCount ?? null,
+        })
       } catch (err) {
         reportErrorToSentry(err, {
           surface: 'chief-of-staff-chat',
@@ -614,6 +642,12 @@ export default function ChiefOfStaffChatBody({
           failureReason: null,
         },
       ])
+      let linkHost = ''
+      try {
+        linkHost = new URL(url).hostname
+      } catch {
+        // malformed url — leave linkHost as empty string
+      }
       try {
         const result = await linkChatAttachment(cid, url)
         if (result.ok) {
@@ -628,6 +662,10 @@ export default function ChiefOfStaffChatBody({
               return true
             })
           })
+          void trackEvent(EVENTS.ChiefOfStaff.LinkSubmitted, {
+            linkHost,
+            fetchSucceeded: true,
+          })
         } else {
           setAttachments((prev) =>
             prev.map((a) =>
@@ -640,6 +678,10 @@ export default function ChiefOfStaffChatBody({
                 : a,
             ),
           )
+          void trackEvent(EVENTS.ChiefOfStaff.LinkFetchFailed, {
+            linkHost,
+            failureReason: result.error,
+          })
         }
       } catch (err) {
         reportErrorToSentry(err, {
@@ -657,6 +699,10 @@ export default function ChiefOfStaffChatBody({
               : a,
           ),
         )
+        void trackEvent(EVENTS.ChiefOfStaff.LinkFetchFailed, {
+          linkHost,
+          failureReason: 'network_error',
+        })
       }
     },
     [conversationId, ensureConversationId],
@@ -722,6 +768,10 @@ export default function ChiefOfStaffChatBody({
       page: number | null | undefined,
     ): Promise<void> => {
       if (!conversationId) return
+      void trackEvent(EVENTS.ChiefOfStaff.CitationOpened, {
+        documentId: attachmentId,
+        pageNumber: page ?? null,
+      })
       // Open the tab immediately while the user gesture is still live so browsers
       // don't block the popup. Navigate it to the presigned URL once fetched.
       const tab = window.open('', '_blank')
@@ -747,6 +797,14 @@ export default function ChiefOfStaffChatBody({
   // navigation without riding the URL (which would expose the draft text).
   const handleComposeHandoff = useCallback(
     (payload: ComposeHandoffPayload): void => {
+      const prefilledFields: string[] =
+        payload.channel === 'serve_social'
+          ? ['draftText', ...(payload.purpose ? ['purpose'] : [])]
+          : []
+      void trackEvent(EVENTS.ChiefOfStaff.ComposeHandoffOpened, {
+        channel: payload.channel,
+        prefilledFields,
+      })
       let nonce: string
       try {
         nonce = crypto.randomUUID()

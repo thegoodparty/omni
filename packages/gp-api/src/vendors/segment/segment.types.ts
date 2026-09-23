@@ -229,6 +229,9 @@ export const EVENTS = {
     //  "complete your profile" nudge email is sent to
     CompletionRequested: 'Person Profile - Completion Requested',
   },
+  ChiefOfStaff: {
+    AttachedDocumentQueried: 'Chief Of Staff - Attached Document Queried',
+  },
 }
 
 export type UserContext = {
