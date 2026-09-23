@@ -12,10 +12,18 @@ import { WebClient } from '@slack/web-api'
  */
 const DEFAULT_GP_ADMIN_BASE_URL = 'http://localhost:3500'
 
-/** Route owned by A8 (`gp-admin/src/app/dashboard/outreach-results/[id]`). */
-export const outreachResultsUploadUrl = (outreachId: string) => {
+/**
+ * The results upload page, for either product. Addressed as `<kind>/<id>`
+ * because the inbox carries text sends and polls, whose ids are neither the
+ * same type nor from the same space.
+ *
+ * Exported so the poll Slack message can link to the same page this one
+ * does — that shared link is what makes it one surface for fulfilment
+ * rather than two workflows that happen to look alike.
+ */
+export const outreachResultsUploadUrl = (kind: 'sms' | 'poll', id: string) => {
   const base = process.env.GP_ADMIN_BASE_URL || DEFAULT_GP_ADMIN_BASE_URL
-  return `${base.replace(/\/+$/, '')}/dashboard/outreach-results/${outreachId}`
+  return `${base.replace(/\/+$/, '')}/dashboard/outreach-results/${kind}/${id}`
 }
 
 export type TextDeliverySlackMessageArgs = {
@@ -68,7 +76,7 @@ export const sendTextDeliverySlackMessage = async (
   }: TextDeliverySlackMessageArgs,
 ) => {
   const isResend = sendSeq > 1
-  const uploadUrl = outreachResultsUploadUrl(outreachId)
+  const uploadUrl = outreachResultsUploadUrl('sms', outreachId)
 
   await client.filesUploadV2({
     channel_id: SLACK_CHANNEL_IDS[SlackChannel.botTevynApi].channelId,

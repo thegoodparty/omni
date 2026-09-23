@@ -1,3 +1,4 @@
+import { outreachResultsUploadUrl } from '@/outreach/util/textDeliverySlack.util'
 import { SLACK_CHANNEL_IDS } from '@/vendors/slack/slackService.config'
 import { WebClient } from '@slack/web-api'
 import { Transform } from 'stream'
@@ -205,9 +206,9 @@ export const sendTevynAPIPollMessage = async (
         text: {
           type: 'mrkdwn',
           text: [
-            'Run the following command to upload the results CSV:',
+            'Upload the results CSV here:',
             '',
-            `\`aws s3 cp /path/to/local/file.csv s3://${process.env.SERVE_ANALYSIS_BUCKET_NAME}/input/${pollId}.csv\``,
+            outreachResultsUploadUrl('poll', pollId),
           ].join('\n'),
         },
       },

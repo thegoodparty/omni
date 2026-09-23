@@ -984,6 +984,8 @@ export {
   type OutreachResultsUploadRow,
   OutreachResultsParseReportSchema,
   type OutreachResultsParseReport,
+  ResultsInboxKindSchema,
+  type ResultsInboxKind,
   OutreachAwaitingResultsItemSchema,
   type OutreachAwaitingResultsItem,
   OutreachAwaitingResultsResponseSchema,

@@ -13,7 +13,10 @@ import {
   Heading,
   Text,
 } from '@radix-ui/themes'
-import type { OutreachResultsParseReport } from '@goodparty_org/contracts'
+import type {
+  OutreachResultsParseReport,
+  ResultsInboxKind,
+} from '@goodparty_org/contracts'
 import { useToast } from '@/components/Toast'
 import { commitResultsUpload, dryRunResultsUpload } from '../actions'
 import {
@@ -26,7 +29,8 @@ import { describeReport } from '../lib/resultsUpload'
 import { MAX_RESULTS_FILE_BYTES } from '../types'
 
 interface ResultsUploaderProps {
-  outreachId: number
+  kind: ResultsInboxKind
+  id: string
   /** What the operator is about to write results against, for the confirm copy. */
   sendLabel: string
 }
@@ -35,10 +39,7 @@ type Phase = 'idle' | 'parsed' | 'reported' | 'committed'
 
 const SKIPPED_SHOWN = 5
 
-export function ResultsUploader({
-  outreachId,
-  sendLabel,
-}: ResultsUploaderProps) {
+export function ResultsUploader({ kind, id, sendLabel }: ResultsUploaderProps) {
   const router = useRouter()
   const { showToast } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -100,7 +101,7 @@ export function ResultsUploader({
     setBusy(true)
     setError(null)
     try {
-      const next = await dryRunResultsUpload({ outreachId, fileName, csv })
+      const next = await dryRunResultsUpload({ kind, id, fileName, csv })
       setReport(next)
       setPhase('reported')
     } catch (err) {
@@ -114,7 +115,7 @@ export function ResultsUploader({
     setBusy(true)
     setError(null)
     try {
-      const next = await commitResultsUpload({ outreachId, fileName, csv })
+      const next = await commitResultsUpload({ kind, id, fileName, csv })
       setReport(next)
       setPhase('committed')
       showToast(`Results saved — ${describeReport(next)}`)
@@ -258,7 +259,10 @@ export function ResultsUploader({
           color={
             phase === 'committed'
               ? 'green'
-              : report.unmatched > 0
+              : // null for a poll: nothing was matched here because the file
+                // was forwarded to the analysis pipeline rather than ingested,
+                // so there is no "matched nobody" to warn about.
+                (report.unmatched ?? 0) > 0
                 ? 'amber'
                 : 'blue'
           }
@@ -268,12 +272,13 @@ export function ResultsUploader({
             <strong>{describeReport(report)}</strong>
             {phase === 'committed' ? (
               <> — saved to {sendLabel}.</>
-            ) : report.unmatched > 0 ? (
+            ) : (report.unmatched ?? 0) > 0 ? (
               <>
                 {' '}
-                — {report.unmatched.toLocaleString()} of these replies came from
-                a number that was not on this send. They will not be attributed
-                to anyone. Check you have the right file before saving.
+                — {(report.unmatched ?? 0).toLocaleString()} of these replies
+                came from a number that was not on this send. They will not be
+                attributed to anyone. Check you have the right file before
+                saving.
               </>
             ) : (
               <> — nothing has been saved yet.</>

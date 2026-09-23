@@ -1,4 +1,5 @@
 import type {
+  ResultsInboxKind,
   OutreachAwaitingResultsResponse,
   OutreachResultsParseReport,
 } from '@goodparty_org/contracts'
@@ -33,9 +34,13 @@ import type {
 
 export interface OutreachResultsGateway {
   listAwaiting(): Promise<OutreachAwaitingResultsResponse>
-  getTarget(outreachId: number): Promise<OutreachResultsTarget>
+  // `kind` + `id` rather than a bare outreach id: the inbox carries text
+  // sends and polls, whose ids are neither the same type nor from the same
+  // space. Callers take both off the queue item.
+  getTarget(kind: ResultsInboxKind, id: string): Promise<OutreachResultsTarget>
   upload(
-    outreachId: number,
+    kind: ResultsInboxKind,
+    id: string,
     input: OutreachResultsUploadRequest
   ): Promise<OutreachResultsParseReport>
 }
@@ -70,10 +75,10 @@ export const isEndpointsUnavailable = (error: unknown): boolean =>
 const liveGateway: OutreachResultsGateway = {
   listAwaiting: () =>
     gpAction((client) => client.outreachResultsAdmin.getQueue()),
-  getTarget: (outreachId) =>
-    gpAction((client) => client.outreachResultsAdmin.getTarget(outreachId)),
-  upload: (outreachId, input) =>
-    gpAction((client) => client.outreachResultsAdmin.upload(outreachId, input)),
+  getTarget: (kind, id) =>
+    gpAction((client) => client.outreachResultsAdmin.getTarget(kind, id)),
+  upload: (kind, id, input) =>
+    gpAction((client) => client.outreachResultsAdmin.upload(kind, id, input)),
 }
 
 export function getOutreachResultsGateway(): OutreachResultsGateway {

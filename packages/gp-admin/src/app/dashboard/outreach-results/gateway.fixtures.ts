@@ -18,9 +18,11 @@ import type { OutreachResultsGateway } from './gateway'
 export const fixturesEnabled = (): boolean =>
   process.env.OUTREACH_RESULTS_FIXTURES === '1'
 
-const targets: Record<number, OutreachResultsTarget> = {
+// Keyed by the id string now, because a poll's id is a uuid.
+const targets: Record<string, OutreachResultsTarget> = {
   8801: {
-    outreachId: 8801,
+    kind: 'sms' as const,
+    id: '8801',
     name: 'September newsletter text',
     organizationSlug: 'city-of-dover',
     outreachType: 'text',
@@ -33,7 +35,8 @@ const targets: Record<number, OutreachResultsTarget> = {
     resultsReceivedAt: null,
   },
   8802: {
-    outreachId: 8802,
+    kind: 'sms' as const,
+    id: '8802',
     name: 'Parks budget question',
     organizationSlug: 'town-of-hadley',
     outreachType: 'poll',
@@ -47,7 +50,7 @@ const targets: Record<number, OutreachResultsTarget> = {
   },
 }
 
-const committed = new Set<number>()
+const committed = new Set<string>()
 
 // Stands in for the recipient map: in fixture mode a phone "matches" when its
 // last digit is even, which gives a stable mix of matched and unmatched
@@ -63,9 +66,10 @@ const looksLikeOptOut = (content: string): boolean =>
 export const fixtureGateway: OutreachResultsGateway = {
   listAwaiting: async (): Promise<OutreachAwaitingResultsResponse> => ({
     items: Object.values(targets)
-      .filter((target) => !committed.has(target.outreachId))
+      .filter((target) => !committed.has(target.id))
       .map((target) => ({
-        outreachId: target.outreachId,
+        kind: target.kind,
+        id: target.id,
         name: target.name,
         organizationSlug: target.organizationSlug,
         outreachType: target.outreachType,
@@ -75,19 +79,16 @@ export const fixtureGateway: OutreachResultsGateway = {
       })),
   }),
 
-  getTarget: async (outreachId: number): Promise<OutreachResultsTarget> => {
-    const target = targets[outreachId]
-    if (!target) throw new Error(`No send ${outreachId}`)
+  getTarget: async (_kind, id): Promise<OutreachResultsTarget> => {
+    const target = targets[id]
+    if (!target) throw new Error(`No send ${id}`)
     return {
       ...target,
-      resultsReceivedAt: committed.has(outreachId) ? new Date() : null,
+      resultsReceivedAt: committed.has(id) ? new Date() : null,
     }
   },
 
-  upload: async (
-    outreachId: number,
-    input
-  ): Promise<OutreachResultsParseReport> => {
+  upload: async (_kind, id, input): Promise<OutreachResultsParseReport> => {
     const parsed = parseResultsCsv(input.csv)
     if (!parsed.ok) throw new Error(parsed.error)
 
@@ -98,7 +99,7 @@ export const fixtureGateway: OutreachResultsGateway = {
       if (looksLikeOptOut(row.content)) optOuts += 1
     }
 
-    if (!input.dryRun) committed.add(outreachId)
+    if (!input.dryRun) committed.add(id)
 
     return {
       rowsParsed: parsed.rows.length,

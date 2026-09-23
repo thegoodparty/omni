@@ -56,7 +56,8 @@ describe('results upload actions', () => {
   it('refuses a truncated file on commit, without calling gp-api', async () => {
     await expect(
       commitResultsUpload({
-        outreachId: 42,
+        kind: 'sms' as const,
+        id: '42',
         fileName: 'results.csv',
         csv: TRUNCATED,
       })
@@ -75,7 +76,8 @@ describe('results upload actions', () => {
     })
     await expect(
       dryRunResultsUpload({
-        outreachId: 42,
+        kind: 'sms' as const,
+        id: '42',
         fileName: 'results.csv',
         csv: TRUNCATED,
       })
@@ -86,7 +88,8 @@ describe('results upload actions', () => {
   it('refuses a file with the wrong columns', async () => {
     await expect(
       commitResultsUpload({
-        outreachId: 42,
+        kind: 'sms' as const,
+        id: '42',
         fileName: 'results.csv',
         csv: 'name,note\nAva,Hi\n',
       })
@@ -96,18 +99,19 @@ describe('results upload actions', () => {
 
   it('lets a whole file through and stamps who uploaded it', async () => {
     await commitResultsUpload({
-      outreachId: 42,
+      kind: 'sms' as const,
+      id: '42',
       fileName: 'results.csv',
       csv: WHOLE,
     })
-    expect(mockUpload).toHaveBeenCalledWith(42, {
+    expect(mockUpload).toHaveBeenCalledWith('sms', '42', {
       fileName: 'results.csv',
       csv: WHOLE,
       dryRun: false,
       sourceLabel: 'gp-admin upload by staff@goodparty.org',
     })
     expect(mockRevalidate).toHaveBeenCalledWith(
-      '/dashboard/outreach-results/42'
+      '/dashboard/outreach-results/sms/42'
     )
   })
 
@@ -115,7 +119,8 @@ describe('results upload actions', () => {
     mockAuth.mockResolvedValue({ has: () => false })
     await expect(
       commitResultsUpload({
-        outreachId: 42,
+        kind: 'sms' as const,
+        id: '42',
         fileName: 'results.csv',
         csv: WHOLE,
       })

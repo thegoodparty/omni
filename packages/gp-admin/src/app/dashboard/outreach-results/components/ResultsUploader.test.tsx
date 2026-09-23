@@ -67,7 +67,11 @@ const GOOD_CSV =
 const setup = () =>
   render(
     <Theme>
-      <ResultsUploader outreachId={42} sendLabel="September newsletter text" />
+      <ResultsUploader
+        kind="sms"
+        id="42"
+        sendLabel="September newsletter text"
+      />
     </Theme>
   )
 
@@ -102,7 +106,8 @@ describe('ResultsUploader', () => {
       '3 rows, 2 matched a recipient, 1 matched nobody, 1 opt-out'
     )
     expect(mockDryRun).toHaveBeenCalledWith({
-      outreachId: 42,
+      kind: 'sms',
+      id: '42',
       fileName: 'results.csv',
       csv: GOOD_CSV,
     })

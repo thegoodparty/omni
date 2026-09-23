@@ -152,9 +152,11 @@ const expectToBeWithin = (
 
 // The poll Slack message used to carry an `aws s3 cp` command, and both the
 // results bucket and the SQS queue were regexed out of the
-// `serve-analyze-data-<env>` string inside it. That command is being retired
-// (it needs AWS credentials and an exact key, and a typo fails silently), so
-// both now come from the e2e environment instead. They are set in
+// `serve-analyze-data-<env>` string inside it. That command is now GONE —
+// polls upload through the same gp-admin page Serve SMS does — so both come
+// from the e2e environment instead. Decoupling this first is what let the
+// command be deleted without the spec failing post-merge on the train,
+// where no PR would have caught it. They are set in
 // `release.yml`'s `e2e-shard` job, alongside BASE_URL.
 const requireEnv = (name: string): string => {
   const value = process.env[name]

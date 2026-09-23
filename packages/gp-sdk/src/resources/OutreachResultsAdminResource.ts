@@ -1,4 +1,5 @@
 import type {
+  ResultsInboxKind,
   OutreachAwaitingResultsResponse,
   OutreachResultsParseReport,
   OutreachResultsTarget,
@@ -21,17 +22,25 @@ export class OutreachResultsAdminResource extends BaseResource {
       `${this.resourceBasePath}/queue`,
     )
 
-  getTarget = (outreachId: number): Promise<OutreachResultsTarget> =>
+  // Addressed as `<kind>/<id>` because the inbox carries two products whose
+  // ids are neither the same type nor drawn from the same space: a send is
+  // an integer Outreach key, a poll is a uuid. The caller takes both from
+  // the queue item rather than assembling them.
+  getTarget = (
+    kind: ResultsInboxKind,
+    id: string,
+  ): Promise<OutreachResultsTarget> =>
     this.getRequest<OutreachResultsTarget>(
-      `${this.resourceBasePath}/${outreachId}`,
+      `${this.resourceBasePath}/${kind}/${id}`,
     )
 
   upload = (
-    outreachId: number,
+    kind: ResultsInboxKind,
+    id: string,
     input: OutreachResultsUploadRequest,
   ): Promise<OutreachResultsParseReport> =>
     this.postRequest<OutreachResultsParseReport>(
-      `${this.resourceBasePath}/${outreachId}`,
+      `${this.resourceBasePath}/${kind}/${id}`,
       input,
     )
 }

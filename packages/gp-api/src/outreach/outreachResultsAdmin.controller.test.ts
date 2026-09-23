@@ -1,6 +1,8 @@
 import { addBusinessDays, parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FastifyAdapter } from '@nestjs/platform-fastify'
+import { vi } from 'vitest'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { useTestService } from '@/test-service'
 import { RESULTS_UPLOAD_BODY_LIMIT_BYTES } from './util/outreachResultsBodyLimit.util'
 import {
@@ -70,14 +72,16 @@ const addRecipients = async (outreachId: number) => {
   })
 }
 
+// `<kind>/<id>`: the inbox carries two products whose ids are neither the
+// same type nor drawn from the same space, so the kind travels in the path.
 const getQueue = () => service.client.get(`${BASE}/queue`)
 const getTarget = (outreachId: number) =>
-  service.client.get(`${BASE}/${outreachId}`)
+  service.client.get(`${BASE}/sms/${outreachId}`)
 const post = (
   outreachId: number,
   body: Record<string, unknown>,
   headers?: Record<string, string>,
-) => service.client.post(`${BASE}/${outreachId}`, body, { headers })
+) => service.client.post(`${BASE}/sms/${outreachId}`, body, { headers })
 
 const upload = (csv: string, dryRun: boolean, outreachId = outreach.id) =>
   post(outreachId, {
@@ -123,7 +127,8 @@ describe('GET /v1/outreach/admin/results/queue', () => {
     expect(result.status).toBe(200)
     expect(result.data.items).toHaveLength(1)
     expect(result.data.items[0]).toMatchObject({
-      outreachId: outreach.id,
+      kind: 'sms',
+      id: String(outreach.id),
       name: 'September newsletter text',
       organizationSlug: ORG_SLUG,
       outreachType: OutreachType.text,
@@ -143,18 +148,18 @@ describe('GET /v1/outreach/admin/results/queue', () => {
     // before it resolves the audience, and reverts the claim on failure.
     await createSend(OutreachStatus.in_progress)
     const result = await getQueue()
-    expect(
-      result.data.items.map((item: { outreachId: number }) => item.outreachId),
-    ).toEqual([outreach.id])
+    expect(result.data.items.map((item: { id: string }) => item.id)).toEqual([
+      String(outreach.id),
+    ])
   })
 
   it('omits a send whose results already came back', async () => {
     const done = await createSend(OutreachStatus.completed)
     await addRecipients(done.id)
     const result = await getQueue()
-    expect(
-      result.data.items.map((item: { outreachId: number }) => item.outreachId),
-    ).toEqual([outreach.id])
+    expect(result.data.items.map((item: { id: string }) => item.id)).toEqual([
+      String(outreach.id),
+    ])
   })
 
   it('is refused for a signed-in user who is not an admin', async () => {
@@ -172,7 +177,8 @@ describe('GET /v1/outreach/admin/results/:outreachId', () => {
 
     expect(result.status).toBe(200)
     expect(result.data).toMatchObject({
-      outreachId: outreach.id,
+      kind: 'sms',
+      id: String(outreach.id),
       message: 'Hi from the Mayor. Reply STOP to opt out.',
       imageUrl: null,
       recipientCount: 2,
@@ -437,5 +443,139 @@ describe('POST /v1/outreach/admin/results/:outreachId — body size', () => {
     expect(adapter.getInstance().initialConfig.bodyLimit).toBe(
       FASTIFY_DEFAULT_BODY_LIMIT,
     )
+  })
+})
+
+// The poll half of the one upload path. A poll is not an Outreach row and
+// is never ingested here: the file is forwarded to the analysis pipeline by
+// landing in the bucket its S3 notification watches, which is exactly what
+// the `aws s3 cp` line in the Slack message used to ask a human to do.
+describe('poll results through the same surface', () => {
+  const POLL_BUCKET = 'serve-analyze-data-test'
+  let pollId: string
+  let uploadFile: ReturnType<typeof vi.spyOn>
+
+  const POLL_CSV = [
+    'Contact Phone Number,Message Text,Sent At,Send Direction',
+    '3035550101,The potholes on Elm are getting worse,2026-08-11T15:04:05.000Z,INBOUND',
+    '3035550102,Budget hearing Tuesday.,2026-08-11T15:00:00.000Z,OUTBOUND',
+  ].join('\n')
+
+  const uploadPoll = (dryRun: boolean, csv = POLL_CSV) =>
+    service.client.post(`${BASE}/poll/${pollId}`, {
+      fileName: 'poll-results.csv',
+      csv,
+      dryRun,
+      sourceLabel: 'gp-admin upload by staffer@goodparty.org',
+    })
+
+  beforeEach(async () => {
+    process.env.SERVE_ANALYSIS_BUCKET_NAME = POLL_BUCKET
+    const office = await service.prisma.electedOffice.findFirstOrThrow({
+      where: { organizationSlug: ORG_SLUG },
+    })
+    const poll = await service.prisma.poll.create({
+      data: {
+        name: 'Which roads first?',
+        messageContent: 'Which roads need repair first? Reply to tell me.',
+        targetAudienceSize: 1200,
+        scheduledDate: new Date('2026-08-01T15:00:00.000Z'),
+        estimatedCompletionDate: new Date('2026-08-06T15:00:00.000Z'),
+        electedOfficeId: office.id,
+      },
+    })
+    pollId = poll.id
+    uploadFile = vi
+      .spyOn(service.app.get(S3Service), 'uploadFile')
+      .mockResolvedValue(undefined as never)
+  })
+
+  it('lists an incomplete poll in the same queue as the text sends', async () => {
+    const result = await getQueue()
+
+    expect(result.status).toBe(200)
+    const poll = result.data.items.find(
+      (item: { kind: string }) => item.kind === 'poll',
+    )
+    expect(poll).toMatchObject({
+      kind: 'poll',
+      id: pollId,
+      name: 'Which roads first?',
+      organizationSlug: ORG_SLUG,
+      recipientCount: 1200,
+    })
+    // Both products, one queue: the send is still there too.
+    expect(
+      result.data.items.some((item: { kind: string }) => item.kind === 'sms'),
+    ).toBe(true)
+  })
+
+  it('writes nothing on a dry run, so a bad file never starts a Fargate run', async () => {
+    const result = await uploadPoll(true)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(false)
+    expect(uploadFile).not.toHaveBeenCalled()
+  })
+
+  // The bytes matter: the pipeline parses this file itself, so anything we
+  // re-serialized would make this service a second author of a format it
+  // does not own.
+  it('forwards the file verbatim to the key the pipeline watches', async () => {
+    const result = await uploadPoll(false)
+
+    expect(result.status).toBe(201)
+    expect(result.data.committed).toBe(true)
+    expect(uploadFile).toHaveBeenCalledTimes(1)
+    const [bucket, body, key] = uploadFile.mock.calls[0] as [
+      string,
+      string,
+      string,
+    ]
+    expect(bucket).toBe(POLL_BUCKET)
+    expect(key).toBe(`input/${pollId}.csv`)
+    expect(body).toBe(POLL_CSV)
+  })
+
+  // Null rather than zero: there is no recipient map to match against and no
+  // opt-out predicate run here. Zero would read as "nobody replied", when the
+  // truth is that the pipeline answers that later by writing PollIssues.
+  it('reports counts it can know and nulls the ones it cannot', async () => {
+    const result = await uploadPoll(true)
+
+    expect(result.data).toMatchObject({
+      rowsParsed: 1,
+      outboundRows: 1,
+      matched: null,
+      unmatched: null,
+      optOuts: null,
+    })
+  })
+
+  it('refuses a poll id that names nothing', async () => {
+    const result = await service.client.post(
+      `${BASE}/poll/does-not-exist`,
+      {
+        fileName: 'r.csv',
+        csv: POLL_CSV,
+        dryRun: true,
+        sourceLabel: 'staff',
+      },
+      { validateStatus: () => true },
+    )
+
+    expect(result.status).toBe(404)
+  })
+
+  // A 400, not a 404: the id may name something real, it is the routing
+  // that is wrong, and saying so stops an operator hunting a missing record.
+  it('refuses an unknown kind', async () => {
+    const result = await service.client.post(
+      `${BASE}/telepathy/${pollId}`,
+      { fileName: 'r.csv', csv: POLL_CSV, dryRun: true, sourceLabel: 's' },
+      { validateStatus: () => true },
+    )
+
+    expect(result.status).toBe(400)
   })
 })

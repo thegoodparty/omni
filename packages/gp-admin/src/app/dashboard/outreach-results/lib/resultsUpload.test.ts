@@ -20,7 +20,8 @@ const report = (
 })
 
 const input = {
-  outreachId: 42,
+  kind: 'sms' as const,
+  id: '42',
   fileName: 'results.csv',
   csv: 'phone_number,message_text,send_direction\n5551234567,Hi,INBOUND\n',
   sourceLabel: 'gp-admin upload by staff@goodparty.org',
@@ -37,7 +38,7 @@ describe('requestParseReport', () => {
     const uploader = uploaderReturning(report())
     const result = await requestParseReport(uploader, input)
 
-    expect(uploader.upload).toHaveBeenCalledWith(42, {
+    expect(uploader.upload).toHaveBeenCalledWith('sms', '42', {
       fileName: 'results.csv',
       csv: input.csv,
       sourceLabel: input.sourceLabel,
@@ -49,7 +50,7 @@ describe('requestParseReport', () => {
   it('never sends dryRun false, whatever the caller does next', async () => {
     const uploader = uploaderReturning(report())
     await requestParseReport(uploader, input)
-    expect(uploader.upload.mock.calls[0][1].dryRun).toBe(true)
+    expect(uploader.upload.mock.calls[0][2].dryRun).toBe(true)
   })
 
   // The failure this page exists to prevent is a write nobody was told
@@ -67,7 +68,7 @@ describe('commitResults', () => {
     const uploader = uploaderReturning(report({ committed: true }))
     const result = await commitResults(uploader, input)
 
-    expect(uploader.upload).toHaveBeenCalledWith(42, {
+    expect(uploader.upload).toHaveBeenCalledWith('sms', '42', {
       fileName: 'results.csv',
       csv: input.csv,
       sourceLabel: input.sourceLabel,

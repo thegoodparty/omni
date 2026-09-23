@@ -3,6 +3,7 @@
 import { auth, currentUser } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
 import type {
+  ResultsInboxKind,
   OutreachAwaitingResultsResponse,
   OutreachResultsParseReport,
 } from '@goodparty_org/contracts'
@@ -51,14 +52,16 @@ export const getAwaitingResults =
   }
 
 export const getResultsTarget = async (
-  outreachId: number
+  kind: ResultsInboxKind,
+  id: string
 ): Promise<OutreachResultsTarget> => {
   await requireReader()
-  return getOutreachResultsGateway().getTarget(outreachId)
+  return getOutreachResultsGateway().getTarget(kind, id)
 }
 
 interface UploadArgs {
-  outreachId: number
+  kind: ResultsInboxKind
+  id: string
   fileName: string
   csv: string
 }
@@ -97,6 +100,6 @@ export const commitResultsUpload = async (
     sourceLabel: `gp-admin upload by ${email}`,
   })
   revalidatePath('/dashboard/outreach-results')
-  revalidatePath(`/dashboard/outreach-results/${args.outreachId}`)
+  revalidatePath(`/dashboard/outreach-results/${args.kind}/${args.id}`)
   return report
 }
