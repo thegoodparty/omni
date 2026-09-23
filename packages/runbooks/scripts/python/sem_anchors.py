@@ -5,15 +5,17 @@ metric's own `config.meta.anchored_on` rather than a hand-maintained list here,
 because a hand-maintained copy is exactly what went stale and let a broken OKR
 metric run quiet for a month.
 
-Cross-repo read, so it needs a token. When the token is absent the anchored
-checks disable themselves and the rest of the monitor runs unchanged — the
-weekly digest is more valuable degraded than not posted at all.
+Cross-repo read. CI holds a read token; a human running the monitor without one
+falls back to their own `gh` auth instead. Only when both are unavailable do the
+anchored checks disable themselves, with the rest of the monitor running
+unchanged — the weekly digest is more valuable degraded than not posted at all.
 """
 
 from __future__ import annotations
 
 import http.client
 import os
+import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -21,6 +23,7 @@ from dataclasses import dataclass
 import yaml
 
 TOKEN_ENV = "GP_DATA_PLATFORM_READ_TOKEN"
+GH_FALLBACK_ENV = "SEM_ANCHORS_NO_GH"
 REPO = "thegoodparty/gp-data-platform"
 SEM_PATHS = (
     "dbt/project/models/marts/analytics/sem_analytics__users_win.yml",
@@ -84,6 +87,19 @@ def _fetch(path: str, token: str) -> str:
         return response.read().decode()
 
 
+def _fetch_via_gh(path: str) -> str:
+    """The reviewer's own GitHub auth. A triage session on a laptop has no reason to
+    hold the CI token, and gh already knows who they are."""
+    proc = subprocess.run(
+        ["gh", "api", "-H", "Accept: application/vnd.github.raw+json",
+         f"repos/{REPO}/contents/{path}"],
+        capture_output=True, text=True, timeout=_TIMEOUT,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or f"gh api exited {proc.returncode}")
+    return proc.stdout
+
+
 def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[str]]:
     """All declared anchors across the governed sem files, plus any read failures.
 
@@ -106,7 +122,8 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
     nothing here would recreate the exact silent-disable bug this ticket exists to fix.
     """
     token = token if token is not None else os.environ.get(TOKEN_ENV)
-    if not token:
+    use_gh = not token and not os.environ.get(GH_FALLBACK_ENV)
+    if not token and not use_gh:
         return {}, [
             f"{TOKEN_ENV} is not set, so the semantic-layer anchors could not be read. "
             "Every OKR dormancy check is DISABLED this run."
@@ -115,22 +132,28 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
     problems: list[str] = []
     for path in SEM_PATHS:
         try:
-            text = _fetch(path, token)
+            text = _fetch_via_gh(path) if use_gh else _fetch(path, token)
         # Wide on purpose, same reasoning as the parse except below: _fetch reads the
         # response body inside urlopen's `with` block, so a connection dropped mid-body
         # raises http.client.IncompleteRead or RemoteDisconnected — neither is a
         # urllib.error.URLError — and either would otherwise escape load_anchors and
-        # take the whole digest down over a transient network blip.
+        # take the whole digest down over a transient network blip. The gh fallback
+        # adds RuntimeError (gh's own nonzero exit) and subprocess.TimeoutExpired
+        # (the CLI hanging), same treatment.
         except (
             urllib.error.URLError,
             urllib.error.HTTPError,  # subclass of URLError; named explicitly for readability
             TimeoutError,
             http.client.IncompleteRead,
             http.client.RemoteDisconnected,
+            RuntimeError,
+            OSError,
+            subprocess.TimeoutExpired,
         ) as exc:
+            via = "gh api" if use_gh else "the GitHub API"
             problems.append(
-                f"could not read {path} from {REPO} ({exc}). Anchors from this file are "
-                "not being watched this run."
+                f"could not read {path} from {REPO} via {via} ({exc}). Anchors from this "
+                "file are not being watched this run."
             )
             continue
         try:
@@ -144,6 +167,8 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
                 f"{path} in {REPO} has a malformed anchored_on declaration ({exc}). "
                 "Anchors from this file are not being watched this run."
             )
+    if not anchors and problems and all("could not read" in p for p in problems):
+        problems.append("Every OKR dormancy check is DISABLED this run.")
     if not problems and not anchors:
         problems.append(
             f"Read every governed sem file from {REPO} successfully but found no "

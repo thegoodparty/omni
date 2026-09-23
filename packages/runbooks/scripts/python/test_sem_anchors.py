@@ -6,7 +6,10 @@ Pure functions and a committed fixture only — no network.
 from __future__ import annotations
 
 import http.client
+import subprocess
 from pathlib import Path
+
+import pytest
 
 import sem_anchors as sa
 
@@ -34,6 +37,10 @@ def test_load_anchors_returns_empty_and_says_why_without_a_token(monkeypatch):
     # clearing the real env var this test would pass or fail on ambient shell state
     # (and start making a live GitHub call) rather than on the code under test.
     monkeypatch.delenv(sa.TOKEN_ENV, raising=False)
+    # This test targets the "disabled entirely" path, not the gh fallback covered by
+    # its own tests below, so the fallback is switched off here too, or a machine with
+    # real gh auth would make a live call and break the module's no-network contract.
+    monkeypatch.setenv(sa.GH_FALLBACK_ENV, "1")
     anchors, problems = sa.load_anchors(None)
     assert anchors == {}
     # The read disabling itself must never be silent — that is the original bug's shape.
@@ -117,3 +124,40 @@ def test_a_remote_disconnect_mid_fetch_is_reported_rather_than_taking_the_run_do
     anchors, problems = sa.load_anchors("fake-token")
     assert anchors == {}
     assert problems and any("could not read" in p for p in problems)
+
+
+def test_load_anchors_falls_back_to_gh_when_token_unset(monkeypatch):
+    monkeypatch.delenv(sa.TOKEN_ENV, raising=False)
+    monkeypatch.delenv(sa.GH_FALLBACK_ENV, raising=False)
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        text = FIXTURE.read_text() if "users_win" in cmd[-1] else "metrics: []\n"
+        return subprocess.CompletedProcess(cmd, 0, stdout=text, stderr="")
+
+    monkeypatch.setattr(sa.subprocess, "run", fake_run)
+    anchors, problems = sa.load_anchors()
+    assert problems == []
+    assert "win_active_candidates_30d" in anchors
+    assert all(c[:2] == ["gh", "api"] for c in calls)
+
+
+def test_load_anchors_reports_when_gh_also_fails(monkeypatch):
+    monkeypatch.delenv(sa.TOKEN_ENV, raising=False)
+    monkeypatch.delenv(sa.GH_FALLBACK_ENV, raising=False)
+    monkeypatch.setattr(
+        sa.subprocess, "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="gh: not logged in"),
+    )
+    anchors, problems = sa.load_anchors()
+    assert anchors == {}
+    assert any("gh api" in p for p in problems) and any("DISABLED" in p for p in problems)
+
+
+def test_load_anchors_skips_gh_when_fallback_disabled(monkeypatch):
+    monkeypatch.delenv(sa.TOKEN_ENV, raising=False)
+    monkeypatch.setenv(sa.GH_FALLBACK_ENV, "1")
+    monkeypatch.setattr(sa.subprocess, "run", lambda *a, **k: pytest.fail("gh must not run"))
+    anchors, problems = sa.load_anchors()
+    assert anchors == {} and any(sa.TOKEN_ENV in p for p in problems)
