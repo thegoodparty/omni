@@ -392,7 +392,6 @@ describe('<ChiefOfStaffChatBody>', () => {
           { kind: 'text', text: 'Per the resolution ' },
           {
             kind: 'citation',
-            ordinal: 1,
             attachmentId: 'att-42',
             page: 3,
             quotedText: 'allocate $500K',
