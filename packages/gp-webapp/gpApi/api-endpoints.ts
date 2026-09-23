@@ -9,6 +9,7 @@ import type {
   DoorKnockingTalkingPointsPurpose,
   DoorKnockingTurf,
   GeoJsonPolygon,
+  GeoJsonShape,
   ServeDoorKnockingTalkingPointsPurpose,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
@@ -1254,7 +1255,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
-      geoPoly?: GeoJsonPolygon | null
+      geoPoly?: GeoJsonShape | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1263,7 +1264,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
-      geoPoly?: GeoJsonPolygon | null
+      geoPoly?: GeoJsonShape | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1331,7 +1332,7 @@ export type APIEndpoints = {
   // different things to go and fix.
   'POST /v1/contacts/polygon-preview': {
     Request: {
-      geoPoly: GeoJsonPolygon
+      geoPoly: GeoJsonShape
       filters: {
         activityConditions?: ActivityConditionInput[]
         supportStatus?: SupportStatusRollup[]

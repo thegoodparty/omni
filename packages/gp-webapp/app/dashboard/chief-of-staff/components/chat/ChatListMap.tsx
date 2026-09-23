@@ -3,7 +3,10 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { Button, CropIcon } from '@styleguide'
 import type { ShowListMap } from '@goodparty_org/contracts'
-import { ringFromGeoJsonPolygon } from 'app/dashboard/shared/ringGeometry'
+import {
+  drawnRings,
+  ringsFromGeoJsonShape,
+} from 'app/dashboard/shared/ringGeometry'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import { useListPeople } from '../../../contacts/crm/map/useListPeople'
 import { useSavedList } from '../../../contacts/crm/map/useSavedList'
@@ -45,14 +48,14 @@ export default function ChatListMap({
   const labels = getContactsLabels(false)
   const { list } = useSavedList(listId)
   // Memoised for the same reason both sibling callers memoise it, and more
-  // sharply here: ringFromGeoJsonPolygon allocates a fresh array every call
+  // sharply here: ringsFromGeoJsonShape allocates a fresh array every call
   // — including the empty one, so a list with no boundary is not exempt —
-  // and ContactListMap lists drawRing among the dependencies of the effect
+  // and ContactListMap lists otherRings among the dependencies of the effect
   // that rebuilds its deck.gl layers. A transcript re-renders on every
   // streaming token, so a bare call rebuilt the polygon and vertex layers
   // continuously while the assistant was mid-reply.
-  const savedRing = useMemo(
-    () => ringFromGeoJsonPolygon(list?.geoPoly),
+  const savedRings = useMemo(
+    () => ringsFromGeoJsonShape(list?.geoPoly),
     [list?.geoPoly],
   )
   // Requires the row to have ARRIVED, not merely to be unlocked. An absent
@@ -88,7 +91,7 @@ export default function ChatListMap({
               so the dots are markers. A saved boundary still draws, without
               a writer, so the map shows the geography the list was cut
               with even when it cannot be re-cut here. */}
-          <ContactListMap people={people} drawRing={savedRing} />
+          <ContactListMap people={people} otherRings={savedRings} />
         </div>
       )}
 
@@ -108,7 +111,7 @@ export default function ChatListMap({
               onClick={() => onRefineArea?.({ listId, name })}
             >
               <CropIcon className="size-4" aria-hidden />
-              {savedRing.length >= 3
+              {drawnRings(savedRings).length > 0
                 ? labels.boundaryEditCta
                 : labels.boundaryDrawCta}
             </Button>

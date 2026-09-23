@@ -73,7 +73,7 @@ describe('useSaveListBoundary', () => {
         },
       )
 
-      result.current.mutate(RING)
+      result.current.mutate([RING])
 
       await waitFor(() => expect(onSaved).toHaveBeenCalled())
       // Closing is last whatever happened; how many caches were refreshed

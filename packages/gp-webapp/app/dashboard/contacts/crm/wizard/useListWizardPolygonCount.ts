@@ -4,7 +4,7 @@ import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
-import type { GeoJsonPolygon } from '@goodparty_org/contracts'
+import type { GeoJsonShape } from '@goodparty_org/contracts'
 
 const COUNT_DEBOUNCE_MS = 600
 
@@ -33,7 +33,7 @@ export interface ListWizardPolygonCountResult {
 // response for a superseded shape resolves into its own cache entry and can
 // never overwrite the number on screen.
 export const useListWizardPolygonCount = (
-  geoPoly: GeoJsonPolygon | null,
+  geoPoly: GeoJsonShape | null,
   filters: Record<string, unknown>,
   enabled: boolean,
 ): ListWizardPolygonCountResult => {

@@ -28,7 +28,7 @@ const renderOverlay = (over: Partial<{ onCancel: () => void }> = {}) =>
       <ListBoundaryOverlay
         people={[]}
         truncated={false}
-        initialRing={[]}
+        initialRings={[]}
         labels={LABELS}
         isSaving={false}
         onCancel={over.onCancel ?? vi.fn()}
@@ -112,7 +112,7 @@ describe('ListBoundaryOverlay focus handling', () => {
             <ListBoundaryOverlay
               people={[]}
               truncated={false}
-              initialRing={[]}
+              initialRings={[]}
               labels={LABELS}
               isSaving={false}
               onCancel={() => setOpen(false)}

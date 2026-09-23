@@ -20,10 +20,12 @@ vi.mock('../map/ContactListMap', () => ({
   default: function ContactListMapStub({
     contactPoints,
     drawRing,
+    otherRings,
     onDrawRingChange,
   }: {
     contactPoints?: unknown[]
     drawRing?: PolygonRing
+    otherRings?: PolygonRing[]
     onDrawRingChange?: (ring: PolygonRing) => void
   }) {
     return (
@@ -31,6 +33,7 @@ vi.mock('../map/ContactListMap', () => ({
         data-testid="contact-map-stub"
         data-points={(contactPoints ?? []).length}
         data-ring={JSON.stringify(drawRing ?? [])}
+        data-other-rings={JSON.stringify(otherRings ?? [])}
         data-draw-enabled={String(Boolean(onDrawRingChange))}
       >
         {onDrawRingChange &&
@@ -63,17 +66,17 @@ vi.mock('./useFilterPoints', () => ({
 const LABELS = getContactsLabels(false)
 
 const Harness = ({
-  onRingChange,
+  onRingsChange,
 }: {
-  onRingChange: (r: PolygonRing) => void
+  onRingsChange: (r: PolygonRing[]) => void
 }) => {
-  const [ring, setRing] = useState<PolygonRing>([])
+  const [rings, setRings] = useState<PolygonRing[]>([])
   return (
     <BoundaryStep
-      ring={ring}
-      onRingChange={(next) => {
-        setRing(next)
-        onRingChange(next)
+      rings={rings}
+      onRingsChange={(next) => {
+        setRings(next)
+        onRingsChange(next)
       }}
       labels={LABELS}
       filters={{}}
@@ -90,7 +93,7 @@ const Harness = ({
 describe('BoundaryStep — the shape is cut full-screen', () => {
   it('shows a read-only preview until the CTA opens the drawing surface', async () => {
     const user = userEvent.setup()
-    render(<Harness onRingChange={vi.fn()} />)
+    render(<Harness onRingsChange={vi.fn()} />)
 
     expect(await screen.findByTestId('contact-map-stub')).toHaveAttribute(
       'data-draw-enabled',
@@ -111,7 +114,7 @@ describe('BoundaryStep — the shape is cut full-screen', () => {
   it('hands the ring back only when the overlay saves', async () => {
     const user = userEvent.setup()
     const onRingChange = vi.fn()
-    render(<Harness onRingChange={onRingChange} />)
+    render(<Harness onRingsChange={onRingChange} />)
 
     await user.click(screen.getByRole('button', { name: 'Draw an area' }))
     for (const label of ['place point 1', 'place point 2', 'place point 3']) {
@@ -121,11 +124,11 @@ describe('BoundaryStep — the shape is cut full-screen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(onRingChange).toHaveBeenCalledWith(TAPS)
+    expect(onRingChange).toHaveBeenCalledWith([TAPS])
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-ring',
-      JSON.stringify(TAPS),
+      'data-other-rings',
+      JSON.stringify([TAPS]),
     )
     expect(
       screen.getByRole('button', { name: 'Edit area' }),
@@ -135,7 +138,7 @@ describe('BoundaryStep — the shape is cut full-screen', () => {
   it('discards the ring on Cancel', async () => {
     const user = userEvent.setup()
     const onRingChange = vi.fn()
-    render(<Harness onRingChange={onRingChange} />)
+    render(<Harness onRingsChange={onRingChange} />)
 
     await user.click(screen.getByRole('button', { name: 'Draw an area' }))
     await user.click(
@@ -145,7 +148,7 @@ describe('BoundaryStep — the shape is cut full-screen', () => {
 
     expect(onRingChange).not.toHaveBeenCalled()
     expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-ring',
+      'data-other-rings',
       '[]',
     )
   })

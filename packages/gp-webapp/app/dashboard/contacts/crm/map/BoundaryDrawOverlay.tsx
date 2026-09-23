@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Dialog, DialogContent, DialogTitle } from '@styleguide'
 import type { ContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import {
-  isPointInRing,
+  drawnRings,
+  isPointInAnyRing,
   type PolygonRing,
 } from 'app/dashboard/shared/ringGeometry'
 import type { ContactPoint } from './contactListPoints'
@@ -18,7 +19,9 @@ interface BoundaryDrawOverlayProps {
   // coordinates rather than records — the points endpoint selects on
   // lat/lng, so it cannot describe the rows it dropped.
   unmappable: number
-  initialRing: PolygonRing
+  // Every part of the boundary this surface opens on. Empty for a list with
+  // none; one part for a list saved before a boundary could have several.
+  initialRings: PolygonRing[]
   labels: ContactsLabels
   // Whether the running count describes something other than what the save
   // will measure — a truncated page of dots, or a list already narrowed by
@@ -34,7 +37,7 @@ interface BoundaryDrawOverlayProps {
   allowEmptyShape?: boolean
   isSaving: boolean
   onCancel: () => void
-  onSave: (ring: PolygonRing) => void
+  onSave: (rings: PolygonRing[]) => void
 }
 
 // The full-bleed drawing surface every boundary entry point opens into: the
@@ -45,7 +48,7 @@ export default function BoundaryDrawOverlay({
   points,
   truncated,
   unmappable,
-  initialRing,
+  initialRings,
   labels,
   isEstimate,
   allowEmptyShape = false,
@@ -53,7 +56,16 @@ export default function BoundaryDrawOverlay({
   onCancel,
   onSave,
 }: BoundaryDrawOverlayProps) {
-  const [ring, setRing] = useState<PolygonRing>(initialRing)
+  // Always at least one part, so the map has somewhere to put the next
+  // corner and the panel never renders an out-of-range active index.
+  const [rings, setRings] = useState<PolygonRing[]>(
+    initialRings.length > 0 ? initialRings : [[]],
+  )
+  // The part a returning holder is most likely to want under the cursor is
+  // the one they cut last.
+  const [activeIndex, setActiveIndex] = useState(
+    Math.max(0, initialRings.length - 1),
+  )
 
   // Radix restores focus when a dialog transitions open -> closed. Every
   // caller mounts this conditionally, so it never makes that transition —
@@ -69,21 +81,23 @@ export default function BoundaryDrawOverlay({
   // Ray-cast over the dots on screen rather than asked of the server: it
   // answers on every drag of a handle, and it answers for exactly the shape
   // being dragged. The server settles it once the shape is handed back.
-  const inside = useMemo(
-    () =>
-      ring.length < 3
-        ? 0
-        : points.reduce(
-            (total, point) =>
-              isPointInRing(point.lng, point.lat, ring)
-                ? total + point.residents.length
-                : total,
-            0,
-          ),
-    [points, ring],
-  )
+  // Across every part, counting each person once — a dot inside two
+  // overlapping parts adds its residents once, not twice, which is the whole
+  // reason the boundary is allowed parts that overlap.
+  const inside = useMemo(() => {
+    const drawn = drawnRings(rings)
+    return drawn.length === 0
+      ? 0
+      : points.reduce(
+          (total, point) =>
+            isPointInAnyRing(point.lng, point.lat, drawn)
+              ? total + point.residents.length
+              : total,
+          0,
+        )
+  }, [points, rings])
 
-  const hasRing = ring.length >= 3
+  const hasRing = drawnRings(rings).length > 0
 
   return (
     <Dialog open onOpenChange={(next) => !next && onCancel()}>
@@ -106,10 +120,16 @@ export default function BoundaryDrawOverlay({
         <BoundaryDrawPanel
           points={points}
           truncated={truncated}
-          ring={ring}
-          onRingChange={setRing}
-          pillLabel={labels.boundaryCountLabel(inside)}
+          rings={rings}
+          activeIndex={activeIndex}
+          onRingsChange={setRings}
+          onActiveIndexChange={setActiveIndex}
+          pillLabel={labels.boundaryCountLabel(
+            inside,
+            drawnRings(rings).length,
+          )}
           hint={labels.boundaryStepHint}
+          editHint={labels.boundaryEditShapeHint}
           className="min-h-0 flex-1"
         />
         <div className="border-t border-border bg-background px-6 py-4">
@@ -135,7 +155,7 @@ export default function BoundaryDrawOverlay({
                 className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
                 disabled={!allowEmptyShape && hasRing && inside === 0}
                 loading={isSaving}
-                onClick={() => onSave(ring)}
+                onClick={() => onSave(rings)}
               >
                 Save
               </Button>

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import type { ShowListMap } from '@goodparty_org/contracts'
-import { ringFromGeoJsonPolygon } from 'app/dashboard/shared/ringGeometry'
+import { ringsFromGeoJsonShape } from 'app/dashboard/shared/ringGeometry'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import { useListPeople } from '../../../contacts/crm/map/useListPeople'
 import { useSavedList } from '../../../contacts/crm/map/useSavedList'
@@ -31,8 +31,8 @@ export default function ChatBoundaryDrawer({
   // instead of depending on the caller's gate staying correct.
   const hasRow = Boolean(saved)
   const labels = getContactsLabels(false)
-  const savedRing = useMemo(
-    () => ringFromGeoJsonPolygon(saved?.geoPoly),
+  const savedRings = useMemo(
+    () => ringsFromGeoJsonShape(saved?.geoPoly),
     [saved?.geoPoly],
   )
   const saveMutation = useSaveListBoundary(list.listId, 'chat', onClose)
@@ -43,11 +43,11 @@ export default function ChatBoundaryDrawer({
     <ListBoundaryOverlay
       people={people}
       truncated={truncated}
-      initialRing={savedRing}
+      initialRings={savedRings}
       labels={labels}
       isSaving={saveMutation.isPending}
       onCancel={onClose}
-      onSave={(ring) => saveMutation.mutate(ring)}
+      onSave={(rings) => saveMutation.mutate(rings)}
     />
   )
 }

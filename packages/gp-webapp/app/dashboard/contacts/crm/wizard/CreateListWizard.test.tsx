@@ -36,11 +36,13 @@ vi.mock('../map/ContactListMap', () => ({
     people,
     contactPoints,
     drawRing,
+    otherRings,
     onDrawRingChange,
   }: {
     people?: unknown[]
     contactPoints?: unknown[]
     drawRing?: Array<[number, number]>
+    otherRings?: Array<Array<[number, number]>>
     onDrawRingChange?: (ring: Array<[number, number]>) => void
   }) {
     return (
@@ -48,6 +50,7 @@ vi.mock('../map/ContactListMap', () => ({
         data-testid="contact-map-stub"
         data-people={(contactPoints ?? people ?? []).length}
         data-ring={JSON.stringify(drawRing ?? [])}
+        data-other-rings={JSON.stringify(otherRings ?? [])}
         data-draw-enabled={String(Boolean(onDrawRingChange))}
       >
         {/* Only the writable map offers taps. The boundary step's preview
@@ -420,8 +423,8 @@ describe('CreateListWizard — step navigation', () => {
     )
     await drawBoundary(user)
     expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-ring',
-      JSON.stringify(BOUNDARY_TAPS),
+      'data-other-rings',
+      JSON.stringify([BOUNDARY_TAPS]),
     )
 
     const continueButton = await screen.findByRole('button', {
@@ -437,8 +440,8 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-ring',
-      JSON.stringify(BOUNDARY_TAPS),
+      'data-other-rings',
+      JSON.stringify([BOUNDARY_TAPS]),
     )
   })
 

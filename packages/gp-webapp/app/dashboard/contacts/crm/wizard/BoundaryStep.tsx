@@ -3,7 +3,7 @@
 import Body2 from '@shared/typography/Body2'
 import { Button, CropIcon } from '@styleguide'
 import dynamic from 'next/dynamic'
-import type { PolygonRing } from 'app/dashboard/shared/ringGeometry'
+import { drawnRings, type PolygonRing } from 'app/dashboard/shared/ringGeometry'
 import type { ContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import { useMemo, useState } from 'react'
 import BoundaryDrawOverlay from '../map/BoundaryDrawOverlay'
@@ -24,8 +24,10 @@ const MapFrame = ({ children }: { children: React.ReactNode }) => (
 )
 
 interface BoundaryStepProps {
-  ring: PolygonRing
-  onRingChange: (ring: PolygonRing) => void
+  // Every part of the boundary. Held by the wizard rather than here so
+  // leaving the step and coming back does not lose the parts already cut.
+  rings: PolygonRing[]
+  onRingsChange: (rings: PolygonRing[]) => void
   labels: ContactsLabels
   // The same draft payload the count is taken over, so the dots on screen
   // and the number in the pill are answering about one population.
@@ -50,8 +52,8 @@ interface BoundaryStepProps {
 // Staff transcript open one. A boundary is aimed at streets, and a 350px
 // panel inside a drawer is not enough map to aim with.
 export default function BoundaryStep({
-  ring,
-  onRingChange,
+  rings,
+  onRingsChange,
   labels,
   filters,
   count,
@@ -73,13 +75,13 @@ export default function BoundaryStep({
   // dots hide that it is one building holding a dozen people.
   const points = useMemo(() => groupCoordinates(rawPoints), [rawPoints])
 
-  const hasRing = ring.length >= 3
+  const hasRing = drawnRings(rings).length > 0
   const countLine =
     !hasRing || isError
       ? null
       : isCounting || count === undefined
         ? 'Counting…'
-        : labels.boundaryCountLabel(count)
+        : labels.boundaryCountLabel(count, drawnRings(rings).length)
 
   const message = errorMessage
     ? errorMessage
@@ -108,7 +110,7 @@ export default function BoundaryStep({
             <ContactListMap
               contactPoints={points}
               truncated={truncated}
-              drawRing={ring}
+              otherRings={rings}
             />
           </div>
           <Button
@@ -134,7 +136,7 @@ export default function BoundaryStep({
               // describe the rows it dropped. See the known gap in
               // contacts/AGENTS.md.
               unmappable={0}
-              initialRing={ring}
+              initialRings={drawnRings(rings)}
               labels={labels}
               // The dots ARE the filtered audience here, so the ray-cast is
               // honest unless the response was capped.
@@ -147,7 +149,7 @@ export default function BoundaryStep({
               isSaving={false}
               onCancel={() => setDrawing(false)}
               onSave={(next) => {
-                onRingChange(next)
+                onRingsChange(next)
                 setDrawing(false)
               }}
             />

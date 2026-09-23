@@ -46,10 +46,14 @@ export interface ContactsLabels {
   // still says to tap the map, which is only true once it is open.
   boundaryGatewayHint: string
   boundaryStepHint: string
+  // Above the shape chips, once a boundary has more than one part.
+  boundaryEditShapeHint: string
   boundaryDrawCta: string
   boundaryEditCta: string
   boundaryClearCta: string
-  boundaryCountLabel: (count: number) => string
+  // `parts` is how many shapes the boundary is drawn in, because the count
+  // is the whole boundary's and "this area" stops being true at two.
+  boundaryCountLabel: (count: number, parts?: number) => string
   boundaryEmptyShape: string
   boundaryEmptyAudience: string
   boundaryUnmappable: (count: number) => string
@@ -89,11 +93,14 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
           'Draw an area to narrow this list, or continue to keep the whole district.',
         boundaryStepHint:
           'Tap the map to place corners, or continue to keep the whole district.',
+        boundaryEditShapeHint: 'Pick a shape to change its corners.',
         boundaryDrawCta: 'Draw an area',
         boundaryEditCta: 'Edit area',
         boundaryClearCta: 'Remove area',
-        boundaryCountLabel: (count: number) =>
-          `${count.toLocaleString()} voters in this area`,
+        boundaryCountLabel: (count: number, parts = 1) =>
+          `${count.toLocaleString()} voters in ${
+            parts > 1 ? 'these areas' : 'this area'
+          }`,
         boundaryEmptyShape:
           'No voters here. Try moving the area or making it wider.',
         boundaryEmptyAudience:
@@ -134,11 +141,14 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
           'Draw an area to narrow this list, or continue to keep the whole district.',
         boundaryStepHint:
           'Tap the map to place corners, or continue to keep the whole district.',
+        boundaryEditShapeHint: 'Pick a shape to change its corners.',
         boundaryDrawCta: 'Draw an area',
         boundaryEditCta: 'Edit area',
         boundaryClearCta: 'Remove area',
-        boundaryCountLabel: (count: number) =>
-          `${count.toLocaleString()} constituents in this area`,
+        boundaryCountLabel: (count: number, parts = 1) =>
+          `${count.toLocaleString()} constituents in ${
+            parts > 1 ? 'these areas' : 'this area'
+          }`,
         boundaryEmptyShape:
           'No constituents here. Try moving the area or making it wider.',
         boundaryEmptyAudience:

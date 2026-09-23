@@ -36,11 +36,13 @@ vi.mock('./ContactListMap', () => ({
     people,
     contactPoints,
     drawRing,
+    otherRings,
     onDrawRingChange,
   }: {
     people?: unknown[]
     contactPoints?: unknown[]
     drawRing?: Array<[number, number]>
+    otherRings?: Array<Array<[number, number]>>
     onDrawRingChange?: (ring: Array<[number, number]>) => void
   }) {
     return (
@@ -48,6 +50,7 @@ vi.mock('./ContactListMap', () => ({
         data-testid="contact-map-stub"
         data-people={(contactPoints ?? people ?? []).length}
         data-ring={JSON.stringify(drawRing ?? [])}
+        data-other-rings={JSON.stringify(otherRings ?? [])}
         data-draw-enabled={String(Boolean(onDrawRingChange))}
       >
         <button type="button" onClick={() => onDrawRingChange?.(TAPS)}>
@@ -128,7 +131,10 @@ describe('ListMapSection — boundary CTA', () => {
       await screen.findByRole('button', { name: /edit area/i }),
     ).toBeInTheDocument()
     const map = screen.getByTestId('contact-map-stub')
-    expect(map).toHaveAttribute('data-ring', JSON.stringify(TAPS))
+    // Every part of a saved boundary is read-only here, so it arrives as
+    // `otherRings` — `drawRing` is the part a gesture edits, and the sheet
+    // edits nothing.
+    expect(map).toHaveAttribute('data-other-rings', JSON.stringify([TAPS]))
     // Read-only on the sheet: the outline is shown, the handles are not.
     expect(map).toHaveAttribute('data-draw-enabled', 'false')
   })
@@ -147,8 +153,8 @@ describe('ListMapSection — boundary CTA', () => {
     )
 
     expect(await screen.findByTestId('contact-map-stub')).toHaveAttribute(
-      'data-ring',
-      JSON.stringify(TAPS),
+      'data-other-rings',
+      JSON.stringify([TAPS]),
     )
     expect(
       screen.queryByRole('button', { name: /draw an area|edit area/i }),
@@ -178,7 +184,7 @@ describe('ListMapSection — boundary CTA', () => {
         EVENTS.ConstituentData.ListBoundarySaved,
         // `surface` distinguishes this from the same act performed on a map
         // inside a Chief of Staff transcript.
-        { listId: 7, cleared: false, surface: 'listDetail' },
+        { listId: 7, cleared: false, shapeCount: 1, surface: 'listDetail' },
       ),
     )
   })
