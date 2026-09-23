@@ -16,6 +16,7 @@ from typing import Any, Mapping, Sequence
 
 import analytics_event_health as aeh
 import behavior_registry as br
+import sem_anchors
 from databricks_oauth import run_query as execute_query
 
 # Read through the mart_analytics exposure so access is granted at the mart schema.
@@ -226,23 +227,32 @@ def assemble(
     code_csv: Path | None = None,
     overrides: Mapping[str, Mapping[str, Any]] | None = None,
     anchors_path: Path | None = None,
+    anchors: Mapping[str, Sequence[Any]] | None = None,
 ) -> dict:
     """Load the catalog + provenance, derive status via the shared reconcile(), and project
     into the 24-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
     to this surface — while still yielding the authoritative status for every event.
     ``overrides`` maps event_type -> {govern_*} to overlay Amplitude-direct metadata onto
     (or inject rows into) the Databricks catalog (DATA-2053). ``anchors_path`` overrides
-    the accepted-anchor state the `where_it_fires`/`url` fallback reads (DATA-2426)."""
+    the accepted-anchor state the `where_it_fires`/`url` fallback reads (DATA-2426).
+    ``anchors`` maps metric -> [Leg, ...] from the semantic layer (DATA-2421); ``None``
+    means a live read, so the sheet's `okr` column is stamped from the same declaration
+    the health monitor watches rather than a hand-typed label."""
     catalog = fetch_catalog(run_query)
     catalog = _apply_overrides(catalog, overrides)
     code_map = aeh.load_code_axis(code_csv) if code_csv else aeh.load_code_axis()
+    if anchors is None:
+        anchors, _ = sem_anchors.load_anchors()
+    okr_by_event = {
+        leg.key: metric for metric, legs in anchors.items() for leg in legs if leg.watched
+    }
     # aeh.WATCHLIST looked up by attribute (not as reconcile's own default) so tests can
     # monkeypatch it (DATA-2152).
     families, watchlist_events, dismissed_events = aeh.load_monitored_events(aeh.WATCHLIST)
     reconciled = aeh.reconcile(
         catalog, weekly_rows=[], code=code_map, today=today,
         watchlist_events=watchlist_events, watched_families=families,
-        dismissed_events=dismissed_events,
+        dismissed_events=dismissed_events, okr_by_event=okr_by_event,
     )
     catalog_by_type = {row["event_type"]: row for row in catalog}
     behaviors = br.load_behaviors(aeh.WATCHLIST)

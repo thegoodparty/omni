@@ -282,6 +282,7 @@ def test_assemble_uses_real_reconcile_for_status(tmp_path):
         date(2026, 6, 30),
         run_query=lambda _sql: catalog_df,
         code_csv=prov,
+        anchors={},
     )
     rows = {r["event"]: r for r in result["rows"]}
     assert rows["Live Event"]["status"] == "active"
@@ -315,6 +316,7 @@ def test_assemble_override_reflects_new_description_without_databricks(tmp_path)
         run_query=lambda _sql: catalog_df,
         code_csv=prov,
         overrides={"Foo Event": {"govern_description": "<!-- gp-meta -->\nfresh purpose\nsupersession: original\nin use: 2026-06-30\n<!-- /gp-meta -->"}},
+        anchors={},
     )
     foo = {r["event"]: r for r in result["rows"]}["Foo Event"]
     assert foo["description"] == "fresh purpose"
@@ -354,6 +356,7 @@ def test_assemble_override_injects_event_absent_from_catalog_and_csv(tmp_path):
                 "govern_tags": ["product:win"],
             }
         },
+        anchors={},
     )
     rows = {r["event"]: r for r in result["rows"]}
     assert "Brand New Event" in rows
@@ -387,7 +390,7 @@ def test_assembled_rows_carry_watchlist_status(monkeypatch, tmp_path):
              "govern_description": "", "govern_tags": None},
         ])
 
-    out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv)
+    out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv, anchors={})
     assert "watchlist_status" in esa.COLUMNS
     assert out["rows"][0]["watchlist_status"] == "tracked"
 
@@ -421,7 +424,7 @@ def test_assembled_rows_carry_the_questions_column(monkeypatch, tmp_path):
              "govern_description": "", "govern_tags": None},
         ])
 
-    out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv)
+    out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv, anchors={})
     row = {r["event_type"]: r for r in out["rows"]}["Sign Up Clicked"]
     assert row["questions"] == "Are people signing up?"
 
@@ -551,7 +554,33 @@ def test_assembled_rows_carry_the_anchor_columns(monkeypatch, tmp_path):
         ])
 
     out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv,
-                       anchors_path=anchors_path)
+                       anchors_path=anchors_path, anchors={})
     row = {r["event_type"]: r for r in out["rows"]}["Sign Up Clicked"]
     assert row["where_it_fires"] == "Sign-up page, CTA button."
     assert row["url"] == "/sign-up"
+
+
+def test_assemble_marks_okr_from_the_semantic_layer(monkeypatch, tmp_path):
+    import sem_anchors as sa
+
+    wl = tmp_path / "w.yaml"
+    wl.write_text('events:\n  - {event: "E", product: win, family: f}\n')
+    monkeypatch.setattr(esa.aeh, "WATCHLIST", wl)
+
+    code_csv = tmp_path / "code.csv"
+    code_csv.write_text("event_type\n")
+
+    def fake_query(sql):
+        return pd.DataFrame([
+            {"event_type": "E", "govern_display_name": "E",
+             "family": "f", "first_seen_date": "2024-01-01",
+             "last_seen_date": "2026-08-01", "event_count": 100, "event_count_30d": 5,
+             "govern_description": "", "govern_tags": None},
+        ])
+
+    out = esa.assemble(
+        date(2026, 9, 23), run_query=fake_query, code_csv=code_csv,
+        anchors={"win_activated_users": [sa.Leg("E", None, None)]},
+    )
+    [row] = out["rows"]
+    assert row["okr"] == "win_activated_users"

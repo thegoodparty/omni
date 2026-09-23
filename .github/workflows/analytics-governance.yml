@@ -208,6 +208,10 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         env:
           GP_SHEETS_TOKEN_PATH: ${{ runner.temp }}/gsheet_token.pickle
+          # Same read-only cross-repo token as the health monitor step above: refresh
+          # now derives the sheet's okr column from the same anchored_on declaration
+          # (DATA-2421), so a live assemble() here needs it too.
+          GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "$GP_SHEETS_TOKEN_B64" ] || [ -z "$GP_EVENT_STATE_SHEET_ID" ]; then
