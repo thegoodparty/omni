@@ -743,11 +743,23 @@ export default function ChiefOfStaffChatBody({
 
   // Chief of staff users are Serve (elected officials): /dashboard/outreach is
   // the Win hub behind candidateAccess() and bounces them to the marketing
-  // site. Navigate-only for now: the compose deep link and draft-prefill
-  // plumbing ship together in ENG-11162.
+  // site. The nonce is written to sessionStorage so the payload survives the
+  // navigation without riding the URL (which would expose the draft text).
   const handleComposeHandoff = useCallback(
-    (_payload: ComposeHandoffPayload): void => {
-      router.push('/dashboard/constituent-outreach')
+    (payload: ComposeHandoffPayload): void => {
+      let nonce: string
+      try {
+        nonce = crypto.randomUUID()
+        sessionStorage.setItem(`cos-handoff-${nonce}`, JSON.stringify(payload))
+      } catch {
+        // sessionStorage unavailable (private browsing, quota exceeded):
+        // navigate without prefill rather than failing the handoff entirely.
+        router.push('/dashboard/constituent-outreach')
+        return
+      }
+      router.push(
+        `/dashboard/constituent-outreach?compose=social&handoff=${nonce}`,
+      )
     },
     [router],
   )

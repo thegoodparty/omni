@@ -1,8 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import type { OutreachDetail } from '@goodparty_org/contracts'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import {
+  ComposeHandoffPayloadSchema,
+  type OutreachDetail,
+} from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import ServeChannelCards from './ServeChannelCards'
@@ -16,6 +19,7 @@ import { OutreachDetailsDrawer } from 'app/dashboard/outreach/v2/OutreachDetails
 import {
   SocialFlow,
   SERVE_SOCIAL_SURFACE,
+  type SocialFlowPrefill,
 } from 'app/dashboard/outreach/v2/social/SocialFlow'
 import {
   PhoneBankingFlow,
@@ -59,9 +63,45 @@ const isDrawerRow = (row: HistoryRow): boolean =>
 
 const ConstituentOutreachContent = () => {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [outreaches, setOutreaches] = useOutreach()
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
+  const [socialPrefill, setSocialPrefill] = useState<SocialFlowPrefill | null>(
+    null,
+  )
+  const handoffConsumedRef = useRef(false)
+  const handoffParam = searchParams?.get('handoff')
+  const composeParam = searchParams?.get('compose')
+
+  // Consume a COS compose handoff: strip the params, load+delete the
+  // sessionStorage nonce, validate the payload, and open the social flow
+  // with the draft pre-filled. The consumedRef guards the async window
+  // between router.replace() and the params actually clearing, mirroring
+  // OutreachComposeDeepLink's pattern.
+  useEffect(() => {
+    if (!handoffParam || composeParam !== 'social') {
+      handoffConsumedRef.current = false
+      return
+    }
+    if (handoffConsumedRef.current) return
+    handoffConsumedRef.current = true
+    router.replace('/dashboard/constituent-outreach', { scroll: false })
+    try {
+      const stored = sessionStorage.getItem(`cos-handoff-${handoffParam}`)
+      if (!stored) return
+      sessionStorage.removeItem(`cos-handoff-${handoffParam}`)
+      const result = ComposeHandoffPayloadSchema.safeParse(JSON.parse(stored))
+      if (!result.success || result.data.channel !== 'serve_social') return
+      setSocialPrefill({
+        draftText: result.data.draftText,
+        purpose: result.data.purpose ?? null,
+      })
+      setSocialFlowOpen(true)
+    } catch {
+      // sessionStorage unavailable or malformed payload: open without prefill
+    }
+  }, [composeParam, handoffParam, router])
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
   // This card IS the treatment surface, so the exposure is tracked here (the
@@ -170,9 +210,13 @@ const ConstituentOutreachContent = () => {
       />
       <SocialFlow
         open={socialFlowOpen}
-        onClose={() => setSocialFlowOpen(false)}
+        onClose={() => {
+          setSocialFlowOpen(false)
+          setSocialPrefill(null)
+        }}
         onSaved={handleSocialSaved}
         surface={SERVE_SOCIAL_SURFACE}
+        prefill={socialPrefill ?? undefined}
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
