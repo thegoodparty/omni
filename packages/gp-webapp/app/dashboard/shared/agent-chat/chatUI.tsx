@@ -334,8 +334,10 @@ export function InlineSegments({
               onClick={() => onComposeHandoff(parsed.data)}
             />,
           )
-          return
         }
+        // Never fall through to the pill path: compose_handoff is not in any
+        // label map, so a failed parse would render the raw internal name.
+        return
       }
       const label = toolLabel(seg.toolName)
       if (label) {

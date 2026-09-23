@@ -211,7 +211,7 @@ describe('InlineSegments — compose_handoff CTA', () => {
     expect(onComposeHandoff).toHaveBeenCalledWith(validHandoffPayload)
   })
 
-  it('renders a generic tool pill when payload fails schema parse', () => {
+  it('renders nothing when payload fails schema parse', () => {
     const segments: LiveSegment[] = [
       {
         kind: 'tool',
@@ -222,18 +222,19 @@ describe('InlineSegments — compose_handoff CTA', () => {
     render(
       <InlineSegments
         segments={segments}
-        toolLabel={() => 'Compose'}
+        toolLabel={() => 'compose_handoff'}
         onComposeHandoff={vi.fn()}
       />,
     )
-    // Falls back to generic pill — no CTA button
+    // A failed parse must not fall through to the pill path — that would
+    // expose the raw internal tool name to users
     expect(
       screen.queryByRole('button', { name: 'Continue in compose' }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText('Compose')).toBeInTheDocument()
+    expect(screen.queryByText('compose_handoff')).not.toBeInTheDocument()
   })
 
-  it('renders a generic tool pill when no onComposeHandoff prop is provided', () => {
+  it('renders nothing when no onComposeHandoff prop is provided', () => {
     const segments: LiveSegment[] = [
       {
         kind: 'tool',
@@ -241,12 +242,17 @@ describe('InlineSegments — compose_handoff CTA', () => {
         payload: validHandoffPayload,
       },
     ]
-    render(<InlineSegments segments={segments} toolLabel={() => 'Compose'} />)
-    // No callback → falls through to generic pill
+    render(
+      <InlineSegments
+        segments={segments}
+        toolLabel={() => 'compose_handoff'}
+      />,
+    )
+    // No callback → no CTA and no pill either
     expect(
       screen.queryByRole('button', { name: 'Continue in compose' }),
     ).not.toBeInTheDocument()
-    expect(screen.getByText('Compose')).toBeInTheDocument()
+    expect(screen.queryByText('compose_handoff')).not.toBeInTheDocument()
   })
 
   it('does not affect other tool segments', () => {
