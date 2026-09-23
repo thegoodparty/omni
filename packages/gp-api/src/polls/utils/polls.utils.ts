@@ -209,6 +209,21 @@ export const sendTevynAPIPollMessage = async (
             'Upload the results CSV here:',
             '',
             outreachResultsUploadUrl('poll', pollId),
+            '',
+            // The CLI line is a fallback, not the path we want used: the
+            // page validates the file and reports on it before anything
+            // reaches the pipeline, and `cp` writes whatever it is handed.
+            // Kept until fulfilment has run on the page for a while, so a
+            // bad day on the upload surface never blocks a poll's results.
+            //
+            // Says POLLS out loud because fulfilment also handles Serve SMS
+            // sends, whose results reach the ingest rather than S3 — there
+            // is no bucket to copy a text send's replies into, so a `cp`
+            // borrowed from this message would look like it worked and
+            // deliver nothing.
+            '_Backup for POLLS only, if the upload page is unavailable. ' +
+              'Text message results must go through the upload page._',
+            `\`aws s3 cp /path/to/local/file.csv s3://${process.env.SERVE_ANALYSIS_BUCKET_NAME}/input/${pollId}.csv\``,
           ].join('\n'),
         },
       },

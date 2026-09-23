@@ -38,11 +38,16 @@ import { OutreachTextIngestService } from './outreachTextIngest.service'
  * committed, because silent partial failure is the failure mode of the path
  * being retired.
  *
- * **SMS only.** Routing an upload by outreach type — writing a poll's file to
- * `input/<pollId>.csv` for the analysis pipeline — is explicitly out of scope
- * (decision 2026-09-21), and the poll Slack message keeps its `aws s3 cp`
- * line. That cut is what makes this slice inert: it adds a path for a product
- * fulfilment has never handled and changes nothing they do today.
+ * **Two products, one surface.** The route is kind-discriminated: an `sms`
+ * id runs the reply ingest below, and a `poll` id writes the file verbatim to
+ * `input/<pollId>.csv`, the exact key the analysis pipeline's S3 notification
+ * watches. Nothing downstream of that object changes, so the pipeline cannot
+ * tell an upload here from the `aws s3 cp` a human used to run.
+ *
+ * That CLI line stays in the poll Slack message underneath the link, marked
+ * as a backup for a day this page is unavailable. It is not the path we want
+ * used: `cp` writes whatever it is handed, where this one validates the file
+ * and reports on it before anything reaches the pipeline.
  *
  * Nothing here re-implements the ingest. Grouping, phone-to-person mapping
  * with the People DB fallback, the single opt-out predicate, the idempotent
