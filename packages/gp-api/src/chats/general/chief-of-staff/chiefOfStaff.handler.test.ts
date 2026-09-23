@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { asSchema } from 'ai'
 import { ChatScope } from '../../../generated/prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -524,6 +525,13 @@ describe('ChiefOfStaffHandler', () => {
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'compose_handoff',
       )
+    })
+
+    it('inputSchema converts to a top-level object json schema (Anthropic rejects anyOf roots)', async () => {
+      const tool = buildComposeHandoffTool()
+      const converted = await asSchema(tool.inputSchema).jsonSchema
+      expect(converted.type).toBe('object')
+      expect(converted.anyOf).toBeUndefined()
     })
 
     it('execute returns the validated payload verbatim on valid input', async () => {
