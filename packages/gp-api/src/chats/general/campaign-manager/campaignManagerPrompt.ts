@@ -68,6 +68,10 @@ export interface CampaignManagerContext {
   // Anthropic key). The ballot guidance below reads this so it never tells the
   // manager to search when it has no search tool.
   webSearchEnabled: boolean
+  // Whether the campaign has Pro, from the campaign row. null when the
+  // campaign could not be resolved, and the product map then says nothing
+  // about Pro.
+  isPro: boolean | null
   // Current Campaign Story answers + which are still missing (null when no
   // campaign resolved). Drives the intake in the system prompt.
   story: StoryState | null
@@ -367,6 +371,11 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
 // promises a tool the model can't call.
 const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.crmToolsEnabled || !ctx.organization) return null
+  // No voter file tool is registered for a campaign without Pro, so there is
+  // nothing for this block to describe. What filtering covers and what it
+  // needs are the product map's facts, so a change to the gate is a change
+  // to the map.
+  if (ctx.isPro === false) return null
   const readGuidance =
     'Never segment voters by ethnicity, and never offer to. It is not a ' +
     'dimension you have and not one this product will add: asked for it ' +
@@ -381,8 +390,6 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'filter. Always describe before your first count, and only use ' +
     'dimensions and values the describe call returned. Counts are ' +
     'aggregate only; never claim to identify or list an individual voter. ' +
-    'If count_contacts returns an error about Pro access, tell the ' +
-    'candidate that filtering voter data requires the Pro upgrade. ' +
     'Before quoting any number, name any part of the request the filter ' +
     'could not apply, and name any part you applied by substitution, with ' +
     'the dimension you used instead. Never say a dimension is ' +
@@ -550,7 +557,7 @@ export const buildCampaignManagerSystemPrompt = (
     // back to GoodParty users, and named a different support route each time.
     // Shared with the Chief of Staff, rendered for Win. See
     // ../product-knowledge/AGENTS.md.
-    ...buildProductKnowledgeBlocks('win', ctx.helpCenterToolEnabled),
+    ...buildProductKnowledgeBlocks('win', ctx.helpCenterToolEnabled, ctx.isPro),
     GUARDRAILS,
   ]
     .filter((b): b is string => b !== null)

@@ -7,12 +7,12 @@ import {
 } from './productKnowledgePrompt'
 
 const render = (mode: 'win' | 'serve') =>
-  buildProductKnowledgeBlocks(mode, true).join('\n\n')
+  buildProductKnowledgeBlocks(mode, true, null).join('\n\n')
 
 describe('product knowledge blocks', () => {
   it('wraps the map in a tag, so it reads as data not instructions', () => {
     for (const mode of ['win', 'serve'] as const) {
-      const map = buildProductKnowledgeBlocks(mode, true)[0] ?? ''
+      const map = buildProductKnowledgeBlocks(mode, true, null)[0] ?? ''
       expect(map.startsWith('<product_map>'), mode).toBe(true)
       expect(map.trimEnd().endsWith('</product_map>'), mode).toBe(true)
     }
@@ -48,7 +48,7 @@ describe('product knowledge blocks', () => {
   // the product does, not something the assistant can do.
   it('names the fallback even when the search tool did not register', () => {
     for (const mode of ['win', 'serve'] as const) {
-      const prompt = buildProductKnowledgeBlocks(mode, false).join('\n\n')
+      const prompt = buildProductKnowledgeBlocks(mode, false, null).join('\n\n')
       expect(prompt, mode).toContain(HELP_CENTER_URL)
     }
   })
@@ -115,6 +115,20 @@ describe('product knowledge blocks', () => {
     expect(render('serve')).toMatch(/Saved lists live HERE/)
   })
 
+  // Listing a district's precincts is gated in the service, but the map used
+  // to say only that filtering was, so a campaign without Pro was told the
+  // dimension did not exist instead of where it unlocks.
+  it('says precinct coverage needs Pro, in the Voter Data access note', () => {
+    expect(render('win')).toContain('seeing which precincts it covers')
+  })
+
+  // No voter file tool is registered for a campaign without Pro, the filter
+  // catalog included, so this line is the only place the assistant learns
+  // what filtering covers.
+  it('says what filters cover, in the Voter Data entry', () => {
+    expect(render('win')).toContain('Filters cover voter likelihood')
+  })
+
   it('says plainly that the public profile is separate from the story', () => {
     expect(render('win')).toMatch(/Public Profile is separate/)
   })
@@ -132,7 +146,9 @@ describe('product knowledge blocks', () => {
 
     it('says nothing about a help center when the tool is absent', () => {
       for (const mode of ['win', 'serve'] as const) {
-        const prompt = buildProductKnowledgeBlocks(mode, false).join('\n\n')
+        const prompt = buildProductKnowledgeBlocks(mode, false, null).join(
+          '\n\n',
+        )
         expect(prompt).not.toContain('HELP CENTER')
         expect(prompt).not.toContain('search_help_center')
         expect(prompt).toContain('Answer from it and nothing else')
@@ -159,5 +175,79 @@ describe('product knowledge blocks', () => {
     expect(render('serve')).toMatch(
       /separate product for people running for office/,
     )
+  })
+
+  // Pro is the one account fact the map carries. It renders as data beside
+  // the Access notes, only when the caller knows it, so a prompt that passes
+  // null (Serve today) is unchanged.
+  describe('Pro status in the map', () => {
+    const map = (mode: 'win' | 'serve', proAccess: boolean | null): string =>
+      buildProductKnowledgeBlocks(mode, true, proAccess)[0] ?? ''
+
+    it('says the campaign is locked out of Pro areas when it has no Pro', () => {
+      const block = map('win', false)
+      expect(block).toContain('Pro status: this campaign does not have Pro')
+      expect(block).toContain('locked until they upgrade')
+    })
+
+    it('says the campaign has Pro when it does', () => {
+      const block = map('win', true)
+      expect(block).toContain('Pro status: this campaign has Pro.')
+      expect(block).not.toContain('does not have Pro')
+    })
+
+    it('says nothing about Pro when the caller does not know', () => {
+      for (const mode of ['win', 'serve'] as const) {
+        const prompt = buildProductKnowledgeBlocks(mode, true, null).join(
+          '\n\n',
+        )
+        expect(prompt, mode).not.toContain('Pro status:')
+      }
+    })
+
+    // "this campaign" is Win's noun and Pro is Win's account state, so a
+    // Serve caller that passes a flag gets no line rather than the wrong one.
+    it('renders the status line for Win only', () => {
+      expect(map('serve', false)).not.toContain('Pro status:')
+      expect(map('serve', true)).not.toContain('Pro status:')
+    })
+  })
+
+  // The rule that reads the status line. Generic on purpose: it names no
+  // feature, so when an Access note in the map changes, the behavior follows
+  // without a prompt edit.
+  describe('unmet access requirements', () => {
+    const RULE_MARK = 'Access note says it needs Pro'
+    const accessRule = (proAccess: boolean): string => {
+      const rules = buildProductKnowledgeBlocks('win', true, proAccess)[1] ?? ''
+      const bullet = rules.split('\n- ').find((b) => b.includes(RULE_MARK))
+      expect(bullet, String(proAccess)).toBeDefined()
+      return bullet ?? ''
+    }
+
+    it('tells the assistant not to present a locked area as available', () => {
+      for (const proAccess of [true, false]) {
+        expect(accessRule(proAccess)).toMatch(
+          /Do not present the locked part as available/,
+        )
+      }
+    })
+
+    it('names no feature, tab, or tool in the rule', () => {
+      expect(accessRule(false)).not.toMatch(
+        /voter|Voter Data|Know Your Opponent|count_contacts|precinct/i,
+      )
+    })
+
+    // The rule reads the status line, so it renders only where that line
+    // does: never for an unknown status, and never for Serve.
+    it('omits the rule when the status line is absent', () => {
+      for (const mode of ['win', 'serve'] as const) {
+        const rules = buildProductKnowledgeBlocks(mode, true, null)[1] ?? ''
+        expect(rules, mode).not.toContain(RULE_MARK)
+      }
+      const serve = buildProductKnowledgeBlocks('serve', true, false)[1] ?? ''
+      expect(serve).not.toContain(RULE_MARK)
+    })
   })
 })
