@@ -27,13 +27,20 @@ const meta = pageMetaData({
 export const metadata = meta
 export const dynamic = 'force-dynamic'
 
-export default async function Page(): Promise<React.JSX.Element> {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ compose?: string; handoff?: string }>
+}): Promise<React.JSX.Element> {
   await serveAccess()
   const outreaches = await fetchOutreaches()
+  const { compose, handoff } = await searchParams
   return (
     <ConstituentOutreachPage
       pathname="/dashboard/constituent-outreach"
       outreaches={outreaches}
+      openSocialOnMount={compose === 'social'}
+      handoffNonce={handoff}
     />
   )
 }

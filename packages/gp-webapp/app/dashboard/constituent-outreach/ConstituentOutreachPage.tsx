@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { OutreachDetail } from '@goodparty_org/contracts'
+import { ComposeHandoffPayloadSchema } from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import ServeChannelCards from './ServeChannelCards'
@@ -16,6 +17,7 @@ import { OutreachDetailsDrawer } from 'app/dashboard/outreach/v2/OutreachDetails
 import {
   SocialFlow,
   SERVE_SOCIAL_SURFACE,
+  type SocialFlowPrefill,
 } from 'app/dashboard/outreach/v2/social/SocialFlow'
 import {
   PhoneBankingFlow,
@@ -37,6 +39,13 @@ import { clientRequest } from 'gpApi/typed-request'
 interface ConstituentOutreachPageProps {
   pathname?: string
   outreaches?: HistoryRow[]
+  openSocialOnMount?: boolean
+  handoffNonce?: string
+}
+
+interface ConstituentOutreachContentProps {
+  openSocialOnMount?: boolean
+  handoffNonce?: string
 }
 
 // The four wired channels. Door knocking joined them in 3.0: a Serve turf
@@ -57,11 +66,17 @@ const isDrawerRow = (row: HistoryRow): boolean =>
   row.outreachType === OUTREACH_TYPES.nativeDoorKnocking ||
   row.outreachType === OUTREACH_TYPES.text
 
-const ConstituentOutreachContent = () => {
+const ConstituentOutreachContent = ({
+  openSocialOnMount,
+  handoffNonce,
+}: ConstituentOutreachContentProps) => {
   const router = useRouter()
   const [outreaches, setOutreaches] = useOutreach()
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
+  const [socialPrefill, setSocialPrefill] = useState<
+    SocialFlowPrefill | undefined
+  >()
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
   // This card IS the treatment surface, so the exposure is tracked here (the
@@ -79,6 +94,36 @@ const ConstituentOutreachContent = () => {
   // Whether this rail offers door knocking at all. The door-knocking page gate
   // is the treatment surface, so no exposure is tracked here.
   const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
+
+  // On mount, read and immediately delete the sessionStorage payload written
+  // by ChiefOfStaffChatBody's handleComposeHandoff. The nonce key makes this
+  // idempotent: a second mount (or a stale tab navigating back here) finds
+  // nothing and opens a blank flow. Private mode or a storage quota error
+  // silently degrades to blank as well.
+  useEffect(() => {
+    if (!openSocialOnMount) return
+    let prefill: SocialFlowPrefill | undefined
+    if (handoffNonce) {
+      try {
+        const key = `cos-handoff-${handoffNonce}`
+        const raw = sessionStorage.getItem(key)
+        if (raw) {
+          sessionStorage.removeItem(key)
+          const parsed = ComposeHandoffPayloadSchema.safeParse(JSON.parse(raw))
+          if (parsed.success) {
+            prefill = {
+              draftText: parsed.data.draftText,
+              purpose: parsed.data.purpose,
+            }
+          }
+        }
+      } catch {
+        // Private mode or corrupt data — open blank flow.
+      }
+    }
+    setSocialPrefill(prefill)
+    setSocialFlowOpen(true)
+  }, [openSocialOnMount, handoffNonce])
 
   // Mirrors OutreachHubPage's cache seeding: the save response is the
   // created row, so the drawer and the "N platforms" metric never refetch
@@ -170,9 +215,13 @@ const ConstituentOutreachContent = () => {
       />
       <SocialFlow
         open={socialFlowOpen}
-        onClose={() => setSocialFlowOpen(false)}
+        onClose={() => {
+          setSocialFlowOpen(false)
+          setSocialPrefill(undefined)
+        }}
         onSaved={handleSocialSaved}
         surface={SERVE_SOCIAL_SURFACE}
+        prefill={socialPrefill}
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
@@ -229,6 +278,8 @@ const ConstituentOutreachContent = () => {
 const ConstituentOutreachPage = ({
   pathname,
   outreaches = [],
+  openSocialOnMount,
+  handoffNonce,
 }: ConstituentOutreachPageProps): React.JSX.Element => {
   return (
     <OutreachProvider initValue={outreaches}>
@@ -241,7 +292,10 @@ const ConstituentOutreachPage = ({
           label: NAV_LABELS.constituentOutreach,
         }}
       >
-        <ConstituentOutreachContent />
+        <ConstituentOutreachContent
+          openSocialOnMount={openSocialOnMount}
+          handoffNonce={handoffNonce}
+        />
       </DashboardLayout>
     </OutreachProvider>
   )

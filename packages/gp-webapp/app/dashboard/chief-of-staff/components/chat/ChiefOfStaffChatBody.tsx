@@ -741,13 +741,17 @@ export default function ChiefOfStaffChatBody({
     [conversationId],
   )
 
-  // Chief of staff users are Serve (elected officials): /dashboard/outreach is
-  // the Win hub behind candidateAccess() and bounces them to the marketing
-  // site. Navigate-only for now: the compose deep link and draft-prefill
-  // plumbing ship together in ENG-11162.
   const handleComposeHandoff = useCallback(
-    (_payload: ComposeHandoffPayload): void => {
-      router.push('/dashboard/constituent-outreach')
+    (payload: ComposeHandoffPayload): void => {
+      const nonce = crypto.randomUUID()
+      try {
+        sessionStorage.setItem(`cos-handoff-${nonce}`, JSON.stringify(payload))
+      } catch {
+        // Private mode or storage quota — navigate without payload; SocialFlow opens blank.
+      }
+      router.push(
+        `/dashboard/constituent-outreach?compose=social&handoff=${nonce}`,
+      )
     },
     [router],
   )

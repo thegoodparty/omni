@@ -825,3 +825,78 @@ describe('SocialFlow with the serve surface', () => {
     expect(nextdoorCard).toHaveAttribute('aria-pressed', 'true')
   })
 })
+
+// ENG-11162: compose handoff prefill seam — the flow accepts an optional
+// `prefill` prop written by ChiefOfStaffChatBody and read by
+// ConstituentOutreachPage. The seam's contract: a draft advances to compose
+// or platforms; a missing draft leaves the flow untouched.
+describe('SocialFlow prefill seam', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    dictationInput = null
+  })
+
+  it('with draftText and no purpose opens at compose with the text prefilled', async () => {
+    render(
+      <SocialFlow
+        open
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        surface={SERVE_SOCIAL_SURFACE}
+        prefill={{ draftText: 'Draft from Chief of Staff' }}
+      />,
+    )
+    expect(
+      (await screen.findAllByText('What do you want to say?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Draft message')).toHaveValue(
+      'Draft from Chief of Staff',
+    )
+  })
+
+  it('with draftText and a valid serve purpose opens at platforms', async () => {
+    render(
+      <SocialFlow
+        open
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        surface={SERVE_SOCIAL_SURFACE}
+        prefill={{ draftText: 'Ready draft', purpose: 'explain_decision' }}
+      />,
+    )
+    expect(
+      (await screen.findAllByText('Where do you want to share it?')).length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('with draftText and an unrecognised purpose (stale or cross-surface) opens at compose', async () => {
+    render(
+      <SocialFlow
+        open
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        surface={SERVE_SOCIAL_SURFACE}
+        prefill={{ draftText: 'Ready draft', purpose: 'persuade_voters' }}
+      />,
+    )
+    expect(
+      (await screen.findAllByText('What do you want to say?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Draft message')).toHaveValue('Ready draft')
+  })
+
+  it('with no draftText applies no prefill and opens at the purpose step', () => {
+    render(
+      <SocialFlow
+        open
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        surface={SERVE_SOCIAL_SURFACE}
+        prefill={{ draftText: '' }}
+      />,
+    )
+    expect(
+      screen.getAllByText('What do you want to do?').length,
+    ).toBeGreaterThan(0)
+  })
+})

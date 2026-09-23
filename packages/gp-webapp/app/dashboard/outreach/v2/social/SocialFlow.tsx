@@ -160,11 +160,21 @@ export const SERVE_SOCIAL_SURFACE: SocialFlowSurface = {
   },
 }
 
+// Caller-supplied initial state injected after the open-reset, used by the
+// compose handoff from Chief of Staff. Advancing past 'purpose' requires a
+// valid purpose id for the active surface — the flow ignores a stale or
+// cross-surface id rather than erroring.
+export interface SocialFlowPrefill {
+  draftText: string
+  purpose?: string
+}
+
 interface SocialFlowProps {
   open: boolean
   onClose: () => void
   onSaved: (detail: OutreachDetail) => void
   surface?: SocialFlowSurface
+  prefill?: SocialFlowPrefill
 }
 
 const SuccessScreen = ({
@@ -203,6 +213,7 @@ export const SocialFlow = ({
   onClose,
   onSaved,
   surface = WIN_SOCIAL_SURFACE,
+  prefill,
 }: SocialFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
@@ -291,6 +302,24 @@ export const SocialFlow = ({
     resetGenerate()
     resetSave()
   }, [open, resetDraftMutation, resetGenerate, resetSave])
+
+  // Apply caller-supplied prefill after the reset above (React runs effects in
+  // definition order within the same commit). A purpose id that doesn't exist
+  // on the active surface is silently dropped — a handoff from a stale payload
+  // still opens the flow, just without advancing past purpose.
+  useEffect(() => {
+    if (!open || !prefill?.draftText) return
+    setDraft(prefill.draftText)
+    const matchedPurpose = surface.purposes.find(
+      (p) => p.id === prefill.purpose,
+    )
+    if (matchedPurpose) {
+      setPurpose(matchedPurpose.id)
+      setStepId('platforms')
+    } else {
+      setStepId('compose')
+    }
+  }, [open, prefill, surface])
 
   // Entering the share step (including Back-and-return after edits, which
   // clear `assets`) kicks off the one generate call.
