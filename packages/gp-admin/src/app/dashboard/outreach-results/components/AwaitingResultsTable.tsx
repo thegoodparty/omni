@@ -27,7 +27,7 @@ const matches = (item: OutreachAwaitingResultsItem, query: string): boolean => {
     item.name ?? '',
     item.organizationSlug,
     outreachTypeLabel(item.outreachType),
-    String(item.outreachId),
+    item.id,
   ]
     .join(' ')
     .toLowerCase()
@@ -105,13 +105,16 @@ export function AwaitingResultsTable({ items }: AwaitingResultsTableProps) {
           </Table.Header>
           <Table.Body>
             {visible.map((item) => (
-              <Table.Row key={item.outreachId}>
+              // Keyed on kind AND id: a send and a poll can carry the
+              // same id string, since the two come from different tables.
+              <Table.Row key={`${item.kind}-${item.id}`}>
                 <Table.Cell>
                   <Link
-                    href={`/dashboard/outreach-results/${item.outreachId}`}
+                    href={`/dashboard/outreach-results/${item.kind}/${item.id}`}
                     className="text-[var(--accent-11)] hover:underline"
                   >
-                    {item.name ?? `Send ${item.outreachId}`}
+                    {item.name ??
+                      `${item.kind === 'poll' ? 'Poll' : 'Send'} ${item.id}`}
                   </Link>
                 </Table.Cell>
                 <Table.Cell>

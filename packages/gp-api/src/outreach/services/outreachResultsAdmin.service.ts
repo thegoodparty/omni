@@ -4,9 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { addBusinessDays, parseISO } from 'date-fns'
+import { addBusinessDays, isAfter, parseISO } from 'date-fns'
 import type {
   OutreachAwaitingResultsItem,
+  ResultsInboxKind,
   OutreachAwaitingResultsResponse,
   OutreachResultsParseReport,
   OutreachResultsTarget,
@@ -23,6 +24,7 @@ import {
   NO_USABLE_ROWS_MESSAGE,
   type SkippedResultsRow,
 } from '../util/outreachResultsCsv.util'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OutreachTextIngestService } from './outreachTextIngest.service'
 
 /**
@@ -36,11 +38,16 @@ import { OutreachTextIngestService } from './outreachTextIngest.service'
  * committed, because silent partial failure is the failure mode of the path
  * being retired.
  *
- * **SMS only.** Routing an upload by outreach type — writing a poll's file to
- * `input/<pollId>.csv` for the analysis pipeline — is explicitly out of scope
- * (decision 2026-09-21), and the poll Slack message keeps its `aws s3 cp`
- * line. That cut is what makes this slice inert: it adds a path for a product
- * fulfilment has never handled and changes nothing they do today.
+ * **Two products, one surface.** The route is kind-discriminated: an `sms`
+ * id runs the reply ingest below, and a `poll` id writes the file verbatim to
+ * `input/<pollId>.csv`, the exact key the analysis pipeline's S3 notification
+ * watches. Nothing downstream of that object changes, so the pipeline cannot
+ * tell an upload here from the `aws s3 cp` a human used to run.
+ *
+ * That CLI line stays in the poll Slack message underneath the link, marked
+ * as a backup for a day this page is unavailable. It is not the path we want
+ * used: `cp` writes whatever it is handed, where this one validates the file
+ * and reports on it before anything reaches the pipeline.
  *
  * Nothing here re-implements the ingest. Grouping, phone-to-person mapping
  * with the People DB fallback, the single opt-out predicate, the idempotent
@@ -120,8 +127,42 @@ interface SendRow {
 export class OutreachResultsAdminService extends createPrismaBase(
   MODELS.Outreach,
 ) {
-  constructor(private readonly ingest: OutreachTextIngestService) {
+  constructor(
+    private readonly ingest: OutreachTextIngestService,
+    private readonly s3Service: S3Service,
+  ) {
     super()
+  }
+
+  /**
+   * A poll's results go to S3 and nowhere else. This is the whole poll
+   * branch of the upload, and it is deliberately tiny: the object landing
+   * under `input/` is what an existing S3 notification watches for, which
+   * fires a Lambda, which starts the Step Function, which runs the Fargate
+   * analysis. None of that changes — this replaces the human running
+   * `aws s3 cp`, and nothing else about how a poll is processed.
+   *
+   * Byte-for-byte what fulfilment produced. We parse the file to REPORT on
+   * it, never to transform it: the pipeline does its own parsing with its
+   * own expectations, and handing it a re-serialized file would make this
+   * service a second author of a format it does not own.
+   */
+  private async writePollResultsToPipeline(
+    pollId: string,
+    csv: string,
+  ): Promise<void> {
+    const bucket = process.env.SERVE_ANALYSIS_BUCKET_NAME
+    if (!bucket) {
+      throw new Error(
+        'SERVE_ANALYSIS_BUCKET_NAME is required to accept poll results',
+      )
+    }
+    // The exact key the Slack message's CLI line names, because the
+    // notification filter is `input/` + `.csv` and the pipeline reads the
+    // poll id back out of the object key.
+    await this.s3Service.uploadFile(bucket, csv, `input/${pollId}.csv`, {
+      contentType: 'text/csv',
+    })
   }
 
   /**
@@ -137,6 +178,22 @@ export class OutreachResultsAdminService extends createPrismaBase(
    * presence is what actually means "a human has this send".
    */
   async listAwaiting(): Promise<OutreachAwaitingResultsResponse> {
+    const [sends, polls] = await Promise.all([
+      this.listAwaitingSends(),
+      this.listAwaitingPolls(new Date()),
+    ])
+    return {
+      // Oldest first across BOTH products: a queue is read top-down and the
+      // work waiting longest is the one at risk of being forgotten, whether
+      // it is a text send or a poll. Sorting per-product would bury an old
+      // poll under fresh sends.
+      items: [...sends, ...polls].sort(
+        (a, b) => (a.sentAt?.getTime() ?? 0) - (b.sentAt?.getTime() ?? 0),
+      ),
+    }
+  }
+
+  private async listAwaitingSends(): Promise<OutreachAwaitingResultsItem[]> {
     const sends = await this.model.findMany({
       where: {
         status: OutreachStatus.in_progress,
@@ -145,16 +202,66 @@ export class OutreachResultsAdminService extends createPrismaBase(
       },
       select: SEND_SELECT,
     })
-    if (sends.length === 0) return { items: [] }
+    if (sends.length === 0) return []
 
     const stats = await this.recipientStats(sends.map((send) => send.id))
-    const items = sends
+    return sends
       .map((send) => this.toAwaitingItem(send, stats.get(send.id)))
       .filter((item): item is OutreachAwaitingResultsItem => item !== null)
-      // Oldest first: a queue is read top-down and the send that has been
-      // waiting longest is the one at risk of being forgotten.
-      .sort((a, b) => (a.sentAt?.getTime() ?? 0) - (b.sentAt?.getTime() ?? 0))
-    return { items }
+  }
+
+  /**
+   * Polls awaiting results, in the same inbox as the text sends. One queue,
+   * because fulfilment does one job and should not have to remember which
+   * product a Slack message was about.
+   *
+   * "Awaiting" is `isCompleted: false` past its scheduled date. A poll has
+   * no spine status and no recipient map — the only thing that marks it
+   * done is the analysis pipeline writing back, which flips `isCompleted`
+   * and fills `responseCount`. So an incomplete poll whose send date has
+   * passed is exactly a poll whose results have not come back.
+   */
+  private async listAwaitingPolls(
+    now: Date,
+  ): Promise<OutreachAwaitingResultsItem[]> {
+    const polls = await this.client.poll.findMany({
+      where: { isCompleted: false, scheduledDate: { lte: now } },
+      select: {
+        id: true,
+        name: true,
+        targetAudienceSize: true,
+        scheduledDate: true,
+        estimatedCompletionDate: true,
+        electedOffice: { select: { organizationSlug: true } },
+      },
+    })
+    return polls.flatMap((poll) => {
+      const organizationSlug = poll.electedOffice?.organizationSlug
+      if (!organizationSlug) {
+        // Same treatment as a scopeless send: omitted rather than shown
+        // without an owner, because the inbox is read per organization.
+        this.logger.warn(
+          { pollId: poll.id },
+          '[Outreach Results] poll has no organization scope; omitting from the results queue',
+        )
+        return []
+      }
+      return [
+        {
+          kind: 'poll' as const,
+          id: poll.id,
+          name: poll.name,
+          organizationSlug,
+          outreachType: 'poll',
+          // The audience it was sent to. A poll has no per-person recipient
+          // rows, so this is the closest true number — and it is what the
+          // operator recognizes the poll by.
+          recipientCount: poll.targetAudienceSize,
+          sentAt: poll.scheduledDate,
+          expectedBy: poll.estimatedCompletionDate,
+        },
+      ]
+    })
   }
 
   /**
@@ -195,6 +302,181 @@ export class OutreachResultsAdminService extends createPrismaBase(
    * they need the recipient map and the one opt-out predicate, both of
    * which live in the ingest.
    */
+  /**
+   * The poll half of the one upload path. Same page, same button, same
+   * report shape — the operator does not need to know which product they
+   * are looking at, which is the point of unifying the surface.
+   *
+   * What differs is everything after validation. An SMS file is INGESTED:
+   * parsed into rows, matched against the recipient map, written as
+   * messages and CRM events. A poll file is FORWARDED: the bytes go to
+   * `input/<pollId>.csv` and the existing pipeline takes over, exactly as
+   * it did when a human ran `aws s3 cp`. We never write poll rows here.
+   *
+   * So `matched` / `unmatched` / `optOuts` are null for a poll rather than
+   * zero. There is no recipient map to match against and no opt-out
+   * predicate run, and reporting 0 would read as "nobody replied" when the
+   * truth is "that question is not ours to answer" — the pipeline answers
+   * it later, asynchronously, by writing PollIssues.
+   */
+  /**
+   * The two entry points the controller actually calls. Everything above is
+   * one product or the other; these are the seam where the single upload
+   * path picks which.
+   *
+   * An SMS id arrives as a string off the URL and is parsed here rather
+   * than by a pipe, because the pipe would have to run before we know which
+   * kind we are dealing with — and a uuid through ParseIntPipe is a 400
+   * about the wrong thing.
+   */
+  private parseSendId(id: string): number {
+    const outreachId = Number(id)
+    if (!Number.isInteger(outreachId) || outreachId <= 0) {
+      throw new BadRequestException(`"${id}" is not an outreach id`)
+    }
+    return outreachId
+  }
+
+  async getTargetByKind(
+    kind: ResultsInboxKind,
+    id: string,
+  ): Promise<OutreachResultsTarget> {
+    return kind === 'poll'
+      ? this.getPollTarget(id)
+      : this.getTarget(this.parseSendId(id))
+  }
+
+  async uploadByKind(
+    kind: ResultsInboxKind,
+    id: string,
+    input: OutreachResultsUploadRequest,
+  ): Promise<OutreachResultsParseReport> {
+    return kind === 'poll'
+      ? this.uploadPollResults(id, input)
+      : this.upload(this.parseSendId(id), input)
+  }
+
+  /**
+   * What the upload page shows for a poll, in the same shape it shows a
+   * send — the operator should not be able to tell from the page which
+   * product they are on, only from the content.
+   *
+   * `message` is the poll's question, which is the thing fulfilment
+   * actually sent and therefore the thing they can recognize.
+   */
+  async getPollTarget(pollId: string): Promise<OutreachResultsTarget> {
+    const poll = await this.client.poll.findUnique({
+      where: { id: pollId },
+      select: {
+        id: true,
+        name: true,
+        messageContent: true,
+        imageUrl: true,
+        targetAudienceSize: true,
+        scheduledDate: true,
+        estimatedCompletionDate: true,
+        completedDate: true,
+        electedOffice: { select: { organizationSlug: true } },
+      },
+    })
+    if (!poll) throw new NotFoundException(`No poll ${pollId}`)
+    const organizationSlug = poll.electedOffice?.organizationSlug
+    if (!organizationSlug) {
+      throw new NotFoundException(`Poll ${pollId} has no organization scope`)
+    }
+    return {
+      kind: 'poll',
+      id: poll.id,
+      name: poll.name,
+      organizationSlug,
+      outreachType: 'poll',
+      recipientCount: poll.targetAudienceSize,
+      sentAt: poll.scheduledDate,
+      expectedBy: poll.estimatedCompletionDate,
+      message: poll.messageContent,
+      imageUrl: poll.imageUrl,
+      // A poll has no per-send results row; the pipeline marks it done by
+      // filling completedDate, so that is what "results are in" means here.
+      resultsReceivedAt: poll.completedDate,
+    }
+  }
+
+  async uploadPollResults(
+    pollId: string,
+    input: OutreachResultsUploadRequest,
+  ): Promise<OutreachResultsParseReport> {
+    const poll = await this.client.poll.findUnique({
+      where: { id: pollId },
+      select: { id: true, isCompleted: true, scheduledDate: true },
+    })
+    if (!poll) throw new NotFoundException(`No poll ${pollId}`)
+    // The inbox only lists polls whose send date has passed, but the inbox is
+    // not the only way in: this route is reachable by URL and by an M2M token
+    // that never loaded the page. Results for a poll that has not gone out
+    // cannot exist, so accepting them would start a Fargate run over a file
+    // that is either someone else's or a mistake.
+    if (isAfter(poll.scheduledDate, new Date())) {
+      throw new ConflictException(
+        `Poll ${pollId} has not been sent yet. Nothing was written.`,
+      )
+    }
+    // The SMS path lets a completed send be re-uploaded because its ingest
+    // CAS makes that idempotent. This path is not idempotent in the same
+    // way: S3 fires ObjectCreated whether or not the bytes changed, so a
+    // second upload re-runs the whole Fargate analysis. That is slow, it
+    // costs money, and because the analysis is an LLM run it can return
+    // DIFFERENT themes — so the official's issues would silently change
+    // under them for a poll they already read.
+    //
+    // Refused rather than de-duplicated, because a re-analysis is sometimes
+    // legitimately wanted (fulfilment returned the wrong file) and this
+    // service cannot tell that from a double-click. Making it explicit is
+    // its own change; silently re-running it is the thing to avoid now.
+    if (poll.isCompleted) {
+      throw new ConflictException(
+        `Poll ${pollId} already has results. Uploading again would re-run ` +
+          'the analysis and could change the themes already published. ' +
+          'Nothing was written.',
+      )
+    }
+
+    // Validated for the same reason the SMS path is: a truncated or
+    // wrong-shaped file caught here costs a second, and caught by the
+    // pipeline costs a Fargate run and a confusing empty result. The parse
+    // is a REPORT on the bytes, never a rewrite of them.
+    const parsed = checkResultsCsv(input)
+    if (!parsed.ok) throw new BadRequestException(parsed.error)
+    if (parsed.rows.length === 0) {
+      throw new BadRequestException(NO_USABLE_ROWS_MESSAGE)
+    }
+
+    if (!input.dryRun) {
+      await this.writePollResultsToPipeline(pollId, input.csv)
+    }
+
+    this.logger.info(
+      {
+        pollId,
+        fileName: input.fileName,
+        sourceLabel: input.sourceLabel,
+        rowsParsed: parsed.rows.length,
+        outboundRows: parsed.outboundRows,
+        skippedRows: parsed.skipped.length,
+        dryRun: input.dryRun,
+      },
+      '[Outreach Results] poll results forwarded to the analysis pipeline',
+    )
+
+    return {
+      rowsParsed: parsed.rows.length,
+      outboundRows: parsed.outboundRows,
+      matched: null,
+      unmatched: null,
+      optOuts: null,
+      committed: !input.dryRun,
+    }
+  }
+
   async upload(
     outreachId: number,
     input: OutreachResultsUploadRequest,
@@ -343,7 +625,10 @@ export class OutreachResultsAdminService extends createPrismaBase(
     }
     const sentAt = stats?.firstWrittenAt ?? null
     return {
-      outreachId: send.id,
+      kind: 'sms',
+      // Stringified because a poll's id is a uuid and the inbox carries
+      // both. `kind` is what tells a reader which table to look in.
+      id: String(send.id),
       name: send.name,
       organizationSlug,
       outreachType: send.outreachType,

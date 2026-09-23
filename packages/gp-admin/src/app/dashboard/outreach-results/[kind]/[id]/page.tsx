@@ -15,11 +15,12 @@ import {
 } from '@radix-ui/themes'
 import { PERMISSIONS } from '@/lib/permissions'
 import { formatDateTime } from '@/lib/utils/date'
-import { getResultsTarget } from '../actions'
-import { isEndpointsUnavailable } from '../gateway'
-import { EndpointsPendingCallout } from '../components/EndpointsPendingCallout'
-import { ResultsUploader } from '../components/ResultsUploader'
-import { outreachTypeLabel, type OutreachResultsTarget } from '../types'
+import { ResultsInboxKindSchema } from '@goodparty_org/contracts'
+import { getResultsTarget } from '../../actions'
+import { isEndpointsUnavailable } from '../../gateway'
+import { EndpointsPendingCallout } from '../../components/EndpointsPendingCallout'
+import { ResultsUploader } from '../../components/ResultsUploader'
+import { outreachTypeLabel, type OutreachResultsTarget } from '../../types'
 
 export const metadata: Metadata = {
   title: 'Upload Outreach Results | GP Admin',
@@ -28,7 +29,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 interface PageProps {
-  params: Promise<{ outreachId: string }>
+  params: Promise<{ kind: string; id: string }>
 }
 
 function BackLink() {
@@ -49,20 +50,25 @@ export default async function Page({ params }: PageProps) {
   }
   const canUpload = has({ role: 'org:admin' })
 
-  const { outreachId: idParam } = await params
-  const outreachId = Number(idParam)
-  if (!Number.isInteger(outreachId) || outreachId < 1) notFound()
+  const { kind: kindParam, id } = await params
+  // The kind is part of the address because the two products' ids are
+  // neither the same type nor from the same space — a send is an integer,
+  // a poll a uuid. Validated here so a typo is a 404 on this page rather
+  // than a confusing 400 from the API.
+  const parsedKind = ResultsInboxKindSchema.safeParse(kindParam)
+  if (!parsedKind.success || !id) notFound()
+  const kind = parsedKind.data
 
   let target: OutreachResultsTarget
   try {
-    target = await getResultsTarget(outreachId)
+    target = await getResultsTarget(kind, id)
   } catch (err) {
     if (isEndpointsUnavailable(err)) {
       return (
         <Container size="3">
           <BackLink />
           <Heading size="6" mt="3">
-            Send {outreachId}
+            {kind === 'poll' ? 'Poll' : 'Send'} {id}
           </Heading>
           <EndpointsPendingCallout />
         </Container>
@@ -71,14 +77,18 @@ export default async function Page({ params }: PageProps) {
     notFound()
   }
 
-  const sendLabel = target.name ?? `send ${target.outreachId}`
+  const sendLabel =
+    target.name ?? `${target.kind === 'poll' ? 'poll' : 'send'} ${target.id}`
 
   return (
     <Container size="3">
       <BackLink />
 
       <Flex align="center" gap="3" mt="3" mb="1" wrap="wrap">
-        <Heading size="6">{target.name ?? `Send ${target.outreachId}`}</Heading>
+        <Heading size="6">
+          {target.name ??
+            `${target.kind === 'poll' ? 'Poll' : 'Send'} ${target.id}`}
+        </Heading>
         <Badge color="gray" size="2">
           {outreachTypeLabel(target.outreachType)}
         </Badge>
@@ -89,7 +99,8 @@ export default async function Page({ params }: PageProps) {
         )}
       </Flex>
       <Text color="gray" size="2">
-        {target.organizationSlug} · outreach {target.outreachId}
+        {target.organizationSlug} ·{' '}
+        {target.kind === 'poll' ? 'poll' : 'outreach'} {target.id}
       </Text>
 
       {/* What this page is about, before it will take a file. A human who
@@ -151,7 +162,8 @@ export default async function Page({ params }: PageProps) {
       <Box mt="4">
         {canUpload ? (
           <ResultsUploader
-            outreachId={target.outreachId}
+            kind={target.kind}
+            id={target.id}
             sendLabel={sendLabel}
           />
         ) : (

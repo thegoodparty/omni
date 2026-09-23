@@ -46,7 +46,7 @@ export const RESULTS_UPLOAD_BODY_LIMIT_BYTES =
   MAX_RESULTS_CSV_BYTES + JSON_ENVELOPE_HEADROOM_BYTES
 
 // As Nest registers it: the `v1` global prefix, then the controller path.
-export const RESULTS_UPLOAD_ROUTE = '/v1/outreach/admin/results/:outreachId'
+export const RESULTS_UPLOAD_ROUTE = '/v1/outreach/admin/results/:kind/:id'
 
 /**
  * Returns whether the hook was installed. False in a testing module that has

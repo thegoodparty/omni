@@ -1,4 +1,7 @@
-import type { OutreachResultsParseReport } from '@goodparty_org/contracts'
+import type {
+  ResultsInboxKind,
+  OutreachResultsParseReport,
+} from '@goodparty_org/contracts'
 import type { OutreachResultsUploadRequest } from '../types'
 
 // Report before committing, in two calls that differ by one flag.
@@ -11,13 +14,15 @@ import type { OutreachResultsUploadRequest } from '../types'
 
 export interface ResultsUploader {
   upload(
-    outreachId: number,
+    kind: ResultsInboxKind,
+    id: string,
     input: OutreachResultsUploadRequest
   ): Promise<OutreachResultsParseReport>
 }
 
 export interface ResultsUploadInput {
-  outreachId: number
+  kind: ResultsInboxKind
+  id: string
   fileName: string
   csv: string
   sourceLabel: string
@@ -28,9 +33,9 @@ export interface ResultsUploadInput {
 // operator nothing happened while rows were written.
 export async function requestParseReport(
   uploader: ResultsUploader,
-  { outreachId, fileName, csv, sourceLabel }: ResultsUploadInput
+  { kind, id, fileName, csv, sourceLabel }: ResultsUploadInput
 ): Promise<OutreachResultsParseReport> {
-  const report = await uploader.upload(outreachId, {
+  const report = await uploader.upload(kind, id, {
     fileName,
     csv,
     sourceLabel,
@@ -47,9 +52,9 @@ export async function requestParseReport(
 
 export async function commitResults(
   uploader: ResultsUploader,
-  { outreachId, fileName, csv, sourceLabel }: ResultsUploadInput
+  { kind, id, fileName, csv, sourceLabel }: ResultsUploadInput
 ): Promise<OutreachResultsParseReport> {
-  const report = await uploader.upload(outreachId, {
+  const report = await uploader.upload(kind, id, {
     fileName,
     csv,
     sourceLabel,
@@ -67,10 +72,22 @@ export async function commitResults(
 export function describeReport(report: OutreachResultsParseReport): string {
   const plural = (count: number, word: string) =>
     `${count.toLocaleString()} ${word}${count === 1 ? '' : 's'}`
-  return [
-    plural(report.rowsParsed, 'row'),
-    `${report.matched.toLocaleString()} matched a recipient`,
-    `${report.unmatched.toLocaleString()} matched nobody`,
-    plural(report.optOuts, 'opt-out'),
-  ].join(', ')
+  // matched / unmatched / optOuts are null for a poll: its file is
+  // forwarded to the analysis pipeline rather than ingested here, so there
+  // is no recipient map to match against and no opt-out predicate run. The
+  // summary names only what this upload actually established.
+  const parts = [plural(report.rowsParsed, 'row')]
+  if (report.outboundRows > 0) {
+    parts.push(`${report.outboundRows.toLocaleString()} outbound`)
+  }
+  if (report.matched !== null) {
+    parts.push(`${report.matched.toLocaleString()} matched a recipient`)
+  }
+  if (report.unmatched !== null) {
+    parts.push(`${report.unmatched.toLocaleString()} matched nobody`)
+  }
+  if (report.optOuts !== null) {
+    parts.push(plural(report.optOuts, 'opt-out'))
+  }
+  return parts.join(', ')
 }

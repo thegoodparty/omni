@@ -51,25 +51,27 @@ describe('textDeliverySlack.util', () => {
   })
 
   describe('outreachResultsUploadUrl', () => {
-    it('scopes the admin route to the outreach id', () => {
-      expect(outreachResultsUploadUrl('outreach-abc-123')).toBe(
-        'https://admin.example.org/dashboard/outreach-results/outreach-abc-123',
+    // `<kind>/<id>`: the same page serves both products, so the link has
+    // to say which one it is about.
+    it('scopes the admin route to the kind and id', () => {
+      expect(outreachResultsUploadUrl('sms', 'outreach-abc-123')).toBe(
+        'https://admin.example.org/dashboard/outreach-results/sms/outreach-abc-123',
       )
     })
 
     it('does not double the slash when the base url has a trailing slash', () => {
       vi.stubEnv('GP_ADMIN_BASE_URL', 'https://admin.example.org/')
 
-      expect(outreachResultsUploadUrl('xyz')).toBe(
-        'https://admin.example.org/dashboard/outreach-results/xyz',
+      expect(outreachResultsUploadUrl('sms', 'xyz')).toBe(
+        'https://admin.example.org/dashboard/outreach-results/sms/xyz',
       )
     })
 
     it('falls back to the local admin app when the base url is unset', () => {
       vi.stubEnv('GP_ADMIN_BASE_URL', '')
 
-      expect(outreachResultsUploadUrl('xyz')).toBe(
-        'http://localhost:3500/dashboard/outreach-results/xyz',
+      expect(outreachResultsUploadUrl('sms', 'xyz')).toBe(
+        'http://localhost:3500/dashboard/outreach-results/sms/xyz',
       )
     })
   })
@@ -93,11 +95,14 @@ describe('textDeliverySlack.util', () => {
       expect(actions.type).toBe('actions')
       expect(actions.elements[0]).toMatchObject({
         type: 'button',
-        url: 'https://admin.example.org/dashboard/outreach-results/outreach-abc-123',
+        url: 'https://admin.example.org/dashboard/outreach-results/sms/outreach-abc-123',
       })
     })
 
-    it('never emits the aws s3 cp instruction the poll message carries', async () => {
+    // Kept after polls moved onto the upload page too: this asserts the
+    // SMS message never grew a CLI instruction, which is still worth
+    // pinning even now that no message has one.
+    it('never emits an aws s3 cp instruction', async () => {
       await sendTextDeliverySlackMessage(fakeClient, baseArgs())
 
       expect(blocksText()).not.toContain('aws s3 cp')

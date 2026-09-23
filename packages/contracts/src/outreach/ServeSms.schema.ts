@@ -98,9 +98,17 @@ export const OutreachResultsParseReportSchema = z.object({
    * the number an operator acts on, so it has to mean only that.
    */
   outboundRows: z.number().int().nonnegative(),
-  matched: z.number().int().nonnegative(),
-  unmatched: z.number().int().nonnegative(),
-  optOuts: z.number().int().nonnegative(),
+  /**
+   * Null for a poll, where they have no meaning rather than a value of
+   * zero. A poll file is forwarded to the analysis pipeline, not ingested:
+   * there is no recipient map to match a reply against and no opt-out
+   * predicate run here, so reporting 0 would read as "nobody replied" when
+   * the truth is that the pipeline answers that later by writing PollIssues.
+   * A reader that shows these must hide them when they are null.
+   */
+  matched: z.number().int().nonnegative().nullable(),
+  unmatched: z.number().int().nonnegative().nullable(),
+  optOuts: z.number().int().nonnegative().nullable(),
   // false on a dry run, true once the rows are written. Always present — an
   // earlier version of this comment said "absent once written", which would
   // have led an implementer to omit it and have Zod reject every real result.
@@ -110,10 +118,22 @@ export type OutreachResultsParseReport = z.infer<
   typeof OutreachResultsParseReportSchema
 >
 
-// A send awaiting results, for the staff results inbox. The inbox is what
-// makes "we never got results back" visible rather than absent.
+/**
+ * One product's work in the staff results inbox. The inbox is what makes
+ * "we never got results back" visible rather than absent.
+ *
+ * `sms` is an Outreach row; `poll` is a Poll row, a different table with a
+ * uuid key. That is why `id` is a string rather than the integer this
+ * carried while the inbox was SMS-only: the two id spaces overlap
+ * numerically and do not share a table, so the kind has to travel with it.
+ * Every reader must switch on `kind` before doing anything with `id`.
+ */
+export const ResultsInboxKindSchema = z.enum(['sms', 'poll'])
+export type ResultsInboxKind = z.infer<typeof ResultsInboxKindSchema>
+
 export const OutreachAwaitingResultsItemSchema = z.object({
-  outreachId: z.number().int().positive(),
+  kind: ResultsInboxKindSchema,
+  id: z.string().min(1),
   name: z.string().nullable(),
   organizationSlug: z.string(),
   outreachType: z.string(),

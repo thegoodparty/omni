@@ -148,7 +148,8 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachRobocallAudioController,
     OutreachSmsAdminController,
     // The staff results surface: the awaiting-results queue and the per-send
-    // upload that replaces fulfilment's `aws s3 cp` line for SMS.
+    // upload that replaced fulfilment's `aws s3 cp` line, for both
+    // text sends and polls.
     OutreachResultsAdminController,
   ],
   providers: [
