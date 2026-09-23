@@ -273,7 +273,7 @@ export const Explore = () => {
       {/* Sticky so "how fresh is this?" never requires scrolling back up. */}
       <div className="sticky top-0 z-20 -mx-6 mb-4 border-b bg-background/95 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h1 className="text-xl font-semibold">Analytics events</h1>
+          <h1 className="text-xl font-semibold">Analytics Events Explorer</h1>
           <p className="text-xs text-muted-foreground">
             {data.events.length} events · {data.questions.length} questions ·{' '}
             {data.areas.length} areas · data as of {when(data.refreshed_at)} ·
