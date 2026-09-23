@@ -99,4 +99,47 @@ describe('describeReport', () => {
       )
     ).toBe('1 row, 1 matched a recipient, 0 matched nobody, 1 opt-out')
   })
+
+  // A poll's file is forwarded to the analysis pipeline rather than
+  // ingested, so there is no recipient map to match against and no opt-out
+  // predicate run. Those counts come back null, and naming them anyway
+  // would tell the operator something this upload never established.
+  it('omits the counts a poll upload cannot establish', () => {
+    expect(
+      describeReport(
+        report({
+          rowsParsed: 41,
+          outboundRows: 0,
+          matched: null,
+          unmatched: null,
+          optOuts: null,
+        })
+      )
+    ).toBe('41 rows')
+  })
+
+  it('still names the outbound rows on a poll', () => {
+    expect(
+      describeReport(
+        report({
+          rowsParsed: 41,
+          outboundRows: 1200,
+          matched: null,
+          unmatched: null,
+          optOuts: null,
+        })
+      )
+    ).toBe('41 rows, 1,200 outbound')
+  })
+
+  // Zero is a real answer and null is the absence of one. A send that
+  // matched nobody must still say so rather than falling silent the way a
+  // poll does.
+  it('keeps a zero count, which is not the same as no count', () => {
+    expect(
+      describeReport(
+        report({ rowsParsed: 3, matched: 0, unmatched: 3, optOuts: 0 })
+      )
+    ).toBe('3 rows, 0 matched a recipient, 3 matched nobody, 0 opt-outs')
+  })
 })
