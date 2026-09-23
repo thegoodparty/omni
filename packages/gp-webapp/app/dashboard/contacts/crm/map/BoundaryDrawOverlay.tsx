@@ -124,8 +124,12 @@ export default function BoundaryDrawOverlay({
           activeIndex={activeIndex}
           onRingsChange={setRings}
           onActiveIndexChange={setActiveIndex}
-          pillLabel={labels.boundaryCountLabel(inside)}
+          pillLabel={labels.boundaryCountLabel(
+            inside,
+            drawnRings(rings).length,
+          )}
           hint={labels.boundaryStepHint}
+          editHint={labels.boundaryEditShapeHint}
           className="min-h-0 flex-1"
         />
         <div className="border-t border-border bg-background px-6 py-4">

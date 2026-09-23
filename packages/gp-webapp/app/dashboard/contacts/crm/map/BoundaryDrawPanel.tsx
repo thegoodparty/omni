@@ -20,8 +20,9 @@ const ContactListMap = dynamic(() => import('./ContactListMap'), {
 // strip; the map only reserves what a caller says it is covering.
 const CONTROL_BAR_INSET_PX = 76
 
-// With the shape row above the control bar there are two strips to clear.
-const CONTROL_BAR_INSET_WITH_SHAPES_PX = 120
+// With the shape row and its line above the control bar there are three
+// strips to clear, not one.
+const CONTROL_BAR_INSET_WITH_SHAPES_PX = 148
 
 interface BoundaryDrawPanelProps {
   // Coordinates, not people. The panel has no person overlay behind its
@@ -43,6 +44,10 @@ interface BoundaryDrawPanelProps {
   pillLabel: string
   // Shown in the pill's place before the first corner lands.
   hint: string
+  // Shown above the chips once there is more than one part. Without it a
+  // finished part reads as fixed: it has no corner handles, so nothing says
+  // the chip is what hands it back for editing.
+  editHint: string
   className?: string
 }
 
@@ -62,6 +67,7 @@ export default function BoundaryDrawPanel({
   onActiveIndexChange,
   pillLabel,
   hint,
+  editHint,
   className = 'h-full w-full',
 }: BoundaryDrawPanelProps) {
   const active = rings[activeIndex] ?? []
@@ -112,6 +118,11 @@ export default function BoundaryDrawPanel({
       <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex flex-col items-center gap-2 px-4">
         {/* Only once there is a second part. With one shape the chip would
             be a control that switches to the thing already selected. */}
+        {multiple && (
+          <span className="rounded-full bg-card/90 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+            {editHint}
+          </span>
+        )}
         {multiple && (
           <div
             className="pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-1.5"

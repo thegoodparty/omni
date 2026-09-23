@@ -61,6 +61,23 @@ const FIT_PADDING_PX = 48
 // is inside the boundary is the whole question being asked of it.
 const BOUNDARY_LINE: [number, number, number, number] = [...PRIMARY_BLUE, 255]
 const BOUNDARY_FILL: [number, number, number, number] = [...PRIMARY_BLUE, 40]
+// The other parts WHILE ONE IS BEING EDITED. Only the active part takes the
+// gesture, so the parts that don't recede — otherwise every part looks
+// equally live and the one with handles isn't visibly the one a tap lands
+// in. Strength only, same hue: they are parts of one boundary, not a
+// different kind of thing.
+//
+// Not applied to a read-only map, where every part arrives through
+// `otherRings` and none of them is editable — dimming there would fade a
+// saved boundary for no reason.
+const BOUNDARY_LINE_MUTED: [number, number, number, number] = [
+  ...PRIMARY_BLUE,
+  120,
+]
+const BOUNDARY_FILL_MUTED: [number, number, number, number] = [
+  ...PRIMARY_BLUE,
+  18,
+]
 const VERTEX_FILL: [number, number, number, number] = [255, 255, 255, 255]
 const VERTEX_RADIUS_PX = 6
 const VERTEX_PICK_RADIUS_PX = 10
@@ -329,8 +346,8 @@ export default function ContactListMap({
                 id: 'boundary-other',
                 data: drawnOtherRings,
                 getPolygon: (r) => r,
-                getFillColor: BOUNDARY_FILL,
-                getLineColor: BOUNDARY_LINE,
+                getFillColor: isDrawing ? BOUNDARY_FILL_MUTED : BOUNDARY_FILL,
+                getLineColor: isDrawing ? BOUNDARY_LINE_MUTED : BOUNDARY_LINE,
                 lineWidthMinPixels: 2.5,
                 pickable: false,
               }),

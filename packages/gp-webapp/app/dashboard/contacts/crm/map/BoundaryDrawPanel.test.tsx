@@ -45,6 +45,7 @@ const Harness = ({ initial }: { initial: PolygonRing[] }) => {
       onActiveIndexChange={setActiveIndex}
       pillLabel="3 constituents"
       hint="Tap the map to start"
+      editHint="Pick a shape to change its corners."
     />
   )
 }
@@ -159,6 +160,24 @@ describe('BoundaryDrawPanel', () => {
     ).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Clear boundary' }),
+    ).toBeInTheDocument()
+  })
+
+  // The answer to "are these shapes fixed now?" has to be on screen. It is
+  // pointless with one part, where the only shape is already selected.
+  it('says how to edit a part only once there is more than one', async () => {
+    const user = userEvent.setup()
+    render(<Harness initial={[TRIANGLE]} />)
+    await screen.findByTestId('contact-map-stub')
+
+    expect(
+      screen.queryByText('Pick a shape to change its corners.'),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Add another shape' }))
+
+    expect(
+      screen.getByText('Pick a shape to change its corners.'),
     ).toBeInTheDocument()
   })
 

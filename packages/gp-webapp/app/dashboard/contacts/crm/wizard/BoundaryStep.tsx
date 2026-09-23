@@ -81,7 +81,7 @@ export default function BoundaryStep({
       ? null
       : isCounting || count === undefined
         ? 'Counting…'
-        : labels.boundaryCountLabel(count)
+        : labels.boundaryCountLabel(count, drawnRings(rings).length)
 
   const message = errorMessage
     ? errorMessage
