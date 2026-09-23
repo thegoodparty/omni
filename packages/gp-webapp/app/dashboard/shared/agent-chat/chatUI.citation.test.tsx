@@ -158,3 +158,111 @@ describe('InlineSegments — citation chips', () => {
     ).toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// InlineSegments — compose_handoff CTA card
+// ---------------------------------------------------------------------------
+
+const validHandoffPayload = {
+  channel: 'serve_social' as const,
+  draftText: 'Here is a draft social post for you to review.',
+  purpose: 'Update constituents on the water bill',
+}
+
+describe('InlineSegments — compose_handoff CTA', () => {
+  it('renders a CTA card for a valid compose_handoff segment with a callback', () => {
+    const segments: LiveSegment[] = [
+      {
+        kind: 'tool',
+        toolName: 'compose_handoff',
+        payload: validHandoffPayload,
+      },
+    ]
+    render(
+      <InlineSegments
+        segments={segments}
+        toolLabel={noop}
+        onComposeHandoff={vi.fn()}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: 'Continue in compose' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Social Post')).toBeInTheDocument()
+  })
+
+  it('calls onComposeHandoff with the parsed payload when the button is clicked', () => {
+    const onComposeHandoff = vi.fn()
+    const segments: LiveSegment[] = [
+      {
+        kind: 'tool',
+        toolName: 'compose_handoff',
+        payload: validHandoffPayload,
+      },
+    ]
+    render(
+      <InlineSegments
+        segments={segments}
+        toolLabel={noop}
+        onComposeHandoff={onComposeHandoff}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue in compose' }))
+    expect(onComposeHandoff).toHaveBeenCalledWith(validHandoffPayload)
+  })
+
+  it('renders a generic tool pill when payload fails schema parse', () => {
+    const segments: LiveSegment[] = [
+      {
+        kind: 'tool',
+        toolName: 'compose_handoff',
+        payload: { channel: 'unknown_channel', draftText: 'hello' },
+      },
+    ]
+    render(
+      <InlineSegments
+        segments={segments}
+        toolLabel={() => 'Compose'}
+        onComposeHandoff={vi.fn()}
+      />,
+    )
+    // Falls back to generic pill — no CTA button
+    expect(
+      screen.queryByRole('button', { name: 'Continue in compose' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Compose')).toBeInTheDocument()
+  })
+
+  it('renders a generic tool pill when no onComposeHandoff prop is provided', () => {
+    const segments: LiveSegment[] = [
+      {
+        kind: 'tool',
+        toolName: 'compose_handoff',
+        payload: validHandoffPayload,
+      },
+    ]
+    render(<InlineSegments segments={segments} toolLabel={() => 'Compose'} />)
+    // No callback → falls through to generic pill
+    expect(
+      screen.queryByRole('button', { name: 'Continue in compose' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Compose')).toBeInTheDocument()
+  })
+
+  it('does not affect other tool segments', () => {
+    const segments: LiveSegment[] = [
+      { kind: 'tool', toolName: 'search_contacts' },
+    ]
+    render(
+      <InlineSegments
+        segments={segments}
+        toolLabel={() => 'Searching'}
+        onComposeHandoff={vi.fn()}
+      />,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Continue in compose' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Searching')).toBeInTheDocument()
+  })
+})

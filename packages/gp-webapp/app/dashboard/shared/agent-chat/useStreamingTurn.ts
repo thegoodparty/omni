@@ -328,14 +328,17 @@ export function useStreamingTurn(
             })
             setLiveSegments([...segments])
           } else if (event.type === 'tool_call') {
-            if (scope.toolLabel(event.toolName)) {
-              segments.push({
-                kind: 'tool',
-                toolName: event.toolName,
-                running: true,
-              })
-              setLiveSegments([...segments])
-            }
+            const hasLabel = !!scope.toolLabel(event.toolName)
+            segments.push({
+              kind: 'tool',
+              toolName: event.toolName,
+              // Only shimmer for labeled tools (those rendered as pills).
+              ...(hasLabel && { running: true }),
+              // Carry the args so InlineSegments can render a CTA from the
+              // payload without a separate extraction pass.
+              ...(event.args !== undefined && { payload: event.args }),
+            })
+            setLiveSegments([...segments])
           } else if (event.type === 'tool_result') {
             // The tool finished; stop its pill shimmering. Clear the most recent
             // still-running segment for this tool (tools run one at a time).

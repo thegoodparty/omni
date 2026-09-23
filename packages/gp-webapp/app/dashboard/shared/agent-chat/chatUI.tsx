@@ -4,14 +4,19 @@ import type { Ref, ReactNode } from 'react'
 import { useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn, GoodPartyOrgLogo, IconButton, Textarea } from '@styleguide'
+import { Button, cn, GoodPartyOrgLogo, IconButton, Textarea } from '@styleguide'
 import {
   PaperclipIcon,
   SearchIcon,
   SendIcon,
+  Share2Icon,
   SparklesIcon,
   XMarkIcon,
 } from '@styleguide/components/ui/icons'
+import {
+  ComposeHandoffPayloadSchema,
+  type ComposeHandoffPayload,
+} from '@goodparty_org/contracts'
 import type { LiveSegment } from './streaming'
 import ChatPill from '../ai-chat/ChatPill'
 import { DictationMicButton } from '../dictation/DictationMicButton'
@@ -236,17 +241,61 @@ export function CitationChip({
   )
 }
 
+const COMPOSE_HANDOFF_CHANNEL_LABEL: Record<
+  ComposeHandoffPayload['channel'],
+  string
+> = {
+  serve_social: 'Social Post',
+}
+
+// A CTA card rendered when the agent returns a compose_handoff tool segment.
+// Shows the target channel, a preview of the draft text, and a button to
+// navigate into the matching compose flow. The flag gate is upstream in the
+// tool registration; this component renders unconditionally once shown.
+export function ComposeHandoffCard({
+  payload,
+  onClick,
+}: {
+  payload: ComposeHandoffPayload
+  onClick: () => void
+}): React.JSX.Element {
+  const channelLabel = COMPOSE_HANDOFF_CHANNEL_LABEL[payload.channel]
+  const firstLine = payload.draftText.split('\n')[0] ?? ''
+  const previewText = firstLine.slice(0, 80)
+  const truncated =
+    previewText.length < firstLine.length || payload.draftText.includes('\n')
+
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Share2Icon className="size-3.5" aria-hidden />
+        {channelLabel}
+      </div>
+      <p className="text-sm text-foreground">
+        {previewText}
+        {truncated ? '…' : null}
+      </p>
+      <Button type="button" size="small" onClick={onClick}>
+        Continue in compose
+      </Button>
+    </div>
+  )
+}
+
 // Render a turn's segments in stream order: text as markdown bubbles, tool
 // calls as inline pills, and citation chips at the positions where the model
 // cited a source. `toolLabel` maps a tool name to its pill label (return null
 // to hide a tool). Consecutive tool segments coalesce into one pill row.
 // `onCitationClick` is called with `(attachmentId, page)` when a chip is
 // clicked — the caller resolves the presigned URL and handles errors.
+// `onComposeHandoff` is called when the user clicks the CTA on a
+// compose_handoff segment; omit for surfaces that don't support compose.
 // Shared by the live turn and reloaded history (persisted segments).
 export function InlineSegments({
   segments,
   toolLabel,
   onCitationClick,
+  onComposeHandoff,
 }: {
   segments: LiveSegment[]
   toolLabel: (toolName: string) => string | null
@@ -254,6 +303,7 @@ export function InlineSegments({
     attachmentId: string,
     page: number | null | undefined,
   ) => void
+  onComposeHandoff?: (payload: ComposeHandoffPayload) => void
 }): React.JSX.Element {
   const blocks: ReactNode[] = []
   let pendingPills: string[] = []
@@ -273,6 +323,20 @@ export function InlineSegments({
   }
   segments.forEach((seg, i) => {
     if (seg.kind === 'tool') {
+      if (seg.toolName === 'compose_handoff') {
+        const parsed = ComposeHandoffPayloadSchema.safeParse(seg.payload)
+        if (parsed.success && onComposeHandoff) {
+          flushPills(String(i))
+          blocks.push(
+            <ComposeHandoffCard
+              key={`handoff-${i}`}
+              payload={parsed.data}
+              onClick={() => onComposeHandoff(parsed.data)}
+            />,
+          )
+          return
+        }
+      }
       const label = toolLabel(seg.toolName)
       if (label) {
         pendingPills.push(label)
