@@ -11,7 +11,10 @@ import {
 import ChiefOfStaffChatBody, {
   type ChatSuggestion,
 } from './ChiefOfStaffChatBody'
-import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import type {
+  AgentChatClient,
+  ChatScope,
+} from '../../../shared/agent-chat/chatClient'
 
 interface Props {
   open: boolean
@@ -53,6 +56,11 @@ interface Props {
   hiddenMessageContents?: string[]
   /** Show the per-message copy + thumbs bar under each assistant turn. */
   showMessageActions?: boolean
+  /**
+   * The chat scope forwarded to the body's useAttachmentsEnabled call.
+   * Defaults to 'chief_of_staff'; Campaign Manager passes 'campaign_assistant'.
+   */
+  scope?: ChatScope
 }
 
 /**
@@ -81,6 +89,7 @@ export default function ChiefOfStaffChatSurface({
   disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
   showMessageActions,
+  scope,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -135,6 +144,7 @@ export default function ChiefOfStaffChatSurface({
           disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}
           showMessageActions={showMessageActions}
+          scope={scope}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />
       </DrawerContent>
