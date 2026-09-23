@@ -200,7 +200,7 @@ describe('product knowledge blocks', () => {
       const rules = buildProductKnowledgeBlocks(mode, true, null)[1] ?? ''
       const bullet = rules
         .split('\n- ')
-        .find((b) => b.includes('Access note indicates they do not have a '))
+        .find((b) => b.includes('Access note says it needs Pro'))
       expect(bullet, mode).toBeDefined()
       return bullet ?? ''
     }
@@ -208,7 +208,7 @@ describe('product knowledge blocks', () => {
     it('tells both assistants not to present a locked area as available', () => {
       for (const mode of ['win', 'serve'] as const) {
         expect(accessRule(mode)).toMatch(
-          /Do not present locked capabilities as available/,
+          /Do not present the locked part as available/,
         )
       }
     })

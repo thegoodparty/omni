@@ -25,7 +25,7 @@ export const buildDescribeFilterDimensionsTool = (deps: {
   organization: Organization
 }): LlmStreamTool<typeof describeFilterDimensionsInputSchema> => ({
   description:
-    "List every contact-filter dimension supported by this organization's " +
+    'List every contact-filter dimension available to this organization: ' +
     'dimension keys, allowed values, how each dimension came to exist ' +
     '(provenance), and the activity channels with their per-channel ' +
     'outcome vocabularies. Takes no input. Call this before composing any ' +

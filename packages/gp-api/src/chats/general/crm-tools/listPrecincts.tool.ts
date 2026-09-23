@@ -75,10 +75,10 @@ export const buildListPrecinctsTool = (deps: {
     "List the precincts in this organization's district, each with the " +
     'number of people in it. Returns { precincts: [{ value, county, ' +
     'precinct, people }], truncated }. Precinct is a real filter ' +
-    'dimension but` is NOT in describe_filter_dimensions, because its ' +
-    'values differ per district and can only be read here - so call this ' +
-    'whenever a request that names a precinct, ward, or numbered sub-area of the ' +
-    'district. Pass the `value` string through UNCHANGED as an entry ' +
+    'dimension but is NOT in describe_filter_dimensions, because its ' +
+    'values differ per district and can only be read here — so call this ' +
+    'whenever a request names a precinct, ward, or numbered sub-area of ' +
+    'the district. Pass the `value` string through UNCHANGED as an entry ' +
     'in the `precincts` field of count_contacts or crud_saved_filters; it ' +
     'encodes the county the precinct belongs to, which a precinct number ' +
     'alone does not. An empty `precinct` is the real "no precinct on ' +

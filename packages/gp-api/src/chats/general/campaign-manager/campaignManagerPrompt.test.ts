@@ -160,7 +160,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
 
     expect(prompt).toContain('describe_filter_dimensions')
-    expect(prompt).toContain('locked vocabulary')
+    expect(prompt).toContain('none of it can be applied')
     expect(prompt).not.toContain('count_contacts')
     expect(prompt).not.toContain('list_precincts')
     expect(prompt).not.toContain("action='create'")

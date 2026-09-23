@@ -14,8 +14,9 @@
  * lists, is walked through every filter dimension as though it were
  * available, then asks for a count and learns from a tool's refusal that
  * filtering needs the Pro upgrade. The map now says whether the campaign has
- * Pro, and one generic rule says to make an unmet requirement clear instead
- * of presenting the locked part as available.
+ * Pro, one rule says to name that gate from the map instead of presenting
+ * the locked part as available, and the count and precinct tools are not
+ * registered for a campaign the row says lacks Pro.
  *
  * Built through the real handler over fake services, so the prompt and the
  * tool list come from the wiring production uses: the campaign row's flag
@@ -340,6 +341,9 @@ const CASES: ProGateEvalCase[] = [
     pro: false,
     userMessage: 'What can I filter voters by? Just curious.',
     mustContain: [MENTIONS_PRO],
+    // The catalog is the same for every campaign and none of it applies
+    // without Pro; a "free tier" of filters is an invention seen once.
+    mustNotContain: [/free tier|free account/i],
   },
   {
     name: 'no Pro: asks for a count after the gate was already named',

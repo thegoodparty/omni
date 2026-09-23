@@ -364,10 +364,19 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
 const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.crmToolsEnabled || !ctx.organization) return null
   if (ctx.isPro === false) {
+    // The count and precinct tools are not registered for this campaign, so
+    // the block must not mention them. The catalog stays because it is what
+    // Pro filtering uses, and the risk is the model reading it as a free tier.
     return (
-      'For non-Pro users, describe_filter_dimensions only highlights the ' +
-      'filtering options available if they upgrade to Pro.' +
-      'In these cases, expect count_contacts to return an error if the filter is Pro-gated.'
+      'This campaign does not have Pro, so the voter file cannot be ' +
+      'filtered or counted here. describe_filter_dimensions lists the ' +
+      'filter vocabulary Pro unlocks; it is the full set, not a preview, ' +
+      'and none of it can be applied for this campaign now. Do not offer ' +
+      'a count.' +
+      (ctx.savedFilterToolsEnabled
+        ? ' Saved voter lists can be listed with crud_saved_filters ' +
+          "(action='list'); the other actions need Pro."
+        : '')
     )
   }
   const readGuidance =
