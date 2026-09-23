@@ -1241,6 +1241,7 @@ export const SmsFlow = ({
           }}
         >
           <SmsReviewStep
+            isServe={surface.isServe}
             name={name}
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}

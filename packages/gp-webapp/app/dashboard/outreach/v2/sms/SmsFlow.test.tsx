@@ -6,6 +6,11 @@ import { api } from 'helpers/test-utils/api-mocking'
 import type { SmsDraftRequest } from '@goodparty_org/contracts'
 import { createOutreach } from 'helpers/createOutreach'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
+import {
+  SERVE_SMS_GREETING_PREVIEW,
+  SERVE_SMS_SAMPLE_FIRST_NAME,
+  SMS_GREETING,
+} from './smsCompose.util'
 import type { TcrCompliance } from 'helpers/types'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -311,6 +316,50 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
     expect(receiptCalls).toBe(0)
+  })
+
+  // Win's greeting is Peerly's single-brace merge token, and both the
+  // compose chip and the preview bubble stay exactly as they were when
+  // Serve started showing a stand-in name in place of its own token.
+  it('keeps the merge-token chip and the verbatim preview bubble', async () => {
+    mockDraft()
+    api.mock('GET /v1/outreach/:id/receipt', {
+      status: 404,
+      data: { message: 'No receipt' },
+    })
+    openFlow()
+
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+    await userEvent.click(await screen.findByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await userEvent.click(await screen.findByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText('Greeting First Name')).toBeInTheDocument()
+    expect(
+      screen.queryByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`),
+    ).toBeNull()
+    expect(screen.queryByText(SERVE_SMS_GREETING_PREVIEW.caption)).toBeNull()
+
+    await attachImage()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Preview message' }),
+    )
+    expect(
+      await screen.findByText(SMS_GREETING, { exact: false }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(SERVE_SMS_GREETING_PREVIEW.caption)).toBeNull()
   })
 
   it('identifies the campaign owner, not the composer, in the intro', async () => {

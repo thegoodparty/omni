@@ -33,7 +33,12 @@ import {
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { Intro } from '../social/Intro'
 import { ThinkingStream } from '../social/ThinkingStream'
-import { composeFooter, IMAGE_ACCEPT, IMAGE_MAX_BYTES } from './smsCompose.util'
+import {
+  composeFooter,
+  IMAGE_ACCEPT,
+  IMAGE_MAX_BYTES,
+  SERVE_SMS_GREETING_PREVIEW,
+} from './smsCompose.util'
 
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
@@ -284,11 +289,22 @@ export const SmsComposeStep = ({
                 {composedLength} chars · {segments} SMS
               </span>
             </div>
-            <p className="mb-2">
-              <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
-                Greeting First Name
-              </span>
-            </p>
+            {isServe ? (
+              <div className="mb-2">
+                <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
+                  {SERVE_SMS_GREETING_PREVIEW.greeting}
+                </span>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {SERVE_SMS_GREETING_PREVIEW.caption}
+                </p>
+              </div>
+            ) : (
+              <p className="mb-2">
+                <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
+                  Greeting First Name
+                </span>
+              </p>
+            )}
             <Textarea
               value={body}
               onChange={(e) => onBodyChange(e.target.value)}

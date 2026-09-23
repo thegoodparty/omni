@@ -46,9 +46,23 @@ export const SMS_GREETING = 'Hello {first_name},'
 // this wrong and the constituent is texted the token verbatim.
 //
 // Nothing authors this token on either surface — the greeting is a system
-// region and the compose step shows it as a "Greeting First Name" chip — so
-// there is no `[Name]` affordance to convert here, only an emitted token.
+// region shown above the message box — so there is no `[Name]` affordance to
+// convert here, only an emitted token.
 export const SERVE_SMS_GREETING = 'Hello {{first_name}},'
+
+// One stand-in first name, shared by the compose step's greeting chip and
+// the review step's preview bubble, so both read as the message a
+// constituent receives rather than as a merge token. Display only: the
+// script that goes to fulfilment always carries the literal token.
+export const SERVE_SMS_SAMPLE_FIRST_NAME = 'Sam'
+
+export const withSampleFirstName = (text: string): string =>
+  text.replace(/\{\{first_name\}\}/g, SERVE_SMS_SAMPLE_FIRST_NAME)
+
+export const SERVE_SMS_GREETING_PREVIEW = {
+  greeting: withSampleFirstName(SERVE_SMS_GREETING),
+  caption: 'Each person sees their own first name.',
+}
 
 // Compliance: every SMS opens with a candidate identification. Per the
 // design, it is the first sentence of the EDITABLE message: fresh AI drafts

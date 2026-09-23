@@ -10,6 +10,10 @@ import {
 import { createOutreach } from 'helpers/createOutreach'
 import type { TcrCompliance } from 'helpers/types'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
+import {
+  SERVE_SMS_GREETING_PREVIEW,
+  SERVE_SMS_SAMPLE_FIRST_NAME,
+} from './smsCompose.util'
 
 // The Serve send path: everything SmsFlow does BELOW compose when the
 // surface is Serve. The assertions that matter most here are the negative
@@ -310,6 +314,47 @@ describe('SmsFlow serve send path', () => {
     // create came back with.
     expect(await screen.findByText('1,180')).toBeInTheDocument()
     expect(await screen.findByText('15')).toBeInTheDocument()
+  })
+
+  // The one screen that promises a preview used to show the raw merge
+  // token. It now reads like the text a constituent receives — and the
+  // create payload still carries the token, which is what fulfilment
+  // merges against.
+  it('previews with a stand-in name while the sent script keeps the token', async () => {
+    const bodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          outreachId: 91,
+          recipientCount: 1180,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
+        },
+      }
+    })
+    openServeFlow()
+    await runServeToReview()
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]!.message).toContain('{{first_name}}')
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Preview message' }),
+    )
+    expect(
+      await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`, {
+        exact: false,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
+    expect(
+      screen.getByText(SERVE_SMS_GREETING_PREVIEW.caption),
+    ).toBeInTheDocument()
+
+    // Display-only: nothing re-sent, and the payload above is unchanged.
+    expect(bodies).toHaveLength(1)
   })
 
   it('checks out as SERVE_TEXT', async () => {

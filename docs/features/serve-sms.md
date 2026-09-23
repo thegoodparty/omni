@@ -779,6 +779,13 @@ expansion.** Every theme-shaped item below is a polls-layer question in slice
   `script.includes('{first_name}')`, which `{{first_name}}` satisfies as a
   substring, so the rule passes unchanged and `paid_for_by` is the only rule
   needing a Serve override.
+  **The token is never shown to the official.** The compose step's greeting
+  chip and the review step's preview bubble both render it with a stand-in
+  first name (`SERVE_SMS_SAMPLE_FIRST_NAME`, currently "Sam") and a one-line
+  caption saying the name is filled in per recipient, so the screen that
+  promises a preview shows the words a constituent reads. It is display only:
+  the script that reaches the Slack handoff always carries the literal
+  `{{first_name}}`.
 * *SMS, slice 0* — **minimum audience is 25 recipients**, enforced server-side
   on create and surfaced on the audience step, not only in the picker.
   Arithmetic floor is 15: `textPricing.util.ts` charges 35 tenth-cents each,
