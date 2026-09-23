@@ -1,0 +1,61 @@
+name: ClickUp dev-time backfill
+
+# Keeps the Technical Design Time / Total Dev Time / Estimated Dev Time columns
+# on the Problems Roadmap board current without anyone re-running anything.
+#
+# This has to be a cron rather than a ClickUp automation. The three columns are
+# differences between two points in time, and ClickUp cannot produce either
+# side on its own: formula fields have no access to status-transition
+# timestamps, and an automation cannot stamp "now" into a date field — its
+# today/tomorrow options resolve to a fixed date when the automation is saved,
+# so every task would get the same one. Deriving the values from
+# time_in_status outside ClickUp is the only shape that works.
+#
+# The script is idempotent: it recomputes all tasks each run, skips writes where
+# the value is unchanged, and clears fields that are no longer computable. A
+# missed run costs nothing beyond a day of staleness.
+
+on:
+  schedule:
+    - cron: '15 13 * * *' # daily, 09:15 EDT / 08:15 EST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print the table without writing to ClickUp'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clickup-dev-time
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: latest
+
+      - name: Install deps
+        working-directory: packages/runbooks/scripts/python
+        run: uv sync --frozen
+
+      - name: Backfill dev-cycle durations
+        working-directory: packages/runbooks/scripts/python
+        env:
+          CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLICKUP_API_TOKEN:-}" ]; then
+            echo "::error::CLICKUP_API_TOKEN unset — the columns would silently go stale. Failing loudly."
+            exit 1
+          fi
+          uv run clickup_dev_time_backfill.py \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
