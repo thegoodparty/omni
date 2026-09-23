@@ -160,11 +160,17 @@ export const SERVE_SOCIAL_SURFACE: SocialFlowSurface = {
   },
 }
 
+export interface SocialFlowPrefill {
+  draftText: string
+  purpose?: string | null
+}
+
 interface SocialFlowProps {
   open: boolean
   onClose: () => void
   onSaved: (detail: OutreachDetail) => void
   surface?: SocialFlowSurface
+  prefill?: SocialFlowPrefill
 }
 
 const SuccessScreen = ({
@@ -203,6 +209,7 @@ export const SocialFlow = ({
   onClose,
   onSaved,
   surface = WIN_SOCIAL_SURFACE,
+  prefill,
 }: SocialFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
@@ -273,6 +280,9 @@ export const SocialFlow = ({
 
   // Fresh flow every open — a cancelled-then-reopened flow must not resume a
   // half-built campaign (reset on open, CreateListWizard convention).
+  // When a prefill arrives (COS compose handoff), apply it after the reset:
+  // a valid purpose + draftText jumps straight to platforms; draftText alone
+  // (or an unrecognised purpose slug) lands on compose.
   useEffect(() => {
     if (!open) return
     draftRequestRef.current += 1
@@ -290,7 +300,28 @@ export const SocialFlow = ({
     resetDraftMutation()
     resetGenerate()
     resetSave()
-  }, [open, resetDraftMutation, resetGenerate, resetSave])
+    if (prefill?.draftText) {
+      const matchedPurpose = surface.purposes.find(
+        (p) => p.id === prefill.purpose,
+      )
+      if (matchedPurpose) {
+        setPurpose(prefill.purpose as SocialFlowPurpose)
+        setDraft(prefill.draftText)
+        setManuallyEdited(true)
+        const excluded = surface.excludedPlatforms(
+          prefill.purpose as SocialFlowPurpose,
+        )
+        setPlatforms(
+          ALL_SOCIAL_PLATFORM_IDS.filter((p) => !excluded.includes(p)),
+        )
+        setStepId('platforms')
+      } else {
+        setDraft(prefill.draftText)
+        setManuallyEdited(true)
+        setStepId('compose')
+      }
+    }
+  }, [open, resetDraftMutation, resetGenerate, resetSave, prefill, surface])
 
   // Entering the share step (including Back-and-return after edits, which
   // clear `assets`) kicks off the one generate call.
