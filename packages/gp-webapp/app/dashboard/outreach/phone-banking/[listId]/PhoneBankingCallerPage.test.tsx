@@ -342,6 +342,8 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.CallLogged,
       {
+        medium: 'phoneBanking',
+        fanout: 'one-to-one',
         listId: LIST_ID,
         contactId: 'house-a',
         listRank: 2,
@@ -539,6 +541,8 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.CallLogged,
       {
+        medium: 'phoneBanking',
+        fanout: 'one-to-one',
         listId: LIST_ID,
         contactId: 'solo-1',
         listRank: 1,

@@ -119,7 +119,13 @@ interface RobocallPayStepProps {
   // result instead of re-running create-draft + a fresh SetupIntent and
   // re-showing the Authorize form after the hold was already placed.
   outcome: RobocallAuthorizeResponse | null
-  onOutcome: (outcome: RobocallAuthorizeResponse | null) => void
+  // The draft's outreach id rides the settled outcome so the flow can put it
+  // on the completion event — the draft is created inside this step, so it is
+  // the only thing that knows the id.
+  onOutcome: (
+    outcome: RobocallAuthorizeResponse | null,
+    outreachId?: number,
+  ) => void
 }
 
 // A settled outcome is one that must not re-open the payment form on re-entry.
@@ -461,7 +467,7 @@ export const RobocallPayStep = ({
 interface RobocallPayFormProps {
   outreachId: number
   amountInCents: number
-  onOutcome: (outcome: RobocallAuthorizeResponse) => void
+  onOutcome: (outcome: RobocallAuthorizeResponse, outreachId?: number) => void
 }
 
 // The card-entry + authorize form, mounted inside <Elements> so it can confirm
@@ -493,7 +499,8 @@ const RobocallPayForm = ({
       )
       return data
     },
-    onSuccess: onOutcome,
+    onSuccess: (outcome: RobocallAuthorizeResponse) =>
+      onOutcome(outcome, outreachId),
     onError: (err) =>
       setSubmitError(
         messageForStatus(

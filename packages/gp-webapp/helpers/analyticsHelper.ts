@@ -270,8 +270,18 @@ export const EVENTS = {
         Exit: 'Dashboard - Path to Victory: Exit About Phases Modal',
       },
     },
+    // One event per outreach campaign carrying a `medium` (the tracker's
+    // TaskChannel vocabulary) and a `fanout`, NOT one event per channel — the
+    // per-channel `Outreach - <channel>: Complete` trio went dark one channel
+    // at a time when the v2 hub replaced their surfaces, and nothing noticed
+    // for a month. Full schema: `docs/features/voter-outreach-analytics.md`.
     VoterContact: {
       CampaignCompleted: 'Voter Outreach - Campaign Completed',
+      // The one-to-one channels only (door knocking, phone banking): the turf
+      // or call list exists, but nobody has been reached yet. The one-to-many
+      // channels have no such gap — creating the send IS completing it — so
+      // they never fire this.
+      CampaignCreated: 'Voter Outreach - Campaign Created',
       LogProgress: {
         Exit: 'Dashboard - Voter Contact - Log Progress: Exit Log Progress',
         ClickAdd:
@@ -621,14 +631,7 @@ export const EVENTS = {
     PaymentStarted: 'Voter Outreach - Payment Started',
     ViewAccessed: 'Outreach - View Accessed',
     ClickCreate: 'Outreach - Click Create',
-    SocialMedia: {
-      Complete: 'Outreach - Social Media: Complete',
-    },
-    DoorKnocking: {
-      Complete: 'Outreach - Door Knocking: Complete',
-    },
     PhoneBanking: {
-      Complete: 'Outreach - Phone Banking: Complete',
       // v2 create flow (phase 1 TDD): fires once the create call succeeds.
       ListCreated: 'Voter Outreach - Phone Banking Call List Created',
       // Fires from every entry point that links to the print/[listId]/pdf

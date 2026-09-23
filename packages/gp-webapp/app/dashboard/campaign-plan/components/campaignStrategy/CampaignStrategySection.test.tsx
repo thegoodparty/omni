@@ -3,6 +3,7 @@ import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import { EVENTS } from 'helpers/analyticsHelper'
 import type { TrackerTasksResult } from './useTrackerTasks'
 import CampaignStrategySection from './CampaignStrategySection'
 
@@ -107,6 +108,83 @@ describe('CampaignStrategySection — completing tasks', () => {
       type: 'events',
       quantity: 7,
     })
+  })
+
+  // Task completion is the primary activation metric and fired from nowhere
+  // between the legacy checklist's deletion and this change. `trackerTaskId`
+  // is what joins a completed task to the outreach it produced.
+  it('reports a completed task, and the outreach an outreach task logged', async () => {
+    mockTasks.mockReturnValue(
+      settled([
+        task({
+          id: 't1',
+          title: 'Knock doors',
+          flowType: 'doorKnocking',
+        }),
+      ]),
+    )
+    const user = userEvent.setup()
+    render(<CampaignStrategySection />)
+
+    await user.click(screen.getByRole('button', { name: 'Mark task complete' }))
+    // Still pending the count, so nothing is reported yet — the candidate can
+    // still cancel out of the modal.
+    expect(
+      mockTrackEvent.mock.calls.filter(
+        ([name]) => name === EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated,
+      ),
+    ).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'submit-count' }))
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated,
+      {
+        trackerTaskId: 't1',
+        completed: true,
+        medium: 'doorKnocking',
+        phase: 'launch',
+      },
+    )
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.VoterContact.CampaignCompleted,
+      expect.objectContaining({
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        recipientCount: 7,
+        trackerTaskId: 't1',
+        phase: 'launch',
+        method: 'manual',
+      }),
+    )
+    // Nothing here captures a cost, so no price is claimed.
+    const completed = mockTrackEvent.mock.calls.find(
+      ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted,
+    )
+    expect(completed?.[1]).not.toHaveProperty('price')
+  })
+
+  it('reports an uncompleted task without asking for a count', async () => {
+    mockTasks.mockReturnValue(
+      settled([
+        task({
+          id: 't3',
+          title: 'Knock doors',
+          flowType: 'doorKnocking',
+          completed: true,
+        }),
+      ]),
+    )
+    const user = userEvent.setup()
+    render(<CampaignStrategySection />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Mark task incomplete' }),
+    )
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated,
+      expect.objectContaining({ trackerTaskId: 't3', completed: false }),
+    )
+    expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
   })
 
   it('completes a non-outreach task directly, without a count', async () => {

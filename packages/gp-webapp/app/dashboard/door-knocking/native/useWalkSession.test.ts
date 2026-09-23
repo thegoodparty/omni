@@ -58,15 +58,13 @@ describe('useWalkSession', () => {
       EVENTS.DoorKnocking.SessionCompleted,
       { turfId: 12, doorsLogged: 2, durationSeconds: 90, stopCount: 40 },
     )
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Dashboard.VoterContact.CampaignCompleted,
-      {
-        medium: 'doorKnocking',
-        method: 'native',
-        recipientCount: 2,
-        price: 0,
-      },
-    )
+    // The session does NOT complete the campaign any more: a canvasser
+    // stopping for the evening has not finished the list. That event now hangs
+    // off the turf being completed (`turfLifecycle.ts`), which is what
+    // `walkCompletion.ts` stamps on a walk that ran out of doors.
+    expect(
+      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted),
+    ).toHaveLength(0)
     expect(eventCalls(EVENTS.DoorKnocking.SessionAbandoned)).toHaveLength(0)
   })
 

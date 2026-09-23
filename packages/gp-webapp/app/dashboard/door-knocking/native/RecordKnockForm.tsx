@@ -13,6 +13,7 @@ import {
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
@@ -53,6 +54,9 @@ const QUESTION_LABEL_CLASSNAME =
 
 interface RecordKnockFormProps {
   target: RoutePayloadTarget
+  // The turf this door belongs to — the parent list every logged door rolls
+  // up to on the outreach side. See docs/features/voter-outreach-analytics.md.
+  turfId: number
   // Owned by WalkView so close→reopen of the form replays the SAME key:
   // dead-zone retries upsert server-side instead of duplicating the knock.
   clientKey: string
@@ -99,6 +103,7 @@ const ChoiceRow = <T extends string>({
 
 export default function RecordKnockForm({
   target,
+  turfId,
   clientKey,
   onRecorded,
 }: RecordKnockFormProps) {
@@ -154,6 +159,9 @@ export default function RecordKnockForm({
       }).then((res) => res.data),
     onSuccess: (data, input) => {
       trackEvent(EVENTS.DoorKnocking.DoorLogged, {
+        // The channel/fanout pair every outreach event carries, so one door
+        // rolls into "voters reached" without a chart naming door knocking.
+        ...outreachEventProps({ channel: 'doorKnocking', listId: turfId }),
         outcome: input.outcome,
         knockStatus: data.knockStatus,
         // Whether a note was written, never what it said — notes are about

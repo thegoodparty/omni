@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 import { turfStage } from './turfLifecycle'
 
@@ -61,7 +63,36 @@ export const useCampaignLifecycle = (anchorOutreachId: number) => {
       )
       return data
     },
-    onSuccess: async (_data, action) => {
+    onSuccess: async (turfs, action) => {
+      // One completion event per turf this press actually finished. A
+      // door-knocking campaign is many turfs under one anchor, and the TURF is
+      // the list a candidate walks — the same unit phone banking's call list
+      // is — so the analytics unit is the turf, not the anchor. Siblings that
+      // were already done are excluded by the `active` snapshot below, which
+      // is why this reads the pre-press cache rather than the response.
+      if (action === 'complete') {
+        const wasActive = new Set(
+          unfinishedTurfs(
+            queryClient.getQueryData<DoorKnockingTurf[]>([
+              ...CAMPAIGN_TURFS_QUERY_KEY,
+              anchorOutreachId,
+            ]) ?? [],
+          ).map((turf) => turf.id),
+        )
+        for (const turf of turfs) {
+          if (!wasActive.has(turf.id)) continue
+          trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+            ...outreachEventProps({
+              channel: 'doorKnocking',
+              recipientCount: turf.loggedCount,
+              sendDate: new Date(),
+              outreachCampaignId: anchorOutreachId,
+              listId: turf.id,
+            }),
+            method: 'campaign',
+          })
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })
       await queryClient.invalidateQueries({
         queryKey: CAMPAIGN_TURFS_QUERY_KEY,

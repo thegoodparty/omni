@@ -8,6 +8,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { useTeamOptions } from '../useTeamOptions'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
@@ -1322,6 +1323,21 @@ export default function CreateListFlow({
           // means it was deliberately overruled, null means there was
           // nothing to suggest from.
           suggestedMode,
+        })
+        // The cross-channel sibling of the event above, fired per turf for
+        // the same reason. Door knocking is one-to-one, so a created list has
+        // reached nobody yet — completion is the turf being finished
+        // (`turfLifecycle.ts`). `ListCreated` carries route geometry that no
+        // other channel has; this one carries only what every channel does,
+        // which is what makes a created → contacted → completed funnel
+        // countable across all of them.
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
+          ...outreachEventProps({
+            channel: 'doorKnocking',
+            recipientCount: stats?.people ?? 0,
+            outreachCampaignId: row.turf.outreachId ?? undefined,
+            listId: row.turf.id,
+          }),
         })
       }
       // A turf that did not build, reported the same way a whole failed

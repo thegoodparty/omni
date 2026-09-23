@@ -21,6 +21,11 @@ import {
 import { Button, Card } from '@styleguide'
 import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -243,6 +248,10 @@ interface SmsFlowProps {
   // A tracker task's due date, persisted on the outreach row and forwarded
   // into the CAS Slack notification — the flow never derives it.
   campaignPlanDueDate?: string
+  // The tracker task this flow was launched from (the hub's `?compose=` deep
+  // link), carried onto the completion event so a completed task and the
+  // outreach it produced are one funnel.
+  tracker?: OutreachTrackerOrigin
   // A message the candidate is meant to send as written (Know Your
   // Opponent). It opens the flow on `custom`, the one purpose that never
   // AI-drafts, so the seeded words are what they edit rather than something
@@ -394,6 +403,7 @@ export const SmsFlow = ({
   tcrCompliance,
   surface = WIN_SMS_SURFACE,
   campaignPlanDueDate,
+  tracker,
   initialScript,
   preselectedListId,
   preselectedRecommendedVariant,
@@ -922,6 +932,35 @@ export const SmsFlow = ({
   const handleScheduled = async (paid: boolean) => {
     setPaidSend(paid)
     setScheduled(true)
+    // A text campaign completes when it is bought and scheduled, not when
+    // Peerly sends it — the send is hours or days later and nothing on the
+    // client is alive to see it. `sendDate` carries that gap: it is the
+    // scheduled day, never the event's own timestamp.
+    const discount = campaign?.hasFreeTextsOffer
+      ? Math.min(phoneList?.leadsLoaded ?? 0, FREE_TEXTS_OFFER.COUNT)
+      : 0
+    const billable = Math.max((phoneList?.leadsLoaded ?? 0) - discount, 0)
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+      ...outreachEventProps({
+        channel: 'text',
+        recipientCount: phoneList?.leadsLoaded ?? 0,
+        sendDate: scheduledAt,
+        // Always present on a paid channel, 0 included: a send fully covered
+        // by the free-texts offer is a zero-cost text campaign, not a channel
+        // without a price.
+        price: paid ? billable * PRICE_PER_MESSAGE : 0,
+        ...(draftOutreachId !== null
+          ? { outreachCampaignId: draftOutreachId }
+          : {}),
+        ...(audience.selectedListId !== null
+          ? { listId: audience.selectedListId }
+          : {}),
+        audienceSource: audience.selectedRecommendation
+          ? 'recommended'
+          : 'savedList',
+        ...(tracker ? { tracker } : {}),
+      }),
+    })
     await onScheduled()
   }
 

@@ -17,6 +17,12 @@ import {
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 import CountModal from '../../../components/tasks/CountModal'
 import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
+import {
+  outreachChannel,
+  outreachEventProps,
+  type OutreachTrackerOrigin,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
+import { CampaignStrategyPhaseKeySchema } from '@goodparty_org/contracts'
 
 // The "Campaign Tracker" section on the campaign plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
@@ -24,6 +30,19 @@ import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreach
 // has gone through campaign story, so this section is rendered only for the
 // story cohort (see CampaignPlanView) — there is no client-catalog fallback.
 // While the tracker is bootstrapping (no rows yet) it shows a setup state.
+// Both halves or neither — a phase with no task id names nothing joinable.
+// `phase` is a free `String?` on the row, so it is parsed against the contract
+// rather than trusted.
+const trackerOrigin = (
+  taskId: string,
+  phase: string | null | undefined,
+): OutreachTrackerOrigin | undefined => {
+  const parsed = CampaignStrategyPhaseKeySchema.safeParse(phase)
+  return parsed.success
+    ? { trackerTaskId: taskId, phase: parsed.data }
+    : undefined
+}
+
 const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
@@ -34,10 +53,18 @@ const CampaignStrategySection = (): React.JSX.Element => {
   // hub owns the one mount of each channel flow and the gate in front of it,
   // and it carries the task's due date onto the outreach record.
   const openOutreachFlow = useCallback(
-    (channel: 'text' | 'robocall', date: string | null) => {
-      router.push(composeOutreachHref(channel, 'campaign_tracker', date))
+    (channel: 'text' | 'robocall', date: string | null, taskId: string) => {
+      const task = tasks.find((row) => row.id === taskId)
+      router.push(
+        composeOutreachHref(
+          channel,
+          'campaign_tracker',
+          date,
+          trackerOrigin(taskId, task?.phase),
+        ),
+      )
     },
-    [router],
+    [router, tasks],
   )
   // An outreach task pending its voter-contact count in the modal.
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
@@ -45,19 +72,51 @@ const CampaignStrategySection = (): React.JSX.Element => {
   // Completing an outreach/community-event task first asks how many voters were
   // reached (legacy behavior); the count is recorded with the completion.
   // Uncompleting, and completing anything else, goes straight through.
+  // Task completion is the primary activation metric and fired from nowhere
+  // between the legacy dashboard checklist's deletion and this: the tracker
+  // shipped with a completion toggle and no event at all. `trackerTaskId` is
+  // what joins a completed task to the outreach it produced — see
+  // docs/features/voter-outreach-analytics.md.
+  const trackTaskStatus = (task: CampaignTrackerTask, completed: boolean) => {
+    trackEvent(EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated, {
+      trackerTaskId: task.id,
+      completed,
+      medium: outreachChannel(task.flowType ?? ''),
+      ...(task.phase ? { phase: task.phase } : {}),
+    })
+  }
+
   const onToggleComplete = (id: string, completed: boolean) => {
-    if (completed) {
-      const task = tasks.find((t) => t.id === id)
-      if (task && isVoterContactFlowType(task.flowType)) {
-        setCountTask(task)
-        return
-      }
+    const task = tasks.find((t) => t.id === id)
+    if (completed && task && isVoterContactFlowType(task.flowType)) {
+      // The count modal is the rest of this completion, so the status event
+      // rides `onCountSubmit` instead — firing here too would count the task
+      // twice and once before the candidate can still cancel.
+      setCountTask(task)
+      return
     }
+    if (task) trackTaskStatus(task, completed)
     toggleComplete.mutate({ id, completed })
   }
 
   const onCountSubmit = (count: number) => {
     if (!countTask?.flowType) return
+    trackTaskStatus(countTask, true)
+    // The count modal is a manual outreach log: the candidate is reporting
+    // voters they reached offline on this task's channel. Same event the
+    // campaign-manager modal fires, so both manual paths land in one series.
+    // No `price` — nothing here captures a cost.
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+      ...outreachEventProps({
+        channel: outreachChannel(countTask.flowType),
+        recipientCount: count,
+        sendDate: new Date(),
+        ...(trackerOrigin(countTask.id, countTask.phase)
+          ? { tracker: trackerOrigin(countTask.id, countTask.phase) }
+          : {}),
+      }),
+      method: 'manual',
+    })
     toggleComplete.mutate({
       id: countTask.id,
       completed: true,

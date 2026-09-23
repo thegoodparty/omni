@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 
 // The three states a saved list can be in, as one value rather than two
@@ -134,6 +136,24 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
       return setArchived(true)
     },
     onSuccess: async (_data, action) => {
+      // A finished turf IS a finished outreach campaign on this channel. Door
+      // knocking is one-to-one, so the list the candidate walked is the unit —
+      // the same unit a phone-banking call list is — and every path that
+      // finishes one comes through here: the walk's own auto-complete
+      // (`walkCompletion.ts`), the walk footer's Mark done, and the drawer's
+      // per-row Mark done. Fired here rather than on the walk SESSION, which
+      // ends every time a canvasser stops for the evening.
+      if (action === 'complete' || action === 'completeAndArchive') {
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+          ...outreachEventProps({
+            channel: 'doorKnocking',
+            recipientCount: turf.loggedCount,
+            sendDate: new Date(),
+            listId: turf.id,
+          }),
+          method: 'turf',
+        })
+      }
       await queryClient.invalidateQueries({
         queryKey: TURFS_QUERY_KEY,
       })

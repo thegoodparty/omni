@@ -31,12 +31,38 @@ export const TaskChannelSchema = z.enum([
   'robocall',
   'doorKnocking',
   'phoneBanking',
+  'socialMedia',
   'directMail',
   'event',
   'awareness',
   'general',
 ])
 export type TaskChannel = z.infer<typeof TaskChannelSchema>
+
+export const TaskChannelFanoutSchema = z.enum(['one-to-many', 'one-to-one'])
+export type TaskChannelFanout = z.infer<typeof TaskChannelFanoutSchema>
+
+/**
+ * Whether one action on a channel reaches many voters or exactly one.
+ *
+ * Door knocking and phone banking are the two one-to-one channels: the
+ * individual door or call IS the unit of completion, which is why their
+ * outreach analytics roll up from per-contact events instead of from one send.
+ * Carried on the analytics payload as `fanout` so a chart can aggregate across
+ * channels without embedding a channel list — see
+ * `docs/features/voter-outreach-analytics.md`.
+ */
+export const CHANNEL_FANOUT: Record<TaskChannel, TaskChannelFanout> = {
+  text: 'one-to-many',
+  robocall: 'one-to-many',
+  socialMedia: 'one-to-many',
+  directMail: 'one-to-many',
+  event: 'one-to-many',
+  awareness: 'one-to-many',
+  general: 'one-to-many',
+  doorKnocking: 'one-to-one',
+  phoneBanking: 'one-to-one',
+}
 
 export const DayOfWeekSchema = z.enum([
   'monday',
@@ -117,4 +143,6 @@ export const CampaignTaskDefinitionSchema = z.object({
   unlocksAfter: z.string().optional(),
   generatorSource: GeneratorSourceSchema.optional(),
 })
-export type CampaignTaskDefinition = z.infer<typeof CampaignTaskDefinitionSchema>
+export type CampaignTaskDefinition = z.infer<
+  typeof CampaignTaskDefinitionSchema
+>

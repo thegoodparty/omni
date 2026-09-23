@@ -63,17 +63,12 @@ export const useWalkSession = (): WalkSession => {
     }
 
     trackEvent(EVENTS.DoorKnocking.SessionCompleted, properties)
-    // Door-knocking activation is counted off this canonical outreach event,
-    // so a native walk that doesn't fire it may as well not have happened as
-    // far as the metric goes. `method` separates walks logged here from the
-    // totals candidates type into the manual "log progress" modal, which
-    // fires the same event for the same medium.
-    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-      medium: 'doorKnocking',
-      method: 'native',
-      recipientCount: session.doorsLogged,
-      price: 0,
-    })
+    // `Voter Outreach - Campaign Completed` is deliberately NOT fired here.
+    // A session ends whenever a canvasser stops for the evening, so firing it
+    // counted one campaign per sitting and a fifty-door list walked over three
+    // evenings as three. The completion event now hangs off the TURF being
+    // finished (`turfLifecycle.ts`), which is what `walkCompletion.ts` already
+    // stamps on a walk that genuinely ran out of doors.
     return session.doorsLogged
   }
 

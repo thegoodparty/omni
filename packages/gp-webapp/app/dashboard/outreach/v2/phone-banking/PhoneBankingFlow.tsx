@@ -19,6 +19,10 @@ import {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import {
   OUTREACH_OPTIONS,
@@ -232,6 +236,9 @@ interface PhoneBankingFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the who step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // The tracker task this flow was launched from, carried onto the created
+  // list so every call logged against it joins back to the task.
+  tracker?: OutreachTrackerOrigin
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -245,6 +252,7 @@ export const PhoneBankingFlow = ({
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
   preselectedRecommendedVariant,
+  tracker,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
@@ -331,6 +339,25 @@ export const PhoneBankingFlow = ({
         // (ENG-10960) persists as one. Kept for analytics-schema continuity.
         filtersApplied: true,
         listSize: response.personCount,
+      })
+      // The cross-channel sibling of the event above. Phone banking is
+      // one-to-one, so creating the list is NOT reaching anyone — completion
+      // is every entry being called. This event is what a created →
+      // contacted → completed funnel counts, and it is uniform across
+      // channels where `ListCreated`'s batch-sizing fields are not.
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
+        ...outreachEventProps({
+          channel: 'phoneBanking',
+          recipientCount: response.personCount,
+          ...(response.outreachId != null
+            ? { outreachCampaignId: response.outreachId }
+            : {}),
+          listId: response.id,
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
       })
       if (response.outreachId != null) {
         onSaved?.(response.outreachId, response.name)

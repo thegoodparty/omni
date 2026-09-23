@@ -20,6 +20,11 @@ import { excludedSocialPlatformsForPurpose } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { ChannelBadge } from '../channelMeta'
 import { OUTREACH_TYPES } from '../../constants'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
@@ -171,6 +176,9 @@ interface SocialFlowProps {
   onSaved: (detail: OutreachDetail) => void
   surface?: SocialFlowSurface
   prefill?: SocialFlowPrefill
+  // The tracker task this flow was launched from, carried onto the completion
+  // event so a completed task and the post it produced are one funnel.
+  tracker?: OutreachTrackerOrigin
 }
 
 const SuccessScreen = ({
@@ -210,6 +218,7 @@ export const SocialFlow = ({
   onSaved,
   surface = WIN_SOCIAL_SURFACE,
   prefill,
+  tracker,
 }: SocialFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
@@ -270,6 +279,19 @@ export const SocialFlow = ({
       }),
     onSuccess: (detail) => {
       setSaved(true)
+      // Save is social's completion: the assets exist and the candidate has
+      // them. There is no send step to wait on, and no recipient count to
+      // report — a post reaches whoever it reaches, so `recipientCount` is
+      // omitted rather than sent as 0.
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+        ...outreachEventProps({
+          channel: 'socialMedia',
+          sendDate: new Date(),
+          outreachCampaignId: detail.id,
+          ...(tracker ? { tracker } : {}),
+        }),
+        platformCount: assets?.length ?? 0,
+      })
       onSaved(detail)
     },
   })

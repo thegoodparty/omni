@@ -11,6 +11,11 @@ import {
   type SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
@@ -104,6 +109,9 @@ interface RobocallFlowProps {
   // tracker / manager task CTAs). The due date is persisted on the draft the
   // pay step creates, matching what the p2p create has always done.
   campaignPlanDueDate?: string
+  // The tracker task this flow was launched from, carried onto the completion
+  // event so a completed task and the robocall it produced are one funnel.
+  tracker?: OutreachTrackerOrigin
   preselectedListId?: number
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
@@ -117,6 +125,7 @@ export const RobocallFlow = ({
   onClose,
   onScheduled,
   campaignPlanDueDate,
+  tracker,
   preselectedListId,
   preselectedRecommendedVariant,
 }: RobocallFlowProps) => {
@@ -222,9 +231,35 @@ export const RobocallFlow = ({
   // Wrap setPayOutcome so a settled outcome (authorized/deferred/noop, never
   // hold_failed) also refreshes the hub's history list — the draft row now
   // exists and its spine is visible, so it should appear without a reload.
-  const handlePayOutcome = (outcome: RobocallAuthorizeResponse | null) => {
+  const handlePayOutcome = (
+    outcome: RobocallAuthorizeResponse | null,
+    outreachId?: number,
+  ) => {
     setPayOutcome(outcome)
     if (outcome && outcome.status !== 'hold_failed') {
+      // A robocall completes when the hold settles and the send is booked —
+      // the calls themselves are placed by CallHub days later, with nothing on
+      // the client alive to see it. `price` is the authorized estimate in
+      // dollars, the only cost figure that exists at this point; the final
+      // capture can be lower and is reported by the backend's receipt event.
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+        ...outreachEventProps({
+          channel: 'robocall',
+          recipientCount: audience.reachableCount ?? 0,
+          sendDate: scheduledAt,
+          price: (outcome.authorizedAmountInCents ?? 0) / 100,
+          ...(outreachId !== undefined
+            ? { outreachCampaignId: outreachId }
+            : {}),
+          ...(audience.selectedListId !== null
+            ? { listId: audience.selectedListId }
+            : {}),
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
+      })
       onScheduled?.()
     }
   }

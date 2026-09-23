@@ -186,6 +186,7 @@ const OutreachHubContent = ({
           setComposeSeeds(null)
         }}
         onSaved={handleSocialSaved}
+        tracker={composeSeeds?.tracker}
       />
       <RobocallFlow
         open={robocallFlowOpen}
@@ -196,6 +197,7 @@ const OutreachHubContent = ({
         }}
         onScheduled={refetchOutreaches}
         campaignPlanDueDate={composeSeeds?.due}
+        tracker={composeSeeds?.tracker}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
         preselectedRecommendedVariant={
           composeSeeds?.recommendedVariant ?? tilePreselect?.recommendedVariant
@@ -209,6 +211,7 @@ const OutreachHubContent = ({
           setTilePreselect(null)
         }}
         onSaved={handlePhoneBankingSaved}
+        tracker={composeSeeds?.tracker}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
         preselectedRecommendedVariant={
           composeSeeds?.recommendedVariant ?? tilePreselect?.recommendedVariant
@@ -224,6 +227,7 @@ const OutreachHubContent = ({
         onScheduled={refetchOutreaches}
         tcrCompliance={tcrCompliance}
         campaignPlanDueDate={composeSeeds?.due}
+        tracker={composeSeeds?.tracker}
         initialScript={composeSeeds?.script}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
         preselectedRecommendedVariant={

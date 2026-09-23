@@ -1,0 +1,211 @@
+# Voter outreach analytics
+
+One event per outreach campaign, with a channel property — not one event per
+channel. This file is the contract for the four events that answer "did this
+candidate do outreach, through what, and to how many people."
+
+## Why
+
+Three per-channel completion events (`Outreach - Door Knocking: Complete`,
+`Outreach - Phone Banking: Complete`, `Outreach - Social Media: Complete`) went
+dark in late August when the v2 outreach hub replaced the surfaces that fired
+them, and `ce:Voter Outreach - All` still unions them. It was worse than that:
+when the legacy `TaskFlow` tree was deleted, `Voter Outreach - Campaign
+Completed` was left firing from exactly two places — a native door-knocking
+walk session and the campaign-manager log-progress modal. **Text, robocall,
+social and phone banking recorded no completion at all.** Any outreach figure
+spanning September undercounts; an onboarding→outreach funnel reads 1.38% over
+the last 50 days against 2.55% over a clean pre-break window.
+
+Adding a fourth per-channel event would repeat the failure. One event with a
+channel property cannot go dark one channel at a time without the channel
+breakdown showing it.
+
+## The fan-out distinction
+
+Most channels are **one-to-many**: one send reaches N voters, and the send is
+the unit of completion. Two are **one-to-one**: door knocking and phone banking
+reach one voter per action, and the individual door or call is the unit.
+
+That difference rides on the event as `fanout`, so a chart can aggregate
+correctly without embedding a channel list:
+
+- **"did outreach"** = `Voter Outreach - Campaign Completed` where
+  `fanout = one-to-many`, OR a `Door Knocking - Door Logged` /
+  `Outreach - Phone Banking: Call Logged`.
+- **"voters reached"** = SUM(`recipientCount`) where `fanout = one-to-many`,
+  plus COUNT of the two contact events.
+
+The `fanout = one-to-many` filter is what stops the two one-to-one channels
+being counted twice — once per finished list and again per contact.
+
+## Channels
+
+The channel property is **`medium`**, the property the event already had. There
+is no new `channel` property: `medium` is what every existing chart filters on,
+and forking it would have left two properties meaning one thing.
+
+Its values are the canonical `TaskChannelSchema`
+(`packages/contracts/src/campaigns/CampaignTaskCatalog.schema.ts`), so an
+outreach event and a campaign-tracker task join on one value.
+`outreachChannel()` in `app/dashboard/outreach/util/outreachAnalytics.ts` is the
+whole cross-walk from `OutreachType`, and it exists because the two vocabularies
+disagree in four places: `p2p` → `text`, `nativeDoorKnocking` → `doorKnocking`,
+`nativePhoneBanking` → `phoneBanking`, `events` → `event`.
+
+| `medium`       | Fanout      | Completion fires when                           | `recipientCount` | `price`  |
+| -------------- | ----------- | ----------------------------------------------- | ---------------- | -------- |
+| `text`         | one-to-many | payment settles (`SmsFlow`)                     | required         | required |
+| `robocall`     | one-to-many | the authorization hold settles (`RobocallFlow`) | required         | required |
+| `socialMedia`  | one-to-many | Save on the share step (`SocialFlow`)           | **omitted**      | omitted  |
+| `doorKnocking` | one-to-one  | a turf is completed (`turfLifecycle.ts`)        | required†        | omitted  |
+| `phoneBanking` | one-to-one  | the last entry in a call list is called         | required†        | omitted  |
+| `directMail`   | one-to-many | the manual log modal submits                    | required         | omitted  |
+| `event`        | one-to-many | the manual log modal submits                    | required         | omitted  |
+| `awareness`    | —           | no outreach surface; tracker-only               | n/a              | n/a      |
+| `general`      | —           | no outreach surface; tracker-only               | n/a              | n/a      |
+
+† On a one-to-one channel it is the people actually contacted when the list
+finished, not the list size.
+
+**`socialMedia` is a new value on `TaskChannelSchema`.** The enum had no social
+value: the three social tracker tasks (`schedule-social-posts`,
+`social-media-update`, `gotv-social-post`) all carried `channel: 'general'`, and
+`awareness` is a grab-bag of ballot-access and voting-milestone dates. Prisma's
+`CampaignTaskType` already had `socialMedia` and `buildTrackerStrategy.ts`'s
+`FLOW_TYPE_TO_CHANNEL` was missing the entry, so a socialMedia task rendered
+with the wrong (clipboard) icon. Adding it fixes that and gives analytics an
+honest value in one change.
+
+## Events
+
+### `Voter Outreach - Campaign Completed` (live; extended)
+
+The campaign reached voters. One event, every channel.
+
+| Property             | Type                                    | Required                                                                            |
+| -------------------- | --------------------------------------- | ----------------------------------------------------------------------------------- |
+| `medium`             | `TaskChannel`                           | always                                                                              |
+| `fanout`             | `'one-to-many' \| 'one-to-one'`         | always                                                                              |
+| `recipientCount`     | number                                  | always **except** `socialMedia`, where it is omitted entirely (never 0, never null) |
+| `sendDate`           | ISO date `YYYY-MM-DD`                   | always                                                                              |
+| `price`              | number (dollars actually paid)          | paid channels only; **omitted** on social, phone banking and door knocking          |
+| `outreachCampaignId` | number                                  | when the client holds the envelope id                                               |
+| `listId`             | number                                  | the parent list — the turf, the call list, or the audience list                     |
+| `trackerTaskId`      | string (cuid)                           | when launched from a tracker task                                                   |
+| `phase`              | `preLaunch \| launch \| active \| gotv` | with `trackerTaskId`, never alone                                                   |
+| `audienceSource`     | `'recommended' \| 'savedList'`          | when the audience step ran                                                          |
+| `method`             | `'manual' \| 'turf' \| 'campaign'`      | on the paths that need disambiguating                                               |
+
+`sendDate` is the scheduled or actual send date, **not** the event timestamp —
+paid sends are scheduled days ahead.
+
+`price` is the amount actually paid, in dollars: 0 is a real value on a paid
+channel (a send fully covered by the free-texts offer is a zero-cost text
+campaign), and the property is **absent** on a channel with no cost at all.
+
+### `Voter Outreach - Campaign Created` (new)
+
+The one-to-one work unit exists: a door-knocking turf with a built route, or a
+phone-banking call list. Fires for `doorKnocking` and `phoneBanking` only —
+the one-to-many channels have no such gap, since creating the send is
+completing it.
+
+Same properties as above minus `sendDate` and `price`; `recipientCount` is the
+list's people count.
+
+`Door Knocking - List Created` and `Voter Outreach - Phone Banking Call List
+Created` keep firing alongside and are **not** superseded. They are channel
+diagnostics: the door-knocking one carries route geometry (`stops`, `loop`,
+`mode`, `suggestedMode`), the phone-banking one carries batch sizing
+(`listSize`, `filtersApplied`). Neither is comparable across channels; this one
+is, which is what makes a created → contacted → completed funnel countable.
+
+### `Door Knocking - Door Logged` / `Outreach - Phone Banking: Call Logged`
+
+One door, one call. Both keep every property they had and gain `medium`,
+`fanout` and the parent `listId`. On a one-to-one channel these are the
+per-voter completion signal; the campaign event fires once for the whole list.
+
+### `Dashboard - Campaign Task Status Updated` (revived)
+
+Dark from 2026-09-01 to this change: the legacy dashboard checklist that fired
+it was deleted and the campaign tracker that replaced it shipped with no
+completion event at all, while task completion was becoming the primary
+activation metric. Now fires from the tracker's own toggle with
+`trackerTaskId`, `completed`, `medium` and `phase`.
+
+For an outreach task it fires on the count modal's **submit**, not on the first
+press — a completion the candidate cancels out of reports nothing — and that
+same submit fires `Voter Outreach - Campaign Completed` with `method: 'manual'`,
+since the count is a manual outreach log.
+
+## Retirements
+
+| Event                                | Disposition                                      |
+| ------------------------------------ | ------------------------------------------------ |
+| `Outreach - Door Knocking: Complete` | retired — surface deleted, last fired 2026-08-26 |
+| `Outreach - Phone Banking: Complete` | retired — surface deleted, last fired 2026-08-28 |
+| `Outreach - Social Media: Complete`  | retired — surface deleted, last fired 2026-08-23 |
+
+All three were dead `EVENTS` constants with no call site; the constants are
+gone and the Amplitude events carry `not in use` with their supersession.
+
+`ce:Voter Outreach - All` (492285, 5.3k query volume) is **deliberately not yet
+redefined** — the definition it becomes depends on `fanout`, which no row
+carries until this ships. Its description records the target definition:
+
+1. `Voter Outreach - Campaign Completed` WHERE `fanout = one-to-many`
+2. `Door Knocking - Door Logged`
+3. `Outreach - Phone Banking: Call Logged`
+
+## Migration
+
+`Voter Outreach - Campaign Completed` is live with 9,061 query volume. Two
+things are true across the cutover and both are deliberate:
+
+1. **`medium` keeps its name**, so no chart filtering on it breaks.
+2. **Its values normalize and history is not backfilled.** Rows before the
+   cutover carry the `OutreachType` spellings (`p2p`, `nativeDoorKnocking`,
+   `events`) and no `fanout`; rows after carry the `TaskChannel` spellings. A
+   chart spanning the cutover has to accept both, or start after it.
+
+`voterContacts`, `campaignName` and the old `method: 'native'` are dropped —
+superseded by `recipientCount` and the fanout/channel pair, and none had query
+volume.
+
+**Cutover date: TBD — stamp it here and on the event's `gp-meta` block when
+this reaches prod.** Prod is reached only by the release train, so the date is
+not knowable at merge.
+
+## Monitoring
+
+Not yet built — the new events have no data to alert on until this ships. What
+to create at cutover:
+
+- A volume anomaly monitor on `Voter Outreach - Campaign Completed` **grouped
+  by `medium`**, so one channel dropping to zero alerts instead of hiding
+  inside a flat total. This is the check that would have caught the August
+  break in a day rather than a month.
+- Volume monitors on `Door Knocking - Door Logged` and
+  `Outreach - Phone Banking: Call Logged`.
+- A CI check that fails a PR removing an event literal a live Amplitude custom
+  event, cohort or saved chart depends on.
+
+## Still open
+
+- **`Campaign Plan - Weekly Tasks Digest`** lost roughly two thirds of its
+  weekly audience after 2026-08-31. No change to
+  `packages/gp-api/src/campaigns/tasks/` explains it in that window — the only
+  commits are a legacy-backend teardown (ENG-11015) and a test-fixtures API —
+  so the likely cause is an audience change upstream (the digest mirrors the
+  tracker's active-week set, which only exists for the `campaign-story`
+  cohort). Needs its own look.
+
+## Related
+
+- `packages/gp-webapp/app/dashboard/outreach/util/outreachAnalytics.ts` — the
+  one place the payload is shaped, and where the omission rules live.
+- `packages/gp-webapp/helpers/analyticsHelper.ts` — the `EVENTS` map.
+- `.claude/skills/event-metadata/SKILL.md` — the `gp-meta` governance block.
+- `docs/features/campaign-tracker-v3.md` — the tracker whose tasks this joins to.
