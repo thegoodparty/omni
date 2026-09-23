@@ -749,6 +749,11 @@ export {
 } from './chats/ChiefOfStaffWidgets.schema'
 
 export {
+  ComposeHandoffPayloadSchema,
+  type ComposeHandoffPayload,
+} from './chats/ComposeHandoff.schema'
+
+export {
   CHAT_ATTACHMENT_MAX_BYTES,
   CHAT_ATTACHMENT_MAX_PAGES,
   CHAT_ATTACHMENTS_PER_CONVERSATION,
