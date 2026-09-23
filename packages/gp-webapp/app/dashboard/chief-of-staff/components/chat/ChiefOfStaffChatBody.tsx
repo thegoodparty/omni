@@ -733,19 +733,12 @@ export default function ChiefOfStaffChatBody({
     [conversationId],
   )
 
-  // Navigate to the social compose route with the payload written to
-  // sessionStorage under a nonce. The App Router's router.push has no `state`
-  // option, so the nonce travels in the URL (?handoff=<nonce>) and the compose
-  // page reads sessionStorage[`cos-handoff-${nonce}`] at mount (story 04).
+  // Navigate-only for now: the draft-prefill plumbing (payload transport plus
+  // the SocialFlow seam that reads it) ships together in ENG-11162, so compose
+  // opens blank until that lands.
   const handleComposeHandoff = useCallback(
-    (payload: ComposeHandoffPayload): void => {
-      const nonce = crypto.randomUUID()
-      try {
-        sessionStorage.setItem(`cos-handoff-${nonce}`, JSON.stringify(payload))
-      } catch {
-        // private mode / storage disabled — compose will open without prefill
-      }
-      router.push(`/dashboard/outreach?compose=social&handoff=${nonce}`)
+    (_payload: ComposeHandoffPayload): void => {
+      router.push('/dashboard/outreach?compose=social')
     },
     [router],
   )
