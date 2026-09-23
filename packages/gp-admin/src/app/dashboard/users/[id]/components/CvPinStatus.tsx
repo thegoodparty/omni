@@ -202,7 +202,7 @@ function CvPinStatusContent() {
 
   if (!pinAwaitingEntry) {
     return (
-      <Flex gap="3" align="center">
+      <Flex gap="3" align="center" wrap="wrap">
         <Badge color={STAGE_BADGE_COLORS[state.stage]} size="2">
           10DLC: {STAGE_LABELS[state.stage]}
         </Badge>
@@ -213,7 +213,7 @@ function CvPinStatusContent() {
   }
 
   return (
-    <Flex gap="3" align="center">
+    <Flex gap="3" align="center" wrap="wrap">
       <Badge color="amber" size="2">
         {state.pinDelivery
           ? `PIN sent via ${state.pinDelivery.method} to ` +
