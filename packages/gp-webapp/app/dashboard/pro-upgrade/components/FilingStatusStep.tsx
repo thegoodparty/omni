@@ -103,7 +103,7 @@ const FilingStatusStep = (): React.JSX.Element => {
   const options = purchaseOnly ? PURCHASE_ONLY_OPTIONS : OPTIONS
 
   return (
-    <div>
+    <div className="flex min-h-full flex-1 flex-col">
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
         {purchaseOnly
           ? 'Are you officially filed?'
@@ -135,8 +135,8 @@ const FilingStatusStep = (): React.JSX.Element => {
         ))}
       </div>
 
-      <div className="mt-8">
-        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+      <div className="mt-auto pt-8">
+        <Button variant="ghost" size="large" onClick={goToPreviousStep}>
           Back
         </Button>
       </div>

@@ -53,7 +53,7 @@ import { purposeForRecommendedVariant } from '../audience/recommendedListMapping
 import { REVIEW_GATE_CTA } from '../gate/gateCopy'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
-import { OutreachGate } from '../gate/OutreachGate'
+import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
 import { SmsPurposeStep } from './SmsPurposeStep'
@@ -351,6 +351,11 @@ export const SmsFlow = ({
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
+  // While a gate screen is up the sheet header is the gate's (design:
+  // renderSgModal's "Upgrade to Pro" overline and its own stepper), not the
+  // flow's channel badge and step count.
+  const [gateChrome, setGateChrome] = useState<GateChrome | null>(null)
+  const showGateChrome = gateOpen && gateChrome !== null
 
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
@@ -1047,22 +1052,34 @@ export const SmsFlow = ({
       title={
         scheduled
           ? 'Done'
-          : stepId === 'schedule' && buildMode
-            ? NAME_ONLY_COPY.title
-            : stepId === 'review' && buildMode
-              ? 'Review and verify'
-              : stepId === 'review' && isFreeSend
-                ? 'Review and send'
-                : STEP_TITLES[stepId]
+          : showGateChrome
+            ? gateChrome.overline
+            : stepId === 'schedule' && buildMode
+              ? NAME_ONLY_COPY.title
+              : stepId === 'review' && buildMode
+                ? 'Review and verify'
+                : stepId === 'review' && isFreeSend
+                  ? 'Review and send'
+                  : STEP_TITLES[stepId]
       }
       headerBadge={
-        <ChannelBadge
-          type={OUTREACH_TYPES.text}
-          locked={gate.requirement !== null && !scheduled && !gateOpen}
-        />
+        showGateChrome ? (
+          gateChrome.overline
+        ) : (
+          <ChannelBadge
+            type={OUTREACH_TYPES.text}
+            locked={gate.requirement !== null && !scheduled && !gateOpen}
+          />
+        )
       }
-      currentStep={stepIndex + 1}
-      totalSteps={scheduled ? 0 : stepOrder.length}
+      currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
+      totalSteps={
+        scheduled
+          ? 0
+          : showGateChrome
+            ? gateChrome.totalSteps
+            : stepOrder.length
+      }
       onBack={
         // A resume has no reachable step behind it at all: purpose, audience
         // and compose were settled when the draft was saved, and compose
@@ -1126,6 +1143,7 @@ export const SmsFlow = ({
           showInterstitial={draftGate.gateOrigin === 'save'}
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
+          onChromeChange={setGateChrome}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep selected={purpose} onSelect={handleSelectPurpose} />

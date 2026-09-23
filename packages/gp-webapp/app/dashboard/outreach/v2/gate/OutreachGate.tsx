@@ -1,15 +1,20 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@styleguide'
 import { ClockIcon, ShieldCheckIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
-import ProUpgradeFlow from 'app/dashboard/pro-upgrade/components/ProUpgradeFlow'
+import ProUpgradeFlow, {
+  type ProUpgradeFlowPosition,
+} from 'app/dashboard/pro-upgrade/components/ProUpgradeFlow'
 import { PRO_UPGRADE_STEP } from 'app/dashboard/pro-upgrade/proUpgradeStep'
-import CampaignVerificationSteps from 'app/dashboard/campaign-verification/components/CampaignVerificationSteps'
+import CampaignVerificationSteps, {
+  type VerificationStep,
+} from 'app/dashboard/campaign-verification/components/CampaignVerificationSteps'
 import { PinDialog } from 'app/dashboard/shared/membership/PinDialog'
 import {
   BANNER_COPY,
+  GATE_CHROME_COPY,
   GATE_NOTICE_COPY,
   GATE_NOUN,
   type GateChannel,
@@ -29,6 +34,17 @@ interface OutreachGateProps {
   // coming back to a saved draft, or pressing Join Pro on the explainer that
   // already made the pitch, skips it (design: sgOpen(..., skipPause)).
   showInterstitial?: boolean
+  // What the sheet's header should read while a gate screen is up: the
+  // phase overline in place of the channel badge, and the gate's own step
+  // position in place of the flow's (design: renderSgModal). `totalSteps`
+  // 0 is a screen that draws no header. Null once the gate unmounts.
+  onChromeChange?: (chrome: GateChrome | null) => void
+}
+
+export interface GateChrome {
+  overline: string
+  currentStep: number
+  totalSteps: number
 }
 
 // The gate screens themselves, mounted in place of a paused flow's step body:
@@ -42,7 +58,29 @@ export const OutreachGate = ({
   onExit,
   onComplete,
   showInterstitial = true,
+  onChromeChange,
 }: OutreachGateProps): React.JSX.Element | null => {
+  // Read through a ref so the callbacks handed to the wizard and the
+  // verification steps stay stable — both re-fire their position effects
+  // on a new callback identity, which would loop through the host's state.
+  const onChromeChangeRef = useRef(onChromeChange)
+  onChromeChangeRef.current = onChromeChange
+  useEffect(() => () => onChromeChangeRef.current?.(null), [])
+
+  const reportProPosition = useCallback((position: ProUpgradeFlowPosition) => {
+    onChromeChangeRef.current?.({
+      overline: GATE_CHROME_COPY.upgrade,
+      ...position,
+    })
+  }, [])
+  const reportVerifyStep = useCallback((step: VerificationStep) => {
+    onChromeChangeRef.current?.({
+      overline: GATE_CHROME_COPY.verification,
+      currentStep: step === 'intro' ? 1 : step === 'form' ? 2 : 0,
+      totalSteps: step === 'submitted' ? 0 : 3,
+    })
+  }, [])
+
   // THE SCREEN IS LATCHED FOR THE LIFE OF ONE OPEN, and must stay that way.
   // `state.requirement` is derived from the same campaign cache
   // ProUpgradeFlow's SuccessStep polls, so it flips the instant payment
@@ -79,13 +117,24 @@ export const OutreachGate = ({
     onComplete()
   }
 
+  // The PIN and in-review cards are the verification phase's own notices
+  // and draw no header of their own (design: the pending screen).
+  useEffect(() => {
+    if (!open || (screen !== 'pin' && screen !== 'in_review')) return
+    onChromeChangeRef.current?.({
+      overline: GATE_CHROME_COPY.verification,
+      currentStep: 0,
+      totalSteps: 0,
+    })
+  }, [open, screen])
+
   if (!open || screen === null) return null
 
   const noun = GATE_NOUN[channel]
 
   if (screen === 'pro') {
     return (
-      <div>
+      <div className="flex min-h-full flex-1 flex-col">
         <ProUpgradeFlow
           initialStep={
             showInterstitial
@@ -95,6 +144,7 @@ export const OutreachGate = ({
           channel={channel}
           onExit={onExit}
           onComplete={handleProComplete}
+          onPositionChange={reportProPosition}
         />
       </div>
     )
@@ -105,6 +155,7 @@ export const OutreachGate = ({
       <CampaignVerificationSteps
         onExit={onExit}
         onComplete={onComplete}
+        onStepChange={reportVerifyStep}
         completeLabel={GATE_NOTICE_COPY.backToNoun(noun)}
       />
     )

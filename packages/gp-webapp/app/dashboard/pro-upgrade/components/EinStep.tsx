@@ -132,7 +132,7 @@ const EinStep = (): React.JSX.Element => {
     einErrorMessage !== null && (attemptedSubmit || validatedEin === false)
 
   return (
-    <div>
+    <div className="flex min-h-full flex-1 flex-col">
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
         What is your campaign EIN?
       </h1>
@@ -187,9 +187,9 @@ const EinStep = (): React.JSX.Element => {
         </>
       )}
 
-      <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+      <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
         <Button
-          variant="outline"
+          variant="ghost"
           size="large"
           className="w-full sm:w-auto"
           onClick={goToPreviousStep}
@@ -198,7 +198,7 @@ const EinStep = (): React.JSX.Element => {
         </Button>
         <Button
           size="large"
-          className="w-full sm:w-auto"
+          className="w-full sm:w-auto sm:min-w-[360px]"
           onClick={() => void handleNextClick()}
           disabled={submitting}
         >

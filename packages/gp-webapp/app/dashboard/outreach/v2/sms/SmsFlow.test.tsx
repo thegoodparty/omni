@@ -867,6 +867,30 @@ describe('SmsFlow', () => {
       expect(vi.mocked(createOutreach)).not.toHaveBeenCalled()
     })
 
+    // The flow stays mounted between opens, so the gate has to re-open on
+    // every open of a resumed draft — the second tile click used to land on
+    // the schedule step of a text the candidate cannot send.
+    it('re-opens the gate every time a resumed draft is opened', async () => {
+      gateRef.set(FREE_GATE)
+      mockFreeAudience()
+      const props = {
+        onClose: vi.fn(),
+        onScheduled: vi.fn().mockResolvedValue(undefined),
+        tcrCompliance: TCR_FIXTURE,
+        resumeDraft: draftDetail(),
+      }
+      const { rerender } = render(<SmsFlow open {...props} />)
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      rerender(<SmsFlow open={false} {...props} />)
+      rerender(<SmsFlow open {...props} />)
+
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      expect(
+        screen.queryByText('When do you want to send it?'),
+      ).not.toBeInTheDocument()
+    })
+
     it('opens a cleared draft at the schedule step and converts it', async () => {
       gateRef.set(CLEARED_GATE)
       render(

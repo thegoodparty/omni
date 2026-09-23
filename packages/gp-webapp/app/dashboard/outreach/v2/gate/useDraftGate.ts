@@ -97,12 +97,17 @@ export const useDraftGate = ({
   // would take that screen away before the candidate could press Continue —
   // and Continue is what calls handleGateComplete. The gate closes through
   // onExit or onComplete, never through a requirement change.
+  //
+  // Keyed on `open` as well: the flow stays mounted between opens, so a
+  // second open of the same draft found `resumed` already true and this
+  // never re-ran — the reset above had just closed the gate, and the
+  // candidate landed on the schedule step of a text they cannot send.
   useEffect(() => {
-    if (resumed && gate.requirement !== null) {
+    if (open && resumed && gate.requirement !== null) {
       setGateOpen(true)
       setGateOrigin('resume')
     }
-  }, [resumed, gate.requirement])
+  }, [open, resumed, gate.requirement])
 
   // Build mode's one write: the draft the candidate comes back to. A 409
   // means they already have one, so the flow switches to that row instead of

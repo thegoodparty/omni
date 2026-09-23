@@ -149,6 +149,13 @@ export const EXPLAINER_COPY = {
 // campaign verification's `completeLabel` when it is mounted inside the
 // gate, so the candidate lands back on the same word regardless of which
 // gate screen sent them there.
+// The header overline the flow sheet shows in place of the channel badge
+// while a gate screen is up (design: renderSgModal's phase label).
+export const GATE_CHROME_COPY = {
+  upgrade: 'Upgrade to Pro',
+  verification: 'Campaign verification',
+}
+
 export const GATE_NOTICE_COPY = {
   inReviewSavedLine: (noun: string): string =>
     `Your ${noun} stays saved. We tell you when it clears.`,

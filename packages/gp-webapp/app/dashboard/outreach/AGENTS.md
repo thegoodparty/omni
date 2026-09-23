@@ -163,7 +163,16 @@ collapsible "Campaign verification included" card holding the `$120`
 registration-fee pill. The explainer passes `hideValue` /
 `verifyDefaultOpen` for any requirement past `'pro'`, so an already-Pro
 candidate lands straight on the verification detail. `OutreachGate.tsx`
-renders the paused-flow screen itself: `'pro'` mounts `ProUpgradeFlow` on
+renders the paused-flow screen itself, and reports what the sheet's header
+should read while it is up through `onChromeChange` (`GateChrome`: the phase
+overline — `GATE_CHROME_COPY`'s "Upgrade to Pro" / "Campaign verification" —
+plus the gate's own step position; `totalSteps` 0 is a screen with no
+header, the pause, success and pending screens). The two drafting flows hold
+that in state and hand it to `OutreachFlowShell` in place of the channel
+badge and the flow's own step count (design: `renderSgModal`). The wizard
+steps inside stretch to the sheet (`OutreachSheet`'s body is a flex column
+all the way down) so their footer rows pin to the bottom with a ghost Back
+and a 360px Continue, as the design draws them. `'pro'` mounts `ProUpgradeFlow` on
 `PRO_UPGRADE_STEP.INTERSTITIAL` when `showInterstitial` is true — the two
 drafting flows pass `gateOrigin === 'save'`, so only the save that just wrote
 the draft gets the pitch — and on `PRO_UPGRADE_STEP.GUIDANCE` otherwise: a
@@ -195,7 +204,10 @@ on to `verify` instead, in which case the banner stays and the flow keeps
 building, which is correct.
 
 **`v2/gate/useDraftGate.ts` owns every saved-draft concern the two drafting
-flows share**: `savedDraft`, `resumed`, `gateOpen`, `explainerOpen`, the
+flows share** (its resume effect is keyed on `open` as well as `resumed`: the
+flow stays mounted between opens, so the second open of the same draft used
+to find `resumed` already true, never re-open the gate, and land the
+candidate on the schedule step of a text they could not send): `savedDraft`, `resumed`, `gateOpen`, `explainerOpen`, the
 origin, the save (201 → gate on `'save'`; 409 → fetch the existing row,
 switch to resume, land on schedule), the completion, and the `Draft.Saved`
 event. `SmsFlow` and

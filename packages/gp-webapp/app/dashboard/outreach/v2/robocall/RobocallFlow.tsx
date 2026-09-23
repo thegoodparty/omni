@@ -32,7 +32,7 @@ import {
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
-import { OutreachGate } from '../gate/OutreachGate'
+import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -174,6 +174,11 @@ export const RobocallFlow = ({
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
+  // While a gate screen is up the sheet header is the gate's (design:
+  // renderSgModal's "Upgrade to Pro" overline and its own stepper), not the
+  // flow's channel badge and step count.
+  const [gateChrome, setGateChrome] = useState<GateChrome | null>(null)
+  const showGateChrome = gateOpen && gateChrome !== null
 
   // Everything new here hangs off one of these two: with no requirement and
   // no resumed row the flow is byte-identical to the pre-gate one.
@@ -755,15 +760,19 @@ export const RobocallFlow = ({
     <OutreachFlowShell
       open={open}
       onClose={onClose}
-      title={STEP_TITLES[stepId]}
+      title={showGateChrome ? gateChrome.overline : STEP_TITLES[stepId]}
       headerBadge={
-        <ChannelBadge
-          type={OUTREACH_TYPES.robocall}
-          locked={gate.requirement !== null && !settled && !gateOpen}
-        />
+        showGateChrome ? (
+          gateChrome.overline
+        ) : (
+          <ChannelBadge
+            type={OUTREACH_TYPES.robocall}
+            locked={gate.requirement !== null && !settled && !gateOpen}
+          />
+        )
       }
-      currentStep={stepIndex + 1}
-      totalSteps={stepOrder.length}
+      currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
+      totalSteps={showGateChrome ? gateChrome.totalSteps : stepOrder.length}
       onBack={
         // A resume has no reachable step behind it at all: purpose, audience
         // and compose were settled when the draft was saved, and compose
@@ -802,6 +811,7 @@ export const RobocallFlow = ({
           showInterstitial={draftGate.gateOrigin === 'save'}
           onExit={draftGate.handleGateExit}
           onComplete={draftGate.handleGateComplete}
+          onChromeChange={setGateChrome}
         />
       ) : stepId === 'purpose' ? (
         <RobocallPurposeStep

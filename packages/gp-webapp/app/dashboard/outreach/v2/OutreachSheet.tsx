@@ -133,8 +133,17 @@ export const OutreachSheet = ({
         >
           <div className="mx-auto w-full max-w-[608px]">{header}</div>
         </DrawerHeader>
-        <DrawerBody ref={mergedBodyRef} className="px-6 py-5">
-          <div className="mx-auto w-full max-w-[608px]">{children}</div>
+        {/* The body is a flex column all the way down — DrawerBody's own
+            column div included, via the child selector — so a step that wants
+            its footer pinned (the Pro gate's wizard steps) can stretch to the
+            sheet. Every other step just stacks at the top as before. */}
+        <DrawerBody
+          ref={mergedBodyRef}
+          className="flex flex-col px-6 py-5 [&>div]:flex [&>div]:flex-1 [&>div]:flex-col"
+        >
+          <div className="mx-auto flex w-full max-w-[608px] flex-1 flex-col">
+            {children}
+          </div>
         </DrawerBody>
         {footer && (
           <DrawerFooter
