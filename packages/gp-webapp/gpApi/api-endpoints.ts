@@ -71,6 +71,8 @@ import type {
   RobocallSaveCardIntentResponse,
   RobocallAuthorizeRequest,
   RobocallAuthorizeResponse,
+  RobocallPromoApplyRequest,
+  RobocallPromoStateResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
   PeoplePrecinctsResponse,
@@ -589,6 +591,19 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/:outreachId/authorize': {
     Request: RobocallAuthorizeRequest
     Response: RobocallAuthorizeResponse
+  }
+
+  // Remembers a reward promotion code on the pending robocall draft and returns
+  // the server-priced discount + what is left to authorize. The code is only
+  // consumed when the hold places (authorize), never here.
+  'POST /v1/outreach/robocall/:outreachId/promo': {
+    Request: RobocallPromoApplyRequest
+    Response: RobocallPromoStateResponse
+  }
+
+  'DELETE /v1/outreach/robocall/:outreachId/promo': {
+    Request: {}
+    Response: RobocallPromoStateResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of

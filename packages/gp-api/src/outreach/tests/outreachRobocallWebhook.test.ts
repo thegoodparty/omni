@@ -299,6 +299,7 @@ describe('OutreachRobocallWebhookService', () => {
           status: 'authorized',
           settleState: RobocallSettleState.authorized,
           authorizedAmountInCents: 450,
+          promoDiscountInCents: null,
         })
     })
     afterEach(() => {

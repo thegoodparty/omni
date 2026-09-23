@@ -186,6 +186,21 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       authorizedAmountInCents,
       completedCallCount,
     } = draft
+    const userId = draft.outreach.campaign?.user?.id
+
+    // A run a reward code paid for in full has no hold to capture: the code was
+    // spent when the run was scheduled, so settle it as captured at $0 and let
+    // the spine complete like any other delivered run. No Stripe call.
+    if (draft.promoCoversTotal) {
+      await this.commitCaptured(
+        outreachId,
+        0,
+        userId,
+        completedCallCount ?? draft.billableCount,
+      )
+      return
+    }
+
     // A settling row MUST carry these. A null here is a data anomaly, never a
     // reason to charge blind: surface it CRITICAL and park in uncollectable.
     if (
@@ -204,8 +219,6 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       )
       return
     }
-
-    const userId = draft.outreach.campaign?.user?.id
 
     // FRESH re-read: never trust the persisted state before moving money. The PI
     // status decides the branch.

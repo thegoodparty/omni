@@ -439,6 +439,50 @@ export class StripeService {
     }
   }
 
+  // Looks up a reward promotion code by its human code. Stripe only APPLIES a
+  // code to a Checkout Session or invoice; the robocall hold is a bare
+  // PaymentIntent, so the caller folds the coupon into the held amount itself
+  // and Stripe is only asked whether the code exists and is still active. The
+  // `active` filter already excludes an expired or exhausted code (Stripe
+  // clears `active` when the coupon stops being valid). Returns null for an
+  // unknown or inactive code; a Stripe failure is a 502 like every other call.
+  async findActivePromotionCode(
+    code: string,
+  ): Promise<Stripe.PromotionCode | null> {
+    let found: Stripe.ApiList<Stripe.PromotionCode>
+    try {
+      found = await this.stripe.promotionCodes.list({
+        code,
+        active: true,
+        limit: 1,
+        expand: ['data.promotion.coupon'],
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to look up Stripe promotion code')
+      throw new BadGatewayException('Failed to look up promotion code')
+    }
+    return found.data[0] ?? null
+  }
+
+  // Marks a promotion code redeemed (or restores it) by flipping `active`.
+  // Stripe never counts a redemption for a code we applied outside Checkout, so
+  // deactivating on consume is what stops a second use, and reactivating on a
+  // cancel-before-send hands the reward back. Best-effort: the money state
+  // already committed, and our own redemption record is the second guard.
+  async setPromotionCodeActive(
+    promotionCodeId: string,
+    active: boolean,
+  ): Promise<void> {
+    try {
+      await this.stripe.promotionCodes.update(promotionCodeId, { active })
+    } catch (err) {
+      this.logger.error(
+        { err, promotionCodeId, active },
+        'Failed to update Stripe promotion code active flag',
+      )
+    }
+  }
+
   // Finds LIVE (requires_capture) manual-capture holds for a robocall outreach,
   // by the outreachId metadata createManualCaptureHold stamps. Used by the
   // hold_pending stale-recovery sweep to locate an orphan hold whose intent id
