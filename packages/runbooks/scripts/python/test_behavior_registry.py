@@ -60,8 +60,8 @@ def test_rule_2_empty_surfaces():
 
 def test_intake_stub_with_a_question_ref_may_have_no_surfaces():
     assert not any("no surfaces" in e for e in _errs(VALID | {"surfaces": []}))
-    okr_stub = VALID | {"surfaces": [], "okr": "Active Candidates"}
-    assert any("okr declared but the behavior has no surfaces" in e for e in _errs(okr_stub))
+    stub = VALID | {"surfaces": [], "metric": "win_active_candidates_30d"}
+    assert any("metric declared but the behavior has no surfaces" in e for e in _errs(stub))
 
 
 def test_rule_3_instrumented_by_absent_from_catalog():
@@ -69,8 +69,9 @@ def test_rule_3_instrumented_by_absent_from_catalog():
     assert any("not in the Amplitude catalog" in e and "Typo" in e for e in _errs(bad))
 
 
-def test_rule_4_okr_without_surfaces():
-    assert any("okr" in e for e in _errs(VALID | {"surfaces": [], "okr": "Active Candidates"}))
+def test_rule_4_metric_without_surfaces():
+    bad = VALID | {"surfaces": [], "metric": "win_active_candidates_30d"}
+    assert any("metric" in e for e in _errs(bad))
 
 
 def test_rule_5_future_last_reviewed():
@@ -82,10 +83,39 @@ def test_rule_6_unknown_field():
     assert any("unknown field" in e and "quesion" in e for e in _errs(VALID | {"quesion": "typo"}))
 
 
-def test_rule_7_duplicate_okr_anchor():
-    a = VALID | {"okr": "Active Candidates"}
-    b = VALID | {"id": "other", "question_ref": "86ak2222", "okr": "Active Candidates"}
-    assert any("duplicate okr anchor" in e for e in _errs(a, b))
+def test_two_behaviors_may_point_at_the_same_metric():
+    a = VALID | {"metric": "win_active_candidates_30d"}
+    b = VALID | {"id": "other", "question_ref": "86ak2222", "metric": "win_active_candidates_30d"}
+    assert _errs(a, b) == []
+
+
+def test_metric_may_be_a_list():
+    assert _errs(VALID | {"metric": ["win_activated_users", "win_users"]}) == []
+    assert br.metric_list(VALID | {"metric": ["a", "b"]}) == ["a", "b"]
+    assert br.metric_list(VALID | {"metric": "a"}) == ["a"]
+    assert br.metric_list(VALID) == []
+
+
+def test_metric_must_be_strings():
+    assert any("metric must be" in e for e in _errs(VALID | {"metric": 3}))
+    assert any("metric must be" in e for e in _errs(VALID | {"metric": ["a", 2]}))
+
+
+def test_legacy_okr_key_is_an_unknown_field():
+    assert any("unknown field" in e and "okr" in e for e in _errs(VALID | {"okr": "Active Candidates"}))
+
+
+def test_surface_key_appends_page_path():
+    assert br.surface_key({"instrumented_by": "Viewed", "page_path": "/dashboard"}) == "Viewed[path=/dashboard]"
+    assert br.surface_key({"instrumented_by": "E"}) == "E"
+    assert br.surface_key({"instrumented_by": None, "page_path": "/x"}) is None
+
+
+def test_page_path_is_a_known_surface_field_and_needs_a_leading_slash():
+    good = {"path": "x.tsx", "label": "l", "instrumented_by": "Voter Data - List Exported", "page_path": "/dashboard"}
+    assert _errs(VALID | {"surfaces": [good]}) == []
+    bad = dict(good, page_path="dashboard")
+    assert any("page_path" in e and "leading slash" in e for e in _errs(VALID | {"surfaces": [bad]}))
 
 
 def test_rule_8_event_already_migrated_must_leave_the_events_key():
