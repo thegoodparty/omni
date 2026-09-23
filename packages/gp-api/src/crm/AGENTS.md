@@ -13,7 +13,11 @@ through this module.
 is gated on `isTestUser` (`src/users/util/users.util.ts`). Dev, previews, and
 prod share this one portal, so the E2E suite's `@test.goodparty.org` users
 (created on every merge) were piling up as billable marketing contacts. A new
-sync path must carry the same gate.
+sync path must carry the same gate. The server gates are only half of it:
+HubSpot's tracking script used to run on dev/previews too, and its
+collected-forms feature created contacts straight from the browser when E2E
+filled the Clerk sign-up form — so gp-webapp loads that script in production
+only (`app/layout.tsx`, `supportChatEnabled`).
 
 ## Key files
 

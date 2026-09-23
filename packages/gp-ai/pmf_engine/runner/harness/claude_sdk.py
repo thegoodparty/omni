@@ -147,8 +147,9 @@ _FINALIZE_TIMEOUT_SECONDS = 120
 # it ever misbehaves in dev (a max_turns cut then degrades to status=error).
 _FINALIZE_ON_MAX_TURNS = True
 # SDK subtype that marks a turn-ceiling cut (vs a genuine agent error). Only this
-# subtype is finalize-worthy; a genuine error or the cancelled-mid-stream timeout
-# path is NOT.
+# subtype gets the softer handling — evaluator finalize-injection, and the primary
+# loop's return-and-collect in run_agent; a genuine error or the
+# cancelled-mid-stream timeout path is NOT.
 _MAX_TURNS_SUBTYPE = "error_max_turns"
 # Max chars of a tool-result content kept per transcript record (bounds a huge
 # re-fetched source so the JSONL can't blow the broker's 1 MiB durable cap).
@@ -541,35 +542,19 @@ async def run_agent(
             )
 
             if message.is_error:
-                # A max_turns cut is NOT a fatal error — it just means the
-                # agent ran out of turns. If a valid (partial) artifact was
-                # written to /workspace/output/ before the cut, honor it:
-                # return the stats dict so the outer harness runs
-                # collect_output_artifact -> validate_artifact_contract ->
-                # publish.publish as usual, and gp-api's resume sweep can
-                # pick it up (data_quality.overall=partial -> AWAITING_RESUME).
-                # If nothing was written, collect_output_artifact raises
-                # FileNotFoundError and the run fails with a truthful reason
-                # code — better than today's opaque "unknown error".
-                #
-                # Regression: ENG-11176. Two compliance_setup Pro-candidate
-                # runs (susan-harman 01a088ef, nick-gessell 01a0a67d) stalled
-                # silently in prod because this branch collapsed
-                # error_max_turns and error_during_execution into the same
-                # AgentExecutionError, discarding a valid
-                # pending_website_live / wait_dns_propagation artifact. Both
-                # had done all their real work and would have completed via
-                # the resume sweep if the artifact had been honored.
-                #
-                # Mirrors the existing finalize-on-max-turns handling in
-                # run_evaluator_agent (see _MAX_TURNS_SUBTYPE above). Genuine
-                # errors (error_during_execution) and any other is_error
-                # subtype keep raising exactly as before.
                 if message.subtype == _MAX_TURNS_SUBTYPE:
+                    # A turn-ceiling cut is not a failure verdict on the work:
+                    # agents routinely finish and write a valid artifact, then
+                    # burn the last turns on validator nits before the cap
+                    # hits. Return normally so the harness collects
+                    # /workspace/output/ and the contract decides — a valid
+                    # partial artifact resumes via gp-api instead of being
+                    # discarded as FAILED "unknown error" with no artifact and
+                    # no alert. A run that wrote nothing still fails, via
+                    # collect_output_artifact's FileNotFoundError.
                     logger.warning(
-                        f"Agent hit max_turns after {num_turns} turns "
-                        f"(session={session_id}) — treating as completion; "
-                        "downstream publish decides on the artifact's merits"
+                        f"Agent hit max_turns after {num_turns} turns (session={session_id}); "
+                        "collecting workspace output instead of failing"
                     )
                     return {
                         "cost_usd": total_cost,

@@ -128,22 +128,11 @@ async def test_run_raises_agent_execution_error_on_agent_error():
     """Agent-side errors must surface as AgentExecutionError, not bare
     RuntimeError. The runner's outer except reports `type(e).__name__` as the
     callback reason_code; collapsing every harness-internal failure under
-    "RuntimeError" hurts alerting fidelity.
-
-    Uses subtype=error_during_execution (the SDK's marker for a genuine agent
-    error) to distinguish it from the max_turns cut branch handled by
-    test_run_returns_result_on_max_turns_with_artifact — that path is a
-    completion, this one is a fatal error."""
+    "RuntimeError" hurts alerting fidelity."""
     from pmf_engine.runner.harness.claude_sdk import AgentExecutionError
 
     async def fake_query_error(prompt, options):
-        yield _make_result_message(
-            result="Something went wrong",
-            is_error=True,
-            subtype="error_during_execution",
-            num_turns=1,
-            session_id="sess-err",
-        )
+        yield _make_result_message(result="Something went wrong", is_error=True, num_turns=1, session_id="sess-err")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query_error):
@@ -159,93 +148,64 @@ async def test_run_raises_agent_execution_error_on_agent_error():
 
 
 @pytest.mark.asyncio
-async def test_run_returns_result_on_max_turns_with_artifact():
-    """A max_turns cut (SDK subtype=error_max_turns) is NOT a fatal error —
-    it just means the agent ran out of turns. If a valid (partial) artifact
-    was written to /workspace/output/ before the cut, the harness MUST return
-    a HarnessResult so downstream `publish.publish` sees the artifact and
-    gp-api's resume sweep can pick it up (data_quality.overall=partial ->
-    AWAITING_RESUME).
-
-    Regression: ENG-11176 — two compliance_setup Pro-candidate runs stalled
-    silently in prod (susan-harman 01a088ef 2026-09-10; nick-gessell 01a0a67d
-    2026-09-15) because run_agent collapsed error_max_turns and
-    error_during_execution into the same AgentExecutionError, discarding a
-    valid pending_website_live / wait_dns_propagation artifact. Both had done
-    all their real work and would have completed on their own via the resume
-    sweep if the artifact had been honored. Mirrors the finalize-on-max-turns
-    handling already in run_evaluator_agent."""
+async def test_run_salvages_artifact_on_max_turns_cut():
+    """A turn-ceiling cut (subtype error_max_turns) is NOT a fatal agent error:
+    the agent often finishes its real work and writes a valid artifact, then
+    burns its last turns on validator nits before the cap hits. Raising here
+    discarded that artifact and left compliance_setup runs silently stalled
+    (susan-harman 325892, nick-gessell 327003). The harness must return
+    normally so collect_output_artifact runs and the contract decides."""
 
     async def fake_query_max_turns(prompt, options):
         yield _make_result_message(
             result=None,
+            total_cost_usd=0.42,
+            num_turns=61,
+            session_id="sess-cut",
             is_error=True,
             subtype="error_max_turns",
-            total_cost_usd=0.42,
-            num_turns=40,
-            session_id="sess-cap",
         )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_dir = os.path.join(tmpdir, "output")
         os.makedirs(output_dir)
         with open(os.path.join(output_dir, "result.json"), "w") as f:
-            json.dump(
-                {
-                    "data_quality": {"overall": "partial"},
-                    "next_action": {"wait_for": "dns_propagation"},
-                },
-                f,
-            )
+            json.dump({"stage": "pending_website_live"}, f)
 
         with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query_max_turns):
             harness = ClaudeSdkHarness()
             result = await harness.run(
-                instruction="Register TCR",
+                instruction="Do stuff",
                 model="sonnet",
-                max_turns=40,
+                max_turns=60,
                 workspace_dir=tmpdir,
                 params={},
             )
 
         assert isinstance(result, HarnessResult)
         assert result.cost_usd == 0.42
-        assert result.num_turns == 40
-        assert result.session_id == "sess-cap"
-        assert result.content_type == "application/json"
-        parsed = json.loads(result.artifact_bytes)
-        assert parsed["data_quality"]["overall"] == "partial"
-        assert parsed["next_action"]["wait_for"] == "dns_propagation"
+        assert result.num_turns == 61
+        assert result.session_id == "sess-cut"
+        assert json.loads(result.artifact_bytes)["stage"] == "pending_website_live"
 
 
 @pytest.mark.asyncio
 async def test_run_raises_file_not_found_on_max_turns_without_artifact():
-    """When max_turns fires and the agent never wrote an artifact,
-    collect_output_artifact must raise FileNotFoundError (the same failure
-    mode as any other empty-output run). This surfaces to the runner's
-    harness-failure branch with a truthful reason_code (FileNotFoundError)
-    instead of the pre-fix "AgentExecutionError: ... unknown error"
-    (ENG-11176 diagnostic)."""
+    """A max-turns cut with NO artifact still fails the run — but through
+    collect_output_artifact's FileNotFoundError (a truthful reason_code),
+    not as a generic AgentExecutionError with "unknown error"."""
 
     async def fake_query_max_turns(prompt, options):
-        yield _make_result_message(
-            result=None,
-            is_error=True,
-            subtype="error_max_turns",
-            num_turns=40,
-            session_id="sess-empty",
-        )
+        yield _make_result_message(result=None, is_error=True, subtype="error_max_turns", num_turns=61)
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # NOTE: no output/ file written — simulates an agent that burned all
-        # turns before producing anything.
         with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query_max_turns):
             harness = ClaudeSdkHarness()
-            with pytest.raises(FileNotFoundError):
+            with pytest.raises(FileNotFoundError, match="No artifact files"):
                 await harness.run(
                     instruction="Do stuff",
                     model="sonnet",
-                    max_turns=40,
+                    max_turns=60,
                     workspace_dir=tmpdir,
                     params={},
                 )
