@@ -828,29 +828,34 @@ export class ChatStreamService {
         )
         if (citationSegments.length > 0) {
           const turnIndex = history.length
-          for (const seg of citationSegments) {
-            const raw = seg.payload
-            const attachmentId =
-              raw &&
-              typeof raw === 'object' &&
-              'attachmentId' in raw &&
-              typeof raw.attachmentId === 'string'
+          // Exactly one event per turn (never one per citation): the metric
+          // counts turns that queried an attached document, so a three-citation
+          // answer must not weigh three times. documentId carries the first
+          // citation's attachment.
+          const firstAttachmentId = citationSegments
+            .map((seg) => {
+              const raw = seg.payload
+              return raw &&
+                typeof raw === 'object' &&
+                'attachmentId' in raw &&
+                typeof raw.attachmentId === 'string'
                 ? raw.attachmentId
                 : null
-            if (attachmentId) {
-              void this.analytics
-                .track(
-                  args.ownerUserId,
-                  EVENTS.ChiefOfStaff.AttachedDocumentQueried,
-                  { documentId: attachmentId, turnIndex },
+            })
+            .find((id): id is string => id !== null)
+          if (firstAttachmentId) {
+            void this.analytics
+              .track(
+                args.ownerUserId,
+                EVENTS.ChiefOfStaff.AttachedDocumentQueried,
+                { documentId: firstAttachmentId, turnIndex },
+              )
+              .catch((err: unknown) => {
+                this.logger.error(
+                  { err, conversationId: args.conversationId },
+                  'failed to track AttachedDocumentQueried',
                 )
-                .catch((err: unknown) => {
-                  this.logger.error(
-                    { err, conversationId: args.conversationId },
-                    'failed to track AttachedDocumentQueried',
-                  )
-                })
-            }
+              })
           }
         }
       }

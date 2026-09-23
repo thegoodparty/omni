@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS } from 'helpers/analyticsHelper'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
 import type {
   ChatMessageDto,
@@ -34,6 +35,10 @@ vi.mock('../../data/chat-api', () => ({
 }))
 
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('helpers/analyticsHelper', async (orig) => ({
+  ...(await orig<object>()),
+  trackEvent: (...args: unknown[]) => trackEventMock(...args),
+}))
 
 // Attachments are flag-gated; the toggle lets the drag-and-drop block turn
 // them on without flipping the flag under every other test in this file.
@@ -48,9 +53,13 @@ vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
 }))
 
 const uploadAttachmentMock = vi.fn()
+const downloadAttachmentMock = vi.fn()
+const trackEventMock = vi.fn()
 vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
   ...(await orig<object>()),
   uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+  downloadChatAttachment: (...args: unknown[]) =>
+    downloadAttachmentMock(...args),
 }))
 
 // deck.gl and maplibre don't run in jsdom. The stub reports how many people
@@ -151,6 +160,8 @@ beforeEach(() => {
   seq = 0
   attachmentsOn = false
   uploadAttachmentMock.mockReset()
+  downloadAttachmentMock.mockReset()
+  trackEventMock.mockReset()
   window.localStorage.clear()
 })
 
@@ -370,6 +381,42 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(createMock).not.toHaveBeenCalled()
     // Intro messages are not shown when replaying an existing conversation.
     expect(screen.queryByText(COS_INTRO_MESSAGES[0]!)).not.toBeInTheDocument()
+  })
+
+  it('fires CitationOpened when a citation chip is clicked', async () => {
+    attachmentsOn = true
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Per the resolution [1], the budget is set.', {
+        id: 'a-cite',
+        segments: [
+          { kind: 'text', text: 'Per the resolution ' },
+          {
+            kind: 'citation',
+            attachmentId: 'att-42',
+            page: 3,
+            quotedText: 'allocate $500K',
+          },
+          { kind: 'text', text: ', the budget is set.' },
+        ],
+      }),
+    ])
+    downloadAttachmentMock.mockResolvedValue(null)
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window)
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_cite" />)
+
+    const chip = await screen.findByRole('button', { name: 'Open source 1' })
+    fireEvent.click(chip)
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.CitationOpened,
+        { documentId: 'att-42', pageNumber: 3 },
+      ),
+    )
+    openSpy.mockRestore()
   })
 
   it('replays persisted tool segments in order on reload', async () => {
