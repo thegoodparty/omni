@@ -51,6 +51,40 @@ const serviceWith = (priorCount: number) => {
   return { service, seen }
 }
 
+describe('ChiefOfStaffContextService attachments flag caching', () => {
+  it('calls isFeatureEnabled only once for the same user across turns', async () => {
+    const features = buildFeatures()
+    const service = new ChiefOfStaffContextService(features)
+    const stub = {
+      findFirst: async () => CONVERSATION,
+      count: async () => 0,
+      _prisma: { electedOffice: { findFirst: async () => ELECTED_OFFICE } },
+    }
+    Object.assign(service, stub)
+
+    await service.load('conv-b', 7, port)
+    await service.load('conv-c', 7, port)
+
+    expect(features.isFeatureEnabled).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls isFeatureEnabled separately for distinct users', async () => {
+    const features = buildFeatures()
+    const service = new ChiefOfStaffContextService(features)
+    const stub = {
+      findFirst: async () => CONVERSATION,
+      count: async () => 0,
+      _prisma: { electedOffice: { findFirst: async () => ELECTED_OFFICE } },
+    }
+    Object.assign(service, stub)
+
+    await service.load('conv-b', 7, port)
+    await service.load('conv-b', 8, port)
+
+    expect(features.isFeatureEnabled).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('ChiefOfStaffContextService first-run detection', () => {
   it('counts prior conversations that hold a message, not bare rows', async () => {
     const { service, seen } = serviceWith(0)
