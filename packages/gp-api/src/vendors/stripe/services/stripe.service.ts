@@ -569,6 +569,11 @@ export class StripeService {
       },
     ],
     mode: CheckoutSessionMode.SUBSCRIPTION,
+    // Pinned for the same reason as the one-time session: left to Stripe's
+    // dashboard set this offered bank debit, which completes checkout
+    // 'unpaid' and settles days later. The completion webhook flips isPro
+    // on completion, so an ACH signup was Pro before any money moved.
+    payment_method_types: ['card'],
     allow_promotion_codes: true,
     // Expanding for Segment / analytics
     expand: [

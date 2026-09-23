@@ -8,6 +8,7 @@ import {
   useState,
   type RefObject,
 } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, toast } from '@styleguide'
 import {
@@ -33,11 +34,16 @@ import type {
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
-import { ShowListMapSchema, type ShowListMap } from '@goodparty_org/contracts'
+import {
+  ShowListMapSchema,
+  type ShowListMap,
+  type ComposeHandoffPayload,
+} from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
 import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
+import type { ChatScope } from '../../../shared/agent-chat/chatClient'
 import {
   uploadChatAttachment,
   linkChatAttachment,
@@ -123,6 +129,12 @@ interface Props {
    * it; the issue and ordinance docks don't.
    */
   showMessageActions?: boolean
+  /**
+   * The chat scope used to gate attachment support. Defaults to
+   * 'chief_of_staff' so existing CoS callers need no change; Campaign Manager
+   * passes 'campaign_assistant' to correctly suppress the paperclip.
+   */
+  scope?: ChatScope
 }
 
 /**
@@ -191,7 +203,9 @@ export default function ChiefOfStaffChatBody({
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
   showMessageActions = false,
+  scope = 'chief_of_staff',
 }: Props): React.JSX.Element {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
@@ -251,7 +265,7 @@ export default function ChiefOfStaffChatBody({
     [composerRef],
   )
 
-  const attachmentsEnabled = useAttachmentsEnabled('chief_of_staff')
+  const attachmentsEnabled = useAttachmentsEnabled(scope)
 
   const [attachments, setAttachments] = useState<ChatAttachmentState[]>([])
 
@@ -727,6 +741,17 @@ export default function ChiefOfStaffChatBody({
     [conversationId],
   )
 
+  // Chief of staff users are Serve (elected officials): /dashboard/outreach is
+  // the Win hub behind candidateAccess() and bounces them to the marketing
+  // site. Navigate-only for now: the compose deep link and draft-prefill
+  // plumbing ship together in ENG-11162.
+  const handleComposeHandoff = useCallback(
+    (_payload: ComposeHandoffPayload): void => {
+      router.push('/dashboard/constituent-outreach')
+    },
+    [router],
+  )
+
   // The shared send path. `hidden` skips the optimistic user bubble AND drops
   // the persisted user turn from the rendered transcript, so a kickoff streams a
   // reply without ever showing the prompt that triggered it.
@@ -1032,6 +1057,7 @@ export default function ChiefOfStaffChatBody({
                     ? handleCitationClick
                     : undefined
                 }
+                onComposeHandoff={handleComposeHandoff}
               />
               {m.listMap ? (
                 <ChatListMap
@@ -1066,6 +1092,7 @@ export default function ChiefOfStaffChatBody({
                   ? handleCitationClick
                   : undefined
               }
+              onComposeHandoff={handleComposeHandoff}
             />
             {liveListMap ? (
               <ChatListMap
