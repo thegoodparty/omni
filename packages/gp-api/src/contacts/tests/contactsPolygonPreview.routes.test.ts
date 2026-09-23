@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   DoorKnockingEvaluateResponse,
   GeoJsonPolygon,
+  GeoJsonShape,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
@@ -46,6 +47,58 @@ const NOTCHED: GeoJsonPolygon = {
   ],
 }
 
+// Two parts that share the strip 0.5 <= lng <= 1. A person standing in that
+// strip is inside BOTH, which is the case the count has to collapse.
+const OVERLAPPING_PAIR: GeoJsonShape = {
+  type: 'MultiPolygon',
+  coordinates: [
+    [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ],
+    [
+      [
+        [0.5, 0],
+        [1.5, 0],
+        [1.5, 1],
+        [0.5, 1],
+        [0.5, 0],
+      ],
+    ],
+  ],
+}
+
+// Two parts with a gap between them, so each part's own bbox is tight and
+// neither contains the other's people.
+const DISJOINT_PAIR: GeoJsonShape = {
+  type: 'MultiPolygon',
+  coordinates: [
+    [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ],
+    [
+      [
+        [10, 10],
+        [11, 10],
+        [11, 11],
+        [10, 11],
+        [10, 10],
+      ],
+    ],
+  ],
+}
+
 const person = (lng: number, lat: number) => ({
   id: randomUUID(),
   firstName: 'Ada',
@@ -83,7 +136,7 @@ describe('POST /v1/contacts/polygon-preview', () => {
 
   const preview = (
     slug: string,
-    body: { geoPoly: GeoJsonPolygon; filters: Record<string, unknown> },
+    body: { geoPoly: GeoJsonShape; filters: Record<string, unknown> },
   ) =>
     service.client.post('/v1/contacts/polygon-preview', body, {
       headers: { [ORG_SLUG_HEADER]: slug },
@@ -204,6 +257,84 @@ describe('POST /v1/contacts/polygon-preview', () => {
 
     const response = await preview(slug, {
       geoPoly: SQUARE,
+      filters: { genderMale: true },
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.data.message).toContain('Draw a smaller boundary')
+    expect(response.data.message).not.toContain('Turf')
+  })
+
+  // Each part is scanned against its OWN box, not one box around the whole
+  // shape. With parts this far apart a single union box would be 11 degrees
+  // on a side and drag most of a state through the evaluate cap.
+  it('scans one tight bbox per part rather than one around them all', async () => {
+    const slug = await setupServeOrg('fan-out')
+    const evaluateSpy = vi
+      .spyOn(service.app.get(VoterDoorKnockingService), 'evaluate')
+      .mockResolvedValueOnce({ people: [person(0.5, 0.5)] })
+      .mockResolvedValueOnce({ people: [person(10.5, 10.5)] })
+
+    const response = await preview(slug, {
+      geoPoly: DISJOINT_PAIR,
+      filters: { genderMale: true },
+    })
+
+    expect(response.status).toBe(201)
+    expect(response.data).toMatchObject({ count: 2, audienceEmpty: false })
+    expect(evaluateSpy).toHaveBeenCalledTimes(2)
+    expect(evaluateSpy.mock.calls[0]?.[0]?.bbox).toEqual({
+      minLng: 0,
+      maxLng: 1,
+      minLat: 0,
+      maxLat: 1,
+    })
+    expect(evaluateSpy.mock.calls[1]?.[0]?.bbox).toEqual({
+      minLng: 10,
+      maxLng: 11,
+      minLat: 10,
+      maxLat: 11,
+    })
+  })
+
+  // The whole reason parts are allowed to overlap. Both parts' bbox queries
+  // return this person, and the count has to be 1 — a plain sum would say 2
+  // and the holder would be told their list is twice the size it is.
+  it('counts a person in two overlapping parts exactly once', async () => {
+    const slug = await setupServeOrg('dedup')
+    // One record, returned by both scans, as people-db would: the strip
+    // 0.5..1 is inside both parts and so inside both boxes.
+    const shared = person(0.75, 0.5)
+    const evaluateSpy = vi
+      .spyOn(service.app.get(VoterDoorKnockingService), 'evaluate')
+      .mockResolvedValue({ people: [shared] })
+
+    const response = await preview(slug, {
+      geoPoly: OVERLAPPING_PAIR,
+      filters: { genderMale: true },
+    })
+
+    expect(response.status).toBe(201)
+    expect(response.data).toMatchObject({ count: 1, audienceEmpty: false })
+    expect(evaluateSpy).toHaveBeenCalledTimes(2)
+  })
+
+  // The cap can be reached by any part, not just the first. A loop that
+  // swallowed a later rejection would answer with a partial count that looks
+  // exactly like a real one.
+  it('surfaces the cap refusal when a LATER part is the one over it', async () => {
+    const slug = await setupServeOrg('over-cap-second-part')
+    vi.spyOn(service.app.get(VoterDoorKnockingService), 'evaluate')
+      .mockResolvedValueOnce({ people: [person(0.5, 0.5)] })
+      .mockRejectedValueOnce(
+        new BadRequestException(
+          'Turf evaluation matched more than 50000 people — shrink the ' +
+            'polygon or narrow the filters',
+        ),
+      )
+
+    const response = await preview(slug, {
+      geoPoly: DISJOINT_PAIR,
       filters: { genderMale: true },
     })
 
