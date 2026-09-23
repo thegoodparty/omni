@@ -175,7 +175,7 @@ def load_validated_behaviors(path: Path = WATCHLIST) -> list[dict]:
     against the live catalog is deferred to DATA-2302.
     """
     behaviors = load_behaviors(path)
-    _, watchlist_events, _, _ = load_watchlist(Path(path))
+    _, watchlist_events, _ = load_watchlist(Path(path))
     named = {n for b in behaviors for n in instrumenting_events(b)}
     errors = validate_behaviors(
         behaviors, catalog_event_types=named, watchlist_events=watchlist_events

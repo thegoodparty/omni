@@ -20,7 +20,7 @@ def test_committed_behaviors_are_structurally_valid():
 
 
 def test_no_instrument_is_also_a_watchlist_row():
-    _, watchlist_events, _, _ = aeh.load_watchlist(aeh.WATCHLIST)
+    _, watchlist_events, _ = aeh.load_watchlist(aeh.WATCHLIST)
     behaviors = br.load_behaviors(aeh.WATCHLIST)
     named = {n for b in behaviors for n in br.instrumenting_events(b)}
     assert named & set(watchlist_events) == set()

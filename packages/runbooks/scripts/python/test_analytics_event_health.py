@@ -853,38 +853,25 @@ def test_load_watchlist_reads_dismissed(tmp_path):
         'events:\n  - {event: "Sign Up Clicked", product: win, family: win_onboarding}\n'
         'dismissed:\n  - {event: "Noise Event", reason: "UI micro-interaction", date: "2026-08-03"}\n'
     )
-    families, events, dismissed, okr = eh.load_watchlist(p)
+    families, events, dismissed = eh.load_watchlist(p)
     assert families == ["win_onboarding"]
     assert events == ["Sign Up Clicked"]
     assert dismissed == ["Noise Event"]
-    assert okr == {}
 
 
-def test_load_watchlist_returns_okr_map(tmp_path):
+def test_load_watchlist_ignores_any_okr_key(tmp_path):
     y = tmp_path / "w.yaml"
     y.write_text(
         "watched_families: [win_dashboard]\n"
         "events:\n"
-        '  - {event: "Dashboard - Candidate Dashboard Viewed", product: win, '
-        'family: win_dashboard, floor: null, owner: TBD, okr: "Active Candidates"}\n'
-        '  - {event: "Sign Up Clicked", product: win, family: win_onboarding, '
-        "floor: null, owner: TBD}\n"
-        '  - {event: "Multi Metric Event", product: win, family: win_dashboard, '
-        'floor: null, owner: TBD, okr: ["Active Candidates", "Signups"]}\n'
+        '  - {event: "Sign Up Clicked", product: win, family: win_onboarding, okr: "Legacy"}\n'
         "dismissed: []\n"
     )
-    families, events, dismissed, okr = eh.load_watchlist(y)
-    assert events == [
-        "Dashboard - Candidate Dashboard Viewed", "Sign Up Clicked", "Multi Metric Event",
-    ]
-    assert okr == {
-        "Dashboard - Candidate Dashboard Viewed": "Active Candidates",
-        "Multi Metric Event": "Active Candidates, Signups",
-    }
+    assert eh.load_watchlist(y) == (["win_dashboard"], ["Sign Up Clicked"], [])
 
 
-def test_load_watchlist_missing_file_returns_empty_okr(tmp_path):
-    assert eh.load_watchlist(tmp_path / "absent.yaml") == ([], [], [], {})
+def test_load_watchlist_missing_file_returns_empty(tmp_path):
+    assert eh.load_watchlist(tmp_path / "absent.yaml") == ([], [], [])
 
 
 # --- load_monitored_events ---------------------------------------------------
@@ -901,7 +888,7 @@ BEHAVIOR_YAML = (
     "      - {path: b.tsx, label: wizard, instrumented_by: null}\n"
     "  - id: voter_outreach_scheduled\n"
     "    product: win\n"
-    '    okr: ["Activated Candidates", "Outreach Intensity"]\n'
+    '    metric: win_activated_users\n'
     "    surfaces:\n"
     '      - {path: c.tsx, label: campaign, '
     'instrumented_by: "Voter Outreach - Campaign Completed"}\n'
@@ -912,7 +899,7 @@ BEHAVIOR_YAML = (
 def test_load_monitored_events_adds_behavior_instruments(tmp_path):
     y = tmp_path / "w.yaml"
     y.write_text(BEHAVIOR_YAML)
-    _, events, _, _ = eh.load_monitored_events(y)
+    _, events, _ = eh.load_monitored_events(y)
     assert events == [
         "Sign Up Clicked",
         "Voter Data - List Exported",
@@ -921,28 +908,17 @@ def test_load_monitored_events_adds_behavior_instruments(tmp_path):
     ]
 
 
-def test_load_monitored_events_anchors_the_behavior_okr_on_every_instrument(tmp_path):
-    y = tmp_path / "w.yaml"
-    y.write_text(BEHAVIOR_YAML)
-    _, _, _, okr = eh.load_monitored_events(y)
-    assert okr == {
-        "Voter Outreach - Campaign Completed": "Activated Candidates, Outreach Intensity",
-        "Door Knocking - List Created": "Activated Candidates, Outreach Intensity",
-    }
-
-
 def test_load_watchlist_stays_blind_to_behaviors(tmp_path):
     """Rule 8 compares instrumented_by against this list, so widening it in place would
     turn every migrated behavior into a duplicate-anchor error."""
     y = tmp_path / "w.yaml"
     y.write_text(BEHAVIOR_YAML)
-    _, events, _, okr = eh.load_watchlist(y)
+    _, events, _ = eh.load_watchlist(y)
     assert events == ["Sign Up Clicked"]
-    assert okr == {}
 
 
 def test_load_monitored_events_missing_file_returns_empty(tmp_path):
-    assert eh.load_monitored_events(tmp_path / "absent.yaml") == ([], [], [], {})
+    assert eh.load_monitored_events(tmp_path / "absent.yaml") == ([], [], [])
 
 
 def test_reconcile_stamps_okr_on_records():
@@ -954,10 +930,10 @@ def test_reconcile_stamps_okr_on_records():
         catalog, weekly_rows=[], code={}, today=date(2026, 8, 4),
         watchlist_events=["Dashboard - Candidate Dashboard Viewed"],
         watched_families=["win_dashboard"],
-        okr_by_event={"Dashboard - Candidate Dashboard Viewed": "Active Candidates"},
+        okr_by_event={"Dashboard - Candidate Dashboard Viewed": "win_active_candidates_30d"},
     )
     rec = result["records"][0]
-    assert rec["okr"] == "Active Candidates"
+    assert rec["okr"] == "win_active_candidates_30d"
     assert rec["on_watchlist"] is True
 
 

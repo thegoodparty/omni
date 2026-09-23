@@ -875,58 +875,36 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 # --- IO + CLI -----------------------------------------------------------------
 
 
-def _render_okr(okr: Any) -> str:
-    """List values render as one comma-joined display string."""
-    return ", ".join(str(v) for v in okr) if isinstance(okr, list) else str(okr)
-
-
-def load_watchlist(
-    path: Path = WATCHLIST,
-) -> tuple[list[str], list[str], list[str], dict[str, str]]:
+def load_watchlist(path: Path = WATCHLIST) -> tuple[list[str], list[str], list[str]]:
     """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names,
-    dismissed_event_names, okr_by_event)``. ``dismissed`` are proposals a human rejected
-    (DATA-2152); the proposal queue skips them permanently. ``okr_by_event`` (DATA-2174)
-    maps watchlist events to the OKR metric(s) anchored on them — the digest's top-tier
-    signal; list values render as one comma-joined display string."""
+    dismissed_event_names)``. ``dismissed`` are proposals a human rejected (DATA-2152);
+    the proposal queue skips them permanently. OKR status is not read from this file:
+    run_monitor derives it from the semantic layer's anchored_on."""
     if not path.exists():
-        return [], [], [], {}
+        return [], [], []
     doc = yaml.safe_load(path.read_text()) or {}
     families = doc.get("watched_families", []) or []
     rows = [row for row in (doc.get("events", []) or []) if row.get("event")]
     events = [row["event"] for row in rows]
     dismissed = [row["event"] for row in (doc.get("dismissed", []) or []) if row.get("event")]
-    okr_by_event = {row["event"]: _render_okr(row["okr"]) for row in rows if row.get("okr")}
-    return families, events, dismissed, okr_by_event
+    return families, events, dismissed
 
 
-def load_monitored_events(
-    path: Path = WATCHLIST,
-) -> tuple[list[str], list[str], list[str], dict[str, str]]:
-    """The monitor's view of the file: ``load_watchlist`` widened with every event a
-    behavior declares as an instrument (DATA-2290).
-
-    Behaviors are the successor surface (DATA-2316) and rule 8 forces an event off
-    ``events:`` the moment it migrates, so a monitor reading only ``events:`` goes blind to
-    exactly the events the registry cares most about. ``load_watchlist`` stays the literal
-    reader because ``behavior_registry`` feeds it straight into that rule; widening it in
-    place would make rule 8 fire on every behavior in the file. A behavior's ``okr:``
-    anchors each of its instruments; an authored ``events:`` row wins any collision.
-    """
-    families, events, dismissed, okr_by_event = load_watchlist(path)
+def load_monitored_events(path: Path = WATCHLIST) -> tuple[list[str], list[str], list[str]]:
+    """``load_watchlist`` widened with every event a behavior declares as an instrument
+    (DATA-2290). ``load_watchlist`` stays the literal reader because ``behavior_registry``
+    feeds it straight into rule 8; widening it in place would make rule 8 fire on every
+    behavior in the file."""
+    families, events, dismissed = load_watchlist(path)
     if not path.exists():
-        return families, events, dismissed, okr_by_event
+        return families, events, dismissed
     doc = yaml.safe_load(path.read_text()) or {}
     for behavior in doc.get("behaviors", []) or []:
-        okr = _render_okr(behavior["okr"]) if behavior.get("okr") else None
         for surface in behavior.get("surfaces", []) or []:
             name = surface.get("instrumented_by")
-            if not name:
-                continue  # explicit null = a declared gap, nothing to monitor yet
-            if name not in events:
+            if name and name not in events:
                 events.append(name)
-            if okr:
-                okr_by_event.setdefault(name, okr)
-    return families, events, dismissed, okr_by_event
+    return families, events, dismissed
 
 
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
@@ -1151,23 +1129,14 @@ def run_monitor(
     catalog = fetch_catalog(run_query)
     weekly = fetch_weekly(run_query) + fetch_path_weekly(run_query, watched_legs)
     code = load_code_axis(csv_path)
-    watched_families, watchlist_events, dismissed_events, local_okr_tags = (
-        load_monitored_events(watchlist_path)
-    )
-    # A leg's metric name is authoritative over any hand-typed okr: tag for the same
-    # event, because the semantic layer is the kernel and the tag is a local copy.
-    okr_for_digest = {**local_okr_tags, **watched_by_key}
+    watched_families, watchlist_events, dismissed_events = load_monitored_events(watchlist_path)
+    okr_for_digest = dict(watched_by_key)
 
     result = reconcile(
         catalog, weekly, code, today, watchlist_events, watched_families,
         dismissed_events=dismissed_events, okr_by_event=okr_for_digest,
     )
-    # Against local_okr_tags, not okr_for_digest: the merged map also carries
-    # watched_by_key's entries, and those are keyed by LEG KEY, not event name — a path
-    # leg's key is a synthetic string like "Viewed[path=/dashboard]" that no leg's
-    # `.event` ever equals. Validating the merged map would spuriously fire Class 1
-    # ("unknown event") on that synthetic key.
-    result["okr_tag_problems"] = validate_okr_tags(local_okr_tags, anchors)
+    result["okr_tag_problems"] = validate_okr_tags({}, anchors)
 
     current_monday = today - timedelta(days=today.weekday())
     # The WHOLE warehouse series, never a watched-only slice: update_latches tells a leg
