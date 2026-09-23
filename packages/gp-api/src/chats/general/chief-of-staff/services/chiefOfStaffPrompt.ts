@@ -203,6 +203,18 @@ const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call 
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
 - Surface the key detail clearly (category, rank, related briefings) without re-reading data already in the anchored_issue block.`
 
+const COMPOSE_HANDOFF_RULES =
+  'COMPOSE HANDOFF RULES (apply whenever you call `compose_handoff`):\n' +
+  '- Call it only when the official clearly wants to act on the content — ' +
+  'post it, share it, or script it for outreach. A question, analysis, or ' +
+  'draft you read back without the official asking to send it does not ' +
+  'qualify.\n' +
+  '- Fill in every field you can from the conversation. Omit any field you ' +
+  "would have to guess — do not invent platform ids or details you don't " +
+  'know.\n' +
+  '- The result opens a prefilled drawer for the official to review before ' +
+  'anything sends. Confirm you called it and let them take it from there.'
+
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   crud_priorities:
     'manage the user’s durable priorities (list/create/update/archive)',
@@ -223,6 +235,9 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   show_list_map: 'show a saved list on a map in the conversation',
   search_help_center:
     "search GoodParty.org's support articles for how-to, compliance, and billing answers",
+  compose_handoff:
+    'open a prefilled compose drawer for the official to post or share ' +
+    'content (review before anything sends)',
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -374,6 +389,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('count_contacts') ? [CRM_TOOLS_RULES] : []),
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
     ...(toolNames.includes('show_list_map') ? [LIST_MAP_RULES] : []),
+    ...(toolNames.includes('compose_handoff') ? [COMPOSE_HANDOFF_RULES] : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
     //

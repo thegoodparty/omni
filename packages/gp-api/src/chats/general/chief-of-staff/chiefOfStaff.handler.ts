@@ -30,6 +30,7 @@ import {
   CommunityIssueReadPort,
 } from './services/communityIssueRead.port'
 import { buildReadCommunityIssuesTool } from './services/communityIssueRead.tool'
+import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
@@ -229,6 +230,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         // that cannot create a list would be offering a map of nothing.
         tools.show_list_map = buildShowListMapTool()
       }
+    }
+
+    if (ctx.attachmentsEnabled) {
+      tools.compose_handoff = buildComposeHandoffTool()
     }
 
     return tools
