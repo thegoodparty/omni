@@ -43,6 +43,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
+  attachmentsEnabled: false,
   ...overrides,
 })
 
