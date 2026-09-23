@@ -148,6 +148,70 @@ async def test_run_raises_agent_execution_error_on_agent_error():
 
 
 @pytest.mark.asyncio
+async def test_run_salvages_artifact_on_max_turns_cut():
+    """A turn-ceiling cut (subtype error_max_turns) is NOT a fatal agent error:
+    the agent often finishes its real work and writes a valid artifact, then
+    burns its last turns on validator nits before the cap hits. Raising here
+    discarded that artifact and left compliance_setup runs silently stalled
+    (susan-harman 325892, nick-gessell 327003). The harness must return
+    normally so collect_output_artifact runs and the contract decides."""
+
+    async def fake_query_max_turns(prompt, options):
+        yield _make_result_message(
+            result=None,
+            total_cost_usd=0.42,
+            num_turns=61,
+            session_id="sess-cut",
+            is_error=True,
+            subtype="error_max_turns",
+        )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = os.path.join(tmpdir, "output")
+        os.makedirs(output_dir)
+        with open(os.path.join(output_dir, "result.json"), "w") as f:
+            json.dump({"stage": "pending_website_live"}, f)
+
+        with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query_max_turns):
+            harness = ClaudeSdkHarness()
+            result = await harness.run(
+                instruction="Do stuff",
+                model="sonnet",
+                max_turns=60,
+                workspace_dir=tmpdir,
+                params={},
+            )
+
+        assert isinstance(result, HarnessResult)
+        assert result.cost_usd == 0.42
+        assert result.num_turns == 61
+        assert result.session_id == "sess-cut"
+        assert json.loads(result.artifact_bytes)["stage"] == "pending_website_live"
+
+
+@pytest.mark.asyncio
+async def test_run_raises_file_not_found_on_max_turns_without_artifact():
+    """A max-turns cut with NO artifact still fails the run — but through
+    collect_output_artifact's FileNotFoundError (a truthful reason_code),
+    not as a generic AgentExecutionError with "unknown error"."""
+
+    async def fake_query_max_turns(prompt, options):
+        yield _make_result_message(result=None, is_error=True, subtype="error_max_turns", num_turns=61)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("pmf_engine.runner.harness.claude_sdk.query", side_effect=fake_query_max_turns):
+            harness = ClaudeSdkHarness()
+            with pytest.raises(FileNotFoundError, match="No artifact files"):
+                await harness.run(
+                    instruction="Do stuff",
+                    model="sonnet",
+                    max_turns=60,
+                    workspace_dir=tmpdir,
+                    params={},
+                )
+
+
+@pytest.mark.asyncio
 async def test_run_raises_agent_stream_truncated_on_no_result_message():
     """A stream that ends without a ResultMessage is a distinct failure mode
     from an agent-reported error. Use a separate exception type so alerting
