@@ -56,7 +56,7 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 // right words for them.
 const IMAGE_DROPZONE_LABEL = {
   win: 'Add your campaign headshot or logo',
-  serve: 'Add your header image',
+  serve: 'Add a header image (optional)',
 } as const
 
 interface SmsComposeStepProps {
@@ -385,12 +385,13 @@ export const SmsComposeStep = ({
             lines) under {SMS_COMPOSED_MAX_LENGTH} characters.
           </p>
         )}
-        {/* Edit mode shows the stored image via imagePreviewUrl with no File
-            in hand, and the requirement is already met there. */}
+        {/* Win's edit mode shows the stored image via imagePreviewUrl with
+            no File in hand, and its requirement is already met there. */}
         {!image && !imagePreviewUrl && (
           <p className="text-xs text-muted-foreground">
-            An image is required for text campaigns — JPG, PNG, or GIF up to 500
-            KB.
+            {isServe
+              ? 'You can add a JPG, PNG, or GIF up to 500 KB.'
+              : 'An image is required for text campaigns — JPG, PNG, or GIF up to 500 KB.'}
           </p>
         )}
       </div>

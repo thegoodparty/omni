@@ -277,8 +277,37 @@ describe('SmsFlow (Serve surface)', () => {
     )
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(await screen.findByText('Add your header image')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Add a header image (optional)'),
+    ).toBeInTheDocument()
     expect(screen.queryByText(/campaign headshot/i)).not.toBeInTheDocument()
+  })
+
+  // Win's image gate is Peerly's: it rejects an imageless text/p2p send.
+  // Serve's fulfilment takes imageUrl as optional all the way down, so the
+  // gate would be asking for a file nothing needs.
+  it('lets a message with no image continue to review', async () => {
+    api.mock('POST /v1/outreach/serve/sms/draft', {
+      status: 200,
+      data: { draft: 'drafted body' },
+    })
+    openServeFlow()
+
+    await userEvent.click(await screen.findByText('Explain a recent decision'))
+    await userEvent.click(await screen.findByText('Choose a constituent list'))
+    await userEvent.click(await screen.findByText('Northside residents'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Continue \(1,200\)$/ }),
+    )
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /^Friday, September 4(?!\d)/,
+      }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await screen.findByText('Add a header image (optional)')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 })
 
