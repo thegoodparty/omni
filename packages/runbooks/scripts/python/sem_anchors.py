@@ -7,8 +7,8 @@ metric run quiet for a month.
 
 Cross-repo read. CI holds a read token; a human running the monitor without one
 falls back to their own `gh` auth instead. Only when both are unavailable do the
-anchored checks disable themselves, with the rest of the monitor running
-unchanged — the weekly digest is more valuable degraded than not posted at all.
+anchored checks disable themselves. The rest of the monitor runs unchanged: the
+weekly digest is more valuable degraded than not posted at all.
 """
 
 from __future__ import annotations
