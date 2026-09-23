@@ -445,43 +445,47 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // The open catalog remains useful for explaining what Pro supports. Every
-    // other CRM tool stays absent when the campaign is known not to have
-    // access, saved lists included: a campaign without Pro cannot create one,
-    // and one whose Pro lapsed cannot use the lists it has, so offering to
-    // read them would only end in a refusal. Only a known false gates. An
-    // unknown flag arises only when no campaign resolved, which also turns
-    // these tools off, so the service stays the deciding check.
-    if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
+    // No voter file tool registers when the campaign is known not to have
+    // access, the open catalog included: a catalog whose output this
+    // campaign cannot act on reads to the model as a menu to walk through,
+    // and what filtering covers is one line in the product map instead.
+    // Saved lists too: a campaign without Pro cannot create one, and one
+    // whose Pro lapsed cannot use the lists it has, so offering to read them
+    // would only end in a refusal. Only a known false gates. An unknown flag
+    // arises only when no campaign resolved, which also turns these tools
+    // off, so the service stays the deciding check.
+    if (
+      this.contacts &&
+      ctx.crmToolsEnabled &&
+      ctx.organization &&
+      ctx.isPro !== false
+    ) {
       const filterTools: Record<string, LlmTool> = {}
-      if (ctx.isPro !== false) {
-        filterTools.count_contacts = buildCountContactsTool({
+      filterTools.count_contacts = buildCountContactsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+      })
+      // Beside describe_filter_dimensions rather than with the saved-list
+      // tools: it IS the vocabulary read for the one dimension the catalog
+      // cannot carry, and a count is as entitled to a precinct as a saved
+      // list is.
+      filterTools.list_precincts = buildListPrecinctsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+      })
+      // Saved-filter CRUD goes through the same VoterFileFilterService
+      // paths as the voter-file routes (Pro gate, completed-outreach
+      // validation, org scoping, locked-filter conflict all inherited).
+      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+        filterTools.crud_saved_filters = buildCrudSavedFiltersTool({
+          voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
         })
-        // Beside describe_filter_dimensions rather than with the saved-list
-        // tools: it IS the vocabulary read for the one dimension the catalog
-        // cannot carry, and a count is as entitled to a precinct as a saved
-        // list is.
-        filterTools.list_precincts = buildListPrecinctsTool({
-          contacts: this.contacts,
-          organization: ctx.organization,
-        })
-        // Saved-filter CRUD goes through the same VoterFileFilterService
-        // paths as the voter-file routes (Pro gate, completed-outreach
-        // validation, org scoping, locked-filter conflict all inherited).
-        if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
-          filterTools.crud_saved_filters = buildCrudSavedFiltersTool({
-            voterFileFilters: this.voterFileFilters,
-            contacts: this.contacts,
-            organization: ctx.organization,
-          })
-        }
       }
       // The catalog is built over the filter tools so its description names
-      // only the ones registered beside it. For a campaign without Pro that
-      // is none, and the catalog then says nothing about a tool the model
-      // cannot call. It is still listed first, as it always was.
+      // only the ones registered beside it. It is still listed first, as it
+      // always was.
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,

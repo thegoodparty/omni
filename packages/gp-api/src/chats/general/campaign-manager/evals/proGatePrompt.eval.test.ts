@@ -15,8 +15,9 @@
  * available, then asks for a count and learns from a tool's refusal that
  * filtering needs the Pro upgrade. The map now says whether the campaign has
  * Pro, one rule says to name that gate from the map instead of presenting
- * the locked part as available, and the count, precinct, and saved-list
- * tools are not registered for a campaign the row says lacks Pro.
+ * the locked part as available, and no voter file tool is registered for a
+ * campaign the row says lacks Pro, the filter catalog included, so the map
+ * is the only source of what filtering covers.
  *
  * Built through the real handler over fake services, so the prompt and the
  * tool list come from the wiring production uses: the campaign row's flag

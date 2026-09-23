@@ -513,7 +513,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     )
   })
 
-  it('keeps only the filter catalog for a campaign without Pro', () => {
+  it('registers no voter file tool for a campaign without Pro', () => {
     const tools = buildCrmHandler(
       buildContacts(),
       buildVoterFileFilters(),
@@ -525,19 +525,16 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       }),
     )
 
-    expect(Object.keys(tools)).toContain('describe_filter_dimensions')
-    for (const gated of [
+    // The catalog too: its output is a menu this campaign cannot order
+    // from, and what filtering covers is the product map's line instead.
+    for (const name of [
+      'describe_filter_dimensions',
       'count_contacts',
       'list_precincts',
       'crud_saved_filters',
     ]) {
-      expect(Object.keys(tools)).not.toContain(gated)
+      expect(Object.keys(tools)).not.toContain(name)
     }
-    // The catalog's instruction line follows the registration: no filter
-    // tool is present, so none is named as the one to prepare for.
-    expect(
-      descriptionOf(tools.describe_filter_dimensions).split('\n\n')[0],
-    ).not.toMatch(/count_contacts|crud_saved_filters/)
   })
 
   // Only a known "no" gates. Unknown keeps every tool and leaves the decision

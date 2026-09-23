@@ -122,6 +122,13 @@ describe('product knowledge blocks', () => {
     expect(render('win')).toContain('seeing which precincts it covers')
   })
 
+  // No voter file tool is registered for a campaign without Pro, the filter
+  // catalog included, so this line is the only place the assistant learns
+  // what filtering covers.
+  it('says what filters cover, in the Voter Data entry', () => {
+    expect(render('win')).toContain('Filters cover voter likelihood')
+  })
+
   it('says plainly that the public profile is separate from the story', () => {
     expect(render('win')).toMatch(/Public Profile is separate/)
   })

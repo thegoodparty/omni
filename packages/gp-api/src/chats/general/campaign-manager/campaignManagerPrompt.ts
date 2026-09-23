@@ -363,16 +363,11 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
 // promises a tool the model can't call.
 const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.crmToolsEnabled || !ctx.organization) return null
-  if (ctx.isPro === false) {
-    // Only the catalog is registered for this campaign, so this is all the
-    // block describes. Who can filter is the product map's fact, not this
-    // block's, so a change to the gate is a change to the map.
-    return (
-      'describe_filter_dimensions lists every dimension the voter file can ' +
-      'be filtered by and its allowed values; it says nothing about who can ' +
-      'filter.'
-    )
-  }
+  // No voter file tool is registered for a campaign without Pro, so there is
+  // nothing for this block to describe. What filtering covers and what it
+  // needs are the product map's facts, so a change to the gate is a change
+  // to the map.
+  if (ctx.isPro === false) return null
   const readGuidance =
     'You can explore the voter file in aggregate: call ' +
     'describe_filter_dimensions to see every filterable dimension and its ' +

@@ -166,6 +166,7 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Saved lists live HERE, on the lists index below the district stat card. This is the answer to "where are my lists" and it is not under Contacts',
       'Create new list is in the top bar of the page',
+      'Filters cover voter likelihood, party, age, phone on file, prior contacts made, support status, and precinct, among others',
       'The district stat card carries projected turnout and voters needed to win',
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',

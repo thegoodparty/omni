@@ -149,7 +149,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(noOrg).not.toContain('count_contacts')
   })
 
-  it('describes only the filter catalog without Pro', () => {
+  it('renders no voter data block without Pro', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
@@ -159,11 +159,16 @@ describe('buildCampaignManagerSystemPrompt', () => {
       }),
     )
 
-    expect(prompt).toContain('describe_filter_dimensions')
-    expect(prompt).toContain('says nothing about who can filter')
-    expect(prompt).not.toContain('count_contacts')
-    expect(prompt).not.toContain('list_precincts')
-    expect(prompt).not.toContain('crud_saved_filters')
+    // Nothing is registered, so nothing is described; the map carries what
+    // filtering covers and what it needs.
+    for (const name of [
+      'describe_filter_dimensions',
+      'count_contacts',
+      'list_precincts',
+      'crud_saved_filters',
+    ]) {
+      expect(prompt).not.toContain(name)
+    }
   })
 
   it('keeps the full voter-data guidance when Pro status is unknown', () => {
@@ -178,7 +183,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
 
     expect(prompt).toContain('count_contacts')
     expect(prompt).toContain('crud_saved_filters')
-    expect(prompt).not.toContain('says nothing about who can filter')
   })
 
   it('advertises the saved-list tool only when it is registered', () => {
