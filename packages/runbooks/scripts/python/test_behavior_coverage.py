@@ -66,3 +66,19 @@ def test_surface_states_distinguish_gap_from_dead():
 
 def test_behavior_with_no_surfaces_is_uncovered_not_covered():
     assert bc.behavior_state({"id": "b", "surfaces": []}, {})["coverage"] == "uncovered"
+
+
+def test_page_path_surface_reads_its_leg_record_first():
+    b = {"id": "b", "surfaces": [
+        {"path": "p.tsx", "label": "dash", "instrumented_by": "Viewed", "page_path": "/dashboard"}]}
+    by_type = {"Viewed": _rec("Viewed"),
+               "Viewed[path=/dashboard]": _rec("Viewed[path=/dashboard]", "dormant")}
+    [s] = bc.surface_states(b, by_type)
+    assert s["key"] == "Viewed[path=/dashboard]" and s["state"] == "dead"
+
+
+def test_page_path_surface_falls_back_to_the_bare_event():
+    b = {"id": "b", "surfaces": [
+        {"path": "p.tsx", "label": "dash", "instrumented_by": "Viewed", "page_path": "/dashboard"}]}
+    [s] = bc.surface_states(b, {"Viewed": _rec("Viewed")})
+    assert s["state"] == "live"

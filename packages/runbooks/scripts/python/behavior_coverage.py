@@ -10,7 +10,7 @@ straddling a retirement cannot make a behavior flap here.
 
 from __future__ import annotations
 
-from behavior_registry import instrumenting_events
+from behavior_registry import instrumenting_events, surface_key
 
 _LIVE_STATUSES = frozenset({"active"})
 _ORPHAN_STATUSES = frozenset({"orphaned_firing"})
@@ -31,15 +31,21 @@ def surface_states(behavior: dict, records_by_type: dict[str, dict]) -> list[dic
     out: list[dict] = []
     for s in behavior.get("surfaces") or []:
         name = s.get("instrumented_by")
+        key = surface_key(s)
         if not name:
             state = "gap"
+        elif key in records_by_type:
+            state = "live" if is_live(key, records_by_type) else "dead"
         elif is_live(name, records_by_type):
+            # A path slice has no catalog record of its own outside a latch; the page
+            # event being live is the best evidence available here. The latch owns the
+            # slice's dormancy.
             state = "live"
         else:
             state = "dead"
         out.append({
             "label": s.get("label", ""), "path": s.get("path", ""),
-            "instrumented_by": name, "state": state,
+            "instrumented_by": name, "key": key, "state": state,
         })
     return out
 
