@@ -166,6 +166,21 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).not.toContain('crud_saved_filters')
   })
 
+  it('keeps the full voter-data guidance when Pro status is unknown', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: null,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+
+    expect(prompt).toContain('count_contacts')
+    expect(prompt).toContain('crud_saved_filters')
+    expect(prompt).not.toContain('says nothing about who can filter')
+  })
+
   it('advertises the saved-list tool only when it is registered', () => {
     const readOnly = buildCampaignManagerSystemPrompt(
       ctx({

@@ -24,7 +24,8 @@
  * same flags decide which tools register. One value per case drives the row
  * and every fake, so the prompt and the services never disagree about Pro. A
  * stale flag (row says Pro, service refuses) is a separate manual check, not
- * a case here; the voter-data block's own error sentence covers it.
+ * a case here; when it happens the tools' own structured errors carry the
+ * upgrade suggestion.
  *
  * What this file checks is structural: whether Pro is mentioned at all,
  * which tools were called and with which action, whether an invented

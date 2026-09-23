@@ -359,6 +359,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       organization,
       crmToolsEnabled,
       savedFilterToolsEnabled,
+      // The same column the contacts service reads before it refuses. That
+      // service also treats elected-office organizations as Pro; this handler
+      // only ever serves campaigns, so the row alone is the whole rule here.
       isPro: campaign.isPro ?? false,
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
@@ -441,9 +444,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
 
     // The open catalog remains useful for explaining what Pro supports. Every
     // other CRM tool stays absent when the campaign is known not to have
-    // access: a campaign without Pro cannot create a saved list, so listing
-    // them is empty and each other action is refused. Unknown or
-    // stale-positive state still reaches the service backstop.
+    // access, saved lists included: a campaign without Pro cannot create one,
+    // and one whose Pro lapsed cannot use the lists it has, so offering to
+    // read them would only end in a refusal. Only a known false gates. An
+    // unknown flag arises only when no campaign resolved, which also turns
+    // these tools off, so the service stays the deciding check.
     if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,

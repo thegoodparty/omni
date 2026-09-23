@@ -535,6 +535,26 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     }
   })
 
+  // Only a known "no" gates. Unknown keeps every tool and leaves the decision
+  // to the service, so the gate can never fail closed on a campaign that
+  // does have access.
+  it('keeps every CRM tool when Pro status is unknown', () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(
+      ctxWith({ ...CRM_ON, isPro: null, savedFilterToolsEnabled: true }),
+    )
+    for (const name of [
+      'describe_filter_dimensions',
+      'count_contacts',
+      'list_precincts',
+      'crud_saved_filters',
+    ]) {
+      expect(Object.keys(tools)).toContain(name)
+    }
+  })
+
   it('omits both when crmToolsEnabled is false', () => {
     const tools = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, crmToolsEnabled: false }),

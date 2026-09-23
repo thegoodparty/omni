@@ -115,6 +115,13 @@ describe('product knowledge blocks', () => {
     expect(render('serve')).toMatch(/Saved lists live HERE/)
   })
 
+  // Listing a district's precincts is gated in the service, but the map used
+  // to say only that filtering was, so a campaign without Pro was told the
+  // dimension did not exist instead of where it unlocks.
+  it('says precinct coverage needs Pro, in the Voter Data access note', () => {
+    expect(render('win')).toContain('seeing which precincts it covers')
+  })
+
   it('says plainly that the public profile is separate from the story', () => {
     expect(render('win')).toMatch(/Public Profile is separate/)
   })
