@@ -154,7 +154,11 @@ model OutreachRobocall {
   // scheduled) — until then the code stays active and re-usable, and a pending
   // draft merely remembers it. `promoCoversTotal` marks a run the code paid for
   // in full: it carries no hold (Stripe refuses one under 50 cents), so the
-  // send gate skips the live-hold re-read and capture records $0.
+  // send gate skips the live-hold re-read and capture records $0. A code may be
+  // REMEMBERED by many drafts but REDEEMED by one: the migration adds a partial
+  // unique index on `promotion_code_id WHERE promo_redeemed_at IS NOT NULL`,
+  // which Prisma cannot declare here (`prisma migrate diff` ignores partial
+  // indexes, so it is not drift).
   promotionCodeId        String?             @map("promotion_code_id")
   promoCode              String?             @map("promo_code")
   promoDiscountInCents   Int?                @map("promo_discount_in_cents")

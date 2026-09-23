@@ -721,6 +721,16 @@ where money commits: `authorizeHold` re-validates it against the live estimate
 discount`, and on the success commit stamps `promoRedeemedAt` + deactivates the
 code in Stripe (`setPromotionCodeActive(false)`, best-effort; the stamp is the
 second guard, and `assertUnredeemed` refuses a code any other row has stamped).
+That pre-check is a read, so two authorizes on different drafts can both pass
+it; the atomic guard is a partial unique index on `promotion_code_id WHERE
+promo_redeemed_at IS NOT NULL` (hand-added to the migration — Prisma cannot
+declare it, and `migrate diff` ignores partial indexes so it is not drift). The
+loser's commit raises P2002: the hold path voids the just-placed hold, records
+it in `RobocallOrphanedHold` (`lost_commit`) and reverts the claim, the covered
+path touches nothing, and both 400 "already been used". Apply prices the
+discount off the RECOMPUTED estimate (`calcRobocallTotalInCents(billableCount)`,
+never the stored `amountInCents`, which is fee-less on pre-fee drafts) so the
+pay step's `coversTotal` agrees with what authorize will decide.
 Stripe never counts these redemptions itself. A code that covers the whole
 estimate — or leaves under `ROBOCALL_MIN_HOLD_CENTS` (50), which Stripe would
 refuse to hold — takes `scheduleCoveredRun`: the SAME claim shape as placement

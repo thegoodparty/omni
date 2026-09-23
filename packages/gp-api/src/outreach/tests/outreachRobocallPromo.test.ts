@@ -9,6 +9,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
+import { OutreachRobocallPromoService } from '@/outreach/services/outreachRobocallPromo.service'
 import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
@@ -18,6 +19,7 @@ const service = useTestService()
 const promotionCodesList = vi.fn()
 const promotionCodesUpdate = vi.fn()
 const paymentIntentsCreate = vi.fn()
+const paymentIntentsCancel = vi.fn()
 const paymentMethodsRetrieve = vi.fn()
 
 let campaign: Campaign
@@ -74,10 +76,14 @@ beforeEach(async () => {
   vi.spyOn(stripeClient.paymentIntents, 'create').mockImplementation(
     paymentIntentsCreate,
   )
+  vi.spyOn(stripeClient.paymentIntents, 'cancel').mockImplementation(
+    paymentIntentsCancel,
+  )
   vi.spyOn(stripeClient.paymentMethods, 'retrieve').mockImplementation(
     paymentMethodsRetrieve,
   )
   promotionCodesUpdate.mockResolvedValue({})
+  paymentIntentsCancel.mockResolvedValue({})
   paymentMethodsRetrieve.mockResolvedValue({
     id: 'pm_1',
     customer: 'cus_test',
@@ -230,6 +236,30 @@ describe('POST /v1/outreach/robocall/:outreachId/promo', () => {
       promoDiscountInCents: ESTIMATE,
       amountDueInCents: 0,
       coversTotal: true,
+    })
+  })
+
+  it('prices the code off the live estimate, not a stale stored amount', async () => {
+    // A draft from before the number fee shipped stores a fee-less amount. A
+    // code that would cover that stale figure must not read as covering the
+    // live estimate the authorize path will hold against.
+    promotionCodesList.mockResolvedValue(
+      listResult(stripePromo({ amountOff: ESTIMATE - 200 })),
+    )
+    const outreachId = await createDraft()
+    await service.prisma.outreachRobocall.update({
+      where: { outreachId },
+      data: { amountInCents: ESTIMATE - 200 },
+    })
+
+    const res = await applyPromo(outreachId, 'CALLS1000')
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      promoCode: 'CALLS1000',
+      promoDiscountInCents: ESTIMATE - 200,
+      amountDueInCents: 200,
+      coversTotal: false,
     })
   })
 
@@ -424,6 +454,112 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize with a promo', () => 
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     const satellite = await readSatellite(outreachId)
     expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+  })
+
+  it('the database refuses a second redemption of one code', async () => {
+    const redeemed = {
+      promotionCodeId: 'promo_1',
+      promoCode: 'CALLS1000',
+      promoDiscountInCents: 300,
+      promoRedeemedAt: new Date(),
+    }
+    await createDraft({
+      settleState: RobocallSettleState.authorized,
+      promo: redeemed,
+    })
+
+    await expect(
+      createDraft({
+        settleState: RobocallSettleState.authorized,
+        promo: redeemed,
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' })
+  })
+
+  it('voids the hold and refuses when another draft redeemed the code during placement', async () => {
+    // The pre-check passed for both drafts; the other one committed first.
+    // Skipping resolveForAuthorize's re-check is what reproduces that window.
+    await createDraft({
+      settleState: RobocallSettleState.authorized,
+      promo: {
+        promotionCodeId: 'promo_1',
+        promoCode: 'CALLS1000',
+        promoDiscountInCents: 300,
+        promoRedeemedAt: new Date(),
+      },
+    })
+    const outreachId = await createDraft({
+      promo: {
+        promotionCodeId: 'promo_1',
+        promoCode: 'CALLS1000',
+        promoDiscountInCents: 300,
+      },
+    })
+    vi.spyOn(
+      service.app.get(OutreachRobocallPromoService),
+      'resolveForAuthorize',
+    ).mockResolvedValueOnce({
+      promotionCodeId: 'promo_1',
+      promoCode: 'CALLS1000',
+      discountInCents: 300,
+      coversTotal: false,
+    })
+
+    const res = await postAuthorize(outreachId, { paymentMethodId: 'pm_1' })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toMatch(/already been used/)
+    expect(paymentIntentsCreate).toHaveBeenCalledTimes(1)
+    expect(paymentIntentsCancel).toHaveBeenCalledWith('pi_promo')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.authorizationIntentId).toBeNull()
+    expect(satellite.promoRedeemedAt).toBeNull()
+    expect(promotionCodesUpdate).not.toHaveBeenCalled()
+    const orphan = await service.prisma.robocallOrphanedHold.findUnique({
+      where: { paymentIntentId: 'pi_promo' },
+    })
+    expect(orphan?.reason).toBe('lost_commit')
+  })
+
+  it('refuses a covered run whose code another draft redeemed first, scheduling nothing', async () => {
+    await createDraft({
+      settleState: RobocallSettleState.authorized,
+      promo: {
+        promotionCodeId: 'promo_1',
+        promoCode: 'CALLS1000',
+        promoDiscountInCents: ESTIMATE,
+        promoRedeemedAt: new Date(),
+      },
+    })
+    const outreachId = await createDraft({
+      promo: {
+        promotionCodeId: 'promo_1',
+        promoCode: 'CALLS1000',
+        promoDiscountInCents: ESTIMATE,
+      },
+    })
+    vi.spyOn(
+      service.app.get(OutreachRobocallPromoService),
+      'resolveForAuthorize',
+    ).mockResolvedValueOnce({
+      promotionCodeId: 'promo_1',
+      promoCode: 'CALLS1000',
+      discountInCents: ESTIMATE,
+      coversTotal: true,
+    })
+
+    const res = await postAuthorize(outreachId)
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.data.message).toMatch(/already been used/)
+    expect(paymentIntentsCreate).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.promoRedeemedAt).toBeNull()
+    expect(satellite.promoCoversTotal).toBe(false)
+    expect((await readSpine(outreachId)).status).toBe('pending_payment')
+    expect(promotionCodesUpdate).not.toHaveBeenCalled()
   })
 
   it('400s a cardless authorize when the promo does not cover the run', async () => {

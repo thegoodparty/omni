@@ -11,6 +11,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { calcRobocallTotalInCents } from 'src/shared/util/robocallPricing.util'
 import {
   robocallDiscountInCents,
   robocallPromoState,
@@ -178,7 +179,13 @@ export class OutreachRobocallPromoService extends createPrismaBase(
         'This robocall is already paid for; the promo code cannot change',
       )
     }
-    return draft
+    // Recompute rather than trust the stored column, as findExistingDraft does:
+    // a draft created before the number fee shipped has a stale, fee-less
+    // amountInCents, and the authorize path prices against the live estimate.
+    return {
+      ...draft,
+      amountInCents: calcRobocallTotalInCents(draft.billableCount),
+    }
   }
 
   private async lookup(code: string): Promise<Stripe.PromotionCode> {
@@ -200,7 +207,10 @@ export class OutreachRobocallPromoService extends createPrismaBase(
 
   // Stripe does not count a redemption we apply outside Checkout, so our own
   // rows are the record. Another robocall that already spent this code refuses
-  // it; the same draft re-applying is fine.
+  // it; the same draft re-applying is fine. This is a read, so it is only the
+  // early, friendly error: two authorizes racing on different drafts both pass
+  // it. The partial unique index on a redeemed promotion_code_id (see the
+  // migration) is the atomic guard — the second commit fails on it.
   private async assertUnredeemed(
     promotionCodeId: string,
     outreachId: number,
