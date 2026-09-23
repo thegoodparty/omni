@@ -171,7 +171,7 @@ const WIN_AREAS: ProductArea[] = [
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
     ],
-    gate: 'Filtering the voter file needs the Pro upgrade. Without Pro the page still shows district aggregates and a blurred preview.',
+    gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
   },
   {
     navId: 'race-opponent-dashboard',
