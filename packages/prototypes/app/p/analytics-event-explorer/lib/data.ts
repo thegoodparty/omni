@@ -14,6 +14,8 @@ export type Question = {
   coverage: 'covered' | 'partial' | 'uncovered' | 'orphaned'
   product: string
   asked_by: string
+  /** What the caveat means for the number, in plain words. The headline; caveats is the detail. */
+  headline: string
   caveats: string
   okr: string
   clickup_task: string
@@ -98,6 +100,19 @@ export const nextRun = (from = new Date()): Date => {
 // not an engineer, so de-slug them for display rather than changing the data.
 export const deslug = (s: string) =>
   s ? s.replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase()) : ''
+
+/**
+ * Browser or server is the distinction that decides where someone looks for an event
+ * and what it can carry, and it was the question nobody on the call could answer. The
+ * code path is the only signal we hold, so an event without one says nothing.
+ */
+export const firesIn = (e: EventRecord): 'browser' | 'server' | '' => {
+  if (e.code_path.startsWith('packages/gp-webapp')) return 'browser'
+  if (e.code_path.startsWith('packages/gp-api')) return 'server'
+  return ''
+}
+
+export const FIRES_IN_LABEL = { browser: 'Browser', server: 'Server' }
 
 const AMPLITUDE_ORG = 'goodparty'
 

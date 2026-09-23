@@ -141,7 +141,8 @@ def build_events(rows: list[dict], anchors: dict, series: dict) -> list[dict]:
 
 def build_questions(by_type: dict[str, dict]) -> list[dict]:
     """One entry per behavior, keeping the human surface labels and the caveat that
-    the sheet's questions tab drops."""
+    the sheet's questions tab drops. The headline is the readable half of that caveat;
+    the prose stays, one click down, for whoever has to write the query."""
     behaviors = brg.load_validated_behaviors(aeh.WATCHLIST)
     out = []
     for b in behaviors:
@@ -153,6 +154,7 @@ def build_questions(by_type: dict[str, dict]) -> list[dict]:
             "coverage": st["coverage"],
             "product": b.get("product", ""),
             "asked_by": b.get("asked_by", ""),
+            "headline": b.get("headline", ""),
             "caveats": b.get("caveats", ""),
             "okr": b.get("okr", ""),
             "clickup_task": b.get("question_ref", ""),

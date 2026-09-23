@@ -47,6 +47,16 @@ cd standalone && python3 build.py
 Writes a gitignored `analytics-event-explorer.html`, which is then published as an
 Artifact. Republish to the **same URL** so the link people already have keeps working.
 
+## Search
+
+People search in sentences and in their own spelling, so the index is not literal:
+grammar words are dropped, a joined compound matches a split one (`phonebanking` finds
+`Phone Banking`), and a plural matches the singular the data uses. When nothing matches
+every word, a second pass returns the closest matches under a banner rather than an
+empty page — a blank result here reads as "we do not measure that", which is the one
+wrong answer this page can give. `lib/search.test.ts` holds the queries that were
+actually typed at it.
+
 ## Things that will surprise you
 
 - **`where_it_fires` does not come from Amplitude.** Govern has it for 2 of 592 events.
@@ -60,5 +70,14 @@ Artifact. Republish to the **same URL** so the link people already have keeps wo
 - **A caveat is shown on an event only when it names that event.** Attaching every
   caveat from every question an event serves buried one card under four warnings,
   three of them about unrelated subjects.
+- **A caveat has two halves.** `headline` in `monitored_events.yaml` is the plain
+  sentence everyone reads; `caveats` is the precise prose, one disclosure down, for
+  whoever writes the query. A test fails the PR if a caveat has no headline, or if a
+  headline carries backticks, file names or ticket ids.
+- **The standalone page declares its own charset.** Opened as a saved file there is no
+  `Content-Type` header, and every arrow, check and middot renders as mojibake without
+  it. Sending someone the file is the whole point of that copy.
+- **Browser or server is derived from the code path**, the only signal we hold, so the
+  266 events with a path say which and the other 326 say nothing at all.
 - **`ANSWERS` and `USED_BY` in the snapshot builder are hand-kept.** They retire when
   the Analytics Questions list gets an "Answer link" field (DATA-2509).

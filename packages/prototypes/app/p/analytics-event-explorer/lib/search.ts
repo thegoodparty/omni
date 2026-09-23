@@ -13,36 +13,141 @@ export type Results = {
   areas: Hit<Area>[]
   events: Hit<EventRecord>[]
   total: number
+  /** True when no row matched every word and these are the closest matches instead. */
+  partial: boolean
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[_-]+/g, ' ')
 
-const tokens = (q: string) => norm(q).split(/\s+/).filter(Boolean)
+// "phonebanking" and "phone banking" are the same word to everyone except indexOf.
+const squeeze = (s: string) => s.replace(/[^a-z0-9]+/g, '')
+
+/**
+ * People search in sentences, not keywords: "how many candidates exported a voter
+ * file last week" is the actual task. Grammar words are in no event name, so keeping
+ * them means every such query fails the all-words rule on a word nobody meant.
+ */
+const STOPWORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'of',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'from',
+  'by',
+  'with',
+  'and',
+  'or',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'do',
+  'does',
+  'did',
+  'can',
+  'how',
+  'what',
+  'when',
+  'where',
+  'who',
+  'why',
+  'which',
+  'that',
+  'this',
+  'i',
+  'we',
+  'you',
+  'they',
+  'it',
+  'my',
+  'our',
+  'their',
+  'any',
+  'some',
+  'much',
+  'ever',
+  'still',
+  'has',
+  'have',
+  'had',
+])
+
+const tokens = (q: string) => {
+  const all = norm(q).split(/\s+/).filter(Boolean)
+  const meaty = all.filter((t) => !STOPWORDS.has(t))
+  return meaty.length ? meaty : all
+}
+
+/**
+ * The forms of one query word we are willing to match. Nobody types the data's
+ * spelling: "Phonebanking Contacts" has to reach `Phone Banking ... Contact`, so a
+ * word matches joined-up text and matches a singular the data happens to use.
+ */
+const forms = (t: string) => {
+  const out = [t]
+  if (t.length > 3 && t.endsWith('s')) out.push(t.slice(0, -1))
+  return out
+}
+
+const hit = (text: string, squeezed: string, t: string, weight: number) => {
+  let best = 0
+  for (const f of forms(t)) {
+    const i = text.indexOf(f)
+    if (i >= 0) {
+      // Prefix and word-boundary matches beat a mid-word substring.
+      const boundary = i === 0 || !/[a-z0-9]/.test(text.charAt(i - 1))
+      best = Math.max(best, weight * (boundary ? 1 : 0.5))
+      continue
+    }
+    // Only worth squeezing once the plain match has failed.
+    if (squeezed.includes(squeeze(f))) best = Math.max(best, weight * 0.5)
+  }
+  return best
+}
 
 /**
  * Scores a haystack against the query tokens. Every token must appear somewhere or
  * the row is out, which keeps a two-word query from matching on its weakest word.
  * A whole-phrase hit outranks scattered tokens so "voter file" beats a row that
  * happens to say "voter" in one field and "file" in another.
+ *
+ * `loose` drops the all-words rule and scales by how much of the query matched. It
+ * runs only when the strict pass found nothing anywhere, because on this page an
+ * empty result is read as "we do not measure that" rather than "try other words".
  */
 const score = (
   haystacks: Array<[string, number]>,
   qs: string[],
   phrase: string,
+  loose = false,
 ) => {
   let total = 0
+  let matched = 0
   for (const t of qs) {
     let best = 0
     for (const [text, weight] of haystacks) {
       if (!text) continue
-      const i = text.indexOf(t)
-      if (i < 0) continue
-      // Prefix and word-boundary matches beat a mid-word substring.
-      const boundary = i === 0 || !/[a-z0-9]/.test(text.charAt(i - 1))
-      best = Math.max(best, weight * (boundary ? 1 : 0.5))
+      best = Math.max(best, hit(text, squeeze(text), t, weight))
     }
-    if (best === 0) return 0
+    if (best === 0) {
+      if (!loose) return 0
+      continue
+    }
+    matched += 1
     total += best
+  }
+  // Half the query is the floor for a "closest match". One incidental word in
+  // common is not a near miss, it is a different search.
+  if (loose) {
+    if (matched * 2 < qs.length) return 0
+    total *= matched / qs.length
   }
   if (phrase.includes(' ')) {
     for (const [text, weight] of haystacks) {
@@ -79,13 +184,7 @@ export const logSearch = (query: string, total: number): void => {
   void total
 }
 
-export const search = (query: string): Results => {
-  const qs = tokens(query)
-  const phrase = norm(query).trim()
-  if (!qs.length) {
-    return { questions: [], areas: [], events: [], total: 0 }
-  }
-
+const run = (qs: string[], phrase: string, loose: boolean) => {
   const questions: Hit<Question>[] = []
   for (const q of data.questions) {
     const s = score(
@@ -104,18 +203,20 @@ export const search = (query: string): Results => {
         // Someone hunting for a finished report searches its title, not the
         // question it happens to answer.
         [norm(q.answer_label), 8],
+        [norm(q.headline), 4],
         [norm(q.caveats), 2],
         [norm(q.asked_by), 3],
       ],
       qs,
       phrase,
+      loose,
     )
     if (s) questions.push({ item: q, score: s * QUESTION_BOOST })
   }
 
   const areas: Hit<Area>[] = []
   for (const a of data.areas) {
-    const s = score([[norm(a.name), 10]], qs, phrase)
+    const s = score([[norm(a.name), 10]], qs, phrase, loose)
     if (s) areas.push({ item: a, score: s * AREA_BOOST })
   }
 
@@ -134,6 +235,7 @@ export const search = (query: string): Results => {
       ],
       qs,
       phrase,
+      loose,
     )
     // Weight by liveness, not just text. Someone searching for a way to measure
     // something wants an instrument they can still use, so a retired event with a
@@ -145,10 +247,30 @@ export const search = (query: string): Results => {
   by(questions)
   by(areas)
   by(events)
+  return {
+    questions,
+    areas,
+    events,
+    total: questions.length + areas.length + events.length,
+  }
+}
 
-  const total = questions.length + areas.length + events.length
-  logSearch(query, total)
-  return { questions, areas, events, total }
+export const search = (query: string): Results => {
+  const qs = tokens(query)
+  const phrase = norm(query).trim()
+  if (!qs.length) {
+    return { questions: [], areas: [], events: [], total: 0, partial: false }
+  }
+
+  let found = run(qs, phrase, false)
+  let partial = false
+  if (!found.total && qs.length > 1) {
+    found = run(qs, phrase, true)
+    partial = found.total > 0
+  }
+
+  logSearch(query, found.total)
+  return { ...found, partial }
 }
 
 export const suggestions = [

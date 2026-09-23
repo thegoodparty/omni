@@ -8,7 +8,14 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { Badge, Button, Separator } from '@goodparty_org/styleguide'
-import { amplitudeUrl, data, prUrl, type EventRecord } from '../lib/data'
+import {
+  amplitudeUrl,
+  data,
+  prUrl,
+  type EventRecord,
+  firesIn,
+  FIRES_IN_LABEL,
+} from '../lib/data'
 import { lineageOf, PRODUCT_LABEL, productOf } from '../lib/lineage'
 import { TONE_CLASS, verdictFor } from '../lib/verdict'
 import { Sparkline } from './Sparkline'
@@ -35,24 +42,21 @@ const Field = ({
  * every question it answers. This is the field that decides whether a number is
  * right or wrong, so it sits directly under the verdict and nowhere lower.
  */
-const caveatsFor = (e: EventRecord) => [
-  ...new Set(
-    data.questions
-      .filter(
-        (q) =>
-          q.caveats &&
-          q.surfaces.some((s) => s.instrumented_by === e.display_name) &&
-          // A question's caveat is usually about the question, not about every event
-          // underneath it. Attaching all of them buried this card under four warnings,
-          // three of which were about Pro billing and warehouse completeness. Only
-          // surface one here when it actually names this event; the rest stay on the
-          // question, which the card already links to.
-          (q.caveats.includes(e.display_name) ||
-            q.caveats.includes(e.event_type)),
-      )
-      .map((q) => q.caveats),
-  ),
-]
+const caveatsFor = (e: EventRecord) =>
+  data.questions
+    .filter(
+      (q) =>
+        q.caveats &&
+        q.surfaces.some((s) => s.instrumented_by === e.display_name) &&
+        // A question's caveat is usually about the question, not about every event
+        // underneath it. Attaching all of them buried this card under four warnings,
+        // three of which were about Pro billing and warehouse completeness. Only
+        // surface one here when it actually names this event; the rest stay on the
+        // question, which the card already links to.
+        (q.caveats.includes(e.display_name) ||
+          q.caveats.includes(e.event_type)),
+    )
+    .map((q) => ({ headline: q.headline, caveats: q.caveats }))
 
 /**
  * "Which one should I use today?" is the question the status column cannot answer. A
@@ -152,9 +156,21 @@ export const EventDetail = ({ event }: { event: EventRecord }) => {
           className="flex gap-2 rounded-md border border-warning bg-warning-background p-3 text-sm"
         >
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning-dark" />
-          <div>
+          <div className="min-w-0">
             <div className="font-medium">Read this before you count it</div>
-            <p className="mt-1 whitespace-pre-line">{c}</p>
+            <p className="mt-1 whitespace-pre-line">
+              {c.headline || c.caveats}
+            </p>
+            {c.headline && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-xs text-muted-foreground">
+                  The detail, for whoever writes the query
+                </summary>
+                <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">
+                  {c.caveats}
+                </p>
+              </details>
+            )}
           </div>
         </div>
       ))}
@@ -164,6 +180,11 @@ export const EventDetail = ({ event }: { event: EventRecord }) => {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <Field label="What it is">{event.description}</Field>
         <Field label="Where it fires">
+          {firesIn(event) && (
+            <span className="text-muted-foreground">
+              {FIRES_IN_LABEL[firesIn(event) as 'browser' | 'server']} ·{' '}
+            </span>
+          )}
           {event.fires_on}
           {event.fires_on_source === 'anchor' && (
             <Badge variant="outline" className="ml-2 align-middle text-[10px]">

@@ -59,12 +59,24 @@ export const QuestionCard = ({
           </a>
         )}
 
-        {q.caveats && (
+        {(q.headline || q.caveats) && (
           <div className="flex gap-2 rounded-md border border-warning bg-warning-background p-3 text-sm">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning-dark" />
-            <div>
+            <div className="min-w-0">
               <div className="font-medium">Read this before you count it</div>
-              <p className="mt-1 whitespace-pre-line">{q.caveats}</p>
+              <p className="mt-1 whitespace-pre-line">
+                {q.headline || q.caveats}
+              </p>
+              {q.headline && q.caveats && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-muted-foreground">
+                    The detail, for whoever writes the query
+                  </summary>
+                  <p className="mt-1 whitespace-pre-line text-xs text-muted-foreground">
+                    {q.caveats}
+                  </p>
+                </details>
+              )}
             </div>
           </div>
         )}

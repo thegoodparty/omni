@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>Analytics Events Explorer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -157,6 +158,9 @@
   }
   .caveat .ct { font-weight: 600; color: var(--warn); }
   .caveat p { margin: 3px 0 0; }
+  .caveat details { margin-top: 6px; }
+  .caveat summary { cursor: pointer; font-size: 12px; color: var(--ink-3); }
+  .caveat details p { font-size: 12px; color: var(--ink-3); }
   .surfaces { margin-top: 11px; }
   .surfaces .lbl, .fieldlbl {
     font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3);
@@ -222,7 +226,9 @@
   .nextcard p { margin: 4px 0 9px; font-size: 12px; color: var(--ink-3); }
 
   .empty { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  .partial { border: 1px dashed var(--line-2); border-radius: 8px; padding: 8px 12px; font-size: 13px; color: var(--ink-3); }
   .note { font-size: 12px; color: var(--ink-3); margin-top: 8px; }
+  .qintro { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; max-width: 64ch; }
   .try { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-3); margin-top: 12px; }
   /* multi-select dropdown */
   details.dd { position: relative; }
@@ -328,7 +334,14 @@
     }
     return { p: 'unknown', src: 'none' };
   }
-  EVENTS.forEach(function (e) { var v = productVerdict(e); e._p = v.p; e._psrc = v.src; });
+  // Browser or server decides where someone looks for an event and what it can carry.
+  // The code path is the only signal we hold, so an event without one says nothing.
+  function firesIn(e) {
+    var p = e.code_path || '';
+    return p.indexOf('packages/gp-webapp') === 0 ? 'browser' : p.indexOf('packages/gp-api') === 0 ? 'server' : '';
+  }
+  var FIRES_IN = [['browser', 'Browser'], ['server', 'Server']];
+  EVENTS.forEach(function (e) { var v = productVerdict(e); e._p = v.p; e._psrc = v.src; e._fires = firesIn(e); });
 
   var PRODUCTS = [['win', 'Win'], ['serve', 'Serve'], ['shared', 'Shared'], ['unknown', 'Product unknown']];
   var STATUS_GROUPS = [
@@ -404,64 +417,114 @@
 
   // caveats: only when the caveat actually names this event
   function caveatsFor(e) {
-    var out = [];
+    var out = [], seen = {};
     QUESTIONS.forEach(function (q) {
-      if (!q.caveats) return;
+      if (!q.caveats || seen[q.caveats]) return;
       var used = (q.surfaces || []).some(function (s) { return s.instrumented_by === e.display_name; });
       if (!used) return;
       if (q.caveats.indexOf(e.display_name) < 0 && q.caveats.indexOf(e.event_type) < 0) return;
-      if (out.indexOf(q.caveats) < 0) out.push(q.caveats);
+      seen[q.caveats] = 1;
+      out.push({ headline: q.headline, caveats: q.caveats });
     });
     return out;
   }
 
+  // The headline is what a non-engineer reads; the prose is one click down, for
+  // whoever has to write the query.
+  function caveatBlock(c) {
+    return '<div class="caveat"><span>\u26a0</span><div><div class="ct">Read this before you count it</div>' +
+      '<p>' + esc(c.headline || c.caveats) + '</p>' +
+      (c.headline && c.caveats
+        ? '<details><summary>The detail, for whoever writes the query</summary><p>' + esc(c.caveats) + '</p></details>'
+        : '') +
+      '</div></div>';
+  }
+
   // ---- search ---------------------------------------------------------------------
+  // Mirrors ../lib/search.ts. The two copies share no code; every change lands in both.
   function norm(s) { return (s || '').toLowerCase().replace(/[_-]+/g, ' '); }
+  // "phonebanking" and "phone banking" are the same word to everyone except indexOf.
+  function squeeze(s) { return s.replace(/[^a-z0-9]+/g, ''); }
   var STATUS_W = { active: 1.4, dormant: 1, instrumented_never_observed: .9, orphaned_firing: .9, code_unknown: .8, deprecating: .5, retired: .4, system: .5 };
-  function score(hay, toks, phrase) {
-    var total = 0;
+  // People search in sentences. Grammar words are in no event name, so keeping them
+  // means such a query fails the all-words rule on a word nobody meant.
+  var STOP = {};
+  ('a an the of in on at to for from by with and or is are was were be been do does did can how what when where who why which that this ' +
+   'i we you they it my our their any some much ever still has have had').split(' ').forEach(function (w) { STOP[w] = 1; });
+  function forms(t) { return t.length > 3 && t.charAt(t.length - 1) === 's' ? [t, t.slice(0, -1)] : [t]; }
+  function hit(text, sq, t, w) {
+    var best = 0, f = forms(t);
+    for (var i = 0; i < f.length; i++) {
+      var at = text.indexOf(f[i]);
+      if (at >= 0) {
+        var boundary = at === 0 || !/[a-z0-9]/.test(text.charAt(at - 1));
+        best = Math.max(best, w * (boundary ? 1 : .5));
+        continue;
+      }
+      if (sq.indexOf(squeeze(f[i])) >= 0) best = Math.max(best, w * .5);
+    }
+    return best;
+  }
+  // `loose` drops the all-words rule. It runs only when the strict pass found nothing,
+  // because here an empty result is read as "we do not measure that".
+  function score(hay, toks, phrase, loose) {
+    var total = 0, matched = 0;
     for (var i = 0; i < toks.length; i++) {
       var best = 0;
       for (var j = 0; j < hay.length; j++) {
-        var text = hay[j][0], w = hay[j][1];
+        var text = hay[j][0];
         if (!text) continue;
-        var at = text.indexOf(toks[i]);
-        if (at < 0) continue;
-        var boundary = at === 0 || !/[a-z0-9]/.test(text.charAt(at - 1));
-        best = Math.max(best, w * (boundary ? 1 : .5));
+        best = Math.max(best, hit(text, squeeze(text), toks[i], hay[j][1]));
       }
-      if (!best) return 0;
+      if (!best) { if (!loose) return 0; continue; }
+      matched++;
       total += best;
+    }
+    // One incidental word in common is not a near miss, it is a different search.
+    if (loose) {
+      if (matched * 2 < toks.length) return 0;
+      total *= matched / toks.length;
     }
     if (phrase.indexOf(' ') >= 0) {
       for (var k = 0; k < hay.length; k++) if (hay[k][0] && hay[k][0].indexOf(phrase) >= 0) total += hay[k][1] * 1.5;
     }
     return total;
   }
-  function search(qs) {
-    var phrase = norm(qs).trim(), toks = phrase.split(/\s+/).filter(Boolean);
-    if (!toks.length) return { questions: [], areas: [], events: [], total: 0 };
+  function runSearch(toks, phrase, loose) {
     var Q = [], A = [], E = [];
     QUESTIONS.forEach(function (q) {
       var s = score([[norm(q.question), 10], [norm((q.also_answers || []).join(' ')), 6], [norm(q.id), 5],
         [norm((q.surfaces || []).map(function (x) { return x.label + ' ' + (x.instrumented_by || ''); }).join(' ')), 4],
-        [norm(q.answer_label), 8], [norm(q.caveats), 2], [norm(q.asked_by), 3]], toks, phrase);
+        [norm(q.answer_label), 8], [norm(q.headline), 4], [norm(q.caveats), 2], [norm(q.asked_by), 3]], toks, phrase, loose);
       if (s) Q.push({ it: q, s: s * 3 });
     });
-    AREAS.forEach(function (a) { var s = score([[norm(a.name), 10]], toks, phrase); if (s) A.push({ it: a, s: s * 2 }); });
+    AREAS.forEach(function (a) { var s = score([[norm(a.name), 10]], toks, phrase, loose); if (s) A.push({ it: a, s: s * 2 }); });
     EVENTS.forEach(function (e) {
       var s = score([[norm(e.display_name), 10], [norm(e.event_type), 8], [norm(e.description), 5],
         [norm(e.fires_on), 4], [norm(e.area), 4], [norm(e.url), 3], [norm((e.tags || []).join(' ')), 2],
-        [norm((e.questions || []).join(' ')), 2]], toks, phrase);
+        [norm((e.questions || []).join(' ')), 2]], toks, phrase, loose);
       if (s) E.push({ it: e, s: s * (STATUS_W[e.status] || 1) });
     });
     function by(x) { x.sort(function (a, b) { return b.s - a.s; }); return x; }
     by(Q); by(A); by(E);
     return { questions: Q, areas: A, events: E, total: Q.length + A.length + E.length };
   }
+  function search(qs) {
+    var phrase = norm(qs).trim(), all = phrase.split(/\s+/).filter(Boolean);
+    var meaty = all.filter(function (t) { return !STOP[t]; });
+    var toks = meaty.length ? meaty : all;
+    if (!toks.length) return { questions: [], areas: [], events: [], total: 0, partial: false };
+    var found = runSearch(toks, phrase, false), partial = false;
+    if (!found.total && toks.length > 1) {
+      found = runSearch(toks, phrase, true);
+      partial = found.total > 0;
+    }
+    found.partial = partial;
+    return found;
+  }
 
   // ---- state ----------------------------------------------------------------------
-  var state = { q: '', area: null, products: [], statuses: [], question: null, open: {}, sections: {},
+  var state = { q: '', area: null, products: [], origins: [], statuses: [], question: null, open: {}, sections: {},
     dd: null, addedAfter: '', minVolume: '', sortKey: null, sortDir: 'asc' };
   function toggleIn(arr, v) { var i = arr.indexOf(v); if (i < 0) arr.push(v); else arr.splice(i, 1); }
 
@@ -518,7 +581,7 @@
       '<div class="qhead"><h3 class="qtext">' + esc(q.question) + '</h3>' + badge(cov[0], cov[1]) + '</div>' +
       '<p class="qblurb">' + esc(cov[2]) + '</p>' +
       (q.answer_url ? '<a class="answeredby" href="' + esc(q.answer_url) + '" target="_blank" rel="noreferrer">Answered by ' + esc(q.answer_label || 'this') + ' \u2197</a>' : '') +
-      (q.caveats ? '<div class="caveat"><span>⚠</span><div><div class="ct">Read this before you count it</div><p>' + esc(q.caveats) + '</p></div></div>' : '') +
+      (q.caveats ? caveatBlock(q) : '') +
       (surfaces ? '<div class="surfaces"><div class="lbl">Where this happens</div>' + surfaces + '</div>' : '') +
       '<div style="margin-top:11px"><button class="btn ' + (sel ? 'primary' : '') + '" data-qsel="' + esc(q.id) + '">' +
       (sel ? 'Showing its events below' : 'Show the events answering this') + '</button></div>' +
@@ -545,11 +608,11 @@
     var psrc = e._psrc === 'tag' ? 'tagged' : e._psrc === 'path' ? 'inferred from the code path' : 'not recorded';
     return '<div class="detail">' +
       '<div class="verdictrow">' + badge(v[0], v[1]) + '<span>' + esc(v[2]) + '</span></div>' +
-      cav.map(function (c) { return '<div class="caveat"><span>⚠</span><div><div class="ct">Read this before you count it</div><p>' + esc(c) + '</p></div></div>'; }).join('') +
+      cav.map(caveatBlock).join('') +
       lineageHtml +
       '<div class="fields">' +
         field('What it is', esc(e.description)) +
-        field('Where it fires', esc(e.fires_on) + (e.fires_on_source === 'anchor' ? ' <span class="badge b-mute">drafted' + (e.anchor_confidence === 'low' ? ', low confidence' + (e.anchor_flag_reason ? ': ' + esc(e.anchor_flag_reason) : '') : '') + '</span>' : '')) +
+        field('Where it fires', (e._fires ? '<span class="muted">' + (e._fires === 'browser' ? 'Browser' : 'Server') + ' \u00b7 </span>' : '') + esc(e.fires_on) + (e.fires_on_source === 'anchor' ? ' <span class="badge b-mute">drafted' + (e.anchor_confidence === 'low' ? ', low confidence' + (e.anchor_flag_reason ? ': ' + esc(e.anchor_flag_reason) : '') : '') + '</span>' : '')) +
         field('Weekly volume (9 weeks)', sparkline(e.series, 96, 24) + ' <span class="muted mono" style="font-size:11px">' + fmt(e.count_30d) + ' / 30d</span>') +
       '</div>' +
       '<div class="fields">' +
@@ -677,6 +740,7 @@
     return list.filter(function (e) {
       if (state.area && e.area !== state.area) return false;
       if (state.products.length && state.products.indexOf(e._p) < 0) return false;
+      if (state.origins.length && state.origins.indexOf(e._fires) < 0) return false;
       if (state.statuses.length) {
         var ok = STATUS_GROUPS.some(function (g) { return state.statuses.indexOf(g[0]) >= 0 && g[2].indexOf(e.status) >= 0; });
         if (!ok) return false;
@@ -693,7 +757,7 @@
     // No "request an event" exit on purpose: nobody arrives wanting an event, they
     // arrive wanting to know whether users do something. The form takes the question.
     var acts = [
-      ['Ask for something to be measured', 'Want to know whether users do X? File the question and it becomes a tracked question on this page.', FORM, 'Open the form'],
+      ['Ask for something to be measured', 'Ask in your own words, not in event names. It joins the questions list; nudge us in Slack if it is urgent.', FORM, 'Open the form'],
       ['Something look wrong?', 'A number that cannot be right, an event firing twice, a description that is out of date.', SLACK, 'Open #product-analytics'],
       ['Dig into an area', 'See every event, gap and question for one product area in one place.', '', 'Coming soon']
     ];
@@ -731,6 +795,10 @@
         (FORM ? '<a class="btn primary" href="' + esc(FORM) + '" target="_blank" rel="noreferrer">Ask for it to be measured</a>' : '') +
         '<a class="btn" href="' + SLACK + '" target="_blank" rel="noreferrer">Ask in #product-analytics</a></div></div>';
     }
+    if (searching && res.partial) {
+      out += '<div class="partial">Nothing matches every word of &ldquo;' + esc(state.q) +
+        '&rdquo;. These are the closest matches.</div>';
+    }
     if (searching && res.questions.length) {
       out += section('sq', 'Questions', res.questions.length, '', res.questions.slice(0, 4).map(function (h) { return questionCard(h.it); }).join(''));
     }
@@ -746,7 +814,8 @@
       var broken = qs.filter(function (q) { return q.coverage !== 'covered'; }).length;
       out += section('questions', 'By business question', qs.length,
         '<span class="badge b-mute">' + broken + ' not fully answerable</span>',
-        qs.map(questionCard).join(''), false);
+        '<p class="qintro">What people have asked to be able to answer. Each one shows what we can measure ' +
+        'today and what is missing.</p>' + qs.map(questionCard).join(''), false);
     }
 
     // events
@@ -771,9 +840,13 @@
       STATUS_GROUPS.map(function (g) { return [g[0], g[1], statusCounts[g[0]]]; }), 'status');
     var prodDD = dropdown('products', 'Products', state.products,
       PRODUCTS.map(function (p) { return [p[0], p[1], counts[p[0]] || 0]; }), 'prod');
+    var firesDD = dropdown('fires', 'Fires in', state.origins,
+      FIRES_IN.map(function (f) {
+        return [f[0], f[1], EVENTS.filter(function (e) { return e._fires === f[0]; }).length];
+      }), 'fires');
     var dateIn = '<label class="inlabel">Added after <input class="datein" type="date" id="addedafter" value="' + esc(state.addedAfter) + '"></label>';
     var volIn = '<label class="inlabel">Min 30d <input class="numin" type="number" min="0" id="minvol" value="' + esc(state.minVolume) + '" placeholder="0"></label>';
-    var aside = '<span class="filterrow" style="margin:0">' + areaOpts + stateDD + prodDD + dateIn + volIn +
+    var aside = '<span class="filterrow" style="margin:0">' + areaOpts + stateDD + firesDD + prodDD + dateIn + volIn +
       (activeQ ? '<button class="linkbtn" id="clearq2">clear question</button>' : '') + '</span>';
 
     out += section('events', activeQ ? 'Events answering this question' : (searching ? 'Events' : 'All events'),
@@ -789,7 +862,7 @@
     document.getElementById('results').innerHTML = out;
   }
 
-  function filtersOn() { return !!(state.area || state.products.length || state.statuses.length || state.question || state.addedAfter || state.minVolume); }
+  function filtersOn() { return !!(state.area || state.products.length || state.origins.length || state.statuses.length || state.question || state.addedAfter || state.minVolume); }
   function fmtWhen(iso) {
     if (!iso) return 'unknown';
     var d = new Date(iso);
@@ -810,19 +883,24 @@
       state.dd = d.hasAttribute('open') ? null : d.dataset.dd;
       return; // let <details> toggle itself; no re-render, so the menu stays put
     }
-    var t = ev.target.closest('[data-sec],[data-area],[data-prod],[data-status],[data-qsel],[data-ev],[data-clear],[data-sort],#clearf,#clearq,#clearq2');
+    var t = ev.target.closest('[data-sec],[data-area],[data-prod],[data-fires],[data-status],[data-qsel],[data-ev],[data-clear],[data-sort],#clearf,#clearq,#clearq2');
     if (!t) return;
     ev.preventDefault();
     if (t.id === 'clearq') { state.q = ''; document.getElementById('q').value = ''; }
-    else if (t.id === 'clearf') { state.area = null; state.products = []; state.statuses = []; state.question = null; state.addedAfter = ''; state.minVolume = ''; }
+    else if (t.id === 'clearf') { state.area = null; state.products = []; state.origins = []; state.statuses = []; state.question = null; state.addedAfter = ''; state.minVolume = ''; }
     else if (t.id === 'clearq2') state.question = null;
     else if (t.dataset.sec) { var k = t.dataset.sec; state.sections[k] = t.getAttribute('aria-expanded') !== 'true'; }
     else if (t.dataset.area) state.area = state.area === t.dataset.area ? null : t.dataset.area;
     else if (t.dataset.prod) toggleIn(state.products, t.dataset.prod);
+    else if (t.dataset.fires) toggleIn(state.origins, t.dataset.fires);
     else if (t.dataset.status) toggleIn(state.statuses, t.dataset.status);
     else if (t.dataset.qsel) state.question = state.question === t.dataset.qsel ? null : t.dataset.qsel;
     else if (t.dataset.ev) state.open[t.dataset.ev] = !state.open[t.dataset.ev];
-    else if (t.dataset.clear) { if (t.dataset.clear === 'status') state.statuses = []; else state.products = []; }
+    else if (t.dataset.clear) {
+      if (t.dataset.clear === 'status') state.statuses = [];
+      else if (t.dataset.clear === 'fires') state.origins = [];
+      else state.products = [];
+    }
     else if (t.dataset.sort) {
       if (state.sortKey !== t.dataset.sort) { state.sortKey = t.dataset.sort; state.sortDir = (t.dataset.sort === 'count' || t.dataset.sort === 'added') ? 'desc' : 'asc'; }
       else if (state.sortDir === 'asc') state.sortDir = 'desc';

@@ -122,6 +122,8 @@ events:
 #   surfaces[]:    path (repo-relative), label (stable, used in per-surface reporting),
 #                  instrumented_by (event name, or explicit null for a known gap)
 #   superseded[]:  historical instruments, for successor lineage
+#   headline:      what the caveat means for the number, in one plain sentence; this is what
+#                  a non-engineer reads, so no event internals, file names or ticket ids
 #   caveats:       optional note that travels with the answer (a known data-quality defect)
 #   asked_by:      who wants this answered; review nudges route here
 #   review:        interval_days, last_reviewed, reviewed_by
@@ -133,6 +135,9 @@ behaviors:
       - "Are people creating and downloading lists but never doing outreach on our platform?"
     product: win
     asked_by: nate@goodparty.org
+    headline: >-
+      Count exports from Voter Data - List Exported alone. A second event fires on the same
+      download, so counting both doubles the number.
     caveats: >-
       Two events fire per download and they are not duplicates: `Contacts - Download` fires at
       click time and always fires, `Voter Data - List Exported` only from the cookie-confirmed
@@ -157,6 +162,8 @@ behaviors:
       - "Are people creating and downloading lists but never doing outreach on our platform?"
     product: win
     asked_by: nate@goodparty.org
+    headline: >-
+      Treat this as a floor. Six paths create a voter file and only one of them is counted here.
     caveats: >-
       No single event answers this question as asked. `Voter Data - List Created` covers the
       wizard's voter-file branch only; five other paths create a real saved list and emit a
@@ -203,6 +210,9 @@ behaviors:
     product: win
     okr: ["Activated Candidates", "Outreach Intensity"]
     asked_by: nate@goodparty.org
+    headline: >-
+      This number is wrong today. It counts door knocks and self-reports rather than scheduled
+      outreach, and three of the four channels record nothing when something is sent.
     caveats: >-
       BOTH OKRs anchored here are currently wrong. `Voter Outreach - Campaign Completed` stopped
       firing on outreach scheduling when the flow was rewritten to outreach/v2/ — it survives only
@@ -243,6 +253,9 @@ behaviors:
     question_ref: 86ak20ama
     product: win
     asked_by: nate@goodparty.org
+    headline: >-
+      Treat this as a floor. A candidate looking at a plan that has not been generated yet is
+      not counted.
     caveats: >-
       Two things make a plan-open number a floor rather than a count. The tracker event returns
       early unless a generated strategy exists, so a candidate looking at an ungenerated plan fires
@@ -278,6 +291,9 @@ behaviors:
     product: win
     okr: "Onboarded"
     asked_by: bryan@goodparty.org
+    headline: >-
+      Nothing marks onboarding as finished, so the last step is a stand-in. Count people rather
+      than events: the steps fire again when someone resumes.
     caveats: >-
       There is no terminal onboarding event. Completion exists only as the user property
       `onboardingCompleted`, so the last funnel step has to be proxied by Pledge Completed or a
@@ -302,6 +318,9 @@ behaviors:
     question_ref: 86akjz989
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      The tracking is in place but has never been seen working end to end. Watch one real signup
+      arrive with campaign tags before trusting a source breakdown.
     caveats: >-
       Capture is in the code but has never been observed end to end: the walked signup arrived with
       no UTMs on the URL, so the profile carried only initial_referrer/referrer. Closing this needs
@@ -320,6 +339,9 @@ behaviors:
     question_ref: 86akjz9b3
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      Nothing is missing from the data. Nobody has decided what first value means, and until
+      that is settled there is no number.
     caveats: >-
       Blocked on a definition, not on instrumentation. Timestamps and step events are sufficient;
       nobody has decided what "first real value" is. The proposed default is the first campaign
@@ -345,6 +367,9 @@ behaviors:
     question_ref: 86akjz9dy
     product: win
     asked_by: nate@goodparty.org
+    headline: >-
+      Only robocall records a send, so the other channels look abandoned when they may not be.
+      The first step also fires twice, which inflates it.
     caveats: >-
       Entry and intermediate steps fire, but the send terminal exists for robocall only. For SMS,
       social and phone banking the funnel has a start and no end, which reads identically to total
@@ -371,6 +396,9 @@ behaviors:
     question_ref: 86akjz9fr
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      Opens are counted for all four artifacts, acting on one for two of them. The campaign plan
+      and the campaign manager have no tracking at all.
     caveats: >-
       Opened is covered; acted-on is covered for two of four artifacts, which corrects the walk.
       Campaign Story and Know Your Opponent both carry act-on events. The campaign plan itself has
@@ -399,6 +427,9 @@ behaviors:
     question_ref: 86akjz9jt
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      The data is there. It needs a decision first on what counts as abandoning and what counts
+      as coming back.
     caveats: >-
       Answerable as a query rather than by clicking, and the walk accidentally produced the exact
       behaviour (abandoned 18:42, resumed 20:49 across two sessions). Still needs both terms
@@ -417,6 +448,9 @@ behaviors:
     question_ref: 86akjz9q0
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      The data is there, waiting on two definitions: what activate means and what active means.
+      Settle those and this is an ordinary query.
     caveats: >-
       Nothing is missing from the warehouse — every journey event lands in amplitude_events with a
       timestamp and a user id, and month-cohort retention off that is ordinary SQL. Blocked on TWO
@@ -437,6 +471,9 @@ behaviors:
     product: win
     okr: "Active Candidates"
     asked_by: bryan@goodparty.org
+    headline: >-
+      The weekly active number in circulation is wrong. It reads leftover traffic to a page
+      event that no longer exists in the product.
     caveats: >-
       A WAU number is already circulating and is already wrong. The Active Candidates OKR anchors on
       `Dashboard - Candidate Dashboard Viewed`, retired in PR #732 and absent from the codebase, so
@@ -459,6 +496,9 @@ behaviors:
     product: win
     okr: "Pro Conversions"
     asked_by: bryan@goodparty.org
+    headline: >-
+      Treat conversions as a floor. Stripe is the number of record, and the people who saw the
+      offer are only counted on the dashboard.
     caveats: >-
       The best-instrumented flow in the product, with two reasons the number is a floor rather than
       exact. Both terminal events fire from the Stripe webhook inside try/catch that logs and
@@ -484,6 +524,9 @@ behaviors:
     question_ref: 86akjzaec
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      We cannot answer this. The events record that someone saw the Pro offer, never which
+      feature they came for.
     caveats: >-
       The only fully uncovered question of the nineteen. The value-prop events carry email and the
       impersonation/actor fields and nothing else — no identifier for which prop or feature was
@@ -502,6 +545,9 @@ behaviors:
     question_ref: 86akjzahp
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      Do not read this as revenue. Staff-granted Pro fires the same event as a real purchase and
+      only Stripe tells them apart.
     caveats: >-
       Answerable today, both halves. First-week behaviour is a self-join on amplitude_events off the
       webhook-fired upgrade timestamp; retention needs Stripe subscription state, confirmed present
@@ -523,6 +569,9 @@ behaviors:
     question_ref: 86akjzakk
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      Answered already, from Stripe rather than from events. Leave out failed checkouts, and do
+      not read a cancellation date as churn: some of those subscriptions are still running.
     caveats: >-
       Answered 2026-09-16, not merely judged answerable: a cohort churn table with average
       days-to-churn ran in one query. No event instruments this and none should — cancellation is a
@@ -542,6 +591,9 @@ behaviors:
     question_ref: 86akjzank
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      How many are blocked is answerable. How long they stay blocked is not, because nothing
+      records the moment someone is unblocked.
     caveats: >-
       "How many are blocked" is answerable from two independent signals. "How long are they stuck" is
       not: there is no resolution event to close the interval. 10DLC is a multi-day external process,
@@ -565,6 +617,9 @@ behaviors:
     question_ref: 86akjzat6
     product: win
     asked_by: zak@goodparty.org
+    headline: >-
+      Expect a positive result whether or not it is real. Only candidates who come back after
+      election day report an outcome, and coming back is itself the thing being measured.
     caveats: >-
       Use the event, not the column: campaigns.service.ts clears Campaign.didWin when a re-running
       candidate moves their election date (ENG-10954), so the column is current-race-only and a
@@ -588,6 +643,8 @@ behaviors:
     question_ref: 86akjzavc
     product: win
     asked_by: bryan@goodparty.org
+    headline: >-
+      Yes. Assignment and exposure both fire, so a test on these surfaces can be read out today.
     caveats: >-
       Not blocked on instrumentation: assignment and exposure both fire, and Flags Enabled moved 0 to
       1 during the walk. Kept despite being marked Drop on the question list, because the Win

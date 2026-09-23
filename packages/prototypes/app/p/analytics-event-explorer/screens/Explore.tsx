@@ -14,7 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@goodparty_org/styleguide'
-import { data, nextRun, type Area, type EventRecord } from '../lib/data'
+import {
+  data,
+  nextRun,
+  type Area,
+  type EventRecord,
+  firesIn,
+  FIRES_IN_LABEL,
+} from '../lib/data'
 import { PRODUCT_LABEL, productOf, type Product } from '../lib/lineage'
 import { search, suggestions } from '../lib/search'
 import { EventTable } from '../components/EventTable'
@@ -168,6 +175,7 @@ export const Explore = () => {
   const [questionId, setQuestionId] = useState<string | null>(null)
   const [addedAfter, setAddedAfter] = useState('')
   const [minVolume, setMinVolume] = useState('')
+  const [origins, setOrigins] = useState<string[]>([])
 
   const results = useMemo(() => search(query), [query])
   const searching = query.trim().length > 0
@@ -218,6 +226,8 @@ export const Explore = () => {
       if (area) base = base.filter((e) => e.area === area)
       if (products.length)
         base = base.filter((e) => products.includes(productOf(e)))
+      if (origins.length)
+        base = base.filter((e) => origins.includes(firesIn(e)))
       if (allowedStatuses)
         base = base.filter((e) => allowedStatuses.has(e.status))
       if (addedAfter) {
@@ -230,7 +240,7 @@ export const Explore = () => {
         base = base.filter((e) => e.count_30d >= min)
       return base
     },
-    [area, products, allowedStatuses, addedAfter, minVolume],
+    [area, products, origins, allowedStatuses, addedAfter, minVolume],
   )
 
   // Picking a question replaces the text search as the selection: the intent has moved
@@ -262,6 +272,7 @@ export const Explore = () => {
   const filtersOn = Boolean(
     area ||
     products.length ||
+    origins.length ||
     statusKeys.length ||
     questionId ||
     addedAfter ||
@@ -316,6 +327,7 @@ export const Explore = () => {
               onClick={() => {
                 setArea(null)
                 setProducts([])
+                setOrigins([])
                 setStatusKeys([])
                 setQuestionId(null)
                 setAddedAfter('')
@@ -376,6 +388,13 @@ export const Explore = () => {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {searching && results.partial && (
+          <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+            Nothing matches every word of “{query}”. These are the closest
+            matches.
+          </div>
         )}
 
         {searching && results.questions.length > 0 && (
@@ -441,6 +460,10 @@ export const Explore = () => {
                 </Badge>
               }
             >
+              <p className="max-w-3xl text-sm text-muted-foreground">
+                What people have asked to be able to answer. Each one shows what
+                we can measure today and what is missing.
+              </p>
               <div className="space-y-3">
                 {visibleQuestions.map((q) => (
                   <QuestionCard
@@ -494,6 +517,16 @@ export const Explore = () => {
                   count: data.events.filter((e) =>
                     g.statuses.includes(e.status),
                   ).length,
+                }))}
+              />
+              <MultiSelect
+                label="Fires in"
+                selected={origins}
+                onChange={setOrigins}
+                options={(['browser', 'server'] as const).map((o) => ({
+                  value: o,
+                  label: FIRES_IN_LABEL[o],
+                  count: data.events.filter((e) => firesIn(e) === o).length,
                 }))}
               />
               <MultiSelect

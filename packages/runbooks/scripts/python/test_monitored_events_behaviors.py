@@ -42,3 +42,21 @@ def test_the_composite_funnel_question_spans_three_behaviors():
     composite = [b for b in behaviors
                  if any("outreach on our platform" in a for a in b.get("answers") or [])]
     assert len(composite) == 3
+
+
+def test_a_caveat_carries_a_plain_headline():
+    """The caveat is what stops someone reporting a wrong number, so it is the one field
+    a non-engineer has to be able to read. The first reader outside the team quoted it
+    back as jargon, which is how it was caught."""
+    missing, jargon = [], []
+    for b in br.load_behaviors(aeh.WATCHLIST):
+        if not b.get("caveats"):
+            continue
+        headline = (b.get("headline") or "").strip()
+        if not headline:
+            missing.append(b["id"])
+            continue
+        if any(m in headline for m in ("`", ".ts", ".py", "DATA-", "ENG-", "PR #")):
+            jargon.append(b["id"])
+    assert missing == [], f"caveats with no plain headline: {missing}"
+    assert jargon == [], f"headlines written for engineers: {jargon}"

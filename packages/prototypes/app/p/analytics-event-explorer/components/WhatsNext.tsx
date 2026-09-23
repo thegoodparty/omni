@@ -22,7 +22,7 @@ const actions = (formUrl: string) => [
     icon: HelpCircle,
     title: 'Ask for something to be measured',
     blurb:
-      'Want to know whether users do X? File the question and it becomes a tracked question on this page.',
+      'Ask in your own words, not in event names. It joins the questions list; nudge us in Slack if it is urgent.',
     href: formUrl,
     cta: 'Open the form',
   },
