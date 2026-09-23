@@ -2,10 +2,7 @@
 
 import { useMemo } from 'react'
 import type { ContactsLabels } from 'app/dashboard/shared/contactsLabels'
-import {
-  drawnRings,
-  type PolygonRing,
-} from 'app/dashboard/shared/ringGeometry'
+import { drawnRings, type PolygonRing } from 'app/dashboard/shared/ringGeometry'
 import type { Person } from '../shared/contacts-types'
 import { toContactPoints } from './contactListPoints'
 import BoundaryDrawOverlay from './BoundaryDrawOverlay'

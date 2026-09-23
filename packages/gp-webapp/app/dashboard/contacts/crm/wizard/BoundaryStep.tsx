@@ -3,10 +3,7 @@
 import Body2 from '@shared/typography/Body2'
 import { Button, CropIcon } from '@styleguide'
 import dynamic from 'next/dynamic'
-import {
-  drawnRings,
-  type PolygonRing,
-} from 'app/dashboard/shared/ringGeometry'
+import { drawnRings, type PolygonRing } from 'app/dashboard/shared/ringGeometry'
 import type { ContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import { useMemo, useState } from 'react'
 import BoundaryDrawOverlay from '../map/BoundaryDrawOverlay'
