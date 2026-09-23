@@ -10,6 +10,10 @@ import {
 import { createOutreach } from 'helpers/createOutreach'
 import type { TcrCompliance } from 'helpers/types'
 import { SERVE_SMS_SURFACE, SmsFlow } from './SmsFlow'
+import {
+  SERVE_SMS_GREETING_PREVIEW,
+  SERVE_SMS_SAMPLE_FIRST_NAME,
+} from './smsCompose.util'
 
 // The Serve send path: everything SmsFlow does BELOW compose when the
 // surface is Serve. The assertions that matter most here are the negative
@@ -147,7 +151,9 @@ const openServeFlow = () => {
 }
 
 // Drives purpose -> audience -> schedule -> compose -> review on Serve.
-const runServeToReview = async () => {
+// `withImage` defaults to true because Win's gate is the norm every other
+// test here assumes; false exercises the Serve-only imageless path.
+const runServeToReview = async ({ withImage = true } = {}) => {
   await userEvent.click(await screen.findByText('Explain a recent decision'))
   await userEvent.click(await screen.findByText('Choose a constituent list'))
   await userEvent.click(await screen.findByText('Northside residents'))
@@ -159,7 +165,7 @@ const runServeToReview = async () => {
   )
   await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
   await screen.findByText(/drafted body/)
-  await attachImage()
+  if (withImage) await attachImage()
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
   )
@@ -310,6 +316,76 @@ describe('SmsFlow serve send path', () => {
     // create came back with.
     expect(await screen.findByText('1,180')).toBeInTheDocument()
     expect(await screen.findByText('15')).toBeInTheDocument()
+  })
+
+  // The imageless Serve path, end to end. The compose gate opening is
+  // asserted in serveSurface.test.tsx; this pins what the open gate
+  // produces — a create with no imageUrl key at all, and no upload.
+  it('creates without an imageUrl when no image was attached', async () => {
+    const bodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          outreachId: 92,
+          recipientCount: 1180,
+          excludedOptedOutCount: 15,
+          excludedDuplicateCount: 5,
+        },
+      }
+    })
+    openServeFlow()
+    await runServeToReview({ withImage: false })
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    const body = bodies[0]!
+    // Absent, not null or empty string: the contract has imageUrl optional,
+    // and a null would fail its url() check.
+    expect(body).not.toHaveProperty('imageUrl')
+    expect(body.voterFileFilterId).toBe(41)
+    expect(uploadFileToS3).not.toHaveBeenCalled()
+  })
+
+  // The one screen that promises a preview used to show the raw merge
+  // token. It now reads like the text a constituent receives — and the
+  // create payload still carries the token, which is what fulfilment
+  // merges against.
+  it('previews with a stand-in name while the sent script keeps the token', async () => {
+    const bodies: Record<string, unknown>[] = []
+    api.mock('POST /v1/outreach/serve/sms', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return {
+        status: 200,
+        data: {
+          outreachId: 91,
+          recipientCount: 1180,
+          excludedOptedOutCount: 0,
+          excludedDuplicateCount: 0,
+        },
+      }
+    })
+    openServeFlow()
+    await runServeToReview()
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]!.message).toContain('{{first_name}}')
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Preview message' }),
+    )
+    expect(
+      await screen.findByText(`Hello ${SERVE_SMS_SAMPLE_FIRST_NAME},`, {
+        exact: false,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/\{\{first_name\}\}/)).toBeNull()
+    expect(
+      screen.getByText(SERVE_SMS_GREETING_PREVIEW.caption),
+    ).toBeInTheDocument()
+
+    // Display-only: nothing re-sent, and the payload above is unchanged.
+    expect(bodies).toHaveLength(1)
   })
 
   it('checks out as SERVE_TEXT', async () => {

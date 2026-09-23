@@ -1031,7 +1031,11 @@ export const SmsFlow = ({
                     body.trim().length === 0 ||
                     !standards.passed ||
                     composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                    image === null ||
+                    // Win only: Peerly rejects an imageless text/p2p send.
+                    // Serve is fulfilled by the shared delivery layer, whose
+                    // create takes imageUrl as optional, so an official can
+                    // send text alone.
+                    (!surface.isServe && image === null) ||
                     draftMutation.isPending,
                 }
               : null
@@ -1237,6 +1241,7 @@ export const SmsFlow = ({
           }}
         >
           <SmsReviewStep
+            isServe={surface.isServe}
             name={name}
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
