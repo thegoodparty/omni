@@ -2,6 +2,7 @@
 
 import { useState, type ComponentType } from 'react'
 import {
+  Badge,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -120,7 +121,10 @@ export const ProPitchPanel = ({
           className="overflow-hidden rounded-xl border border-base-border"
         >
           <CollapsibleTrigger className="flex min-h-11 w-full cursor-pointer items-center justify-center gap-2.5 px-4">
-            <ShieldCheckIcon className="size-[18px] shrink-0" aria-hidden />
+            <ShieldCheckIcon
+              className="size-[18px] shrink-0 text-primary"
+              aria-hidden
+            />
             <p className="font-semibold">{PITCH_PANEL_COPY.verifyTitle}</p>
             {verifyOpen ? (
               <ChevronUpIcon
@@ -150,9 +154,11 @@ export const ProPitchPanel = ({
                   </div>
                 ))}
               </div>
-              <span className="w-fit rounded-full bg-brand-blue-100 px-3 py-1 text-sm font-medium text-primary">
+              {/* Design: DS.Badge, variant info, shape pill — a badge, not a
+                  button-sized chip. */}
+              <Badge className="w-fit border-transparent bg-brand-blue-100 text-primary">
                 {PITCH_PANEL_COPY.verifyFeePill}
-              </span>
+              </Badge>
             </div>
           </CollapsibleContent>
         </Collapsible>

@@ -20,7 +20,9 @@ const InterstitialStep = (): React.JSX.Element => {
   const gateChannel: GateChannel = channel ?? 'sms'
 
   return (
-    <div className="flex flex-col items-center gap-6 text-center">
+    // Centered in the sheet's column (design: renderSgModal stacks and
+    // centers the pause screen); the host stretches this to the body height.
+    <div className="flex min-h-full flex-1 flex-col items-center justify-center gap-6 py-6 text-center">
       <ProBadge size="large" className="h-[30px] w-[66px]" />
       <h3 className="text-xl font-semibold tracking-tight sm:text-2xl">
         {INTERSTITIAL_COPY.title}
