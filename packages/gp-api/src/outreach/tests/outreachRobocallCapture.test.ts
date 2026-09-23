@@ -470,6 +470,24 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     expect(captureSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('picks up a promo-covered run that has no hold and settles it at $0', async () => {
+    const outreachId = await createDraft({
+      completedCallCount: 100,
+      authorizationIntentId: null,
+      authorizedAmountInCents: 0,
+      captureBefore: null,
+      promoCoversTotal: true,
+    })
+
+    await capture.sweepCaptures()
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.captured)
+    expect(satellite.capturedAmountInCents).toBe(0)
+    expect(captureSpy).not.toHaveBeenCalled()
+    expect(retrieveSpy).not.toHaveBeenCalled()
+  })
+
   it('captures nearest-expiry holds first (expiry-priority, not FIFO)', async () => {
     // Two settling runs with DISTINCT intent ids; the one with the SOONER
     // captureBefore must capture FIRST so a backlog never lets a hold lapse

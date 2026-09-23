@@ -75,11 +75,16 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // Expiry-priority (captureBefore asc), NOT FIFO: under a backlog the holds
     // nearest their Stripe auto-expiry must capture first so none lapse
     // uncaptured. A settling row always carries the authorization + count, but
-    // guard on both so a data anomaly is filtered here rather than charged blind.
+    // guard on both so a data anomaly is filtered here rather than charged
+    // blind. A promo-covered run carries no authorization at all (nothing was
+    // held), so it is selected on its flag instead and settles at $0.
     const candidates = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.settling,
-        authorizationIntentId: { not: null },
+        OR: [
+          { authorizationIntentId: { not: null } },
+          { promoCoversTotal: true },
+        ],
         completedCallCount: { not: null },
       },
       orderBy: { captureBefore: Prisma.SortOrder.asc },
