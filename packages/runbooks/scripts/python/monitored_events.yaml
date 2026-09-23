@@ -40,7 +40,7 @@ events:
   - {event: "Onboarding - Candidate Office Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - User Created",                product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Candidate Affiliation Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
-  # Pledge-union okr flags are doc-level confidence (knowledge-doc definition, no dbt model).
+  # Pledge completion is doc-level confidence (knowledge-doc definition, no dbt model).
   - {event: "Onboarding - Candidate Pledge Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "onboarding_complete",                      product: win, family: win_onboarding, floor: null, owner: TBD}
   # Win onboarding V2 (first seen 2026-05-07)
@@ -112,9 +112,10 @@ events:
 # behavior with one surface and one instrument. Coverage is derived, never written here.
 #
 # Every instrumented_by below is monitored exactly as an events: row is (DATA-2290): the
-# monitor unions the two keys, and a behavior's okr: anchors each of its instruments. So
-# never add an events: row for an event named here — validation rule 8 rejects it, and it
-# would be redundant anyway.
+# monitor unions the two keys, and a behavior's metric: names the semantic-layer metric it
+# answers, with OKR status derived from that metric's anchored_on. So never add an events:
+# row for an event named here — validation rule 8 rejects it, and it would be redundant
+# anyway.
 #
 #   id:            stable snake_case key
 #   question:      the plain-English thing this behavior lets us answer
@@ -250,7 +251,7 @@ behaviors:
     product: win
     asked_by: nate@goodparty.org
     caveats: >-
-      Two things make a plan-open number a floor rather than a count. The tracker event returns
+      One thing makes a plan-open number a floor rather than a count. The tracker event returns
       early unless a generated strategy exists, so a candidate looking at an ungenerated plan fires
       nothing — "opened their campaign plan" means "opened a plan that exists".
     surfaces:
