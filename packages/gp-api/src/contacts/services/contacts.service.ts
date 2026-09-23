@@ -19,7 +19,8 @@ import {
   type VoterLikelihood,
   type PeoplePrecinctsResponse,
   type DoorKnockingEvaluateResponse,
-  type GeoJsonPolygon,
+  type GeoJsonShape,
+  shapePolygons,
   MAX_RESULTS_PER_PAGE,
 } from '@goodparty_org/contracts'
 import {
@@ -1085,15 +1086,23 @@ export class ContactsService {
     return this.withOrgDistrictResolution(
       organization,
       async ({ districtId }) => {
-        const { people } = await this.evaluateWithinBbox(
-          districtId,
-          polygonBbox(geoPoly),
-          resolved,
-        )
-        const inside = people.filter((person) =>
-          pointInPolygon(person.lng, person.lat, geoPoly),
-        )
-        return { count: inside.length, audienceEmpty: false }
+        // Per part, unioned by id — the same shape (and the same reason)
+        // as `resolveGeoMemberIds` below. A person inside two overlapping
+        // parts is one person, so the pill the holder reads while dragging
+        // is the count they get when the boundary is saved.
+        const inside = new Set<string>()
+        for (const part of shapePolygons(geoPoly)) {
+          const { people } = await this.evaluateWithinBbox(
+            districtId,
+            polygonBbox(part),
+            resolved,
+          )
+          for (const person of people) {
+            if (pointInPolygon(person.lng, person.lat, part))
+              inside.add(person.id)
+          }
+        }
+        return { count: inside.size, audienceEmpty: false }
       },
     )
   }
@@ -1172,7 +1181,7 @@ export class ContactsService {
   // scan.
   async resolveGeoMemberIds(
     organization: Organization,
-    geoPoly: GeoJsonPolygon,
+    geoPoly: GeoJsonShape,
   ): Promise<string[]> {
     // The only Databricks fan-out on this service that was reachable without
     // one. `filterAccessCheck`, the guard upstream on the voter-file route,
@@ -1185,14 +1194,34 @@ export class ContactsService {
     return this.withOrgDistrictResolution(
       organization,
       async ({ districtId }) => {
-        const { people } = await this.evaluateWithinBbox(
-          districtId,
-          polygonBbox(geoPoly),
-          { filters: {} },
-        )
-        return people
-          .filter((person) => pointInPolygon(person.lng, person.lat, geoPoly))
-          .map((person) => person.id)
+        // One scan PER PART, not one scan of the whole shape's bounding
+        // box. The parts of a multi-shape boundary are typically a few
+        // neighbourhoods scattered across a district, and the box around
+        // all of them is most of the district — which both costs a far
+        // larger people-db scan and risks the evaluate cap rejecting a
+        // boundary that encloses very few people. Each part's box is tight.
+        //
+        // Sequential rather than parallel: these are Databricks scans, and
+        // a shape with several parts firing them at once is exactly the
+        // fan-out the Pro gate above exists to keep rare.
+        const ids = new Set<string>()
+        for (const part of shapePolygons(geoPoly)) {
+          const { people } = await this.evaluateWithinBbox(
+            districtId,
+            polygonBbox(part),
+            { filters: {} },
+          )
+          for (const person of people) {
+            // Against the PART, not the whole shape: these people came out
+            // of this part's box, and asking the whole shape here would
+            // re-admit someone this box only happened to contain.
+            if (pointInPolygon(person.lng, person.lat, part)) ids.add(person.id)
+          }
+        }
+        // A Set, so a person standing where two parts overlap is one
+        // member. The unique constraint on the member table would survive a
+        // duplicate anyway; this is what makes the COUNT honest.
+        return [...ids]
       },
     )
   }

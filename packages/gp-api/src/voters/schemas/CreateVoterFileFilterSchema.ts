@@ -1,7 +1,7 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 import {
-  GeoJsonPolygonSchema,
+  GeoJsonShapeSchema,
   RecommendedListChannelSchema,
   RecommendedListFilterSchema,
   RecommendedListIntentSchema,
@@ -29,6 +29,6 @@ export class CreateVoterFileFilterSchema extends createZodDto(
     // voterFilterBaseSchema: that one is shared with the P2P phone-list path
     // and door knocking's own filter grammar, both of which already have a
     // polygon of their own to mean something else by.
-    geoPoly: GeoJsonPolygonSchema.nullable().optional(),
+    geoPoly: GeoJsonShapeSchema.nullable().optional(),
   }),
 ) {}

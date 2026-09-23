@@ -1144,6 +1144,15 @@ export {
 } from './doorKnocking/PackAgeBuckets'
 
 export {
+  GeoJsonMultiPolygonSchema,
+  type GeoJsonMultiPolygon,
+  GeoJsonShapeSchema,
+  type GeoJsonShape,
+  shapePolygons,
+  shapePartCount,
+} from './shared/GeoJsonShape.schema'
+
+export {
   GeoJsonPolygonSchema,
   type GeoJsonPolygon,
   CreateDoorKnockingTurfSchema,

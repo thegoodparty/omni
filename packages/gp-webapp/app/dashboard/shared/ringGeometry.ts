@@ -1,4 +1,8 @@
-import type { GeoJsonPolygon } from '@goodparty_org/contracts'
+import {
+  shapePolygons,
+  type GeoJsonPolygon,
+  type GeoJsonShape,
+} from '@goodparty_org/contracts'
 
 // A boundary the user drew, as an OPEN ring: the closing duplicate the
 // GeoJSON spec wants is added only when one is serialised. Two surfaces draw
@@ -105,4 +109,60 @@ export const ringFromGeoJsonPolygon = (
   const outer = polygon?.coordinates?.[0]
   if (!outer || outer.length < 4) return []
   return outer.slice(0, -1).map((position) => [position[0], position[1]])
+}
+
+// A boundary with several parts, as the drawing surface holds it: one open
+// ring per part, in the order they were drawn. A part still being cut can
+// have fewer than three points, so this is not a list of finished polygons.
+export type PolygonRings = PolygonRing[]
+
+// Whether a point falls inside ANY part.
+//
+// Per-ring, then OR'd, mirroring gp-api's `pointInShape` — and for the same
+// reason. `isPointInRing` is an even-odd cast, so running one cast over the
+// concatenation of two parts would make their overlap subtract instead of
+// add, and a person standing where two drawn shapes meet would be counted
+// out of both. The two implementations have to agree, because this is the
+// number shown while dragging and that one is the number saved.
+export const isPointInAnyRing = (
+  lng: number,
+  lat: number,
+  rings: PolygonRings,
+): boolean => rings.some((ring) => isPointInRing(lng, lat, ring))
+
+// Only the parts with a real shape. A part under three points is one the
+// holder is still placing corners on, and it neither counts nor saves.
+export const drawnRings = (rings: PolygonRings): PolygonRings =>
+  rings.filter((ring) => ring.length >= 3)
+
+// The wire shape for a boundary of any number of parts.
+//
+// One part still serialises as a plain `Polygon`, not a single-part
+// `MultiPolygon`: it is what every list saved before multi-shape holds, and
+// keeping new single-part saves identical to those means the stored column
+// has one representation per boundary rather than two.
+export const ringsToGeoJsonShape = (
+  rings: PolygonRings,
+): GeoJsonShape | null => {
+  const polygons = drawnRings(rings)
+    .map(ringToGeoJsonPolygon)
+    .filter((polygon): polygon is GeoJsonPolygon => polygon !== null)
+  if (polygons.length === 0) return null
+  if (polygons.length === 1) return polygons[0]!
+  return {
+    type: 'MultiPolygon',
+    coordinates: polygons.map((polygon) => polygon.coordinates),
+  }
+}
+
+// The inverse, for a boundary read back off a saved list. A legacy `Polygon`
+// row comes back as one part, so a list saved before multi-shape reopens as
+// exactly the shape it was drawn as.
+export const ringsFromGeoJsonShape = (
+  shape: GeoJsonShape | null | undefined,
+): PolygonRings => {
+  if (!shape) return []
+  return shapePolygons(shape)
+    .map(ringFromGeoJsonPolygon)
+    .filter((ring) => ring.length > 0)
 }

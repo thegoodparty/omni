@@ -36,6 +36,7 @@ const PRIMARY_BLUE: [number, number, number] = [30, 99, 236]
 // Stable identity, so a caller that passes no `people` does not remount the
 // dots on every render through a fresh [] default.
 const EMPTY_PEOPLE: Person[] = []
+const EMPTY_RINGS: PolygonRing[] = []
 
 const DOT: [number, number, number, number] = [...PRIMARY_BLUE, 200]
 const DOT_SELECTED: [number, number, number, number] = [255, 255, 255, 255]
@@ -96,6 +97,11 @@ interface ContactListMapProps {
   // drawing surface: a click places a vertex and a handle can be dragged.
   drawRing?: PolygonRing
   onDrawRingChange?: (ring: PolygonRing) => void
+  // The boundary's OTHER parts — every part except the one `drawRing` is
+  // editing. Drawn in the same blue and without handles: they are the same
+  // boundary, and only one part takes the gesture at a time, so grabbable
+  // corners on the rest would be corners the click handler ignores.
+  otherRings?: PolygonRing[]
 }
 
 export default function ContactListMap({
@@ -107,6 +113,7 @@ export default function ContactListMap({
   bottomInsetPx = 0,
   drawRing,
   onDrawRingChange,
+  otherRings = EMPTY_RINGS,
 }: ContactListMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -276,6 +283,7 @@ export default function ContactListMap({
     if (!overlay) return
     const selectedKey = selectedPersonId ?? null
     const ring = drawRing ?? []
+    const drawnOtherRings = otherRings.filter((r) => r.length >= 3)
     overlay.setProps({
       layers: [
         new ScatterplotLayer<ContactPoint>({
@@ -313,6 +321,21 @@ export default function ContactListMap({
             return true
           },
         }),
+        // Beneath the active part, so where two parts overlap the one being
+        // edited is the one whose outline reads on top.
+        ...(drawnOtherRings.length > 0
+          ? [
+              new PolygonLayer<PolygonRing>({
+                id: 'boundary-other',
+                data: drawnOtherRings,
+                getPolygon: (r) => r,
+                getFillColor: BOUNDARY_FILL,
+                getLineColor: BOUNDARY_LINE,
+                lineWidthMinPixels: 2.5,
+                pickable: false,
+              }),
+            ]
+          : []),
         // Appended rather than always present: with no boundary to draw the
         // overlay gets exactly the one layer it has always had.
         ...(ring.length >= 3
@@ -353,7 +376,14 @@ export default function ContactListMap({
           : []),
       ],
     })
-  }, [points, selectedPersonId, onSelectPerson, drawRing, isDrawing])
+  }, [
+    points,
+    selectedPersonId,
+    onSelectPerson,
+    drawRing,
+    otherRings,
+    isDrawing,
+  ])
 
   // Frame the list once it is known, and again whenever the list changes
   // underneath (a re-cut segment is a different set of people, and leaving the

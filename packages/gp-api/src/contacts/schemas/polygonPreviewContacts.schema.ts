@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { createZodDto } from 'nestjs-zod'
-import { GeoJsonPolygonSchema } from '@goodparty_org/contracts'
+import { GeoJsonShapeSchema } from '@goodparty_org/contracts'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 
 // A boundary drawn over a list that is still being built, so the filter
@@ -14,7 +14,7 @@ import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
 // exceed the same list's live count.
 const polygonPreviewContactsSchema = z
   .object({
-    geoPoly: GeoJsonPolygonSchema,
+    geoPoly: GeoJsonShapeSchema,
     filters: voterFilterBaseSchema,
   })
   .strict()

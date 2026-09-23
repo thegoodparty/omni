@@ -1,4 +1,9 @@
-import { Bbox, GeoJsonPolygon } from '@goodparty_org/contracts'
+import {
+  Bbox,
+  GeoJsonPolygon,
+  GeoJsonShape,
+  shapePolygons,
+} from '@goodparty_org/contracts'
 
 // TODO(geom-index): both helpers are the interim geo path. When people_db
 // grows a geometry column + GiST index, people-api runs ST_Contains against
@@ -39,3 +44,32 @@ export const pointInPolygon = (
   }
   return inside
 }
+
+// The box around every part of a boundary. The union of the parts' boxes, so
+// a shape whose parts sit at opposite ends of a district yields one rectangle
+// covering both — see `resolveGeoMemberIds`, which deliberately scans the
+// parts separately rather than handing this to people-db.
+export const shapeBbox = (shape: GeoJsonShape): Bbox => {
+  const boxes = shapePolygons(shape).map(polygonBbox)
+  return {
+    minLat: Math.min(...boxes.map(({ minLat }) => minLat)),
+    maxLat: Math.max(...boxes.map(({ maxLat }) => maxLat)),
+    minLng: Math.min(...boxes.map(({ minLng }) => minLng)),
+    maxLng: Math.max(...boxes.map(({ maxLng }) => maxLng)),
+  }
+}
+
+// Whether a point falls inside ANY part of a boundary.
+//
+// Per-part, then OR'd — and that is the whole point of this function rather
+// than a widened `pointInPolygon`. The ray cast is EVEN-ODD, which is what
+// makes a hole subtract from the polygon around it. Run over the rings of two
+// SEPARATE parts at once it would subtract them from each other too, so a
+// person standing where two drawn shapes overlap would be counted out of
+// both — silently, and only in the overlap.
+export const pointInShape = (
+  lng: number,
+  lat: number,
+  shape: GeoJsonShape,
+): boolean =>
+  shapePolygons(shape).some((polygon) => pointInPolygon(lng, lat, polygon))

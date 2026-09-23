@@ -98,8 +98,9 @@ model VoterFileFilter {
   supportStatus              SupportStatusRollup[]              @default([]) @map("support_status")
   firstUsedForOutreachAt     DateTime?                          @map("first_used_for_outreach_at")
   activityConditions         VoterFileFilterActivityCondition[]
-  /// [GeoJsonPolygon]
-  /// The shape the holder drew on the map, in [lng, lat] rings. Provenance,
+  /// [GeoJsonShape]
+  /// The shape the holder drew on the map, in [lng, lat] rings. One
+  /// `Polygon`, or a `MultiPolygon` when they drew several parts. Provenance,
   /// not a predicate: people_db has no geometry column, so a polygon cannot
   /// become SQL at all. Resolving one means a bbox prefilter plus an
   /// in-process ray-cast, which yields a set of person ids either way — and
