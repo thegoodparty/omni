@@ -12,6 +12,23 @@ import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 // smuggled key (e.g. another org's slug) is rejected, not silently ignored.
 const describeFilterDimensionsInputSchema = z.object({}).strict()
 
+// The tools that take the filter shape this catalog describes. A handler
+// passes the subset it registered, so the instruction line below names only
+// tools the model can call in this session and never a gated one.
+export const FILTER_CONSUMER_TOOL_NAMES = [
+  'count_contacts',
+  'crud_saved_filters',
+] as const
+
+const prepareLine = (filterConsumers: readonly string[]): string =>
+  filterConsumers.length === 0
+    ? 'Call this before naming any dimension or value so you only name ' +
+      'ones that actually exist — never invent one.'
+    : `Call this before composing any filter for ${filterConsumers.join(
+        ' or ',
+      )} so you only use dimensions and values that actually exist — never ` +
+      'invent one.'
+
 export interface DescribeFilterDimensionsOutput {
   dimensions: FilterDimension[]
 }
@@ -23,14 +40,15 @@ export interface DescribeFilterDimensionsOutput {
 export const buildDescribeFilterDimensionsTool = (deps: {
   contacts: Pick<ContactsService, 'getFilterDimensions'>
   organization: Organization
+  filterConsumers: readonly string[]
 }): LlmStreamTool<typeof describeFilterDimensionsInputSchema> => ({
   description:
     'List every contact-filter dimension available to this organization: ' +
     'dimension keys, allowed values, how each dimension came to exist ' +
     '(provenance), and the activity channels with their per-channel ' +
-    'outcome vocabularies. Takes no input. Call this before composing any ' +
-    'count_contacts filter so you only use dimensions and values that ' +
-    'actually exist — never invent one.\n\n' +
+    'outcome vocabularies. Takes no input. ' +
+    prepareLine(deps.filterConsumers) +
+    '\n\n' +
     FILTER_DIMENSION_PROVENANCE_RULES +
     '\n\n' +
     DATA_SOURCE_ROUTING_RULES,

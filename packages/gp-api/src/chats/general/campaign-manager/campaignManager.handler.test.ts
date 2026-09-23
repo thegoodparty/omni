@@ -533,6 +533,11 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     ]) {
       expect(Object.keys(tools)).not.toContain(gated)
     }
+    // The catalog's instruction line follows the registration: no filter
+    // tool is present, so none is named as the one to prepare for.
+    expect(
+      descriptionOf(tools.describe_filter_dimensions).split('\n\n')[0],
+    ).not.toMatch(/count_contacts|crud_saved_filters/)
   })
 
   // Only a known "no" gates. Unknown keeps every tool and leaves the decision
@@ -553,6 +558,9 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     ]) {
       expect(Object.keys(tools)).toContain(name)
     }
+    expect(
+      descriptionOf(tools.describe_filter_dimensions).split('\n\n')[0],
+    ).toContain('for count_contacts or crud_saved_filters')
   })
 
   it('omits both when crmToolsEnabled is false', () => {

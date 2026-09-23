@@ -40,7 +40,10 @@ import {
 } from './campaignStoryIntake.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
+import {
+  FILTER_CONSUMER_TOOL_NAMES,
+  buildDescribeFilterDimensionsTool,
+} from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
@@ -450,12 +453,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // unknown flag arises only when no campaign resolved, which also turns
     // these tools off, so the service stays the deciding check.
     if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
-      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
-        contacts: this.contacts,
-        organization: ctx.organization,
-      })
+      const filterTools: Record<string, LlmTool> = {}
       if (ctx.isPro !== false) {
-        tools.count_contacts = buildCountContactsTool({
+        filterTools.count_contacts = buildCountContactsTool({
           contacts: this.contacts,
           organization: ctx.organization,
         })
@@ -463,7 +463,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         // tools: it IS the vocabulary read for the one dimension the catalog
         // cannot carry, and a count is as entitled to a precinct as a saved
         // list is.
-        tools.list_precincts = buildListPrecinctsTool({
+        filterTools.list_precincts = buildListPrecinctsTool({
           contacts: this.contacts,
           organization: ctx.organization,
         })
@@ -471,13 +471,25 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         // paths as the voter-file routes (Pro gate, completed-outreach
         // validation, org scoping, locked-filter conflict all inherited).
         if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
-          tools.crud_saved_filters = buildCrudSavedFiltersTool({
+          filterTools.crud_saved_filters = buildCrudSavedFiltersTool({
             voterFileFilters: this.voterFileFilters,
             contacts: this.contacts,
             organization: ctx.organization,
           })
         }
       }
+      // The catalog is built over the filter tools so its description names
+      // only the ones registered beside it. For a campaign without Pro that
+      // is none, and the catalog then says nothing about a tool the model
+      // cannot call. It is still listed first, as it always was.
+      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+        filterConsumers: FILTER_CONSUMER_TOOL_NAMES.filter(
+          (name) => name in filterTools,
+        ),
+      })
+      Object.assign(tools, filterTools)
     }
 
     return tools

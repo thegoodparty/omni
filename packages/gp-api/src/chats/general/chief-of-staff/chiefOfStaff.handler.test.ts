@@ -397,6 +397,15 @@ describe('ChiefOfStaffHandler', () => {
       expect(toolNames).toContain('count_contacts')
     })
 
+    it('tells the catalog which registered tools take its filter shape', async () => {
+      const handler = buildCrmHandler({ contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const tools = handler.buildTools(ctx)
+      expect(
+        descriptionOf(tools.describe_filter_dimensions).split('\n\n')[0],
+      ).toContain('for count_contacts')
+    })
+
     // Precinct is the one filter dimension describe_filter_dimensions
     // cannot carry — its values are per-district — so this tool is the only
     // route to it. Without it registered the assistant tells an office
