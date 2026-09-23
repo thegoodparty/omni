@@ -48,6 +48,7 @@ const stateWith = (
   pinDelivery: null,
   internalTestingApprovedAt: null,
   hasComplianceRecord: true,
+  committeeName: null,
 })
 
 const tcrWith = (status: TcrComplianceStatus): TcrCompliance => ({

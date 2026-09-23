@@ -478,6 +478,13 @@ export {
   type SubmitToPeerlyOutput,
 } from './campaigns/SubmitToPeerlyOutput.schema'
 
+export {
+  UpdateCommitteeNameSchema,
+  type UpdateCommitteeNameInput,
+  UpdateCommitteeNameOutputSchema,
+  type UpdateCommitteeNameOutput,
+} from './campaigns/UpdateCommitteeName.schema'
+
 export type { Ecanvasser, EcanvasserSummary } from './ecanvasser/types'
 
 export {

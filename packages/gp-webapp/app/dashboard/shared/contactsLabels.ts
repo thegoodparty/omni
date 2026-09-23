@@ -41,6 +41,10 @@ export interface ContactsLabels {
   // them today, but this helper is mode-keyed and not mode-gated: a Win
   // literal saying "constituents" is exactly the drift it exists to prevent.
   boundaryStepTitle: string
+  // Under the wizard step's read-only preview, where the map cannot be
+  // drawn on. `boundaryStepHint` is the drawing surface's own hint and
+  // still says to tap the map, which is only true once it is open.
+  boundaryGatewayHint: string
   boundaryStepHint: string
   boundaryDrawCta: string
   boundaryEditCta: string
@@ -81,6 +85,8 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         listDetailsTitle: 'Voter list details',
         wizardVoterFileStepTitle: 'Build a voter list',
         boundaryStepTitle: 'What area should this list cover?',
+        boundaryGatewayHint:
+          'Draw an area to narrow this list, or continue to keep the whole district.',
         boundaryStepHint:
           'Tap the map to place corners, or continue to keep the whole district.',
         boundaryDrawCta: 'Draw an area',
@@ -124,6 +130,8 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         listDetailsTitle: 'Constituent list details',
         wizardVoterFileStepTitle: 'Build a constituent list',
         boundaryStepTitle: 'What area should this list cover?',
+        boundaryGatewayHint:
+          'Draw an area to narrow this list, or continue to keep the whole district.',
         boundaryStepHint:
           'Tap the map to place corners, or continue to keep the whole district.',
         boundaryDrawCta: 'Draw an area',

@@ -131,8 +131,7 @@ export default function CreateListWizard({
   // Held as the open ring the map draws, not as the GeoJSON it is saved as,
   // so Back onto the boundary step restores the shape with its handles
   // rather than a closed polygon that has to be reopened to be edited.
-  const [boundaryRings, setBoundaryRings] = useState<PolygonRing[]>([[]])
-  const [boundaryActiveIndex, setBoundaryActiveIndex] = useState(0)
+  const [boundaryRings, setBoundaryRings] = useState<PolygonRing[]>([])
 
   // Serve never renders the branch chooser, so its branch is a constant —
   // derived, not set on open, so no frame can render the activity branch
@@ -176,8 +175,7 @@ export default function CreateListWizard({
         : [blankActivityCondition()],
     )
     setName(editingSegment?.name ?? '')
-    setBoundaryRings([[]])
-    setBoundaryActiveIndex(0)
+    setBoundaryRings([])
     setOpenSession((session) => session + 1)
     // Keyed on the edited list's ID, not on `open` alone: `open` is a derived
     // OR of two independent sources (the page's create button and the
@@ -832,9 +830,7 @@ export default function CreateListWizard({
       {stepName === 'boundary' && (
         <BoundaryStep
           rings={boundaryRings}
-          activeIndex={boundaryActiveIndex}
           onRingsChange={setBoundaryRings}
-          onActiveIndexChange={setBoundaryActiveIndex}
           labels={labels}
           filters={backendPayload}
           count={polygonCount}

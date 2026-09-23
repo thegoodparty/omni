@@ -25,6 +25,7 @@ const mockListCampaigns = vi.fn()
 const mockGetCampaignComplianceState = vi.fn()
 const mockResendCvPin = vi.fn()
 const mockSetInternalTestingApproval = vi.fn()
+const mockUpdateCommitteeName = vi.fn()
 
 vi.mock('@/app/dashboard/campaigns/actions', () => ({
   listCampaigns: (...args: unknown[]) => mockListCampaigns(...args),
@@ -33,6 +34,7 @@ vi.mock('@/app/dashboard/campaigns/actions', () => ({
   resendCvPin: (...args: unknown[]) => mockResendCvPin(...args),
   setInternalTestingApproval: (...args: unknown[]) =>
     mockSetInternalTestingApproval(...args),
+  updateCommitteeName: (...args: unknown[]) => mockUpdateCommitteeName(...args),
 }))
 
 const mockUser: User = {
@@ -61,6 +63,7 @@ const awaitingPinState: ComplianceStateOutput = {
   pinDelivery: { method: 'email', displayString: 'j•••@example.com' },
   internalTestingApprovedAt: null,
   hasComplianceRecord: true,
+  committeeName: 'Friends of John Doe',
 }
 
 function renderWidget(user: User = mockUser) {
@@ -264,6 +267,81 @@ describe('CvPinStatus', () => {
     ).not.toBeInTheDocument()
   })
 
+  describe('committee rename', () => {
+    it('shows the committee name with an edit affordance', async () => {
+      renderWidget()
+
+      expect(
+        await screen.findByText('Committee: Friends of John Doe')
+      ).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument()
+    })
+
+    it('renames the committee and shows the persisted name', async () => {
+      mockUpdateCommitteeName.mockResolvedValue({
+        committeeName: 'Friends of John Doe for Council',
+      })
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(await screen.findByRole('button', { name: 'Edit' }))
+      const input = screen.getByRole('textbox')
+      await user.clear(input)
+      await user.type(input, 'Friends of John Doe for Council')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(mockUpdateCommitteeName).toHaveBeenCalledWith(
+          7,
+          'Friends of John Doe for Council'
+        )
+      )
+      expect(mockShowToast).toHaveBeenCalledWith('Committee name updated')
+      expect(
+        await screen.findByText('Committee: Friends of John Doe for Council')
+      ).toBeInTheDocument()
+    })
+
+    it('surfaces a rename failure via toast and keeps the old name', async () => {
+      mockUpdateCommitteeName.mockRejectedValue(
+        new Error('TcrCompliance record not found for campaignId=7')
+      )
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(await screen.findByRole('button', { name: 'Edit' }))
+      const input = screen.getByRole('textbox')
+      await user.clear(input)
+      await user.type(input, 'New Name')
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'TcrCompliance record not found for campaignId=7'
+        )
+      )
+      expect(
+        screen.getByText('Committee: Friends of John Doe')
+      ).toBeInTheDocument()
+    })
+
+    it('hides the edit affordance without write_campaigns permission', async () => {
+      mockHas.mockImplementation(
+        ({ permission }: { permission: string }) =>
+          permission !== 'org:admin_portal:write_campaigns'
+      )
+
+      renderWidget()
+
+      expect(
+        await screen.findByText('Committee: Friends of John Doe')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Edit' })
+      ).not.toBeInTheDocument()
+    })
+  })
+
   describe('internal testing approval toggle', () => {
     const noRecordState: ComplianceStateOutput = {
       ...awaitingPinState,
@@ -271,6 +349,7 @@ describe('CvPinStatus', () => {
       peerlyCvStatus: null,
       pinDelivery: null,
       hasComplianceRecord: false,
+      committeeName: null,
     }
 
     beforeEach(() => {
