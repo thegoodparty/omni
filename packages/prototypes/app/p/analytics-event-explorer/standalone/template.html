@@ -1,0 +1,850 @@
+<title>Analytics Event Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f4f6f7;
+    --surface: #ffffff;
+    --surface-2: #eef1f3;
+    --ink: #14181b;
+    --ink-2: #4b555d;
+    --ink-3: #78848c;
+    --line: #dde3e6;
+    --line-2: #c6d0d5;
+    --accent: #0f5f61;
+    --accent-ink: #ffffff;
+    --good: #1c6b45;
+    --good-bg: #dff0e6;
+    --warn: #8a5a09;
+    --warn-bg: #fbeed3;
+    --crit: #a32c22;
+    --crit-bg: #fadedb;
+    --shadow: 0 1px 2px rgba(20, 24, 27, .06), 0 1px 1px rgba(20, 24, 27, .04);
+    --sans: "Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1315;
+      --surface: #171c1f;
+      --surface-2: #1f262a;
+      --ink: #e8edef;
+      --ink-2: #aeb9bf;
+      --ink-3: #7d8a91;
+      --line: #2a3338;
+      --line-2: #3a464c;
+      --accent: #4bb3b0;
+      --accent-ink: #07211f;
+      --good: #6fd39b;
+      --good-bg: #123024;
+      --warn: #e0b45c;
+      --warn-bg: #362a10;
+      --crit: #f08a7e;
+      --crit-bg: #3a1a17;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1315;
+    --surface: #171c1f;
+    --surface-2: #1f262a;
+    --ink: #e8edef;
+    --ink-2: #aeb9bf;
+    --ink-3: #7d8a91;
+    --line: #2a3338;
+    --line-2: #3a464c;
+    --accent: #4bb3b0;
+    --accent-ink: #07211f;
+    --good: #6fd39b;
+    --good-bg: #123024;
+    --warn: #e0b45c;
+    --warn-bg: #362a10;
+    --crit: #f08a7e;
+    --crit-bg: #3a1a17;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5);
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  * { box-sizing: border-box; }
+  .wrap { max-width: 1140px; margin: 0 auto; padding-inline: 16px; padding-block: 0 56px; }
+
+  /* ---- sticky header ------------------------------------------------------ */
+  header.bar {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 30;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+    margin-inline: -16px; padding: 12px 16px 10px;
+  }
+  .titlerow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+  h1 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin: 0; }
+  .freshness { font-size: 12px; color: var(--ink-3); font-family: var(--mono); }
+  .freshness b { color: var(--ink-2); font-weight: 500; }
+
+  .searchwrap { position: relative; margin-top: 10px; }
+  #q {
+    width: 100%; padding: 9px 34px 9px 34px; font: inherit; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--line-2); border-radius: 8px;
+  }
+  #q:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .searchwrap svg.mag { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--ink-3); }
+  #clearq {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: 0; color: var(--ink-3); cursor: pointer; padding: 4px; line-height: 0;
+  }
+
+  .filterrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+  .filterlabel { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin-right: 2px; }
+  .pill {
+    font: inherit; font-size: 12px; padding: 3px 11px; border-radius: 999px; cursor: pointer;
+    background: var(--surface); color: var(--ink-2); border: 1px solid var(--line-2);
+  }
+  .pill:hover { border-color: var(--ink-3); }
+  .pill[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .pill .n { font-family: var(--mono); opacity: .75; margin-left: 4px; }
+  select.pill { padding-right: 24px; }
+  .linkbtn { font: inherit; font-size: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
+
+  /* ---- sections ----------------------------------------------------------- */
+  section { margin-top: 26px; }
+  .sechead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 10px; }
+  .sectoggle {
+    display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .07em; color: var(--ink-2);
+    background: none; border: 0; cursor: pointer; padding: 0;
+  }
+  .sectoggle:hover { color: var(--ink); }
+  .sectoggle .caret { transition: transform .15s ease; }
+  .sectoggle[aria-expanded="false"] .caret { transform: rotate(-90deg); }
+  .seccount { font-family: var(--mono); font-weight: 400; color: var(--ink-3); text-transform: none; letter-spacing: 0; }
+
+  /* ---- area grid ---------------------------------------------------------- */
+  .areagrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 8px; }
+  .areacard {
+    text-align: left; font: inherit; cursor: pointer; padding: 10px 11px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .areacard:hover { border-color: var(--line-2); }
+  .areacard[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .areacard .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .areacard .nm { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .areacard .tot { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+  .dots { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+  .dot { display: inline-flex; align-items: center; gap: 4px; }
+  .dot i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .i-good { background: var(--good); } .i-warn { background: var(--warn); }
+  .i-crit { background: var(--crit); } .i-mute { background: var(--line-2); }
+  .areacard .alarm { margin-top: 6px; font-size: 11px; font-weight: 600; color: var(--crit); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--ink-3); }
+
+  /* ---- question cards ----------------------------------------------------- */
+  .qcard { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+  .qcard[data-sel="1"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .qhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: start; justify-content: space-between; }
+  .qtext { font-size: 15px; font-weight: 600; margin: 0; max-width: 60ch; text-wrap: balance; }
+  .qblurb { color: var(--ink-2); margin: 6px 0 0; }
+  .caveat {
+    display: flex; gap: 9px; margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+    background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  }
+  .caveat .ct { font-weight: 600; color: var(--warn); }
+  .caveat p { margin: 3px 0 0; }
+  .surfaces { margin-top: 11px; }
+  .surfaces .lbl, .fieldlbl {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3);
+  }
+  .surf { display: flex; gap: 7px; align-items: baseline; margin-top: 3px; }
+  .surf .mark { font-family: var(--mono); font-weight: 500; }
+  .m-live { color: var(--good); } .m-dead { color: var(--crit); } .m-gap { color: var(--ink-3); }
+  .qmeta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 11px; font-size: 12px; color: var(--ink-3); }
+  .qmeta a { color: var(--accent); }
+
+  .btn {
+    font: inherit; font-size: 12px; padding: 5px 11px; border-radius: 7px; cursor: pointer;
+    background: var(--surface); color: var(--ink); border: 1px solid var(--line-2);
+    display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+  }
+  .btn:hover { border-color: var(--ink-3); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn[disabled] { opacity: .5; cursor: default; }
+
+  /* ---- table -------------------------------------------------------------- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--ink-3); background: var(--surface-2); padding: 8px 10px; white-space: nowrap;
+    position: sticky; top: 0;
+  }
+  tbody td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  tbody tr.row { cursor: pointer; }
+  tbody tr.row:hover { background: var(--surface-2); }
+  .evname { font-weight: 600; }
+  .evdesc { font-size: 12px; color: var(--ink-3); max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .num { font-family: var(--mono); text-align: right; white-space: nowrap; }
+  .date { font-family: var(--mono); white-space: nowrap; color: var(--ink-2); font-size: 12px; }
+  .chev { color: var(--ink-3); transition: transform .15s ease; display: inline-block; }
+  tr.row[aria-expanded="true"] .chev { transform: rotate(90deg); }
+  .lineagehint { font-size: 11px; color: var(--ink-3); margin-top: 3px; }
+
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .b-good { background: var(--good-bg); color: var(--good); }
+  .b-warn { background: var(--warn-bg); color: var(--warn); }
+  .b-crit { background: var(--crit-bg); color: var(--crit); }
+  .b-mute { background: var(--surface-2); color: var(--ink-2); }
+
+  /* ---- detail ------------------------------------------------------------- */
+  .detail { background: var(--surface-2); padding: 14px 12px 18px; }
+  .verdictrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .lineage { margin-top: 12px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-top: 14px; }
+  .field .v { margin-top: 2px; overflow-wrap: anywhere; }
+  .links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+  .prov { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 11px; }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .muted { color: var(--ink-3); }
+
+  /* ---- whats next --------------------------------------------------------- */
+  .next { margin-top: 30px; border: 1px dashed var(--line-2); border-radius: 10px; padding: 14px; background: var(--surface); }
+  .nextgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px; margin-top: 10px; }
+  .nextcard { border: 1px solid var(--line); border-radius: 8px; padding: 11px; }
+  .nextcard .h { font-weight: 600; }
+  .nextcard p { margin: 4px 0 9px; font-size: 12px; color: var(--ink-3); }
+
+  .empty { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  .note { font-size: 12px; color: var(--ink-3); margin-top: 8px; }
+  .try { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-3); margin-top: 12px; }
+  /* multi-select dropdown */
+  details.dd { position: relative; }
+  details.dd > summary {
+    list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--surface);
+    color: var(--ink-2); border: 1px solid var(--line-2); white-space: nowrap;
+  }
+  details.dd > summary::-webkit-details-marker { display: none; }
+  details.dd[data-on="1"] > summary { border-color: var(--accent); color: var(--ink); }
+  details.dd > .menu {
+    position: absolute; z-index: 40; margin-top: 4px; min-width: 210px; max-height: 280px;
+    overflow: auto; background: var(--surface); border: 1px solid var(--line-2);
+    border-radius: 8px; box-shadow: var(--shadow); padding: 4px;
+  }
+  details.dd .opt {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; font: inherit;
+    font-size: 12px; padding: 5px 7px; border: 0; background: none; color: var(--ink);
+    cursor: pointer; border-radius: 6px;
+  }
+  details.dd .opt:hover { background: var(--surface-2); }
+  details.dd .opt .box {
+    width: 14px; height: 14px; border: 1px solid var(--line-2); border-radius: 3px;
+    display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; font-size: 10px;
+  }
+  details.dd .opt[aria-selected="true"] .box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  details.dd .opt .cnt { margin-left: auto; font-family: var(--mono); color: var(--ink-3); }
+  .numin, .datein {
+    height: 26px; font: inherit; font-size: 12px; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line-2); border-radius: 7px; padding: 0 7px;
+  }
+  .numin { width: 74px; }
+  .inlabel { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ink-3); }
+  thead th button.sorter {
+    font: inherit; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+    background: none; border: 0; color: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+  }
+  thead th button.sorter:hover { color: var(--ink); }
+  thead th button.sorter[data-on="1"] { color: var(--ink); }
+  .answeredby { display: inline-flex; align-items: center; gap: 5px; margin-top: 7px; color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="bar">
+    <div class="titlerow">
+      <h1>Analytics events</h1>
+      <span class="freshness" id="freshness"></span>
+    </div>
+    <div class="searchwrap">
+      <svg class="mag" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="search" autocomplete="off" placeholder="How do we measure…?  An event name, a question, or a product area.">
+      <button id="clearq" hidden aria-label="Clear search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="filterrow" id="prodrow"><span class="filterlabel">Product</span></div>
+  </header>
+
+  <div class="try" id="tryrow">Try:</div>
+
+  <div id="results"></div>
+
+  <section class="next" id="whatsnext"></section>
+</div>
+
+<script id="snapshot" type="application/json">__DATA__</script>
+<script>
+(function () {
+  'use strict';
+  var DATA = JSON.parse(document.getElementById('snapshot').textContent);
+  var SLACK = 'https://goodpartyorg.slack.com/archives/C0BECEK0603';
+  var FORM = DATA.request_form_url || '';
+  var EVENTS = DATA.events, QUESTIONS = DATA.questions, AREAS = DATA.areas, WEEKS = DATA.series_weeks || [];
+
+  // ---- product: the tag is authoritative, the code path only fills gaps ----------
+  // CreateListWizard.tsx fires a Win event and a Serve event from the same file, so a
+  // directory can never override a human's explicit tag.
+  var PATH_RULES = [
+    ['packages/gp-webapp/app/serve', 'serve'], ['packages/gp-webapp/app/polls', 'serve'],
+    ['packages/gp-webapp/app/dashboard/polls', 'serve'], ['packages/gp-webapp/app/dashboard/briefings', 'serve'],
+    ['packages/gp-webapp/app/dashboard/ordinances', 'serve'], ['packages/gp-webapp/app/dashboard/community-issues', 'serve'],
+    ['packages/gp-webapp/app/dashboard/constituent', 'serve'], ['packages/gp-api/src/meetings', 'serve'],
+    ['packages/gp-webapp/app/onboarding', 'win'], ['packages/gp-webapp/app/dashboard/pro-upgrade', 'win'],
+    ['packages/gp-webapp/app/dashboard/profile', 'win'], ['packages/gp-webapp/app/dashboard/race-opponent', 'win'],
+    ['packages/gp-webapp/app/dashboard/campaign-story', 'win'], ['packages/gp-webapp/app/dashboard/campaign-plan', 'win'],
+    ['packages/gp-webapp/app/dashboard/campaign-details', 'win'], ['packages/gp-webapp/app/dashboard/door-knocking', 'win'],
+    ['packages/gp-webapp/app/dashboard/outreach', 'win'], ['packages/gp-webapp/app/dashboard/election-result', 'win'],
+    ['packages/gp-webapp/app/shared', 'shared'], ['packages/gp-webapp/app/dashboard/shared', 'shared'],
+    ['packages/gp-webapp/app/dashboard/account', 'shared'], ['packages/gp-webapp/app/dashboard/contacts', 'shared'],
+    ['packages/gp-webapp/app/sign-up', 'shared']
+  ];
+  var DECL = ['helpers/analyticsHelper.ts', 'segment.types.ts'];
+  function productVerdict(e) {
+    var tag = (e.tags || []).filter(function (t) { return t.indexOf('product:') === 0; })[0];
+    if (tag) {
+      var v = tag.slice(8);
+      if (v === 'win' || v === 'serve' || v === 'shared') return { p: v, src: 'tag' };
+    }
+    var path = e.code_path || '';
+    if (path && !DECL.some(function (d) { return path.indexOf(d) >= 0; })) {
+      for (var i = 0; i < PATH_RULES.length; i++) {
+        if (path.indexOf(PATH_RULES[i][0]) === 0) return { p: PATH_RULES[i][1], src: 'path' };
+      }
+    }
+    return { p: 'unknown', src: 'none' };
+  }
+  EVENTS.forEach(function (e) { var v = productVerdict(e); e._p = v.p; e._psrc = v.src; });
+
+  var PRODUCTS = [['win', 'Win'], ['serve', 'Serve'], ['shared', 'Shared'], ['unknown', 'Product unknown']];
+  var STATUS_GROUPS = [
+    ['working', 'Working', ['active']],
+    ['suspect', 'Suspect', ['dormant', 'instrumented_never_observed', 'orphaned_firing']],
+    ['removed', 'Removed', ['retired', 'deprecating']],
+    ['auto', 'Auto-tracked', ['system', 'code_unknown']]
+  ];
+
+  // ---- verdicts -------------------------------------------------------------------
+  function fmt(n) { return (n || 0).toLocaleString('en-US'); }
+  function shortDate(s) {
+    if (!s) return 'an unknown date';
+    var d = new Date(s + (s.length === 10 ? 'T00:00:00Z' : ''));
+    return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+  function verdict(e) {
+    var p = e.provenance || {};
+    switch (e.status) {
+      case 'active': return ['good', 'Working', 'Fired ' + fmt(e.count_30d) + ' times in the last 30 days, most recently ' + shortDate(e.last_seen) + '.'];
+      case 'dormant': return ['warn', 'Silent', 'The code is still there but nothing has fired for 30 days. Either nobody uses this feature or the instrument broke.'];
+      case 'deprecating': return ['warn', 'Being removed', 'The code was removed ' + shortDate(p.retired_date) + '. Still firing inside the 30-day window, which is expected.'];
+      case 'orphaned_firing': return ['crit', 'Do not trust this', 'The code was removed ' + shortDate(p.retired_date) + ' but events are still arriving. Something is firing that we no longer control.'];
+      case 'retired': return ['mute', 'Retired', 'Removed ' + shortDate(p.retired_date) + (e.supersession ? '.' : ' and quiet since. Nothing replaced it.')];
+      case 'instrumented_never_observed': return ['crit', 'Never seen', 'Recorded as being in the code, but Amplitude has never received it. Either the instrumentation is broken or the code axis is wrong.'];
+      case 'code_unknown': return ['mute', 'Unknown', 'We cannot tell whether this is still in the code.'];
+      case 'system': return ['mute', 'Auto-tracked', 'Amplitude records this automatically. It is never health-flagged.'];
+      default: return ['mute', e.status, ''];
+    }
+  }
+  var COVERAGE = {
+    covered: ['good', 'Answerable', 'Every surface this question depends on has a working event.'],
+    partial: ['warn', 'Partly answerable', 'Some surfaces are instrumented and some are not, so the answer is incomplete.'],
+    uncovered: ['crit', 'Not answerable', 'At least one surface has no working event, so we cannot answer this today.'],
+    orphaned: ['crit', 'Not answerable', 'Nothing here works, but events are still arriving. Any number you see is produced by something we no longer understand.']
+  };
+
+  // ---- lineage --------------------------------------------------------------------
+  var byName = {}; EVENTS.forEach(function (e) { byName[e.display_name.toLowerCase()] = e; byName[e.event_type.toLowerCase()] = e; });
+  var areaSet = {}; AREAS.forEach(function (a) { areaSet[a.name.toLowerCase()] = a.name; });
+  var FWD = /superseded\s+by\s+([\s\S]+?)(?:\s*\(([\s\S]*)\)\s*)?$/i;
+  var BACK = /^\s*supersedes\s+([\s\S]+?)(?:\s*\(([\s\S]*)\)\s*)?$/i;
+  var fwdOf = {}, replacesOf = {};
+  function addReplaces(succ, pred) {
+    var l = replacesOf[succ.event_type] || (replacesOf[succ.event_type] = []);
+    if (l.indexOf(pred) < 0) l.push(pred);
+  }
+  EVENTS.forEach(function (e) {
+    if (!e.supersession) return;
+    var m = e.supersession.match(BACK), dir = 'backward';
+    if (!m) { m = e.supersession.match(FWD); dir = 'forward'; }
+    if (!m) return;
+    var nm = (m[1] || '').trim(), reason = (m[2] || '').trim();
+    if (!nm) return;
+    var hit = byName[nm.toLowerCase()] || null;
+    if (dir === 'forward') {
+      fwdOf[e.event_type] = { target: hit, area: hit ? null : (areaSet[nm.toLowerCase()] || null), name: nm, reason: reason };
+      if (hit) addReplaces(hit, e);
+    } else if (hit) {
+      addReplaces(e, hit);
+      if (!fwdOf[hit.event_type]) fwdOf[hit.event_type] = { target: e, area: null, name: e.display_name, reason: reason };
+    }
+  });
+  function lineage(e) {
+    var f = fwdOf[e.event_type];
+    return {
+      replacedBy: f && f.target, replacedByArea: f && f.area,
+      replacedByName: f && !f.target && !f.area ? f.name : null,
+      reason: f ? f.reason : '', replaces: replacesOf[e.event_type] || [],
+      deadEnd: (e.status === 'retired' || e.status === 'deprecating') && !f
+    };
+  }
+
+  // caveats: only when the caveat actually names this event
+  function caveatsFor(e) {
+    var out = [];
+    QUESTIONS.forEach(function (q) {
+      if (!q.caveats) return;
+      var used = (q.surfaces || []).some(function (s) { return s.instrumented_by === e.display_name; });
+      if (!used) return;
+      if (q.caveats.indexOf(e.display_name) < 0 && q.caveats.indexOf(e.event_type) < 0) return;
+      if (out.indexOf(q.caveats) < 0) out.push(q.caveats);
+    });
+    return out;
+  }
+
+  // ---- search ---------------------------------------------------------------------
+  function norm(s) { return (s || '').toLowerCase().replace(/[_-]+/g, ' '); }
+  var STATUS_W = { active: 1.4, dormant: 1, instrumented_never_observed: .9, orphaned_firing: .9, code_unknown: .8, deprecating: .5, retired: .4, system: .5 };
+  function score(hay, toks, phrase) {
+    var total = 0;
+    for (var i = 0; i < toks.length; i++) {
+      var best = 0;
+      for (var j = 0; j < hay.length; j++) {
+        var text = hay[j][0], w = hay[j][1];
+        if (!text) continue;
+        var at = text.indexOf(toks[i]);
+        if (at < 0) continue;
+        var boundary = at === 0 || !/[a-z0-9]/.test(text.charAt(at - 1));
+        best = Math.max(best, w * (boundary ? 1 : .5));
+      }
+      if (!best) return 0;
+      total += best;
+    }
+    if (phrase.indexOf(' ') >= 0) {
+      for (var k = 0; k < hay.length; k++) if (hay[k][0] && hay[k][0].indexOf(phrase) >= 0) total += hay[k][1] * 1.5;
+    }
+    return total;
+  }
+  function search(qs) {
+    var phrase = norm(qs).trim(), toks = phrase.split(/\s+/).filter(Boolean);
+    if (!toks.length) return { questions: [], areas: [], events: [], total: 0 };
+    var Q = [], A = [], E = [];
+    QUESTIONS.forEach(function (q) {
+      var s = score([[norm(q.question), 10], [norm((q.also_answers || []).join(' ')), 6], [norm(q.id), 5],
+        [norm((q.surfaces || []).map(function (x) { return x.label + ' ' + (x.instrumented_by || ''); }).join(' ')), 4],
+        [norm(q.answer_label), 8], [norm(q.caveats), 2], [norm(q.asked_by), 3]], toks, phrase);
+      if (s) Q.push({ it: q, s: s * 3 });
+    });
+    AREAS.forEach(function (a) { var s = score([[norm(a.name), 10]], toks, phrase); if (s) A.push({ it: a, s: s * 2 }); });
+    EVENTS.forEach(function (e) {
+      var s = score([[norm(e.display_name), 10], [norm(e.event_type), 8], [norm(e.description), 5],
+        [norm(e.fires_on), 4], [norm(e.area), 4], [norm(e.url), 3], [norm((e.tags || []).join(' ')), 2],
+        [norm((e.questions || []).join(' ')), 2]], toks, phrase);
+      if (s) E.push({ it: e, s: s * (STATUS_W[e.status] || 1) });
+    });
+    function by(x) { x.sort(function (a, b) { return b.s - a.s; }); return x; }
+    by(Q); by(A); by(E);
+    return { questions: Q, areas: A, events: E, total: Q.length + A.length + E.length };
+  }
+
+  // ---- state ----------------------------------------------------------------------
+  var state = { q: '', area: null, products: [], statuses: [], question: null, open: {}, sections: {},
+    dd: null, addedAfter: '', minVolume: '', sortKey: null, sortDir: 'asc' };
+  function toggleIn(arr, v) { var i = arr.indexOf(v); if (i < 0) arr.push(v); else arr.splice(i, 1); }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
+  function deslug(s) { return s ? s.replace(/[_-]+/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); }) : ''; }
+  function amplitudeUrl(t) { return 'https://app.amplitude.com/data/goodparty/694490/events?search=' + encodeURIComponent(t); }
+  function prUrl(p) { return /^\d+$/.test(p) ? 'https://github.com/thegoodparty/omni/pull/' + p : p; }
+
+  function sparkline(series, w, h) {
+    if (!series || !series.length) return '<span class="muted mono" style="font-size:11px">no data</span>';
+    w = w || 78; h = h || 20;
+    var gap = 2, bw = Math.max(2, (w - gap * (series.length - 1)) / series.length);
+    var max = Math.max.apply(null, series.concat([1]));
+    var bars = series.map(function (v, i) {
+      var x = i * (bw + gap), bh = v === 0 ? 1 : Math.max(1.5, (v / max) * h);
+      return '<rect x="' + x.toFixed(1) + '" y="' + (h - bh).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + bh.toFixed(1) +
+        '" rx="' + (v === 0 ? .5 : Math.min(2, bw / 2)).toFixed(1) + '" fill="' + (v === 0 ? 'var(--line-2)' : 'var(--ink-2)') +
+        '"><title>week of ' + esc(WEEKS[i] || '') + ': ' + fmt(v) + '</title></rect>';
+    }).join('');
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Weekly volume, ' +
+      series.length + ' weeks, ' + series[0] + ' to ' + series[series.length - 1] + '">' + bars + '</svg>';
+  }
+
+  // ---- render pieces ---------------------------------------------------------------
+  function badge(tone, text) { return '<span class="badge b-' + tone + '">' + esc(text) + '</span>'; }
+
+  function areaCard(a) {
+    var c = a.counts || {}, broken = (c.orphaned_firing || 0) + (c.instrumented_never_observed || 0);
+    var dead = (c.active || 0) === 0 && a.total > 2;
+    function d(n, cls, title) { return n > 0 ? '<span class="dot" title="' + title + '"><i class="' + cls + '"></i>' + n + '</span>' : ''; }
+    return '<button class="areacard" aria-pressed="' + (state.area === a.name) + '" data-area="' + esc(a.name) + '">' +
+      '<span class="top"><span class="nm">' + esc(a.name) + '</span><span class="tot">' + a.total + '</span></span>' +
+      '<span class="dots">' + d(c.active || 0, 'i-good', 'active') + d(c.dormant || 0, 'i-warn', 'dormant') +
+      d(broken, 'i-crit', 'orphaned or never seen') + d(c.retired || 0, 'i-mute', 'retired') + '</span>' +
+      (dead ? '<span class="alarm">nothing here is working</span>' : '') + '</button>';
+  }
+
+  function questionCard(q) {
+    var cov = COVERAGE[q.coverage] || COVERAGE.uncovered, sel = state.question === q.id;
+    var surfaces = (q.surfaces || []).map(function (s) {
+      var mark = s.state === 'live' ? ['m-live', '✓'] : s.state === 'dead' ? ['m-dead', '✗'] : ['m-gap', '–'];
+      var note = s.state === 'dead' ? ' · its event stopped working' : s.state === 'gap' ? ' · no event here' : '';
+      return '<div class="surf"><span class="mark ' + mark[0] + '">' + mark[1] + '</span><span>' + esc(deslug(s.label)) +
+        (s.instrumented_by ? '<span class="muted"> · ' + esc(s.instrumented_by) + '</span>' : '') +
+        '<span class="muted">' + note + '</span></span></div>';
+    }).join('');
+    return '<div class="qcard" data-sel="' + (sel ? 1 : 0) + '">' +
+      '<div class="qhead"><h3 class="qtext">' + esc(q.question) + '</h3>' + badge(cov[0], cov[1]) + '</div>' +
+      '<p class="qblurb">' + esc(cov[2]) + '</p>' +
+      (q.answer_url ? '<a class="answeredby" href="' + esc(q.answer_url) + '" target="_blank" rel="noreferrer">Answered by ' + esc(q.answer_label || 'this') + ' \u2197</a>' : '') +
+      (q.caveats ? '<div class="caveat"><span>⚠</span><div><div class="ct">Read this before you count it</div><p>' + esc(q.caveats) + '</p></div></div>' : '') +
+      (surfaces ? '<div class="surfaces"><div class="lbl">Where this happens</div>' + surfaces + '</div>' : '') +
+      '<div style="margin-top:11px"><button class="btn ' + (sel ? 'primary' : '') + '" data-qsel="' + esc(q.id) + '">' +
+      (sel ? 'Showing its events below' : 'Show the events answering this') + '</button></div>' +
+      '<div class="qmeta">' + (q.asked_by ? '<span>Asked by ' + esc(q.asked_by) + '</span>' : '') +
+      (q.product ? '<span>' + esc(q.product) + '</span>' : '') + (q.okr ? '<span>OKR: ' + esc(q.okr) + '</span>' : '') +
+      (q.clickup_task ? '<a href="https://app.clickup.com/t/' + esc(q.clickup_task) + '" target="_blank" rel="noreferrer">Ticket</a>' : '') +
+      '</div></div>';
+  }
+
+  function detail(e) {
+    var v = verdict(e), p = e.provenance || {}, l = lineage(e), cav = caveatsFor(e);
+    var lineageHtml = '';
+    if (l.replacedBy || l.replacedByArea || l.replacedByName || l.replaces.length || l.deadEnd) {
+      var inner = '';
+      if (l.replacedBy) { var rv = verdict(l.replacedBy); inner += '<div><span class="muted">Use instead:</span> <b>' + esc(l.replacedBy.display_name) + '</b> ' + badge(rv[0], rv[1]) + '</div>'; }
+      if (l.replacedByArea) inner += '<div><span class="muted">Replaced by the</span> <b>' + esc(l.replacedByArea) + '</b> <span class="muted">family, not by a single event.</span></div>';
+      if (l.replacedByName) inner += '<div><span class="muted">Recorded as replaced by</span> <b>' + esc(l.replacedByName) + '</b><span class="muted">, which is not an event we can find.</span></div>';
+      if (l.deadEnd) inner += '<div class="muted">Removed, and nothing is recorded as replacing it. If you need this measured, it needs new instrumentation.</div>';
+      if (l.replaces.length) inner += '<div><span class="muted">Replaces:</span> ' + esc(l.replaces.map(function (r) { return r.display_name; }).join(', ')) + '</div>';
+      if (l.reason) inner += '<div class="note">' + esc(l.reason) + '</div>';
+      lineageHtml = '<div class="lineage"><div class="fieldlbl">Lineage</div>' + inner + '</div>';
+    }
+    function field(lbl, val) { return '<div class="field"><div class="fieldlbl">' + lbl + '</div><div class="v">' + (val || '<span class="muted">&mdash;</span>') + '</div></div>'; }
+    var psrc = e._psrc === 'tag' ? 'tagged' : e._psrc === 'path' ? 'inferred from the code path' : 'not recorded';
+    return '<div class="detail">' +
+      '<div class="verdictrow">' + badge(v[0], v[1]) + '<span>' + esc(v[2]) + '</span></div>' +
+      cav.map(function (c) { return '<div class="caveat"><span>⚠</span><div><div class="ct">Read this before you count it</div><p>' + esc(c) + '</p></div></div>'; }).join('') +
+      lineageHtml +
+      '<div class="fields">' +
+        field('What it is', esc(e.description)) +
+        field('Where it fires', esc(e.fires_on) + (e.fires_on_source === 'anchor' ? ' <span class="badge b-mute">drafted' + (e.anchor_confidence === 'low' ? ', low confidence' + (e.anchor_flag_reason ? ': ' + esc(e.anchor_flag_reason) : '') : '') + '</span>' : '')) +
+        field('Weekly volume (9 weeks)', sparkline(e.series, 96, 24) + ' <span class="muted mono" style="font-size:11px">' + fmt(e.count_30d) + ' / 30d</span>') +
+      '</div>' +
+      '<div class="fields">' +
+        field('Added to the code', p.instrumented_date ? '<span class="mono">' + esc(p.instrumented_date) + '</span>' : '<span class="muted">no commit could be attributed</span>') +
+        field('Removed from the code', p.retired_date ? '<span class="mono">' + esc(p.retired_date) + '</span>' : '<span class="muted">still in the code</span>') +
+        field('Last fired', p ? '<span class="mono">' + esc(e.last_seen) + '</span>' : '') +
+        field('Product', esc(({ win: 'Win', serve: 'Serve', shared: 'Shared', unknown: 'Unknown' })[e._p]) + ' <span class="muted">(' + psrc + ')</span>') +
+      '</div>' +
+      usedBy(e) +
+      '<div class="links">' +
+        '<a class="btn" href="' + amplitudeUrl(e.event_type) + '" target="_blank" rel="noreferrer">Open in Amplitude</a>' +
+        (e.url && e.url.indexOf('n/a') !== 0 ? '<a class="btn" href="' + esc(e.url) + '" target="_blank" rel="noreferrer">' + esc(e.url) + '</a>' : '') +
+        (p.instrumented_pr ? '<a class="btn" href="' + esc(prUrl(p.instrumented_pr)) + '" target="_blank" rel="noreferrer">Instrumenting PR</a>' : '') +
+      '</div>' +
+      '<div class="prov"><div class="fieldlbl">Provenance and identifiers</div><div class="fields" style="margin-top:6px">' +
+        field('event_type', '<span class="mono">' + esc(e.event_type) + '</span>') +
+        field('Product area', esc(e.area)) +
+        field('Tags', esc((e.tags || []).join(', '))) +
+        field('OKR anchor', esc(e.okr)) +
+        field('Declared intent', esc(e.declared_intent)) +
+        field('All-time count', '<span class="mono">' + fmt(e.count_total) + '</span>') +
+        field('Instrumented by', esc(p.instrumented_author_email)) +
+        field('Removed by', esc(p.retired_author_email)) +
+      '</div></div></div>';
+  }
+
+  function usedBy(e) {
+    var qs = e.questions || [], ub = e.used_by || [];
+    if (!qs.length && !ub.length) return '';
+    var out = '<div style="margin-top:14px"><div class="fieldlbl">Used by</div>';
+    if (qs.length) {
+      out += '<ul style="margin:4px 0 0;padding-left:18px">' + qs.map(function (q) {
+        var m = QUESTIONS.filter(function (x) { return x.question === q; })[0];
+        return '<li>' + (m && m.answer_url
+          ? '<a href="' + esc(m.answer_url) + '" target="_blank" rel="noreferrer">' + esc(q) + '</a>'
+          : esc(q)) + '</li>';
+      }).join('') + '</ul>';
+    }
+    [['column', 'Table columns'], ['report', 'Reports']].forEach(function (pair) {
+      var items = ub.filter(function (u) { return u.kind === pair[0]; });
+      if (!items.length) return;
+      out += '<div style="margin-top:8px"><div class="fieldlbl">' + pair[1] + '</div>' +
+        '<ul style="margin:4px 0 0;padding-left:18px">' + items.map(function (u) {
+          return '<li><a href="' + esc(u.url) + '" target="_blank" rel="noreferrer">' + esc(u.label) + '</a></li>';
+        }).join('') + '</ul></div>';
+    });
+    return out + '</div>';
+  }
+
+  var SORT_COLS = [['name', 'Event'], ['area', 'Area'], ['added', 'Added'], ['state', 'State'], ['count', '30d']];
+  var STATE_ORDER = { orphaned_firing: 0, instrumented_never_observed: 1, dormant: 2, deprecating: 3, code_unknown: 4, active: 5, retired: 6, system: 7 };
+  function sortVal(e, k) {
+    if (k === 'name') return e.display_name.toLowerCase();
+    if (k === 'area') return e.area.toLowerCase();
+    if (k === 'added') return (e.provenance || {}).instrumented_date || '';
+    if (k === 'state') return STATE_ORDER[e.status] == null ? 9 : STATE_ORDER[e.status];
+    return e.count_30d || 0;
+  }
+  function sortList(list) {
+    if (!state.sortKey) return list;
+    var out = list.slice();
+    out.sort(function (a, b) {
+      var av = sortVal(a, state.sortKey), bv = sortVal(b, state.sortKey);
+      // An unknown date sorts last both ways rather than posing as the oldest event.
+      if (av === '' && bv === '') return 0;
+      if (av === '') return 1;
+      if (bv === '') return -1;
+      if (av === bv) return 0;
+      return (av < bv ? -1 : 1) * (state.sortDir === 'asc' ? 1 : -1);
+    });
+    return out;
+  }
+
+  function eventTable(list) {
+    if (!list.length) return '<div class="empty">No events match these filters.</div>';
+    var rows = sortList(list).slice(0, 200).map(function (e) {
+      var v = verdict(e), l = lineage(e), open = !!state.open[e.event_type];
+      var hint = l.replacedBy ? '→ ' + l.replacedBy.display_name : l.replacedByArea ? '→ ' + l.replacedByArea + ' family' : l.deadEnd ? 'no replacement' : '';
+      return '<tr class="row" data-ev="' + esc(e.event_type) + '" aria-expanded="' + open + '">' +
+        '<td style="width:22px"><span class="chev">›</span></td>' +
+        '<td><div class="evname">' + esc(e.display_name) + '</div>' + (e.description ? '<div class="evdesc">' + esc(e.description) + '</div>' : '') + '</td>' +
+        '<td class="muted">' + esc(e.area) + '</td>' +
+        '<td class="date">' + esc((e.provenance || {}).instrumented_date || '—') + '</td>' +
+        '<td>' + badge(v[0], v[1]) + (hint ? '<div class="lineagehint">' + esc(hint) + '</div>' : '') + '</td>' +
+        '<td class="num">' + fmt(e.count_30d) + '</td>' +
+        '<td>' + sparkline(e.series) + '</td></tr>' +
+        (open ? '<tr><td colspan="7" style="padding:0">' + detail(e) + '</td></tr>' : '');
+    }).join('');
+    var heads = SORT_COLS.map(function (c) {
+      var on = state.sortKey === c[0];
+      var glyph = !on ? '\u21c5' : state.sortDir === 'asc' ? '\u2191' : '\u2193';
+      return '<th' + (c[0] === 'count' ? ' class="num"' : '') + ' aria-sort="' + (on ? (state.sortDir === 'asc' ? 'ascending' : 'descending') : 'none') + '">' +
+        '<button class="sorter" data-sort="' + c[0] + '" data-on="' + (on ? 1 : 0) + '">' + c[1] + ' <span aria-hidden="true">' + glyph + '</span></button></th>';
+    }).join('');
+    return '<div class="tablewrap"><table><thead><tr><th></th>' + heads + '<th>Trend</th></tr></thead><tbody>' +
+      rows + '</tbody></table></div>' +
+      (list.length > 200 ? '<div class="note">Showing the first 200 of ' + list.length + '. Narrow with search or a filter.</div>' : '');
+  }
+
+  function dropdown(key, label, selected, opts, attr) {
+    var summary = selected.length === 0 ? 'All ' + label.toLowerCase()
+      : selected.length === 1 ? (opts.filter(function (o) { return o[0] === selected[0]; })[0] || [0, label])[1]
+      : label + ': ' + selected.length;
+    var body = (selected.length ? '<button class="opt" data-clear="' + attr + '"><span class="box"></span>Clear ' + label.toLowerCase() + '</button>' : '') +
+      opts.map(function (o) {
+        var on = selected.indexOf(o[0]) >= 0;
+        return '<button class="opt" aria-selected="' + on + '" data-' + attr + '="' + esc(o[0]) + '">' +
+          '<span class="box">' + (on ? '\u2713' : '') + '</span><span>' + esc(o[1]) + '</span>' +
+          (o[2] != null ? '<span class="cnt">' + o[2] + '</span>' : '') + '</button>';
+      }).join('');
+    return '<details class="dd" data-dd="' + key + '" data-on="' + (selected.length ? 1 : 0) + '"' +
+      (state.dd === key ? ' open' : '') + '><summary>' + esc(summary) + ' \u25be</summary><div class="menu">' + body + '</div></details>';
+  }
+
+  function section(key, title, count, asideHtml, bodyHtml, defaultOpen) {
+    var open = key in state.sections ? state.sections[key] : defaultOpen !== false;
+    return '<section><div class="sechead">' +
+      '<button class="sectoggle" data-sec="' + key + '" aria-expanded="' + open + '"><span class="caret">▾</span>' + esc(title) +
+      (count != null ? ' <span class="seccount">(' + count + ')</span>' : '') + '</button>' +
+      (open ? (asideHtml || '') : '') + '</div>' + (open ? bodyHtml : '') + '</section>';
+  }
+
+  // ---- filtering -------------------------------------------------------------------
+  function narrow(list) {
+    return list.filter(function (e) {
+      if (state.area && e.area !== state.area) return false;
+      if (state.products.length && state.products.indexOf(e._p) < 0) return false;
+      if (state.statuses.length) {
+        var ok = STATUS_GROUPS.some(function (g) { return state.statuses.indexOf(g[0]) >= 0 && g[2].indexOf(e.status) >= 0; });
+        if (!ok) return false;
+      }
+      // An event with no attributable commit has no date to compare, so a date filter
+      // necessarily drops it rather than guessing that it is old.
+      if (state.addedAfter && ((e.provenance || {}).instrumented_date || '') < state.addedAfter) return false;
+      if (state.minVolume !== '' && (e.count_30d || 0) < Number(state.minVolume)) return false;
+      return true;
+    });
+  }
+
+  function renderNext() {
+    var acts = [
+      ['Request an event', 'Nothing here measures what you need. File it so the next sweep picks it up.', FORM, 'Open the form'],
+      ['Report something broken', 'An event is firing wrong, double-counting, or its description is out of date.', FORM, 'Open the form'],
+      ['Ask a question', 'Not sure what you are looking at? Ask in #product-analytics.', SLACK, 'Open #product-analytics'],
+      ['Dig into an area', 'See every event, gap and question for one product area in one place.', '', 'Coming soon']
+    ];
+    var live = acts.filter(function (a) { return a[2]; }).length;
+    document.getElementById('whatsnext').innerHTML =
+      '<div class="sechead" style="margin-bottom:2px"><span class="sectoggle" style="cursor:default">What\u2019s next</span>' +
+      (live < 3 ? '<span class="note" style="margin:0">placeholder \u2014 most of these are not wired up yet</span>' : '') + '</div>' +
+      '<div class="nextgrid">' + acts.map(function (a) {
+        return '<div class="nextcard"><div class="h">' + esc(a[0]) + '</div><p>' + esc(a[1]) + '</p>' +
+          (a[2] ? '<a class="btn' + (a[0] === 'Ask a question' ? '' : ' primary') + '" href="' + esc(a[2]) + '" target="_blank" rel="noreferrer">' + esc(a[3]) + '</a>'
+                : '<button class="btn" disabled>' + esc(a[3]) + '</button>') + '</div>';
+      }).join('') + '</div>';
+  }
+
+  function render() {
+    // header bits
+    var fresh = document.getElementById('freshness');
+    fresh.innerHTML = EVENTS.length + ' events · ' + QUESTIONS.length + ' questions · ' + AREAS.length +
+      ' areas · data as of <b>' + esc(fmtWhen(DATA.refreshed_at)) + '</b> · next refresh <b>' + esc(fmtWhen(nextRun())) + '</b>';
+
+    var counts = {}; EVENTS.forEach(function (e) { counts[e._p] = (counts[e._p] || 0) + 1; });
+    var prow = document.getElementById('prodrow');
+    prow.innerHTML = '<span class="filterlabel">Product</span>' + PRODUCTS.map(function (p) {
+      return '<button class="pill" aria-pressed="' + (state.products.indexOf(p[0]) >= 0) + '" data-prod="' + p[0] + '">' +
+        esc(p[1]) + '<span class="n">' + (counts[p[0]] || 0) + '</span></button>';
+    }).join('') + (filtersOn() ? '<button class="linkbtn" id="clearf">Clear filters</button>' : '');
+
+    document.getElementById('tryrow').hidden = !!state.q;
+    document.getElementById('clearq').hidden = !state.q;
+
+    var out = '', res = search(state.q), searching = !!state.q.trim();
+    var activeQ = state.question ? QUESTIONS.filter(function (q) { return q.id === state.question; })[0] : null;
+
+    if (searching && res.total === 0) {
+      out += '<div class="empty"><b>Nothing matches &ldquo;' + esc(state.q) + '&rdquo;.</b>' +
+        '<p class="note">That may mean we do not track it yet.</p><div class="links">' +
+        (FORM ? '<a class="btn primary" href="' + esc(FORM) + '" target="_blank" rel="noreferrer">Request an event</a>' : '') +
+        '<a class="btn" href="' + SLACK + '" target="_blank" rel="noreferrer">Ask in #product-analytics</a></div></div>';
+    }
+    if (searching && res.questions.length) {
+      out += section('sq', 'Questions', res.questions.length, '', res.questions.slice(0, 4).map(function (h) { return questionCard(h.it); }).join(''));
+    }
+    if (searching && res.areas.length) {
+      out += section('sa', 'Product areas', res.areas.length, '',
+        '<div class="areagrid">' + res.areas.slice(0, 8).map(function (h) { return areaCard(h.it); }).join('') + '</div>');
+    }
+    if (!searching) {
+      var legend = '<span class="legend"><span class="dot"><i class="i-good"></i>active</span><span class="dot"><i class="i-warn"></i>dormant</span><span class="dot"><i class="i-crit"></i>orphaned or never seen</span><span class="dot"><i class="i-mute"></i>retired</span></span>';
+      out += section('areas', 'By product area', AREAS.length, legend,
+        '<div class="areagrid">' + AREAS.slice(0, 20).map(areaCard).join('') + '</div>');
+      var qs = state.products.length ? QUESTIONS.filter(function (q) { return state.products.indexOf(q.product) >= 0; }) : QUESTIONS;
+      var broken = qs.filter(function (q) { return q.coverage !== 'covered'; }).length;
+      out += section('questions', 'By business question', qs.length,
+        '<span class="badge b-mute">' + broken + ' not fully answerable</span>',
+        qs.map(questionCard).join(''), false);
+    }
+
+    // events
+    var scope;
+    if (activeQ) {
+      var named = {}; (activeQ.surfaces || []).forEach(function (s) { if (s.instrumented_by) named[s.instrumented_by] = 1; });
+      var answering = EVENTS.filter(function (e) { return named[e.display_name]; });
+      var areasIn = {}; answering.forEach(function (e) { areasIn[e.area] = 1; });
+      var ansT = {}; answering.forEach(function (e) { ansT[e.event_type] = 1; });
+      scope = { answering: answering, related: EVENTS.filter(function (e) { return areasIn[e.area] && !ansT[e.event_type]; }), areas: Object.keys(areasIn) };
+    }
+    var base = scope ? scope.answering : (searching ? res.events.map(function (h) { return h.it; }) : EVENTS);
+    var shown = narrow(base);
+
+    var areaOpts = '<select class="pill" id="areasel"><option value="">All areas</option>' +
+      AREAS.map(function (a) { return '<option value="' + esc(a.name) + '"' + (state.area === a.name ? ' selected' : '') + '>' + esc(a.name) + ' (' + a.total + ')</option>'; }).join('') + '</select>';
+    var statusCounts = {};
+    STATUS_GROUPS.forEach(function (g) {
+      statusCounts[g[0]] = EVENTS.filter(function (e) { return g[2].indexOf(e.status) >= 0; }).length;
+    });
+    var stateDD = dropdown('states', 'States', state.statuses,
+      STATUS_GROUPS.map(function (g) { return [g[0], g[1], statusCounts[g[0]]]; }), 'status');
+    var prodDD = dropdown('products', 'Products', state.products,
+      PRODUCTS.map(function (p) { return [p[0], p[1], counts[p[0]] || 0]; }), 'prod');
+    var dateIn = '<label class="inlabel">Added after <input class="datein" type="date" id="addedafter" value="' + esc(state.addedAfter) + '"></label>';
+    var volIn = '<label class="inlabel">Min 30d <input class="numin" type="number" min="0" id="minvol" value="' + esc(state.minVolume) + '" placeholder="0"></label>';
+    var aside = '<span class="filterrow" style="margin:0">' + areaOpts + stateDD + prodDD + dateIn + volIn +
+      (activeQ ? '<button class="linkbtn" id="clearq2">clear question</button>' : '') + '</span>';
+
+    out += section('events', activeQ ? 'Events answering this question' : (searching ? 'Events' : 'All events'),
+      shown.length, aside, eventTable(shown));
+
+    if (scope && scope.related.length) {
+      var rel = narrow(scope.related);
+      out += section('related', 'Others in ' + scope.areas.join(', '), rel.length,
+        '<span class="note" style="margin:0">not named by this question, but in the same part of the product</span>',
+        eventTable(rel), false);
+    }
+
+    document.getElementById('results').innerHTML = out;
+  }
+
+  function filtersOn() { return !!(state.area || state.products.length || state.statuses.length || state.question || state.addedAfter || state.minVolume); }
+  function fmtWhen(iso) {
+    if (!iso) return 'unknown';
+    var d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC';
+  }
+  function nextRun() {
+    var d = new Date(); d.setUTCHours(11, 0, 0, 0);
+    if (d <= new Date()) d.setUTCDate(d.getUTCDate() + 1);
+    while ([1, 4].indexOf(d.getUTCDay()) < 0) d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString();
+  }
+
+  // ---- events ----------------------------------------------------------------------
+  document.addEventListener('click', function (ev) {
+    var sum = ev.target.closest('details.dd > summary');
+    if (sum) {
+      var d = sum.parentElement;
+      state.dd = d.hasAttribute('open') ? null : d.dataset.dd;
+      return; // let <details> toggle itself; no re-render, so the menu stays put
+    }
+    var t = ev.target.closest('[data-sec],[data-area],[data-prod],[data-status],[data-qsel],[data-ev],[data-clear],[data-sort],#clearf,#clearq,#clearq2');
+    if (!t) return;
+    ev.preventDefault();
+    if (t.id === 'clearq') { state.q = ''; document.getElementById('q').value = ''; }
+    else if (t.id === 'clearf') { state.area = null; state.products = []; state.statuses = []; state.question = null; state.addedAfter = ''; state.minVolume = ''; }
+    else if (t.id === 'clearq2') state.question = null;
+    else if (t.dataset.sec) { var k = t.dataset.sec; state.sections[k] = t.getAttribute('aria-expanded') !== 'true'; }
+    else if (t.dataset.area) state.area = state.area === t.dataset.area ? null : t.dataset.area;
+    else if (t.dataset.prod) toggleIn(state.products, t.dataset.prod);
+    else if (t.dataset.status) toggleIn(state.statuses, t.dataset.status);
+    else if (t.dataset.qsel) state.question = state.question === t.dataset.qsel ? null : t.dataset.qsel;
+    else if (t.dataset.ev) state.open[t.dataset.ev] = !state.open[t.dataset.ev];
+    else if (t.dataset.clear) { if (t.dataset.clear === 'status') state.statuses = []; else state.products = []; }
+    else if (t.dataset.sort) {
+      if (state.sortKey !== t.dataset.sort) { state.sortKey = t.dataset.sort; state.sortDir = (t.dataset.sort === 'count' || t.dataset.sort === 'added') ? 'desc' : 'asc'; }
+      else if (state.sortDir === 'asc') state.sortDir = 'desc';
+      else state.sortKey = null;
+    }
+    render();
+  });
+  document.addEventListener('change', function (ev) {
+    if (ev.target.id === 'areasel') { state.area = ev.target.value || null; render(); }
+    else if (ev.target.id === 'addedafter') { state.addedAfter = ev.target.value; render(); }
+    else if (ev.target.id === 'minvol') { state.minVolume = ev.target.value; render(); }
+  });
+  var qEl = document.getElementById('q'), tmr;
+  qEl.addEventListener('input', function () {
+    clearTimeout(tmr);
+    tmr = setTimeout(function () { state.q = qEl.value; state.question = null; render(); }, 120);
+  });
+  document.getElementById('tryrow').innerHTML = 'Try: ' +
+    ['voter file export', 'onboarding drop off', 'pro upgrade', 'campaign plan', 'text campaign']
+      .map(function (s) { return '<button class="pill" data-try="' + esc(s) + '">' + esc(s) + '</button>'; }).join('');
+  document.getElementById('tryrow').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-try]');
+    if (!b) return;
+    qEl.value = b.dataset.try; state.q = b.dataset.try; state.question = null; render();
+  });
+
+  renderNext();
+  render();
+})();
+</script>
