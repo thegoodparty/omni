@@ -1,7 +1,7 @@
 'use client'
 
 import Body2 from '@shared/typography/Body2'
-import type { PolygonRing } from 'app/dashboard/shared/ringGeometry'
+import { drawnRings, type PolygonRing } from 'app/dashboard/shared/ringGeometry'
 import type { ContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import { useMemo } from 'react'
 import BoundaryDrawPanel from '../map/BoundaryDrawPanel'
@@ -9,8 +9,13 @@ import { groupCoordinates } from '../map/contactListPoints'
 import { useFilterPoints } from './useFilterPoints'
 
 interface BoundaryStepProps {
-  ring: PolygonRing
-  onRingChange: (ring: PolygonRing) => void
+  // Every part of the boundary, plus which one the map is editing. Held by
+  // the wizard rather than here so leaving the step and coming back does
+  // not lose the parts already cut.
+  rings: PolygonRing[]
+  activeIndex: number
+  onRingsChange: (rings: PolygonRing[]) => void
+  onActiveIndexChange: (index: number) => void
   labels: ContactsLabels
   // The same draft payload the count is taken over, so the dots on screen
   // and the number in the pill are answering about one population.
@@ -30,8 +35,10 @@ interface BoundaryStepProps {
 // design: a list built from criteria alone is a list, and making the shape
 // mandatory would take that away.
 export default function BoundaryStep({
-  ring,
-  onRingChange,
+  rings,
+  activeIndex,
+  onRingsChange,
+  onActiveIndexChange,
   labels,
   filters,
   count,
@@ -63,7 +70,7 @@ export default function BoundaryStep({
       ? null
       : audienceEmpty
         ? labels.boundaryEmptyAudience
-        : ring.length >= 3 && count === 0
+        : drawnRings(rings).length > 0 && count === 0
           ? labels.boundaryEmptyShape
           : null
 
@@ -78,8 +85,10 @@ export default function BoundaryStep({
         <BoundaryDrawPanel
           points={points}
           truncated={truncated}
-          ring={ring}
-          onRingChange={onRingChange}
+          rings={rings}
+          activeIndex={activeIndex}
+          onRingsChange={onRingsChange}
+          onActiveIndexChange={onActiveIndexChange}
           pillLabel={pillLabel}
           hint={labels.boundaryStepHint}
           className="h-[22rem] w-full rounded-md border"

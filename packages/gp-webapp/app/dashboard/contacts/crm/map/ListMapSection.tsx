@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { Button, CropIcon } from '@styleguide'
-import { ringFromGeoJsonPolygon } from 'app/dashboard/shared/ringGeometry'
+import {
+  drawnRings,
+  ringsFromGeoJsonShape,
+} from 'app/dashboard/shared/ringGeometry'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import { useContactsTable } from '../ContactsTableProvider'
 import { SectionLabel } from '../lists/ListDetailSection'
@@ -36,8 +39,8 @@ export default function ListMapSection({
   const [drawing, setDrawing] = useState(false)
 
   const labels = getContactsLabels(isWinContext)
-  const savedRing = useMemo(
-    () => ringFromGeoJsonPolygon(segment.geoPoly),
+  const savedRings = useMemo(
+    () => ringsFromGeoJsonShape(segment.geoPoly),
     [segment.geoPoly],
   )
   const isLocked = Boolean(segment.firstUsedForOutreachAt)
@@ -69,8 +72,10 @@ export default function ListMapSection({
               selectedPersonId={currentlySelectedPersonId}
               onSelectPerson={selectPerson}
               // No writer: a locked list still shows the geography it was
-              // cut with, it just cannot be re-cut.
-              drawRing={savedRing}
+              // cut with, it just cannot be re-cut. Every part goes through
+              // `otherRings`, which is the read-only layer — `drawRing` is
+              // the part a gesture edits, and nothing here edits.
+              otherRings={savedRings}
             />
           </div>
           {truncated ? (
@@ -88,7 +93,7 @@ export default function ListMapSection({
               onClick={() => setDrawing(true)}
             >
               <CropIcon className="size-4" aria-hidden />
-              {savedRing.length >= 3
+              {drawnRings(savedRings).length > 0
                 ? labels.boundaryEditCta
                 : labels.boundaryDrawCta}
             </Button>
@@ -97,11 +102,11 @@ export default function ListMapSection({
             <ListBoundaryOverlay
               people={people}
               truncated={truncated}
-              initialRing={savedRing}
+              initialRings={savedRings}
               labels={labels}
               isSaving={saveMutation.isPending}
               onCancel={() => setDrawing(false)}
-              onSave={(ring) => saveMutation.mutate(ring)}
+              onSave={(rings) => saveMutation.mutate(rings)}
             />
           )}
         </>
