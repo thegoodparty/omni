@@ -552,6 +552,71 @@ describe('poll results through the same surface', () => {
     })
   })
 
+  // The read the upload page does before it accepts anything. It has its
+  // own query and its own 404s, and it sources resultsReceivedAt from
+  // `completedDate` rather than the send path's field — none of which the
+  // upload tests above exercise.
+  it('returns what the page must show before the file is uploaded', async () => {
+    const result = await service.client.get(`${BASE}/poll/${pollId}`)
+
+    expect(result.status).toBe(200)
+    expect(result.data).toMatchObject({
+      kind: 'poll',
+      id: pollId,
+      name: 'Which roads first?',
+      organizationSlug: ORG_SLUG,
+      recipientCount: 1200,
+      resultsReceivedAt: null,
+    })
+    expect(result.data.message).toBe(
+      'Which roads need repair first? Reply to tell me.',
+    )
+  })
+
+  // What drives the "results already in" badge. A poll has no spine status,
+  // so completedDate — written by the analysis pipeline — is the only thing
+  // that says the round trip finished.
+  it('says results are in once the pipeline has set completedDate', async () => {
+    await service.prisma.poll.update({
+      where: { id: pollId },
+      data: { completedDate: new Date(), isCompleted: true },
+    })
+
+    const result = await service.client.get(`${BASE}/poll/${pollId}`)
+
+    expect(result.status).toBe(200)
+    expect(result.data.resultsReceivedAt).not.toBeNull()
+  })
+
+  it('404s a poll id that names nothing on the target read', async () => {
+    const result = await service.client.get(`${BASE}/poll/does-not-exist`, {
+      validateStatus: () => true,
+    })
+
+    expect(result.status).toBe(404)
+  })
+
+  // The second 404 branch: a poll whose elected office is gone has no
+  // organization to scope the inbox by, so it is unreadable rather than
+  // shown without an owner — the same treatment listAwaiting gives it.
+  it('404s a poll with no organization scope', async () => {
+    const orphan = await service.prisma.poll.create({
+      data: {
+        name: 'Orphaned poll',
+        messageContent: 'Anyone there?',
+        targetAudienceSize: 10,
+        scheduledDate: new Date('2026-08-01T15:00:00.000Z'),
+        estimatedCompletionDate: new Date('2026-08-06T15:00:00.000Z'),
+      },
+    })
+
+    const result = await service.client.get(`${BASE}/poll/${orphan.id}`, {
+      validateStatus: () => true,
+    })
+
+    expect(result.status).toBe(404)
+  })
+
   it('refuses a poll id that names nothing', async () => {
     const result = await service.client.post(
       `${BASE}/poll/does-not-exist`,
