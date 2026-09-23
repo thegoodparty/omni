@@ -108,11 +108,38 @@ describe('BoundaryDrawPanel', () => {
     ).toBeDisabled()
   })
 
-  it('draws the inactive parts read-only and the active one editable', () => {
+  // `findBy`, not `getBy`: the canvas is a `next/dynamic` import, so it is
+  // a loading placeholder on the first render. A synchronous read passed
+  // only because the cases above had already resolved the module.
+  it('draws the inactive parts read-only and the active one editable', async () => {
     render(<Harness initial={[TRIANGLE, []]} />)
 
-    const map = screen.getByTestId('contact-map-stub')
+    const map = await screen.findByTestId('contact-map-stub')
     expect(map).toHaveAttribute('data-ring', '[]')
     expect(map).toHaveAttribute('data-other-rings', JSON.stringify([TRIANGLE]))
+  })
+
+  // The question a holder reopening a saved list asks: are these shapes
+  // fixed now? They are not — selecting one hands it to the map as the
+  // editable ring, corners and all, and the others drop back to read-only.
+  it('hands a previously drawn part back for editing when its chip is picked', async () => {
+    const user = userEvent.setup()
+    const second: PolygonRing = [
+      [-87.6, 41.8],
+      [-87.58, 41.8],
+      [-87.59, 41.81],
+    ]
+    render(<Harness initial={[TRIANGLE, second]} />)
+
+    expect(await screen.findByTestId('contact-map-stub')).toHaveAttribute(
+      'data-ring',
+      JSON.stringify(second),
+    )
+
+    await user.click(screen.getByRole('button', { name: /Shape 1/ }))
+
+    const map = screen.getByTestId('contact-map-stub')
+    expect(map).toHaveAttribute('data-ring', JSON.stringify(TRIANGLE))
+    expect(map).toHaveAttribute('data-other-rings', JSON.stringify([second]))
   })
 })
