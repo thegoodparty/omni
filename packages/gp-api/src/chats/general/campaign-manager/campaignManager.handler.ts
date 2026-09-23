@@ -449,9 +449,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // access, the open catalog included: a catalog whose output this
     // campaign cannot act on reads to the model as a menu to walk through,
     // and what filtering covers is one line in the product map instead.
-    // Saved lists too: a campaign without Pro cannot create one, and one
-    // whose Pro lapsed cannot use the lists it has, so offering to read them
-    // would only end in a refusal. Only a known false gates. An unknown flag
+    // Saved lists too: without Pro the service refuses every saved-list
+    // action except listing names, so the tool here would be a list of names
+    // the campaign cannot count, edit, or use, one more menu it cannot act
+    // on. Only a known false gates. An unknown flag
     // arises only when no campaign resolved, which also turns these tools
     // off, so the service stays the deciding check.
     if (
