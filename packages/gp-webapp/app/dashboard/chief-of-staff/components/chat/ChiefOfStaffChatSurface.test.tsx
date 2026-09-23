@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { useEffect } from 'react'
+import type { ChatScope } from '../../../shared/agent-chat/chatClient'
 import ChiefOfStaffChatSurface from './ChiefOfStaffChatSurface'
 
 // Each mount pushes its conversation-shaping props, so a remount is visible as
@@ -8,15 +9,18 @@ import ChiefOfStaffChatSurface from './ChiefOfStaffChatSurface'
 const mounts: Array<{
   conversationIdOverride?: string
   pendingKickoff?: string
+  scope?: ChatScope
 }> = []
 function BodyStub(props: {
   conversationIdOverride?: string
   pendingKickoff?: string
+  scope?: ChatScope
 }): null {
   useEffect(() => {
     mounts.push({
       conversationIdOverride: props.conversationIdOverride,
       pendingKickoff: props.pendingKickoff,
+      scope: props.scope,
     })
     // Mount-only on purpose: this records remounts, not prop updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,5 +76,17 @@ describe('ChiefOfStaffChatSurface body identity', () => {
     )
 
     expect(mounts).toHaveLength(1)
+  })
+
+  it('threads scope down to the body', () => {
+    mounts.length = 0
+    render(
+      <ChiefOfStaffChatSurface
+        open
+        onOpenChange={vi.fn()}
+        scope="campaign_assistant"
+      />,
+    )
+    expect(mounts[0]?.scope).toBe('campaign_assistant')
   })
 })
