@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest'
 import { outreachChannel, outreachEventProps } from './outreachAnalytics'
 
 // The omission rules are the whole point of this module: an absent property

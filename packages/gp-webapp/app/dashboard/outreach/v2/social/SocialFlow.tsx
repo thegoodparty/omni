@@ -20,7 +20,7 @@ import { excludedSocialPlatformsForPurpose } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   type OutreachTrackerOrigin,
@@ -279,19 +279,41 @@ export const SocialFlow = ({
       }),
     onSuccess: (detail) => {
       setSaved(true)
+      // Social's create and completion are one press — there is no draft to
+      // pay for — so Created fires here too, immediately before Completed.
+      // It is kept rather than skipped so that every channel has a Created
+      // and the created → completed funnel has no channel-shaped hole in it;
+      // social simply converts at 100%.
+      trackEvent(
+        surfaceEvent(
+          EVENTS.Dashboard.VoterContact.CampaignCreated,
+          surface.isServe,
+        ),
+        outreachEventProps({
+          channel: 'socialMedia',
+          outreachCampaignId: detail.id,
+          ...(tracker ? { tracker } : {}),
+        }),
+      )
       // Save is social's completion: the assets exist and the candidate has
       // them. There is no send step to wait on, and no recipient count to
       // report — a post reaches whoever it reaches, so `recipientCount` is
       // omitted rather than sent as 0.
-      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-        ...outreachEventProps({
-          channel: 'socialMedia',
-          sendDate: new Date(),
-          outreachCampaignId: detail.id,
-          ...(tracker ? { tracker } : {}),
-        }),
-        platformCount: assets?.length ?? 0,
-      })
+      trackEvent(
+        surfaceEvent(
+          EVENTS.Dashboard.VoterContact.CampaignCompleted,
+          surface.isServe,
+        ),
+        {
+          ...outreachEventProps({
+            channel: 'socialMedia',
+            sendDate: new Date(),
+            outreachCampaignId: detail.id,
+            ...(tracker ? { tracker } : {}),
+          }),
+          platformCount: assets?.length ?? 0,
+        },
+      )
       onSaved(detail)
     },
   })

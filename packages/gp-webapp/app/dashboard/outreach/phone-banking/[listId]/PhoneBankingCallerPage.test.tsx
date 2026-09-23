@@ -311,7 +311,7 @@ describe('<PhoneBankingCallerPage>', () => {
     // Opening the panel on Casey (the entry's first person, so no tab click
     // needed to select them) fires Contact Viewed with the entry's rank.
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.ContactViewed,
+      EVENTS.Outreach.PhoneBanking.ContactViewed.win,
       { listId: LIST_ID, contactId: 'house-a', listRank: 2 },
     )
 
@@ -340,7 +340,7 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(capturedRequest).not.toHaveProperty('markHouseholdDone')
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.CallLogged,
+      EVENTS.Outreach.PhoneBanking.CallLogged.win,
       {
         medium: 'phoneBanking',
         fanout: 'one-to-one',
@@ -362,7 +362,7 @@ describe('<PhoneBankingCallerPage>', () => {
     )
     expect(within(dialog).getByText('Did they answer?')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.ContactViewed,
+      EVENTS.Outreach.PhoneBanking.ContactViewed.win,
       { listId: LIST_ID, contactId: 'house-b', listRank: 2 },
     )
   })
@@ -385,7 +385,7 @@ describe('<PhoneBankingCallerPage>', () => {
     await user.click(pdfLink)
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      EVENTS.Outreach.PhoneBanking.SheetDownloaded.win,
     )
   })
 
@@ -539,7 +539,7 @@ describe('<PhoneBankingCallerPage>', () => {
       personId: 'solo-1',
     })
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.CallLogged,
+      EVENTS.Outreach.PhoneBanking.CallLogged.win,
       {
         medium: 'phoneBanking',
         fanout: 'one-to-one',
@@ -892,7 +892,7 @@ describe('<PhoneBankingCallerPage>', () => {
 
     await user.click(sheetLink)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      EVENTS.Outreach.PhoneBanking.SheetDownloaded.win,
     )
   })
 

@@ -12,7 +12,7 @@ import {
 } from '@goodparty_org/contracts'
 import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
@@ -158,7 +158,7 @@ export default function RecordKnockForm({
         ...(input.note ? { note: input.note } : {}),
       }).then((res) => res.data),
     onSuccess: (data, input) => {
-      trackEvent(EVENTS.DoorKnocking.DoorLogged, {
+      trackEvent(surfaceEvent(EVENTS.DoorKnocking.DoorLogged, serveMode), {
         // The channel/fanout pair every outreach event carries, so one door
         // rolls into "voters reached" without a chart naming door knocking.
         ...outreachEventProps({ channel: 'doorKnocking', listId: turfId }),

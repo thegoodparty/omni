@@ -21,7 +21,7 @@ import {
 import { Button, Card } from '@styleguide'
 import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   type OutreachTrackerOrigin,
@@ -906,6 +906,29 @@ export const SmsFlow = ({
         if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
           setDraftOutreachId(outreach.id)
+          // The draft row IS the campaign: it exists, it is scheduled, and it
+          // has an audience — everything except the payment that completes it.
+          // Fired per draft, so going Back to change the audience and coming
+          // forward again reports the second campaign it really creates.
+          trackEvent(
+            surfaceEvent(
+              EVENTS.Dashboard.VoterContact.CampaignCreated,
+              surface.isServe,
+            ),
+            outreachEventProps({
+              channel: 'text',
+              recipientCount: phoneList.leadsLoaded,
+              sendDate: scheduledAt,
+              outreachCampaignId: outreach.id,
+              ...(audience.selectedListId !== null
+                ? { listId: audience.selectedListId }
+                : {}),
+              audienceSource: audience.selectedRecommendation
+                ? 'recommended'
+                : 'savedList',
+              ...(tracker ? { tracker } : {}),
+            }),
+          )
         } else {
           setDraftCreateError(true)
         }
@@ -940,27 +963,33 @@ export const SmsFlow = ({
       ? Math.min(phoneList?.leadsLoaded ?? 0, FREE_TEXTS_OFFER.COUNT)
       : 0
     const billable = Math.max((phoneList?.leadsLoaded ?? 0) - discount, 0)
-    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-      ...outreachEventProps({
-        channel: 'text',
-        recipientCount: phoneList?.leadsLoaded ?? 0,
-        sendDate: scheduledAt,
-        // Always present on a paid channel, 0 included: a send fully covered
-        // by the free-texts offer is a zero-cost text campaign, not a channel
-        // without a price.
-        price: paid ? billable * PRICE_PER_MESSAGE : 0,
-        ...(draftOutreachId !== null
-          ? { outreachCampaignId: draftOutreachId }
-          : {}),
-        ...(audience.selectedListId !== null
-          ? { listId: audience.selectedListId }
-          : {}),
-        audienceSource: audience.selectedRecommendation
-          ? 'recommended'
-          : 'savedList',
-        ...(tracker ? { tracker } : {}),
-      }),
-    })
+    trackEvent(
+      surfaceEvent(
+        EVENTS.Dashboard.VoterContact.CampaignCompleted,
+        surface.isServe,
+      ),
+      {
+        ...outreachEventProps({
+          channel: 'text',
+          recipientCount: phoneList?.leadsLoaded ?? 0,
+          sendDate: scheduledAt,
+          // Always present on a paid channel, 0 included: a send fully covered
+          // by the free-texts offer is a zero-cost text campaign, not a channel
+          // without a price.
+          price: paid ? billable * PRICE_PER_MESSAGE : 0,
+          ...(draftOutreachId !== null
+            ? { outreachCampaignId: draftOutreachId }
+            : {}),
+          ...(audience.selectedListId !== null
+            ? { listId: audience.selectedListId }
+            : {}),
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
+      },
+    )
     await onScheduled()
   }
 

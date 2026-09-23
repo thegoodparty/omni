@@ -77,10 +77,9 @@ const CampaignStrategySection = (): React.JSX.Element => {
   // shipped with a completion toggle and no event at all. `trackerTaskId` is
   // what joins a completed task to the outreach it produced — see
   // docs/features/voter-outreach-analytics.md.
-  const trackTaskStatus = (task: CampaignTrackerTask, completed: boolean) => {
-    trackEvent(EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated, {
+  const trackTaskCompleted = (task: CampaignTrackerTask) => {
+    trackEvent(EVENTS.Dashboard.CampaignPlan.TaskCompleted, {
       trackerTaskId: task.id,
-      completed,
       medium: outreachChannel(task.flowType ?? ''),
       ...(task.phase ? { phase: task.phase } : {}),
     })
@@ -89,24 +88,26 @@ const CampaignStrategySection = (): React.JSX.Element => {
   const onToggleComplete = (id: string, completed: boolean) => {
     const task = tasks.find((t) => t.id === id)
     if (completed && task && isVoterContactFlowType(task.flowType)) {
-      // The count modal is the rest of this completion, so the status event
-      // rides `onCountSubmit` instead — firing here too would count the task
-      // twice and once before the candidate can still cancel.
+      // The count modal is the rest of this completion, so the event rides
+      // `onCountSubmit` instead — firing here too would count the task twice,
+      // and once before the candidate can still cancel out of the modal.
       setCountTask(task)
       return
     }
-    if (task) trackTaskStatus(task, completed)
+    // Completion only. Un-completing is a correction, not an activation
+    // signal, and an event named Completed must not fire on one.
+    if (task && completed) trackTaskCompleted(task)
     toggleComplete.mutate({ id, completed })
   }
 
   const onCountSubmit = (count: number) => {
     if (!countTask?.flowType) return
-    trackTaskStatus(countTask, true)
+    trackTaskCompleted(countTask)
     // The count modal is a manual outreach log: the candidate is reporting
     // voters they reached offline on this task's channel. Same event the
     // campaign-manager modal fires, so both manual paths land in one series.
     // No `price` — nothing here captures a cost.
-    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted.win, {
       ...outreachEventProps({
         channel: outreachChannel(countTask.flowType),
         recipientCount: count,

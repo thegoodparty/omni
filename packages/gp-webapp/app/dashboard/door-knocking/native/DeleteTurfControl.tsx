@@ -7,9 +7,10 @@ import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { Button, IconButton, Trash2Icon } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import { ConfirmDeleteDialog } from 'app/dashboard/shared/ConfirmDeleteDialog'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 
 // A gp-api deployed behind this client, still running the `assertNotLocked`
 // that `delete` used to carry. No current server can produce it: a routed turf
@@ -46,6 +47,7 @@ export default function DeleteTurfControl({
   open,
   onOpenChange,
 }: DeleteTurfControlProps) {
+  const serveMode = useDoorKnockingServeMode()
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [ownConfirmOpen, setOwnConfirmOpen] = useState(false)
@@ -68,7 +70,9 @@ export default function DeleteTurfControl({
       await queryClient.invalidateQueries({
         queryKey: CAMPAIGN_TURFS_QUERY_KEY,
       })
-      trackEvent(EVENTS.DoorKnocking.ListDeleted, { turfId: turf.id })
+      trackEvent(surfaceEvent(EVENTS.DoorKnocking.ListDeleted, serveMode), {
+        turfId: turf.id,
+      })
       successSnackbar('List deleted')
       setConfirmOpen(false)
       onDeleted(turf)

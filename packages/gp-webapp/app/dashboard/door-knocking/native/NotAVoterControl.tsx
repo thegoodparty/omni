@@ -8,7 +8,8 @@ import {
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 
 interface NotAVoterControlProps {
   target: RoutePayloadTarget
@@ -45,6 +46,7 @@ export default function NotAVoterControl({
   target,
   onChanged,
 }: NotAVoterControlProps) {
+  const serveMode = useDoorKnockingServeMode()
   const set = useMutation({
     mutationFn: (value: NotAVoterReason | 'cleared') =>
       clientRequest('POST /v1/door-knocking/not-a-voter', {
@@ -56,11 +58,16 @@ export default function NotAVoterControl({
       // key, so a request that didn't land can't leave the sheet claiming a
       // resident was flagged — or un-flagged — when they weren't.
       if (data.notAVoterReason) {
-        trackEvent(EVENTS.DoorKnocking.NotAVoterReasonSet, {
-          reason: data.notAVoterReason,
-        })
+        trackEvent(
+          surfaceEvent(EVENTS.DoorKnocking.NotAVoterReasonSet, serveMode),
+          {
+            reason: data.notAVoterReason,
+          },
+        )
       } else {
-        trackEvent(EVENTS.DoorKnocking.NotAVoterReasonCleared)
+        trackEvent(
+          surfaceEvent(EVENTS.DoorKnocking.NotAVoterReasonCleared, serveMode),
+        )
       }
       onChanged(data.personId, data.notAVoterReason)
     },

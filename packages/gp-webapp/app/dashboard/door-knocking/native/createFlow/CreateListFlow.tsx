@@ -7,7 +7,7 @@ import { Input, Label } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { useTeamOptions } from '../useTeamOptions'
@@ -1307,7 +1307,7 @@ export default function CreateListFlow({
       // would under-report it by three.
       for (const row of created) {
         const stats = draftStats.get(row.draft.clientId)
-        trackEvent(EVENTS.DoorKnocking.ListCreated, {
+        trackEvent(surfaceEvent(EVENTS.DoorKnocking.ListCreated, serveMode), {
           // This turf's own figures, not the campaign's: the event is about
           // a route, and a shared total would make every turf of a campaign
           // look the same size as the whole of it.
@@ -1331,14 +1331,20 @@ export default function CreateListFlow({
         // other channel has; this one carries only what every channel does,
         // which is what makes a created → contacted → completed funnel
         // countable across all of them.
-        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
-          ...outreachEventProps({
-            channel: 'doorKnocking',
-            recipientCount: stats?.people ?? 0,
-            outreachCampaignId: row.turf.outreachId ?? undefined,
-            listId: row.turf.id,
-          }),
-        })
+        trackEvent(
+          surfaceEvent(
+            EVENTS.Dashboard.VoterContact.CampaignCreated,
+            serveMode,
+          ),
+          {
+            ...outreachEventProps({
+              channel: 'doorKnocking',
+              recipientCount: stats?.people ?? 0,
+              outreachCampaignId: row.turf.outreachId ?? undefined,
+              listId: row.turf.id,
+            }),
+          },
+        )
       }
       // A turf that did not build, reported the same way a whole failed
       // press is. `onError` only fires when the ANCHOR throws, which is the
@@ -1346,11 +1352,14 @@ export default function CreateListFlow({
       // this mutation, so without this the activation metric's failure
       // counterpart would miss every one of them.
       for (const error of failures) {
-        trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
-          mode,
-          loop,
-          status: error instanceof FetchError ? error.status : undefined,
-        })
+        trackEvent(
+          surfaceEvent(EVENTS.DoorKnocking.RouteBuildFailed, serveMode),
+          {
+            mode,
+            loop,
+            status: error instanceof FetchError ? error.status : undefined,
+          },
+        )
       }
       // Dropped here rather than in the mutation body so a draft is only
       // ever forgotten once its route is real. What is left in the list is
@@ -1393,14 +1402,17 @@ export default function CreateListFlow({
       if (first) onListCreated(first.turf)
     },
     onError: (error) => {
-      trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
-        mode,
-        loop,
-        // Separates the failures the candidate can act on (400 empty turf or
-        // over the stop cap, 429 daily routing budget) from the vendor being
-        // down (502) — different problems with very different fixes.
-        status: error instanceof FetchError ? error.status : undefined,
-      })
+      trackEvent(
+        surfaceEvent(EVENTS.DoorKnocking.RouteBuildFailed, serveMode),
+        {
+          mode,
+          loop,
+          // Separates the failures the candidate can act on (400 empty turf or
+          // over the stop cap, 429 daily routing budget) from the vendor being
+          // down (502) — different problems with very different fixes.
+          status: error instanceof FetchError ? error.status : undefined,
+        },
+      )
     },
   })
 

@@ -21,13 +21,13 @@ describe('useWalkSession', () => {
   })
 
   it('reports how the walk was entered', () => {
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.start(TURF, 'existingRoute'))
 
     expect(result.current.turf).toEqual(TURF)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.SessionStarted,
+      EVENTS.DoorKnocking.SessionStarted.win,
       {
         turfId: 12,
         entry: 'existingRoute',
@@ -39,7 +39,7 @@ describe('useWalkSession', () => {
   // both its own funnel event and the canonical outreach one.
   it('completes a walk that logged doors and feeds the activation metric', () => {
     vi.useFakeTimers()
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.start(TURF, 'newRoute'))
     act(() => {
@@ -55,7 +55,7 @@ describe('useWalkSession', () => {
     expect(doorsLogged).toBe(2)
     expect(result.current.turf).toBeNull()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.SessionCompleted,
+      EVENTS.DoorKnocking.SessionCompleted.win,
       { turfId: 12, doorsLogged: 2, durationSeconds: 90, stopCount: 40 },
     )
     // The session does NOT complete the campaign any more: a canvasser
@@ -63,16 +63,16 @@ describe('useWalkSession', () => {
     // off the turf being completed (`turfLifecycle.ts`), which is what
     // `walkCompletion.ts` stamps on a walk that ran out of doors.
     expect(
-      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted),
+      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted.win),
     ).toHaveLength(0)
-    expect(eventCalls(EVENTS.DoorKnocking.SessionAbandoned)).toHaveLength(0)
+    expect(eventCalls(EVENTS.DoorKnocking.SessionAbandoned.win)).toHaveLength(0)
   })
 
   // Opening a route and walking away without knocking is not activation, so
   // the canonical event must stay silent — otherwise every idle look at a
   // route inflates the metric the launch is judged by.
   it('abandons a walk with no doors and fires no outreach event', () => {
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.start(TURF, 'newRoute'))
     let doorsLogged = -1
@@ -82,20 +82,20 @@ describe('useWalkSession', () => {
 
     expect(doorsLogged).toBe(0)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.SessionAbandoned,
+      EVENTS.DoorKnocking.SessionAbandoned.win,
       expect.objectContaining({ turfId: 12, doorsLogged: 0, stopCount: 40 }),
     )
     expect(
-      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted),
+      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted.win),
     ).toHaveLength(0)
-    expect(eventCalls(EVENTS.DoorKnocking.SessionCompleted)).toHaveLength(0)
+    expect(eventCalls(EVENTS.DoorKnocking.SessionCompleted.win)).toHaveLength(0)
   })
 
   // Each walk is counted on its own; a second one must not inherit the
   // first's doors or its clock.
   it('starts each walk from zero', () => {
     vi.useFakeTimers()
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.start(TURF, 'newRoute'))
     act(() => result.current.recordDoor())
@@ -107,7 +107,9 @@ describe('useWalkSession', () => {
     vi.advanceTimersByTime(30_000)
     act(() => void result.current.end({ stopCount: 8 }))
 
-    expect(eventCalls(EVENTS.DoorKnocking.SessionCompleted)[1]?.[1]).toEqual({
+    expect(
+      eventCalls(EVENTS.DoorKnocking.SessionCompleted.win)[1]?.[1],
+    ).toEqual({
       turfId: 13,
       doorsLogged: 1,
       durationSeconds: 30,
@@ -118,7 +120,7 @@ describe('useWalkSession', () => {
   // Doors can only be attributed to a walk in progress; a stray callback
   // after the session closed must not open a new one.
   it('ignores a door logged outside a session', () => {
-    const { result } = renderHook(() => useWalkSession())
+    const { result } = renderHook(() => useWalkSession(false))
 
     act(() => result.current.recordDoor())
     act(() => void result.current.end({ stopCount: 0 }))

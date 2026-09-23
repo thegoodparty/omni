@@ -77,6 +77,50 @@ value: the three social tracker tasks (`schedule-social-posts`,
 with the wrong (clipboard) icon. Adding it fixes that and gives analytics an
 honest value in one change.
 
+## Naming, and the Win/Serve split
+
+Every outreach event is named `<Product> Outreach - <Channel> <Thing>`, with no
+colon: `Voter Outreach - ...` on Win, `Constituent Outreach - ...` on Serve.
+Door knocking, phone banking, social and SMS all run on both surfaces from the
+same components, so a shared surface carries TWO literals and
+`surfaceEvent(event, isServe)` in `helpers/analyticsHelper.ts` picks between
+them at the call site.
+
+Both stay literals rather than being composed from a prefix, because the
+event-provenance scanner and the tracking plan find events by grepping for the
+literal — a name assembled from parts is a name neither of them can see.
+
+**The cost is real and worth stating: a cross-product total is a union of two
+names, which is structurally the same thing that let the three per-channel
+Complete events go dark one at a time.** `ce:Voter Outreach - All` is where that
+union is absorbed once, centrally, rather than in every chart — which is why
+that composite matters more after this change than before it.
+
+`Door Knocking - Canvassing Totals Updated` is deliberately NOT renamed. It
+carries a `DO NOT MODIFY` contract in `gp-api/src/vendors/segment/segment.types.ts`:
+a HubSpot workflow triggers on that exact string to copy nine canvassing totals
+onto the contact and its company. Renaming it breaks that silently.
+
+### The rename cutover
+
+Amplitude's Govern rename changes an event's DISPLAY name; it does not remap an
+event type. So when the code starts firing the new literal, the new name is a
+NEW event type and the old one keeps its history under its own name. Every
+rename below is therefore recorded as a supersession rather than a rename, and
+a chart spanning the cutover has to union the old name with the new:
+
+| Old name                                   | New name(s)                                                                    | History                                               |
+| ------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| `Door Knocking - Door Logged`              | `Voter Outreach - Door Knocking Door Logged` / `Constituent Outreach - ...`    | 300 events from 2026-08-19 stay on the old name       |
+| `Outreach - Phone Banking: Call Logged`    | `Voter Outreach - Phone Banking Call Logged` / `Constituent Outreach - ...`    | 365 events from 2026-09-01 stay on the old name       |
+| `Outreach - Phone Banking: Contact Viewed` | `Voter Outreach - Phone Banking Contact Viewed` / `Constituent Outreach - ...` | 1,675 events stay on the old name                     |
+| the rest of `Door Knocking - *`            | `Voter Outreach - Door Knocking <Thing>` / `Constituent Outreach - ...`        | low volume; stays on the old names                    |
+| `Dashboard - Campaign Task Status Updated` | `Dashboard - Campaign Task Completed`                                          | already dark since 2026-09-01, so nothing is stranded |
+
+`Dashboard - Campaign Task Completed` also narrows: it fires on **completion
+only**. Un-completing a task is a correction, not an activation signal, and an
+event named Completed must not fire on one.
+
 ## Events
 
 ### `Voter Outreach - Campaign Completed` (live; extended)
@@ -106,13 +150,26 @@ campaign), and the property is **absent** on a channel with no cost at all.
 
 ### `Voter Outreach - Campaign Created` (new)
 
-The one-to-one work unit exists: a door-knocking turf with a built route, or a
-phone-banking call list. Fires for `doorKnocking` and `phoneBanking` only —
-the one-to-many channels have no such gap, since creating the send is
-completing it.
+The campaign exists but has reached nobody yet. **Fires on every channel**, and
+always before Completed, so created → completed is one funnel with no
+channel-shaped hole in it:
 
-Same properties as above minus `sendDate` and `price`; `recipientCount` is the
-list's people count.
+| Channel        | Created fires when                                     |
+| -------------- | ------------------------------------------------------ |
+| `text`         | the `pending_payment` draft is created (review entry)  |
+| `robocall`     | the `pending_payment` draft is created (pay step)      |
+| `socialMedia`  | Save — the same press as Completed, immediately before |
+| `doorKnocking` | per turf, on the create flow's paid press              |
+| `phoneBanking` | the call list is created                               |
+
+The gap between Created and Completed is what differs: seconds on social,
+minutes on a paid send, and days on the two one-to-one channels, where the list
+is built long before anyone works it. Social converts at 100% by construction,
+which is the honest reading rather than a hole in the funnel.
+
+Same properties as Completed minus `price` (nothing is paid yet);
+`recipientCount` is the audience or list size, and `sendDate` rides along on
+the channels that already know it.
 
 `Door Knocking - List Created` and `Voter Outreach - Phone Banking Call List
 Created` keep firing alongside and are **not** superseded. They are channel

@@ -52,7 +52,12 @@ describe('CampaignTurfList', () => {
 
   const renderList = (props: { onConfirmOpenChange?: () => void } = {}) =>
     render(
-      <CampaignTurfList anchorOutreachId={30} outreachId={30} {...props} />,
+      <CampaignTurfList
+        isServe={false}
+        anchorOutreachId={30}
+        outreachId={30}
+        {...props}
+      />,
     )
 
   it('renders a row per turf with its counts', async () => {

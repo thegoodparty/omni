@@ -18,7 +18,7 @@ import {
   type SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import {
   outreachEventProps,
   type OutreachTrackerOrigin,
@@ -332,33 +332,42 @@ export const PhoneBankingFlow = ({
       setCreateResponse(response)
       setSaved(true)
       setStepId('download')
-      trackEvent(EVENTS.Outreach.PhoneBanking.ListCreated, {
-        product: 'phoneBanking',
-        // Always true now: every audience is a saved VoterFileFilter (picked
-        // or just built) — even an all-voters list built with no criteria
-        // (ENG-10960) persists as one. Kept for analytics-schema continuity.
-        filtersApplied: true,
-        listSize: response.personCount,
-      })
+      trackEvent(
+        surfaceEvent(EVENTS.Outreach.PhoneBanking.ListCreated, surface.isServe),
+        {
+          product: 'phoneBanking',
+          // Always true now: every audience is a saved VoterFileFilter (picked
+          // or just built) — even an all-voters list built with no criteria
+          // (ENG-10960) persists as one. Kept for analytics-schema continuity.
+          filtersApplied: true,
+          listSize: response.personCount,
+        },
+      )
       // The cross-channel sibling of the event above. Phone banking is
       // one-to-one, so creating the list is NOT reaching anyone — completion
       // is every entry being called. This event is what a created →
       // contacted → completed funnel counts, and it is uniform across
       // channels where `ListCreated`'s batch-sizing fields are not.
-      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
-        ...outreachEventProps({
-          channel: 'phoneBanking',
-          recipientCount: response.personCount,
-          ...(response.outreachId != null
-            ? { outreachCampaignId: response.outreachId }
-            : {}),
-          listId: response.id,
-          audienceSource: audience.selectedRecommendation
-            ? 'recommended'
-            : 'savedList',
-          ...(tracker ? { tracker } : {}),
-        }),
-      })
+      trackEvent(
+        surfaceEvent(
+          EVENTS.Dashboard.VoterContact.CampaignCreated,
+          surface.isServe,
+        ),
+        {
+          ...outreachEventProps({
+            channel: 'phoneBanking',
+            recipientCount: response.personCount,
+            ...(response.outreachId != null
+              ? { outreachCampaignId: response.outreachId }
+              : {}),
+            listId: response.id,
+            audienceSource: audience.selectedRecommendation
+              ? 'recommended'
+              : 'savedList',
+            ...(tracker ? { tracker } : {}),
+          }),
+        },
+      )
       if (response.outreachId != null) {
         onSaved?.(response.outreachId, response.name)
       }
@@ -829,7 +838,11 @@ export const PhoneBankingFlow = ({
           reachableCount={audience.reachableCount}
         />
       ) : saved && createResponse ? (
-        <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
+        <DownloadStep
+          response={createResponse}
+          audienceLabel={audienceLabel}
+          isServe={surface.isServe}
+        />
       ) : null}
     </OutreachFlowShell>
   )

@@ -175,7 +175,7 @@ export const RecordVoterContactsModal = ({
     for (const key of FORM_KEYS) {
       const recipientCount = updatedFields[key]
       if (recipientCount !== undefined && recipientCount > 0) {
-        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted.win, {
           // `outreachChannel` normalizes the form key onto the tracker's
           // channel vocabulary — `events` is singular in the contract, and
           // the rest pass through unchanged. `price` is omitted: this modal

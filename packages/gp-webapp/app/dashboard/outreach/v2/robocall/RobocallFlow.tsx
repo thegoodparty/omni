@@ -231,6 +231,28 @@ export const RobocallFlow = ({
   // Wrap setPayOutcome so a settled outcome (authorized/deferred/noop, never
   // hold_failed) also refreshes the hub's history list — the draft row now
   // exists and its spine is visible, so it should appear without a reload.
+  // The pending_payment draft exists: scheduled, with an audience and a
+  // recording, and only the hold left to place. That is the campaign being
+  // created, and it is reported from here rather than from the pay step
+  // because the audience and the tracker origin live in flow state.
+  const handleDraftCreated = (outreachId: number) => {
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated.win, {
+      ...outreachEventProps({
+        channel: 'robocall',
+        recipientCount: audience.reachableCount ?? 0,
+        sendDate: scheduledAt,
+        outreachCampaignId: outreachId,
+        ...(audience.selectedListId !== null
+          ? { listId: audience.selectedListId }
+          : {}),
+        audienceSource: audience.selectedRecommendation
+          ? 'recommended'
+          : 'savedList',
+        ...(tracker ? { tracker } : {}),
+      }),
+    })
+  }
+
   const handlePayOutcome = (
     outcome: RobocallAuthorizeResponse | null,
     outreachId?: number,
@@ -242,7 +264,7 @@ export const RobocallFlow = ({
       // the client alive to see it. `price` is the authorized estimate in
       // dollars, the only cost figure that exists at this point; the final
       // capture can be lower and is reported by the backend's receipt event.
-      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted.win, {
         ...outreachEventProps({
           channel: 'robocall',
           recipientCount: audience.reachableCount ?? 0,
@@ -782,6 +804,7 @@ export const RobocallFlow = ({
           reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}
           onOutcome={handlePayOutcome}
+          onDraftCreated={handleDraftCreated}
         />
       )}
     </OutreachFlowShell>

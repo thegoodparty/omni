@@ -131,22 +131,17 @@ describe('CampaignStrategySection — completing tasks', () => {
     // still cancel out of the modal.
     expect(
       mockTrackEvent.mock.calls.filter(
-        ([name]) => name === EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated,
+        ([name]) => name === EVENTS.Dashboard.CampaignPlan.TaskCompleted,
       ),
     ).toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: 'submit-count' }))
     expect(mockTrackEvent).toHaveBeenCalledWith(
-      EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated,
-      {
-        trackerTaskId: 't1',
-        completed: true,
-        medium: 'doorKnocking',
-        phase: 'launch',
-      },
+      EVENTS.Dashboard.CampaignPlan.TaskCompleted,
+      { trackerTaskId: 't1', medium: 'doorKnocking', phase: 'launch' },
     )
     expect(mockTrackEvent).toHaveBeenCalledWith(
-      EVENTS.Dashboard.VoterContact.CampaignCompleted,
+      EVENTS.Dashboard.VoterContact.CampaignCompleted.win,
       expect.objectContaining({
         medium: 'doorKnocking',
         fanout: 'one-to-one',
@@ -158,12 +153,14 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     // Nothing here captures a cost, so no price is claimed.
     const completed = mockTrackEvent.mock.calls.find(
-      ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted,
+      ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted.win,
     )
     expect(completed?.[1]).not.toHaveProperty('price')
   })
 
-  it('reports an uncompleted task without asking for a count', async () => {
+  // Un-completing is a correction, not an activation signal, so an event
+  // named Completed must stay silent on it.
+  it('stays silent when a task is un-completed', async () => {
     mockTasks.mockReturnValue(
       settled([
         task({
@@ -180,10 +177,12 @@ describe('CampaignStrategySection — completing tasks', () => {
     await user.click(
       screen.getByRole('button', { name: 'Mark task incomplete' }),
     )
-    expect(mockTrackEvent).toHaveBeenCalledWith(
-      EVENTS.Dashboard.CampaignPlan.TaskStatusUpdated,
-      expect.objectContaining({ trackerTaskId: 't3', completed: false }),
-    )
+    expect(mockToggle).toHaveBeenCalledWith({ id: 't3', completed: false })
+    expect(
+      mockTrackEvent.mock.calls.filter(
+        ([name]) => name === EVENTS.Dashboard.CampaignPlan.TaskCompleted,
+      ),
+    ).toHaveLength(0)
     expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
   })
 

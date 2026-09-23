@@ -126,6 +126,10 @@ interface RobocallPayStepProps {
     outcome: RobocallAuthorizeResponse | null,
     outreachId?: number,
   ) => void
+  // The pending_payment draft is created inside this step, so it is the only
+  // thing that can report the campaign existing. The flow holds the audience
+  // and the tracker origin, so it shapes the event.
+  onDraftCreated?: (outreachId: number) => void
 }
 
 // A settled outcome is one that must not re-open the payment form on re-entry.
@@ -151,6 +155,7 @@ export const RobocallPayStep = ({
   reachCount,
   outcome,
   onOutcome,
+  onDraftCreated,
 }: RobocallPayStepProps) => {
   const [clientSecret, setClientSecret] = useState<string | null>(null)
   // Held in component state (not read off the mutation) so it survives an
@@ -188,7 +193,10 @@ export const RobocallPayStep = ({
       })
       return data
     },
-    onSuccess: (data) => setDraft(data),
+    onSuccess: (data) => {
+      setDraft(data)
+      onDraftCreated?.(data.outreachId)
+    },
   })
   const { mutate: createDraft } = createDraftMutation
 

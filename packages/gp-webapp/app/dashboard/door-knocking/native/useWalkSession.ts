@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 
 export interface WalkTurf {
   id: number
@@ -28,7 +28,12 @@ export interface WalkSession {
 //
 // The tally is a ref, not state: logging a door mid-walk shouldn't re-render
 // the page around the walk view.
-export const useWalkSession = (): WalkSession => {
+// `isServe` is a parameter rather than a `useDoorKnockingServeMode()` read,
+// because both callers mount this ABOVE the provider that answers it — the
+// dashboard page and the volunteer walk page each know their own surface and
+// only wrap the tree below in `DoorKnockingSurface`. Reading the context here
+// would silently report Win for every Serve walk.
+export const useWalkSession = (isServe: boolean): WalkSession => {
   const [turf, setTurf] = useState<WalkTurf | null>(null)
   const sessionRef = useRef<{ startedAt: number; doorsLogged: number } | null>(
     null,
@@ -37,7 +42,10 @@ export const useWalkSession = (): WalkSession => {
   const start = (next: WalkTurf, entry: WalkEntry) => {
     sessionRef.current = { startedAt: Date.now(), doorsLogged: 0 }
     setTurf(next)
-    trackEvent(EVENTS.DoorKnocking.SessionStarted, { turfId: next.id, entry })
+    trackEvent(surfaceEvent(EVENTS.DoorKnocking.SessionStarted, isServe), {
+      turfId: next.id,
+      entry,
+    })
   }
 
   const recordDoor = () => {
@@ -58,11 +66,17 @@ export const useWalkSession = (): WalkSession => {
       stopCount,
     }
     if (session.doorsLogged === 0) {
-      trackEvent(EVENTS.DoorKnocking.SessionAbandoned, properties)
+      trackEvent(
+        surfaceEvent(EVENTS.DoorKnocking.SessionAbandoned, isServe),
+        properties,
+      )
       return 0
     }
 
-    trackEvent(EVENTS.DoorKnocking.SessionCompleted, properties)
+    trackEvent(
+      surfaceEvent(EVENTS.DoorKnocking.SessionCompleted, isServe),
+      properties,
+    )
     // `Voter Outreach - Campaign Completed` is deliberately NOT fired here.
     // A session ends whenever a canvasser stops for the evening, so firing it
     // counted one campaign per sitting and a fifty-door list walked over three

@@ -31,7 +31,7 @@ import {
   TabsTrigger,
   cn,
 } from '@styleguide'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import PhoneBankingNotes from './PhoneBankingNotes'
 import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
 import {
@@ -121,11 +121,14 @@ export default function PhoneBankingEntryPanel({
 
   useEffect(() => {
     if (!open || !viewedPersonId) return
-    trackEvent(EVENTS.Outreach.PhoneBanking.ContactViewed, {
-      listId,
-      contactId: viewedPersonId,
-      listRank: entry.seq,
-    })
+    trackEvent(
+      surfaceEvent(EVENTS.Outreach.PhoneBanking.ContactViewed, isServe),
+      {
+        listId,
+        contactId: viewedPersonId,
+        listRank: entry.seq,
+      },
+    )
     // Deliberately keyed on personId/entry.id (primitives), not the `person`
     // object — that object gets a fresh reference on every optimistic patch
     // from a save (applyCallResults), and re-firing "viewed" on a save the

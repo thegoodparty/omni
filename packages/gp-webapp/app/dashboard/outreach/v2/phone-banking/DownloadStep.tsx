@@ -3,13 +3,16 @@
 import type { PhoneBankingCreateResponse } from '@goodparty_org/contracts'
 import { Alert, AlertDescription, Button, Card } from '@styleguide'
 import { DownloadIcon } from '@styleguide/components/ui/icons'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
 
 interface DownloadStepProps {
   response: PhoneBankingCreateResponse
   audienceLabel: string
+  // Which product's event name the download reports under — the flow's own
+  // `surface.isServe`, threaded rather than re-derived.
+  isServe: boolean
 }
 
 // The "ready" screen (step 5): replaces the old naming-only download step and
@@ -19,15 +22,19 @@ interface DownloadStepProps {
 export const DownloadStep = ({
   response,
   audienceLabel,
+  isServe,
 }: DownloadStepProps) => {
   const isZip = response.sheetCount > 1
   const href = `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
 
   const handleDownloadClick = () => {
-    trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
-      listId: response.id,
-      contactCount: response.personCount,
-    })
+    trackEvent(
+      surfaceEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, isServe),
+      {
+        listId: response.id,
+        contactCount: response.personCount,
+      },
+    )
   }
 
   return (

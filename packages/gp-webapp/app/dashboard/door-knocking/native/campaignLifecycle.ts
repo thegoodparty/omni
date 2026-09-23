@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 import { turfStage } from './turfLifecycle'
@@ -44,7 +44,13 @@ interface CampaignLifecycleCallbacks {
  * `onSuccess` does it — the same split `turfLifecycle.ts` already has with the
  * details drawer.
  */
-export const useCampaignLifecycle = (anchorOutreachId: number) => {
+// `isServe` is threaded in for the same reason `useTurfLifecycle` takes it:
+// the one caller is the outreach details drawer, outside the door-knocking
+// tree and so outside the provider that would otherwise answer this.
+export const useCampaignLifecycle = (
+  anchorOutreachId: number,
+  isServe: boolean,
+) => {
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
 
@@ -81,16 +87,22 @@ export const useCampaignLifecycle = (anchorOutreachId: number) => {
         )
         for (const turf of turfs) {
           if (!wasActive.has(turf.id)) continue
-          trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-            ...outreachEventProps({
-              channel: 'doorKnocking',
-              recipientCount: turf.loggedCount,
-              sendDate: new Date(),
-              outreachCampaignId: anchorOutreachId,
-              listId: turf.id,
-            }),
-            method: 'campaign',
-          })
+          trackEvent(
+            surfaceEvent(
+              EVENTS.Dashboard.VoterContact.CampaignCompleted,
+              isServe,
+            ),
+            {
+              ...outreachEventProps({
+                channel: 'doorKnocking',
+                recipientCount: turf.loggedCount,
+                sendDate: new Date(),
+                outreachCampaignId: anchorOutreachId,
+                listId: turf.id,
+              }),
+              method: 'campaign',
+            },
+          )
         }
       }
       await queryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })

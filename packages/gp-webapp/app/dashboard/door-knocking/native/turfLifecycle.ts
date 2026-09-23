@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 
@@ -108,7 +108,10 @@ export const canArchiveTurf = (turf: DoorKnockingTurf) =>
  * timestamp), so a retry is cheap and a rollback path would be more machinery
  * than the failure is worth.
  */
-export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
+// `isServe` is threaded in rather than read off `useDoorKnockingServeMode()`:
+// the walk's callers sit above that provider, and the outreach drawer's caller
+// is outside the door-knocking tree entirely.
+export const useTurfLifecycle = (turf: DoorKnockingTurf, isServe: boolean) => {
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
 
@@ -144,15 +147,21 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
       // per-row Mark done. Fired here rather than on the walk SESSION, which
       // ends every time a canvasser stops for the evening.
       if (action === 'complete' || action === 'completeAndArchive') {
-        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-          ...outreachEventProps({
-            channel: 'doorKnocking',
-            recipientCount: turf.loggedCount,
-            sendDate: new Date(),
-            listId: turf.id,
-          }),
-          method: 'turf',
-        })
+        trackEvent(
+          surfaceEvent(
+            EVENTS.Dashboard.VoterContact.CampaignCompleted,
+            isServe,
+          ),
+          {
+            ...outreachEventProps({
+              channel: 'doorKnocking',
+              recipientCount: turf.loggedCount,
+              sendDate: new Date(),
+              listId: turf.id,
+            }),
+            method: 'turf',
+          },
+        )
       }
       await queryClient.invalidateQueries({
         queryKey: TURFS_QUERY_KEY,

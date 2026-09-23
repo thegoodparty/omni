@@ -7,6 +7,8 @@ import type {
   SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachEventProps } from '../../util/outreachAnalytics'
 import { apiRoutes } from 'gpApi/routes'
 import { uploadFileToS3 } from '@shared/utils/s3Upload'
 import { usePositionName } from '@shared/hooks/usePositionName'
@@ -230,6 +232,20 @@ export const useServeSmsSend = ({
           excludedDuplicatePhoneCount: result.excludedDuplicateCount,
         })
         setDraftOutreachId(result.outreachId)
+        // Serve's own create, the sibling of the Win draft effect in
+        // SmsFlow. Always the Serve name: this path is only ever reached
+        // behind `surface.isServe`.
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated.serve, {
+          ...outreachEventProps({
+            channel: 'text',
+            recipientCount: result.recipientCount,
+            sendDate: scheduledAt,
+            outreachCampaignId: result.outreachId,
+            ...(audience.selectedListId !== null
+              ? { listId: audience.selectedListId }
+              : {}),
+          }),
+        })
       } catch {
         // Surfaces as the review step's "We couldn't set up your purchase"
         // card, which is checked ahead of its preparing spinner — a failed

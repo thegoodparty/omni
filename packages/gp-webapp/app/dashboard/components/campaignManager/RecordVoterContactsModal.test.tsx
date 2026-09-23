@@ -32,7 +32,10 @@ vi.mock('helpers/analyticsHelper', () => ({
   EVENTS: {
     Dashboard: {
       VoterContact: {
-        CampaignCompleted: 'dashboard.voterContact.campaignCompleted',
+        CampaignCompleted: {
+          win: 'dashboard.voterContact.campaignCompleted',
+          serve: 'constituent.voterContact.campaignCompleted',
+        },
       },
     },
   },

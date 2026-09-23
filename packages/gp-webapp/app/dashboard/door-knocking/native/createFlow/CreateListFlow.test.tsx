@@ -330,14 +330,17 @@ describe('CreateListFlow', () => {
     })
     // One event per turf, because one turf is one route bought in one
     // transaction — and the figures are that turf's own.
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
-      stops: 14,
-      people: 22,
-      filterCount: 1,
-      mode: 'walk',
-      loop: true,
-      suggestedMode: null,
-    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.DoorKnocking.ListCreated.win,
+      {
+        stops: 14,
+        people: 22,
+        filterCount: 1,
+        mode: 'walk',
+        loop: true,
+        suggestedMode: null,
+      },
+    )
   })
 
   it('reuses the created filter when the route purchase is retried', async () => {
@@ -507,7 +510,7 @@ describe('CreateListFlow', () => {
     expect(onListCreated).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Build route' })).toBeEnabled()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.RouteBuildFailed,
+      EVENTS.DoorKnocking.RouteBuildFailed.win,
       { mode: 'walk', loop: true, status: 400 },
     )
   })
@@ -584,7 +587,7 @@ describe('CreateListFlow', () => {
     // accuracy is readable rather than assumed.
     expect(turfBody).toMatchObject({ mode: 'walk' })
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.ListCreated,
+      EVENTS.DoorKnocking.ListCreated.win,
       expect.objectContaining({ mode: 'walk', suggestedMode: 'drive' }),
     )
   })
@@ -2108,7 +2111,7 @@ describe('CreateListFlow multi-turf save', () => {
     await waitFor(() => expect(onListCreated).toHaveBeenCalled())
 
     const created = (trackEvent as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (call) => call[0] === EVENTS.DoorKnocking.ListCreated,
+      (call) => call[0] === EVENTS.DoorKnocking.ListCreated.win,
     )
     expect(created).toHaveLength(2)
     expect(created[0]?.[1]).toMatchObject({ stops: 14, people: 28 })
@@ -2150,7 +2153,7 @@ describe('CreateListFlow multi-turf save', () => {
     // sibling — the mutation resolves — so without this the failure metric
     // would only ever count anchors.
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.RouteBuildFailed,
+      EVENTS.DoorKnocking.RouteBuildFailed.win,
       expect.objectContaining({ status: 502 }),
     )
   })

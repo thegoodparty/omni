@@ -226,7 +226,7 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   // Owns the walk turf as well as the funnel events for the session.
-  const walk = useWalkSession()
+  const walk = useWalkSession(serveMode)
   const walkTurf = walk.turf
   const turfsQuery = useQuery({
     ...turfsQueryOptions(serveMode),
@@ -630,14 +630,14 @@ export default function NativeDoorKnockingPage({
     : null
   // Ending a FINISHED walk stamps the list Done. What "finished" means, and why
   // it isn't every exit, is in `walkCompletion.ts`.
-  const completeFinishedWalk = useWalkCompletion(walkTurfRow)
+  const completeFinishedWalk = useWalkCompletion(walkTurfRow, serveMode)
   // The walk's own `Move to archive`. Same ref-held turf as the completion
   // above and for the same reason: the write outlives the walk it shelves.
-  const walkArchive = useWalkArchive(walkTurfRow)
+  const walkArchive = useWalkArchive(walkTurfRow, serveMode)
   // The walk's manual Done. Same ref-held turf as the two above; the button
   // is withheld rather than disabled on a list already done or archived,
   // because the row itself is the authority and it refetches after the write.
-  const walkMarkDone = useWalkMarkDone(walkTurfRow)
+  const walkMarkDone = useWalkMarkDone(walkTurfRow, serveMode)
   const quotaQuery = useQuery(quotaQueryOptions)
   // The allowance that refused, captured when it did rather than read from the
   // query while the dialog is up: the number is in the sentence on screen, and
