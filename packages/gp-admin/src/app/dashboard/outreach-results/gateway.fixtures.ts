@@ -35,7 +35,7 @@ const targets: Record<string, OutreachResultsTarget> = {
     resultsReceivedAt: null,
   },
   8802: {
-    kind: 'sms' as const,
+    kind: 'poll' as const,
     id: '8802',
     name: 'Parks budget question',
     organizationSlug: 'town-of-hadley',

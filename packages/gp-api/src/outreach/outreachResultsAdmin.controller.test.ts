@@ -1,4 +1,4 @@
-import { addBusinessDays, parseISO } from 'date-fns'
+import { addBusinessDays, addDays, parseISO } from 'date-fns'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FastifyAdapter } from '@nestjs/platform-fastify'
 import { vi } from 'vitest'
@@ -560,6 +560,30 @@ describe('poll results through the same surface', () => {
     await service.prisma.poll.update({
       where: { id: pollId },
       data: { isCompleted: true, completedDate: new Date() },
+    })
+
+    const result = await service.client.post(
+      `${BASE}/poll/${pollId}`,
+      {
+        fileName: 'poll-results.csv',
+        csv: POLL_CSV,
+        dryRun: false,
+        sourceLabel: 'staff',
+      },
+      { validateStatus: () => true },
+    )
+
+    expect(result.status).toBe(409)
+    expect(uploadFile).not.toHaveBeenCalled()
+  })
+
+  // The inbox filters these out, but it is not the only way in: the route is
+  // reachable by URL and by an M2M token that never loaded the page. Results
+  // for a poll that has not gone out cannot exist.
+  it('refuses a poll whose send date has not arrived', async () => {
+    await service.prisma.poll.update({
+      where: { id: pollId },
+      data: { scheduledDate: addDays(new Date(), 3) },
     })
 
     const result = await service.client.post(

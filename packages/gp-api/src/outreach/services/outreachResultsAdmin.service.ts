@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { addBusinessDays, parseISO } from 'date-fns'
+import { addBusinessDays, isAfter, parseISO } from 'date-fns'
 import type {
   OutreachAwaitingResultsItem,
   ResultsInboxKind,
@@ -407,9 +407,19 @@ export class OutreachResultsAdminService extends createPrismaBase(
   ): Promise<OutreachResultsParseReport> {
     const poll = await this.client.poll.findUnique({
       where: { id: pollId },
-      select: { id: true, isCompleted: true },
+      select: { id: true, isCompleted: true, scheduledDate: true },
     })
     if (!poll) throw new NotFoundException(`No poll ${pollId}`)
+    // The inbox only lists polls whose send date has passed, but the inbox is
+    // not the only way in: this route is reachable by URL and by an M2M token
+    // that never loaded the page. Results for a poll that has not gone out
+    // cannot exist, so accepting them would start a Fargate run over a file
+    // that is either someone else's or a mistake.
+    if (isAfter(poll.scheduledDate, new Date())) {
+      throw new ConflictException(
+        `Poll ${pollId} has not been sent yet. Nothing was written.`,
+      )
+    }
     // The SMS path lets a completed send be re-uploaded because its ingest
     // CAS makes that idempotent. This path is not idempotent in the same
     // way: S3 fires ObjectCreated whether or not the bytes changed, so a
