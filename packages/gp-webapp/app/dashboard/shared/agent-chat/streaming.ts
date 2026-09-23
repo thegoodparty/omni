@@ -10,8 +10,10 @@ export type LiveSegment =
   | { kind: 'text'; text: string }
   // `running` shimmers the pill while the tool is in flight (set on tool_call,
   // cleared on tool_result). Absent on persisted history, so reloaded pills are
-  // always static.
-  | { kind: 'tool'; toolName: string; running?: boolean }
+  // always static. `payload` carries structured tool-call args for widget tools
+  // (e.g. compose_handoff) so InlineSegments can render a CTA from the segment
+  // without a separate extraction pass.
+  | { kind: 'tool'; toolName: string; running?: boolean; payload?: unknown }
   // Inline citation chip rendered at the position where the model cited a
   // source attachment. `ordinal` is 1-based and assigned in stream order.
   | {
@@ -60,7 +62,14 @@ export function segmentsToLive(
         },
       ]
     }
-    return s.toolName ? [{ kind: 'tool', toolName: s.toolName }] : []
+    if (!s.toolName) return []
+    return [
+      {
+        kind: 'tool',
+        toolName: s.toolName,
+        ...(s.payload !== undefined && { payload: s.payload }),
+      },
+    ]
   })
 }
 

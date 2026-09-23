@@ -8,6 +8,7 @@ import {
   useState,
   type RefObject,
 } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, toast } from '@styleguide'
 import {
@@ -33,7 +34,11 @@ import type {
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
-import { ShowListMapSchema, type ShowListMap } from '@goodparty_org/contracts'
+import {
+  ShowListMapSchema,
+  type ShowListMap,
+  type ComposeHandoffPayload,
+} from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
@@ -192,6 +197,7 @@ export default function ChiefOfStaffChatBody({
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
   showMessageActions = false,
 }: Props): React.JSX.Element {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
@@ -727,6 +733,16 @@ export default function ChiefOfStaffChatBody({
     [conversationId],
   )
 
+  // Navigate-only for now: the draft-prefill plumbing (payload transport plus
+  // the SocialFlow seam that reads it) ships together in ENG-11162, so compose
+  // opens blank until that lands.
+  const handleComposeHandoff = useCallback(
+    (_payload: ComposeHandoffPayload): void => {
+      router.push('/dashboard/outreach?compose=social')
+    },
+    [router],
+  )
+
   // The shared send path. `hidden` skips the optimistic user bubble AND drops
   // the persisted user turn from the rendered transcript, so a kickoff streams a
   // reply without ever showing the prompt that triggered it.
@@ -1032,6 +1048,7 @@ export default function ChiefOfStaffChatBody({
                     ? handleCitationClick
                     : undefined
                 }
+                onComposeHandoff={handleComposeHandoff}
               />
               {m.listMap ? (
                 <ChatListMap
@@ -1066,6 +1083,7 @@ export default function ChiefOfStaffChatBody({
                   ? handleCitationClick
                   : undefined
               }
+              onComposeHandoff={handleComposeHandoff}
             />
             {liveListMap ? (
               <ChatListMap
