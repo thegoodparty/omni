@@ -37,7 +37,8 @@ describe('CreateListWizard open-reset effect', () => {
     'setPrecincts(',
     'setActivityConditions(',
     'setName(',
-    'setBoundaryRing(',
+    'setBoundaryRings(',
+    'setBoundaryActiveIndex(',
   ])('writes %s', (setterCall) => {
     expect(OPEN_EFFECT).toContain(setterCall)
   })
@@ -46,7 +47,7 @@ describe('CreateListWizard open-reset effect', () => {
   // count is pinned rather than left open-ended.
   it('writes every wizard field, and no more', () => {
     const setters = OPEN_EFFECT.match(/\bset[A-Z]\w*\(/g) ?? []
-    expect(setters.filter((s) => s !== 'setOpenSession(')).toHaveLength(8)
+    expect(setters.filter((s) => s !== 'setOpenSession(')).toHaveLength(9)
   })
 
   // Each seeded field must still resolve to its empty value when there's no

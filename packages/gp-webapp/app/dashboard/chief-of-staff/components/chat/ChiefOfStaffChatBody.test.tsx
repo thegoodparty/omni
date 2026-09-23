@@ -59,7 +59,7 @@ vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
 // Populated by the map stub below. `var` because vi.mock is hoisted above
 // const/let initialisation and the factory closes over this.
 // eslint-disable-next-line no-var
-var drawRingRefs: Array<Array<[number, number]> | undefined> = []
+var drawnRingsRefs: Array<Array<Array<[number, number]>> | undefined> = []
 
 // The boundary drawer reports save outcomes through the snackbar, and this
 // suite renders no provider — only reached once the overlay opens, which is
@@ -76,20 +76,20 @@ vi.mock('../../../contacts/crm/map/ContactListMap', () => ({
   __esModule: true,
   default: function ContactListMapStub({
     people,
-    drawRing,
+    otherRings,
   }: {
     people?: unknown[]
-    drawRing?: Array<[number, number]>
+    otherRings?: Array<Array<[number, number]>>
   }) {
     // Recorded by REFERENCE. ContactListMap rebuilds its deck.gl layers
-    // whenever drawRing changes identity, so an unmemoised ring is a real
-    // regression that no value assertion can see.
-    drawRingRefs.push(drawRing)
+    // whenever otherRings changes identity, so an unmemoised boundary is a
+    // real regression that no value assertion can see.
+    drawnRingsRefs.push(otherRings)
     return (
       <div
         data-testid="contact-map-stub"
         data-people={(people ?? []).length}
-        data-ring={JSON.stringify(drawRing ?? [])}
+        data-ring={JSON.stringify(otherRings ?? [])}
       />
     )
   },
@@ -1288,12 +1288,12 @@ describe('<ChiefOfStaffChatBody>', () => {
     })
 
     // A transcript re-renders on every streaming token, and
-    // ringFromGeoJsonPolygon allocates a fresh array each call — the empty
+    // ringsFromGeoJsonShape allocates a fresh array each call — the empty
     // one included, so a list with no boundary is not exempt. ContactListMap
-    // lists drawRing among the dependencies of the effect that rebuilds its
-    // deck.gl layers, so a bare call rebuilt polygon and vertex layers
+    // lists otherRings among the dependencies of the effect that rebuilds
+    // its deck.gl layers, so a bare call rebuilt polygon and vertex layers
     // continuously mid-reply.
-    it('hands the map a stable ring across re-renders', async () => {
+    it('hands the map a stable boundary across re-renders', async () => {
       const user = userEvent.setup()
       mockListPeople(2)
       mockSavedList({
@@ -1325,15 +1325,15 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_ring" />)
       await screen.findByTestId('contact-map-stub')
 
-      drawRingRefs.length = 0
+      drawnRingsRefs.length = 0
       // Any state change in the body re-renders the card, the way a
       // streaming token does.
       await user.type(screen.getByLabelText(/ask a question/i), 'hello')
 
-      expect(drawRingRefs.length).toBeGreaterThan(1)
-      const [first] = drawRingRefs
+      expect(drawnRingsRefs.length).toBeGreaterThan(1)
+      const [first] = drawnRingsRefs
       expect(first).toBeDefined()
-      for (const ref of drawRingRefs) {
+      for (const ref of drawnRingsRefs) {
         expect(ref).toBe(first)
       }
     })
