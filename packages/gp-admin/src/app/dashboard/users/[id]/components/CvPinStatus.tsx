@@ -18,6 +18,7 @@ import {
   setInternalTestingApproval,
 } from '@/app/dashboard/campaigns/actions'
 import { useUser } from '../context/UserContext'
+import { EditCommitteeNameAction } from './EditCommitteeNameAction'
 
 // Mirrors gp-api's INTERNAL_EMAIL_SUFFIXES (users.util.ts) — the grant
 // endpoint enforces this server-side; the UI check only hides the checkbox
@@ -150,6 +151,28 @@ function CvPinStatusContent() {
     setSavingApproval(false)
   }
 
+  // Internal-testing marker rows carry a placeholder committee name — hide
+  // the row rather than invite staff to edit a value nothing reads.
+  const committeeNameRow = state.committeeName !== null && !testingApproved && (
+    <Flex align="center" gap="2">
+      <Text size="2" color="gray">
+        Committee: {state.committeeName}
+      </Text>
+      <ProtectedContent
+        requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
+        hideWhenUnauthorized
+      >
+        <EditCommitteeNameAction
+          campaignId={campaignId}
+          committeeName={state.committeeName}
+          onSaved={(committeeName) =>
+            setInfo({ campaignId, state: { ...state, committeeName } })
+          }
+        />
+      </ProtectedContent>
+    </Flex>
+  )
+
   const internalTestingToggle = isInternalEmail(email) && (
     <ProtectedContent
       requiredPermission={PERMISSIONS.WRITE_CAMPAIGNS}
@@ -183,6 +206,7 @@ function CvPinStatusContent() {
         <Badge color={STAGE_BADGE_COLORS[state.stage]} size="2">
           10DLC: {STAGE_LABELS[state.stage]}
         </Badge>
+        {committeeNameRow}
         {internalTestingToggle}
       </Flex>
     )
@@ -209,6 +233,7 @@ function CvPinStatusContent() {
           {resent ? 'PIN resent' : resending ? 'Resending...' : 'Resend CV PIN'}
         </Button>
       </ProtectedContent>
+      {committeeNameRow}
     </Flex>
   )
 }

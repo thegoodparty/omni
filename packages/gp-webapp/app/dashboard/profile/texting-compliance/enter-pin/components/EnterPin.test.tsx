@@ -41,6 +41,7 @@ const stateWith = (
   pinDelivery: null,
   internalTestingApprovedAt: null,
   hasComplianceRecord: true,
+  committeeName: null,
 })
 
 const mockSuccessSnackbar = vi.fn()

@@ -77,6 +77,19 @@ export const resendCvPin = async (campaignId: number): Promise<void> => {
   })
 }
 
+export const updateCommitteeName = async (
+  campaignId: number,
+  committeeName: string
+): Promise<{ committeeName: string }> => {
+  const { has } = await auth()
+  if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
+    throw new Error('Missing write_campaigns permission')
+  }
+  return gpAction(async (client) => {
+    return client.campaigns.updateCommitteeName(campaignId, { committeeName })
+  })
+}
+
 export const setInternalTestingApproval = async (
   campaignId: number,
   enabled: boolean
