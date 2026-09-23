@@ -26,21 +26,27 @@ const outfit = Outfit({
   variable: '--outfit-font',
 })
 
-// Production, dev and PR previews all load the support chat; locally it is
-// opt-in. VERCEL_ENV is Vercel's reserved runtime var, always present
-// server-side, and covers all three in one expression: per docs/deployment.md
-// the dev deploy and PR previews both hit Vercel's preview target and prod
-// hits the production target. Deliberately NOT the NEXT_PUBLIC_VERCEL_TARGET_ENV
-// that IS_PROD/IS_PREVIEW read — this app does not reliably get it (see
-// app/shared/experiments/flagOverrides.ts), and keying the chat off IS_PREVIEW
-// meant previews never loaded it at all.
+// Production only (plus the env-var opt-in). The hs-scripts loader is also
+// HubSpot's tracking code, whose collected-forms feature scrapes any
+// email-bearing form on the page — the Clerk sign-up form included — and
+// creates a billable marketing contact in the one HubSpot portal every
+// environment shares. The E2E suite fills that form on dev and previews on
+// every merge, which shipped hundreds of Test* marketing contacts a day, and
+// HubSpot offers no per-form or per-domain exclusion. So off-prod the script
+// does not load at all; supportWidget's 'absent' branch sends Get help to
+// the help center instead. Server-side test-user guards alone can't stop
+// this — collected forms posts straight from the browser to HubSpot.
+//
+// VERCEL_ENV is Vercel's reserved runtime var, always present server-side.
+// Deliberately NOT the NEXT_PUBLIC_VERCEL_TARGET_ENV that IS_PROD reads —
+// this app does not reliably get it (see
+// app/shared/experiments/flagOverrides.ts).
 //
 // Read only here. It stays out of appEnv because VERCEL_ENV is not exposed to
 // the browser, so an exported constant would be quietly false in client code.
 // Client code asks the DOM instead, via SUPPORT_CHAT_SCRIPT_ID.
 const supportChatEnabled =
   process.env.VERCEL_ENV === 'production' ||
-  process.env.VERCEL_ENV === 'preview' ||
   process.env.NEXT_PUBLIC_SUPPORT_CHAT === '1'
 
 export const metadata = {
