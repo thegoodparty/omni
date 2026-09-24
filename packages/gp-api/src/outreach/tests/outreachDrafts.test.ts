@@ -182,10 +182,15 @@ describe('POST /v1/outreach/drafts', () => {
     const first = await createP2pDraft()
     expect(first.status).toBe(HttpStatus.CREATED)
 
+    uploadFile.mockClear()
+    deleteObject.mockClear()
     const second = await createP2pDraft('Another attempt')
 
     expect(second.status).toBe(HttpStatus.CONFLICT)
     expect(second.data.existingId).toBe(first.data.id)
+    // preflight caught this one, so there was nothing uploaded to clean up.
+    expect(uploadFile).not.toHaveBeenCalled()
+    expect(deleteObject).not.toHaveBeenCalled()
 
     const rows = await service.prisma.outreach.findMany({
       where: { campaignId: CAMPAIGN_ID },
@@ -209,6 +214,13 @@ describe('POST /v1/outreach/drafts', () => {
       where: { campaignId: CAMPAIGN_ID },
     })
     expect(rows).toHaveLength(1)
+    // Both passed preflight and uploaded; the loser's object is removed
+    // once the transaction refuses its row.
+    expect(deleteObject).toHaveBeenCalledTimes(1)
+    expect(deleteObject).toHaveBeenCalledWith(
+      ASSET_DOMAIN,
+      expect.stringMatching(/^scheduled-campaign\/jane-doe\/p2p\/draft\//),
+    )
   })
 
   it('does not upload the image when the cap rejects the create', async () => {

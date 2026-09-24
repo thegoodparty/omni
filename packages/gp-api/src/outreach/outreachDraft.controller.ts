@@ -78,21 +78,32 @@ export class OutreachDraftController {
           'Image filename and MIME type are required for a texting draft',
         )
       }
+      // The send path's key embeds the send date; a draft has none.
+      const imageKey = this.s3.buildKey(
+        `scheduled-campaign/${campaign.slug}/p2p/draft`,
+        image.filename,
+      )
       const imageUrl = await this.s3.uploadFile(
         ASSET_DOMAIN,
         image.data,
-        // The send path's key embeds the send date; a draft has none.
-        this.s3.buildKey(
-          `scheduled-campaign/${campaign.slug}/p2p/draft`,
-          image.filename,
-        ),
+        imageKey,
         {
           contentType: image.mimetype,
           cacheControl: `${CacheControls.MAX_AGE}=${31_536_000}`,
           baseUrl: `https://${ASSET_DOMAIN}`,
         },
       )
-      return this.drafts.createP2pDraft(campaign, body, imageUrl)
+      try {
+        return await this.drafts.createP2pDraft(campaign, body, imageUrl)
+      } catch (error) {
+        // preflight is a plain read; the transaction inside createP2pDraft
+        // is the real cap, and when it rejects a racing second create the
+        // object uploaded above has no row to belong to.
+        await this.s3
+          .deleteObject(ASSET_DOMAIN, imageKey)
+          .catch(() => undefined)
+        throw error
+      }
     }
 
     const { audioKey, callbackNumber } = body
