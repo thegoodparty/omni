@@ -40,6 +40,8 @@ def _live(key: str, records_by_type, series, today) -> bool:
 
 
 def _dead_leg_evidence(leg, records_by_type, code, latches) -> dict | None:
+    # Approximation: a path leg has no catalog record, so its bare event's record stands
+    # in. The latch line below is keyed on the leg itself and owns the slice's dormancy.
     rec = records_by_type.get(leg.key) or records_by_type.get(leg.event) or {}
     retired = (code.get(leg.event) or {}).get("retired_date") or None
     latched = bool((latches.get(leg.key) or {}).get("latched"))

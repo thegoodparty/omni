@@ -451,7 +451,7 @@ behaviors:
     surfaces:
       - path: packages/gp-webapp/app/dashboard/page.tsx
         label: dashboard_visit
-        instrumented_by: Viewed
+        instrumented_by: "Viewed"
         page_path: /dashboard
       - path: packages/gp-webapp/app/shared/layouts/navigation
         label: breadth_of_navigation

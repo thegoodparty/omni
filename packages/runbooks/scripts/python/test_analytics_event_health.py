@@ -1941,9 +1941,10 @@ def test_a_stale_warehouse_does_not_hold_the_latch_clear_open(tmp_path):
 
 
 def test_the_staleness_item_posts_yellow_and_never_flips_red(monkeypatch):
-    # Yellow, like the okr: tag items: a lagging load is an operational condition the
-    # digest should say out loud, not a broken guard. It must also appear exactly once,
-    # even though it is carried in anchor_problems, whose other entries splice as red.
+    # Yellow, unlike the other anchor-problem items: a lagging load is an operational
+    # condition the digest should say out loud, not a broken guard. It must also appear
+    # exactly once, even though it is carried in anchor_problems, whose other entries
+    # splice as red.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     lag = ("The warehouse has loaded no event rows past the week of 2026-06-08, but the "
            "most recent complete week is 2026-06-15.")
@@ -1966,8 +1967,9 @@ def test_the_staleness_item_posts_yellow_and_never_flips_red(monkeypatch):
 
 
 def test_a_stale_warehouse_alone_does_not_force_a_slack_post(monkeypatch):
-    # Mirrors the okr: tag gate. Yellow means it rides along with a post that was going
-    # to happen; it does not manufacture one on an otherwise quiet week.
+    # Mirrors the gate the other anchor-problem items pass through. Yellow means it rides
+    # along with a post that was going to happen; it does not manufacture one on an
+    # otherwise quiet week.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     lag = "The warehouse has loaded no event rows past the week of 2026-06-08."
     result = _render_result(anchor_problems=[lag], warehouse_lag_problems=[lag],
