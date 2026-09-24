@@ -7,7 +7,8 @@ import type {
   RobocallScriptDraftRequest,
 } from '@goodparty_org/contracts'
 import { http, HttpResponse } from 'msw'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { outreachAudienceListsKey } from '../audience/useOutreachAudience'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RobocallFlow } from './RobocallFlow'
@@ -2356,6 +2357,39 @@ describe('RobocallFlow', () => {
         await screen.findByText("We couldn't save this draft. Try again."),
       ).toBeInTheDocument()
       expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
+    })
+
+    it("keeps the resumed draft's list when the saved lists are already cached", async () => {
+      // The second open of a draft: the lists query answered on the first,
+      // so the preselect applies synchronously and the flow's open-time
+      // reset runs after it. The list must survive that reset.
+      mockSavedLists()
+      mockListDetail(400)
+      testQueryClient.setQueryData(outreachAudienceListsKey('test-org'), [
+        { id: 1, name: 'Renters in 98103' },
+        { id: 2, name: 'All registered voters' },
+      ])
+
+      render(
+        <RobocallFlow open onClose={vi.fn()} resumeDraft={draftDetail()} />,
+      )
+
+      await screen.findByLabelText('Campaign name')
+      await waitFor(() =>
+        expect(
+          screen.queryByText(
+            'The voter list for this call is no longer available.',
+          ),
+        ).not.toBeInTheDocument(),
+      )
+      // Give the (buggy) reset a full tick to clear the selection before
+      // asserting it stayed.
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(
+        screen.queryByText(
+          'The voter list for this call is no longer available.',
+        ),
+      ).not.toBeInTheDocument()
     })
 
     it('blocks the resume when the draft list is gone', async () => {
