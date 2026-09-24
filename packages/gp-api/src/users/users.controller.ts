@@ -102,9 +102,9 @@ export class UsersController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async submitCrmRegistration(
     @ReqUser() user: User,
-    @Body() { hutk }: SubmitCrmRegistrationSchema,
+    @Body() { hutk, ...attribution }: SubmitCrmRegistrationSchema,
   ) {
-    await this.usersService.submitRegistrationCrmForm(user, hutk)
+    await this.usersService.submitRegistrationCrmForm(user, hutk, attribution)
   }
 
   @Post('me/upload-image')

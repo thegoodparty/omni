@@ -298,9 +298,20 @@ export type APIEndpoints = {
 
   // Submits the HubSpot registration form with the visitor's hubspotutk so
   // the contact gets web/paid original-source attribution instead of the
-  // "offline sources" Segment's server-side destination would assign.
+  // "offline sources" Segment's server-side destination would assign. The
+  // utm_* and ad click ids are the ones the visitor landed on /sign-up with;
+  // gp-api puts them on the submission's pageUri for HubSpot to classify.
   'POST /v1/users/me/crm-registration': {
-    Request: { hutk?: string }
+    Request: {
+      hutk?: string
+      utm_source?: string
+      utm_medium?: string
+      utm_campaign?: string
+      utm_term?: string
+      utm_content?: string
+      gclid?: string
+      fbclid?: string
+    }
     Response: {}
   }
 

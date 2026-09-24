@@ -24,6 +24,7 @@ import {
   setActorRole,
   getMetaClickIds,
   getPersistedClids,
+  getSignupAttribution,
   extractClids,
   trackRegistrationCompleted,
   EVENTS,
@@ -206,6 +207,47 @@ describe('getPersistedClids', () => {
     sessionStorage.setItem('evilclid_first', 'payload')
 
     expect(getPersistedClids()).toEqual({ fbclid_last: 'fb-last' })
+  })
+})
+
+describe('getSignupAttribution', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+  })
+
+  it('returns the landing utm and click-id values under their URL param names', () => {
+    sessionStorage.setItem('utm_source_first', 'facebook')
+    sessionStorage.setItem('utm_source_last', 'facebook')
+    sessionStorage.setItem('utm_medium_first', 'paid social')
+    sessionStorage.setItem('utm_campaign_first', 'spring')
+    sessionStorage.setItem('gclid_first', 'g-click')
+    sessionStorage.setItem('fbclid_first', 'fb-click')
+
+    expect(getSignupAttribution()).toEqual({
+      utm_source: 'facebook',
+      utm_medium: 'paid social',
+      utm_campaign: 'spring',
+      gclid: 'g-click',
+      fbclid: 'fb-click',
+    })
+  })
+
+  it('prefers the first-touch value and falls back to last-touch', () => {
+    sessionStorage.setItem('utm_source_first', 'google')
+    sessionStorage.setItem('utm_source_last', 'newsletter')
+    sessionStorage.setItem('gclid_last', 'g-last-only')
+
+    expect(getSignupAttribution()).toEqual({
+      utm_source: 'google',
+      gclid: 'g-last-only',
+    })
+  })
+
+  it('leaves out click ids HubSpot does not read, and is empty with nothing persisted', () => {
+    sessionStorage.setItem('msclkid_first', 'ms')
+    sessionStorage.setItem('ttclid_first', 'tt')
+
+    expect(getSignupAttribution()).toEqual({})
   })
 })
 

@@ -40,9 +40,11 @@ vi.mock('helpers/cookieHelper', () => ({
 
 const mockTrackRegistration =
   vi.fn<(args: { userId: string; email?: string }) => void>()
+const mockGetSignupAttribution = vi.fn<() => Record<string, string>>(() => ({}))
 vi.mock('helpers/analyticsHelper', () => ({
   trackRegistrationCompleted: (args: { userId: string; email?: string }) =>
     mockTrackRegistration(args),
+  getSignupAttribution: () => mockGetSignupAttribution(),
 }))
 vi.mock('@shared/utils/analytics', () => ({
   getReadyAnalytics: vi.fn().mockResolvedValue(null),
@@ -62,6 +64,7 @@ beforeEach(() => {
   mockGetCookie.mockClear()
   mockGetCookie.mockImplementation(() => false)
   mockTrackRegistration.mockClear()
+  mockGetSignupAttribution.mockReset().mockReturnValue({})
   mockUseTeamAccountsFlag.mockReset().mockReturnValue({
     ready: true,
     enabled: false,
@@ -376,6 +379,57 @@ describe('PostAuthRedirectPage', () => {
         email: 'new-user@example.com',
       }),
     )
+  })
+
+  it('signup source + fresh createdAt: sends the landing utm and click-id params alongside the hubspotutk', async () => {
+    setLocation('?source=signup')
+    mockGetCookie.mockImplementation((name) =>
+      name === 'hubspotutk' ? 'test-hutk-cookie' : false,
+    )
+    mockGetSignupAttribution.mockReturnValue({
+      utm_source: 'facebook',
+      utm_medium: 'paid social',
+      fbclid: 'fb-click',
+    })
+    const crmRegistrationBodies: Array<Record<string, string>> = []
+    api.mock('POST /v1/users/me/crm-registration', ({ body }) => {
+      crmRegistrationBodies.push(body)
+      return { status: 200, data: {} }
+    })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture] },
+    })
+    api.mock('GET /v1/users/me', {
+      status: 200,
+      data: {
+        id: 42,
+        email: 'new-user@example.com',
+        roles: [],
+        createdAt: new Date().toISOString(),
+      } as any,
+    })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: 'candidate', slug: 'org-one' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    expect(crmRegistrationBodies).toEqual([
+      {
+        hutk: 'test-hutk-cookie',
+        utm_source: 'facebook',
+        utm_medium: 'paid social',
+        fbclid: 'fb-click',
+      },
+    ])
   })
 
   it('signup source + fresh createdAt, no hubspotutk cookie: still submits the CRM registration without a hutk', async () => {

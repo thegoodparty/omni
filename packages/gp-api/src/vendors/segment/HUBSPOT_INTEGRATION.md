@@ -479,6 +479,20 @@ server-side path HubSpot credits to the visitor's web session. This runs
 before the first Segment identify for the user so the form submission, not
 the Segment destination, creates the contact.
 
+The `hutk` alone only recovers a paid source when HubSpot's own tracking
+cookie saw the paid landing, and the marketing site and the app are separate
+deployments. So the same request also carries the `utm_source`, `utm_medium`,
+`utm_campaign`, `utm_term`, `utm_content`, `gclid` and `fbclid` values the
+visitor landed on `/sign-up` with (first touch, from the webapp's
+`sessionStorage` persistence in `helpers/analyticsHelper.ts`), and gp-api puts
+them on the submission's `context.pageUri` query string. That is where HubSpot
+reads UTM and ad click ids from for an API submission to classify the
+session's traffic source. They are deliberately not sent as form fields: the
+Forms API rejects a whole submission whose fields are not on the form, and
+these are not hidden fields on the registration form. Adding them there would
+be the way to also land the raw values on the portal's `utm_*` contact
+properties.
+
 ## HubSpot Data Flow: Contact → Company
 
 Segment identifies users by email, so events land on the **contact** record first. HubSpot workflows then copy the `10 DLC Compliance Status` from the contact to its associated **company**.

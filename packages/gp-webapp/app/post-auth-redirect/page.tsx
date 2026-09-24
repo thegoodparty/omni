@@ -13,7 +13,10 @@ import {
 import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { resolveSlug } from '@shared/hooks/useSelectedOrgSlug'
-import { trackRegistrationCompleted } from 'helpers/analyticsHelper'
+import {
+  getSignupAttribution,
+  trackRegistrationCompleted,
+} from 'helpers/analyticsHelper'
 import { getReadyAnalytics } from '@shared/utils/analytics'
 import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
 import { isServeRoutePath } from 'app/dashboard/shared/serveRoutes'
@@ -224,11 +227,14 @@ const PostAuthRedirectPage = () => {
               // Submit the HubSpot registration form BEFORE any Segment
               // identify: whichever call creates the HubSpot contact first
               // locks its original source, and only a Forms API submission
-              // carrying the hubspotutk grants web/paid attribution.
+              // carrying the hubspotutk grants web/paid attribution. The
+              // utm_* and ad click ids the visitor landed on /sign-up with
+              // ride along so HubSpot can classify the session as paid even
+              // when its own cookie never saw the marketing-site landing.
               const hutk = getCookie('hubspotutk')
               await clientRequest(
                 'POST /v1/users/me/crm-registration',
-                hutk ? { hutk } : {},
+                { ...getSignupAttribution(), ...(hutk ? { hutk } : {}) },
                 { ignoreResponseError: true },
               )
               await trackRegistrationCompleted({

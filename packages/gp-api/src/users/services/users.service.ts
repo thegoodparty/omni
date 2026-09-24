@@ -42,6 +42,7 @@ import {
   TEST_USER_DOMAIN,
 } from '../util/users.util'
 import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
+import { SignupAttribution } from '../schemas/SubmitCrmRegistration.schema'
 import { CrmUsersService } from './crmUsers.service'
 import { UserAvatarService } from './userAvatar.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
@@ -227,9 +228,21 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   // Ties the Clerk-provisioned signup to the visitor's HubSpot web session:
   // a Forms API submission carrying context.hutk is the only way HubSpot
   // grants web/paid original-source attribution to a contact that Segment
-  // would otherwise create as "offline sources".
-  async submitRegistrationCrmForm(user: User, hutk?: string) {
+  // would otherwise create as "offline sources". The utm_* and ad click ids
+  // go on the pageUri query string because that is where HubSpot reads them
+  // from for an API submission; sent as form fields they would have to be
+  // hidden fields on the form or the whole submission is rejected.
+  async submitRegistrationCrmForm(
+    user: User,
+    hutk?: string,
+    attribution: SignupAttribution = {},
+  ) {
     const { firstName, lastName, email, phone } = user
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(attribution)) {
+      if (value) query.set(key, value)
+    }
+    const search = query.toString()
     return this.crm.submitCrmForm(
       REGISTER_USER_CRM_FORM_ID,
       [
@@ -245,7 +258,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           : []),
       ],
       'registerPage',
-      `${APP_ROOT}/sign-up`,
+      search ? `${APP_ROOT}/sign-up?${search}` : `${APP_ROOT}/sign-up`,
       hutk,
     )
   }

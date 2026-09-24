@@ -55,6 +55,52 @@ describe('POST /v1/users/me/crm-registration', () => {
     )
   })
 
+  it('carries the landing utm and click-id params on the form pageUri', async () => {
+    const crm = service.app.get(CrmUsersService)
+    const submitCrmForm = vi
+      .spyOn(crm, 'submitCrmForm')
+      .mockResolvedValue(undefined)
+
+    const res = await service.client.post('/v1/users/me/crm-registration', {
+      hutk: 'visitor-hutk-value',
+      utm_source: 'facebook',
+      utm_medium: 'paid social',
+      utm_campaign: 'spring',
+      gclid: 'g-click',
+      fbclid: 'fb-click',
+    })
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    const pageUri = new URL(submitCrmForm.mock.calls[0]?.[3] ?? '')
+    expect(pageUri.pathname).toBe('/sign-up')
+    expect(Object.fromEntries(pageUri.searchParams)).toEqual({
+      utm_source: 'facebook',
+      utm_medium: 'paid social',
+      utm_campaign: 'spring',
+      gclid: 'g-click',
+      fbclid: 'fb-click',
+    })
+    expect(submitCrmForm.mock.calls[0]?.[4]).toBe('visitor-hutk-value')
+  })
+
+  it('drops a param that is not on the allowlist before it reaches the pageUri', async () => {
+    const crm = service.app.get(CrmUsersService)
+    const submitCrmForm = vi
+      .spyOn(crm, 'submitCrmForm')
+      .mockResolvedValue(undefined)
+
+    const res = await service.client.post('/v1/users/me/crm-registration', {
+      utm_source: 'facebook',
+      evil_param: 'payload',
+    })
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    const pageUri = new URL(submitCrmForm.mock.calls[0]?.[3] ?? '')
+    expect(Object.fromEntries(pageUri.searchParams)).toEqual({
+      utm_source: 'facebook',
+    })
+  })
+
   it('still submits the form without a hutk', async () => {
     const crm = service.app.get(CrmUsersService)
     const submitCrmForm = vi

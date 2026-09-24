@@ -959,6 +959,24 @@ export const getPersistedUtms = (): Record<string, string> => {
   return utms
 }
 
+const SIGNUP_ATTRIBUTION_KEYS = [...UTM_KEYS, 'gclid', 'fbclid'] as const
+
+// First touch wins: HubSpot's original source is the earliest session it can
+// tie to the contact, so the values the visitor landed with are the ones that
+// decide paid vs direct, not whatever a later revisit carried.
+export const getSignupAttribution = (): Record<string, string> => {
+  const persisted: Record<string, string | null> = {
+    ...getPersistedUtms(),
+    ...getPersistedClids(),
+  }
+  const attribution: Record<string, string> = {}
+  for (const key of SIGNUP_ATTRIBUTION_KEYS) {
+    const value = persisted[`${key}_first`] ?? persisted[`${key}_last`]
+    if (value) attribution[key] = value
+  }
+  return attribution
+}
+
 export const getPersistedClids = (): Record<string, string | null> => {
   if (
     typeof window === 'undefined' ||
