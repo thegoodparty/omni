@@ -917,6 +917,23 @@ def test_load_watchlist_stays_blind_to_behaviors(tmp_path):
     assert events == ["Sign Up Clicked"]
 
 
+def test_load_monitored_events_enrolls_a_page_path_surface_by_leg_key(tmp_path):
+    """The surface means the '/dashboard' slice, not the site-wide event. Enrolling the
+    bare name would mark the catalog record watchlisted, and so elevated, forever."""
+    y = tmp_path / "w.yaml"
+    y.write_text(
+        "behaviors:\n"
+        "  - id: dashboard_viewed\n"
+        "    product: win\n"
+        "    surfaces:\n"
+        '      - {path: a.tsx, label: dash, instrumented_by: "Viewed", '
+        'page_path: "/dashboard"}\n'
+    )
+    _, events, _ = eh.load_monitored_events(y)
+    assert "Viewed[path=/dashboard]" in events
+    assert "Viewed" not in events
+
+
 def test_load_monitored_events_missing_file_returns_empty(tmp_path):
     assert eh.load_monitored_events(tmp_path / "absent.yaml") == ([], [], [])
 
@@ -1705,6 +1722,51 @@ def test_run_monitor_never_watches_a_historical_leg(tmp_path, monkeypatch):
     assert "Old Name[path=/old]" not in seen["watched"]  # watched_by_key filter
     assert _TRACKER in seen["watched"]
     assert not any("/old" in sql for sql in seen_sql)  # watched_legs filter
+
+
+_POLLS_BEHAVIOR = (
+    "behaviors:\n"
+    "  - id: polls_viewed\n"
+    "    product: win\n"
+    f"    metric: {_METRIC}\n"
+    "    surfaces:\n"
+    '      - {path: a.tsx, label: polls, instrumented_by: "Viewed", page_path: "/polls"}\n'
+)
+
+
+def _run_with_an_undeclared_path_surface(tmp_path, seen_sql=None):
+    catalog = [_cat("Viewed", "amplitude_autotrack", "", cnt30=4_460_000)]
+    weekly = _weeks_before("Viewed", [100, 100, 100, 100, 100])
+    path_rows = (_weeks_before("Viewed", [3, 3], page_path="/dashboard")
+                 + _weeks_before("Viewed", [5, 5], page_path="/polls"))
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Viewed", "call_site_count": 1}], latches={},
+        watchlist=_POLLS_BEHAVIOR)
+    return eh.run_monitor(
+        _recording_query(catalog, weekly, path_rows, seen_sql=seen_sql), today=TODAY,
+        csv_path=csv_path, watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg("Viewed", "/dashboard", None)]})
+
+
+def test_run_monitor_queries_weekly_rows_for_registry_path_surfaces(tmp_path):
+    # Case 3 IS the undeclared surface, so querying only declared legs leaves the check
+    # permanently blind to the thing it exists to catch: no rows, never live, no finding.
+    seen_sql = []
+    result, _ = _run_with_an_undeclared_path_surface(tmp_path, seen_sql=seen_sql)
+
+    assert any("/polls" in sql for sql in seen_sql)
+    [f] = [x for x in result["anchor_alignment"]
+           if x["kind"] == "live_instrument_not_declared"]
+    assert f["event_key"] == "Viewed[path=/polls]" and f["case"] == 3
+
+
+def test_run_monitor_does_not_latch_an_undeclared_path_surface(tmp_path):
+    # Widening the query must not widen what the latch owns: only a declared leg is a
+    # governed instrument, and latching an undeclared one would post red for a slice no
+    # metric depends on.
+    result, _ = _run_with_an_undeclared_path_surface(tmp_path)
+
+    assert "Viewed[path=/polls]" not in result["latches"]
 
 
 def test_a_metric_whose_every_leg_is_historical_is_reported(tmp_path):

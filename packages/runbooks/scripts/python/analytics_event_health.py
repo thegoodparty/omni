@@ -897,13 +897,18 @@ def load_monitored_events(path: Path = WATCHLIST) -> tuple[list[str], list[str],
     (DATA-2290). ``load_watchlist`` stays the literal reader because ``behavior_registry``
     feeds it straight into rule 8; widening it in place would make rule 8 fire on every
     behavior in the file."""
+    from behavior_registry import surface_key  # local: it imports this module
+
     families, events, dismissed = load_watchlist(path)
     if not path.exists():
         return families, events, dismissed
     doc = yaml.safe_load(path.read_text()) or {}
     for behavior in doc.get("behaviors", []) or []:
         for surface in behavior.get("surfaces", []) or []:
-            name = surface.get("instrumented_by")
+            # The leg key, not the bare event: a page_path surface names one slice, and
+            # enrolling the site-wide event would mark its catalog record watchlisted,
+            # and so elevated, on the strength of a surface that never claimed it.
+            name = surface_key(surface)
             if name and name not in events:
                 events.append(name)
     return families, events, dismissed
@@ -1064,8 +1069,23 @@ def run_monitor(
         if leg.watched
     }
 
+    import behavior_registry as br  # local: it imports this module
+
+    behaviors = br.load_behaviors(watchlist_path)
+    # Query every path slice the registry names, not just the declared ones. A surface
+    # the declaration omits is the exact shape of a case 3 finding, and with no rows of
+    # its own it can never read live, so the check would be blind to the thing it exists
+    # to catch. Only the query widens: the latch and watched_by_key stay on declared legs.
+    path_legs = {leg.key: leg for leg in watched_legs if leg.path}
+    for behavior in behaviors:
+        for surface in behavior.get("surfaces") or []:
+            if surface.get("instrumented_by") and surface.get("page_path"):
+                leg = sem_anchors.Leg(surface["instrumented_by"], surface["page_path"])
+                path_legs.setdefault(leg.key, leg)
+
     catalog = fetch_catalog(run_query)
-    weekly = fetch_weekly(run_query) + fetch_path_weekly(run_query, watched_legs)
+    weekly = fetch_weekly(run_query) + fetch_path_weekly(
+        run_query, list(path_legs.values()))
     code = load_code_axis(csv_path)
     watched_families, watchlist_events, dismissed_events = load_monitored_events(watchlist_path)
     result = reconcile(
@@ -1132,12 +1152,11 @@ def run_monitor(
 
     # local: anchor_alignment imports behavior_registry, which imports this module
     import anchor_alignment as aa
-    import behavior_registry as br
 
     # After the latches are final, so a finding's evidence quotes the same latch record
     # the digest prints two sections above it.
     result["anchor_alignment"] = aa.align(
-        br.load_behaviors(watchlist_path), anchors,
+        behaviors, anchors,
         records_by_type={r["event_type"]: r for r in result["records"]},
         series=series, code=code, watchlist_events=watchlist_events,
         latches=latches, today=today,
