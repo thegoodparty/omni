@@ -126,7 +126,9 @@ onExit, onComplete, completeLabel? }` — `onStepChange` fires
 on mount and on every transition so a caller-owned Stepper/URL can track the active
 step without this component reaching outside its props. Each screen pins its own
 footer to the bottom of the caller's column (the intro's Back / Continue, the form's
-Back / "Submit for verification", the submitted screen's centered Done), and the
+Back / "Submit for verification", which sticks to the bottom of the host's scroll area
+and enables once every field has a value so the click can list what is invalid, the
+submitted screen's centered Done), and the
 positions are intro 1 / form 2 of 3 with no header on the submitted screen, the same
 in `OutreachGate`'s `reportVerifyStep` and the standalone flow. `CampaignVerificationFlow`
 is now just `FullScreenStepChrome` (`app/dashboard/shared/`, the design's renderSgModal

@@ -16,6 +16,7 @@ import {
   Label,
 } from '@styleguide'
 import { useEffect, useRef, useState, type ComponentProps } from 'react'
+import isEmpty from 'validator/es/lib/isEmpty'
 import { useFormData } from '@shared/hooks/useFormData'
 import TextingComplianceForm from 'app/dashboard/profile/texting-compliance/shared/TextingComplianceForm'
 import { EinCheckInput } from 'app/dashboard/shared/EinCheckInput'
@@ -65,9 +66,12 @@ export interface ContactChannelSelection {
 // 'verification' is the design's filingdetails screen, rendered by the
 // campaign-verification steps: sentence-case labels with example
 // placeholders, the filing-link helper in place of the tooltip, no PIN
-// warning (the intro covers it), and an inline Back / "Submit for
-// verification" footer held until the form is valid. The legacy register
-// and election-filing pages keep the default look.
+// warning (the intro covers it), and a Back / "Submit for verification"
+// footer that sticks to the bottom of the host's scroll area and enables once
+// every field has a value (the click then validates and lists what is wrong,
+// so a landline or a filing link without a path gets an explanation instead
+// of a button that never enables). The legacy register and election-filing
+// pages keep the default look.
 export type FormVariant = 'default' | 'verification'
 
 type ValidationMessages = Record<ValidationField, string>
@@ -546,6 +550,33 @@ const TextingComplianceRegistrationForm = ({
   const [einPrefilled] = useState(
     () => design && checkEinSanity(getStringValue(ein)).valid,
   )
+  // Presence, not validity: the verification footer enables as soon as every
+  // required field has something in it, and the click runs the real
+  // validation (banner + red borders) so the candidate learns which value is
+  // off. A button held on validity alone gave no such explanation.
+  const isFederal = getStringValue(officeLevel) === 'federal'
+  const requiredFilled =
+    !isEmpty(getStringValue(officeLevel)) &&
+    !isEmpty(getStringValue(candidateName).trim()) &&
+    !isEmpty(getStringValue(campaignCommitteeName).trim()) &&
+    !isEmpty(getStringValue(electionFilingLink).trim()) &&
+    !isEmpty(getStringValue(email).trim()) &&
+    !isEmpty(getStringValue(phone).trim()) &&
+    (einPrefilled || !isEmpty(getStringValue(ein).trim())) &&
+    (validateAddress(addressValue) ||
+      (!isEmpty(manualAddress.addressLine1.trim()) &&
+        !isEmpty(manualAddress.city.trim()) &&
+        !isEmpty(manualAddress.state.trim()) &&
+        !isEmpty(manualAddress.zip.trim()))) &&
+    (!isFederal ||
+      (!isEmpty(getStringValue(formData.fecCommitteeId).trim()) &&
+        !isEmpty(getStringValue(formData.committeeType))))
+
+  // The verification variant scrolls inside its host (the full-screen chrome
+  // or the outreach sheet), where window.scrollTo reaches nothing, so the
+  // error banner is brought into view through a marker at the top of the
+  // form instead.
+  const formTopRef = useRef<HTMLDivElement>(null)
   const handleEINChange = (value: string) => {
     setValidEin(einIndicatorState(value))
     handleChange({ ein: value })
@@ -570,7 +601,14 @@ const TextingComplianceRegistrationForm = ({
     // so scroll the error banner (rendered at the top) into view.
     if (!isValid || !extraValid) {
       setAttemptedSubmit(true)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      if (design) {
+        formTopRef.current?.scrollIntoView({
+          block: 'start',
+          behavior: 'smooth',
+        })
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }
       return
     }
     // Block a double-submit. The ref is set synchronously below, so a second
@@ -625,6 +663,7 @@ const TextingComplianceRegistrationForm = ({
       <TextingComplianceForm
         className={design ? 'flex flex-col gap-4' : undefined}
       >
+        {design && <div ref={formTopRef} className="-mt-4 h-0" aria-hidden />}
         {hasSubmissionError && (
           <StyledAlert severity="error">
             <Body2>
@@ -835,7 +874,10 @@ const TextingComplianceRegistrationForm = ({
         )}
       </TextingComplianceForm>
       {design ? (
-        <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+        // Sticky inside the host's scroll area (the chrome's column or the
+        // sheet body), so the footer stays in reach while the long form
+        // scrolls under it; mt-auto still pins it on a short viewport.
+        <div className="sticky bottom-0 z-10 mt-auto flex flex-col-reverse gap-3 bg-white pt-4 pb-1 sm:flex-row sm:justify-between">
           <Button
             type="button"
             variant="ghost"
@@ -850,7 +892,7 @@ const TextingComplianceRegistrationForm = ({
             type="button"
             size="large"
             className="w-full sm:w-auto sm:min-w-[360px]"
-            disabled={loading || !isValid}
+            disabled={loading || !requiredFilled}
             loading={loading}
             onClick={handleOnSubmit}
           >

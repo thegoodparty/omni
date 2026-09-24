@@ -50,8 +50,10 @@ const renderForm = (
 }
 
 beforeEach(() => {
-  // jsdom does not implement scrollTo; the invalid-submit path calls it.
+  // jsdom does not implement scrollTo; the invalid-submit path calls it. The
+  // verification variant scrolls its form marker into view instead.
   window.scrollTo = vi.fn()
+  Element.prototype.scrollIntoView = vi.fn()
 })
 
 describe('TextingComplianceRegistrationForm — submit behavior', () => {
@@ -508,7 +510,7 @@ describe('TextingComplianceRegistrationForm — verification variant', () => {
     return { onBack, onSubmit }
   }
 
-  it('holds Submit for verification until the form is valid, then submits', async () => {
+  it('holds Submit for verification until every field has a value, then submits', async () => {
     const user = userEvent.setup()
     const { onSubmit } = renderVerification(
       validInitialState({ campaignCommitteeName: '' }),
@@ -527,6 +529,28 @@ describe('TextingComplianceRegistrationForm — verification variant', () => {
     expect(submit).toBeEnabled()
     await user.click(submit)
     expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('enables on a filled but invalid form and explains what is wrong on click', async () => {
+    const user = userEvent.setup()
+    const { onSubmit } = renderVerification(
+      validInitialState({ phone: '123', electionFilingLink: 'https://x.gov' }),
+    )
+
+    const submit = screen.getByRole('button', {
+      name: 'Submit for verification',
+    })
+    expect(submit).toBeEnabled()
+
+    await user.click(submit)
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('Please fix the following fields:'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Filing Phone')).toBeInTheDocument()
+    expect(screen.getByText('Election Filing Link')).toBeInTheDocument()
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
   })
 
   it('fires onBack from its inline footer', async () => {
