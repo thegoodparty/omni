@@ -360,6 +360,8 @@ export class VoterFileFilterService extends createPrismaBase(
       ethnicityAsian,
       ethnicityHispanic,
       ethnicityAfricanAmerican,
+      ethnicityOther,
+      ethnicityUnknown,
     }: Partial<VoterFileFilter> =
       typeof idOrFilter === 'number'
         ? await this.model.findUniqueOrThrow({ where: { id: idOrFilter } })
@@ -407,6 +409,13 @@ export class VoterFileFilterService extends createPrismaBase(
         : {}),
       ...(ethnicityAfricanAmerican === true
         ? { ethnicity_african_american: ethnicityAfricanAmerican }
+        : {}),
+      ...(ethnicityOther === true ? { ethnicity_other: ethnicityOther } : {}),
+      // Resolves to IS NULL downstream, not to a literal 'Unknown' match:
+      // VALUE_MAPPERS.ethnicity maps the bucket to null, the same way
+      // gender_unknown beside it already behaves.
+      ...(ethnicityUnknown === true
+        ? { ethnicity_unknown: ethnicityUnknown }
         : {}),
     }
   }

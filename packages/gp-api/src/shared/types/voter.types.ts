@@ -29,6 +29,13 @@ export const CUSTOM_FILTERS = [
   'ethnicity_asian',
   'ethnicity_hispanic',
   'ethnicity_african_american',
+  // The Other and Unknown columns arrived with the rest of the newer
+  // demographic filters (migration 20250920022950) and never reached this
+  // list, which predates them. A Win list cut on either therefore lost that
+  // clause on the way to the legacy voter-file export and came back wider
+  // than the wizard promised.
+  'ethnicity_other',
+  'ethnicity_unknown',
   'audience_request',
 ] as const
 
