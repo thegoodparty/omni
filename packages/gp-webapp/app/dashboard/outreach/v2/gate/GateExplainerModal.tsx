@@ -56,7 +56,7 @@ export const GateExplainerModal = ({
   const needsPro = requirement === 'pro'
 
   const title = needsPro
-    ? EXPLAINER_COPY.titleFree
+    ? EXPLAINER_COPY.titleFree(channel)
     : requirement === 'in_review'
       ? EXPLAINER_COPY.titleInReview
       : EXPLAINER_COPY.titleVerify(noun)

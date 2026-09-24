@@ -65,7 +65,9 @@ describe('GateExplainerModal', () => {
       />,
     )
 
-    expect(screen.getByText(EXPLAINER_COPY.titleFree)).toBeInTheDocument()
+    expect(
+      screen.getByText('Join Pro to send this campaign'),
+    ).toBeInTheDocument()
     expect(screen.getByText(PRO_COPY.sms.headline)).toBeInTheDocument()
     PRO_COPY.sms.bullets.forEach((bullet) => {
       expect(screen.getByText(bullet)).toBeInTheDocument()
@@ -118,9 +120,39 @@ describe('GateExplainerModal', () => {
       />,
     )
 
-    expect(screen.getByText(EXPLAINER_COPY.titleFree)).toBeInTheDocument()
+    expect(
+      screen.getByText('Join Pro to send this campaign'),
+    ).toBeInTheDocument()
     expect(screen.getByText(PRO_COPY.robocall.headline)).toBeInTheDocument()
     expect(screen.queryByText(PITCH_PANEL_COPY.verifyTitle)).toBeNull()
+  })
+
+  it('names what Pro unlocks for the two list channels', () => {
+    const { unmount } = render(
+      <GateExplainerModal
+        channel="phone-bank"
+        state={stateWith({ requirement: 'pro', twoStep: false })}
+        open
+        {...noop}
+      />,
+    )
+    expect(screen.getByText('Join Pro to call this list')).toBeInTheDocument()
+    expect(
+      screen.getByText(PRO_COPY['phone-bank'].headline),
+    ).toBeInTheDocument()
+    unmount()
+
+    render(
+      <GateExplainerModal
+        channel="door"
+        state={stateWith({ requirement: 'pro', twoStep: false })}
+        open
+        {...noop}
+      />,
+    )
+    expect(screen.getByText('Join Pro to start knocking')).toBeInTheDocument()
+    expect(screen.getByText(PRO_COPY.door.headline)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Join Pro' })).toBeInTheDocument()
   })
 
   it('shows the verify title, body and an open verification card for an already-Pro texting channel', () => {

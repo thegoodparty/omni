@@ -129,7 +129,15 @@ export const BANNER_COPY = {
 }
 
 export const EXPLAINER_COPY = {
-  titleFree: 'Join Pro to send this campaign',
+  // The two list channels name what Pro unlocks (design update 2026-09-24:
+  // the "phone banking ad" and "door knocking ad" cards); the sending
+  // channels keep the export's title.
+  titleFree: (channel: GateChannel): string =>
+    channel === 'door'
+      ? 'Join Pro to start knocking'
+      : channel === 'phone-bank'
+        ? 'Join Pro to call this list'
+        : 'Join Pro to send this campaign',
   titleVerify: (noun: string): string =>
     `One more step before this ${noun} can send`,
   titleInReview: 'Your campaign verification is in review',
