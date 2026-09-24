@@ -229,13 +229,16 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // above) and the robocall-specific HoldPlaced email milestone. Matched by
     // event rather than by call index so neither is pinned to an emit order.
     expect(trackSpy).toHaveBeenCalledTimes(2)
-    const holdPlaced = trackSpy.mock.calls.find(
+    const trackCalls = trackSpy.mock.calls as Parameters<
+      AnalyticsService['track']
+    >[]
+    const holdPlaced = trackCalls.find(
       (call) => call[1] === EVENTS.Robocall.HoldPlaced,
     )
     expect(holdPlaced?.[0]).toBe(service.user.id)
     expect(holdPlaced?.[4]).toBe(`${outreachId}:hold_placed`)
 
-    const scheduled = trackSpy.mock.calls.find(
+    const scheduled = trackCalls.find(
       (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
     )
     expect(scheduled?.[0]).toBe(service.user.id)
