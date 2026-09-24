@@ -44,6 +44,7 @@ import { UseOrganization } from '@/organizations/decorators/UseOrganization.deco
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
@@ -82,6 +83,7 @@ export class OutreachRobocallController {
     private readonly complianceResults: RobocallComplianceResultService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
+    private readonly campaigns: CampaignsService,
     private readonly contacts: ContactsService,
     private readonly callhubNumbers: CallhubNumbersService,
     private readonly areaCodeFromZipService: AreaCodeFromZipService,
@@ -130,7 +132,20 @@ export class OutreachRobocallController {
   ): Promise<RobocallNumberResponse> {
     // Not Pro-gated (outreach-pro-gating-v2): a free candidate can build a
     // robocall draft, including renting the number, before upgrading. Only
-    // the paid create/authorize/send routes still require Pro.
+    // the paid create/authorize/send routes still require Pro. A rental is a
+    // recurring vendor charge, so the free path is idempotent: the campaign
+    // holds one number on its details and gets it back on every rent while
+    // CallHub still lists it. A second real rental needs Pro.
+    const held = campaign.isPro
+      ? null
+      : (campaign.details.robocallCallbackNumber ?? null)
+    if (held) {
+      const live = (await this.callhubNumbers.listRentedNumbers()).find(
+        (n) => n.phone_number === held && n.is_active !== false,
+      )
+      if (live) return { phoneNumber: live.phone_number, region: live.region }
+    }
+
     const areaCodePrefix = await resolveRobocallAreaCode(campaign.details, {
       areaCodeFromZipService: this.areaCodeFromZipService,
       logger: this.logger,
@@ -153,6 +168,12 @@ export class OutreachRobocallController {
         { requestedAreaCodePrefix: areaCodePrefix, region: rented.region },
         'Robocall number rental: CallHub had no inventory for the requested area code, rented a national number instead',
       )
+    }
+
+    if (!campaign.isPro) {
+      await this.campaigns.patchCampaignDetails(campaign.id, {
+        robocallCallbackNumber: rented.phone_number,
+      })
     }
 
     return { phoneNumber: rented.phone_number, region: rented.region }

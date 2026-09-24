@@ -61,6 +61,10 @@ declare global {
       campaignCommittee?: string
       statementName?: string
       subscriptionId?: string | null
+      // The one CallHub caller-ID number a free campaign holds while it
+      // builds a robocall before upgrading; every rent returns it until it
+      // leaves CallHub's rented list. Pro campaigns rent per robocall.
+      robocallCallbackNumber?: string | null
       endOfElectionSubscriptionCanceled?: boolean
       subscriptionCanceledAt?: number | null
       subscriptionCancelAt?: number | null
