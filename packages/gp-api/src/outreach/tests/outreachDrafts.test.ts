@@ -262,11 +262,14 @@ describe('POST /v1/outreach/drafts', () => {
     expect(res.data.status).toBe(OutreachStatus.draft)
     expect(res.data.outreachType).toBe(OutreachType.robocall)
     expect(res.data.date).toBeNull()
-    // The two satellite fields a resume cannot re-derive, and nothing else:
-    // the resume's own create has to send them back.
+    // The two satellite fields a resume cannot re-derive plus the (still
+    // null) priced count: the resume's own create has to send the first two
+    // back.
     expect(res.data.robocall).toEqual({
       audioKey: AUDIO_KEY,
       callbackNumber: '+15125550123',
+      // Unpriced until the resume's pay step, so the history reads n/a.
+      billableCount: null,
     })
 
     const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
@@ -367,6 +370,8 @@ describe('GET /v1/outreach/:id', () => {
     expect(res.data.robocall).toEqual({
       audioKey: AUDIO_KEY,
       callbackNumber: '+15125550123',
+      // Unpriced until the resume's pay step, so the history reads n/a.
+      billableCount: null,
     })
   })
 
