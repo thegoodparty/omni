@@ -125,8 +125,9 @@ def load_anchors(token: str | None = None) -> tuple[dict[str, list[Leg]], list[s
     use_gh = not token and not os.environ.get(GH_FALLBACK_ENV)
     if not token and not use_gh:
         return {}, [
-            f"{TOKEN_ENV} is not set, so the semantic-layer anchors could not be read. "
-            "Every OKR dormancy check is DISABLED this run."
+            f"{TOKEN_ENV} is not set and {GH_FALLBACK_ENV} is set, so neither the "
+            "token nor the gh CLI fallback is available. Every OKR dormancy check is "
+            "DISABLED this run."
         ]
     anchors: dict[str, list[Leg]] = {}
     problems: list[str] = []

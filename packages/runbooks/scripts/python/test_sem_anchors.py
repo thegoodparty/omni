@@ -45,6 +45,7 @@ def test_load_anchors_returns_empty_and_says_why_without_a_token(monkeypatch):
     assert anchors == {}
     # The read disabling itself must never be silent — that is the original bug's shape.
     assert problems and "DISABLED" in problems[0]
+    assert sa.GH_FALLBACK_ENV in problems[0]
 
 
 def test_load_anchors_reports_when_reads_succeed_but_find_no_anchors(monkeypatch):
