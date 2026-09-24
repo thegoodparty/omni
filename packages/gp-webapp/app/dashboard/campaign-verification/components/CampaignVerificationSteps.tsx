@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@styleguide'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
@@ -61,6 +61,16 @@ const CampaignVerificationSteps = ({
     window.scrollTo(0, 0)
     onStepChange?.(step)
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
+
+  // One intro view per mount of these steps. The intro is unmounted by the
+  // form step and remounted by Back, so a view fired from its own mount
+  // counted twice; the ref lives here, where it survives that.
+  const introViewedRef = useRef(false)
+  useEffect(() => {
+    if (step !== 'intro' || introViewedRef.current) return
+    introViewedRef.current = true
+    trackEvent(EVENTS.ProUpgrade.Verification.IntroViewed)
   }, [step])
 
   useEffect(() => {

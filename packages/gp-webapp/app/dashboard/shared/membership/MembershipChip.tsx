@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProBadge } from '@styleguide'
 import { ShieldCheckIcon } from '@styleguide/components/ui/icons'
@@ -47,6 +47,18 @@ export const MembershipChip = (): React.JSX.Element | null => {
     if (!visible) return
     exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
   }, [visible, exposure])
+
+  // One view per appearance, the banner's rule: a texting transition while
+  // the chip stays on screen is not a second view.
+  const stateRef = useRef(state)
+  stateRef.current = state
+  useEffect(() => {
+    if (!visible) return
+    trackEvent(EVENTS.ProUpgrade.Membership.ChipViewed, {
+      tier: stateRef.current?.tier,
+      texting: stateRef.current?.texting,
+    })
+  }, [visible])
 
   if (!visible || !state) return null
 

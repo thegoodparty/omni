@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect } from 'react'
 import { Button } from '@styleguide'
 import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import {
@@ -8,7 +7,6 @@ import {
   FileTextIcon,
   MailIcon,
 } from '@styleguide/components/ui/icons'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 const ROWS = [
   {
@@ -40,10 +38,6 @@ export const VerificationIntro = ({
   onContinue,
   onBack,
 }: VerificationIntroProps): React.JSX.Element => {
-  useEffect(() => {
-    trackEvent(EVENTS.ProUpgrade.Verification.IntroViewed)
-  }, [])
-
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <div className="mb-6 flex flex-col gap-2">
