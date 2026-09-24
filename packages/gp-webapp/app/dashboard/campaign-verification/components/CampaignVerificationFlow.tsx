@@ -44,10 +44,13 @@ const CampaignVerificationFlow = (): React.JSX.Element => {
     trackEvent(EVENTS.ProUpgrade.Verification.IntroViewed)
   }, [step])
 
+  // Same guard for the submitted screen: a refresh of the submitted URL
+  // mounts straight onto it, and the effect must not count that twice.
+  const submittedViewedRef = useRef(false)
   useEffect(() => {
-    if (step === 'submitted') {
-      trackEvent(EVENTS.ProUpgrade.Verification.SubmittedViewed)
-    }
+    if (step !== 'submitted' || submittedViewedRef.current) return
+    submittedViewedRef.current = true
+    trackEvent(EVENTS.ProUpgrade.Verification.SubmittedViewed)
   }, [step])
 
   return (
