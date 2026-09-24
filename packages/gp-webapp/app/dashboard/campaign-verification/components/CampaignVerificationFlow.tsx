@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Button, Stepper } from '@styleguide'
@@ -32,6 +32,16 @@ const CampaignVerificationFlow = (): React.JSX.Element => {
   // otherwise render mid-page.
   useEffect(() => {
     window.scrollTo(0, 0)
+  }, [step])
+
+  // One intro view per visit to the flow. The intro is unmounted by the form
+  // step and remounted by Back, so the event is fired from here, where the
+  // ref survives that, rather than from the intro's own mount.
+  const introViewedRef = useRef(false)
+  useEffect(() => {
+    if (step !== 'intro' || introViewedRef.current) return
+    introViewedRef.current = true
+    trackEvent(EVENTS.ProUpgrade.Verification.IntroViewed)
   }, [step])
 
   useEffect(() => {

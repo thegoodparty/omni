@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect } from 'react'
 import { Button } from '@styleguide'
 import {
   ClockIcon,
@@ -8,7 +7,6 @@ import {
   MailIcon,
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 const ROWS = [
   {
@@ -37,10 +35,6 @@ export const VerificationIntro = ({
   onContinue,
   onBack,
 }: VerificationIntroProps): React.JSX.Element => {
-  useEffect(() => {
-    trackEvent(EVENTS.ProUpgrade.Verification.IntroViewed)
-  }, [])
-
   return (
     <div>
       <h1 className="mb-1.5 text-[32px] leading-[44px] font-semibold">

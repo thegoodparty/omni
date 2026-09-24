@@ -424,6 +424,7 @@ export const EVENTS = {
     Membership: {
       BannerViewed: 'Pro Upgrade - Membership Banner Viewed',
       BannerClicked: 'Pro Upgrade - Membership Banner: Click',
+      ChipViewed: 'Pro Upgrade - Membership Chip Viewed',
       ChipClicked: 'Pro Upgrade - Membership Chip: Click',
       PitchViewed: 'Pro Upgrade - Pitch Viewed',
       PitchJoin: 'Pro Upgrade - Pitch: Click join',
