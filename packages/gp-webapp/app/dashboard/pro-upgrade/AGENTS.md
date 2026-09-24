@@ -274,7 +274,12 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
   reads the flag and passes `{ purchaseOnly }` into `deriveProUpgradeStep`. Without
   it the index derives `FILING_DETAILS` or `CANDIDATE_PROFILE`, which the
   purchase-only order does not contain, and the candidate lands on a step the shell
-  will not advance from. For the same reason the entry **disables** the website and
+  will not advance from. In purchase-only mode the derivation is deliberately flat:
+  an already-Pro campaign lands on `SUCCESS`, everyone else on `GUIDANCE` (design:
+  the wizard always opens on its overview, the same way the embedded flow does), and
+  the steps prefill from the saved filing answer and EIN rather than being skipped —
+  a candidate dropped onto Payment by a resume they could not see the reason for is
+  what that replaced. For the same reason the entry **disables** the website and
   TCR queries in purchase-only mode (nothing derives from them) and must not wait on
   them: a disabled TanStack query reports `isPending: true` forever.
 - **Never hand `ProUpgradeFlow.goToStep` an off-order step.** It resolves next/back

@@ -230,37 +230,18 @@ describe('deriveProUpgradeStep purchase-only mode', () => {
     expect(deriveProUpgradeStep(inputs, opts)).toBe(PRO_UPGRADE_STEP.GUIDANCE)
   })
 
-  it('asks filing status once there is progress and it is unanswered', () => {
+  // Design: the wizard always opens on its overview; the steps prefill from
+  // what is saved, so nothing derives a later step from progress.
+  it('starts on guidance whatever progress is saved', () => {
     expect(deriveProUpgradeStep({ ...inputs, hasEin: true }, opts)).toBe(
-      PRO_UPGRADE_STEP.STATUS,
+      PRO_UPGRADE_STEP.GUIDANCE,
     )
-  })
-
-  it('resumes at EIN for a filed candidate without one', () => {
-    expect(
-      deriveProUpgradeStep({ ...inputs, filingStatus: 'has-filed' }, opts),
-    ).toBe(PRO_UPGRADE_STEP.EIN)
-  })
-
-  it('re-asks filing status for a "not filed" candidate even with an EIN on file', () => {
-    expect(
-      deriveProUpgradeStep(
-        { ...inputs, filingStatus: 'not-filed', hasEin: true },
-        opts,
-      ),
-    ).toBe(PRO_UPGRADE_STEP.STATUS)
-  })
-
-  it('goes straight to payment once filed and EIN are in, ignoring filing and profile', () => {
     expect(
       deriveProUpgradeStep(
         { ...inputs, filingStatus: 'has-filed', hasEin: true },
         opts,
       ),
-    ).toBe(PRO_UPGRADE_STEP.PAYMENT)
-  })
-
-  it('ignores filing and profile completeness as progress', () => {
+    ).toBe(PRO_UPGRADE_STEP.GUIDANCE)
     expect(
       deriveProUpgradeStep(
         { ...inputs, filingComplete: true, profileComplete: true },

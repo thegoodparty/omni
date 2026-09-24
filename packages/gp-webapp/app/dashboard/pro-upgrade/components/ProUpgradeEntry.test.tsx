@@ -222,8 +222,10 @@ describe('ProUpgradeEntry', () => {
 
     render(<ProUpgradeEntry />)
 
+    // Purchase-only always opens on the overview; the saved answer and EIN
+    // prefill their steps instead of skipping them.
     expect(router.replace).toHaveBeenCalledWith(
-      '/dashboard/pro-upgrade/payment',
+      '/dashboard/pro-upgrade/guidance',
     )
   })
 
