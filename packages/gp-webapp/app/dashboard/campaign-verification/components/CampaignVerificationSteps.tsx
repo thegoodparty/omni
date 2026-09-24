@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { Button } from '@styleguide'
-import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
+import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ElectionFilingForm from 'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm'
-import VerificationSubmittedContent from 'app/dashboard/profile/texting-compliance/verification-submitted/components/VerificationSubmittedContent'
+import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
 import { VerificationIntro } from './VerificationIntro'
 
 export type VerificationStep = 'intro' | 'form' | 'submitted'
@@ -20,6 +20,10 @@ const FILING_DETAILS_CAPTION =
 const FILING_CONTACT_TITLE = 'What is your campaign filing contact information?'
 const FILING_CONTACT_CAPTION =
   'Enter the email, phone, or address exactly as it appears on your filing document. A PIN will be sent to one of these to verify your campaign.'
+
+const PIN_NOTICE_TITLE = 'A PIN is on its way'
+const PIN_NOTICE_BODY =
+  'After your campaign is verified, a PIN will be sent to the email, phone, or address that matches your election filing, usually 1 to 2 weeks. Entering the PIN unlocks texting.'
 
 interface CampaignVerificationStepsProps {
   // Lets a caller resume on a step other than the intro (e.g. a page wrapper
@@ -36,14 +40,14 @@ interface CampaignVerificationStepsProps {
 
 // The intro → filing form → submitted-confirmation state machine, with no
 // page chrome of its own (no min-h-screen, no nav, no Stepper) — a caller's
-// sheet or page wrapper owns that. Extracted from CampaignVerificationFlow so
-// a later task can mount the same steps inside the outreach flows.
+// sheet or page wrapper owns that, and each screen pins its own footer to
+// the bottom of the caller's column.
 const CampaignVerificationSteps = ({
   initialStep = 'intro',
   onStepChange,
   onExit,
   onComplete,
-  completeLabel = 'Back to dashboard',
+  completeLabel = 'Done',
 }: CampaignVerificationStepsProps): React.JSX.Element => {
   const [step, setStep] = useState<VerificationStep>(initialStep)
 
@@ -65,7 +69,7 @@ const CampaignVerificationSteps = ({
   }, [step])
 
   return (
-    <div>
+    <div className="flex min-h-full flex-1 flex-col">
       {step === 'intro' && (
         <VerificationIntro
           onBack={onExit}
@@ -76,32 +80,51 @@ const CampaignVerificationSteps = ({
         />
       )}
       {step === 'form' && (
-        <>
-          <Button
-            variant="ghost"
-            size="small"
-            className="mb-4 text-base-muted-foreground"
-            onClick={() => setStep('intro')}
-          >
-            <ArrowLeftIcon /> Back
-          </Button>
-          <ElectionFilingForm
-            title={FILING_DETAILS_TITLE}
-            caption={FILING_DETAILS_CAPTION}
-            contactTitle={FILING_CONTACT_TITLE}
-            contactCaption={FILING_CONTACT_CAPTION}
-            onSubmitted={() => setStep('submitted')}
-          />
-        </>
+        <ElectionFilingForm
+          variant="verification"
+          title={FILING_DETAILS_TITLE}
+          caption={FILING_DETAILS_CAPTION}
+          contactTitle={FILING_CONTACT_TITLE}
+          contactCaption={FILING_CONTACT_CAPTION}
+          onBack={() => setStep('intro')}
+          onSubmitted={() => setStep('submitted')}
+        />
       )}
       {step === 'submitted' && (
-        <VerificationSubmittedContent
-          primaryAction={
-            <Button size="large" className="w-full" onClick={onComplete}>
+        // Design: the pending screen — confetti through the column, the
+        // check in its circle, the PIN notice card, and a single centered
+        // Done.
+        <div className="relative flex min-h-full flex-1 flex-col">
+          <ConfettiField />
+          <div className="relative flex flex-col items-center gap-4 pt-2 text-center">
+            <span className="flex size-16 shrink-0 items-center justify-center rounded-full bg-primary-light">
+              <CheckCircleIcon className="size-8 text-primary" aria-hidden />
+            </span>
+            <div className="flex max-w-[440px] flex-col items-center gap-2">
+              <h1 className="text-2xl font-semibold">
+                Submitted for verification
+              </h1>
+              <p className="text-[15px] leading-relaxed text-base-muted-foreground">
+                Your campaign has been submitted for verification.
+              </p>
+            </div>
+          </div>
+          <div className="relative mt-4 flex flex-col gap-1.5 rounded-xl border border-base-border bg-card p-4">
+            <p className="text-sm font-semibold">{PIN_NOTICE_TITLE}</p>
+            <p className="text-[13px] leading-relaxed text-base-muted-foreground">
+              {PIN_NOTICE_BODY}
+            </p>
+          </div>
+          <div className="mt-auto flex justify-center pt-8">
+            <Button
+              size="large"
+              className="w-full sm:w-auto sm:min-w-[360px]"
+              onClick={onComplete}
+            >
               {completeLabel}
             </Button>
-          }
-        />
+          </div>
+        </div>
       )}
     </div>
   )

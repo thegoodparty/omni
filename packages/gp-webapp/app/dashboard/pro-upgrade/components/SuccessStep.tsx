@@ -17,6 +17,7 @@ import {
 import Confetti from 'app/dashboard/questions/components/Confetti'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ConfettiField } from './ConfettiField'
+import { ProReceiptCard } from './ProReceiptCard'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // `isPro` flips server-side only when the Stripe `checkout.session.completed`
@@ -168,6 +169,8 @@ const SuccessStep = (): React.JSX.Element => {
             </div>
           </div>
         </div>
+
+        <ProReceiptCard enabled={Boolean(data?.isPro)} />
 
         <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
           <Button

@@ -62,6 +62,14 @@ export interface ContactChannelSelection {
   address: boolean
 }
 
+// 'verification' is the design's filingdetails screen, rendered by the
+// campaign-verification steps: sentence-case labels with example
+// placeholders, the filing-link helper in place of the tooltip, no PIN
+// warning (the intro covers it), and an inline Back / "Submit for
+// verification" footer held until the form is valid. The legacy register
+// and election-filing pages keep the default look.
+export type FormVariant = 'default' | 'verification'
+
 type ValidationMessages = Record<ValidationField, string>
 
 export const fieldDisplayNames: ValidationMessages = {
@@ -173,6 +181,7 @@ export const FilingAddressFields = ({
   manualAddress,
   onChange,
   showError,
+  variant = 'default',
 }: {
   address: AddressValue | null
   manualAddress: ManualAddressValue
@@ -181,7 +190,9 @@ export const FilingAddressFields = ({
     manualAddress: ManualAddressValue
   }) => void
   showError: boolean
+  variant?: FormVariant
 }): React.JSX.Element => {
+  const design = variant === 'verification'
   // Any hand edit drops the selected place: a placeId submission is resolved
   // from Google server-side, so an edited component (even the unit line)
   // would otherwise be silently ignored. Without a place, the structured
@@ -194,7 +205,9 @@ export const FilingAddressFields = ({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex w-full flex-col gap-1.5">
-        <Label>Street address or PO Box *</Label>
+        <Label>
+          {design ? 'Street address or PO Box' : 'Street address or PO Box *'}
+        </Label>
         <AddressAutocomplete
           value={manualAddress.addressLine1}
           onChange={(value) => edit({ addressLine1: value })}
@@ -215,7 +228,11 @@ export const FilingAddressFields = ({
               },
             })
           }}
-          placeholder="Start typing to search, or enter it yourself"
+          placeholder={
+            design
+              ? '123 Main St'
+              : 'Start typing to search, or enter it yourself'
+          }
           variant="outlined"
           error={fieldErrors && !isFilled(manualAddress.addressLine1)}
           dropdownClassName="texting-compliance-address-dropdown"
@@ -223,6 +240,7 @@ export const FilingAddressFields = ({
       </div>
       <TextField
         label="Apt, suite, unit (optional)"
+        placeholder={design ? 'Suite 200' : undefined}
         fullWidth
         value={manualAddress.addressLine2 || ''}
         onChange={(e) => edit({ addressLine2: e.target.value })}
@@ -230,14 +248,15 @@ export const FilingAddressFields = ({
       <div className="flex flex-col gap-4 sm:flex-row">
         <TextField
           label="City"
+          placeholder={design ? 'Seattle' : undefined}
           fullWidth
-          required
+          required={!design}
           error={fieldErrors && !isFilled(manualAddress.city)}
           value={manualAddress.city}
           onChange={(e) => edit({ city: e.target.value })}
         />
         <div className="flex w-full flex-col gap-1.5 sm:max-w-28">
-          <Label>State *</Label>
+          <Label>{design ? 'State' : 'State *'}</Label>
           <Select
             value={manualAddress.state}
             onValueChange={(state) => edit({ state })}
@@ -262,9 +281,9 @@ export const FilingAddressFields = ({
         </div>
         <TextField
           label="ZIP"
-          placeholder="12345"
+          placeholder={design ? '98103' : '12345'}
           fullWidth
-          required
+          required={!design}
           className="sm:max-w-36"
           error={
             fieldErrors && !/^\d{5}(-\d{4})?$/.test(manualAddress.zip.trim())
@@ -446,6 +465,9 @@ interface TextingComplianceRegistrationFormProps {
   caption?: string
   contactTitle?: string
   contactCaption?: string
+  variant?: FormVariant
+  // The 'verification' variant's inline footer Back.
+  onBack?: () => void
 }
 
 const TextingComplianceRegistrationForm = ({
@@ -460,7 +482,10 @@ const TextingComplianceRegistrationForm = ({
   caption,
   contactTitle,
   contactCaption,
+  variant = 'default',
+  onBack,
 }: TextingComplianceRegistrationFormProps): React.JSX.Element => {
+  const design = variant === 'verification'
   const { formData, handleChange } = useFormData()
   const {
     electionFilingLink,
@@ -514,6 +539,13 @@ const TextingComplianceRegistrationForm = ({
   const [validEin, setValidEin] = useState(
     einIndicatorState(getStringValue(ein)),
   )
+  // The verification steps run after the purchase-only wizard, which has
+  // already collected the EIN, so a valid prefill is not asked for again
+  // (design: filingdetails has no EIN field). Captured once so a later edit
+  // elsewhere cannot make the field pop in mid-form.
+  const [einPrefilled] = useState(
+    () => design && checkEinSanity(getStringValue(ein)).valid,
+  )
   const handleEINChange = (value: string) => {
     setValidEin(einIndicatorState(value))
     handleChange({ ein: value })
@@ -556,9 +588,43 @@ const TextingComplianceRegistrationForm = ({
     return onSubmit(submitData)
   }
 
+  const emailField = (
+    <TextField
+      label={design ? 'Email' : 'Filing Email'}
+      placeholder={design ? 'you@campaign.org' : 'jane@gmail.com'}
+      fullWidth
+      required={!design}
+      error={showError('email')}
+      value={getStringValue(email)}
+      onChange={(e) => handleChange({ email: e.target.value })}
+    />
+  )
+  const phoneField = (
+    <TextField
+      label={design ? 'Phone' : 'Filing Phone'}
+      placeholder={design ? '(555) 123-4567' : '(555) 555-5555'}
+      required={!design}
+      fullWidth
+      error={showError('phone')}
+      value={getStringValue(phone)}
+      onChange={(e) => handleChange({ phone: e.target.value })}
+    />
+  )
+  const addressFields = (
+    <FilingAddressFields
+      address={addressValue}
+      manualAddress={manualAddress}
+      onChange={(patch) => handleChange(patch)}
+      showError={showError('address')}
+      variant={variant}
+    />
+  )
+
   return (
     <>
-      <TextingComplianceForm>
+      <TextingComplianceForm
+        className={design ? 'flex flex-col gap-4' : undefined}
+      >
         {hasSubmissionError && (
           <StyledAlert severity="error">
             <Body2>
@@ -604,14 +670,28 @@ const TextingComplianceRegistrationForm = ({
         {topSection}
         {title && (
           <div>
-            <h2 className="text-lg font-medium">{title}</h2>
+            <h2
+              className={
+                design ? 'text-xl font-semibold' : 'text-lg font-medium'
+              }
+            >
+              {title}
+            </h2>
             {caption && (
-              <p className="mt-1 text-sm text-muted-foreground">{caption}</p>
+              <p
+                className={
+                  design
+                    ? 'mt-2 text-base text-base-muted-foreground'
+                    : 'mt-1 text-sm text-muted-foreground'
+                }
+              >
+                {caption}
+              </p>
             )}
           </div>
         )}
         <div className="flex flex-col gap-1.5 w-full">
-          <Label>Office Level *</Label>
+          <Label>{design ? 'Office level' : 'Office Level *'}</Label>
           <Select
             value={getStringValue(officeLevel)}
             onValueChange={(val) => handleChange({ officeLevel: val })}
@@ -630,34 +710,36 @@ const TextingComplianceRegistrationForm = ({
           </Select>
         </div>
         <TextField
-          label="Candidate Name"
+          label={design ? 'Candidate name' : 'Candidate Name'}
           placeholder="Jane Smith"
           fullWidth
-          required
+          required={!design}
           error={showError('candidateName')}
           value={getStringValue(candidateName)}
           onChange={(e) => handleChange({ candidateName: e.target.value })}
         />
         <TextField
-          label="Campaign Committee Name"
+          label={design ? 'Campaign committee name' : 'Campaign Committee Name'}
           placeholder="Jane for Council"
           fullWidth
-          required
+          required={!design}
           error={showError('campaignCommitteeName')}
           value={getStringValue(campaignCommitteeName)}
           onChange={(e) =>
             handleChange({ campaignCommitteeName: e.target.value })
           }
         />
-        <EinCheckInput
-          {...{
-            value: getStringValue(ein),
-            onChange: handleEINChange,
-            validated: validEin,
-            label: 'EIN *',
-            error: showError('ein'),
-          }}
-        />
+        {!einPrefilled && (
+          <EinCheckInput
+            {...{
+              value: getStringValue(ein),
+              onChange: handleEINChange,
+              validated: validEin,
+              label: design ? 'Campaign EIN' : 'EIN *',
+              error: showError('ein'),
+            }}
+          />
+        )}
         {officeLevel === 'federal' && (
           <>
             <FecCommitteeIdInput
@@ -687,70 +769,106 @@ const TextingComplianceRegistrationForm = ({
             </div>
           </>
         )}
-        <StyledAlert severity="warning" className="mb-6">
-          <Body2>
-            A PIN is required to verify your identity. <br />
-            It will only be sent if your email, phone, or address matches your
-            election filing. Please review your campaign filing link to ensure
-            the email, phone number, or address matches exactly before
-            submitting.
-          </Body2>
-        </StyledAlert>
+        {!design && (
+          <StyledAlert severity="warning" className="mb-6">
+            <Body2>
+              A PIN is required to verify your identity. <br />
+              It will only be sent if your email, phone, or address matches your
+              election filing. Please review your campaign filing link to ensure
+              the email, phone number, or address matches exactly before
+              submitting.
+            </Body2>
+          </StyledAlert>
+        )}
         <TextField
-          label="Election Filing Link"
+          label={design ? 'Campaign filing link' : 'Election Filing Link'}
+          placeholder={design ? 'https://' : undefined}
+          helperText={
+            design
+              ? "A direct link to your official campaign filing on your election authority's website."
+              : undefined
+          }
           fullWidth
-          required
+          required={!design}
           error={showError('electionFilingLink')}
-          endAdornments={[<FilingLinkInfoIcon key="filing-info-icon" />]}
+          endAdornments={
+            design ? undefined : [<FilingLinkInfoIcon key="filing-info-icon" />]
+          }
           value={getStringValue(electionFilingLink)}
           onChange={(e) => handleChange({ electionFilingLink: e.target.value })}
         />
         {contactTitle && (
-          <div>
-            <h2 className="text-lg font-medium">{contactTitle}</h2>
+          <div className={design ? 'mt-4' : undefined}>
+            <h2
+              className={
+                design ? 'text-xl font-semibold' : 'text-lg font-medium'
+              }
+            >
+              {contactTitle}
+            </h2>
             {contactCaption && (
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p
+                className={
+                  design
+                    ? 'mt-2 text-base text-base-muted-foreground'
+                    : 'mt-1 text-sm text-muted-foreground'
+                }
+              >
                 {contactCaption}
               </p>
             )}
           </div>
         )}
-        <FilingAddressFields
-          address={addressValue}
-          manualAddress={manualAddress}
-          onChange={(patch) => handleChange(patch)}
-          showError={showError('address')}
-        />
-        <TextField
-          label="Filing Email"
-          placeholder="jane@gmail.com"
-          fullWidth
-          required
-          error={showError('email')}
-          value={getStringValue(email)}
-          onChange={(e) => handleChange({ email: e.target.value })}
-        />
-        <TextField
-          label="Filing Phone"
-          placeholder="(555) 555-5555"
-          required
-          fullWidth
-          error={showError('phone')}
-          value={getStringValue(phone)}
-          onChange={(e) => handleChange({ phone: e.target.value })}
-        />
-        <div className="h-32"></div>
+        {design ? (
+          <>
+            {emailField}
+            {phoneField}
+            {addressFields}
+          </>
+        ) : (
+          <>
+            {addressFields}
+            {emailField}
+            {phoneField}
+            <div className="h-32"></div>
+          </>
+        )}
       </TextingComplianceForm>
-      <TextingComplianceFooter>
-        <Button
-          size="large"
-          disabled={loading}
-          loading={loading}
-          onClick={handleOnSubmit}
-        >
-          Submit
-        </Button>
-      </TextingComplianceFooter>
+      {design ? (
+        <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+          <Button
+            type="button"
+            variant="ghost"
+            size="large"
+            className="w-full sm:w-auto"
+            disabled={loading}
+            onClick={onBack}
+          >
+            Back
+          </Button>
+          <Button
+            type="button"
+            size="large"
+            className="w-full sm:w-auto sm:min-w-[360px]"
+            disabled={loading || !isValid}
+            loading={loading}
+            onClick={handleOnSubmit}
+          >
+            Submit for verification
+          </Button>
+        </div>
+      ) : (
+        <TextingComplianceFooter>
+          <Button
+            size="large"
+            disabled={loading}
+            loading={loading}
+            onClick={handleOnSubmit}
+          >
+            Submit
+          </Button>
+        </TextingComplianceFooter>
+      )}
     </>
   )
 }

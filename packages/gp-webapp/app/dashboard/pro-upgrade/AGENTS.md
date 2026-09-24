@@ -31,8 +31,8 @@ runs `PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY` (`GUIDANCE → STATUS → EIN → PA
 SUCCESS`): filing details and the candidate profile are no longer collected before
 payment, they are collected after it at `/dashboard/campaign-verification`
 (`app/dashboard/campaign-verification/`, same flag via `FeatureFlagGuard`; intro →
-the shared `ElectionFilingForm` → the shared `VerificationSubmittedContent`). Off,
-the default order below is exactly as it was.
+the shared `ElectionFilingForm` in its `verification` variant → its own submitted
+screen). Off, the default order below is exactly as it was.
 
 Read the flag once, in a shell, and pass it down as `purchaseOnly` on the wizard
 context. Everything else goes through `proUpgradeStepOrder(purchaseOnly)` and
@@ -89,7 +89,7 @@ verification, and `guidance` becomes the first ordered step.
 | Filing details        | `filing-details`      | `FilingDetailsStep`      | Committee name, filing link, PIN contact methods. **Submits to the agentic endpoint** (see below). Not in the purchase-only order; campaign verification collects it.                                                                                                                    |
 | Candidate profile     | `candidate-profile`   | `CandidateProfileStep`   | Bio + policy priorities via `PUT /websites/mine`. Not in the purchase-only order; campaign verification collects it.                                                                                                                                                                     |
 | Payment               | `payment`             | `PaymentStep`            | Embedded Stripe Custom Checkout (`ui_mode: 'custom'`) + order summary. No redirect.                                                                                                                                                                                                      |
-| Success               | `success`             | `SuccessStep`            | Stripe `return_url` landing. Polls until `isPro` flips (see seam below). Purchase-only shows "Welcome to Pro" + an "Unlocked now" card, adds a "Still to do: verification" row and a "Start verification" CTA when `channel === 'sms'` or there is no channel (the standalone page, where `complete()` routes to campaign verification), a "Still to do: {next step}" row and a Continue CTA for the other channels, holds the CTA until Pro lands, then `complete()`. |
+| Success               | `success`             | `SuccessStep`            | Stripe `return_url` landing. Polls until `isPro` flips (see seam below). Purchase-only shows "Welcome to Pro" + an "Unlocked now" card, adds a "Still to do: verification" row and a "Start verification" CTA when `channel === 'sms'` or there is no channel (the standalone page, where `complete()` routes to campaign verification), a "Still to do: {next step}" row and a Continue CTA for the other channels, holds the CTA until Pro lands, then `complete()`. Below the card, `ProReceiptCard` (design: receiptCard) reads `GET /v1/payments/purchase/pro-receipt` once `isPro` is true and draws the collapsed "Your receipt" row (date, plan line, card, charge, Download receipt); it draws nothing until Stripe answers, never a made-up receipt. |
 | Interstitial (milestone 2) | none — `initialStep` only | `InterstitialStep`  | "Join Pro to send this campaign" pause screen for a candidate gated out of an outreach channel mid-draft. Reads `channel` off the wizard context and renders a Pro badge, the title and `ProPitchPanel` — the same channel value card + (for `sms`) collapsible verification card the gate explainer shows. "Join Pro" → `goToNextStep` (always lands on `GUIDANCE`); "Maybe later" → `exit`. Copy is `PRO_COPY` / `PITCH_PANEL_COPY` / `INTERSTITIAL_COPY` from `app/dashboard/outreach/v2/gate/gateCopy.ts`, shared with the outreach gate surfaces (`GateBanner` / `GateExplainerModal` / `OutreachGate`). |
 
 **Two steps are intentionally NOT in `PRO_UPGRADE_STEP_ORDER`** (`filing-instructions`,
@@ -124,8 +124,13 @@ screen). It renders no chrome of its
 own (no `min-h-screen`, no nav, no `Stepper`) and takes `{ initialStep, onStepChange,
 onExit, onComplete, completeLabel? }` — `onStepChange` fires
 on mount and on every transition so a caller-owned Stepper/URL can track the active
-step without this component reaching outside its props. `CampaignVerificationFlow` is
-now just the page frame (Exit link + `Stepper` bar) plus this component, mapping
+step without this component reaching outside its props. Each screen pins its own
+footer to the bottom of the caller's column (the intro's Back / Continue, the form's
+Back / "Submit for verification", the submitted screen's centered Done), and the
+positions are intro 1 / form 2 of 3 with no header on the submitted screen, the same
+in `OutreachGate`'s `reportVerifyStep` and the standalone flow. `CampaignVerificationFlow`
+is now just `FullScreenStepChrome` (`app/dashboard/shared/`, the design's renderSgModal
+chrome the purchase-only wizard shell also uses) around this component, mapping
 `?step=submitted` to `initialStep` and `router.replace`-ing it back on `onStepChange`
 (that URL sync is page-wrapper behavior, deliberately not inside the embeddable
 component). It also passes the design's filing-details/contact-information headings

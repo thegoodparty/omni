@@ -39,6 +39,7 @@ import type {
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  ProReceipt,
   SmsOutreachResults,
   SocialDraftRequest,
   SocialDraftResponse,
@@ -1542,6 +1543,15 @@ export type APIEndpoints = {
       clientSecret?: string
       redirectUrl?: string
     }
+  }
+
+  // The purchase-only success screen's "Your receipt": the Pro subscription's
+  // latest paid invoice, read live from Stripe. Amount is in DOLLARS. 404
+  // until the completion webhook has stored the subscription on the campaign;
+  // 502 when Stripe is unreachable.
+  'GET /v1/payments/purchase/pro-receipt': {
+    Request: {}
+    Response: ProReceipt
   }
 
   'GET /v1/community-issues': {

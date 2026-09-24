@@ -9,6 +9,10 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import {
+  FullScreenStepChrome,
+  type StepPosition,
+} from 'app/dashboard/shared/FullScreenStepChrome'
+import {
   PRO_UPGRADE_BASE_PATH,
   PRO_UPGRADE_STEP,
   proUpgradeStepOrder,
@@ -123,16 +127,15 @@ const WizardChrome = ({
 }
 
 // Purchase-only (outreach-pro-gating-v2), design: renderSgModal — the same
-// chrome the outreach sheet draws around the embedded flow: the "Upgrade to
-// Pro" overline with Exit, the bar stepper over the five ordered steps, and a
-// 608px column the step stretches into so its footer pins to the bottom. The
-// filing-instructions dead end reads as the status step it branches from,
-// and the success screen draws no header at all.
+// chrome the outreach sheet draws around the embedded flow
+// (FullScreenStepChrome), with the bar stepper over the five ordered steps.
+// The filing-instructions dead end reads as the status step it branches
+// from, and the success screen draws no header at all.
 const PURCHASE_ONLY_ORDER = proUpgradeStepOrder(true)
 
 const purchaseOnlyPosition = (
   step: ProUpgradeStep | null,
-): { currentStep: number; totalSteps: number } | null => {
+): StepPosition | null => {
   if (step === null || step === PRO_UPGRADE_STEP.SUCCESS) return null
   const anchor =
     step === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS
@@ -142,37 +145,6 @@ const purchaseOnlyPosition = (
   if (index < 0) return null
   return { currentStep: index + 1, totalSteps: PURCHASE_ONLY_ORDER.length }
 }
-
-const PurchaseOnlyChrome = ({
-  position,
-  onExit,
-  children,
-}: {
-  position: { currentStep: number; totalSteps: number } | null
-  onExit: () => void
-  children: React.ReactNode
-}): React.JSX.Element => (
-  <div className="flex h-dvh flex-col bg-white">
-    {position && (
-      <div className="shrink-0 px-6 pt-6 pb-4">
-        <div className="mx-auto w-full max-w-[608px]">
-          <Stepper
-            variant="bar"
-            overline="Upgrade to Pro"
-            currentStep={position.currentStep}
-            totalSteps={position.totalSteps}
-            onExit={onExit}
-          />
-        </div>
-      </div>
-    )}
-    <div className="flex flex-1 flex-col overflow-y-auto px-6 py-5">
-      <div className="mx-auto flex w-full max-w-[608px] flex-1 flex-col">
-        {children}
-      </div>
-    </div>
-  </div>
-)
 
 interface ProUpgradeWizardProps {
   children: React.ReactNode
@@ -277,12 +249,13 @@ const ProUpgradeWizard = ({
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
       {purchaseOnly ? (
-        <PurchaseOnlyChrome
+        <FullScreenStepChrome
+          overline="Upgrade to Pro"
           position={purchaseOnlyPosition(currentStep)}
           onExit={handleChromeExit}
         >
           {children}
-        </PurchaseOnlyChrome>
+        </FullScreenStepChrome>
       ) : (
         <WizardChrome
           stepperStep={stepperStep}

@@ -6,6 +6,7 @@ import CampaignVerificationSteps from './CampaignVerificationSteps'
 
 interface MockElectionFilingFormProps {
   onSubmitted: () => void
+  onBack?: () => void
   title?: string
   caption?: string
   contactTitle?: string
@@ -20,6 +21,7 @@ vi.mock(
   () => ({
     default: ({
       onSubmitted,
+      onBack,
       title,
       caption,
       contactTitle,
@@ -30,23 +32,14 @@ vi.mock(
         {caption && <p>{caption}</p>}
         {contactTitle && <h2>{contactTitle}</h2>}
         {contactCaption && <p>{contactCaption}</p>}
+        <button onClick={onBack}>Back</button>
         <button onClick={onSubmitted}>mock-submit</button>
       </div>
     ),
   }),
 )
 
-vi.mock(
-  'app/dashboard/profile/texting-compliance/verification-submitted/components/VerificationSubmittedContent',
-  () => ({
-    default: ({ primaryAction }: { primaryAction: React.ReactNode }) => (
-      <div>
-        mock-submitted
-        {primaryAction}
-      </div>
-    ),
-  }),
-)
+const SUBMITTED_TITLE = 'Submitted for verification'
 
 const INTRO_TITLE = 'Verify your campaign to text voters'
 
@@ -80,7 +73,7 @@ describe('CampaignVerificationSteps', () => {
       />,
     )
 
-    expect(screen.getByText('mock-submitted')).toBeInTheDocument()
+    expect(screen.getByText(SUBMITTED_TITLE)).toBeInTheDocument()
   })
 
   it('notifies the caller of the initial step and every change', async () => {
@@ -163,8 +156,9 @@ describe('CampaignVerificationSteps', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByText('mock-submit'))
 
-    expect(screen.getByText('mock-submitted')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Back to dashboard' }))
+    expect(screen.getByText(SUBMITTED_TITLE)).toBeInTheDocument()
+    expect(screen.getByText('A PIN is on its way')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Done' }))
     expect(onComplete).toHaveBeenCalledTimes(1)
   })
 

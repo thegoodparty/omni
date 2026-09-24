@@ -218,6 +218,7 @@ const WIN_AREAS: ProductArea[] = [
       'Other candidates are asked for their filing details and candidate profile before paying, in the same flow',
       'When those are not asked for up front they are collected afterwards, under Campaign verification',
       'The same flow can open inside a text or robocall you are building, so upgrading does not lose the work',
+      'The Welcome to Pro screen shows the receipt for the $10 monthly charge, with the card used and a download',
     ],
   },
   {

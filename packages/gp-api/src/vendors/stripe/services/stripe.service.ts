@@ -495,6 +495,20 @@ export class StripeService {
     })
   }
 
+  // Pro receipt read: the subscription's most recent paid invoice. On current
+  // API versions the invoice no longer carries its payment intent; it hangs
+  // off the invoice's payments, so the expansion walks through them to the
+  // charge for the card brand, last4 and hosted receipt.
+  async retrieveLatestPaidInvoice(subscriptionId: string) {
+    const { data } = await this.stripe.invoices.list({
+      subscription: subscriptionId,
+      status: 'paid',
+      limit: 1,
+      expand: ['data.payments.data.payment.payment_intent.latest_charge'],
+    })
+    return data[0] ?? null
+  }
+
   // Returns the session's terminal disposition: a completed session means a
   //  payment already went through, which callers must treat differently from
   //  an expired one — the paid session's fulfillment may still be in flight,

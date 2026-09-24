@@ -483,3 +483,75 @@ describe('TextingComplianceRegistrationForm — section headings', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('TextingComplianceRegistrationForm — verification variant', () => {
+  const renderVerification = (
+    initialState: FormDataState,
+    onBack = vi.fn(),
+    onSubmit: SubmitMock = vi.fn<(formData: FormDataState) => void>(),
+  ) => {
+    render(
+      <FormDataProvider
+        initialState={initialState}
+        validator={(d) =>
+          validateRegistrationForm(d, { requireWebsite: false })
+        }
+      >
+        <TextingComplianceRegistrationForm
+          variant="verification"
+          onSubmit={onSubmit}
+          onBack={onBack}
+          requireWebsite={false}
+        />
+      </FormDataProvider>,
+    )
+    return { onBack, onSubmit }
+  }
+
+  it('holds Submit for verification until the form is valid, then submits', async () => {
+    const user = userEvent.setup()
+    const { onSubmit } = renderVerification(
+      validInitialState({ campaignCommitteeName: '' }),
+    )
+
+    const submit = screen.getByRole('button', {
+      name: 'Submit for verification',
+    })
+    expect(submit).toBeDisabled()
+
+    await user.type(
+      screen.getByPlaceholderText('Jane for Council'),
+      'Jane for Council',
+    )
+
+    expect(submit).toBeEnabled()
+    await user.click(submit)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('fires onBack from its inline footer', async () => {
+    const user = userEvent.setup()
+    const { onBack } = renderVerification(validInitialState())
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('draws the design labels and hides a valid prefilled EIN', () => {
+    renderVerification(validInitialState())
+
+    expect(screen.getByText('Campaign filing link')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('https://')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('you@campaign.org')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('123 Main St')).toBeInTheDocument()
+    expect(screen.queryByText('Campaign EIN')).not.toBeInTheDocument()
+    expect(screen.queryByText(/A PIN is required/)).not.toBeInTheDocument()
+  })
+
+  it('still asks for the EIN when none is on file', () => {
+    renderVerification(validInitialState({ ein: '' }))
+
+    expect(screen.getByText('Campaign EIN')).toBeInTheDocument()
+  })
+})

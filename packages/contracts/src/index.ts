@@ -915,6 +915,7 @@ export {
   OutreachReceiptSchema,
   type OutreachReceipt,
 } from './outreach/OutreachReceipt.schema'
+export { ProReceiptSchema, type ProReceipt } from './payments/ProReceipt.schema'
 export {
   SmsOutreachResultsSchema,
   type SmsOutreachResults,
