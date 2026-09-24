@@ -56,6 +56,35 @@ const nextConfig: NextConfig = {
         source: '/robots.txt',
         destination: '/api/robots',
       },
+      // First-party proxy for Segment. Privacy browsers (Brave) and ad
+      // blockers block `cdn.segment.com` and `api.segment.io` by hostname.
+      // The settings fetch is the fatal one: when it fails,
+      // `AnalyticsBrowser.load()` rejects and every `trackEvent` call becomes
+      // a silent no-op, so we lose all events from those users rather than
+      // some. Serving both from our own origin makes them unblockable without
+      // also breaking the app. Same trick as Sentry's `tunnelRoute` below.
+      //
+      // `/mx` is intentionally opaque: EasyPrivacy carries generic path rules
+      // for `/analytics`, `/segment` and `/track`, which would block a
+      // descriptively named prefix on any origin. It is also excluded from the
+      // middleware matcher so these requests never reach Clerk.
+      //
+      // Paths mirror what @segment/analytics-next builds: `cdnURL` is used for
+      // `/v1/projects/<writeKey>/settings` and `/next-integrations/*`, and
+      // `apiHost` (which includes the API version segment) for `/<t|i|p|g|a>`
+      // and `/b`.
+      {
+        source: '/mx/v1/projects/:path*',
+        destination: 'https://cdn.segment.com/v1/projects/:path*',
+      },
+      {
+        source: '/mx/next-integrations/:path*',
+        destination: 'https://cdn.segment.com/next-integrations/:path*',
+      },
+      {
+        source: '/mx/evs/:path*',
+        destination: 'https://api.segment.io/v1/:path*',
+      },
       // Public PDF share link for meeting briefings. Proxies to gp-api so the
       // shareable URL lives on this app's own origin (e.g.
       // `app.goodparty.org/api/v1/briefings/{uuid}`) instead of leaking the
