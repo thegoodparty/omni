@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Label } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -239,7 +240,7 @@ const EinStep = (): React.JSX.Element => {
         </>
       )}
 
-      <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+      <StepFooter>
         <Button
           variant="ghost"
           size="large"
@@ -261,7 +262,7 @@ const EinStep = (): React.JSX.Element => {
         >
           Continue
         </Button>
-      </div>
+      </StepFooter>
     </div>
   )
 }

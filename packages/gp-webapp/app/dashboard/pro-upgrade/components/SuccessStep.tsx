@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button, ProBadge } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import {
   CheckCircleIcon,
   CheckIcon,
@@ -172,7 +173,7 @@ const SuccessStep = (): React.JSX.Element => {
 
         <ProReceiptCard enabled={Boolean(data?.isPro)} />
 
-        <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+        <StepFooter>
           <Button
             variant="ghost"
             size="large"
@@ -189,7 +190,7 @@ const SuccessStep = (): React.JSX.Element => {
           >
             {nextStep ? 'Continue' : 'Start verification'}
           </Button>
-        </div>
+        </StepFooter>
       </div>
     )
   }

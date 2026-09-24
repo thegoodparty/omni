@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { Button } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import {
   ClockIcon,
   FileTextIcon,
@@ -73,7 +74,7 @@ export const VerificationIntro = ({
           </li>
         ))}
       </ul>
-      <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+      <StepFooter>
         <Button
           variant="ghost"
           size="large"
@@ -89,7 +90,7 @@ export const VerificationIntro = ({
         >
           Continue
         </Button>
-      </div>
+      </StepFooter>
     </div>
   )
 }

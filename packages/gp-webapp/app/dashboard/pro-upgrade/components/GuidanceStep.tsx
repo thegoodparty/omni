@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { format, isValid, parseISO } from 'date-fns'
 import { Button } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import {
   CreditCardIcon,
   FileBadgeIcon,
@@ -146,7 +147,7 @@ const GuidanceStep = (): React.JSX.Element => {
           Ready when you are.
         </p>
 
-        <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+        <StepFooter>
           <Button
             variant="ghost"
             size="large"
@@ -164,7 +165,7 @@ const GuidanceStep = (): React.JSX.Element => {
           >
             Continue
           </Button>
-        </div>
+        </StepFooter>
       </div>
     )
   }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Button } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ElectionFilingForm from 'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm'
@@ -115,7 +116,7 @@ const CampaignVerificationSteps = ({
               {PIN_NOTICE_BODY}
             </p>
           </div>
-          <div className="mt-auto flex justify-center pt-8">
+          <StepFooter align="center">
             <Button
               size="large"
               className="w-full sm:w-auto sm:min-w-[360px]"
@@ -123,7 +124,7 @@ const CampaignVerificationSteps = ({
             >
               {completeLabel}
             </Button>
-          </div>
+          </StepFooter>
         </div>
       )}
     </div>

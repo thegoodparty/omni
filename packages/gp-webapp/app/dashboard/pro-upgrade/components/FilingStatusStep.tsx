@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button, cn } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
@@ -143,7 +144,7 @@ const FilingStatusStep = (): React.JSX.Element => {
           })}
         </div>
 
-        <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+        <StepFooter>
           <Button
             variant="ghost"
             size="large"
@@ -163,7 +164,7 @@ const FilingStatusStep = (): React.JSX.Element => {
           >
             Continue
           </Button>
-        </div>
+        </StepFooter>
       </div>
     )
   }
@@ -198,11 +199,11 @@ const FilingStatusStep = (): React.JSX.Element => {
         ))}
       </div>
 
-      <div className="mt-auto pt-8">
+      <StepFooter align="start">
         <Button variant="ghost" size="large" onClick={goToPreviousStep}>
           Back
         </Button>
-      </div>
+      </StepFooter>
     </div>
   )
 }

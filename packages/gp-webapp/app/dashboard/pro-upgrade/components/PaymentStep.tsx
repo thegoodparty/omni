@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
 import { Button, ProBadge, Spinner } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { APP_BASE } from 'appEnv'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
@@ -80,11 +81,11 @@ const PaymentFrame = ({
       By subscribing, you authorize us to charge you according to the terms
       until you cancel.
     </p>
-    <div className="mt-auto pt-8">
+    <StepFooter align="start">
       <Button variant="ghost" size="large" onClick={onBack}>
         Back
       </Button>
-    </div>
+    </StepFooter>
   </div>
 )
 

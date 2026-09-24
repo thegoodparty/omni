@@ -31,6 +31,7 @@ import isFilled from '@shared/inputs/IsFilled'
 import AddressAutocomplete from '@shared/AddressAutocomplete'
 import TextingComplianceFooter from 'app/dashboard/profile/texting-compliance/shared/TextingComplianceFooter'
 import { Button } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 
 import { urlIncludesPath } from 'helpers/urlIncludesPath'
 import { flatStates, isStateAbbreviation } from 'helpers/statesHelper'
@@ -67,7 +68,7 @@ export interface ContactChannelSelection {
 // campaign-verification steps: sentence-case labels with example
 // placeholders, the filing-link helper in place of the tooltip, no PIN
 // warning (the intro covers it), and a Back / "Submit for verification"
-// footer that sticks to the bottom of the host's scroll area and enables once
+// footer in the host's footer bar (StepFooter) that enables once
 // every field has a value (the click then validates and lists what is wrong,
 // so a landline or a filing link without a path gets an explanation instead
 // of a button that never enables). The legacy register and election-filing
@@ -874,10 +875,7 @@ const TextingComplianceRegistrationForm = ({
         )}
       </TextingComplianceForm>
       {design ? (
-        // Sticky inside the host's scroll area (the chrome's column or the
-        // sheet body), so the footer stays in reach while the long form
-        // scrolls under it; mt-auto still pins it on a short viewport.
-        <div className="sticky bottom-0 z-10 mt-auto flex flex-col-reverse gap-3 bg-white pt-4 pb-1 sm:flex-row sm:justify-between">
+        <StepFooter>
           <Button
             type="button"
             variant="ghost"
@@ -898,7 +896,7 @@ const TextingComplianceRegistrationForm = ({
           >
             Submit for verification
           </Button>
-        </div>
+        </StepFooter>
       ) : (
         <TextingComplianceFooter>
           <Button
