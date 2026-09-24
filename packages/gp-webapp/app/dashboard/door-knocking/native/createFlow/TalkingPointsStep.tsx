@@ -78,6 +78,10 @@ const SECTIONS: {
 ]
 
 interface TalkingPointsStepProps {
+  // Serve has no campaign for the card to be built from — the generation
+  // service grounds it in the official's own materials (SERVE_NOUNS), and
+  // this caption names the same source the script was actually drafted from.
+  isServe: boolean
   // The composed identity clause, shown but not editable — it is rebuilt for
   // whoever reads the card, so a volunteer sees their own version.
   intro: string
@@ -113,6 +117,7 @@ const ComposedSection = ({
 )
 
 export const TalkingPointsStep = ({
+  isServe,
   intro,
   audienceLabel,
   lines,
@@ -196,13 +201,17 @@ export const TalkingPointsStep = ({
       )}
 
       {isDrafting && nothingDrafted ? (
-        <ThinkingStream />
+        <ThinkingStream isServe={isServe} />
       ) : (
         <Card className="gap-5 p-4">
           {intro && (
             <ComposedSection
               label="Introduction"
-              caption="Built from your campaign. A volunteer's card names you instead."
+              caption={
+                isServe
+                  ? "Built from your own materials. A volunteer's card names you instead."
+                  : "Built from your campaign. A volunteer's card names you instead."
+              }
               body={intro}
             />
           )}

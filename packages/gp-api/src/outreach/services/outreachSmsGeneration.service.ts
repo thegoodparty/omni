@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common'
 import {
   SMS_COMPOSED_MAX_LENGTH,
-  SmsDraftRequest,
   SmsPurpose,
   SocialTone,
 } from '@goodparty_org/contracts'
@@ -13,6 +12,40 @@ import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { LlmService } from '@/llm/services/llm.service'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
+
+// The per-surface voice a draft/improve request writes in. Win and Serve
+// share every other piece of this pipeline (the LLM call plumbing, the tone
+// styles, the custom-purpose fresh-generation refusal, the length caps) —
+// only the purpose copy, the two system prompts and the subject nouns vary.
+// Same shape as SocialVoiceConfig and PhoneBankingVoiceConfig. The Serve
+// config is SERVE_SMS_VOICE in `../util/serveSmsVoice.util.ts`; it lives in
+// its own file rather than beside WIN_SMS_VOICE below only because this file
+// is shared and the Serve build owns that one.
+export interface SmsVoiceConfig<TPurpose extends string> {
+  // One clause naming what the message is for, read into the context as
+  // "Goal of this message: ...".
+  purposeGoals: Record<TPurpose, string>
+  // The BODY structure for a fresh draft, injected only when there is no
+  // currentDraft. An empty string means no structure (the custom purpose,
+  // which is improve-only).
+  purposeStructures: Record<TPurpose, string>
+  draftSystemPrompt: string
+  improveSystemPrompt: string
+  nameLabel: string
+  officeLabel: string
+  // Also the subject noun in the improve user turn, so the shared path never
+  // says "candidate" to a Serve request.
+  subjectFallback: string
+  // The 400 for a fresh custom-purpose request, which has no author text to
+  // work from on either surface.
+  customFreshRefusal: string
+}
+
+interface SmsDraftInput<TPurpose extends string> {
+  purpose: TPurpose
+  tone: SocialTone
+  currentDraft?: string
+}
 
 const PURPOSE_GOALS: Record<SmsPurpose, string> = {
   introduce_myself: 'introduce the candidate to voters',
@@ -88,6 +121,16 @@ const TONE_STYLES: Record<SocialTone, string> = {
     'note to a friend.',
 }
 
+// The prompts ask for these lengths; the schema below does not enforce them.
+// The webapp counts the composed message (greeting + body + footer) and
+// blocks Continue past SMS_COMPOSED_MAX_LENGTH, so the server only refuses
+// a body that could never fit even bare. A tighter schema turned a polish of
+// an already-long draft into four identical retries and a 502 — nine of them
+// in the two weeks to 2026-09-22 — where the counter would have shown the
+// candidate the overage and let them trim.
+export const FRESH_DRAFT_TARGET_LENGTH = 700
+export const IMPROVE_DRAFT_TARGET_LENGTH = 800
+
 // The flow wraps the body in system-owned regions (identification intro
 // and opt-out footer), so the model must produce ONLY the middle and
 // leave headroom inside the composed cap. The structure and length rules
@@ -97,7 +140,8 @@ const DRAFT_SYSTEM_PROMPT = [
   'non-partisan local candidate draft the body of one SMS to voters.',
   'Rules:',
   '- Write in the first person, as the candidate.',
-  '- At most 700 characters. Line breaks and \"• \" bullet lines are',
+  `- At most ${FRESH_DRAFT_TARGET_LENGTH} characters. Line breaks and`,
+  '  \"• \" bullet lines are',
   '  allowed and encouraged where the structure calls for them. Emojis',
   '  are allowed sparingly as visual labels (a date or location line),',
   '  never as tone decoration. No hashtags.',
@@ -133,8 +177,10 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  Dropping one is a failure. Do not paraphrase specifics away.',
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
-  '- Keep roughly the same length; never exceed 800 characters. Keep',
-  "  the author's line breaks, bullets, and emojis. No hashtags; keep",
+  `- Keep roughly the same length, under ${IMPROVE_DRAFT_TARGET_LENGTH}`,
+  '  characters. If the original runs longer than that, tighten the',
+  '  phrasing until it fits; never drop a concrete detail to get there.',
+  "  Keep the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any website the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
   "- The message opens with the candidate's identification; keep it",
@@ -147,23 +193,19 @@ const IMPROVE_SYSTEM_PROMPT = [
   '- Match the requested tone through word choice, not new content.',
 ].join('\n')
 
-// The composed cap covers greeting + identification intro + body +
-// disclosures, and the model only writes the body — capping the schema at
-// the full composed limit let a legal response compose past the Continue
-// limit. Fresh drafts get the intro prepended client-side, so they reserve
-// headroom for it plus the fixed chrome (greeting, intro, blank lines,
-// paid-for-by + opt-out footer ≈ 200 chars); improve outputs already
-// contain the intro and reserve only the chrome — greeting, blank line,
-// and a footer whose committee name can run long (≈ 150 chars). The schema
-// is what makes the limit real: jsonCompletion retries on mismatch.
-const FRESH_DRAFT_MAX_LENGTH = 800
-const IMPROVE_DRAFT_MAX_LENGTH = SMS_COMPOSED_MAX_LENGTH - 150
+export const WIN_SMS_VOICE: SmsVoiceConfig<SmsPurpose> = {
+  purposeGoals: PURPOSE_GOALS,
+  purposeStructures: PURPOSE_STRUCTURES,
+  draftSystemPrompt: DRAFT_SYSTEM_PROMPT,
+  improveSystemPrompt: IMPROVE_SYSTEM_PROMPT,
+  nameLabel: 'Candidate name',
+  officeLabel: 'Office sought',
+  subjectFallback: 'The candidate',
+  customFreshRefusal: 'Custom-purpose messages are written by the candidate',
+}
 
-const FreshDraftSchema = z.object({
-  draft: z.string().min(1).max(FRESH_DRAFT_MAX_LENGTH),
-})
-const ImproveDraftSchema = z.object({
-  draft: z.string().min(1).max(IMPROVE_DRAFT_MAX_LENGTH),
+const DraftSchema = z.object({
+  draft: z.string().min(1).max(SMS_COMPOSED_MAX_LENGTH),
 })
 
 @Injectable()
@@ -175,50 +217,78 @@ export class OutreachSmsGenerationService {
     this.logger.setContext(OutreachSmsGenerationService.name)
   }
 
-  async generateDraft(
-    input: SmsDraftRequest,
+  // The Win entry point, unchanged: same five arguments, same strings out.
+  // A defaulted `voice` parameter would need an unsafe cast to satisfy the
+  // generic below, so Win's voice is bound here instead.
+  generateDraft(
+    input: SmsDraftInput<SmsPurpose>,
     candidateName: string,
     office: string,
     userId: string,
     campaignContext: string[] = [],
   ): Promise<string> {
-    // Fresh generation only: improve mode polishes the candidate's own
+    return this.generateDraftWithVoice(
+      input,
+      candidateName,
+      office,
+      userId,
+      campaignContext,
+      WIN_SMS_VOICE,
+    )
+  }
+
+  // Shared by Win and Serve; the voice carries everything that differs.
+  async generateDraftWithVoice<TPurpose extends string>(
+    input: SmsDraftInput<TPurpose>,
+    name: string,
+    office: string,
+    userId: string,
+    composeContext: string[],
+    voice: SmsVoiceConfig<TPurpose>,
+  ): Promise<string> {
+    // Fresh generation only: improve mode polishes the author's own
     // words, so it applies to custom-purpose messages too.
     if (input.purpose === 'custom' && !input.currentDraft) {
-      throw new BadRequestException(
-        'Custom-purpose messages are written by the candidate',
-      )
+      throw new BadRequestException(voice.customFreshRefusal)
     }
     const context = [
-      `Candidate name: ${candidateName || 'The candidate'}.`,
-      `Office sought: ${office || 'local office'}.`,
-      `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
+      `${voice.nameLabel}: ${name || voice.subjectFallback}.`,
+      `${voice.officeLabel}: ${office || 'local office'}.`,
+      `Goal of this message: ${voice.purposeGoals[input.purpose]}.`,
       // Fresh drafts only: improve is a polish that keeps the author's
       // structure, and a prescriptive shape in the user turn would
       // override the improve prompt's keep-their-structure rule.
-      ...(!input.currentDraft && PURPOSE_STRUCTURES[input.purpose]
-        ? [PURPOSE_STRUCTURES[input.purpose]]
+      ...(!input.currentDraft && voice.purposeStructures[input.purpose]
+        ? [voice.purposeStructures[input.purpose]]
         : []),
       `Tone: ${TONE_STYLES[input.tone]}`,
-      ...campaignContext,
+      ...composeContext,
     ]
     const messages: LlmMessage[] = input.currentDraft
       ? [
-          { role: 'system', content: IMPROVE_SYSTEM_PROMPT },
+          { role: 'system', content: voice.improveSystemPrompt },
           {
             role: 'user',
             content: [
               ...context,
-              "The candidate's SMS body to polish:",
+              `${voice.subjectFallback}'s SMS body to polish:`,
               '"""',
               input.currentDraft,
               '"""',
+              ...(input.currentDraft.length > IMPROVE_DRAFT_TARGET_LENGTH
+                ? [
+                    `The original runs ${input.currentDraft.length} ` +
+                      'characters; bring it under ' +
+                      `${IMPROVE_DRAFT_TARGET_LENGTH} without dropping a ` +
+                      'detail.',
+                  ]
+                : []),
               'Polish the message.',
             ].join('\n'),
           },
         ]
       : [
-          { role: 'system', content: DRAFT_SYSTEM_PROMPT },
+          { role: 'system', content: voice.draftSystemPrompt },
           {
             role: 'user',
             content: [...context, 'Write the SMS body.'].join('\n'),
@@ -228,7 +298,7 @@ export class OutreachSmsGenerationService {
     try {
       const { object } = await this.llm.jsonCompletion({
         messages,
-        schema: input.currentDraft ? ImproveDraftSchema : FreshDraftSchema,
+        schema: DraftSchema,
         // High enough that Regenerate re-rolls produce a different draft.
         temperature: 0.8,
         maxTokens: 512,

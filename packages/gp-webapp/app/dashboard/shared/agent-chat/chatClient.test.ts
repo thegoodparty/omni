@@ -67,6 +67,32 @@ describe('createAgentChatClient streamMessage', () => {
     )
     expect(events.map((e) => e.type)).toEqual(['text', 'done'])
   })
+
+  it('yields citation events so callers can render inline chips', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          sseResponse([
+            'data: {"type":"text","delta":"See "}\n\n',
+            'data: {"type":"citation","attachmentId":"att-1","page":3,"quotedText":"the plan"}\n\n',
+            'data: {"type":"done","assistantMessageId":"m2"}\n\n',
+          ]),
+        ),
+    )
+    const client = createAgentChatClient('chief_of_staff', 'test-surface')
+    const events = await collect(
+      client.streamMessage({ conversationId: 'c1', content: 'hello' }),
+    )
+    expect(events.map((e) => e.type)).toEqual(['text', 'citation', 'done'])
+    const citationEvent = events.find((e) => e.type === 'citation')
+    expect(citationEvent?.type).toBe('citation')
+    if (citationEvent?.type === 'citation') {
+      expect(citationEvent.attachmentId).toBe('att-1')
+      expect(citationEvent.page).toBe(3)
+    }
+  })
 })
 
 // Regression: `scope` is a query param on every chat route, but clientRequest

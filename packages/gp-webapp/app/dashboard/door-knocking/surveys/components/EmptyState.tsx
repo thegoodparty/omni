@@ -1,6 +1,4 @@
-import SurveyAnimation from '@shared/animations/SurveyAnimation'
-import Body2 from '@shared/typography/Body2'
-import H2 from '@shared/typography/H2'
+import { Card } from '@styleguide'
 import CreateSurvey from './CreateSurvey'
 
 interface EcanvasserTeam {
@@ -18,17 +16,11 @@ export default function EmptyState({
   createCallback,
 }: EmptyStateProps): React.JSX.Element {
   return (
-    <div className=" flex flex-col items-center justify-center my-12">
-      <div className="w-96 relative">
-        <SurveyAnimation loop />
-      </div>
-      <H2 className="text-center">
-        No Door Knocking Scripts to see here quite yet!
-      </H2>
-      <Body2 className="text-center mt-2 mb-8">
-        Door knocking scripts can be the easiest way to gauge insights &amp;
-        analyze overall trends; find out what your stakeholders really think.
-      </Body2>
+    <div className="my-12 flex flex-col items-center gap-6">
+      <Card className="w-full p-6 text-center text-sm text-muted-foreground">
+        No door knocking scripts yet. Create one to start collecting answers at
+        the door.
+      </Card>
       <CreateSurvey teams={teams} createCallback={createCallback} />
     </div>
   )

@@ -12,6 +12,7 @@ import {
   NotFoundException,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   UseGuards,
   UseInterceptors,
@@ -40,7 +41,9 @@ import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import {
   ComplianceStateOutputSchema,
   SubmitToPeerlyOutputSchema,
+  UpdateCommitteeNameOutputSchema,
 } from '@goodparty_org/contracts'
+import { UpdateCommitteeNameDto } from './schemas/updateCommitteeNameDto.schema'
 
 // Same pattern as HUBSPOT_PIN_SENT_EMAIL_ID in campaignTcrCompliance.service.ts
 // (ENG-11034): unset in every environment today, pending the Ops-created
@@ -218,6 +221,25 @@ export class CampaignTcrComplianceController {
       where: { id: campaignId },
     })
     await this.tcrComplianceService.overrideCvValidation(campaignId)
+  }
+
+  // Staff committee rename (ENG-11169): updates both persisted copies of the
+  // name together (TcrCompliance.committeeName + details.campaignCommittee).
+  // Texts already composed keep the old footer (editable in the CAS SMS
+  // console) and the Peerly brand is untouched — see the service method.
+  @Patch('admin/:campaignId/committee-name')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(UpdateCommitteeNameOutputSchema)
+  async updateCommitteeNameForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+    @Body() { committeeName }: UpdateCommitteeNameDto,
+  ) {
+    const record = await this.tcrComplianceService.updateCommitteeName(
+      campaignId,
+      committeeName,
+    )
+    return { committeeName: record.committeeName }
   }
 
   @Post('submit-to-peerly')

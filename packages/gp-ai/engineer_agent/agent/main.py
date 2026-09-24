@@ -19,6 +19,7 @@ from shared.logger import get_logger
 from .config import CAPABILITIES, AgentConfig, build_capability_prompt
 from .escalation import maybe_escalate
 from .github_auth import setup_github_auth
+from .handoff import maybe_notify_handoff
 from .metrics import format_metric_line
 from .repos import UnknownRepoError
 
@@ -142,7 +143,9 @@ async def run_agent(config: AgentConfig) -> dict:
         allowed_tools=CAPABILITIES["sdk_tools"],
         permission_mode="bypassPermissions",
         cwd=config.workspace_dir,
-        max_turns=200,
+        # 400 (was 200, which killed a legitimate large-story run with budget
+        # and deadline unspent, discarding all of its work)
+        max_turns=400,
         model=config.model,
         # Enforced by the SDK, which ends the run with an
         # error_max_budget_usd result rather than us policing cost between
@@ -207,6 +210,14 @@ async def main():
     # successful analysis into a failed container.
     outcome = maybe_escalate(result, config.label, target_repo=config.target_repo)
     logger.info(f"Escalation: {outcome}")
+
+    # AFTER the escalation, because what the escalation did is half of the
+    # question this answers: a run is a handoff precisely when it concluded
+    # something needs doing and no implementation run was queued to do it. The
+    # other half is telling someone, which until now nothing did — see
+    # handoff.py for the ticket that bought this.
+    handoff = maybe_notify_handoff(result, config.label, outcome)
+    logger.info(f"Handoff: {handoff}")
 
     # LAST, so the line carries what the escalation decided as well as what the
     # run concluded — a `fix` verdict that did not escalate is exactly the gap

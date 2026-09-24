@@ -677,6 +677,7 @@ export default function PhoneBankingCallerPage({
           onOpenChange={(open) => {
             if (!open) setActiveSelection(null)
           }}
+          isServe={isServe}
           onSaved={(results) => {
             queryClient.setQueryData(
               phoneBankingListQueryKey(listId),

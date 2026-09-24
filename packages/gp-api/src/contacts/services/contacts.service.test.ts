@@ -187,6 +187,7 @@ describe('ContactsService', () => {
 
       service = new ContactsService(
         mockVoterFileFilterService as never,
+        {} as never,
         mockElectionsService as never,
         mockCampaignsService as never,
         mockOrganizationsService as never,
@@ -197,6 +198,7 @@ describe('ContactsService', () => {
         mockActivityConditionResolutionService as never,
         mockVoterQueryService as never,
         mockVoterDownloadService as never,
+        {} as never,
         mockStatsService as never,
         mockContactsMadeResolutionService as never,
         createMockLogger(),
@@ -500,7 +502,7 @@ describe('ContactsService', () => {
         )
       })
 
-      it('excludes the party column for an elected-office org', async () => {
+      it('excludes the party and ethnicity columns for an elected-office org', async () => {
         const org = makeOrganization({
           slug: 'eo-office-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -518,7 +520,10 @@ describe('ContactsService', () => {
 
         expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
           expect.objectContaining({
-            excludeColumns: ['Parties_Description'],
+            excludeColumns: [
+              'Parties_Description',
+              'EthnicGroups_EthnicGroup1Desc',
+            ],
           }),
           res,
           expect.any(Object),
@@ -1506,6 +1511,51 @@ describe('ContactsService', () => {
         expect(createSpy).toHaveBeenCalledWith(
           expect.objectContaining({
             filters: { id: { in: [PERSON_ID_1, PERSON_ID_2] } },
+          }),
+        )
+      })
+
+      // Refused rather than dropped, on the party gate's reasoning: silently
+      // ignoring the dimension would return a WIDER audience than asked for.
+      // Win keeps the filter — #1933 removed it for both products and only
+      // the Win half was reverted.
+      it('rejects an ethnicity filter for an elected-office organization', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+
+        await expect(
+          service.findContactsForFilter(
+            { ethnicityHispanic: true },
+            { resultsPerPage: 1000, page: 1 },
+            org,
+          ),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
+      })
+
+      it('forwards an ethnicity filter for a Win organization', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterQueryService.findPeople.mockResolvedValue({
+          people: [{ id: PERSON_ID_1, cellPhone: '5551234567' }],
+          pagination: { totalResults: 1, hasNextPage: false },
+        })
+        const createSpy = vi.spyOn(ListPeopleDTO, 'create')
+
+        await service.findContactsForFilter(
+          { ethnicityHispanic: true },
+          { resultsPerPage: 1000, page: 1 },
+          org,
+        )
+
+        expect(createSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            filters: { ethnicity: { eq: 'Hispanic' } },
           }),
         )
       })

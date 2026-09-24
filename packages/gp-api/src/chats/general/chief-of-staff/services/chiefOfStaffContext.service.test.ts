@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ChatScope } from '@/generated/prisma'
 import { ChiefOfStaffContextService } from './chiefOfStaffContext.service'
 import type { PrioritiesToolPort } from './prioritiesPort'
+import type { FeaturesService } from '@/features/services/features.service'
 
 const CONVERSATION = {
   id: 'conv-b',
@@ -29,13 +30,18 @@ const port: PrioritiesToolPort = {
 // loader makes and capture the args of the count that decides first-run.
 type CountWhere = Record<string, unknown>
 
+const buildFeatures = (): FeaturesService =>
+  ({
+    isFeatureEnabled: vi.fn(async () => false),
+  }) as unknown as FeaturesService
+
 const serviceWith = (priorCount: number) => {
   const seen: CountWhere[] = []
   const count = vi.fn(async (args: { where: CountWhere }) => {
     seen.push(args.where)
     return priorCount
   })
-  const service = new ChiefOfStaffContextService()
+  const service = new ChiefOfStaffContextService(buildFeatures())
   Object.assign(service, {
     findFirst: async () => CONVERSATION,
     count,
@@ -44,6 +50,40 @@ const serviceWith = (priorCount: number) => {
   })
   return { service, seen }
 }
+
+describe('ChiefOfStaffContextService attachments flag caching', () => {
+  it('calls isFeatureEnabled only once for the same user across turns', async () => {
+    const features = buildFeatures()
+    const service = new ChiefOfStaffContextService(features)
+    const stub = {
+      findFirst: async () => CONVERSATION,
+      count: async () => 0,
+      _prisma: { electedOffice: { findFirst: async () => ELECTED_OFFICE } },
+    }
+    Object.assign(service, stub)
+
+    await service.load('conv-b', 7, port)
+    await service.load('conv-c', 7, port)
+
+    expect(features.isFeatureEnabled).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls isFeatureEnabled separately for distinct users', async () => {
+    const features = buildFeatures()
+    const service = new ChiefOfStaffContextService(features)
+    const stub = {
+      findFirst: async () => CONVERSATION,
+      count: async () => 0,
+      _prisma: { electedOffice: { findFirst: async () => ELECTED_OFFICE } },
+    }
+    Object.assign(service, stub)
+
+    await service.load('conv-b', 7, port)
+    await service.load('conv-b', 8, port)
+
+    expect(features.isFeatureEnabled).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('ChiefOfStaffContextService first-run detection', () => {
   it('counts prior conversations that hold a message, not bare rows', async () => {

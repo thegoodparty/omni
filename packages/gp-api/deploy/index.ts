@@ -1,6 +1,7 @@
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
+import { createChatAttachmentsBucket } from './components/chat-attachments-bucket'
 import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
 import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
@@ -124,6 +125,14 @@ export = async () => {
     environment === 'preview'
       ? 'annotation-attachments-dev'
       : createAnnotationAttachmentsBucket({ environment }).bucket.bucket
+
+  // Private bucket for chief-of-staff chat attachments (PDFs, images, Word
+  // docs, URL snapshots). Browser POSTs via presigned POST; gp-api reads back
+  // for text extraction. Preview environments share the dev bucket.
+  const chatAttachmentsBucketName =
+    environment === 'preview'
+      ? 'goodparty-chat-attachments-dev'
+      : createChatAttachmentsBucket({ environment }).bucket.bucket
 
   // Private bucket for shared campaign-plan PDFs. Preview shares the dev
   // bucket — no per-PR buckets.
@@ -377,6 +386,7 @@ export = async () => {
     tevynPollCsvsBucket.bucket,
     zipToAreaCodeBucket.bucket,
     annotationAttachmentsBucketName,
+    chatAttachmentsBucketName,
     campaignPlanSharesBucketName,
     robocallAudioBucketName,
     agentRunInputsBucketName,
@@ -478,6 +488,12 @@ export = async () => {
       AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
       SQS_QUEUE: queue.name,
+      // Where the per-send button in a fulfilment Slack message points. Not
+      // select()-ed by environment on purpose: gp-admin is a single
+      // deployment fronting dev and prod (see gp-webapp/appEnv.ts, which
+      // makes the same call for NEXT_PUBLIC_GP_ADMIN_URL), so preview, dev
+      // and prod all send staff to the same console.
+      GP_ADMIN_BASE_URL: 'https://admin.goodparty.org',
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
       CAMPAIGN_PLAN_INPUT_QUEUE_URL: select({
         preview: '',
@@ -517,6 +533,7 @@ export = async () => {
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
+      CHAT_ATTACHMENTS_BUCKET: chatAttachmentsBucketName,
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,

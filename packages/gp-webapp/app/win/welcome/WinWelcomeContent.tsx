@@ -32,25 +32,6 @@ const MISSING_TICKET_MESSAGE =
 const CONSUMED_TICKET_MESSAGE =
   'This sign-in link has already been used or has expired. Request a new link, or sign in below.'
 
-/**
- * Best-effort decode of the `sub` (user id) claim from the sign-in-token JWT so
- * we can tell whether the already-active session belongs to the person the
- * ticket is for. Purely an optimization — if the token can't be decoded we fall
- * through to the normal sign-out + redeem path, which is also correct.
- */
-function decodeTicketUserId(ticket: string): string | null {
-  try {
-    const payload = ticket.split('.')[1]
-    if (!payload) return null
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
-    const claims = JSON.parse(atob(padded)) as { sub?: unknown }
-    return typeof claims.sub === 'string' ? claims.sub : null
-  } catch {
-    return null
-  }
-}
-
 export default function WinWelcomeContent() {
   const clerk = useClerk()
   const { client, setActive, signOut, loaded } = clerk
@@ -65,6 +46,13 @@ export default function WinWelcomeContent() {
   const redeemingRef = useRef(false)
 
   const ticket = searchParams?.get('__clerk_ticket') ?? null
+  // The ticket's Clerk user id, stamped onto the URL by gp-api when it built
+  // the link. It CANNOT be read from the token itself — Clerk sign-in-token
+  // JWTs carry no `sub`/user claim — and without it a signed-in recipient who
+  // re-opens their own link would be signed out and shown "already used"
+  // (the ticket is single-use). Advisory only: Clerk re-verifies the token on
+  // redemption, so a forged value can't sign anyone in.
+  const ticketUserId = searchParams?.get('uid') ?? null
 
   // Top of the candidate ("win") onboarding funnel: the recipient clicked the
   // magic link and landed on this redemption page. Landing-based firing is the
@@ -97,7 +85,6 @@ export default function WinWelcomeContent() {
     try {
       // Only touch the existing session once the user has explicitly clicked.
       if (clerk.user) {
-        const ticketUserId = decodeTicketUserId(ticket)
         if (ticketUserId && ticketUserId === clerk.user.id) {
           // The person is already signed in as the ticket's user. Don't redeem
           // (that would burn the one-time ticket for no reason) — just continue

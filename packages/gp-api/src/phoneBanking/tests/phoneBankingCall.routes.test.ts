@@ -686,6 +686,95 @@ describe('phone banking call outcome routes', () => {
       ).toBe(1)
     })
 
+    it('followUp=yes on a Serve call writes a follow_up event; editing to no records the clear', async () => {
+      const eoSlug = `eo-pbc-follow-up-${Date.now()}`
+      await service.prisma.organization.create({
+        data: {
+          slug: eoSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      const eoFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: eoSlug, name: 'EO calls audience' },
+      })
+      const personId = randomUUID()
+      mockPeoplePage([fakePerson({ id: personId, cellPhone: '3075551012' })])
+      const build = await service.client.post(
+        '/v1/phone-banking/lists',
+        buildBody({ voterFileFilterId: eoFilter.id }),
+        orgHeaders(eoSlug),
+      )
+      expect(build.status).toBe(201)
+      const entry = await service.prisma.phoneBankingListEntry.findFirstOrThrow(
+        { where: { phoneBankingListId: build.data.id } },
+      )
+
+      const postEoCall = (followUp: string) =>
+        service.client.post(
+          `/v1/phone-banking/lists/${build.data.id}/calls`,
+          { entryId: entry.id, outcome: 'answered', personId, followUp },
+          orgHeaders(eoSlug),
+        )
+
+      expect((await postEoCall('yes')).status).toBe(201)
+
+      const firstEvent =
+        await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: { organizationSlug: eoSlug, personId },
+        })
+      expect(firstEvent).toMatchObject({
+        field: 'follow_up',
+        fromValue: 'cleared',
+        toValue: 'requested',
+        source: 'phone_banking',
+        actorUserId: service.user.id,
+      })
+
+      expect((await postEoCall('no')).status).toBe(201)
+
+      const events = await service.prisma.contactStatusEvent.findMany({
+        where: { organizationSlug: eoSlug, personId },
+        orderBy: { createdAt: 'asc' },
+      })
+      expect(events.map((event) => event.toValue)).toEqual([
+        'requested',
+        'cleared',
+      ])
+
+      const current =
+        await service.prisma.contactCurrentStatus.findFirstOrThrow({
+          where: { organizationSlug: eoSlug, personId, field: 'follow_up' },
+        })
+      expect(current.value).toBe('cleared')
+    })
+
+    it('followUp on a Win call writes no follow_up event', async () => {
+      const { listId, entry } = await buildList(
+        [{ firstName: 'A' }],
+        '3075551013',
+      )
+      const [personA] = entry.persons
+
+      const res = await postCall(listId, {
+        entryId: entry.id,
+        outcome: 'answered',
+        personId: personA!.personId,
+        followUp: 'yes',
+      })
+      expect(res.status).toBe(201)
+
+      expect(
+        await service.prisma.contactStatusEvent.count({
+          where: {
+            organizationSlug: orgSlug,
+            personId: personA!.personId,
+            field: 'follow_up',
+          },
+        }),
+      ).toBe(0)
+    })
+
     it('an eo- org writes no voter_likelihood event', async () => {
       const eoSlug = `eo-pbc-${Date.now()}`
       await service.prisma.organization.create({

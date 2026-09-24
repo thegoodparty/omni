@@ -53,6 +53,7 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 }
 
 interface ScriptStepProps {
+  isServe: boolean
   name: string
   onNameChange: (name: string) => void
   audienceLabel: string
@@ -71,6 +72,7 @@ interface ScriptStepProps {
 }
 
 export const ScriptStep = ({
+  isServe,
   name,
   onNameChange,
   audienceLabel,
@@ -179,7 +181,7 @@ export const ScriptStep = ({
         )}
 
         {isDrafting && !script.trim() ? (
-          <ThinkingStream />
+          <ThinkingStream isServe={isServe} />
         ) : (
           <Card className="gap-3 p-4">
             <Textarea

@@ -1,3 +1,4 @@
+import { TeamInviteRole } from '@goodparty_org/contracts'
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { EmailData, MailgunService } from './mailgun.service'
 import {
@@ -104,11 +105,20 @@ export class EmailService {
   // Existing-account invite branch: Clerk can only invite an email with no
   // Clerk account, so a known account is added directly and told here
   // instead of via a Clerk invitation email.
-  async sendTeamMemberAddedEmail(user: User, campaignName: string) {
+  async sendTeamMemberAddedEmail(
+    user: User,
+    campaignName: string,
+    role: TeamInviteRole,
+  ) {
     const name = getUserFullName(user) || user.email
     const link = `${APP_ROOT}/dashboard`
     const subject = "You've Been Added to a Campaign - GoodParty.org"
-    const message = getTeamMemberAddedEmailContent(name, campaignName, link)
+    const message = getTeamMemberAddedEmailContent(
+      name,
+      campaignName,
+      link,
+      role,
+    )
 
     return await this.sendEmail({ to: user.email, subject, message })
   }

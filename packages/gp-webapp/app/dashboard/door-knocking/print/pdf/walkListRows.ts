@@ -96,7 +96,7 @@ export const walkListRows = (
           age: target.age,
           phone: targetPhone(target),
           meta: describeTarget(target),
-          lastContact: lastContactLine(target),
+          lastContact: lastContactLine(target, isServe),
           travel: firstInStop ? legTravelLine(stop) : null,
           // Checked before the logged branch: a flagged resident is not to be
           // knocked whatever was recorded there before.

@@ -55,15 +55,20 @@ export class AdminCampaignMagicLinkController {
       throw new BadRequestException(CAMPAIGN_MAGIC_LINK_NAME_REQUIRED_ERROR)
     }
 
-    const { user, token } = await this.usersService.provisionMagicLinkUser({
-      email,
-      firstName,
-      lastName,
-    })
+    const { user, token, clerkId } =
+      await this.usersService.provisionMagicLinkUser({
+        email,
+        firstName,
+        lastName,
+      })
 
+    // `uid` carries the ticket's Clerk user id because the token itself has no
+    // user claim — the redemption page needs it to recognize an
+    // already-signed-in recipient instead of signing them out against a spent
+    // single-use ticket.
     const url = `${APP_ROOT}/win/welcome?__clerk_ticket=${encodeURIComponent(
       token,
-    )}`
+    )}&uid=${encodeURIComponent(clerkId)}`
 
     this.logger.info({ userId: user.id }, 'Created candidate magic link')
 

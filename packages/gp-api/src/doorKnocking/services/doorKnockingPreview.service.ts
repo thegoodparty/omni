@@ -14,7 +14,7 @@ import {
 } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { MAX_STOPS } from './doorKnockingCreate.service'
-import { pointInPolygon, polygonBbox } from '../utils/geo.util'
+import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
 import { coordinateKey } from '../utils/blockFace.util'
 import { renderDoorAddress, streetLineOfStop } from '../utils/unitAddress.util'
 

@@ -246,6 +246,7 @@ The submodule is initialized automatically by `npm install` via the `postinstall
 
 - `BadRequestException` (400) — invalid input, validation failures, business-rule violations caused by user input
 - `BadGatewayException` (502) — third-party / external service failures (Vercel, AWS, Stripe, etc.)
+- `InternalServerErrorException` (500) — a request _we_ built wrong while the vendor is working fine (an AWS `$fault: 'client'` such as `PermanentRedirect`). 502 tells the caller to retry, so keep it for failures a retry could fix, and never re-wrap an already-classified vendor exception as 502 on the way out
 - `ConflictException` (409) — duplicates, resource-state conflicts
 - `NotFoundException` (404) — missing resources
 - DB ops rely on Prisma + global `PrismaExceptionFilter` — **do not** wrap them in try/catch
@@ -282,7 +283,7 @@ Categories that PR review keeps catching. Each one has caused a real bug. Read t
 
 ## Environment
 
-- Node `22.12.0` (`.nvmrc` + `engines`)
+- Node: the version in `.nvmrc` (also `engines`). Running tests on another major hard-fails — see `contracts/scripts/assert-node-version.ts`.
 - npm `>= 10.9.0`
 - `--legacy-peer-deps` set in `.npmrc`
 - `@typescript-eslint/no-unsafe-assignment` is relaxed in test files only

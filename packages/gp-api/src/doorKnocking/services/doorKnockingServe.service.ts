@@ -67,6 +67,7 @@ type LiveTarget = LiveAddress['targets'][number]
 // `Pick` is what makes forgetting one a type error instead of a hole.
 const demographicsOf = (
   livePerson: LiveTarget | undefined,
+  isServe: boolean,
 ): Pick<RoutePayloadTarget, keyof typeof DoorKnockingDemographicsShape> => ({
   registeredVoter: livePerson?.registeredVoter ?? null,
   turnoutLikelihood: livePerson?.turnoutLikelihood ?? null,
@@ -78,7 +79,13 @@ const demographicsOf = (
   levelOfEducation: livePerson?.levelOfEducation ?? null,
   estimatedIncomeAmount: livePerson?.estimatedIncomeAmount ?? null,
   language: livePerson?.language ?? null,
-  ethnicityGroup: livePerson?.ethnicityGroup ?? null,
+  // Never for Serve, on the same terms as `politicalParty` below: an
+  // elected official may not have a list cut by ethnicity (#1933), and a
+  // per-person value at the door is that cut arriving one canvasser at a
+  // time. Nulled at the payload rather than filtered out of the people-api
+  // read, because the residents response is shared with the pack's own
+  // district-scoped ethnicity dim.
+  ethnicityGroup: isServe ? null : (livePerson?.ethnicityGroup ?? null),
 })
 
 @Injectable()
@@ -343,7 +350,7 @@ export class DoorKnockingServeService extends createPrismaBase(
             // field by field rather than spread, so the payload can never pick
             // up a key the residents response grows later without someone
             // deciding it belongs at the door.
-            ...demographicsOf(livePerson),
+            ...demographicsOf(livePerson, isServe),
             knockStatus: statusByPersonId.get(target.personId) ?? 'unknown',
             // mayHaveMoved is the voter file disagreeing with the frozen
             // snapshot; notAVoterReason is a person at the door saying so.

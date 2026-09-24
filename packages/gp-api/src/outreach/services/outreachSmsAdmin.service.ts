@@ -28,6 +28,7 @@ import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.se
 import { OutreachService } from './outreach.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
+import { resolveSendWindowStart } from 'src/vendors/peerly/utils/sendWindowStart.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
@@ -55,19 +56,6 @@ const vendorReadTimeoutMs = () =>
   Number(process.env.VENDOR_READ_TIMEOUT_MS ?? 10_000)
 
 const DATE_FMT = 'yyyy-MM-dd'
-
-// Peerly's canvass window closes at the fixed 21:00 compliance cutoff, so
-// the booked start is clamped to [09:00, 20:00] — a later start would leave
-// a zero-width window, and legacy rows with no stored time keep the 9am
-// open. Lexicographic compare is safe on zero-padded HH:mm.
-const CANVASS_START_FLOOR = '09:00'
-const CANVASS_START_CEILING = '20:00'
-const clampCanvassStartTime = (time: string | null): string => {
-  if (!time || !/^\d{2}:[0-5]\d$/.test(time)) return CANVASS_START_FLOOR
-  if (time < CANVASS_START_FLOOR) return CANVASS_START_FLOOR
-  if (time > CANVASS_START_CEILING) return CANVASS_START_CEILING
-  return time
-}
 
 // Send-date floor for the console: everything scheduled before the CAS
 // team's chosen cutoff predates the console and was resolved (or
@@ -399,10 +387,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       throw new ConflictException('This campaign was just decided elsewhere')
     }
 
+    const startTime = resolveSendWindowStart(row.scheduledLocalTime)
     try {
       await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
         date: row.scheduledLocalDate ?? undefined,
-        startTime: clampCanvassStartTime(row.scheduledLocalTime),
+        startTime,
       })
     } catch (error) {
       await this.model.update({
@@ -422,8 +411,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // and nothing on Peerly's side flips it. Best-effort AFTER the stamp:
     // the booking is the unrepeatable half of the approval; a failed
     // activation is recoverable by hand in Peerly and must not unwind it.
+    // Rows with a stored time also get their job schedule aligned to it
+    // here, for jobs created before the schedule honored the send time.
+    const window =
+      row.scheduledLocalTime && row.scheduledLocalDate && row.campaignId
+        ? {
+            campaignId: row.campaignId,
+            date: row.scheduledLocalDate,
+            startTime,
+          }
+        : null
     try {
-      await this.peerlyP2pJobService.activateJob(row.projectId)
+      await this.peerlyP2pJobService.activateJob(row.projectId, window)
     } catch (err) {
       this.logger.error(
         { err, outreachId },
@@ -681,10 +680,12 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
 
+    const startTime = resolveSendWindowStart(row.scheduledLocalTime)
     await this.peerlyP2pJobService.updateJobSchedule({
       jobId: row.projectId,
       campaignId: row.campaignId,
       date: input.scheduledLocalDate,
+      startTime,
     })
 
     // Re-read the booking flag after the vendor window write: a concurrent
@@ -717,7 +718,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         // (honor-send-time), same as approve — only the day moved.
         await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
           date: input.scheduledLocalDate,
-          startTime: clampCanvassStartTime(row.scheduledLocalTime),
+          startTime,
         })
       } catch (error) {
         // The old booking is already cleared at the vendor and the DB is

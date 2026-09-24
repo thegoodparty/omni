@@ -24,9 +24,26 @@ import {
   applyLoggedKnocks,
   polygonStats,
   runFilter,
+  type DimSelections,
   type FilterResult,
+  type PolygonStats,
 } from './filterEngine'
-import { quotaQueryOptions, turfsQueryOptions } from './turfQueries'
+import type { DecodedPack } from './packDecoder'
+import {
+  campaignTurfsQueryOptions,
+  quotaQueryOptions,
+  turfsQueryOptions,
+} from './turfQueries'
+import { assignNextColor } from './turfColors'
+import {
+  draftAsTurfLike,
+  draftTurfId,
+  isDrawnTurf,
+  nextTurfName,
+  patchChangesDraft,
+  sameDrafts,
+  type TurfDraft,
+} from './turfDrafts'
 import { DoorKnockingSurface } from './doorKnockingSurface'
 import {
   HARD_STOP_LIMIT,
@@ -38,11 +55,19 @@ import {
 } from './createFlow/voterFilterPreview'
 import { stopPositionsInRing } from './travelMode'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
+import { TurfPanel } from './createFlow/TurfPanel'
+import { useTeamOptions } from './useTeamOptions'
+import { useDrawExpand } from './useDrawExpand'
 import TurfDetailsSheet from './TurfDetailsSheet'
 import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
 import { useLiveLocation } from './useLiveLocation'
-import { useWalkArchive, useWalkCompletion } from './walkCompletion'
+import {
+  useWalkArchive,
+  useWalkCompletion,
+  useWalkMarkDone,
+} from './walkCompletion'
+import { canCompleteTurf } from './turfLifecycle'
 import { packBounds, type PolygonRing } from './VoterMapCanvas'
 import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
@@ -110,6 +135,11 @@ interface NativeDoorKnockingPageProps {
   // rather than to look at the rail. The tile is the only caller, so closing
   // the flow it opened goes back to the hub it was pressed on.
   openCreateFlow?: boolean
+  // `?campaignOutreachId=` — the campaign drawer's "Add another turf" opens
+  // the create flow onto an existing campaign. Threaded down to the surface
+  // and used to fetch the sibling turfs whose colors seed the picker's
+  // default and whose count decides the "Turf N" name default.
+  campaignOutreachId?: number
 }
 
 // Where closing the walk should put the candidate back. Each way in has a
@@ -137,10 +167,6 @@ type WalkOrigin =
 const OUTREACH_HUB = '/dashboard/outreach'
 const SERVE_HUB = '/dashboard/constituent-outreach'
 
-// How far the map's control cluster sits above the bottom edge while the
-// drawing surface is up, clearing that surface's own footer bar.
-const DRAW_CONTROLS_BOTTOM_PX = 96
-
 // The orchestrator for the two door-knocking surfaces. What stays here is what
 // the MAP reads, plus the handoffs between surfaces: each surface declares its
 // own contract in its own file, and none of them reaches into this one. The two
@@ -154,6 +180,7 @@ export default function NativeDoorKnockingPage({
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
+  campaignOutreachId,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -236,9 +263,345 @@ export default function NativeDoorKnockingPage({
   // shade by them.
   const [precincts, setPrecincts] = useState<string[]>([])
   const [ring, setRing] = useState<PolygonRing | null>(null)
+  // The multi-turf drafts committed in the drawing surface this session,
+  // BEFORE the paid press on the route step. Lives here (not in the flow)
+  // because the CANVAS renders them: each draft is a polygon the canvas
+  // draws next to any siblings the campaign already holds. The flow reads
+  // this to render draft cards on the draw step body and to batch-POST them
+  // on save. Empty on a fresh campaign, populated as the candidate presses
+  // "+ Add turf" / "Save turf(s)" on the drawing surface.
+  const [turfDrafts, setTurfDrafts] = useState<TurfDraft[]>([])
+  // Which committed draft the canvas is currently holding open for edits, or
+  // null when the ring being drawn is a brand-new turf nobody has committed.
+  //
+  // Up here with the drafts because the CANVAS reads it: the turf being
+  // edited is drawn by the drawing session rather than by `saved-turfs`, so
+  // `visibleTurfs` below has to leave it out or the same boundary renders
+  // twice — once frozen at the shape it had when it was committed, once live
+  // under the candidate's cursor. During a vertex drag those two disagree,
+  // and the frozen one reads as a ghost of the shape being moved.
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null)
+  // The same answer as `activeDraftId`, readable synchronously.
+  //
+  // It has to be a ref as well as state, and the reason is the order the
+  // canvas reports in. Switching from Turf A to Turf B sets the active turf
+  // and asks the canvas to load B's ring; the canvas answers on its own
+  // schedule, after paint. In the window between the two, `ring` still holds
+  // A's boundary — so anything that decided where to write that boundary by
+  // reading state would write A's shape onto B. The ref is moved at the
+  // switch, before the load is asked for, so the answer is already B by the
+  // time B's ring arrives.
+  const activeDraftRef = useRef<string | null>(null)
+  // Actions the drawing surface and the draw-step body call to grow, edit
+  // or drop drafts. Wrapped in useCallback so the flow's own memoized
+  // derivations do not churn on every render — the drafts array itself is
+  // what changes.
+  // Returns the id it minted, so the caller can make the new draft the active
+  // one in the same tick. The id is generated here rather than inside the
+  // updater because an updater runs twice under StrictMode, and a caller that
+  // read its result from a second invocation would be holding an id no draft
+  // in the list carries.
+  const commitDraft = useCallback((draft: Omit<TurfDraft, 'clientId'>) => {
+    const clientId = `draft-${crypto.randomUUID()}`
+    setTurfDrafts((current) => [...current, { ...draft, clientId }])
+    return clientId
+  }, [])
+  const updateDraft = useCallback(
+    (clientId: string, patch: Partial<Omit<TurfDraft, 'clientId'>>) => {
+      setTurfDrafts((current) => {
+        const draft = current.find((entry) => entry.clientId === clientId)
+        // A write that changes nothing returns the list untouched, rather
+        // than mapping a new array over identical contents. Re-entering the
+        // drawing surface re-reports the boundary already under the cursor,
+        // and that report used to replace the array — which made the session
+        // dirty before the candidate had done anything, and cost the stats
+        // cache (keyed on polygon identity) a full re-scan of the pack.
+        if (!draft || !patchChangesDraft(draft, patch)) return current
+        return current.map((entry) =>
+          entry.clientId === clientId ? { ...entry, ...patch } : entry,
+        )
+      })
+    },
+    [],
+  )
+  const clearDrafts = useCallback(() => {
+    setTurfDrafts([])
+    activeDraftRef.current = null
+    setActiveDraftId(null)
+  }, [])
+  // The turfs as they stood when the drawing surface last opened, so Cancel
+  // can put them back.
+  //
+  // A turf becomes a draft the moment its third corner lands, which is what
+  // gives the panel a colour and a canvasser to hang off it — so by the time
+  // Save is pressed the turfs are already in state and Save has nothing left
+  // to do. The snapshot is what makes both words on that footer true: Save
+  // keeps what is here, Cancel restores what was.
+  //
+  // It restores to the SESSION's start and not to empty. Re-entering through
+  // "Draw more turfs" and changing your mind must not delete the turfs cut
+  // before this session began.
+  const sessionSnapshot = useRef<TurfDraft[] | null>(null)
+  // "Add another turf" arrives with `?campaignOutreachId=`. Two things
+  // read the resolved sibling list: the create flow (default name + colour
+  // picker default), and `useCreateListDraw` below (seed colour). Only
+  // fires when the caller says so — a solo create never asks — and the
+  // response is empty during the fetch, which is what makes the seed and
+  // name defaults land as though it were a solo campaign until the answer
+  // arrives.
+  const campaignSiblingsQuery = useQuery({
+    ...campaignTurfsQueryOptions(campaignOutreachId ?? 0),
+    enabled: campaignOutreachId !== undefined,
+  })
+  // `undefined` covers three cases the flow's naming default reads as one:
+  // "not joining a campaign", "joining but the fetch is still pending", and
+  // "joining but the fetch failed". Collapsing pending into `[]` would let
+  // the confirm step suggest `Turf 1` on a campaign that already has three
+  // — the user has no signal that the answer is late — so this only reports
+  // the real siblings once the query has actually returned them. The seed
+  // colour follows the same rule below: if we don't know, don't pretend.
+  const siblingTurfs =
+    campaignOutreachId !== undefined && campaignSiblingsQuery.isSuccess
+      ? campaignSiblingsQuery.data
+      : undefined
+  // The palette-next slot for the drawn ring. `undefined` on a solo create
+  // resolves to the assigner's default (`TURF_COLORS[0]`), so a candidate
+  // opening the flow with no siblings still lands on blue.
+  // Every colour already spoken for in this campaign, so the next turf lands
+  // on the next free slot. The drafts count as much as the bought siblings do
+  // — they are drawn on the same map at the same time, and a campaign whose
+  // second and third turfs came out the same blue is exactly what the palette
+  // exists to prevent.
+  const seedColor = useMemo(
+    () =>
+      assignNextColor([
+        ...(siblingTurfs ?? []).map((turf) => turf.color),
+        ...turfDrafts.map((draft) => draft.color),
+      ]),
+    [siblingTurfs, turfDrafts],
+  )
   // The create-list surface's half of the canvas: draw tokens, the point count
   // and the coach mark. Called here because the canvas outlives the flow.
-  const draw = useCreateListDraw()
+  const draw = useCreateListDraw(seedColor)
+  // How many turfs this campaign will hold once the one being drawn is
+  // counted — the numbering the toolbar's "Turf N" reads.
+  const campaignTurfCount = (siblingTurfs?.length ?? 0) + turfDrafts.length
+  // What the in-progress ring is drawn in, and the one answer the toolbar's
+  // swatch and the canvas both read.
+  //
+  // A committed turf owns its colour; only a turf that does not exist yet
+  // takes the palette's next free slot. Reading `draw.drawColor` directly
+  // here was wrong in a way the flow makes immediate: committing a draft
+  // adds its colour to the campaign, which moves the seed on, which
+  // repainted the very ring that had just been committed — so the shape on
+  // screen went green while its draft stayed blue, and the card on the step
+  // behind disagreed with the map.
+  const activeDraft =
+    turfDrafts.find((draft) => draft.clientId === activeDraftId) ?? null
+  const ringColor = activeDraft?.color ?? draw.drawColor
+  // Shares a cache key with the draw step's own read, so the panel's assignee
+  // control and the step's cards cost one request between them.
+  const teamOptions = useTeamOptions(organization?.slug)
+  // The map opening out of the rectangle that was pressed, and folding back
+  // into it. See `useDrawExpand` for why it is a clip and not a transform.
+  const drawExpand = useDrawExpand()
+  const openDrawing = useCallback(
+    (full: boolean, origin?: DOMRect) => {
+      if (!full) {
+        draw.setFullScreen(false)
+        return
+      }
+      sessionSnapshot.current = turfDrafts
+      draw.setFullScreen(true)
+      if (origin) drawExpand.expand(origin)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [turfDrafts, draw.setFullScreen, drawExpand.expand],
+  )
+  // Leaving the surface, either way. The fold runs BEFORE the flow's sheet
+  // comes back, because the sheet's destination is the card the map is
+  // folding into — put it back first and it covers the whole animation.
+  const closeDrawing = useCallback(
+    (after?: () => void) => {
+      drawExpand.collapse(() => {
+        draw.setFullScreen(false)
+        after?.()
+      })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draw.setFullScreen, drawExpand.collapse],
+  )
+  const cancelDrawing = useCallback(() => {
+    const restored = sessionSnapshot.current ?? []
+    setTurfDrafts(restored)
+    // The active turf may be one this cancel just removed, and a ref left
+    // pointing at a draft that no longer exists is what makes the next valid
+    // ring write its shape onto nothing.
+    const stillThere = restored.some(
+      (draft) => draft.clientId === activeDraftRef.current,
+    )
+    if (!stillThere) {
+      activeDraftRef.current = null
+      setActiveDraftId(null)
+      setRing(null)
+    }
+    closeDrawing()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeDrawing])
+  // Whether this drawing session has changed anything — by VALUE, not by
+  // array identity. Reference equality was the original test, on the argument
+  // that every writer replaces the array; what broke it is that reopening the
+  // surface re-reports the boundary already under the cursor, so a writer
+  // started replacing the array with identical contents and Cancel asked what
+  // to discard about a session nobody had touched. `updateDraft` no longer
+  // does that, and this no longer depends on it not doing it.
+  const sessionDirty =
+    sessionSnapshot.current !== null &&
+    !sameDrafts(sessionSnapshot.current, turfDrafts)
+
+  // The canvas reporting the boundary under the cursor, and the one place a
+  // draft's geometry is ever written.
+  //
+  // A turf becomes a draft the moment its ring is valid, rather than at some
+  // later "commit" press. That is what gives the toolbar something real to
+  // hang a colour, a name and an assignee off: a candidate who draws three
+  // corners and then picks an assignee is talking about a turf, and a turf
+  // that only exists as loose page state until they press something else has
+  // nowhere to put the answer.
+  // What a NEW draft is stamped with, read at the moment one is committed
+  // rather than closed over. Both change as turfs are cut — a new draft moves
+  // the palette on and the numbering up — and the handler below has to stay
+  // one object for the life of the mount: the canvas keeps it in a ref, so a
+  // fresh identity buys nothing, and anything that keys an effect on it
+  // instead re-runs on every turf.
+  const removeDraft = useCallback(
+    (clientId: string) => {
+      setTurfDrafts((current) =>
+        current.filter((draft) => draft.clientId !== clientId),
+      )
+      // Dropping the turf that is open for edits leaves the drawing session
+      // holding a boundary with nothing behind it. Letting go of it here is
+      // what makes the next valid ring commit a fresh draft instead of
+      // writing its shape onto a draft that no longer exists.
+      if (activeDraftRef.current !== clientId) return
+      activeDraftRef.current = null
+      setActiveDraftId(null)
+      // And the boundary itself has to go with it. Letting go of the draft
+      // alone left the removed turf's ring painted on the map with nothing
+      // in the panel that owned it: the shape was still there, the card
+      // underneath it had gone back to naming a turf with no boundary, and
+      // the two were describing different worlds. Removing the LAST turf is
+      // the case that made it obvious — an empty campaign that still had a
+      // turf drawn on it.
+      //
+      // `visibleTurfs` handles a turf that was not the one being cut: it
+      // reads `turfDrafts`, so that ring goes with the draft. Only the live
+      // drawing session has a second copy to clear.
+      setRing(null)
+      setPendingAssigneeId(null)
+      // The freed colour goes back into the palette rather than the session
+      // advancing past it, which `startNextTurf` deliberately does: removing
+      // the only turf and drawing again should give back the blue Turf 1 was
+      // cut in, not the next hue along. `seedColor` cannot answer yet — it
+      // is a memo over state this call has only just queued — so the same
+      // expression is evaluated here against the list minus this turf.
+      draw.startNewTurf(
+        assignNextColor([
+          ...(siblingTurfs ?? []).map((turf) => turf.color),
+          ...turfDrafts
+            .filter((draft) => draft.clientId !== clientId)
+            .map((draft) => draft.color),
+        ]),
+      )
+    },
+    [draw, siblingTurfs, turfDrafts],
+  )
+  // Who the turf being cut will be handed to, before there is a turf to hand
+  // it to. The panel's card is open from the first corner, so the canvasser
+  // can be picked then; it is stamped onto the draft when one is committed,
+  // and `startNextTurf` clears it — a fresh turf inherits the palette's next
+  // colour, never the last turf's volunteer.
+  const [pendingAssigneeId, setPendingAssigneeId] = useState<number | null>(
+    null,
+  )
+  const newDraftDefaults = useRef({
+    color: draw.drawColor,
+    count: 0,
+    assigneeId: null as number | null,
+  })
+  newDraftDefaults.current = {
+    color: draw.drawColor,
+    count: campaignTurfCount,
+    assigneeId: pendingAssigneeId,
+  }
+  const handlePolygonChange = useCallback(
+    (next: PolygonRing | null) => {
+      setRing(next)
+      const active = activeDraftRef.current
+      if (!next) {
+        // Undone back below three corners. The turf keeps its identity,
+        // its colour and its canvasser — deleting it here would lose all
+        // three to a press of Undo — but it no longer has a boundary, and
+        // everything that reports one has to stop: its card said "43
+        // stops" about a shape that was no longer on the map.
+        //
+        // A brand-new turf that has not reached three corners yet has no
+        // draft at all, so there is nothing to blank.
+        if (active !== null) updateDraft(active, { polygon: [] })
+        return
+      }
+      if (active !== null) {
+        updateDraft(active, { polygon: next })
+        return
+      }
+      const { color, count, assigneeId } = newDraftDefaults.current
+      const clientId = commitDraft({
+        polygon: next,
+        color,
+        name: nextTurfName(count),
+        assigneeId,
+      })
+      activeDraftRef.current = clientId
+      setActiveDraftId(clientId)
+      setPendingAssigneeId(null)
+    },
+    [commitDraft, updateDraft],
+  )
+  // Starting the next turf: let go of the active one and hand the canvas an
+  // empty session. The turf just finished keeps its draft — this is "I'm done
+  // with that one", not "throw it away".
+  const startNextTurf = useCallback(() => {
+    activeDraftRef.current = null
+    setActiveDraftId(null)
+    setPendingAssigneeId(null)
+    setRing(null)
+    draw.startNewTurf(seedColor)
+  }, [draw, seedColor])
+  // Picking an existing turf out of the toolbar: its boundary goes back under
+  // the cursor in its own colour. The ref moves first — see its declaration
+  // for why the order is load-bearing.
+  const selectDraft = useCallback(
+    (clientId: string) => {
+      const draft = turfDrafts.find((entry) => entry.clientId === clientId)
+      if (!draft) return
+      activeDraftRef.current = clientId
+      setActiveDraftId(clientId)
+      draw.loadRing(draft.polygon, draft.color)
+    },
+    [turfDrafts, draw],
+  )
+  // The toolbar's colour picker. Both halves are needed and neither is
+  // redundant: the canvas tints the live ring from `drawColor`, and the draft
+  // is what the ring will be saved as, so a hue written to only one of them
+  // survives exactly until the candidate switches turfs.
+  const pickActiveColor = useCallback(
+    (color: string) => {
+      draw.pickColor(color)
+      const active = activeDraftRef.current
+      if (active !== null) updateDraft(active, { color })
+    },
+    [draw, updateDraft],
+  )
   // The walk surface's half of the canvas: pins, the path, and a tapped pin as
   // a request to open that door.
   const walkMap = useWalkMapSession(walkTurf)
@@ -271,6 +634,10 @@ export default function NativeDoorKnockingPage({
   // The walk's own `Move to archive`. Same ref-held turf as the completion
   // above and for the same reason: the write outlives the walk it shelves.
   const walkArchive = useWalkArchive(walkTurfRow)
+  // The walk's manual Done. Same ref-held turf as the two above; the button
+  // is withheld rather than disabled on a list already done or archived,
+  // because the row itself is the authority and it refetches after the write.
+  const walkMarkDone = useWalkMarkDone(walkTurfRow)
   const quotaQuery = useQuery(quotaQueryOptions)
   // The allowance that refused, captured when it did rather than read from the
   // query while the dialog is up: the number is in the sentence on screen, and
@@ -325,10 +692,33 @@ export default function NativeDoorKnockingPage({
   // (there's no window where saved rings can render before the walk
   // scoping kicks in — they're just always hidden unless a walk is up).
   const visibleTurfs = useMemo(() => {
-    if (!walkTurf) return []
-    const all = turfsQuery.data ?? []
-    return all.filter((candidate) => candidate.id === walkTurf.id)
-  }, [turfsQuery.data, walkTurf])
+    if (walkTurf) {
+      const all = turfsQuery.data ?? []
+      return all.filter((candidate) => candidate.id === walkTurf.id)
+    }
+    // In the create flow: show the campaign's existing siblings (only
+    // populated when arriving via "Add another turf") plus every draft the
+    // candidate has committed on the drawing surface this session. Drafts
+    // are shape-adapted to DoorKnockingTurf so the canvas's saved-turfs
+    // layer renders them with their colour, no new layer required. When
+    // neither is present (a fresh campaign, no draws yet), the array is
+    // empty and the map draws clean.
+    // The turf currently open for edits is left out: the drawing session is
+    // already drawing it, live, with its corners grabbable. Drawn here too it
+    // would appear twice — and during a vertex drag the frozen copy holds the
+    // shape the ring had before the drag, which reads as a ghost trailing the
+    // boundary being moved.
+    const siblings = siblingTurfs ?? []
+    const drafts = turfDrafts
+      .filter((draft) => draft.clientId !== activeDraftId)
+      // A boundary-less turf has no ring to draw. Only the active turf can
+      // be in that state today, and it is already excluded above — this is
+      // the guard that keeps `draftAsTurfLike` from ever being handed a
+      // polygon the layer cannot render.
+      .filter(isDrawnTurf)
+      .map(draftAsTurfLike)
+    return [...siblings, ...drafts]
+  }, [turfsQuery.data, walkTurf, siblingTurfs, turfDrafts, activeDraftId])
   // The pack's bounding box, framed by the create flow's draw step as a
   // static-map preview card. Null while the pack decodes; the card omits
   // the image in that window rather than rendering against no rect.
@@ -403,6 +793,53 @@ export default function NativeDoorKnockingPage({
         : null,
     [packQuery.data, selections, ring],
   )
+  // The same three figures for every turf cut this session, so the draw
+  // step's cards can say how the campaign is divided up. Cutting several
+  // turfs is how one evening's work is split between people, and a card
+  // that only carried a name would leave the candidate no way to see that
+  // one volunteer got 200 doors and another got 40.
+  //
+  // Cached per draft on the identity of its polygon, which is what keeps
+  // this affordable. `polygonStats` ray-casts the whole pack — up to a few
+  // hundred thousand dots — and the draft being edited has its polygon
+  // rewritten on every vertex the candidate drags. Without the cache each
+  // of those frames would re-stat every OTHER turf too, for answers that
+  // cannot have changed. `updateDraft` replaces only the draft it touches,
+  // so an untouched draft keeps its polygon reference and its cache entry.
+  const draftStatsCache = useRef({
+    pack: null as DecodedPack | null,
+    selections: null as DimSelections | null,
+    entries: new Map<string, { polygon: PolygonRing; stats: PolygonStats }>(),
+  })
+  const draftStats = useMemo(() => {
+    const pack = packQuery.data
+    const stats = new Map<string, PolygonStats>()
+    if (!pack || !selections) return stats
+    const cache = draftStatsCache.current
+    // The audience is what these counts are OF, so a walk back to the who
+    // step invalidates every one of them. Cheaper to notice here than to
+    // key each entry on a filter draft.
+    if (cache.pack !== pack || cache.selections !== selections) {
+      cache.pack = pack
+      cache.selections = selections
+      cache.entries.clear()
+    }
+    for (const draft of turfDrafts) {
+      // A turf undone below three corners has no shape to measure. Skipping
+      // it leaves no entry, which the card reads as "no answer" and prints
+      // as "Drawing" rather than as a stale count.
+      if (!isDrawnTurf(draft)) continue
+      const cached = cache.entries.get(draft.clientId)
+      if (cached && cached.polygon === draft.polygon) {
+        stats.set(draft.clientId, cached.stats)
+        continue
+      }
+      const next = polygonStats(pack, selections, draft.polygon)
+      cache.entries.set(draft.clientId, { polygon: draft.polygon, stats: next })
+      stats.set(draft.clientId, next)
+    }
+    return stats
+  }, [packQuery.data, selections, turfDrafts])
   // Leaving the walk is the only way out of it. Doors logged along the way
   // mean the landing map's dots are stale.
   const endWalk = () => {
@@ -587,13 +1024,13 @@ export default function NativeDoorKnockingPage({
   ])
 
   const changeFlowStep = (next: CreateFlowStep) => {
-    // Arriving at the draw step from the filters. The transition alone cannot
-    // say which of two things just happened — a first arrival, or a Back to
-    // re-read the audience followed by Continue — and they want opposite
-    // treatment: the first needs a blank session, the second must keep the
-    // boundary already drawn. A ring is what tells them apart, and treating
-    // the round trip as a first arrival is what used to throw the shape away.
-    if (next === 'draw' && flowStep === 'filters') {
+    // Arriving at the draw step from anywhere else — this is where the
+    // candidate cuts turfs into the campaign they just named. The
+    // transition alone cannot say whether it's a first arrival (blank
+    // session needed) or a Back+Continue round trip (keep the boundary
+    // already drawn), and a ring is what tells them apart. Treating the
+    // round trip as a first arrival is what used to throw the shape away.
+    if (next === 'draw' && flowStep !== 'draw') {
       if (ring) draw.resumeDrawing()
       else draw.startDrawing()
     }
@@ -606,6 +1043,12 @@ export default function NativeDoorKnockingPage({
     setFlowStep(null)
     setFilters({})
     setPrecincts([])
+    // Every turf cut this session goes with the flow that cut them. None of
+    // them was paid for, and leaving is the candidate saying so — a draft
+    // that outlived the close would reappear on the next create as a
+    // boundary nobody drew for it.
+    clearDrafts()
+    setRing(null)
     draw.clearDrawing()
     setLeaving(true)
     // Pressed the tile, changed their mind. `back()` rather than a path,
@@ -635,6 +1078,7 @@ export default function NativeDoorKnockingPage({
     setFlowStep(null)
     setFilters({})
     setPrecincts([])
+    clearDrafts()
     draw.clearDrawing()
     walkOrigin.current = { kind: 'hub' }
     walk.start({ id: turf.id, name: turf.name }, 'newRoute')
@@ -654,6 +1098,12 @@ export default function NativeDoorKnockingPage({
         // archive has already said so in a snackbar.
         onMoveToArchive={() => walkArchive.moveToArchive(endWalk)}
         archivePending={walkArchive.pending}
+        onMarkDone={
+          walkTurfRow && canCompleteTurf(walkTurfRow)
+            ? walkMarkDone.markDone
+            : undefined
+        }
+        markDonePending={walkMarkDone.pending}
         onMapControlsOffsetChange={setMapControlsOffset}
         onKnockRecorded={walk.recordDoor}
         openStopRequest={walkMap.openStopRequest}
@@ -760,7 +1210,10 @@ export default function NativeDoorKnockingPage({
             one layout the design does not have, and which meant the street
             being walked got the smaller half of the screen at the moment it
             mattered most. */}
-          <div className="relative flex min-h-0 flex-1">
+          <div
+            ref={drawExpand.hostRef}
+            className="relative flex min-h-0 flex-1"
+          >
             <div className="relative min-w-0 flex-1">
               {/* Before the isPending branch: a district-gated query is neither
                 pending-with-a-request nor errored, so that branch would
@@ -800,6 +1253,19 @@ export default function NativeDoorKnockingPage({
                   pack={packQuery.data}
                   filterResult={filterResult}
                   turfs={visibleTurfs}
+                  // Every other turf recedes while one is being edited, so
+                  // the boundary under the cursor reads as the foreground.
+                  //
+                  // The id handed over is the turf being edited, and it is
+                  // deliberately one `turfs` does not contain — that turf is
+                  // drawn by the drawing session instead (see `visibleTurfs`).
+                  // `turfInteractiveAlpha` reads this as "a selection is live
+                  // and this turf is not it" and pulls every ring back, which
+                  // is exactly the backdrop wanted. Null off the flow leaves
+                  // the layer at rest, byte-identical to before.
+                  selectedTurfId={
+                    activeDraftId === null ? null : draftTurfId(activeDraftId)
+                  }
                   routePins={walkMap.routePins}
                   // The other half of the walk's one selection: the list marks
                   // the row, the canvas rings the pin, and both read this.
@@ -817,11 +1283,15 @@ export default function NativeDoorKnockingPage({
                   initialZoom={16}
                   startDrawToken={draw.startDrawToken}
                   resumeDrawToken={draw.resumeDrawToken}
+                  // Picking an earlier turf out of the drawing surface's
+                  // toolbar puts its boundary back under the cursor.
+                  loadDrawToken={draw.loadDrawToken}
+                  loadDrawRing={draw.loadDrawRing}
                   clearDrawToken={draw.clearDrawToken}
                   undoDrawToken={draw.undoDrawToken}
                   // The colour a new list is drawn in, on the boundary being cut
                   // — state the map reads, so it lives up here.
-                  drawColor={draw.drawColor}
+                  drawColor={ringColor}
                   // Same overCap the create flow gates Continue on. Swaps the
                   // boundary's hue to destructive red so the map itself says
                   // this shape won't route — matching the count pill's error
@@ -845,11 +1315,14 @@ export default function NativeDoorKnockingPage({
                   // 96 rather than sitting at the 16px edge underneath it —
                   // which is what left the zoom buttons half-covered and the
                   // locate toggle entirely hidden.
-                  controlsBottomPx={
-                    draw.fullScreen
-                      ? DRAW_CONTROLS_BOTTOM_PX
-                      : (mapControlsOffset ?? 16)
+                  controlsBottomPx={mapControlsOffset ?? 16}
+                  onUndoDrawPoint={
+                    draw.fullScreen && draw.pointCount > 0
+                      ? draw.undoPoint
+                      : undefined
                   }
+                  drawStopCount={turfStats?.stops ?? 0}
+                  drawStopsOverCap={(turfStats?.stops ?? 0) > HARD_STOP_LIMIT}
                   // Route framing padding — reuses the same sheet-height
                   // measurement the controls do, so the pins land in the
                   // visible band above the walk sheet as it snaps between
@@ -876,13 +1349,122 @@ export default function NativeDoorKnockingPage({
                   // a refused OS permission is indistinguishable from a working
                   // switch, which is exactly how it was reported.
                   locationNotice={Boolean(flowStep)}
-                  onPolygonChange={setRing}
+                  onPolygonChange={handlePolygonChange}
                   onDrawPointCount={draw.onPointCount}
                   onRoutePinClick={walkMap.onPinTap}
                 />
               )}
               <WalkMapHint visible={walkMap.hintVisible} />
+              {/* Inside the map column, not beside it, so the drawing
+                  surface's own chrome covers the MAP and nothing else.
+                  `DrawFullScreen` is `absolute inset-0`, so whichever
+                  element is its containing block is what its footer bar
+                  spans — mounted one level up, that bar ran the full
+                  width of the row and sat over the bottom 81px of the
+                  turf panel, which a long enough list would scroll
+                  under. The flow's own sheet is unaffected: vaul
+                  portals it to the body, so it is `fixed` wherever this
+                  is mounted. */}
+              {flowStep && (
+                <CreateListSurface
+                  step={flowStep}
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  precincts={precincts}
+                  onPrecinctsChange={setPrecincts}
+                  precinctOptions={precinctOptions}
+                  onStepChange={changeFlowStep}
+                  onClose={closeFlow}
+                  districtBounds={districtBounds}
+                  districtHouseholds={filterResult?.households ?? 0}
+                  // The count above is derived from the pack, so it reads 0 for
+                  // the whole of a download the sheet is drawn over. These two
+                  // are what let the flow say so instead of printing that 0 as
+                  // an answer.
+                  // Same `!isUnresolvable` guard the map region carries: a
+                  // district-gated query never leaves pending, so without it the
+                  // sheet promises a download that was never requested, over a
+                  // Continue that will never enable.
+                  districtHouseholdsPending={
+                    !isUnresolvable && packQuery.isPending
+                  }
+                  districtHouseholdsFailed={packQuery.isError}
+                  districtUnavailable={isUnresolvable}
+                  ring={ring}
+                  drawPointCount={draw.pointCount}
+                  drawFullScreen={draw.fullScreen}
+                  onDrawFullScreenChange={openDrawing}
+                  onRestartDrawing={draw.startDrawing}
+                  drawnStops={drawnStops}
+                  onListCreated={handleListCreated}
+                  isServeOrg={isServeOrg}
+                  unpreviewableKeys={unpreviewableKeys}
+                  orgSlug={organization?.slug}
+                  preselectedListId={carriedListId}
+                  onPreselectApplied={() =>
+                    setSpentPreselectId(preselectedListId)
+                  }
+                  siblingTurfs={siblingTurfs}
+                  campaignOutreachId={campaignOutreachId}
+                  turfDrafts={turfDrafts}
+                  draftStats={draftStats}
+                  onSelectDraft={selectDraft}
+                  onUpdateDraft={updateDraft}
+                  onRemoveDraft={removeDraft}
+                  preselectedRecommendedVariant={carriedVariant}
+                  onRecommendedPreselectApplied={() =>
+                    setSpentPreselectVariant(preselectedRecommendedVariant)
+                  }
+                />
+              )}
             </div>
+            {/* The drawing surface's configuration panel, and the reason it
+                is mounted HERE rather than inside the flow: at `lg` it is a
+                flex sibling of the map column, so the map shrinks to make
+                room instead of being covered. Only the page owns that row.
+                Below `lg` the panel goes over the map as a bottom sheet, and
+                this row is `relative`, so the same element positions itself
+                against it without a second mount.
+
+                The data is all the page's already — the drafts, their stats,
+                which one is active, and every writer. Only the roster is
+                fetched, and `useTeamOptions` shares its cache key with the
+                draw step's own read, so the two cost one request. */}
+            {flowStep === 'draw' && draw.fullScreen && (
+              <TurfPanel
+                drafts={turfDrafts}
+                active={activeDraft}
+                pendingName={nextTurfName(campaignTurfCount)}
+                drawColor={ringColor}
+                draftStats={draftStats}
+                team={teamOptions}
+                onSelectDraft={selectDraft}
+                onStartNewTurf={startNextTurf}
+                onRemoveDraft={removeDraft}
+                onPickColor={pickActiveColor}
+                pendingAssigneeId={pendingAssigneeId}
+                onAssign={(assigneeId) => {
+                  // Before the third corner there is no draft to write to,
+                  // so the answer is held and stamped onto the turf when it
+                  // commits. The panel's card is open from the start and
+                  // must not offer a control that quietly does nothing.
+                  if (!activeDraft) {
+                    setPendingAssigneeId(assigneeId)
+                    return
+                  }
+                  updateDraft(activeDraft.clientId, { assigneeId })
+                }}
+                onSave={() => closeDrawing()}
+                // The cap is about the shape being drawn RIGHT NOW: a
+                // committed turf was under it when it committed, and the one
+                // in progress is what can still be fixed. Deliberately not
+                // also gated on having a turf — see the panel's footer.
+                saveDisabled={(turfStats?.stops ?? 0) > HARD_STOP_LIMIT}
+                onCancel={cancelDrawing}
+                dirty={sessionDirty}
+                onMapControlsOffsetChange={setMapControlsOffset}
+              />
+            )}
             {/* Above every surface, including the map: this is the frame after
               the walk or the flow has been torn down and before the hub has
               arrived, and the whole point is that the map underneath is not
@@ -893,54 +1475,6 @@ export default function NativeDoorKnockingPage({
               </div>
             )}
             {walkSurface()}
-            {flowStep && (
-              <CreateListSurface
-                step={flowStep}
-                filters={filters}
-                onFiltersChange={setFilters}
-                precincts={precincts}
-                onPrecinctsChange={setPrecincts}
-                precinctOptions={precinctOptions}
-                onStepChange={changeFlowStep}
-                onClose={closeFlow}
-                districtBounds={districtBounds}
-                districtHouseholds={filterResult?.households ?? 0}
-                // The count above is derived from the pack, so it reads 0 for
-                // the whole of a download the sheet is drawn over. These two
-                // are what let the flow say so instead of printing that 0 as
-                // an answer.
-                // Same `!isUnresolvable` guard the map region carries: a
-                // district-gated query never leaves pending, so without it the
-                // sheet promises a download that was never requested, over a
-                // Continue that will never enable.
-                districtHouseholdsPending={
-                  !isUnresolvable && packQuery.isPending
-                }
-                districtHouseholdsFailed={packQuery.isError}
-                districtUnavailable={isUnresolvable}
-                ring={ring}
-                turfStats={turfStats}
-                drawPointCount={draw.pointCount}
-                onUndoPoint={draw.undoPoint}
-                drawFullScreen={draw.fullScreen}
-                onDrawFullScreenChange={draw.setFullScreen}
-                onRestartDrawing={draw.startDrawing}
-                color={draw.drawColor}
-                drawnStops={drawnStops}
-                onListCreated={handleListCreated}
-                isServeOrg={isServeOrg}
-                unpreviewableKeys={unpreviewableKeys}
-                orgSlug={organization?.slug}
-                preselectedListId={carriedListId}
-                onPreselectApplied={() =>
-                  setSpentPreselectId(preselectedListId)
-                }
-                preselectedRecommendedVariant={carriedVariant}
-                onRecommendedPreselectApplied={() =>
-                  setSpentPreselectVariant(preselectedRecommendedVariant)
-                }
-              />
-            )}
           </div>
         </div>
         {detailsTurf && (

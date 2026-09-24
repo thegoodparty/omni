@@ -92,13 +92,27 @@ jobs:
       # Silent when there is nothing to say. A daily "0 stale PRs" post trains
       # people to ignore the channel, which costs exactly the attention this
       # alert is trying to buy.
+      # NO CREDENTIAL CHECK IN THIS `if:`, though it carried one — a
+      # `env.SLACK_TOKEN != '' && env.CHANNEL != ''` pair that skipped the step,
+      # and so passed the job, whenever either was unset. That is the same shape
+      # of bug as the one release-failure-alert.yml was built out of: an alert
+      # that cannot be delivered reporting success, where the missing credential
+      # is the single most likely reason it cannot be delivered and the one a
+      # green run gives nobody a reason to look for. The condition below is only
+      # the "nothing to say" case, which is a real outcome; an unset secret is
+      # not, and is refused loudly inside the step instead.
       - name: Post to Slack
-        if: steps.scan.outputs.count != '0' && env.SLACK_TOKEN != '' && env.CHANNEL != ''
+        if: steps.scan.outputs.count != '0'
         env:
           STALE_LIST: ${{ steps.scan.outputs.list }}
           COUNT: ${{ steps.scan.outputs.count }}
         run: |
           set -euo pipefail
+          if [ -z "${SLACK_TOKEN:-}" ] || [ -z "${CHANNEL:-}" ]; then
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or GPBOT_PR_CHANNEL_ID unset — $COUNT stale bot PR(s) found and nobody was told. Failing loudly."
+            exit 1
+          fi
+
           # chat.postMessage answers 200 even when it refuses the message, so
           # -f proves nothing: a revoked token or a channel the app was never
           # invited to arrives as {"ok": false, "error": ...}. Without the -e

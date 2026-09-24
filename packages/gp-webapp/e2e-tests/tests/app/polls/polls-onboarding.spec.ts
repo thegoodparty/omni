@@ -150,33 +150,23 @@ const expectToBeWithin = (
   expect(value).toBeLessThanOrEqual(expected + plusOrMinus)
 }
 
-const getQueueNameFromSlackMessage = (text: string) => {
-  const environment = text.match(/serve-analyze-data-([a-z]+)/)?.[1]
-  if (!environment) {
-    throw new Error('No environment found in slack message')
+// The poll Slack message carries an `aws s3 cp` command, and both the results
+// bucket and the SQS queue used to be regexed out of the
+// `serve-analyze-data-<env>` string inside it. They now come from the e2e
+// environment instead, because polls upload through the same gp-admin page
+// Serve SMS does and that line is only a backup for a day the page is
+// unavailable — it may be reworded or dropped without warning, and parsing it
+// would fail post-merge on the train, where no PR would have caught it. They
+// are set in `release.yml`'s `e2e-shard` job, alongside BASE_URL.
+const requireEnv = (name: string): string => {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(
+      `${name} must be set to run the @dev-only poll spec ` +
+        `(see the e2e-shard job in .github/workflows/release.yml)`,
+    )
   }
-
-  const queues: Record<string, string> = {
-    dev: 'develop-Queue.fifo',
-    qa: 'qa-Queue.fifo',
-    prod: 'master-Queue.fifo',
-  }
-
-  const queueName = queues[environment]
-
-  if (!queueName) {
-    throw new Error(`Could not find queue for environment`)
-  }
-
-  return queueName
-}
-
-const getBucketNameFromSlackMessage = (text: string) => {
-  const match = text.match(/serve-analyze-data-[a-z]+/)
-  if (!match) {
-    throw new Error('No S3 bucket name found in slack message')
-  }
-  return match[0]
+  return value
 }
 
 const waitForPollSlackData = async (
@@ -202,10 +192,7 @@ const waitForPollSlackData = async (
 
   const csvRows = parseCSV(csv.toString('utf8'), { columns: true })
 
-  const queueName = getQueueNameFromSlackMessage(slackMessage.text || '')
-  const bucketName = getBucketNameFromSlackMessage(slackMessage.text || '')
-
-  return { pollId, csvRows, queueName, bucketName }
+  return { pollId, csvRows }
 }
 
 const pickDateOnCalendar = async (page: Page, date: Date) => {
@@ -414,10 +401,9 @@ test.describe.serial('poll onboarding @dev-only', () => {
       page.getByText(`This poll is scheduled to send on ${scheduledDate}.`),
     ).toBeVisible()
 
-    const { pollId, csvRows, queueName, bucketName } =
-      await waitForPollSlackData(
-        (message) => !!message.text?.includes(user.email),
-      )
+    const { pollId, csvRows } = await waitForPollSlackData(
+      (message) => !!message.text?.includes(user.email),
+    )
 
     // Store for reuse in subsequent tests
     sharedPollId = pollId
@@ -437,13 +423,8 @@ test.describe.serial('poll onboarding @dev-only', () => {
       audienceSize: 500,
     })
 
-    const queueToUse =
-      process.env.E2E_SQS_QUEUE_NAME !== undefined &&
-      process.env.E2E_SQS_QUEUE_NAME !== ''
-        ? process.env.E2E_SQS_QUEUE_NAME
-        : queueName
-
-    const bucketToUse = process.env.SERVE_ANALYZE_S3_BUCKET || bucketName
+    const queueToUse = requireEnv('E2E_SQS_QUEUE_NAME')
+    const bucketToUse = requireEnv('SERVE_ANALYZE_S3_BUCKET')
 
     const queuedEvent = await completePoll({
       queueName: queueToUse,

@@ -88,10 +88,17 @@ credentials from the environment. Two consumers exist today:
 
 `resolveDatabricksConnection(prefix)` resolves per-identity credentials: the
 default `DATABRICKS_` prefix is the shared Serve credential (`sp_serve_agent`,
-Chief of Staff + briefing chats, `mart_serve_agents`); the `WIN_DATABRICKS_`
-prefix is the Campaign Manager's `sp_win_agent` (own warehouse,
-`mart_win_agents.win_agent_voters`). Grants are per service principal — the two
-identities are deliberately not interchangeable.
+Chief of Staff + briefing chats + the profile-claim contact lookup,
+`mart_serve_agents`); the `WIN_DATABRICKS_` prefix is the Campaign Manager's
+`sp_win_agent` (own warehouse, `mart_win_agents.win_agent_voters`). Grants are
+per service principal — the two identities are deliberately not
+interchangeable.
+
+That one schema is the whole surface an agent identity gets, so anything a Serve
+consumer needs from another mart is passed through as a view in
+`mart_serve_agents` rather than read across. `serve_agent_people` is the person
+id crosswalk from the civics mart, carrying identifiers only because the Serve
+mart is de-identified by design.
 
 Both read the same connection coordinates from the environment:
 

@@ -7,6 +7,7 @@ import {
 import { addDays, addHours, isAfter } from 'date-fns'
 import { RobocallAuthorizeResponse } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { isUniqueConstraintError } from 'src/prisma/util/prismaErrors.util'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 import {
   ROBOCALL_HOLD_WINDOW_DAYS,
@@ -29,6 +30,10 @@ import {
   User,
 } from '../../generated/prisma'
 import { OutreachRobocallService } from './outreachRobocall.service'
+import {
+  OutreachRobocallPromoService,
+  type ResolvedRobocallPromo,
+} from './outreachRobocallPromo.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import {
@@ -65,6 +70,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     private readonly orphanedHolds: RobocallOrphanedHoldService,
     private readonly robocallSingleSend: OutreachRobocallSingleSendService,
     private readonly notification: OutreachNotificationService,
+    private readonly promos: OutreachRobocallPromoService,
   ) {
     super()
   }
@@ -121,6 +127,42 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       )
     }
 
+    // PROMO: a reward code remembered on the draft is re-validated against the
+    // live estimate here, before any card work, because a code that covers the
+    // whole run needs no card and no hold at all. The count is derived up front
+    // only on the promo path, so the card-only path below is unchanged.
+    let promo: ResolvedRobocallPromo | null = null
+    let promoBillableCount: number | undefined
+    if (draft.promotionCodeId) {
+      promoBillableCount = await this.robocallService.deriveBillableCount(
+        organization,
+        voterFileFilterId,
+      )
+      this.robocallService.assertReachableCount(promoBillableCount)
+      promo = await this.promos.resolveForAuthorize(
+        draft,
+        calcRobocallTotalInCents(promoBillableCount),
+      )
+      if (promo?.coversTotal) {
+        return this.scheduleCoveredRun(
+          user,
+          campaign,
+          outreachId,
+          draft.settleState,
+          promo,
+        )
+      }
+    }
+    // Anything left to hold needs a card: the on-session caller's, or the one
+    // the deferred sweep finds already saved on the row. Refuse here rather
+    // than let a cardless on-session call read as the sweep's off-session path
+    // and escalate to hold_failed.
+    if (!paymentMethodId && !draft.paymentMethodId) {
+      throw new BadRequestException(
+        'A payment method is required to schedule a robocall hold',
+      )
+    }
+
     // WINDOW: a hold placed too far ahead would expire before the send. Beyond
     // the window, defer to the daily sweep — place nothing now, but PERSIST the
     // card the candidate chose so the sweep bills exactly it, never a guessed
@@ -166,6 +208,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         status: 'deferred',
         settleState: RobocallSettleState.pending_payment,
         authorizedAmountInCents: null,
+        promoDiscountInCents: null,
       }
     }
 
@@ -197,6 +240,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // card decline, which is a terminal hold_failed the caller resolves with a
     // new card.
     let estimate: number
+    let holdAmount: number
     let customerId: string
     let holdPaymentMethodId: string
     // The validated card, set once validation passes (with-PM paths only). A
@@ -207,14 +251,18 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       | { paymentMethodId: string; stripeCustomerId: string }
       | undefined
     try {
-      const billableCount = await this.robocallService.deriveBillableCount(
-        organization,
-        voterFileFilterId,
-      )
+      const billableCount =
+        promoBillableCount ??
+        (await this.robocallService.deriveBillableCount(
+          organization,
+          voterFileFilterId,
+        ))
       this.robocallService.assertReachableCount(billableCount)
       // Total = per-call cost + the flat number-rental fee (the fee is part of
-      // every authorized hold).
+      // every authorized hold). A reward code takes its discount off this whole
+      // total; the ceiling below still judges the undiscounted estimate.
       estimate = calcRobocallTotalInCents(billableCount)
+      holdAmount = estimate - (promo?.discountInCents ?? 0)
 
       // INV-2: a production sanity cap. An estimate over it is a human-alert
       // anomaly (a count or pricing bug), not something to silently authorize.
@@ -324,7 +372,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       held = await this.stripe.createManualCaptureHold({
         customerId,
         paymentMethodId: holdPaymentMethodId,
-        amountInCents: estimate,
+        amountInCents: holdAmount,
         robocallId: outreachId,
         attempt,
         metadata: {
@@ -394,29 +442,55 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // SUCCESS CLAIM: commit the hold only if the draft is still the
     // hold_pending we own. If it moved (a lost race), the hold we placed must
     // not stand — void it and report the current state.
-    const commit = await this.model.updateMany({
-      where: { outreachId, settleState: RobocallSettleState.hold_pending },
-      data: {
-        settleState: RobocallSettleState.authorized,
-        authorizationIntentId: held.paymentIntentId,
-        authorizedAmountInCents: estimate,
-        captureBefore: held.captureBefore,
-        paymentMethodId: holdPaymentMethodId,
-        stripeCustomerId: customerId,
-        payAttempt: attempt,
-        // A (re)authorization invalidates any previously-staged CallHub
-        // campaign: this hold prices a freshly-derived billable count, but a
-        // stale campaign would dial the OLD frozen phonebook. Null the campaign
-        // fields so the staging sweep (which claims on `callhubCampaignPkStr IS
-        // NULL`) re-stages a phonebook matching the new count. On a first
-        // authorize these are already null (a no-op); on a hold_failed re-auth
-        // the old PAUSED campaign is orphaned (charges nothing; a later
-        // reconciliation slice cleans paused orphans).
-        callhubCampaignPkStr: null,
-        callhubStartingDate: null,
-        callhubExpirationDate: null,
-      },
-    })
+    let commit: { count: number }
+    try {
+      commit = await this.model.updateMany({
+        where: { outreachId, settleState: RobocallSettleState.hold_pending },
+        data: {
+          settleState: RobocallSettleState.authorized,
+          authorizationIntentId: held.paymentIntentId,
+          authorizedAmountInCents: holdAmount,
+          captureBefore: held.captureBefore,
+          // The code is spent the moment the hold commits: freeze the discount
+          // the hold reflects and stamp the redemption.
+          ...(promo
+            ? {
+                promoDiscountInCents: promo.discountInCents,
+                promoRedeemedAt: new Date(),
+              }
+            : {}),
+          paymentMethodId: holdPaymentMethodId,
+          stripeCustomerId: customerId,
+          payAttempt: attempt,
+          // A (re)authorization invalidates any previously-staged CallHub
+          // campaign: this hold prices a freshly-derived billable count, but a
+          // stale campaign would dial the OLD frozen phonebook. Null the
+          // campaign fields so the staging sweep (which claims on
+          // `callhubCampaignPkStr IS NULL`) re-stages a phonebook matching the
+          // new count. On a first authorize these are already null (a no-op);
+          // on a hold_failed re-auth the old PAUSED campaign is orphaned
+          // (charges nothing; a later reconciliation slice cleans paused
+          // orphans).
+          callhubCampaignPkStr: null,
+          callhubStartingDate: null,
+          callhubExpirationDate: null,
+        },
+      })
+    } catch (err) {
+      if (!promo || !isUniqueConstraintError(err)) throw err
+      // Another robocall stamped this code redeemed between the pre-check and
+      // this commit — the partial unique index on a redeemed promotion_code_id
+      // is what caught it. The hold we placed prices a discount this draft is
+      // not entitled to, so it must not stand: same unwind as a lost commit.
+      await this.stripe.voidHold(held.paymentIntentId)
+      await this.recordOrphanHold(
+        held.paymentIntentId,
+        outreachId,
+        'lost_commit',
+      )
+      await this.revertClaim(outreachId, attempt)
+      throw new BadRequestException('This promo code has already been used')
+    }
     if (commit.count === 0) {
       // Lost the race: the draft moved out of hold_pending during the Stripe
       // calls, so the hold we placed must not stand. Void it (best-effort). The
@@ -436,6 +510,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // The hold committed, so this is a real scheduled send: make it visible in
     // the history list.
     await this.scheduleSpineAndNotify(outreachId, user, campaign)
+    if (promo) {
+      await this.promos.consume(promo.promotionCodeId)
+    }
 
     // The commit just nulled callhubCampaignPkStr. If a previously-staged
     // campaign was there (a hold_failed re-auth re-derives the count, so the old
@@ -464,12 +541,73 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       EVENTS.Robocall.HoldPlaced,
       'hold_placed',
       undefined,
-      { amount_dollars: String(estimate / 100) },
+      { amount_dollars: String(holdAmount / 100) },
     )
     return {
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
-      authorizedAmountInCents: estimate,
+      authorizedAmountInCents: holdAmount,
+      promoDiscountInCents: promo?.discountInCents ?? null,
+    }
+  }
+
+  // A reward code that covers the whole estimate pays for the run outright:
+  // there is nothing to hold (Stripe refuses one under 50 cents) and no card is
+  // needed, so the draft goes straight to `authorized` with no intent — the
+  // redeemed code is the payment. The send gate and capture treat a
+  // promoCoversTotal row as having nothing at Stripe to re-read or capture.
+  // Same claim shape as placement (pending_payment | hold_failed, no intent), so
+  // it can never double-schedule or override a real hold.
+  private async scheduleCoveredRun(
+    user: User,
+    campaign: Campaign,
+    outreachId: number,
+    fallback: RobocallSettleState,
+    promo: ResolvedRobocallPromo,
+  ): Promise<RobocallAuthorizeResponse> {
+    let commit: { count: number }
+    try {
+      commit = await this.model.updateMany({
+        where: {
+          outreachId,
+          settleState: {
+            in: [
+              RobocallSettleState.pending_payment,
+              RobocallSettleState.hold_failed,
+            ],
+          },
+          authorizationIntentId: null,
+        },
+        data: {
+          settleState: RobocallSettleState.authorized,
+          authorizedAmountInCents: 0,
+          captureBefore: null,
+          promoDiscountInCents: promo.discountInCents,
+          promoRedeemedAt: new Date(),
+          promoCoversTotal: true,
+          callhubCampaignPkStr: null,
+          callhubStartingDate: null,
+          callhubExpirationDate: null,
+        },
+      })
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err
+      // A concurrent authorize on another draft redeemed this code first (the
+      // partial unique index on a redeemed promotion_code_id). Nothing was
+      // placed, so the row is untouched: refuse, and let the candidate pick
+      // another code or a card.
+      throw new BadRequestException('This promo code has already been used')
+    }
+    if (commit.count === 0) {
+      return this.currentStateResult(outreachId, fallback)
+    }
+    await this.scheduleSpineAndNotify(outreachId, user, campaign)
+    await this.promos.consume(promo.promotionCodeId)
+    return {
+      status: 'authorized',
+      settleState: RobocallSettleState.authorized,
+      authorizedAmountInCents: 0,
+      promoDiscountInCents: promo.discountInCents,
     }
   }
 
@@ -623,6 +761,17 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       )
     }
 
+    // No call was placed, so a reward code this run spent is handed back.
+    // Best-effort, like the void above: the terminal already committed.
+    try {
+      await this.promos.restore(outreachId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall send_failed: failed to restore the promo code',
+      )
+    }
+
     // A send-path failure has a staged PAUSED campaign (callhubCampaignPkStr set
     // once staging committed). No calls were placed, but the paused campaign
     // lingers in CallHub, and the cleanup sweep only ABORTs pk_strs recorded at a
@@ -716,6 +865,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       status: 'hold_failed',
       settleState: RobocallSettleState.hold_failed,
       authorizedAmountInCents: null,
+      promoDiscountInCents: null,
     }
   }
 
@@ -764,6 +914,10 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       authorizedAmountInCents:
         status === 'authorized'
           ? (current?.authorizedAmountInCents ?? null)
+          : null,
+      promoDiscountInCents:
+        status === 'authorized' && current?.promoRedeemedAt
+          ? (current.promoDiscountInCents ?? null)
           : null,
     }
   }

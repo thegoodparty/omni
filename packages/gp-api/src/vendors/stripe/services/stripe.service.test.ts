@@ -6,6 +6,8 @@ import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { UsersService } from 'src/users/services/users.service'
 import { User } from 'src/generated/prisma'
+import { PaymentType } from 'src/payments/payments.types'
+import { PurchaseType } from 'src/payments/purchase.types'
 import { StripeService } from './stripe.service'
 
 const {
@@ -112,6 +114,7 @@ describe('StripeService Pro subscription checkout', () => {
       const args = firstOrThrow(sessionsCreate.mock.calls)[0]
       expect(args.ui_mode).toBe('custom')
       expect(args.mode).toBe('subscription')
+      expect(args.payment_method_types).toEqual(['card'])
       expect(args.return_url).toBe(
         'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
@@ -691,5 +694,45 @@ describe('StripeService.cancelSubscription', () => {
     await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
       BadGatewayException,
     )
+  })
+})
+
+describe('StripeService.createCustomCheckoutSession', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {} as unknown as SlackService,
+      {
+        setCustomerIdIfAbsent: vi.fn(),
+        findUser: vi.fn(),
+      } as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  // A bank debit completes checkout 'unpaid' and settles days later, which
+  // stranded a candidate's paid text sends behind a deferred fulfillment
+  // (2026-09-21). Only methods that confirm at checkout may be offered.
+  it('offers only payment methods that confirm at checkout', async () => {
+    sessionsCreate.mockResolvedValue({
+      id: 'cs_test_one_time',
+      client_secret: 'cs_test_one_time_secret',
+      amount_total: 1092,
+    })
+
+    await service.createCustomCheckoutSession(
+      { id: userId, email, customerId: undefined },
+      {
+        type: PaymentType.OUTREACH_PURCHASE,
+        purchaseType: PurchaseType.TEXT,
+        amount: 1092,
+        productName: 'SMS Outreach',
+        returnUrl: 'https://app.test/dashboard/purchase/complete',
+      },
+    )
+
+    const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+    expect(args.payment_method_types).toEqual(['card', 'amazon_pay'])
   })
 })

@@ -62,3 +62,53 @@ export const railTurfScope = (
   ...activeTurfScope(organizationSlug),
   route: { outreach: { campaignId: scope.campaignId } },
 })
+
+/**
+ * Campaign membership, expressed on the ENVELOPE because that is the only
+ * place it exists: the anchor matches on its own id, every sibling on
+ * `campaignOutreachId`. Door knocking is the only writer of that column, so
+ * this cannot reach another channel's row.
+ */
+const campaignMembership = (anchorId: number): Prisma.OutreachWhereInput => ({
+  OR: [{ id: anchorId }, { campaignOutreachId: anchorId }],
+})
+
+/**
+ * The campaign's turfs, for the reads: every LIVE turf under the anchor. This
+ * is the sibling list the drawer renders and the confirm dialog counts, so a
+ * tombstoned turf is correctly absent from it.
+ */
+export const campaignTurfScope = (
+  anchorId: number,
+  organizationSlug: string,
+): Prisma.DoorKnockingTurfWhereInput => ({
+  ...activeTurfScope(organizationSlug),
+  route: { outreach: campaignMembership(anchorId) },
+})
+
+/**
+ * The campaign's envelopes, for the lifecycle writes. Org-scoped through the
+ * same chain, but deliberately NOT `deletedAt`-scoped, which is the one place
+ * this pair diverges and it is load-bearing.
+ *
+ * Deleting a turf is a tombstone: the turf goes, its route and its `Outreach`
+ * envelope stay, and that envelope stays in outreach history (the drawer says
+ * "saved list is no longer available" for it). `collapseDoorKnockingCampaigns`
+ * therefore still counts it as a sibling when it decides whether a campaign is
+ * done or archived. If the write skipped it, its envelope would sit at
+ * `in_progress` with nothing able to move it and the campaign could never read
+ * Done or leave the active list again — a permanent dead end, one turf
+ * deletion wide.
+ *
+ * So the rule is: the write has to reach every envelope the ROLLUP counts, and
+ * the rollup counts envelopes rather than turfs. The confirm dialog still
+ * counts live turfs only, and that is honest — a tombstoned turf is not
+ * outstanding work anybody can do.
+ */
+export const campaignEnvelopeScope = (
+  anchorId: number,
+  organizationSlug: string,
+): Prisma.OutreachWhereInput => ({
+  ...campaignMembership(anchorId),
+  doorKnockingRoute: { turf: { voterFileFilter: { organizationSlug } } },
+})

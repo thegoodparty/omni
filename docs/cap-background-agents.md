@@ -300,6 +300,11 @@ Python). The model comes from the manifest (`AGENT_MODEL`; default `sonnet`).
   validates it (Draft-07) against the manifest's output schema before publish. On a
   contract violation the broker quarantines the rejected artifact to
   `s3://.../rejected/{run_id}.json` and sends a `contract_violation` callback.
+- **A turn-ceiling cut is not a failure verdict:** when the agent hits `max_turns`
+  (SDK subtype `error_max_turns`), the harness still collects `/workspace/output/`
+  and the artifact is judged on its merits — a valid `partial` artifact publishes
+  and resumes via gp-api instead of being discarded. Only a cut that wrote no
+  artifact, a genuine agent error, or a stream truncation fails the run.
 
 **Anti-fabrication gate (broker publish path):** if the manifest declares
 `scope.allowed_tables` but the broker saw **zero** successful Databricks queries for

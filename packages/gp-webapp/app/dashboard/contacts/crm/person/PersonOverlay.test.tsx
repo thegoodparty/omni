@@ -71,6 +71,23 @@ vi.mock('./StatusRow', () => ({
   ),
 }))
 
+// Same reasoning as StatusRow above — FollowUpRow.test.tsx covers its
+// self-gating, the toggle, its mutation and analytics.
+vi.mock('./FollowUpRow', () => ({
+  __esModule: true,
+  default: ({
+    person,
+    isServe,
+  }: {
+    person: { id: string }
+    isServe: boolean
+  }) => (
+    <div data-testid="follow-up-row-stub" data-is-serve={String(isServe)}>
+      {person.id}
+    </div>
+  ),
+}))
+
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
 const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
@@ -378,6 +395,7 @@ describe('<PersonOverlay>', () => {
           activityId: 'dk_1',
           outcome: 'answered',
           supportAnswer: 'supporter',
+          followUp: null,
           note: null,
           manual: true,
           actorName: null,
@@ -732,42 +750,38 @@ describe('<PersonOverlay>', () => {
     expect(activitiesFetchNextPage).toHaveBeenCalledTimes(1)
   })
 
-  describe('ENG-10698 support status (Serve)', () => {
-    // ENG-10836 removed this Field for Win (replaced by the StatusRow
-    // dropdown, mocked below) — these assertions now only apply to Serve,
-    // which keeps the pre-ENG-10836 read-only rendering untouched.
-    it.each([
-      ['supporter', 'Supporter'],
-      ['non_supporter', 'Non-supporter'],
-      ['unknown', 'Support unknown'],
-    ] as const)(
-      'shows Support Status "%s" as "%s" for Serve',
-      (rollup, label) => {
-        setContext({
-          isElectedOfficial: true,
-          selectedPerson: { person: makePerson({ supportStatus: rollup }) },
-        })
-
-        render(<PersonOverlay />)
-
-        expect(screen.getByText('Support Status')).toBeInTheDocument()
-        expect(screen.getByText(label)).toBeInTheDocument()
-      },
-    )
-
-    it('shows "Support unknown" when supportStatus is absent from the response', () => {
-      // makePerson() doesn't set supportStatus (undefined by default).
+  describe('the voter-file card is Win-only', () => {
+    // The three rows Serve used to carry were a support status it can never
+    // set (gp-api rejects the write for an `eo-` org) plus registration and
+    // turnout propensity — an official does not ask whether a constituent
+    // votes or how reliably. With nothing left to put in it, the card is not
+    // rendered at all rather than shown empty.
+    it('serve renders no voter-file card, whatever the record carries', () => {
       setContext({
         isElectedOfficial: true,
-        selectedPerson: { person: makePerson() },
+        selectedPerson: { person: makePerson({ supportStatus: 'supporter' }) },
       })
 
       render(<PersonOverlay />)
 
-      expect(screen.getByText('Support unknown')).toBeInTheDocument()
+      for (const label of [
+        'Voter Demographics',
+        'Constituent Demographics',
+        'Support Status',
+        'Registered Voter',
+        'Registered to vote',
+        'Voter Status',
+        'Turnout likelihood',
+        'Political Party',
+      ]) {
+        expect(screen.queryByText(label)).not.toBeInTheDocument()
+      }
+
+      // The personal-profile card below it is untouched on both surfaces.
+      expect(screen.getByText('Demographic Information')).toBeInTheDocument()
     })
 
-    it('hides the Support Status Field for Win — the status row replaces it (ENG-10836)', () => {
+    it('win keeps the card, its wording, and all three rows', () => {
       setContext({
         isElectedOfficial: false,
         selectedPerson: { person: makePerson({ supportStatus: 'supporter' }) },
@@ -775,6 +789,11 @@ describe('<PersonOverlay>', () => {
 
       render(<PersonOverlay />)
 
+      expect(screen.getByText('Voter Demographics')).toBeInTheDocument()
+      expect(screen.getByText('Registered Voter')).toBeInTheDocument()
+      expect(screen.getByText('Voter Status')).toBeInTheDocument()
+      expect(screen.getByText('Political Party')).toBeInTheDocument()
+      // ENG-10836: the StatusRow carries support on Win, not this card.
       expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
     })
   })
@@ -791,6 +810,10 @@ describe('<PersonOverlay>', () => {
       const stub = screen.getByTestId('status-row-stub')
       expect(stub).toHaveTextContent('p_1')
       expect(stub).toHaveAttribute('data-hide-political-party', 'false')
+
+      const followUpStub = screen.getByTestId('follow-up-row-stub')
+      expect(followUpStub).toHaveTextContent('p_1')
+      expect(followUpStub).toHaveAttribute('data-is-serve', 'false')
     })
 
     it('passes hidePoliticalParty=true for Serve (elected official) records', () => {
@@ -854,6 +877,7 @@ describe('<PersonOverlay>', () => {
           activityId: 'dk_1',
           outcome: 'answered',
           supportAnswer: 'supporter',
+          followUp: null,
           note: 'Left a flyer',
           manual: true,
           actorName: null,
@@ -962,6 +986,53 @@ describe('<PersonOverlay>', () => {
           "Jane Staffer changed Support Status from 'Support unknown' to 'Supporter'",
         ),
       ).toBeInTheDocument()
+    })
+
+    const followUpActivities: ConstituentActivity[] = [
+      {
+        type: 'STATUS_CHANGE',
+        date: '2026-09-18T15:30:00.000Z',
+        data: {
+          activityId: 'sce_2',
+          field: 'follow_up',
+          fromLabel: 'No',
+          toLabel: 'Yes',
+          actorName: 'Jane Staffer',
+          actorUserId: 7,
+          source: 'phone_banking',
+        },
+      },
+    ]
+
+    it('renders a follow-up STATUS_CHANGE entry in the Serve context', () => {
+      // Serve's feed is behind its own flag; the Win branch needs no flag.
+      mockedUseFlagOn.mockReturnValue({ ready: true, on: true })
+      setContext({
+        isElectedOfficial: true,
+        isWinContext: false,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: followUpActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Follow-up updated')).toBeInTheDocument()
+      expect(
+        screen.getByText("Jane Staffer changed Follow-up from 'No' to 'Yes'"),
+      ).toBeInTheDocument()
+    })
+
+    it('never renders a follow-up entry in the Win context', () => {
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: followUpActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.queryByText('Follow-up updated')).not.toBeInTheDocument()
     })
 
     it('never renders a STATUS_CHANGE entry outside the Win context, even if the feed returned one', () => {

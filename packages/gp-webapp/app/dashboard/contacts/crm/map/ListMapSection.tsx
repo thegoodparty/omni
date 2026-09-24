@@ -1,7 +1,17 @@
+import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
+import { Button, CropIcon } from '@styleguide'
+import {
+  drawnRings,
+  ringsFromGeoJsonShape,
+} from 'app/dashboard/shared/ringGeometry'
+import { getContactsLabels } from '../../../shared/contactsLabels'
 import { useContactsTable } from '../ContactsTableProvider'
 import { SectionLabel } from '../lists/ListDetailSection'
+import type { SegmentResponse } from '../shared/contacts-types'
 import { useListPeople } from './useListPeople'
+import { useSaveListBoundary } from './useSaveListBoundary'
+import ListBoundaryOverlay from './ListBoundaryOverlay'
 
 // maplibre-gl touches `window` at module scope, so the canvas cannot be part
 // of the server bundle. The sheet this sits in is client-rendered either way;
@@ -17,9 +27,27 @@ const MapFrame = ({ children }: { children: React.ReactNode }) => (
   </div>
 )
 
-export default function ListMapSection({ listId }: { listId: number }) {
-  const { selectPerson, currentlySelectedPersonId } = useContactsTable()
+export default function ListMapSection({
+  segment,
+}: {
+  segment: SegmentResponse
+}) {
+  const listId = segment.id
+  const { selectPerson, currentlySelectedPersonId, isWinContext } =
+    useContactsTable()
   const { people, truncated, total, isLoading, isError } = useListPeople(listId)
+  const [drawing, setDrawing] = useState(false)
+
+  const labels = getContactsLabels(isWinContext)
+  const savedRings = useMemo(
+    () => ringsFromGeoJsonShape(segment.geoPoly),
+    [segment.geoPoly],
+  )
+  const isLocked = Boolean(segment.firstUsedForOutreachAt)
+
+  const saveMutation = useSaveListBoundary(listId, 'listDetail', () =>
+    setDrawing(false),
+  )
 
   return (
     <div className="flex flex-col gap-2">
@@ -43,6 +71,11 @@ export default function ListMapSection({ listId }: { listId: number }) {
               truncated={truncated}
               selectedPersonId={currentlySelectedPersonId}
               onSelectPerson={selectPerson}
+              // No writer: a locked list still shows the geography it was
+              // cut with, it just cannot be re-cut. Every part goes through
+              // `otherRings`, which is the read-only layer — `drawRing` is
+              // the part a gesture edits, and nothing here edits.
+              otherRings={savedRings}
             />
           </div>
           {truncated ? (
@@ -51,6 +84,31 @@ export default function ListMapSection({ listId }: { listId: number }) {
               {total.toLocaleString()}.
             </p>
           ) : null}
+          {!isLocked && (
+            <Button
+              type="button"
+              variant="outline"
+              size="small"
+              className="self-start gap-2"
+              onClick={() => setDrawing(true)}
+            >
+              <CropIcon className="size-4" aria-hidden />
+              {drawnRings(savedRings).length > 0
+                ? labels.boundaryEditCta
+                : labels.boundaryDrawCta}
+            </Button>
+          )}
+          {drawing && (
+            <ListBoundaryOverlay
+              people={people}
+              truncated={truncated}
+              initialRings={savedRings}
+              labels={labels}
+              isSaving={saveMutation.isPending}
+              onCancel={() => setDrawing(false)}
+              onSave={(rings) => saveMutation.mutate(rings)}
+            />
+          )}
         </>
       )}
     </div>

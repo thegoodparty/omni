@@ -216,6 +216,8 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 
@@ -237,17 +239,48 @@ describe('ContactsService.getFilterDimensions', () => {
     expect(dimensions.map((d) => d.key)).not.toContain('party')
   })
 
-  it('returns the shared dimensions for both modes', () => {
-    const winOnlyKeys = new Set(
-      FILTER_DIMENSIONS.filter((d) => d.modes === 'win').map((d) => d.key),
-    )
+  // Named rather than left to the `modes === 'win'` sweep above, because
+  // this one is a product rule someone could plausibly "fix" back to 'both':
+  // #1933 barred ethnicity subsetting for both products and the Win half was
+  // reverted, so Serve is the half that must hold.
+  it('offers ethnicity to Win and never to an eo- organization', () => {
     const winKeys = buildService()
       .getFilterDimensions(organization('win-campaign'))
       .map((d) => d.key)
     const serveKeys = buildService()
       .getFilterDimensions(organization('eo-city-council'))
       .map((d) => d.key)
-    expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(serveKeys)
+    expect(winKeys).toContain('ethnicity')
+    expect(serveKeys).not.toContain('ethnicity')
+  })
+
+  // Each mode sees the shared dimensions plus only its own. Stated
+  // symmetrically because both products now have exclusives — this used to
+  // assert Win-minus-win-only === Serve outright, which held only while
+  // `serve` was an empty set.
+  it('returns the shared dimensions for both modes', () => {
+    const keysForMode = (mode: 'win' | 'serve') =>
+      new Set(
+        FILTER_DIMENSIONS.filter((d) => d.modes === mode).map((d) => d.key),
+      )
+    const winOnlyKeys = keysForMode('win')
+    const serveOnlyKeys = keysForMode('serve')
+    const winKeys = buildService()
+      .getFilterDimensions(organization('win-campaign'))
+      .map((d) => d.key)
+    const serveKeys = buildService()
+      .getFilterDimensions(organization('eo-city-council'))
+      .map((d) => d.key)
+
+    expect(winKeys.filter((key) => !winOnlyKeys.has(key))).toEqual(
+      serveKeys.filter((key) => !serveOnlyKeys.has(key)),
+    )
+    // And each mode's exclusives actually reach it, so the filter above
+    // cannot pass by dropping both sides.
+    expect(winKeys).toEqual(expect.arrayContaining([...winOnlyKeys]))
+    expect(serveKeys).toEqual(expect.arrayContaining([...serveOnlyKeys]))
+    expect(winKeys.some((key) => serveOnlyKeys.has(key))).toBe(false)
+    expect(serveKeys.some((key) => winOnlyKeys.has(key))).toBe(false)
   })
 
   // Guards against a future .map() in the mode filter that reshapes
@@ -261,6 +294,20 @@ describe('ContactsService.getFilterDimensions', () => {
       (d) => !UNCLASSIFIED_PROVENANCE_DIMENSIONS.has(d.key),
     )
     expect(classified.every((d) => typeof d.provenance === 'string')).toBe(true)
+    // A named spot-check so the sweep above cannot pass vacuously. `education`
+    // rather than `ethnicity`, which used to stand here: ethnicity is
+    // `modes: 'win'` now and never reaches a Serve catalog to be checked.
+    expect(dimensions.find((d) => d.key === 'education')?.provenance).toBe(
+      'modeled',
+    )
+  })
+
+  // The same guard on the Win side, where ethnicity does reach the catalog —
+  // it is modeled, and the assistant has to hedge every count built from it.
+  it('preserves provenance on the Win-only dimensions', () => {
+    const dimensions = buildService().getFilterDimensions(
+      organization('win-campaign'),
+    )
     expect(dimensions.find((d) => d.key === 'ethnicity')?.provenance).toBe(
       'modeled',
     )

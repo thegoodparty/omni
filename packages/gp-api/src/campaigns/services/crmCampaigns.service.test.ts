@@ -282,3 +282,59 @@ describe('CrmCampaignsService association labels (ENG-11031)', () => {
     expect(logger.error).toHaveBeenCalled()
   })
 })
+
+describe('CrmCampaignsService.trackCampaign test-user guard', () => {
+  const findUniqueOrThrow = vi.fn()
+  const findByCampaign = vi.fn()
+  const companyCreate = vi.fn()
+  const companyUpdate = vi.fn()
+  const errorMessage = vi.fn()
+
+  const buildService = () =>
+    new CrmCampaignsService(
+      { findUniqueOrThrow } as unknown as CampaignsService,
+      { findByCampaign } as never,
+      {
+        isConfigured: true,
+        client: {
+          crm: {
+            companies: {
+              basicApi: { create: companyCreate, update: companyUpdate },
+            },
+          },
+        },
+      } as unknown as HubspotService,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { errorMessage } as unknown as SlackService,
+      {} as never,
+      createMockLogger(),
+    )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('skips company sync entirely for a test-user campaign', async () => {
+    findUniqueOrThrow.mockResolvedValue({
+      id: 9,
+      userId: 3,
+      data: {},
+      details: {},
+    })
+    findByCampaign.mockResolvedValue({
+      id: 3,
+      email: 'test-1790009-abcde@test.goodparty.org',
+    })
+
+    const result = await buildService().trackCampaign(9)
+
+    expect(result).toBeUndefined()
+    expect(companyCreate).not.toHaveBeenCalled()
+    expect(companyUpdate).not.toHaveBeenCalled()
+    expect(errorMessage).not.toHaveBeenCalled()
+  })
+})

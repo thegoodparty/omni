@@ -54,10 +54,13 @@ export const useCampaignPlanData = (
   const [campaign] = useCampaign()
   const campaignId = campaign?.id
 
-  const candidateName = [user?.firstName, user?.lastName]
-    .filter(Boolean)
-    .join(' ')
-    .trim()
+  // The candidate is the campaign OWNER, not the viewer — a Campaign Manager
+  // opening the plan must not become the headline name. Fall back to the
+  // session user only while the campaign's ownerName hasn't resolved (for
+  // owners the two are the same person).
+  const candidateName =
+    campaign?.ownerName ||
+    [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()
   const metrics = campaign?.raceTargetMetrics
   // officialOfficeName is deliberately NOT used here: despite its name it is
   // a Civics/HubSpot taxonomy label (DATA-1922), not the ballot name — e.g. a

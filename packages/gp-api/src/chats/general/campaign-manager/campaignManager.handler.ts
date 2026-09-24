@@ -24,12 +24,13 @@ import { buildWinConstituentDataScope } from './services/constituentDataScope'
 import {
   ChatScopeHandler,
   ResolveConversationParams,
-  ResolveConversationResult,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
+  LEGAL_LINE,
 } from './campaignManagerPrompt'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 import {
@@ -39,8 +40,12 @@ import {
 } from './campaignStoryIntake.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
+import {
+  buildDescribeFilterDimensionsTool,
+  registeredFilterConsumers,
+} from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
+import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { ElectionsService } from '@/elections/services/elections.service'
@@ -56,9 +61,10 @@ export const CAMPAIGN_MANAGER_MODELS = [
   'claude-opus-4-7',
 ] as const
 
-// The scripted opener, persisted as the conversation's first assistant message
-// so the agent keeps its own greeting in context on later turns. Mirrors the
-// client-played CAMPAIGN_MANAGER_INTRO in gp-webapp (kept in sync by hand; it is
+// The scripted opener, seeded as each new conversation's first assistant
+// message so the agent keeps its own greeting in context on later turns.
+// Mirrors buildCampaignManagerIntro in gp-webapp, which plays the same copy
+// while the conversation create is still deferred (kept in sync by hand; it is
 // display copy, not a cross-service contract). First-name aware: falls back to
 // a no-name variant when the candidate's first name isn't resolved.
 export const buildCampaignManagerGreeting = (
@@ -184,6 +190,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   savedFilterToolsEnabled: false,
   helpCenterToolEnabled: false,
   raceId: null,
+  isPro: null,
   // Overridden by the early-return sites below: web search does not depend on
   // the campaign resolving, so a campaign we could not load must not silently
   // lose it.
@@ -221,56 +228,27 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly helpCenter?: HelpCenterSearchService,
   ) {}
 
-  // The manager is a single ongoing conversation, not one per open: resume the
-  // candidate's most recent thread so "meet" and reopening continue where they
-  // left off, showing the seeded greeting and full transcript. Only when none
-  // exists do we create one and seed the greeting. (Anchored chats, unused by
-  // the manager today, always create fresh.)
-  async resolveConversation(
+  // The manager runs the shared session model (one fresh conversation per
+  // open, resume by opening a past one from history), so it has no
+  // resolveConversation of its own — only this hook, which puts the manager's
+  // opener at the top of the new transcript. The client plays the same copy
+  // while the create is still deferred.
+  async seedConversation(
+    conversationId: string,
     params: ResolveConversationParams,
-    userId: number,
-  ): Promise<ResolveConversationResult> {
-    if (!params.anchor) {
-      const existing = await this.store.findLatestByScope({
-        ownerUserId: userId,
-        organizationSlug: params.organizationSlug,
-        scope: ChatScope.campaign_assistant,
-      })
-      if (existing) return { conversationId: existing.id, created: false }
-    }
-    // Resolve the greeting before the create so the async find->create window
-    // (which two concurrent opens could both slip through) is as narrow as
-    // possible. A duplicate here is benign, not corrupting: the extra thread is
-    // orphaned and the next open resumes the most recent one. A DB-level guard
-    // isn't available: this table is shared with Chief of Staff, which requires
-    // MANY conversations per (user, org, scope), so a unique constraint on those
-    // columns can't be added.
+  ): Promise<void> {
     const greeting = await this.resolveGreeting(params.organizationSlug)
-    const created = await this.store.createScopedConversation({
-      ownerUserId: userId,
-      organizationSlug: params.organizationSlug,
-      scope: ChatScope.campaign_assistant,
-      ...(params.anchor && {
-        anchor: params.anchor,
-        title: params.anchor.snapshot.title,
-      }),
-    })
-    // Persist the resume-aware greeting as the first assistant message so it is
-    // shown on open (the client loads the conversation) and later turns carry
-    // the manager's own opener in context (toLlmMessages folds this leading
-    // assistant turn into the system prompt).
     await this.chatStore.appendMessage({
-      conversationId: created.id,
+      conversationId,
       role: ChatMessageRole.assistant,
       content: greeting,
     })
-    return { conversationId: created.id, created: true }
   }
 
-  // Always seeds the general greeting (Campaign Story intake now runs on
-  // demand via the kickoff sentinel, not at conversation creation). First-name
-  // aware when the campaign's owning user resolves. Best-effort: any lookup
-  // miss falls back to the no-name greeting rather than throwing.
+  // Always the general greeting (Campaign Story intake runs on demand via the
+  // kickoff sentinel, not at conversation creation). First-name aware when the
+  // campaign's owning user resolves. Best-effort: any lookup miss falls back to
+  // the no-name greeting rather than throwing.
   private async resolveGreeting(
     organizationSlug: string | null,
   ): Promise<string> {
@@ -384,6 +362,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       organization,
       crmToolsEnabled,
       savedFilterToolsEnabled,
+      // The same column the contacts service reads before it refuses. That
+      // service also treats elected-office organizations as Pro; this handler
+      // only ever serves campaigns, so the row alone is the whole rule here.
+      isPro: campaign.isPro ?? false,
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
       helpCenterToolEnabled: !!this.helpCenter,
@@ -463,32 +445,68 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // Aggregate-only CRM reads (describe dimensions + count), unconditional
-    // for Win once contacts + the org resolve. The org is bound from the
-    // resolved context; ContactsService enforces the pro gate and every
-    // other filter rule.
-    if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
-      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
+    // No voter file tool registers when the campaign is known not to have
+    // access, the open catalog included: a catalog whose output this
+    // campaign cannot act on reads to the model as a menu to walk through,
+    // and what filtering covers is one line in the product map instead.
+    // Saved lists too: without Pro the service refuses every saved-list
+    // action except listing names, so the tool here would be a list of names
+    // the campaign cannot count, edit, or use, one more menu it cannot act
+    // on. Only a known false gates. An unknown flag
+    // arises only when no campaign resolved, which also turns these tools
+    // off, so the service stays the deciding check.
+    if (
+      this.contacts &&
+      ctx.crmToolsEnabled &&
+      ctx.organization &&
+      ctx.isPro !== false
+    ) {
+      const filterTools: Record<string, LlmTool> = {}
+      filterTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
-      tools.count_contacts = buildCountContactsTool({
+      // Beside describe_filter_dimensions rather than with the saved-list
+      // tools: it IS the vocabulary read for the one dimension the catalog
+      // cannot carry, and a count is as entitled to a precinct as a saved
+      // list is.
+      filterTools.list_precincts = buildListPrecinctsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
-      // Saved-filter CRUD goes through the same VoterFileFilterService paths
-      // as the voter-file routes (Pro gate, completed-outreach validation,
-      // org scoping, locked-filter conflict all inherited).
+      // Saved-filter CRUD goes through the same VoterFileFilterService
+      // paths as the voter-file routes (Pro gate, completed-outreach
+      // validation, org scoping, locked-filter conflict all inherited).
       if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
-        tools.crud_saved_filters = buildCrudSavedFiltersTool({
+        filterTools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
         })
       }
+      // The catalog is built over the filter tools so its description names
+      // only the ones registered beside it. It is still listed first, as it
+      // always was.
+      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+        filterConsumers: registeredFilterConsumers(filterTools),
+      })
+      Object.assign(tools, filterTools)
     }
 
     return tools
+  }
+
+  // The prompt's legal-and-compliance rules carry the caution. The shared
+  // finish-time check decides whether a reply is shaped like legal advice (a
+  // statute citation, liability language, complaint filing) and carries no
+  // caution; when it is, the candidate gets the same line the prompt asks
+  // for, so the wording does not depend on which path supplied it.
+  finalizeAssistantText(text: string): string | null {
+    return professionalAdviceDisclaimer(text) === null
+      ? null
+      : `\n\n${LEGAL_LINE}`
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the

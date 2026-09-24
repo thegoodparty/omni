@@ -165,6 +165,40 @@ Always use `lucide-react` for icons. Never use `react-icons` or other icon libra
 
 **Approved-icons gate.** New icon usage must go through `packages/styleguide/src/components/ui/icons.tsx`, not directly from `lucide-react`. That file is the curated set of icons the team has approved for use in the design system; importing from it (rather than `lucide-react`) keeps the catalog auditable and consistent. If the icon you need isn't there, add it to `icons.tsx` first (using the existing `Foo as FooIcon` alias pattern), then import from it. The full lucide catalog is browseable in Storybook (`Foundations/Icons`). Existing direct `lucide-react` imports in `app/` are grandfathered; do not add new ones.
 
+### Animations and illustrations
+
+**An animation is a design decision, not a default.** Before adding one, work
+down this list and stop at the first thing that does the job: a motion token
+(`Foundations/Motion` in Storybook), a styleguide component, a static icon from
+the approved set. Only then a Lottie, and only when a designer has asked for it.
+
+`npm run check:animation-assets` enforces the Lottie half mechanically, as a
+count ratchet that refuses additions. Raising its baseline is the escape hatch,
+and it belongs in the same PR with a note saying who asked for the animation and
+what it does that a static icon cannot. Static illustrations (SVG, PNG) are not
+counted, because a rule over every image in the package would fire on icons and
+logos and get ignored; the same judgment applies to them by convention.
+
+The rule exists because nine Lottie files accumulated over eighteen months, one
+every six weeks. Five ended up with no callers at all and nobody noticed, and a
+2.4MB file decorated an empty state a user sees once. Nobody made a bad call; a
+large JSON blob in a PR diff looks like every other collapsed blob, so there was
+never a moment where the question got asked.
+
+**Empty states are where this kept going wrong.** Use the standard pattern
+rather than inventing one: a `Card` with one centered, muted sentence, and the
+CTA below it.
+
+```tsx
+<Card className="w-full p-6 text-center text-sm text-muted-foreground">
+  No door knocking scripts yet. Create one to start collecting answers at the
+  door.
+</Card>
+```
+
+Copy follows `docs/product-copy.md` rule 8: what happened, then what to do, in
+that order. `OutreachHistoryTable` is the reference implementation.
+
 ### Design Tokens
 
 - Never use raw hex colors, hardcoded pixel values, or Tailwind default color palette (e.g. `blue-600`, `slate-300`) in component code. Always reference a design token.

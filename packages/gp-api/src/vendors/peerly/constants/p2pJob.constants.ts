@@ -36,8 +36,6 @@ export const P2P_PHONE_LIST_MAP = {
 } as const
 
 export const P2P_SCHEDULE_DEFAULTS = {
-  START_TIME: '09:00:00',
-  END_TIME: '21:00:00',
   TIMEZONE: 'LOCAL',
   IS_GLOBAL: 1,
 } as const

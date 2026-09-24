@@ -9,11 +9,16 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
+import {
+  ringsToGeoJsonShape,
+  type PolygonRing,
+} from 'app/dashboard/shared/ringGeometry'
 import { listPeopleQueryKey } from '../map/useListPeople'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import CrmSheet from '../shared/CrmSheet'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
+import { boundarySaveErrorMessage } from '../shared/boundarySaveError'
 import { MAX_SEGMENT_NAME_LENGTH } from '../shared/segments.util'
 import type {
   SegmentResponse,
@@ -39,11 +44,13 @@ import ActivityStep, {
   type WizardActivityCondition,
 } from './ActivityStep'
 import NameStep from './NameStep'
+import BoundaryStep from './BoundaryStep'
 import { useListWizardCount } from './useListWizardCount'
 import { useListWizardOverlapCount } from './useListWizardOverlapCount'
+import { useListWizardPolygonCount } from './useListWizardPolygonCount'
 import OverlapBar from './OverlapBar'
 
-type WizardStepName = 'branch' | 'conditions' | 'name'
+type WizardStepName = 'branch' | 'conditions' | 'boundary' | 'name'
 
 // ENG-10767: per-stage funnel events (see the ListWizard registry comment in
 // analyticsHelper.ts) — this wizard is URL-stable, so RouteTracker page views
@@ -51,6 +58,7 @@ type WizardStepName = 'branch' | 'conditions' | 'name'
 const STAGE_VIEWED_EVENTS: Record<WizardStepName, string> = {
   branch: EVENTS.Contacts.ListWizard.MethodViewed,
   conditions: EVENTS.Contacts.ListWizard.ConditionsViewed,
+  boundary: EVENTS.Contacts.ListWizard.BoundaryViewed,
   name: EVENTS.Contacts.ListWizard.NameViewed,
 }
 
@@ -66,9 +74,10 @@ interface CreateListWizardProps {
 // The list creation wizard (ENG-10708 locked design): branch chooser ->
 // branch-specific conditions -> name + build. Serve has no outreach
 // (deferred by design, ENG-10750), so its flow drops the branch chooser and
-// opens directly on the constituent-file filters as a 2-step wizard — this
-// derived `steps` array is THE Serve gate; when Serve outreach ships,
-// reopen the branch here.
+// opens directly on the constituent-file filters, and it alone gains the
+// boundary step between the conditions and the name — this derived `steps`
+// array is THE Serve gate; when Serve outreach ships, reopen the branch
+// here.
 export default function CreateListWizard({
   open,
   onOpenChange,
@@ -99,7 +108,7 @@ export default function CreateListWizard({
       // isWinContextReady, so the wizard never opens on an unsettled mode.
       isWinContext
       ? ['branch', 'conditions', 'name']
-      : ['conditions', 'name']
+      : ['conditions', 'boundary', 'name']
 
   const [stepIndex, setStepIndex] = useState(0)
   const [branch, setBranch] = useState<ListWizardBranch | null>(null)
@@ -119,6 +128,10 @@ export default function CreateListWizard({
     WizardActivityCondition[]
   >(() => [blankActivityCondition()])
   const [name, setName] = useState('')
+  // Held as the open ring the map draws, not as the GeoJSON it is saved as,
+  // so Back onto the boundary step restores the shape with its handles
+  // rather than a closed polygon that has to be reopened to be edited.
+  const [boundaryRings, setBoundaryRings] = useState<PolygonRing[]>([])
 
   // Serve never renders the branch chooser, so its branch is a constant —
   // derived, not set on open, so no frame can render the activity branch
@@ -162,6 +175,7 @@ export default function CreateListWizard({
         : [blankActivityCondition()],
     )
     setName(editingSegment?.name ?? '')
+    setBoundaryRings([])
     setOpenSession((session) => session + 1)
     // Keyed on the edited list's ID, not on `open` alone: `open` is a derived
     // OR of two independent sources (the page's create button and the
@@ -268,9 +282,24 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
+  // The edited list's drawn boundary rides the COUNT payload only, never
+  // backendPayload — that object is also the save payload, and the wizard's
+  // update deliberately never sends geoPoly so a partial PUT leaves the
+  // shape alone. The number still has to account for it: an inline filter
+  // carries no id and no geoPoly, so without this the count answered with
+  // the list's pre-boundary size and offered "Save changes (5,356)" on a
+  // list whose own detail sheet read 339.
+  const countPayload = useMemo(
+    () =>
+      isEditing && editingSegment
+        ? { ...backendPayload, boundaryFromSegmentId: editingSegment.id }
+        : backendPayload,
+    [backendPayload, isEditing, editingSegment],
+  )
+
   const { count, isLoading, isStale, isError, isCapError, errorMessage } =
     useListWizardCount(
-      backendPayload,
+      countPayload,
       // The voter-file count fires on every pill toggle, so an org with no
       // resolvable district produced one 400 per keystroke-debounced change.
       !voterDataUnavailable &&
@@ -286,6 +315,48 @@ export default function CreateListWizard({
   // refetch retains the previous cached count (possibly 0) with
   // isLoading/isStale both false — an errored count is unknown, not zero.
   const isZeroMatch = !isLoading && !isStale && !isError && count === 0
+
+  const geoPoly = useMemo(
+    () => ringsToGeoJsonShape(boundaryRings),
+    [boundaryRings],
+  )
+
+  // The shape's own count. It supersedes the live count from the boundary
+  // step onward: once a boundary exists, the number the list will hold is
+  // this one, and showing the pre-shape total on the name step would put a
+  // figure on the Save button that the saved list never matches.
+  const {
+    count: polygonCount,
+    audienceEmpty,
+    isLoading: isPolygonLoading,
+    isStale: isPolygonStale,
+    isError: isPolygonError,
+    errorMessage: polygonErrorMessage,
+  } = useListWizardPolygonCount(
+    geoPoly,
+    backendPayload,
+    !voterDataUnavailable && isConditionsStepValid,
+  )
+
+  const hasBoundary = geoPoly !== null
+  const effectiveCount = hasBoundary ? polygonCount : count
+  const isEffectiveCounting = hasBoundary
+    ? isPolygonLoading || isPolygonStale
+    : isLoading || isStale
+
+  // Continuing with no shape at all is the point of the step being optional,
+  // so only a DRAWN boundary can block: one that settles on nobody builds
+  // nothing, and the step says to move it rather than refusing silently. An
+  // errored or in-flight count is unknown, not zero — the same discipline
+  // the conditions step's zero-match gate applies.
+  // An errored count blocks too, which is the opposite of the conditions
+  // step's rule and deliberately so. There the unknown is harmless — the
+  // save proceeds and writes what the filters say. Here the only 400 this
+  // count earns is the people cap, and the save re-runs that same scan to
+  // freeze the shape's membership, so continuing on an error walks the
+  // holder through naming a list that cannot be saved.
+  const isBoundaryBlocked =
+    hasBoundary && (isEffectiveCounting || isPolygonError || polygonCount === 0)
 
   // ENG-10840: the overlap strip only ever fires on a REAL selection (unlike
   // the live count above, which deliberately also fires unfiltered to show
@@ -349,6 +420,12 @@ export default function CreateListWizard({
       trackEvent(EVENTS.Contacts.ListWizard.ConditionsCompleted, {
         context: isWinContext ? 'win' : 'serve',
         ...(activeBranch ? { branch: activeBranch } : {}),
+      })
+      setStepIndex(stepIndex + 1)
+    } else if (stepName === 'boundary' && !isBoundaryBlocked) {
+      trackEvent(EVENTS.Contacts.ListWizard.BoundaryCompleted, {
+        context: isWinContext ? 'win' : 'serve',
+        hasBoundary,
       })
       setStepIndex(stepIndex + 1)
     }
@@ -438,7 +515,18 @@ export default function CreateListWizard({
       // otherwise render a frame with both full-screen drawers stacked.
       setTimeout(() => selectList(response.id), 0)
     },
-    onError: () => {
+    onError: (error) => {
+      // gp-api words the people-cap refusal for whoever drew the shape
+      // ("Draw a smaller boundary or narrow the list"), and that message was
+      // being thrown away for a generic failure. The save's own scan runs
+      // UNFILTERED where the preview applies the filters, so a shape the
+      // pill counted happily can still land here — which makes the real
+      // message the only thing telling the holder what to do about it.
+      const capMessage = boundarySaveErrorMessage(error)
+      if (capMessage) {
+        errorSnackbar(capMessage, { autoHideDuration: 6000 })
+        return
+      }
       errorSnackbar('Failed to create list')
     },
   })
@@ -524,7 +612,13 @@ export default function CreateListWizard({
   // and then re-disable when the trailing refetch lands (that flicker let a
   // click slip through onto a disabled button under load). A failed count
   // still submits once settled (count stays a nice-to-have).
-  const canSubmitName = trimmedName.length > 0 && !isLoading && !isStale
+  // Reads the shape's count once there is a shape, for the same reason the
+  // name step displays it: saving against the pre-boundary count would write
+  // a voterCount the list never matches. A boundary that holds nobody blocks
+  // Save here too — the boundary step already refuses it, but a name step
+  // reached before a slower count landed must not let it through.
+  const canSubmitName =
+    trimmedName.length > 0 && !isLoading && !isStale && !isBoundaryBlocked
   const canSubmit = canSubmitName && !createMutation.isPending
 
   const handleSubmit = () => {
@@ -532,6 +626,7 @@ export default function CreateListWizard({
     createMutation.mutate({
       name: trimmedName,
       ...backendPayload,
+      ...(geoPoly ? { geoPoly } : {}),
     })
   }
 
@@ -564,9 +659,11 @@ export default function CreateListWizard({
     ? 'Edit list'
     : stepName === 'branch'
       ? 'How do you want to build this list?'
-      : stepName === 'name'
-        ? 'Name your list'
-        : labels.wizardVoterFileStepTitle
+      : stepName === 'boundary'
+        ? labels.boundaryStepTitle
+        : stepName === 'name'
+          ? 'Name your list'
+          : labels.wizardVoterFileStepTitle
 
   const saveChangesLabel =
     isLoading || isStale || count === undefined
@@ -670,6 +767,17 @@ export default function CreateListWizard({
                 {buildLabel}
               </Button>
             ))}
+          {stepName === 'boundary' && (
+            <Button
+              type="button"
+              className="w-full text-sm"
+              onClick={handleNext}
+              disabled={isBoundaryBlocked}
+              loading={hasBoundary && isEffectiveCounting}
+            >
+              Continue
+            </Button>
+          )}
           {stepName === 'name' && (
             <Button
               type="button"
@@ -719,17 +827,31 @@ export default function CreateListWizard({
           onChange={setActivityConditions}
         />
       )}
+      {stepName === 'boundary' && (
+        <BoundaryStep
+          rings={boundaryRings}
+          onRingsChange={setBoundaryRings}
+          labels={labels}
+          filters={backendPayload}
+          count={polygonCount}
+          audienceEmpty={audienceEmpty}
+          isCounting={isPolygonLoading || isPolygonStale}
+          isError={isPolygonError}
+          errorMessage={polygonErrorMessage}
+          enabled={!voterDataUnavailable}
+        />
+      )}
       {stepName === 'name' && (
         <NameStep
           name={name}
           onNameChange={setName}
-          count={count}
+          count={effectiveCount}
           // isStale too: while a filter change is still debouncing the count
           // is stale for the current selection and Save is gated off, so the
           // sentence must read "Counting…" rather than assert a stale total.
-          isCounting={isLoading || isStale}
-          isCapError={isCapError}
-          countErrorMessage={errorMessage}
+          isCounting={isEffectiveCounting}
+          isCapError={isCapError || Boolean(polygonErrorMessage)}
+          countErrorMessage={polygonErrorMessage ?? errorMessage}
           peopleNoun={peopleNoun}
         />
       )}

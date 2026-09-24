@@ -3,7 +3,7 @@ import { ChannelCard } from '../components/ui/channel-card'
 import {
   ClipboardListIcon,
   DoorOpenIcon,
-  HeadphonesIcon,
+  HeadsetIcon,
   MailIcon,
   MessageSquareIcon,
   PhoneIcon,
@@ -67,7 +67,7 @@ export const States: Story = {
       />
       <ChannelCard icon={<PhoneIcon />} label="Robocall" locked />
       <ChannelCard
-        icon={<HeadphonesIcon />}
+        icon={<HeadsetIcon />}
         label="Phone banking"
         subCopy="Powered by CallHub"
         locked

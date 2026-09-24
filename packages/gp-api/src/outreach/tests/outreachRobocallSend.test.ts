@@ -105,6 +105,7 @@ const createDraft = async ({
   authorizedAmountInCents,
   withCaptureBefore = false,
   compliancePassed = true,
+  promoCoversTotal = false,
 }: {
   sendInHours?: number
   settleState?: RobocallSettleState
@@ -113,6 +114,7 @@ const createDraft = async ({
   authorizedAmountInCents?: number
   withCaptureBefore?: boolean
   compliancePassed?: boolean
+  promoCoversTotal?: boolean
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -137,6 +139,7 @@ const createDraft = async ({
       ...(authorizationIntentId ? { authorizationIntentId } : {}),
       ...(authorizedAmountInCents != null ? { authorizedAmountInCents } : {}),
       ...(withCaptureBefore ? { captureBefore: addDays(new Date(), 5) } : {}),
+      promoCoversTotal,
     },
   })
   return spine.id
@@ -158,6 +161,22 @@ const loggerErrorSpy = () =>
   vi.spyOn((send as unknown as { logger: PinoLogger }).logger, 'error')
 
 describe('OutreachRobocallSendService.startCampaign', () => {
+  it('dials a promo-covered run without a hold and without asking Stripe', async () => {
+    const outreachId = await createDraft({
+      authorizationIntentId: null,
+      authorizedAmountInCents: 0,
+      promoCoversTotal: true,
+    })
+
+    await send.startCampaign(outreachId)
+
+    expect(retrieveSpy).not.toHaveBeenCalled()
+    expect(launchSpy).toHaveBeenCalledTimes(1)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.dialed)
+    expect(satellite.dialedAt).not.toBeNull()
+  })
+
   it('launches once and marks dialed with a dialedAt when the hold is live', async () => {
     const outreachId = await createDraft()
 

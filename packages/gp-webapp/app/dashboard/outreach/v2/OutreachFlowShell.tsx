@@ -59,6 +59,8 @@ interface OutreachFlowShellProps {
   // Any user input diverging from the initial state: closing asks "Discard
   // changes?"; a pristine (or completed) flow closes silently.
   dirty: boolean
+  // Skip the sheet's slide-up on open — see `OutreachSheet`.
+  instant?: boolean
   children: ReactNode
 }
 
@@ -78,6 +80,7 @@ export const OutreachFlowShell = ({
   onBack,
   cta,
   dirty,
+  instant = false,
   children,
 }: OutreachFlowShellProps) => {
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -110,6 +113,7 @@ export const OutreachFlowShell = ({
     <>
       <OutreachSheet
         open={open}
+        instant={instant}
         onOpenChange={requestClose}
         bodyRef={bodyRef}
         headerless={totalSteps === 0}

@@ -3,6 +3,7 @@ import { format } from 'date-fns'
 import { Badge } from '@styleguide'
 import type {
   DoorKnockOutcome,
+  FollowUpAnswer,
   PhoneBankCallOutcome,
   SupportAnswer,
   WillVoteAnswer,
@@ -57,6 +58,15 @@ const WILL_VOTE_ANSWER_LABELS: Record<WillVoteAnswer, string> = {
   unsure: 'Unsure',
 }
 
+// Serve's answer, in its place. Binary where the Win pair is three-way, and
+// only ever populated for an `eo-` org — the feed decides which vocabulary a
+// row carries server-side (contactEngagement.service.ts), so each line here
+// renders on exactly one surface without this file checking which.
+const FOLLOW_UP_ANSWER_LABELS: Record<FollowUpAnswer, string> = {
+  yes: 'Yes',
+  no: 'No',
+}
+
 // The field's own display name — a fixed title per field, not part of what
 // resolveContactStatusLabel resolves server-side (that's the fromValue/
 // toValue vocabulary, a different and larger axis). Do Not Knock is written
@@ -67,6 +77,7 @@ const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   support_status: 'Support Status',
   do_not_knock: 'Do Not Knock',
   not_a_voter: 'Not A Voter',
+  follow_up: 'Follow-up',
 }
 
 // No per-outreach detail route exists in this app (app/dashboard/outreach has
@@ -105,6 +116,13 @@ export const DoorKnockActivityRow: React.FC<{
         Support:{' '}
         {SUPPORT_ANSWER_LABELS[activity.data.supportAnswer] ??
           activity.data.supportAnswer}
+      </p>
+    ) : null}
+    {activity.data.followUp ? (
+      <p className="text-sm font-normal text-muted-foreground">
+        Needs follow-up:{' '}
+        {FOLLOW_UP_ANSWER_LABELS[activity.data.followUp] ??
+          activity.data.followUp}
       </p>
     ) : null}
     <ActivityNote note={activity.data.note} />
@@ -212,6 +230,13 @@ export const PhoneBankingActivityRow: React.FC<{
           Will vote:{' '}
           {WILL_VOTE_ANSWER_LABELS[activity.data.willVote] ??
             activity.data.willVote}
+        </p>
+      ) : null}
+      {activity.data.followUp ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Needs follow-up:{' '}
+          {FOLLOW_UP_ANSWER_LABELS[activity.data.followUp] ??
+            activity.data.followUp}
         </p>
       ) : null}
       <ActivityNote note={activity.data.note} />

@@ -5,6 +5,7 @@ import {
   buildIntro,
   buildScriptIssues,
   buildServeIntro,
+  buildTeamMemberIntro,
 } from './doorScriptContent'
 
 const position = (
@@ -192,6 +193,49 @@ describe('buildIntro', () => {
 
   it('is empty without a campaign', () => {
     expect(buildIntro(null, null)).toBe('')
+  })
+})
+
+describe('buildTeamMemberIntro', () => {
+  it('states the affiliation without claiming to run or volunteer', () => {
+    expect(
+      buildTeamMemberIntro(user({ firstName: 'Sam', lastName: 'Reed' }), {
+        name: 'Jane Doe',
+        office: 'City Council',
+      }),
+    ).toBe(
+      "Hi, I'm Sam Reed, and I'm with Jane Doe's campaign for City Council.",
+    )
+  })
+
+  it('drops the office clause when there is none', () => {
+    expect(
+      buildTeamMemberIntro(user({ firstName: 'Sam', lastName: 'Reed' }), {
+        name: 'Jane Doe',
+        office: '',
+      }),
+    ).toBe("Hi, I'm Sam Reed, and I'm with Jane Doe's campaign.")
+  })
+
+  it('keeps the affiliation when the walker has no name', () => {
+    expect(
+      buildTeamMemberIntro(
+        user({ firstName: undefined, lastName: undefined }),
+        { name: 'Jane Doe', office: 'City Council' },
+      ),
+    ).toBe("Hi, I'm with Jane Doe's campaign for City Council.")
+  })
+
+  // With no owner name to state there is no affiliation to voice — degrade
+  // to the walker's own greeting rather than a sentence with a hole in it.
+  it('degrades to the walker alone without an owner name', () => {
+    expect(
+      buildTeamMemberIntro(user({ firstName: 'Sam', lastName: 'Reed' }), {
+        name: '',
+        office: 'City Council',
+      }),
+    ).toBe("Hi, I'm Sam Reed.")
+    expect(buildTeamMemberIntro(null, null)).toBe('')
   })
 })
 

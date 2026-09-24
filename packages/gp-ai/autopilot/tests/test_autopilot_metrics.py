@@ -8,7 +8,14 @@ value it does not have.
 
 import json
 
-from autopilot.agent.metrics import METRIC_PREFIX, format_metric_line
+from autopilot.agent.metrics import (
+    METRIC_PREFIX,
+    RUN_SUMMARY_MARKER_PATTERN,
+    format_metric_line,
+    format_run_summary_comment,
+    format_run_summary_marker,
+    run_summary,
+)
 
 SUCCESS_RESULT = {
     "status": "success",
@@ -119,9 +126,26 @@ class TestUnknownIsNotZero:
         assert parsed(format_metric_line(SUCCESS_RESULT, "story", 1.0)).get("epic_task_id") is None
 
 
+class TestSetupDuration:
+    # ENG-11149: setup (the omni checkout, plus a warm image's conditional
+    # npm ci) runs before run_agent and is never paid, so it needs its own
+    # field rather than folding into duration_s — a reader must be able to
+    # tell "the run was slow" from "setup was slow" apart.
+    def test_setup_duration_is_reported_alongside_run_duration(self):
+        fields = parsed(format_metric_line(SUCCESS_RESULT, "story", 361.24, "EPIC-1", setup_s=4.567))
+
+        assert fields["setup_s"] == 4.6
+        assert fields["duration_s"] == 361.2
+
+    def test_a_missing_setup_duration_is_null_rather_than_zero(self):
+        fields = parsed(format_metric_line(SUCCESS_RESULT, "story", 361.24))
+
+        assert fields["setup_s"] is None
+
+
 class TestTheContract:
     def test_every_field_is_present_even_when_it_does_not_apply(self):
-        expected = {"task_id", "stage", "outcome", "cost_usd", "duration_s", "epic_task_id"}
+        expected = {"task_id", "stage", "outcome", "cost_usd", "duration_s", "setup_s", "epic_task_id", "pr_url"}
 
         assert set(parsed(format_metric_line(None, None)).keys()) == expected
 
@@ -134,3 +158,98 @@ class TestTheContract:
     def test_junk_in_never_raises(self):
         for result in (None, "", [], 7, {"status": object()}):
             assert format_metric_line(result, object(), object()).startswith(METRIC_PREFIX)
+
+
+class TestPrUrl:
+    def test_pr_url_extracted_from_the_result_text(self):
+        fields = parsed(format_metric_line(SUCCESS_RESULT, "story", 1.0))
+
+        assert fields["pr_url"] == "https://github.com/thegoodparty/omni/pull/1900"
+
+    def test_no_pr_link_in_the_result_text_is_null_not_missing(self):
+        no_pr = dict(SUCCESS_RESULT, result="Parked, waiting on an answer.")
+
+        fields = parsed(format_metric_line(no_pr, "story", 1.0))
+
+        assert fields["pr_url"] is None
+
+    def test_an_unrelated_repos_pull_link_is_not_mistaken_for_this_runs_own(self):
+        other_repo = dict(SUCCESS_RESULT, result="See https://github.com/thegoodparty/some-other-repo/pull/12")
+
+        fields = parsed(format_metric_line(other_repo, "story", 1.0))
+
+        assert fields["pr_url"] is None
+
+
+class TestRunSummary:
+    """run_summary is the ONE dict fed to both sinks — the metric line and
+    the ClickUp comment (metrics.format_run_summary_comment, consumed by
+    main.post_run_summary_comment). This pins that they can never disagree.
+    """
+
+    def test_run_summary_matches_the_metric_lines_own_fields(self):
+        summary = run_summary(SUCCESS_RESULT, "story", 361.24, "EPIC-1")
+        fields = parsed(format_metric_line(SUCCESS_RESULT, "story", 361.24, "EPIC-1"))
+
+        assert summary == fields
+
+    def test_format_run_summary_comment_includes_the_pr_link_when_present(self):
+        summary = run_summary(SUCCESS_RESULT, "story", 361.24, "EPIC-1")
+
+        comment = format_run_summary_comment(summary)
+
+        assert comment.startswith("[autopilot:run-summary stage=story outcome=success cost_usd=3.71]")
+        assert "https://github.com/thegoodparty/omni/pull/1900" in comment
+        assert "Cost:** $3.71" in comment
+        assert "Duration:** 361.2s" in comment
+
+    def test_format_run_summary_comment_omits_the_pr_line_when_absent(self):
+        no_pr = dict(SUCCESS_RESULT, result="No PR this run.")
+        summary = run_summary(no_pr, "epic-create", 12.0)
+
+        comment = format_run_summary_comment(summary)
+
+        assert "PR:" not in comment
+
+    def test_format_run_summary_comment_reports_unknown_cost_honestly(self):
+        summary = run_summary({"status": "success", "task_id": "x"}, "story", None)
+
+        comment = format_run_summary_comment(summary)
+
+        assert "Cost:** unknown" in comment
+        assert "Duration:** unknown" in comment
+
+    def test_format_run_summary_comment_never_carries_a_park_or_slack_answer_marker(self):
+        # The critical interaction (ENG-11151): the run-summary comment must
+        # never look like a park or a relayed Slack answer to router.route()'s
+        # self-resume guard or sweep's reply-after-park check.
+        summary = run_summary(SUCCESS_RESULT, "story", 1.0)
+
+        comment = format_run_summary_comment(summary)
+
+        assert "[autopilot:parked" not in comment
+        assert "[autopilot:slack-answer" not in comment
+
+    def test_junk_in_never_raises(self):
+        for result in (None, "", [], 7, {"status": object()}):
+            assert format_run_summary_comment(run_summary(result, object(), object()))
+
+
+class TestRunSummaryMarker:
+    def test_marker_carries_stage_outcome_and_cost(self):
+        marker = format_run_summary_marker("story", "success", 3.71)
+
+        assert marker == "[autopilot:run-summary stage=story outcome=success cost_usd=3.71]"
+        match = RUN_SUMMARY_MARKER_PATTERN.search(marker)
+        assert match is not None
+        assert match.group(1) == "story"
+        assert match.group(2) == "success"
+        assert match.group(3) == "3.71"
+
+    def test_marker_omits_cost_usd_when_none(self):
+        marker = format_run_summary_marker("qa", "error", None)
+
+        assert marker == "[autopilot:run-summary stage=qa outcome=error]"
+        match = RUN_SUMMARY_MARKER_PATTERN.search(marker)
+        assert match is not None
+        assert match.group(3) is None

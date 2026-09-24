@@ -502,6 +502,9 @@ export interface Campaign {
   aiContent: CampaignAiContent
   vendorTsData: VendorTsData
   raceTargetMetrics?: RaceTargetMetrics | null
+  // Owner's display name from GET /v1/campaigns/mine — the campaign's
+  // candidate for team members whose own session-user name is not it.
+  ownerName?: string | null
   user?: User
   organization?: {
     positionId?: string | null

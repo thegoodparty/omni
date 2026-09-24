@@ -5,7 +5,7 @@
 ```bash
 git clone --recurse-submodules git@github.com:thegoodparty/omni.git
 cd omni
-nvm use          # Node pinned in .nvmrc (22.12.0)
+nvm use          # Node pinned in .nvmrc — the version lives there, not here
 npm install      # installs every workspace; inits the ai-rules submodule
 ```
 

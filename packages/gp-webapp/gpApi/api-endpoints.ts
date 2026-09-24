@@ -9,6 +9,7 @@ import type {
   DoorKnockingTalkingPointsPurpose,
   DoorKnockingTurf,
   GeoJsonPolygon,
+  GeoJsonShape,
   ServeDoorKnockingTalkingPointsPurpose,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
@@ -38,12 +39,17 @@ import type {
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  SmsOutreachReplies,
   SmsOutreachResults,
   SocialDraftRequest,
   SocialDraftResponse,
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServeSmsCreateRequest,
+  ServeSmsCreateResponse,
+  ServeSmsDraftRequest,
+  ServeSmsDraftResponse,
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
   ServeSocialSaveRequest,
@@ -65,6 +71,8 @@ import type {
   RobocallSaveCardIntentResponse,
   RobocallAuthorizeRequest,
   RobocallAuthorizeResponse,
+  RobocallPromoApplyRequest,
+  RobocallPromoStateResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
   PeoplePrecinctsResponse,
@@ -118,10 +126,12 @@ import type {
   ContactNoteInput,
   ContactNoteListResponse,
   ContactStatuses,
+  FollowUpStatusResponse,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   SupportStatusRollup,
   UpdateContactStatusInput,
+  UpdateFollowUpInput,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
@@ -389,6 +399,25 @@ export type APIEndpoints = {
     Response: SmsDraftResponse
   }
 
+  // Serve sibling of the SMS draft endpoint above: same shape with the
+  // purpose field swapped to the serve vocabulary, org-scoped rather than
+  // campaign-scoped, and grounded in a serve voice config. Not yet mounted
+  // by any flow — the wiring ticket points SmsFlow's serve surface at this.
+  'POST /v1/outreach/serve/sms/draft': {
+    Request: ServeSmsDraftRequest
+    Response: ServeSmsDraftResponse
+  }
+
+  // Draft-first create for a Serve SMS send. Org-scoped: there is no
+  // campaign and no Peerly phone list, so the audience is resolved
+  // server-side from `voterFileFilterId` and the response carries the
+  // recipient count the pay step quotes. The controller is registered by the
+  // module-wiring ticket; until then this key types a route that 404s.
+  'POST /v1/outreach/serve/sms': {
+    Request: ServeSmsCreateRequest
+    Response: ServeSmsCreateResponse
+  }
+
   // Persists the social campaign atomically (spine row + satellite +
   // assets). Response is the created row so the hub updates without a
   // refetch.
@@ -428,6 +457,26 @@ export type APIEndpoints = {
   'GET /v1/outreach/serve/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Serve's org-scoped results reads. Siblings of
+  // `GET /v1/outreach/:id/results`, scoped by organizationSlug with
+  // campaignId pinned null so an org that holds both a Campaign and an
+  // ElectedOffice cannot read its Win results here.
+  'GET /v1/outreach/serve/:id/results': {
+    Request: {}
+    Response: SmsOutreachResults
+  }
+
+  // The read-only reply list: first name, content, and the CRM facts the
+  // expandable panel shows. Serve-only — reply CONTENT is stored only for
+  // sends that came back through the shared ingest, which is the Serve
+  // fulfilment path; Win's Peerly sweep records timestamps and never bodies.
+  // `total` is every reply on the send, so "Show all {n} responses" can name
+  // a number it has not fetched.
+  'GET /v1/outreach/serve/:id/replies': {
+    Request: { limit?: number; offset?: number }
+    Response: SmsOutreachReplies
   }
 
   // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows
@@ -542,6 +591,19 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/:outreachId/authorize': {
     Request: RobocallAuthorizeRequest
     Response: RobocallAuthorizeResponse
+  }
+
+  // Remembers a reward promotion code on the pending robocall draft and returns
+  // the server-priced discount + what is left to authorize. The code is only
+  // consumed when the hold places (authorize), never here.
+  'POST /v1/outreach/robocall/:outreachId/promo': {
+    Request: RobocallPromoApplyRequest
+    Response: RobocallPromoStateResponse
+  }
+
+  'DELETE /v1/outreach/robocall/:outreachId/promo': {
+    Request: {}
+    Response: RobocallPromoStateResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of
@@ -666,6 +728,15 @@ export type APIEndpoints = {
   // Owner-only server-side. Also rejects (400) when userId is the owner —
   // ownership transfer isn't a thing this route does.
   'DELETE /v1/organizations/team/members/:userId': {
+    Request: {}
+    Response: undefined
+  }
+
+  // Self-removal (ENG-11137): any member — volunteer included — can leave
+  // the active org; the owner is rejected (400, ownership transfer is the
+  // only way an owner leaves). Same cascade as the owner-driven delete:
+  // membership and outreach assignments go together.
+  'DELETE /v1/organizations/team/members/me': {
     Request: {}
     Response: undefined
   }
@@ -942,6 +1013,95 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'POST /v1/chats/:conversationId/attachments/presign': {
+    Request: {
+      conversationId: string
+      fileName: string
+      mimeType: string
+      sizeBytes: number
+    }
+    Response: {
+      attachmentId: string
+      uploadUrl: string
+      uploadFields: Record<string, string>
+      storageKey: string
+    }
+  }
+
+  'POST /v1/chats/:conversationId/attachments': {
+    Request: { conversationId: string; storageKey: string }
+    Response: {
+      id: string
+      source: 'upload' | 'link'
+      sourceUrl: string | null
+      fileName: string
+      mimeType: string
+      sizeBytes: number
+      pageCount: number | null
+      status: 'pending' | 'processing' | 'ready' | 'failed'
+      failureReason: string | null
+      createdAt: string
+    }
+  }
+
+  'POST /v1/chats/:conversationId/attachments/link': {
+    Request: { conversationId: string; url: string }
+    Response:
+      | {
+          ok: true
+          attachment: {
+            id: string
+            source: 'upload' | 'link'
+            sourceUrl: string | null
+            fileName: string
+            mimeType: string
+            sizeBytes: number
+            pageCount: number | null
+            status: 'pending' | 'processing' | 'ready' | 'failed'
+            failureReason: string | null
+            createdAt: string
+          }
+        }
+      | {
+          ok: false
+          error:
+            | 'unreachable'
+            | 'blocked_url'
+            | 'unsupported_content_type'
+            | 'too_large'
+            | 'timeout'
+            | 'attachment_limit_reached'
+        }
+  }
+
+  'GET /v1/chats/:conversationId/attachments': {
+    Request: { conversationId: string }
+    Response: {
+      attachments: Array<{
+        id: string
+        source: 'upload' | 'link'
+        sourceUrl: string | null
+        fileName: string
+        mimeType: string
+        sizeBytes: number
+        pageCount: number | null
+        status: 'pending' | 'processing' | 'ready' | 'failed'
+        failureReason: string | null
+        createdAt: string
+      }>
+    }
+  }
+
+  'DELETE /v1/chats/:conversationId/attachments/:attachmentId': {
+    Request: { conversationId: string; attachmentId: string }
+    Response: void
+  }
+
+  'GET /v1/chats/:conversationId/attachments/:attachmentId/download': {
+    Request: { conversationId: string; attachmentId: string }
+    Response: { url: string; expiresAt: string }
+  }
+
   'GET /v1/ordinances': {
     Request: {}
     Response: OrdinanceListResponse
@@ -1102,11 +1262,15 @@ export type APIEndpoints = {
     Response: { token: string }
   }
 
+  // `geoPoly` narrows the saved list by a drawn boundary. Null clears one; on
+  // the PUT, omitting it keeps whatever the row already holds, like every
+  // other key of this partial update.
   'POST /v1/voters/voter-file/filter': {
     Request: {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      geoPoly?: GeoJsonShape | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1115,6 +1279,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
+      geoPoly?: GeoJsonShape | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1151,6 +1316,10 @@ export type APIEndpoints = {
     Request: UpdateContactStatusInput
     Response: ContactStatuses
   }
+  'PATCH /v1/contacts/:personId/follow-up': {
+    Request: UpdateFollowUpInput
+    Response: FollowUpStatusResponse
+  }
   'GET /v1/contacts/:id': {
     Request: {}
     Response: Person
@@ -1168,6 +1337,46 @@ export type APIEndpoints = {
       supportStatus?: SupportStatusRollup[]
     } & Record<string, unknown>
     Response: { count: number }
+  }
+  // How many of an in-progress list fall inside a boundary being drawn. The
+  // filter half is the same unsaved-draft grammar `POST /v1/contacts/count`
+  // takes — there is no saved filter row yet — but nested under `filters`
+  // rather than spread, because the shape rides beside it.
+  // `audienceEmpty` separates "your filters match nobody" from "this shape
+  // holds none of your audience": the same zero on the wire, and two
+  // different things to go and fix.
+  'POST /v1/contacts/polygon-preview': {
+    Request: {
+      geoPoly: GeoJsonShape
+      filters: {
+        activityConditions?: ActivityConditionInput[]
+        supportStatus?: SupportStatusRollup[]
+      } & Record<string, unknown>
+    }
+    Response: { count: number; audienceEmpty: boolean }
+  }
+  // The dots the draw step draws on: everyone the in-progress filters match,
+  // across the whole district, as bare coordinates.
+  //
+  // Sibling of polygon-preview and takes the same draft payload minus the
+  // shape, because the map has to show the list before there is a shape to
+  // narrow it with. Names and addresses are deliberately not in the
+  // response — the step has no person overlay behind its dots.
+  //
+  // `truncated` rather than a refusal: past the cap this returns the first
+  // page of dots and says so, the way every other map in the CRM does. A map
+  // that declines to draw teaches the holder less than a partial one.
+  'POST /v1/contacts/points': {
+    Request: {
+      filters: {
+        activityConditions?: ActivityConditionInput[]
+        supportStatus?: SupportStatusRollup[]
+      } & Record<string, unknown>
+    }
+    Response: {
+      points: { id: string; lat: number; lng: number }[]
+      truncated: boolean
+    }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
@@ -1218,6 +1427,16 @@ export type APIEndpoints = {
     Request: CreateDoorKnockingTurf
     Response: DoorKnockingTurf
   }
+  // Every turf in a door-knocking campaign — the anchor Outreach plus every
+  // row pointing at it via `campaignOutreachId`. The drawer reads this to
+  // paint the sibling map + list; it is a second read on top of the
+  // outreach-detail fetch so a rename or archive can invalidate the sibling
+  // list without churning the drawer's OutreachDetail cache. Org-scoped
+  // only, like the by-id route below.
+  'GET /v1/door-knocking/campaigns/:anchorId': {
+    Request: {}
+    Response: DoorKnockingTurf[]
+  }
   // One turf, org-scoped and NOT surface-scoped — which is what the two print
   // surfaces need it for. They hold an id they already fetched a route with,
   // so the rail's surface filter would only be able to hide a list they are
@@ -1251,6 +1470,24 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/turfs/:id/archive': {
     Request: DoorKnockingArchiveRequest
     Response: DoorKnockingTurf
+  }
+  // The campaign lifecycle: one request, every turf under the anchor, one
+  // server-side transaction. A route of its own rather than a scope parameter
+  // on the two above, so those stay per-turf — the walk's own
+  // `Move to archive` and its `finishAndArchive` press them, and a fan-out
+  // there would shelve a whole campaign when a canvasser finished one turf of
+  // it. Manager-only; a volunteer reaches neither. Both answer with the
+  // campaign's whole turf list, in the same order as the campaign read above,
+  // so a caller repaints from the response it already has.
+  'POST /v1/door-knocking/campaigns/:anchorId/complete': {
+    Request: {}
+    Response: DoorKnockingTurf[]
+  }
+  // Same body as the turf route. Every sibling it shelves gets ONE shared
+  // timestamp, and a sibling already shelved keeps its own date.
+  'POST /v1/door-knocking/campaigns/:anchorId/archive': {
+    Request: DoorKnockingArchiveRequest
+    Response: DoorKnockingTurf[]
   }
   'GET /v1/door-knocking/turfs/:id/route': {
     Request: {}

@@ -3,7 +3,7 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
-import { ChatScope } from '../../../generated/prisma'
+import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
@@ -28,6 +28,7 @@ import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.s
 import type { ElectionsService } from '@/elections/services/elections.service'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
+import { LEGAL_LINE } from './campaignManagerPrompt'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -72,6 +73,7 @@ const ctxWith = (
   raceId: null,
   webSearchEnabled: true,
   helpCenterToolEnabled: false,
+  isPro: null,
   story: null,
   plan: null,
   ...over,
@@ -205,6 +207,74 @@ describe('CampaignManagerHandler.loadContext — constituent tool gating', () =>
     const handler = buildContextHandler(fakeProvider, WIN_CONSTITUENT_TABLES)
     const ctx = await handler.loadContext('c1', 7)
     expect(ctx.constituentToolEnabled).toBe(false)
+  })
+})
+
+// The flag the product map's status line reads. Taken from the campaign row
+// the handler already loads, and absent means not Pro, the same rule the
+// contacts service applies when it gates a filter.
+describe('CampaignManagerHandler.loadContext (Pro status)', () => {
+  // The columns loadContext reads off the campaign row, so a typo here fails
+  // to compile instead of silently building a different context.
+  type CampaignRowLike = {
+    id: number
+    details: object
+    data: object
+    user: null
+    isPro?: boolean | null
+  }
+  const buildHandlerForRow = (
+    row: CampaignRowLike | null,
+  ): CampaignManagerHandler => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: 'win-campaign' }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: { findFirst: vi.fn(() => Promise.resolve(row)) },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    return new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+  }
+
+  it("carries the row's Pro flag into the context", async () => {
+    const handler = buildHandlerForRow({
+      id: 5,
+      details: {},
+      data: {},
+      user: null,
+      isPro: true,
+    })
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.isPro).toBe(true)
+  })
+
+  it('treats a row without the flag as not Pro', async () => {
+    const handler = buildHandlerForRow({
+      id: 5,
+      details: {},
+      data: {},
+      user: null,
+    })
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.isPro).toBe(false)
+  })
+
+  // Unknown is a third state, not "no": the map then says nothing about Pro
+  // rather than telling a campaign it may well have that it is locked out.
+  it('leaves the flag unknown when the campaign does not resolve', async () => {
+    const handler = buildHandlerForRow(null)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.isPro).toBeNull()
   })
 })
 
@@ -434,7 +504,7 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       voterFileFilters,
     )
 
-  const CRM_ON = { organization: ORG, crmToolsEnabled: true }
+  const CRM_ON = { organization: ORG, crmToolsEnabled: true, isPro: true }
 
   it('registers both tools when contacts service, org, and flag are present', () => {
     const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
@@ -450,6 +520,69 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
     expect(descriptionOf(tools.count_contacts)).toContain(
       DATA_SOURCE_ROUTING_RULES,
     )
+  })
+
+  it('registers no voter file tool for a campaign without Pro', () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(
+      ctxWith({
+        ...CRM_ON,
+        isPro: false,
+        savedFilterToolsEnabled: true,
+      }),
+    )
+
+    // The catalog too: its output is a menu this campaign cannot order
+    // from, and what filtering covers is the product map's line instead.
+    for (const name of [
+      'describe_filter_dimensions',
+      'count_contacts',
+      'list_precincts',
+      'crud_saved_filters',
+    ]) {
+      expect(Object.keys(tools)).not.toContain(name)
+    }
+  })
+
+  // Only a known "no" gates. Unknown keeps every tool and leaves the decision
+  // to the service, so the gate can never fail closed on a campaign that
+  // does have access.
+  it('keeps every CRM tool when Pro status is unknown', () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(
+      ctxWith({ ...CRM_ON, isPro: null, savedFilterToolsEnabled: true }),
+    )
+    for (const name of [
+      'describe_filter_dimensions',
+      'count_contacts',
+      'list_precincts',
+      'crud_saved_filters',
+    ]) {
+      expect(Object.keys(tools)).toContain(name)
+    }
+  })
+
+  it('names both filter tools in the catalog when saved lists are on', () => {
+    const tools = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }))
+    expect(
+      descriptionOf(tools.describe_filter_dimensions).split('\n\n')[0],
+    ).toContain('for count_contacts or crud_saved_filters')
+  })
+
+  it('names the count tool alone in the catalog when saved lists are off', () => {
+    const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
+    const line = descriptionOf(tools.describe_filter_dimensions).split(
+      '\n\n',
+    )[0]
+    expect(line).toContain('for count_contacts')
+    expect(line).not.toContain('crud_saved_filters')
   })
 
   it('omits both when crmToolsEnabled is false', () => {
@@ -621,7 +754,13 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
       client: {
         campaign: {
           findFirst: vi.fn(() =>
-            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+            Promise.resolve({
+              id: 5,
+              isPro: true,
+              details: {},
+              data: {},
+              user: null,
+            }),
           ),
         },
         campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
@@ -669,101 +808,52 @@ describe('CampaignManagerHandler — CRM contact tools gating', () => {
   })
 })
 
-describe('CampaignManagerHandler.resolveConversation — single ongoing thread', () => {
-  const buildHandlerWithStore = (
-    store: Partial<GeneralChatStoreService>,
-    chatStore: Partial<ChatStoreService>,
-  ): CampaignManagerHandler =>
-    new CampaignManagerHandler(
-      store as GeneralChatStoreService,
-      // resolveGreeting fetches the campaign for the first name; a null result
-      // makes it fall back to the no-name general greeting (no throw).
-      {
-        findFirst: vi.fn().mockResolvedValue(null),
-      } as unknown as CampaignsService,
-      chatStore as ChatStoreService,
-      WIN_CONSTITUENT_TABLES,
-    )
-
+describe('CampaignManagerHandler.seedConversation', () => {
   const params = {
     scope: ChatScope.campaign_assistant,
     organizationSlug: 'org-slug',
   }
 
-  it('resumes the latest conversation without creating or re-seeding it', async () => {
-    const findLatestByScope = vi.fn().mockResolvedValue({ id: 'existing-1' })
-    const createScopedConversation = vi.fn()
-    const appendMessage = vi.fn()
-    const handler = buildHandlerWithStore(
-      { findLatestByScope, createScopedConversation },
-      { appendMessage },
-    )
-
-    const res = await handler.resolveConversation(params, 42)
-
-    expect(res).toEqual({ conversationId: 'existing-1', created: false })
-    expect(findLatestByScope).toHaveBeenCalledWith({
-      ownerUserId: 42,
-      organizationSlug: 'org-slug',
-      scope: ChatScope.campaign_assistant,
-    })
-    expect(createScopedConversation).not.toHaveBeenCalled()
-    expect(appendMessage).not.toHaveBeenCalled()
-  })
-
-  it('creates and seeds a greeting when the candidate has no conversation yet', async () => {
-    const findLatestByScope = vi.fn().mockResolvedValue(null)
-    const createScopedConversation = vi.fn().mockResolvedValue({ id: 'new-1' })
-    const appendMessage = vi.fn().mockResolvedValue(undefined)
-    const handler = buildHandlerWithStore(
-      { findLatestByScope, createScopedConversation },
-      { appendMessage },
-    )
-
-    const res = await handler.resolveConversation(params, 42)
-
-    expect(res).toEqual({ conversationId: 'new-1', created: true })
-    expect(createScopedConversation).toHaveBeenCalledOnce()
-    expect(appendMessage).toHaveBeenCalledOnce()
-  })
-
-  it('seeds the general greeting even when the Campaign Story is incomplete', async () => {
-    const findLatestByScope = vi.fn().mockResolvedValue(null)
-    const createScopedConversation = vi.fn().mockResolvedValue({ id: 'new-2' })
+  it('seeds the first-name greeting into the new conversation', async () => {
     const appendMessage = vi.fn().mockResolvedValue(undefined)
     const findFirst = vi
       .fn()
       .mockResolvedValue({ id: 1, user: { firstName: 'Dana' } })
-    const read = vi.fn().mockResolvedValue({
-      why: null,
-      background: null,
-      positions: [],
-      complete: false,
-      missing: ['why', 'background', 'positions'],
-    } satisfies StoryState)
     const handler = new CampaignManagerHandler(
-      {
-        findLatestByScope,
-        createScopedConversation,
-      } as unknown as GeneralChatStoreService,
+      {} as GeneralChatStoreService,
       { findFirst } as unknown as CampaignsService,
       { appendMessage } as unknown as ChatStoreService,
       WIN_CONSTITUENT_TABLES,
-      undefined,
-      undefined,
-      { read } as unknown as CampaignStoryIntakeService,
     )
 
-    await handler.resolveConversation(params, 42)
+    await handler.seedConversation('new-1', params)
 
     expect(findFirst).toHaveBeenCalledWith({
       where: { organizationSlug: 'org-slug' },
       include: { user: true },
     })
+    expect(appendMessage).toHaveBeenCalledWith({
+      conversationId: 'new-1',
+      role: ChatMessageRole.assistant,
+      content: buildCampaignManagerGreeting('Dana'),
+    })
+  })
+
+  it('falls back to the no-name greeting when the campaign is missing', async () => {
+    const appendMessage = vi.fn().mockResolvedValue(undefined)
+    const handler = new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {
+        findFirst: vi.fn().mockResolvedValue(null),
+      } as unknown as CampaignsService,
+      { appendMessage } as unknown as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+
+    await handler.seedConversation('new-2', params)
+
     expect(appendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: buildCampaignManagerGreeting('Dana'),
-      }),
+      expect.objectContaining({ content: buildCampaignManagerGreeting() }),
     )
   })
 })
@@ -862,5 +952,26 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
       ctxWith({ story: completeStory }),
     )
     expect(reply).toContain(PRODUCT_OVERVIEW_OPENER)
+  })
+})
+
+describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
+  it('adds the legal line when the shared check fires', () => {
+    const answer =
+      'Under RCW 42.17A.405 that contribution is over the limit, and a ' +
+      'resident can file a complaint with the state commission.'
+
+    expect(buildHandler().finalizeAssistantText(answer)).toBe(
+      `\n\n${LEGAL_LINE}`,
+    )
+  })
+
+  it('does not duplicate an existing legal caution', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Under RCW 42.17A.405 that contribution is over the limit. ' +
+          LEGAL_LINE,
+      ),
+    ).toBeNull()
   })
 })

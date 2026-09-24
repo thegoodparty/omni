@@ -2,8 +2,8 @@ import { ChatScope } from '../../../generated/prisma'
 import type { LlmTool, LlmStreamUsage } from '@/llm/services/llm.service'
 import type { ChatAnchor } from '@goodparty_org/contracts'
 
-// Params a client sends to resolve (find-or-create) a conversation. Scope is
-// always present; the rest is scope-specific. CoS keys on the authed user +
+// Params a client sends to resolve a conversation. Scope is always present;
+// the rest is scope-specific. The default resolution keys on the authed user +
 // organization slug (slug resolved server-side from the header, not the body).
 export interface ResolveConversationParams {
   scope: ChatScope
@@ -32,10 +32,23 @@ export interface ChatScopeHandler<
   models: string[]
   // Raises the tool-loop step budget for research-heavy scopes.
   readonly maxSteps?: number
-  resolveConversation: (
+  // Optional override of the session model. Leave it off to get the default
+  // every conversational scope shares: one fresh conversation per open, with
+  // resuming done by opening a past conversation by id (history → listMessages
+  // → stream). Chief of Staff and Campaign Manager both run on that default and
+  // must stay on it — a per-scope copy is how the two drifted apart before.
+  // Override only for a genuinely different model (ordinance flow keys one
+  // conversation to an (ordinance, step) anchor).
+  resolveConversation?: (
     params: ResolveConversationParams,
     userId: number,
   ) => Promise<ResolveConversationResult>
+  // Optional hook run after the default creates a conversation, for a scope
+  // that opens with something already in the transcript.
+  seedConversation?: (
+    conversationId: string,
+    params: ResolveConversationParams,
+  ) => Promise<void>
   loadContext: (conversationId: string, userId: number) => Promise<TContext>
   buildSystemPrompt: (ctx: TContext) => string
   buildTools: (ctx: TContext) => Record<string, LlmTool>

@@ -29,6 +29,7 @@ vi.mocked(useSnackbar).mockReturnValue({
 
 const turf = (overrides: Partial<DoorKnockingTurf> = {}): DoorKnockingTurf => ({
   id: 1,
+  outreachId: 900,
   voterFileFilterId: 7,
   name: 'Elm St & 5th',
   color: '#2563eb',

@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS } from 'helpers/analyticsHelper'
+import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
 import type {
   ChatMessageDto,
   ChatMessageSegment,
@@ -32,6 +35,90 @@ vi.mock('../../data/chat-api', () => ({
 }))
 
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('helpers/analyticsHelper', async (orig) => ({
+  ...(await orig<object>()),
+  trackEvent: (...args: unknown[]) => trackEventMock(...args),
+}))
+
+// Attachments are flag-gated; the toggle lets the drag-and-drop block turn
+// them on without flipping the flag under every other test in this file.
+// The mock respects scope so the paperclip scope regression tests work without
+// touching the real GrowthBook client.
+let attachmentsOn = false
+vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
+  useAttachmentsEnabled: (scope: string) => ({
+    ready: true,
+    enabled: attachmentsOn && scope === 'chief_of_staff',
+  }),
+}))
+
+const uploadAttachmentMock = vi.fn()
+const downloadAttachmentMock = vi.fn()
+const trackEventMock = vi.fn()
+vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
+  ...(await orig<object>()),
+  uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+  downloadChatAttachment: (...args: unknown[]) =>
+    downloadAttachmentMock(...args),
+}))
+
+// deck.gl and maplibre don't run in jsdom. The stub reports how many people
+// the card handed the canvas, so the wiring from a tool payload through to the
+// map can be checked without pulling the real one in.
+// Populated by the map stub below. `var` because vi.mock is hoisted above
+// const/let initialisation and the factory closes over this.
+// eslint-disable-next-line no-var
+var drawnRingsRefs: Array<Array<Array<[number, number]>> | undefined> = []
+
+// The boundary drawer reports save outcomes through the snackbar, and this
+// suite renders no provider — only reached once the overlay opens, which is
+// why every test here passed before the drawer existed.
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+    displaySnackbar: vi.fn(),
+  }),
+}))
+
+vi.mock('../../../contacts/crm/map/ContactListMap', () => ({
+  __esModule: true,
+  default: function ContactListMapStub({
+    people,
+    otherRings,
+  }: {
+    people?: unknown[]
+    otherRings?: Array<Array<[number, number]>>
+  }) {
+    // Recorded by REFERENCE. ContactListMap rebuilds its deck.gl layers
+    // whenever otherRings changes identity, so an unmemoised boundary is a
+    // real regression that no value assertion can see.
+    drawnRingsRefs.push(otherRings)
+    return (
+      <div
+        data-testid="contact-map-stub"
+        data-people={(people ?? []).length}
+        data-ring={JSON.stringify(otherRings ?? [])}
+      />
+    )
+  },
+}))
+
+// The card reads the list's members through the org-scoped contacts route.
+vi.mock('@shared/organization-picker', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  useOrganization: () => ({ slug: 'eo-test-org' }),
+}))
+
+const listMapPerson = (id: string) =>
+  makePerson({
+    id,
+    address: {
+      ...makePerson().address,
+      latitude: '44.7593',
+      longitude: '-85.6175',
+    },
+  })
 
 function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
   return (async function* () {
@@ -71,6 +158,10 @@ beforeEach(() => {
   // client; tests that assert the committed transcript override this.
   listMessagesMock.mockResolvedValue([])
   seq = 0
+  attachmentsOn = false
+  uploadAttachmentMock.mockReset()
+  downloadAttachmentMock.mockReset()
+  trackEventMock.mockReset()
   window.localStorage.clear()
 })
 
@@ -290,6 +381,42 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(createMock).not.toHaveBeenCalled()
     // Intro messages are not shown when replaying an existing conversation.
     expect(screen.queryByText(COS_INTRO_MESSAGES[0]!)).not.toBeInTheDocument()
+  })
+
+  it('fires CitationOpened when a citation chip is clicked', async () => {
+    attachmentsOn = true
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Per the resolution [1], the budget is set.', {
+        id: 'a-cite',
+        segments: [
+          { kind: 'text', text: 'Per the resolution ' },
+          {
+            kind: 'citation',
+            attachmentId: 'att-42',
+            page: 3,
+            quotedText: 'allocate $500K',
+          },
+          { kind: 'text', text: ', the budget is set.' },
+        ],
+      }),
+    ])
+    downloadAttachmentMock.mockResolvedValue(null)
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window)
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_cite" />)
+
+    const chip = await screen.findByRole('button', { name: 'Open source 1' })
+    fireEvent.click(chip)
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.CitationOpened,
+        { documentId: 'att-42', pageNumber: 3 },
+      ),
+    )
+    openSpy.mockRestore()
   })
 
   it('replays persisted tool segments in order on reload', async () => {
@@ -1052,5 +1179,493 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.getByLabelText(/ask a question/i)).not.toHaveFocus()
     await user.click(chip)
     expect(screen.getByLabelText(/ask a question/i)).toHaveFocus()
+  })
+
+  describe('list map card', () => {
+    const LIST = { listId: 16, name: 'Traverse Heights renters, 25-40' }
+
+    const mockListPeople = (count: number) => {
+      const people = Array.from({ length: count }, (_, i) =>
+        listMapPerson(`p${i}`),
+      )
+      api.mock('GET /v1/contacts', {
+        status: 200,
+        data: {
+          people,
+          pagination: {
+            totalResults: count,
+            currentPage: 1,
+            pageSize: count,
+            totalPages: 1,
+            hasNextPage: false,
+            hasPreviousPage: false,
+          },
+        },
+      })
+    }
+
+    // The tool's ARGS are the payload, so the card can render from the live
+    // event before anything is persisted.
+    it('renders the card from a show_list_map call as the turn streams', async () => {
+      const user = userEvent.setup()
+      mockListPeople(3)
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_map' })
+      // Held open after the tool call, so the assertions below run while the
+      // turn is still streaming. With a stream that closes immediately the
+      // card on screen is the committed transcript's, and the test passes
+      // whether or not the live event ever rendered anything — which is the
+      // whole of what this test is for.
+      let endTurn: () => void
+      const turnEnded = new Promise<void>((resolve) => {
+        endTurn = resolve
+      })
+      streamMessageMock.mockReturnValue(
+        (async function* () {
+          yield { type: 'tool_call', toolName: 'show_list_map', args: LIST }
+          await turnEnded
+          yield { type: 'done' }
+        })(),
+      )
+      // The engine swaps the live row for the server transcript once the turn
+      // settles, and the live copy is dropped at that point — so without the
+      // committed turn here the card would appear and then vanish, and this
+      // would be asserting the gap rather than the feature.
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'where are they?'),
+        msg('assistant', 'Here they are.', {
+          id: 'a_stream',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active />)
+
+      await user.type(
+        screen.getByLabelText(/ask a question/i),
+        'where are they?',
+      )
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      // Mid-stream: nothing is persisted yet, so this card can only have come
+      // from the live tool_call.
+      expect(await screen.findByText(LIST.name)).toBeInTheDocument()
+      expect(await screen.findByText('3 constituents')).toBeInTheDocument()
+      expect(
+        await screen.findByRole('link', { name: 'Open list' }),
+      ).toHaveAttribute('href', '/dashboard/contacts/lists/16')
+
+      endTurn!()
+
+      // Anchored on text only the committed turn carries, because the count
+      // is already 1 while the turn is live — asserting it without waiting
+      // for the commit passes before the duplicate can appear.
+      expect(await screen.findByText('Here they are.')).toBeInTheDocument()
+
+      // And still exactly one: the live row and the persisted turn carry the
+      // same payload, so a live copy left behind after the settle draws the
+      // card twice.
+      await waitFor(() =>
+        expect(screen.getAllByTestId('contact-map-stub')).toHaveLength(1),
+      )
+    })
+
+    const mockSavedList = (
+      over: Record<string, unknown> = {},
+    ): Record<string, unknown> => {
+      const row = { id: LIST.listId, name: LIST.name, ...over }
+      api.mock('GET /v1/voters/voter-file/filters', {
+        status: 200,
+        data: [row] as never,
+      })
+      return row
+    }
+
+    it('offers the draw CTA on the card and opens the overlay', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList()
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_map',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_map" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: /draw an area/i }),
+      )
+
+      expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
+    })
+
+    // Outreach locks a list permanently and the write behind this button
+    // 409s once it has. Offering it anyway sends the holder to a refusal.
+    it('hides the draw CTA once the list is locked by outreach', async () => {
+      mockListPeople(2)
+      mockSavedList({ firstUsedForOutreachAt: '2026-09-01T00:00:00.000Z' })
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_locked',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_locked" />)
+
+      expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+      ).not.toBeInTheDocument()
+    })
+
+    // A transcript re-renders on every streaming token, and
+    // ringsFromGeoJsonShape allocates a fresh array each call — the empty
+    // one included, so a list with no boundary is not exempt. ContactListMap
+    // lists otherRings among the dependencies of the effect that rebuilds
+    // its deck.gl layers, so a bare call rebuilt polygon and vertex layers
+    // continuously mid-reply.
+    it('hands the map a stable boundary across re-renders', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList({
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 1],
+              [0, 0],
+            ],
+          ],
+        },
+      })
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_ring',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_ring" />)
+      await screen.findByTestId('contact-map-stub')
+
+      drawnRingsRefs.length = 0
+      // Any state change in the body re-renders the card, the way a
+      // streaming token does.
+      await user.type(screen.getByLabelText(/ask a question/i), 'hello')
+
+      expect(drawnRingsRefs.length).toBeGreaterThan(1)
+      const [first] = drawnRingsRefs
+      expect(first).toBeDefined()
+      for (const ref of drawnRingsRefs) {
+        expect(ref).toBe(first)
+      }
+    })
+
+    // A transcript can hold several maps. Switching lists remounts the
+    // overlay, which seeds its ring at mount and never again, so a second
+    // card's button would silently discard whatever the holder had drawn
+    // for the first. Not reachable by mouse — the overlay covers the
+    // viewport — but reachable by keyboard, since it traps no focus.
+    it("withdraws every other map's draw button while one is open", async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      const other = { listId: 21, name: 'Kenilworth over 65' }
+      api.mock('GET /v1/voters/voter-file/filters', {
+        status: 200,
+        data: [
+          { id: LIST.listId, name: LIST.name },
+          { id: other.listId, name: other.name },
+        ] as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map one'),
+        msg('assistant', 'First.', {
+          id: 'a_one',
+          segments: [
+            { kind: 'text', text: 'First.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+        msg('user', 'and the other'),
+        msg('assistant', 'Second.', {
+          id: 'a_two',
+          segments: [
+            { kind: 'text', text: 'Second.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: other },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_two" />)
+
+      const buttons = await screen.findAllByRole('button', {
+        name: /draw an area/i,
+      })
+      expect(buttons).toHaveLength(2)
+
+      await user.click(buttons[0]!)
+      expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
+
+      // Both, including the one that opened it: re-clicking its own card
+      // would remount the overlay just as readily.
+      expect(
+        screen.queryAllByRole('button', { name: /draw an area/i }),
+      ).toHaveLength(0)
+    })
+
+    // An absent row reads as unlocked, so gating on the lock alone showed
+    // the button while the list was still in flight — and the overlay seeds
+    // its ring into useState once, at mount. Opened in that window it came
+    // up blank over a list that already had a shape, and saving from there
+    // wiped the shape the holder opened it to edit.
+    it('withholds the draw CTA until the list row has actually arrived', async () => {
+      mockListPeople(2)
+      // Never resolves: the window between the card rendering and the row
+      // landing, held open.
+      const neverSettles = new Promise<never>(() => {
+        // Intentionally never resolved — see above.
+      })
+      api.mock('GET /v1/voters/voter-file/filters', () => neverSettles)
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_pending',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_pending" />)
+
+      // The card itself renders — only the button waits.
+      expect(await screen.findByTestId('contact-map-stub')).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /draw an area|edit area/i }),
+      ).not.toBeInTheDocument()
+    })
+
+    // The reason the overlay is mounted by this component and not by the
+    // card. The live row is dropped and rebuilt under a history key the
+    // moment the turn settles, so an overlay owned by the card would unmount
+    // mid-draw and take the holder's ring with it.
+    it('keeps the drawing surface open when the streaming turn commits', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList()
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_draw' })
+      let endTurn: () => void
+      const turnEnded = new Promise<void>((resolve) => {
+        endTurn = resolve
+      })
+      streamMessageMock.mockReturnValue(
+        (async function* () {
+          yield { type: 'tool_call', toolName: 'show_list_map', args: LIST }
+          await turnEnded
+          yield { type: 'done' }
+        })(),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here they are.', {
+          id: 'a_commit',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active />)
+      await user.type(screen.getByLabelText(/ask a question/i), 'map it')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      // Opened while the turn is still streaming, off the live card.
+      await user.click(
+        await screen.findByRole('button', { name: /draw an area/i }),
+      )
+      expect(await screen.findByTestId('boundary-overlay')).toBeInTheDocument()
+
+      endTurn!()
+      await screen.findByText('Here they are.')
+
+      expect(screen.getByTestId('boundary-overlay')).toBeInTheDocument()
+    })
+
+    // And again from the transcript, which is the case the args-not-results
+    // design exists for: a reloaded conversation never passes through onEvent.
+    it('replays the card from a persisted show_list_map segment', async () => {
+      mockListPeople(2)
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'where are they?'),
+        msg('assistant', 'Here they are.', {
+          id: 'a_map',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv_map" />)
+
+      expect(await screen.findByText(LIST.name)).toBeInTheDocument()
+      expect(await screen.findByText('2 constituents')).toBeInTheDocument()
+      expect(await screen.findByTestId('contact-map-stub')).toHaveAttribute(
+        'data-people',
+        '2',
+      )
+    })
+
+    // The card IS the output, so the tool call must not also render as a
+    // status pill above it. Live the event is consumed before a pill exists;
+    // only the replayed transcript still carries the segment.
+    it('does not also show a tool pill for the replayed map segment', async () => {
+      mockListPeople(1)
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('assistant', 'Here they are.', {
+          id: 'a_pill',
+          segments: [
+            { kind: 'text', text: 'Here they are.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="conv_map" />)
+
+      expect(await screen.findByText(LIST.name)).toBeInTheDocument()
+      expect(screen.queryByText('show_list_map')).not.toBeInTheDocument()
+    })
+  })
+})
+
+describe('<ChiefOfStaffChatBody> attachment scope', () => {
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+  })
+
+  it('hides the paperclip for campaign_assistant scope even when the flag is on', () => {
+    attachmentsOn = true
+    render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
+    // ChatComposer only renders the attachment trigger when attachmentsEnabled.enabled.
+    // With campaign_assistant scope the mock returns enabled:false, so no paperclip.
+    expect(
+      screen.queryByRole('button', { name: /attach/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the paperclip for chief_of_staff scope when the flag is on', () => {
+    attachmentsOn = true
+    render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
+    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
+  })
+})
+
+describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
+  const dragPayload = (files: File[]) => ({
+    dataTransfer: { types: ['Files'], files },
+  })
+
+  const renderBody = () => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    const { container } = render(
+      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+    )
+    return container.firstElementChild as HTMLElement
+  }
+
+  it('shows the drop overlay while dragging files and hides it on leave', () => {
+    attachmentsOn = true
+    const surface = renderBody()
+
+    fireEvent.dragEnter(surface, dragPayload([]))
+    expect(screen.getByText('Drop a file to attach it')).toBeInTheDocument()
+
+    fireEvent.dragLeave(surface, dragPayload([]))
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('uploads a supported dropped file through the attach path', async () => {
+    attachmentsOn = true
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    const surface = renderBody()
+    const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+    fireEvent.drop(surface, dragPayload([file]))
+
+    await waitFor(() =>
+      expect(uploadAttachmentMock).toHaveBeenCalledWith('conv', file),
+    )
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not upload an unsupported dropped file', async () => {
+    attachmentsOn = true
+    const surface = renderBody()
+    const file = new File(['x'], 'malware.exe', {
+      type: 'application/x-msdownload',
+    })
+
+    fireEvent.drop(surface, dragPayload([file]))
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
+  })
+
+  it('ignores drops while attachments are disabled', async () => {
+    const surface = renderBody()
+    const file = new File(['x'], 'agenda.pdf', { type: 'application/pdf' })
+
+    fireEvent.dragEnter(surface, dragPayload([file]))
+    expect(
+      screen.queryByText('Drop a file to attach it'),
+    ).not.toBeInTheDocument()
+
+    fireEvent.drop(surface, dragPayload([file]))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(uploadAttachmentMock).not.toHaveBeenCalled()
   })
 })

@@ -1,4 +1,8 @@
-import { BadGatewayException, NotFoundException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -139,6 +143,25 @@ describe('BriefingArtifactCacheService', () => {
 
     await expect(cache.get(BUCKET, KEY)).rejects.toBeInstanceOf(
       BadGatewayException,
+    )
+  })
+
+  // The wrong-bucket row from the incident: S3Service has already called the
+  // PermanentRedirect a 500, because no retry can fix a request we built
+  // wrong. Re-wrapping it as 502 here would put the caller straight back into
+  // the retry loop this endpoint was stuck in (ENG-11117).
+  it('keeps the status S3Service assigned to an AWS fault', async () => {
+    const { s3, cache } = build()
+    s3.seedError(
+      BUCKET,
+      KEY,
+      new InternalServerErrorException(
+        'A request to AWS could not be completed.',
+      ),
+    )
+
+    await expect(cache.get(BUCKET, KEY)).rejects.toBeInstanceOf(
+      InternalServerErrorException,
     )
   })
 

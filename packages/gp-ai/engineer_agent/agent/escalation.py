@@ -46,6 +46,18 @@ VERDICT_NO_CODE_CHANGE = "no-code-change"
 VERDICT_NEEDS_HUMAN = "needs-human"
 KNOWN_VERDICTS = frozenset({VERDICT_FIX, VERDICT_NO_CODE_CHANGE, VERDICT_NEEDS_HUMAN})
 
+# The three outcomes of maybe_escalate that mean an implementation run is
+# happening or was deliberately not asked for. Named because handoff.py reads
+# them — every other outcome leaves a human holding the ticket and is announced
+# in #bugs — and a gate keyed on a prose string that someone later reworded for
+# the logs would fail silently in the direction of telling nobody.
+#
+# Only these three. The rest stay inline f-strings carrying their own detail:
+# they are log lines, and naming them would imply a contract they do not have.
+OUTCOME_ESCALATED = "escalated"
+OUTCOME_ALREADY_QUEUED = "already queued"
+OUTCOME_DISABLED = "disabled"
+
 # Ramp switch. Defaults to OFF: turning this on changes what lands in the
 # repository without a human in the loop first, and it should not become live
 # merely because this code deployed. Flip it in
@@ -273,7 +285,7 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_
     # every run well before the switch is flipped.
     if not escalation_enabled():
         logger.info(f"Analysis verdict 'fix' for {task_id}; escalation disabled ({ESCALATION_ENABLED_ENV} unset)")
-        return "disabled"
+        return OUTCOME_DISABLED
 
     if client_factory is None:
         from shared.clickup_client import ClickUpClient
@@ -327,7 +339,7 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_
 
             if already_queued(task):
                 logger.info(f"Task {task_id} already carries {IMPLEMENT_TAG}; not re-tagging")
-                return "already queued"
+                return OUTCOME_ALREADY_QUEUED
 
             # BEFORE THE TAG, and that order is the whole correctness of this.
             # The tag is what launches the implement run, and the Lambda decides
@@ -378,4 +390,4 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_
         return "escalation failed"
 
     logger.info(f"Escalated {task_id}: added {IMPLEMENT_TAG} to queue an implementation run")
-    return "escalated"
+    return OUTCOME_ESCALATED

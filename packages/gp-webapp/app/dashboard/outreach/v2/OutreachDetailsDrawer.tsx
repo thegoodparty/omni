@@ -3,10 +3,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  SmsOutreachResults,
   OutreachReceipt,
   PhoneBankCallOutcome,
-  SupportAnswer,
+  PhoneBankingOutreachDetail,
 } from '@goodparty_org/contracts'
 import {
   AlertDialog,
@@ -56,6 +55,13 @@ import {
 } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { ExportWalkSheetButton } from 'app/dashboard/door-knocking/native/ExportWalkSheetButton'
+import type { DoorKnockingTurf } from '@goodparty_org/contracts'
+import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
+import {
+  unfinishedTurfs,
+  useCampaignLifecycle,
+} from 'app/dashboard/door-knocking/native/campaignLifecycle'
+import { MarkDoneDialog } from 'app/dashboard/door-knocking/native/MarkDoneDialog'
 import { ChannelBadge, HistoryStatusText, getChannelLabel } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 import { shortOutreachDate } from './outreachDate.util'
@@ -65,6 +71,8 @@ import {
   useOutreachDetail,
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
+import { useSmsResults } from './useOutreachResults'
+import { ServeSmsRepliesSection } from './ServeSmsRepliesSection'
 import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
@@ -74,8 +82,10 @@ import {
   listDetailsFooterMode,
   type ListDetailsLifecycle,
 } from './listDetails/footerMode'
+import { FollowUpOutstandingSection } from './FollowUpOutstandingSection'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
+import { CampaignTurfList } from './CampaignTurfList'
 import {
   DetailsSection,
   FilterGroup,
@@ -106,14 +116,27 @@ const PHONE_BANKING_OUTCOME_LABEL: Record<PhoneBankCallOutcome, string> = {
   hung_up: 'Hung up',
 }
 
-const SUPPORT_ANSWER_LABEL: Record<SupportAnswer, string> = {
-  supporter: 'Yes',
-  unsure: 'Unsure',
-  non_supporter: 'No',
-}
-
 const percentLabel = (count: number, total: number): string =>
   total > 0 ? `${Math.round((count / total) * 100)}%` : '0%'
+
+// The completed-results rows for whichever question this list's callers were
+// actually asked. Both surfaces state every answer even at zero — "nobody
+// needs following up" is an answer, and a row that disappeared when it
+// emptied would make the table's own shape a fact about the list.
+const answerRows = (
+  phoneBanking: PhoneBankingOutreachDetail,
+  isServe: boolean,
+): Array<[string, number]> =>
+  isServe
+    ? [
+        ['Needs follow-up: Yes', phoneBanking.byFollowUp.yes],
+        ['Needs follow-up: No', phoneBanking.byFollowUp.no],
+      ]
+    : [
+        ['Support: Yes', phoneBanking.supporters],
+        ['Support: Unsure', phoneBanking.unsure],
+        ['Support: No', phoneBanking.nonSupporters],
+      ]
 
 const PRICE_PER_TEXT =
   OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
@@ -145,6 +168,13 @@ interface OutreachDetailsDrawerProps {
   // Serve caller threads its org-scoped sibling the same bound-function way
   // SocialFlow's `surface` does, so this drawer never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // Serve has no team-accounts surface: an elected official's org has no
+  // campaign roles to assign a list to, so the assignees section is not
+  // rendered there at all rather than relabelled.
+  isServe?: boolean
+  // Serve only: opens the phone-banking flow on the follow-up list the
+  // results section saves. Omitted by Win, which has no such section.
+  onCallFollowUpList?: (listId: number, listName: string) => void
 }
 
 interface DetailRow extends HistoryRow {
@@ -157,6 +187,8 @@ export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
   detailFetcher = fetchOutreachDetail,
+  isServe = false,
+  onCallFollowUpList,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
@@ -246,18 +278,19 @@ export const OutreachDetailsDrawer = ({
 
   // The Statistics card (design prototype): counts + share of contacts for
   // a finished text campaign. Numbers refresh with the hourly report sweep.
-  const resultsQuery = useQuery({
-    queryKey: ['outreach-results', row?.id ?? -1],
-    queryFn: async (): Promise<SmsOutreachResults> => {
-      const { data } = await clientRequest('GET /v1/outreach/:id/results', {
-        id: String(row?.id),
-      })
-      return data
-    },
-    enabled: row !== null && isSms && isCompleted,
-    retry: false,
-    staleTime: 5 * 60 * 1000,
-  })
+  //
+  // The SAME card on both surfaces, from the same three numbers — the design
+  // renders one three-row card for the sms and polls channels alike, which is
+  // exactly SmsOutreachResultsSchema. Only the network differs, so the
+  // surface names itself and the hook picks both the endpoint and the cache
+  // key from that; Win's read is unchanged. The key has to carry the scope —
+  // both surfaces share one QueryClient and number their rows from the same
+  // table, so a scope-less key would let one answer for the other.
+  const resultsQuery = useSmsResults(
+    row?.id ?? null,
+    isSms && isCompleted,
+    isServe ? 'serve' : 'win',
+  )
   const results = resultsQuery.data ?? null
   const statRows = results
     ? [
@@ -308,46 +341,71 @@ export const OutreachDetailsDrawer = ({
   // anyway, because it arrives with the detail rather than with the table —
   // a row this drawer was opened from through a deep link has no cached copy
   // to be right or wrong about.
+  // The campaign this row anchors, and its turfs. Same query options
+  // `CampaignTurfList` below uses, so React Query serves ONE fetch to two
+  // observers — the list is not lifted into a prop, because the child is the
+  // only thing that renders it and hoisting that render would cost the
+  // section its own tests.
+  //
+  // The drawer needs the list for three answers the anchor's own block cannot
+  // give: which turf "Continue knocking" should open on a campaign whose
+  // anchor is already finished, how many turfs a campaign-level Done would
+  // finish, and whether there is anything left to archive at all.
+  const anchorOutreachId = row?.campaignOutreachId ?? row?.id ?? -1
+  const campaignTurfsQuery = useQuery({
+    ...campaignTurfsQueryOptions(anchorOutreachId),
+    enabled: row !== null && isDoorKnocking,
+  })
+  const campaignTurfs = campaignTurfsQuery.data ?? []
+  const unfinished = unfinishedTurfs(campaignTurfs)
+  // Archive and complete for the WHOLE campaign, one server-side transaction
+  // each. This is what replaced `canArchiveFromDrawer`: the write used to
+  // take a turf id, so on a campaign it shelved the anchor and left every
+  // sibling on the rail, and the button was withheld rather than fanned out
+  // (a fan-out on the turf endpoint would shelve a whole campaign when a
+  // canvasser finished one turf of it). There is a campaign-scoped endpoint
+  // now, so the guard is gone and a solo campaign takes the same path — a
+  // campaign of one is still a campaign, and one code path is what keeps the
+  // two from drifting.
+  const campaignLifecycle = useCampaignLifecycle(anchorOutreachId)
+  // The CAMPAIGN's shelf, not the anchor turf's. `collapseDoorKnockingCampaigns`
+  // says a campaign is archived only once every turf is, so reading the
+  // anchor's own flag here would contradict the history row two inches away:
+  // shelving the first turf from its walk leaves the campaign on the active
+  // list while this drawer badged it Archived and offered Restore. Computed
+  // off the same predicate the server rollup uses, so the two agree by
+  // construction. A campaign with no live turfs left falls back to the row.
+  const campaignArchived =
+    campaignTurfs.length > 0 && campaignTurfs.every((turf) => turf.archivedAt)
   const isArchived = Boolean(
-    isDoorKnocking ? doorKnocking?.archivedAt : row?.archivedAt,
+    isDoorKnocking
+      ? campaignTurfs.length > 0
+        ? campaignArchived
+        : row?.archivedAt
+      : row?.archivedAt,
   )
+  // Shared by both archive writers below. The detail carries the turf's own
+  // `archivedAt`, so a stale cache entry would reopen the drawer on the
+  // pre-archive answer.
+  const applyArchivedAt = (archivedAt: Date | string | null) => {
+    setOutreaches(
+      outreaches.map((o) => (o.id === row?.id ? { ...o, archivedAt } : o)),
+    )
+    queryClient.invalidateQueries({
+      queryKey: outreachDetailQueryKey(row?.id ?? -1),
+    })
+    onOpenChange(false)
+  }
   const archiveMutation = useMutation({
     mutationFn: () => {
       const rowId = row?.id
       if (!rowId) return Promise.reject(new Error('row unavailable'))
-      // Door knocking archives through the TURF's endpoint, never this row's.
-      // Both write the same envelope column, but the turf's route is the one
-      // the door-knocking rail invalidates against and the one whose response
-      // is a turf — so routing the write through it keeps one act with one
-      // writer, and this drawer gained the button by gaining the turf id
-      // rather than a write of its own.
-      if (isDoorKnocking) {
-        const turfId = doorKnocking?.turfId
-        if (!turfId) return Promise.reject(new Error('turfId unavailable'))
-        return clientRequest('POST /v1/door-knocking/turfs/:id/archive', {
-          id: String(turfId),
-          archived: !isArchived,
-        })
-      }
       return clientRequest('PATCH /v1/outreach/:id/archive', {
         id: String(rowId),
         archived: !isArchived,
       })
     },
-    onSuccess: ({ data }) => {
-      setOutreaches(
-        outreaches.map((o) =>
-          o.id === row?.id ? { ...o, archivedAt: data.archivedAt } : o,
-        ),
-      )
-      // The detail carries the turf's own `archivedAt`, so a stale cache entry
-      // would reopen the drawer on the pre-archive answer. Both channels
-      // invalidate: the envelope's flag rides the detail too.
-      queryClient.invalidateQueries({
-        queryKey: outreachDetailQueryKey(row?.id ?? -1),
-      })
-      onOpenChange(false)
-    },
+    onSuccess: ({ data }) => applyArchivedAt(data.archivedAt),
     onError: () =>
       errorSnackbar(
         isArchived
@@ -355,6 +413,82 @@ export const OutreachDetailsDrawer = ({
           : "Couldn't archive this campaign. Please try again.",
       ),
   })
+
+  // One button, two writers. Door knocking archives the CAMPAIGN, which is
+  // what keeps the turf rail and this record in step — only the door-knocking
+  // routes move both, and `OutreachService.setArchived` can reach the
+  // envelope alone. Every other channel archives its own envelope. The
+  // door-knocking hook already invalidates the two turf caches, which is why
+  // the unconditional pair that used to sit in `onSuccess` above is gone.
+  const toggleArchive = () => {
+    if (!isDoorKnocking) return archiveMutation.mutate()
+    // Mirror the server's own rollup rather than reading the anchor's row out
+    // of the response: the anchor's turf may be tombstoned and absent from it,
+    // which would report the campaign un-archived right after archiving it.
+    const onSuccess = (turfs: DoorKnockingTurf[]) =>
+      applyArchivedAt(
+        turfs.length > 0 && turfs.every((turf) => turf.archivedAt)
+          ? turfs.reduce<Date | null>(
+              (latest, turf) =>
+                turf.archivedAt && (!latest || turf.archivedAt > latest)
+                  ? turf.archivedAt
+                  : latest,
+              null,
+            )
+          : null,
+      )
+    return isArchived
+      ? campaignLifecycle.restore({ onSuccess })
+      : campaignLifecycle.moveToArchive({ onSuccess })
+  }
+  const archivePending =
+    archiveMutation.isPending || campaignLifecycle.pendingAction !== null
+
+  // The campaign-level Done, and the one press in this drawer with no undo.
+  // It closes the drawer on success for the same reason archive does: `row`
+  // is a snapshot the hub holds, so the status this write changes cannot
+  // update underneath an open drawer, and the history row behind it reads
+  // Done the moment it closes. The badge is NOT recomputed here from the
+  // sibling list — the campaign status rollup belongs to
+  // `collapseDoorKnockingCampaigns`, and no surface guards that badge.
+  const [markCampaignDoneOpen, setMarkCampaignDoneOpen] = useState(false)
+  // A sibling row's confirm is the child's, but its clicks land outside this
+  // drawer exactly like the two below, so the drawer has to know one is up.
+  const [turfConfirmOpen, setTurfConfirmOpen] = useState(false)
+  // A per-turf Done from the sibling list moves the campaign without going
+  // through this drawer's own mutation, so the history row's snapshot goes
+  // stale — and the footer reads that snapshot. Finishing the LAST unfinished
+  // turf that way would otherwise leave the footer with nothing at all: Mark
+  // campaign done is withheld once nothing is unfinished, and Archive needs
+  // the row to read `done`. Handled as an event rather than derived from the
+  // turf list, because `row` is the hub's snapshot and does not update when
+  // the context does — a reactive version would re-fire forever.
+  const handleTurfCompleted = (turfId: number) => {
+    if (!row) return
+    queryClient.invalidateQueries({ queryKey: outreachDetailQueryKey(row.id) })
+    if (unfinished.some((turf) => turf.id !== turfId)) return
+    setOutreaches(
+      outreaches.map((o) =>
+        o.id === row.id ? { ...o, status: 'completed' } : o,
+      ),
+    )
+  }
+
+  const markCampaignDone = () =>
+    campaignLifecycle.markDone({
+      onSuccess: () => {
+        setOutreaches(
+          outreaches.map((o) =>
+            o.id === row?.id ? { ...o, status: 'completed' } : o,
+          ),
+        )
+        queryClient.invalidateQueries({
+          queryKey: outreachDetailQueryKey(row?.id ?? -1),
+        })
+        setMarkCampaignDoneOpen(false)
+        onOpenChange(false)
+      },
+    })
 
   const displayDate = row?.date ?? row?.createdAt
   const voterFileFilter = (row as DetailRow | null)?.voterFileFilter
@@ -368,7 +502,7 @@ export const OutreachDetailsDrawer = ({
   // Prototype byline verbs ("Scheduled for {date}" / "Sent {date}"); our
   // extra legacy statuses (Draft, In review, …) have no prototype verb and
   // keep the bare date.
-  const statusLabel = row ? getHistoryStatusLabel(row) : null
+  const statusLabel = row ? getHistoryStatusLabel(row, isServe) : null
   const bylineVerb =
     statusLabel === 'Scheduled'
       ? 'Scheduled for'
@@ -389,6 +523,30 @@ export const OutreachDetailsDrawer = ({
   // their own footer below instead of the mode machine.
   const selfServe = isPhoneBanking || isDoorKnocking
   const footerMode = listDetailsFooterMode(lifecycleOf(statusLabel), selfServe)
+  // The campaign's next unfinished turf, falling back to the anchor's own on
+  // a solo campaign.
+  //
+  // This is the fix for a bug the status rollup created: a campaign reads
+  // `in_progress` until EVERY sibling is done, so a campaign whose anchor
+  // turf is finished still gets the `continue` footer — and
+  // `doorKnocking.turfId` is the anchor's, so the button opened a route with
+  // nothing left to knock. Withholding it on `turfCount > 1` was the other
+  // option and is worse: it leaves a campaign's drawer with no primary action
+  // at all, where today it at least opens a turf in the campaign. The solo
+  // fallback keeps the common case at the latency it has now (the two ids can
+  // only agree there), and a campaign with nothing unfinished left withholds,
+  // which is the one case withholding is right for.
+  const nextWalkTurfId =
+    unfinished[0]?.id ??
+    ((row?.turfCount ?? 1) === 1 ? (doorKnocking?.turfId ?? null) : null)
+  // Zero-or-not, never printed. Per-turf `loggedCount` sums are not a
+  // campaign figure — turf polygons are not guaranteed disjoint, which is why
+  // the Overview cells still withhold — but "has anybody logged anything" is
+  // answered correctly by any positive term.
+  const knockingProgress =
+    campaignTurfs.length > 0
+      ? campaignTurfs.reduce((sum, turf) => sum + turf.loggedCount, 0)
+      : (doorKnocking?.loggedCount ?? 0)
   const continueHref = isPhoneBanking
     ? phoneBanking
       ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}`
@@ -406,8 +564,8 @@ export const OutreachDetailsDrawer = ({
       // beats a press that silently lands somewhere else — and a walk whose
       // list has since been deleted keeps the slot disabled for good, which is
       // the truth about a walk with nothing left to knock.
-      doorKnocking
-      ? `/dashboard/door-knocking?walkTurfId=${doorKnocking.turfId}&outreachId=${row?.id}`
+      nextWalkTurfId
+      ? `/dashboard/door-knocking?walkTurfId=${nextWalkTurfId}&outreachId=${row?.id}`
       : null
 
   // The SMS lifecycle actions this branch added have no mode in the canvas's
@@ -439,8 +597,8 @@ export const OutreachDetailsDrawer = ({
         <Button
           variant="outline"
           className="flex-1"
-          disabled={archiveMutation.isPending}
-          onClick={() => archiveMutation.mutate()}
+          disabled={archivePending}
+          onClick={toggleArchive}
         >
           <ArchiveIcon className="size-4" />
           {isArchived ? 'Restore from archive' : 'Move to archive'}
@@ -456,7 +614,12 @@ export const OutreachDetailsDrawer = ({
         onOpenChange={onOpenChange}
         title={row?.name || row?.title || 'Outreach details'}
         onInteractOutside={(event) => {
-          if (cancelConfirmOpen || deleteConfirmOpen) {
+          if (
+            cancelConfirmOpen ||
+            deleteConfirmOpen ||
+            markCampaignDoneOpen ||
+            turfConfirmOpen
+          ) {
             event.preventDefault()
           }
         }}
@@ -511,10 +674,7 @@ export const OutreachDetailsDrawer = ({
                     ? {
                         kind: 'link',
                         label: isDoorKnocking
-                          ? continueLabel(
-                              'doorKnocking',
-                              doorKnocking?.loggedCount ?? 0,
-                            )
+                          ? continueLabel('doorKnocking', knockingProgress)
                           : continueLabel(
                               'phoneBanking',
                               phoneBanking?.peopleCalled ?? 0,
@@ -561,17 +721,35 @@ export const OutreachDetailsDrawer = ({
                 // for the detail: without the turf id there is nothing to
                 // archive, and a button that resolves to a rejected mutation is
                 // worse than one that arrives a beat late.
-                footerMode === 'done' &&
-                (!isDoorKnocking || Boolean(doorKnocking)) && (
+                // One full-width secondary per state, which is what the
+                // slot is shaped for. A live campaign gets the way to finish
+                // it; a finished one gets the shelf. Marking done is not
+                // offered when nothing is unfinished, because then the
+                // campaign is already done and the row reads `done` anyway.
+                footerMode === 'continue' &&
+                isDoorKnocking &&
+                unfinished.length > 0 ? (
                   <Button
                     variant="outline"
                     className="w-full"
-                    disabled={archiveMutation.isPending}
-                    onClick={() => archiveMutation.mutate()}
+                    disabled={campaignLifecycle.pendingAction !== null}
+                    onClick={() => setMarkCampaignDoneOpen(true)}
                   >
-                    <ArchiveIcon className="size-4" />
-                    {isArchived ? 'Restore from archive' : 'Move to archive'}
+                    Mark campaign done
                   </Button>
+                ) : (
+                  footerMode === 'done' &&
+                  (!isDoorKnocking || campaignTurfs.length > 0) && (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      disabled={archivePending}
+                      onClick={toggleArchive}
+                    >
+                      <ArchiveIcon className="size-4" />
+                      {isArchived ? 'Restore from archive' : 'Move to archive'}
+                    </Button>
+                  )
                 )
               }
               note={
@@ -581,8 +759,10 @@ export const OutreachDetailsDrawer = ({
                 // perform it.
                 footerMode === 'done' &&
                 isDoorKnocking &&
-                Boolean(doorKnocking) &&
-                'This archives the saved list too, so Door knocking and this record stay in step.'
+                campaignTurfs.length > 0 &&
+                (campaignTurfs.length === 1
+                  ? 'This archives the saved list too, so Door knocking and this record stay in step.'
+                  : `This archives all ${campaignTurfs.length} saved lists too, so Door knocking and this record stay in step.`)
               }
             />
           ))
@@ -662,11 +842,21 @@ export const OutreachDetailsDrawer = ({
                   // reads — printing a second derivation of either is the
                   // two-denominator failure this feature has a rule against.
                   //
+                  // Solo-campaign only. `OutreachDetail.doorKnocking` carries
+                  // the ANCHOR turf's figures — not the campaign aggregate
+                  // across siblings — so on a multi-turf campaign this pair
+                  // would print anchor-only numbers labelled as campaign
+                  // totals, which is exactly the two-denominator failure
+                  // above. For multi-turf campaigns the per-turf figures live
+                  // on the sibling section above; the drawer-level aggregate
+                  // will need a real backend rollup before it can come back.
+                  //
                   // A walk whose list is gone renders neither cell rather than
                   // two em-dashes, which is the rule this drawer already
                   // followed when it had no block at all: the sentence below
                   // says what happened, and a cell that can only say "—" adds
                   // nothing to it.
+                  (row?.turfCount ?? 1) === 1 &&
                   (doorKnocking || detailQuery.isLoading) && (
                     <>
                       <Metric
@@ -729,8 +919,12 @@ export const OutreachDetailsDrawer = ({
                 flag-gated inside the section itself so this renders nothing
                 extra when win-team-accounts is off. Volunteers never open
                 this drawer (their whole surface is /volunteer's own
-                assignments page), so there's no second gate here. */}
-            {(isPhoneBanking || isDoorKnocking) && (
+                assignments page), so there's no second gate for them.
+                Serve is excluded outright: team accounts are a Win feature
+                (the roles are campaign roles), so an elected official is
+                offered no assignment rather than one labelled in Win's
+                vocabulary. */}
+            {(isPhoneBanking || isDoorKnocking) && !isServe && (
               <OutreachAssigneesSection
                 outreachId={row.id}
                 outreachName={row.name || row.title || undefined}
@@ -763,6 +957,14 @@ export const OutreachDetailsDrawer = ({
                   ))}
                 </div>
               </DetailsSection>
+            )}
+
+            {/* Read-only for v1: no heart, no unread dot, no composer and no
+                filters — see ServeSmsRepliesSection's own note. Serve-only
+                because reply CONTENT only exists for sends that came back
+                through the shared ingest. */}
+            {isServe && isSms && isCompleted && (
+              <ServeSmsRepliesSection outreachId={row.id} />
             )}
 
             {isPaidFlowSms && (
@@ -888,7 +1090,31 @@ export const OutreachDetailsDrawer = ({
                 surface here (ADR 0012), and a walk is routinely ended with
                 doors left unlogged — so how much of the list was covered is
                 the answer on a done walk too, not only on a live one. */}
-            {isDoorKnocking && doorKnocking && (
+            {/* The campaign's own turfs: one row per turf, plus an "Add
+                another turf" affordance that lands on the create flow scoped
+                to this campaign. Rendered for every door-knocking row rather
+                than only for `turfCount > 1`, so the add-turf path is
+                reachable from a solo campaign — otherwise a candidate with
+                one turf can never grow it, chicken-and-egg. On a solo
+                campaign the section reads as one row, which duplicates some
+                of what the Progress card below shows; the two-row overlap
+                is the price of keeping the affordance reachable. */}
+            {isDoorKnocking && row && (
+              <CampaignTurfList
+                anchorOutreachId={anchorOutreachId}
+                outreachId={row.id}
+                onConfirmOpenChange={setTurfConfirmOpen}
+                onTurfCompleted={handleTurfCompleted}
+              />
+            )}
+
+            {isDoorKnocking && doorKnocking && (row?.turfCount ?? 1) === 1 && (
+              // Solo-campaign only, same argument as the Overview cells
+              // above: `doorKnocking.loggedCount` / `peopleCount` are the
+              // ANCHOR turf's, so on a multi-turf campaign this bar would
+              // report one turf's progress as if it were the whole
+              // campaign's. Per-turf progress lives on the sibling section;
+              // the drawer-level aggregate is hidden until a rollup exists.
               <DetailsSection title="Progress">
                 <Card className="gap-3 rounded-lg p-3">
                   <div className="flex items-center justify-between">
@@ -1020,30 +1246,46 @@ export const OutreachDetailsDrawer = ({
                           </TableCell>
                         </TableRow>
                       ))}
-                      {(
-                        [
-                          ['supporter', phoneBanking.supporters],
-                          ['unsure', phoneBanking.unsure],
-                          ['non_supporter', phoneBanking.nonSupporters],
-                        ] as [SupportAnswer, number][]
-                      ).map(([answer, count]) => (
-                        <TableRow key={answer}>
-                          <TableCell>
-                            Support: {SUPPORT_ANSWER_LABEL[answer]}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {count}
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {percentLabel(count, phoneBanking.peopleCalled)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {/* The conversation rows, in this list's own
+                          vocabulary. Serve never asks for a stance, so its
+                          support tallies are permanently zero — three rows
+                          reading "Support: Yes 0" is what this branch
+                          exists to stop an official seeing. Picked by
+                          surface and not by which tally is populated, so a
+                          completed list nobody answered still reads in the
+                          right words. */}
+                      {answerRows(phoneBanking, isServe).map(
+                        ([label, count]) => (
+                          <TableRow key={label}>
+                            <TableCell>{label}</TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {count}
+                            </TableCell>
+                            <TableCell className="text-right text-muted-foreground">
+                              {percentLabel(count, phoneBanking.peopleCalled)}
+                            </TableCell>
+                          </TableRow>
+                        ),
+                      )}
                     </TableBody>
                   </Table>
                 </Card>
               </DetailsSection>
             )}
+            {/* Serve's actionable half of the results: the Needs follow-up
+                row above says what was asked during the campaign, this says
+                what is still owed now and turns it into people to call. */}
+            {isPhoneBanking &&
+              phoneBanking &&
+              isCompleted &&
+              isServe &&
+              row && (
+                <FollowUpOutstandingSection
+                  outreachId={row.id}
+                  outreachName={row.name}
+                  onCallList={onCallFollowUpList}
+                />
+              )}
           </>
         )}
       </ListDetailsSheetShell>
@@ -1098,6 +1340,17 @@ export const OutreachDetailsDrawer = ({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MarkDoneDialog
+        target={
+          markCampaignDoneOpen
+            ? { kind: 'campaign', unfinishedTurfCount: unfinished.length }
+            : null
+        }
+        onOpenChange={setMarkCampaignDoneOpen}
+        pending={campaignLifecycle.pendingAction === 'complete'}
+        onConfirm={markCampaignDone}
+      />
     </>
   )
 }

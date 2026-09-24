@@ -41,6 +41,7 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
 }
 
 interface ComposeStepProps {
+  isServe: boolean
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   draft: string
@@ -63,6 +64,7 @@ interface ComposeStepProps {
 }
 
 export const ComposeStep = ({
+  isServe,
   tone,
   onToneChange,
   draft,
@@ -145,7 +147,7 @@ export const ComposeStep = ({
         )}
 
         {isDrafting && !draft.trim() ? (
-          <ThinkingStream />
+          <ThinkingStream isServe={isServe} />
         ) : (
           <Card className="gap-3 p-4">
             <Textarea

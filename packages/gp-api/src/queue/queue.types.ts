@@ -17,6 +17,11 @@ export enum QueueType {
   NIGHTLY_10DLC_REPORT = 'nightly10DlcReport',
   CV_STATUS_POLL = 'cvStatusPoll',
   ORDINANCE_QUALITY_LOOP = 'ordinanceQualityLoop',
+  EXTRACT_CHAT_ATTACHMENT = 'extractChatAttachment',
+  // The shared delivery layer's outbound trigger: resolve the audience,
+  // scrub opt-outs, write the CSV and hand it to fulfilment. Product-
+  // agnostic — the handler reads the outreach type off the row.
+  OUTREACH_TEXT_SEND = 'outreachTextSend',
 }
 
 export type QueueMessage =
@@ -35,6 +40,10 @@ export type QueueMessage =
     }
   | { type: QueueType.POLL_CREATION; data: PollCreationEvent['data'] }
   | { type: QueueType.POLL_EXPANSION; data: PollExpansionEvent['data'] }
+  | {
+      type: QueueType.OUTREACH_TEXT_SEND
+      data: OutreachTextSendEvent['data']
+    }
   | {
       type: QueueType.CAMPAIGN_PLAN_COMPLETE
       data: CampaignPlanCompleteMessage
@@ -66,6 +75,10 @@ export type QueueMessage =
   | {
       type: QueueType.ORDINANCE_QUALITY_LOOP
       data: OrdinanceQualityLoopMessage
+    }
+  | {
+      type: QueueType.EXTRACT_CHAT_ATTACHMENT
+      data: ExtractChatAttachmentMessage
     }
 
 export type GenerateAiContentMessageData = {
@@ -151,6 +164,21 @@ export const PollExpansionEventSchema = z.object({
 })
 export type PollExpansionEvent = z.infer<typeof PollExpansionEventSchema>
 
+// Outbound trigger for the shared delivery layer. Carries the envelope id and
+// nothing else: everything the send needs (audience, message, schedule) is
+// already on the Outreach row and its saved list, so a redelivered message
+// cannot act on stale content. sendSeq starts at 1 and increments per
+// expansion; it keys the CSV in S3 so a retry reuses the object rather than
+// resampling a different audience.
+export const OutreachTextSendEventSchema = z.object({
+  type: z.literal(QueueType.OUTREACH_TEXT_SEND),
+  data: z.object({
+    outreachId: z.number().int().positive(),
+    sendSeq: z.number().int().positive().default(1),
+  }),
+})
+export type OutreachTextSendEvent = z.infer<typeof OutreachTextSendEventSchema>
+
 export enum SqsConsumerErrorEventName {
   ERROR = 'error',
   PROCESSING_ERROR = 'processing_error',
@@ -172,10 +200,12 @@ export enum MessageGroup {
   default = 'default',
   domainEmailRedirect = 'domainEmailRedirect',
   polls = 'polls',
+  outreachTextSend = 'outreachTextSend',
   weeklyTasksDigest = 'weeklyTasksDigest',
   agenticComplianceKickoff = 'agenticComplianceKickoff',
   nightly10DlcReport = 'nightly10DlcReport',
   cvStatusPoll = 'cvStatusPoll',
+  extractChatAttachment = 'extractChatAttachment',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -246,4 +276,11 @@ export const OrdinanceQualityLoopMessageSchema = z.object({
 })
 export type OrdinanceQualityLoopMessage = z.infer<
   typeof OrdinanceQualityLoopMessageSchema
+>
+
+export const ExtractChatAttachmentMessageSchema = z.object({
+  attachmentId: z.string(),
+})
+export type ExtractChatAttachmentMessage = z.infer<
+  typeof ExtractChatAttachmentMessageSchema
 >

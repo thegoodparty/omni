@@ -6,6 +6,7 @@
 const DELIMITER_REMOVED = '[delimiter-removed]'
 
 const DELIMITER_PATTERNS: RegExp[] = [
+  /<\/?attached_documents\s*>?/gi,
   /<\/?briefing_content\s*>?/gi,
   /<\/?briefing\s*>?/gi,
   /<\/?user_data\s*>?/gi,

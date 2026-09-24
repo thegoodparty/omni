@@ -22,7 +22,9 @@ from autopilot.agent.feedback import (
     format_park_comment,
     format_park_marker,
     new_questions,
+    notify_slack,
     park_for_feedback,
+    park_if_stranded,
     parse_parked_stage,
     previously_asked_questions,
     read_park_sentinel,
@@ -44,12 +46,20 @@ class FakeClickUpClient:
     """Records writes in call order. Constructed via a factory, used as a
     context manager (matches engineer_agent/tests/test_escalation.py)."""
 
-    def __init__(self, comments=None, task_url="https://app.clickup.com/t/TEST-1", raise_on=None):
+    def __init__(
+        self, comments=None, task_url="https://app.clickup.com/t/TEST-1", raise_on=None, task_status="in progress"
+    ):
         self._comments = comments if comments is not None else []
         self._task_url = task_url
         self._raise_on = raise_on or {}
+        self._task_status = task_status
         self.writes: list[tuple] = []
         self.closed = False
+
+    def get_task(self, task_id, include_subtasks=False):
+        if "get_task" in self._raise_on:
+            raise self._raise_on["get_task"]
+        return ClickUpTask(id=task_id, name="a card", url=self._task_url, status={"status": self._task_status})
 
     def get_task_comments(self, task_id):
         if "get_task_comments" in self._raise_on:
@@ -516,3 +526,267 @@ def test_cli_parked_stage_exits_nonzero_with_no_marker_on_the_card(monkeypatch, 
 
     assert exit_code == 1
     assert "No park marker" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Notify (the park's Slack ping without the park)
+# ---------------------------------------------------------------------------
+
+
+def test_notify_slack_posts_one_message_and_touches_nothing_on_the_card():
+    slack = FakeSlackClient()
+
+    result = notify_slack(
+        TASK_ID,
+        "epic-create",
+        "Breakdown ready for review",
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+    )
+
+    assert len(slack.client.posted) == 1
+    channel, text = slack.client.posted[0]
+    assert channel == "#autopilot"
+    assert "epic-create" in text
+    assert "Breakdown ready for review" in text
+    assert f"https://app.clickup.com/t/{TASK_ID}" in text
+    assert result == {
+        "status": "notified",
+        "task_id": TASK_ID,
+        "stage": "epic-create",
+        "card_url": f"https://app.clickup.com/t/{TASK_ID}",
+        "channel": "#autopilot",
+    }
+
+
+def test_notify_slack_explicit_channel_wins_over_the_env():
+    slack = FakeSlackClient()
+
+    notify_slack(
+        TASK_ID,
+        "qa",
+        "hello",
+        channel="#other",
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+    )
+
+    assert slack.client.posted[0][0] == "#other"
+
+
+def test_notify_slack_rejects_a_task_id_outside_the_envelope():
+    slack = FakeSlackClient()
+
+    with pytest.raises(ValueError, match="Refusing to notify"):
+        notify_slack(
+            "SOMEONE-ELSES-CARD",
+            "epic-create",
+            "hello",
+            slack_client_factory=factory_for(slack),
+            env=ENV,
+        )
+    assert slack.client.posted == []
+
+
+def test_notify_slack_rejects_an_unknown_stage():
+    with pytest.raises(UnknownStageError):
+        notify_slack(
+            TASK_ID,
+            "not-a-stage",
+            "hello",
+            slack_client_factory=factory_for(FakeSlackClient()),
+            env=ENV,
+        )
+
+
+def test_notify_slack_requires_a_channel():
+    with pytest.raises(ValueError, match="No Slack channel"):
+        notify_slack(
+            TASK_ID,
+            "epic-create",
+            "hello",
+            slack_client_factory=factory_for(FakeSlackClient()),
+            env={"CLICKUP_TASK_ID": TASK_ID},
+        )
+
+
+def test_notify_slack_requires_a_nonempty_message():
+    with pytest.raises(ValueError, match="non-empty message"):
+        notify_slack(
+            TASK_ID,
+            "epic-create",
+            "   ",
+            slack_client_factory=factory_for(FakeSlackClient()),
+            env=ENV,
+        )
+
+
+def test_cli_notify_posts_and_exits_zero(monkeypatch, capsys):
+    slack = FakeSlackClient()
+    monkeypatch.setattr(feedback, "SlackClient", factory_for(slack))
+    monkeypatch.setenv("CLICKUP_TASK_ID", TASK_ID)
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot")
+
+    exit_code = feedback.main(
+        ["notify", "--task-id", TASK_ID, "--stage", "epic-create", "--message", "Breakdown ready"]
+    )
+
+    assert exit_code == 0
+    assert len(slack.client.posted) == 1
+    assert "Notified" in capsys.readouterr().out
+
+
+def test_cli_notify_exits_nonzero_when_slack_fails(monkeypatch, capsys):
+    monkeypatch.setattr(feedback, "SlackClient", factory_for(FakeSlackClient(raise_on_post=RuntimeError("down"))))
+    monkeypatch.setenv("CLICKUP_TASK_ID", TASK_ID)
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot")
+
+    exit_code = feedback.main(["notify", "--task-id", TASK_ID, "--stage", "epic-create", "--message", "hi"])
+
+    assert exit_code == 1
+    assert "Failed to notify" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Stranded-run guard (the harness's deterministic park)
+# ---------------------------------------------------------------------------
+
+
+def test_park_if_stranded_parks_a_success_left_in_progress(tmp_path):
+    clickup = FakeClickUpClient(task_status="in progress")
+    slack = FakeSlackClient()
+    result = {"status": "success"}
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    # The park ran: comment, status move to feedback needed, Slack ping, and
+    # the result now reports the park so the metric line says feedback_parked.
+    assert ("status", TASK_ID, FEEDBACK_NEEDED_STATUS) in clickup.writes
+    assert len(slack.client.posted) == 1
+    assert result["parked_stage"] == "story"
+
+
+def test_park_if_stranded_leaves_a_card_that_ended_elsewhere_alone(tmp_path):
+    clickup = FakeClickUpClient(task_status="qa")
+    slack = FakeSlackClient()
+    result = {"status": "success"}
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert clickup.writes == []
+    assert slack.client.posted == []
+    assert "parked_stage" not in result
+
+
+def test_park_if_stranded_skips_an_already_parked_result(tmp_path):
+    clickup = FakeClickUpClient(task_status="in progress")
+    result = {"status": "success", "parked_stage": "story"}
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert clickup.writes == []
+
+
+def test_park_if_stranded_parks_an_errored_run_left_in_progress(tmp_path):
+    # An errored run (deadline kill, ceiling, crash after startup) leaves the
+    # card wherever the crash did — the first live qa deadline kill proved
+    # neither the sweep nor the stall alert routes it back, so the guard
+    # parks errors exactly like successes.
+    clickup = FakeClickUpClient(task_status="in progress")
+    slack = FakeSlackClient()
+    result = {"status": "error", "error": "Deadline exceeded (1800s)"}
+
+    park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert ("status", TASK_ID, FEEDBACK_NEEDED_STATUS) in clickup.writes
+    assert result["parked_stage"] == "story"
+    parked_comment = next(text for (kind, _, text) in clickup.writes if kind == "comment")
+    assert "Deadline exceeded" in parked_comment
+
+
+def test_park_if_stranded_parks_a_qa_run_dead_in_qa_status(tmp_path):
+    # A qa run's card STARTS in "qa", a status nothing routes out of — a run
+    # that dies mid-walk strands it exactly where it began (ENG-11132 live).
+    clickup = FakeClickUpClient(task_status="qa")
+    slack = FakeSlackClient()
+    result = {"status": "error", "error": "Deadline exceeded (1800s)"}
+
+    park_if_stranded(
+        result,
+        "qa",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(slack),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert ("status", TASK_ID, FEEDBACK_NEEDED_STATUS) in clickup.writes
+    assert result["parked_stage"] == "qa"
+
+
+def test_park_if_stranded_leaves_a_passed_qa_card_in_done_alone(tmp_path):
+    clickup = FakeClickUpClient(task_status="done")
+    result = {"status": "success"}
+
+    park_if_stranded(
+        result,
+        "qa",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert clickup.writes == []
+    assert "parked_stage" not in result
+
+
+def test_park_if_stranded_guard_failure_never_masks_the_run_result(tmp_path):
+    clickup = FakeClickUpClient(task_status="in progress", raise_on={"get_task": RuntimeError("down")})
+    result = {"status": "success"}
+
+    returned = park_if_stranded(
+        result,
+        "story",
+        TASK_ID,
+        clickup_client_factory=factory_for(clickup),
+        slack_client_factory=factory_for(FakeSlackClient()),
+        env=ENV,
+        workspace_dir=str(tmp_path),
+    )
+
+    assert returned == {"status": "success"}

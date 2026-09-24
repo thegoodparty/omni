@@ -167,13 +167,15 @@ describe('CrmPersonProfilesService.syncClaimRequestCount', () => {
     ])
   })
 
-  it('resolves the contact by personId against the civics person mart', async () => {
+  it('resolves the contact by personId against the Serve person mart', async () => {
     const { service, query } = await setup()
 
     await service.syncClaimRequestCount(PERSON_ID)
 
     const sql = query.mock.calls[0]?.[0] ?? ''
-    expect(sql).toContain('goodparty_data_catalog.mart_civics.people')
+    expect(sql).toContain(
+      'goodparty_data_catalog.mart_serve_agents.serve_agent_people',
+    )
     expect(sql).toContain(`gp_person_id = '${PERSON_ID}'`)
   })
 

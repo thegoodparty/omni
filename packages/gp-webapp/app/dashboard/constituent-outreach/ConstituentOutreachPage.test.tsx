@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
@@ -59,6 +59,24 @@ vi.mock('helpers/useSnackbar', () => ({
 // active org slug — same precedent as PhoneBankingFlow.test.tsx.
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'eo-test-org' }),
+}))
+
+// Door knocking's card only exists on the flag; the rest of this suite is
+// about the hub with all three channels on it.
+const doorKnockingFlag = { ready: true, enabled: true }
+vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
+  useNativeDoorKnockingFlag: () => doorKnockingFlag,
+}))
+
+// `serve-sms-outreach`. Mutable so one file can drive all three states the
+// page has to handle — resolved on, resolved off, and still resolving —
+// because the difference between the last two is the flash the feature-flags
+// doc calls the top anti-pattern. Defaults to OFF so every pre-SMS
+// expectation in this file keeps asserting the pre-SMS page.
+const serveSmsFlag = vi.hoisted(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/experiments/serveSmsFlag', () => ({
+  SERVE_SMS_FLAG_KEY: 'serve-sms-outreach',
+  useServeSmsFlag: () => serveSmsFlag,
 }))
 
 // The phone banking flow's audience step calls these on mount/interaction
@@ -162,6 +180,10 @@ const savedDetail = {
 const user = userEvent.setup()
 
 describe('ConstituentOutreachPage — Serve outreach history', () => {
+  beforeEach(() => {
+    doorKnockingFlag.enabled = true
+  })
+
   it('renders seeded outreach rows (channel, name, status, date)', () => {
     const outreaches: HistoryRow[] = [
       {
@@ -203,15 +225,16 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(row).toHaveAttribute('role', 'button')
   })
 
-  // The channels that stay out are the paid ones, and a row for either is
-  // still a dead end rather than a dead clickable element.
+  // Robocall is the channel that stays out for good — no compliance or
+  // payment machinery on Serve — and a row for it is still a dead end rather
+  // than a dead clickable element.
   it('renders an unwired row as plain, non-interactive content', () => {
     const outreaches: HistoryRow[] = [
       {
         id: 1,
         date: '2026-08-20',
-        outreachType: 'text',
-        name: 'Budget update blast',
+        outreachType: 'robocall',
+        name: 'Budget update call',
         status: 'completed',
       },
     ]
@@ -219,10 +242,34 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     render(<ConstituentOutreachPage outreaches={outreaches} />)
 
     const row = within(desktopTable())
-      .getByText('Budget update blast')
+      .getByText('Budget update call')
       .closest('tr')
     expect(row).not.toHaveAttribute('role', 'button')
     expect(row).not.toHaveAttribute('tabindex')
+  })
+
+  // A Serve SMS send is a `text` row on the spine, and it opens like every
+  // other wired channel. Asserted with the flag OFF on purpose: the flag
+  // gates the way in, not the record of a send already paid for, so an org
+  // that loses the flag must not lose its own results.
+  it('opens an SMS row even when the flag is off, and badges it SMS', () => {
+    const outreaches: HistoryRow[] = [
+      {
+        id: 1,
+        date: '2026-08-20',
+        outreachType: 'text',
+        name: 'Budget update texts',
+        status: 'completed',
+      },
+    ]
+
+    render(<ConstituentOutreachPage outreaches={outreaches} />)
+
+    const table = within(desktopTable())
+    const row = table.getByText('Budget update texts').closest('tr')
+    expect(row).toHaveAttribute('role', 'button')
+    // CHANNEL_META.text, not the raw-type fallback ("Text" in a grey badge).
+    expect(table.getByText('SMS')).toBeInTheDocument()
   })
 
   it('renders a clean empty state with no rows', () => {
@@ -268,6 +315,19 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(
       screen.queryByText('Explain a recent decision'),
     ).not.toBeInTheDocument()
+  })
+
+  // Serve has no eCanvasser control arm behind the flag, so the card's only
+  // destination is a Win-only legacy dashboard about an integration an
+  // elected official cannot connect.
+  it('omits the Door knocking card when the native flag is off', () => {
+    doorKnockingFlag.enabled = false
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(
+      screen.queryByRole('button', { name: /Door knocking/ }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Phone banking/ })).toBeEnabled()
   })
 
   it('opens the phone banking flow (serve surface) when the Phone banking card is clicked', async () => {
@@ -476,6 +536,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
         supporters: 2,
         unsure: 1,
         nonSupporters: 1,
+        byFollowUp: { yes: 0, no: 0 },
       },
     }
     let serveDetailCalls = 0
@@ -506,5 +567,72 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     expect(
       screen.queryByText(/couldn't load this campaign's call progress/),
     ).not.toBeInTheDocument()
+  })
+})
+
+// The flag is the only thing between this page and a live paid channel, so
+// all three of its states are asserted rather than just the happy one.
+describe('ConstituentOutreachPage — the serve-sms-outreach gate', () => {
+  afterEach(() => {
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = false
+  })
+
+  it('shows no SMS card and no way in while the flag is off', () => {
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = false
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(screen.queryByText('SMS')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /SMS/ }),
+    ).not.toBeInTheDocument()
+    // The three ungated cards, and nothing else to press.
+    expect(screen.getByText('Social media')).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    expect(screen.getByText('Door knocking')).toBeInTheDocument()
+    // The flow is not merely closed — it is not in the tree at all, so no
+    // Serve SMS request is reachable from this page by any route.
+    expect(
+      screen.queryByText(
+        'This helps us draft the right message for your constituents.',
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  // The anti-pattern this guards: `enabled` alone is falsy-then-true while
+  // the variant resolves, so a page that ignores `ready` renders three cards
+  // and then pops a fourth in. An unresolved flag must look exactly like an
+  // off one.
+  it('shows no SMS card while the flag is still resolving, even if it will be on', () => {
+    serveSmsFlag.ready = false
+    serveSmsFlag.enabled = true
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    expect(screen.queryByText('SMS')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Social media/ }).length).toBe(
+      1,
+    )
+  })
+
+  it('shows the SMS card and opens the serve SMS flow when the flag is on', async () => {
+    serveSmsFlag.ready = true
+    serveSmsFlag.enabled = true
+
+    render(<ConstituentOutreachPage outreaches={[]} />)
+
+    await user.click(screen.getByText('SMS'))
+
+    // SERVE_SMS_SURFACE's own intro body — Win's reads "the best message for
+    // your campaign", which an elected official does not have.
+    expect(
+      await screen.findByText(
+        'This helps us draft the right message for your constituents.',
+      ),
+    ).toBeInTheDocument()
+    // A serve-only purpose card, from SERVE_SMS_PURPOSES.
+    expect(screen.getByText('Explain a recent decision')).toBeInTheDocument()
   })
 })

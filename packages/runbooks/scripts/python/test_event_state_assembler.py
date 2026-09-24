@@ -1,4 +1,5 @@
 import csv
+import json
 from datetime import date
 
 import numpy as np
@@ -481,3 +482,76 @@ def test_build_rows_anchor_columns_blank_when_the_block_has_no_anchor():
     row = esa.build_rows(records, {"E": {}}, {})[0]
     assert row["where_it_fires"] == ""
     assert row["url"] == ""
+
+
+def test_build_rows_falls_back_to_an_accepted_anchor_when_govern_is_blank():
+    # DATA-2426: nothing writes accepted anchors back to Govern yet, so without the
+    # fallback the two columns the sheet was reordered around are blank for every event.
+    records = [_record("E", "active", gpmeta={"purpose": "p"})]
+    anchors = {"E": {"fires_on": "Voter contacts list, Download button.",
+                     "url": "/dashboard/contacts"}}
+    row = esa.build_rows(records, {"E": {}}, {}, None, anchors)[0]
+
+    assert row["where_it_fires"] == "Voter contacts list, Download button."
+    assert row["url"] == "/dashboard/contacts"
+
+
+def test_build_rows_prefers_govern_over_the_accepted_anchor():
+    # Two places now hold the value; Govern is the source of truth and always wins.
+    records = [_record("E", "active", gpmeta={
+        "fires_on": "Campaign plan page, Generate button.",
+        "url": "/dashboard/campaign-plan",
+    })]
+    anchors = {"E": {"fires_on": "Stale draft.", "url": "/stale"}}
+    row = esa.build_rows(records, {"E": {}}, {}, None, anchors)[0]
+
+    assert row["where_it_fires"] == "Campaign plan page, Generate button."
+    assert row["url"] == "/dashboard/campaign-plan"
+
+
+def test_accepted_anchors_reads_only_the_rows_a_reviewer_accepted(tmp_path):
+    state = tmp_path / "event_anchors.json"
+    state.write_text(json.dumps({
+        "Accepted": {"disposition": "accepted", "fires_on": "a", "url": "/a"},
+        "Queued": {"disposition": "new", "fires_on": "b", "url": "/b"},
+        "Dismissed": {"disposition": "dismissed", "fires_on": "c", "url": "/c"},
+    }))
+
+    assert sorted(esa.accepted_anchors(state)) == ["Accepted"]
+
+
+def test_accepted_anchors_treats_a_missing_state_file_as_no_anchors(tmp_path):
+    assert esa.accepted_anchors(tmp_path / "nope.json") == {}
+
+
+def test_assembled_rows_carry_the_anchor_columns(monkeypatch, tmp_path):
+    # Pins the assemble -> accepted_anchors -> build_rows wiring, not just build_rows:
+    # dropping the anchors argument leaves where_it_fires and url blank for every event
+    # while every unit test above still passes.
+    mon = tmp_path / "mon.yaml"
+    mon.write_text("watched_families: []\nevents: []\ndismissed: []\n")
+    monkeypatch.setattr(esa.aeh, "WATCHLIST", mon)
+
+    anchors_path = tmp_path / "event_anchors.json"
+    anchors_path.write_text(json.dumps({
+        "Sign Up Clicked": {"disposition": "accepted",
+                            "fires_on": "Sign-up page, CTA button.",
+                            "url": "/sign-up"},
+    }))
+
+    code_csv = tmp_path / "code.csv"
+    code_csv.write_text("event_type\n")
+
+    def fake_query(sql):
+        return pd.DataFrame([
+            {"event_type": "Sign Up Clicked", "govern_display_name": "Sign Up Clicked",
+             "family": "win_onboarding", "first_seen_date": "2024-01-01",
+             "last_seen_date": "2026-08-01", "event_count": 100, "event_count_30d": 5,
+             "govern_description": "", "govern_tags": None},
+        ])
+
+    out = esa.assemble(date(2026, 8, 3), run_query=fake_query, code_csv=code_csv,
+                       anchors_path=anchors_path)
+    row = {r["event_type"]: r for r in out["rows"]}["Sign Up Clicked"]
+    assert row["where_it_fires"] == "Sign-up page, CTA button."
+    assert row["url"] == "/sign-up"

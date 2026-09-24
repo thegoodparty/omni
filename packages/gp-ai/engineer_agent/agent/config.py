@@ -16,7 +16,11 @@ BOT_PREFIX = "[GP-Bot]"
 # exist to bound the pathological run that has stopped making progress and is
 # re-reading the same files.
 DEFAULT_MAX_BUDGET_USD = 15.0
-DEFAULT_DEADLINE_SECONDS = 45 * 60
+# Scaled with max_turns=400: at the observed ~10s/turn, 45 min bound the run
+# at roughly turn 250 — the deadline would cut the very runs the higher turn
+# cap exists for, discarding their work the same way the turn kill did. The
+# budget remains the cost ceiling; AGENT_DEADLINE_SECONDS overrides per env.
+DEFAULT_DEADLINE_SECONDS = 90 * 60
 
 
 def _positive_float_from_env(name: str, default: float) -> float:

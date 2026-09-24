@@ -59,13 +59,13 @@ describe('PeerlyScheduleService', () => {
 
   describe('createSchedule', () => {
     it('returns schedule_id from validated response', async () => {
-      const result = await service.createSchedule('Test Schedule')
+      const result = await service.createSchedule('Test Schedule', '09:00')
 
       expect(result).toBe(12345)
     })
 
     it('posts to /schedule with correct body structure', async () => {
-      await service.createSchedule('My Schedule')
+      await service.createSchedule('My Schedule', '09:00')
 
       expect(mockHttpService.post).toHaveBeenCalledWith(
         '/schedule',
@@ -73,26 +73,39 @@ describe('PeerlyScheduleService', () => {
           schedule_name: 'My Schedule',
           schedule_timezone: P2P_SCHEDULE_DEFAULTS.TIMEZONE,
           is_global: P2P_SCHEDULE_DEFAULTS.IS_GLOBAL,
-          mon_start: P2P_SCHEDULE_DEFAULTS.START_TIME,
-          mon_end: P2P_SCHEDULE_DEFAULTS.END_TIME,
-          tue_start: P2P_SCHEDULE_DEFAULTS.START_TIME,
-          tue_end: P2P_SCHEDULE_DEFAULTS.END_TIME,
-          wed_start: P2P_SCHEDULE_DEFAULTS.START_TIME,
-          wed_end: P2P_SCHEDULE_DEFAULTS.END_TIME,
-          thu_start: P2P_SCHEDULE_DEFAULTS.START_TIME,
-          thu_end: P2P_SCHEDULE_DEFAULTS.END_TIME,
-          fri_start: P2P_SCHEDULE_DEFAULTS.START_TIME,
-          fri_end: P2P_SCHEDULE_DEFAULTS.END_TIME,
-          sat_start: P2P_SCHEDULE_DEFAULTS.START_TIME,
-          sat_end: P2P_SCHEDULE_DEFAULTS.END_TIME,
-          sun_start: P2P_SCHEDULE_DEFAULTS.START_TIME,
-          sun_end: P2P_SCHEDULE_DEFAULTS.END_TIME,
+          mon_start: '09:00:00',
+          mon_end: '21:00:00',
+          tue_start: '09:00:00',
+          tue_end: '21:00:00',
+          wed_start: '09:00:00',
+          wed_end: '21:00:00',
+          thu_start: '09:00:00',
+          thu_end: '21:00:00',
+          fri_start: '09:00:00',
+          fri_end: '21:00:00',
+          sat_start: '09:00:00',
+          sat_end: '21:00:00',
+          sun_start: '09:00:00',
+          sun_end: '21:00:00',
         }),
       )
     })
 
+    it('opens every day at the given start and closes at the 9pm cutoff', async () => {
+      await service.createSchedule('Evening', '18:00')
+
+      const [, body] = firstOrThrow(mockHttpService.post.mock.calls) as [
+        string,
+        Record<string, string>,
+      ]
+      for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+        expect(body[`${day}_start`]).toBe('18:00:00')
+        expect(body[`${day}_end`]).toBe('21:00:00')
+      }
+    })
+
     it('includes account number in request body', async () => {
-      await service.createSchedule('Test')
+      await service.createSchedule('Test', '09:00')
 
       const postCall = firstOrThrow(mockHttpService.post.mock.calls)
       expect(postCall[1].account).toBe(service.accountNumber)
@@ -101,7 +114,7 @@ describe('PeerlyScheduleService', () => {
     it('throws BadGatewayException on API failure', async () => {
       mockHttpService.post.mockRejectedValue(new Error('API down'))
 
-      await expect(service.createSchedule('Fail')).rejects.toThrow(
+      await expect(service.createSchedule('Fail', '09:00')).rejects.toThrow(
         BadGatewayException,
       )
     })

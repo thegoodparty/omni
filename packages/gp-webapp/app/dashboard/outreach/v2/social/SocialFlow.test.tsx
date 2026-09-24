@@ -12,7 +12,11 @@ import type {
   SocialGenerateRequest,
 } from '@goodparty_org/contracts'
 import type { UseDictationAppendInput } from 'app/dashboard/shared/dictation/useDictationAppend'
-import { SERVE_SOCIAL_SURFACE, SocialFlow } from './SocialFlow'
+import {
+  SERVE_SOCIAL_SURFACE,
+  SocialFlow,
+  type SocialFlowPrefill,
+} from './SocialFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -690,6 +694,61 @@ describe('SocialFlow', () => {
     expect(draftCalls).toEqual([
       { purpose: 'custom', tone: 'warm', currentDraft: 'Rough words' },
     ])
+  })
+})
+
+// ENG-11162: prefill seam for the COS compose handoff. The flow resets on
+// open and then applies the prefill: valid purpose → platforms step,
+// unknown/absent purpose → compose step.
+describe('SocialFlow prefill seam', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    dictationInput = null
+  })
+
+  const openWithPrefill = (prefill: SocialFlowPrefill) => {
+    render(
+      <SocialFlow
+        open
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        surface={SERVE_SOCIAL_SURFACE}
+        prefill={prefill}
+      />,
+    )
+  }
+
+  it('opens on the compose step with the draft pre-filled when given draftText but no purpose', () => {
+    openWithPrefill({ draftText: 'Pre-filled text' })
+    expect(
+      screen.getAllByText('What do you want to say?').length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Draft message')).toHaveValue(
+      'Pre-filled text',
+    )
+  })
+
+  it('opens on the platforms step when given draftText and a valid serve purpose', () => {
+    openWithPrefill({
+      draftText: 'Pre-filled text',
+      purpose: 'explain_decision',
+    })
+    expect(
+      screen.getAllByText('Where do you want to share it?').length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('ignores an unknown purpose slug and opens on the compose step', () => {
+    openWithPrefill({
+      draftText: 'Pre-filled text',
+      purpose: 'not_a_real_purpose',
+    })
+    expect(
+      screen.getAllByText('What do you want to say?').length,
+    ).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Draft message')).toHaveValue(
+      'Pre-filled text',
+    )
   })
 })
 

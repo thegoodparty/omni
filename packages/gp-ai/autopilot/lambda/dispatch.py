@@ -69,6 +69,11 @@ class StageEnvelope:
     model: str
     max_budget_usd: float
     deadline_seconds: int
+    # Which stage a resume run re-enters, resolved by the conductor from the
+    # card's park marker. Required by the agent's config (RESUME_STAGE) for
+    # stage=resume and meaningless otherwise — the first live resume died at
+    # agent startup because nothing ever set it.
+    resume_stage: str | None = None
 
     def to_environment(self) -> list[dict[str, str]]:
         environment = [
@@ -80,6 +85,15 @@ class StageEnvelope:
         ]
         if self.epic_task_id is not None:
             environment.append({"name": "EPIC_TASK_ID", "value": self.epic_task_id})
+        if self.resume_stage is not None:
+            environment.append({"name": "RESUME_STAGE", "value": self.resume_stage})
+        # Forwarded from the conductor's own env, not an envelope field: the
+        # agent-side feedback primitives (park, notify) post to this channel,
+        # and the task definition carries no channel of its own — without
+        # this line every park in every stage dies on "No Slack channel".
+        slack_channel = os.environ.get("AUTOPILOT_SLACK_CHANNEL", "").strip()
+        if slack_channel:
+            environment.append({"name": "AUTOPILOT_SLACK_CHANNEL", "value": slack_channel})
         return environment
 
 
@@ -146,7 +160,13 @@ def claim_transition(task_id: str, stage: str, transitioned_at: str, ttl_seconds
 def launch_fargate_stage(envelope: StageEnvelope) -> dict:
     cluster_arn = os.environ.get("ECS_CLUSTER_ARN")
 
-    if envelope.stage == QA_STAGE:
+    # A resume OF the qa stage re-runs the QA browser walk, so it needs the
+    # browsers exactly as much as a fresh qa dispatch does — the first live
+    # resume-of-qa launched on the base image and had nothing to drive
+    # Playwright with (ENG-11144).
+    needs_playwright = QA_STAGE in (envelope.stage, envelope.resume_stage)
+
+    if needs_playwright:
         # qa runs Playwright E2E against the deployed dev stack; the base
         # autopilot-agent image has no browsers installed, so qa MUST launch
         # on the Playwright family, never fall back to the base one.
@@ -163,6 +183,16 @@ def launch_fargate_stage(envelope: StageEnvelope) -> dict:
 
     if not all([cluster_arn, task_definition, subnet_ids, security_group_id]):
         error_msg = "ECS configuration is missing or incomplete; autopilot cannot start the stage"
+        print(f"ERROR: {error_msg}")
+        return {"launched": False, "error": error_msg}
+
+    # The agent-side feedback primitives (park, notify) hard-require this
+    # channel. A missing value doesn't fail here on its own — it fails inside
+    # the container, after the agent has already done real work, when the
+    # first park raises "No Slack channel". Fail closed with the rest of the
+    # ECS-critical config instead.
+    if not os.environ.get("AUTOPILOT_SLACK_CHANNEL", "").strip():
+        error_msg = "AUTOPILOT_SLACK_CHANNEL not configured; refusing dispatch"
         print(f"ERROR: {error_msg}")
         return {"launched": False, "error": error_msg}
 
@@ -184,7 +214,12 @@ def launch_fargate_stage(envelope: StageEnvelope) -> dict:
             overrides={
                 "containerOverrides": [
                     {
-                        "name": "autopilot-agent",
+                        # RunTask rejects an override naming a container the
+                        # task definition doesn't have, and the Playwright
+                        # family's container is named after its own family —
+                        # a hardcoded "autopilot-agent" here fails every qa
+                        # dispatch at launch.
+                        "name": "autopilot-agent-playwright" if needs_playwright else "autopilot-agent",
                         "environment": envelope.to_environment(),
                     }
                 ]

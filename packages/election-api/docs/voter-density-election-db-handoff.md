@@ -141,14 +141,42 @@ merge on `(district_id, resolution, h3_index)`.
 
 gp-api reads both sources side by side and compares them before the cutover, so
 for the duration of that window the pipeline must keep publishing to **both**
-people-db and election-db from the same build. If only one side is refreshed,
-the comparison metric reports divergence that is purely a staleness artifact.
+people-db and election-db.
+
+**You do not have to publish them from the same build.** The original text of
+this section asked for that, and it was never achievable: people-api-loader
+writes people-db `@monthly` while `sync_election_api` writes election-db
+nightly, so the two copies are almost always different vintages of the same
+mart. gp-api's comparison was written as exact equality against that
+requirement and consequently reported divergence on ~70% of production
+requests, none of it meaningful.
+
+As of 2026-09-18 the comparison tolerates vintage skew instead of asking the
+pipeline to eliminate it. It weights any difference by the voters it
+represents, so a cell crossing the K threshold between two builds is absorbed
+(a 10-voter cell is ~0.02% of a district's rendered voters) while a cell
+carrying real weight going missing is not. The measurements and thresholds are
+in `gp-api/src/personProfiles/services/voterDensityComparison.ts`.
 
 The comparison is exposed as
-`person_profile_voter_density_compare_count_total{result}`, with
-`only_legacy` / `only_new` distinguishing "the two disagree" from "one side has
-not been loaded". Once that reads clean, gp-api flips to election-api, and the
-people-db marts and their entries in
+`person_profile_voter_density_compare_count_total{result}`:
+
+| result | meaning |
+| --- | --- |
+| `only_legacy` / `only_new` | one side has not been loaded — **this is the gate** |
+| `match` | identical |
+| `match_within_tolerance` | different vintages, same surface — expected steady state |
+| `cell_mismatch` / `coverage_mismatch` | a real difference; investigate |
+| `error` | the shadow read threw |
+
+`only_legacy` reaching zero is what gates the cutover — it is both "not loaded
+yet" and what an id-derivation mistake would look like. `cell_mismatch` should
+be near zero; `match_within_tolerance` is expected to dominate `match` for as
+long as the refresh schedules differ, and that ratio is a proxy for the gap
+between them rather than a problem.
+
+Once the gate reads clean, gp-api flips to election-api, and the people-db
+marts and their entries in
 `people-api-loader/src/loader/people_api/config.py` can be decommissioned.
 
 ## 7. Checklist
@@ -160,7 +188,7 @@ people-db marts and their entries in
       `DISTRICT_UPSERT_QUERY`, with the guarded `District` existence check
       from §3.
 - [ ] Load ordered after `District`.
-- [ ] Both people-db and election-db published from the same build for the
-      duration of the dual-read window (§6).
+- [ ] Both people-db and election-db published for the duration of the
+      dual-read window — same build not required, see §6.
 - [ ] After cutover: drop the `m_people_api__*` density marts and their loader
       config entries.

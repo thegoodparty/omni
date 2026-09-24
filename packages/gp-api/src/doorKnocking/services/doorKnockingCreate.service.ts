@@ -29,7 +29,7 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import { DoorKnockingTurfService } from './doorKnockingTurf.service'
-import { pointInPolygon, polygonBbox } from '../utils/geo.util'
+import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
 import {
   type BlockFace,
   coordinateKey,
@@ -39,8 +39,8 @@ import {
   sequenceBlockFaces,
 } from '../utils/blockFace.util'
 import {
-  EMPTY_TURF_MESSAGE,
   emptyAudienceMessage,
+  emptyTurfMessage,
 } from '../utils/emptyAudience.util'
 import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
 import { assertCampaignQuota } from '../utils/campaignQuota.util'
@@ -173,6 +173,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
     input: CreateDoorKnockingTurf,
     actorUserId: number,
   ): Promise<DoorKnockingTurf> {
+    // Which product's words a create failure speaks in. The `eo-` prefix is
+    // the whole rule, the same way every other Serve answer resolves it.
+    const isServe = organization.slug.startsWith('eo-')
+
     // Runs the same eligibility gate as every other voter-data read — a
     // Win campaign without downloadable voter data can't knock either.
     const districtId =
@@ -216,6 +220,51 @@ export class DoorKnockingCreateService extends createPrismaBase(
           throw new NotFoundException('Voter file filter not found')
         }
 
+        // A caller adding a turf to an existing campaign names the anchor
+        // Outreach on the wire; we validate it belongs to this same scope
+        // (Win same campaign, Serve same org) and is still a live
+        // door-knocking envelope, so a client can't glue a new turf onto a
+        // stranger's campaign or an archived one. Any legacy solo turf
+        // remains its own anchor by leaving campaignOutreachId null.
+        //
+        // The anchor's own name comes back with it: a turf joining an
+        // existing campaign inherits that campaign's title rather than
+        // trusting one off the wire, so a late-added turf cannot rename a
+        // campaign it is only joining.
+        let anchorCampaignName: string | null = null
+        if (input.campaignOutreachId !== undefined) {
+          const anchor = await tx.outreach.findFirst({
+            where: {
+              id: input.campaignOutreachId,
+              outreachType: OutreachType.nativeDoorKnocking,
+              archivedAt: null,
+              // Anchors only. Without this a caller can pass a SIBLING's id:
+              // it matches on scope, type and archive state, so the new turf
+              // is written pointing at a sibling — and
+              // `collapseDoorKnockingCampaigns` resolves
+              // `campaignOutreachId ?? id` to an id with no anchor row in the
+              // result set, so the turf surfaces as a broken solo campaign
+              // instead of joining the one it asked for. The webapp always
+              // sends the anchor, so this closes an API-only hole rather than
+              // a reachable bug, and it corrupts silently rather than erroring.
+              campaignOutreachId: null,
+              ...(scope.campaignId !== null
+                ? { campaignId: scope.campaignId }
+                : {
+                    campaignId: null,
+                    organizationSlug: scope.organizationSlug,
+                  }),
+            },
+            select: { id: true, name: true },
+          })
+          if (!anchor) {
+            throw new BadRequestException(
+              'Campaign anchor outreach not found in this scope',
+            )
+          }
+          anchorCampaignName = anchor.name
+        }
+
         // The turf is inserted before the vendor call so the spend ledger can
         // name the turf that caused it, exactly as it did when the turf
         // already existed. The ledger holds a plain int and never joins, so a
@@ -250,7 +299,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
           // route — and nothing about the polygon, which has not been looked
           // at yet, could change that. Raised before paying for a people-db
           // scan that can only come back empty.
-          throw new BadRequestException(emptyAudienceMessage(filter))
+          throw new BadRequestException(emptyAudienceMessage(filter, isServe))
         }
 
         const { people } = await this.peopleApi.evaluate({
@@ -261,7 +310,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
           excludePersonIds,
         })
-        const stops = this.buildStops(people, input.geoPoly)
+        const stops = this.buildStops(people, input.geoPoly, isServe)
 
         // Last gate before the only paid call in the system, and the sole
         // per-account limit: five campaigns a rolling day. A 500-stop daily
@@ -348,7 +397,17 @@ export class DoorKnockingCreateService extends createPrismaBase(
             ...scope,
             outreachType: OutreachType.nativeDoorKnocking,
             status: OutreachStatus.in_progress,
-            name: turf.name,
+            // The CAMPAIGN's title, not this turf's — history surfaces read
+            // the anchor envelope and never a sibling, so this column is
+            // where a campaign is named. Written on every sibling too, so
+            // that deleting the anchor (which promotes the earliest survivor)
+            // cannot rename the campaign out from under the candidate.
+            //
+            // Three sources, narrowest first: a campaign being joined owns
+            // its name already, a campaign being created takes the one the
+            // wizard asked for, and a client that sends neither is the
+            // single-turf flow, where the turf's name IS the campaign's.
+            name: anchorCampaignName ?? input.campaignName ?? turf.name,
             voterFileFilterId: filter.id,
             doorKnockingRouteId: route.id,
             date: new Date(),
@@ -357,6 +416,9 @@ export class DoorKnockingCreateService extends createPrismaBase(
             // the same reason the route is: a canvasser who started the list
             // and a canvasser who picks it up next week read the same card.
             script: input.talkingPoints,
+            // Null on a solo turf; the anchor Outreach id when this turf
+            // joins an existing campaign (validated above).
+            campaignOutreachId: input.campaignOutreachId ?? null,
           },
         })
 
@@ -434,6 +496,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
   private buildStops(
     people: EvaluatedPerson[],
     polygon: GeoJsonPolygon,
+    isServe: boolean,
   ): PlannedStop[] {
     // Deterministic input order (addressKey, then person id) so the same
     // turf always yields the same stops, anchors, and vendor request.
@@ -444,7 +507,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
           a.addressKey.localeCompare(b.addressKey) || a.id.localeCompare(b.id),
       )
     if (inside.length === 0) {
-      throw new BadRequestException(EMPTY_TURF_MESSAGE)
+      throw new BadRequestException(emptyTurfMessage(isServe))
     }
 
     const byCoordinate = new Map<string, PlannedStop>()

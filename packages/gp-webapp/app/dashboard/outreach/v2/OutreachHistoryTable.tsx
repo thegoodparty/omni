@@ -36,6 +36,7 @@ import {
   useOutreachDetail,
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
+import { useSmsResults } from './useOutreachResults'
 
 const PAGE_SIZE = 10
 
@@ -55,6 +56,10 @@ interface OutreachHistoryTableProps {
   // org-scoped sibling the same bound-function way SocialFlow's `surface`
   // does, so this table never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // "Campaign" is fine on both surfaces here — these ARE outreach campaigns,
+  // not a run for office. An election CYCLE is not: an elected official
+  // archives outreach across a term, so Serve names the shelf, not the cycle.
+  isServe?: boolean
 }
 
 // Social rows carry no send counts on the list payload — the platform count
@@ -189,6 +194,14 @@ const RowMetric = ({
     )
   }
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
+    // Solo campaigns only. `OutreachDetail.doorKnocking` carries the ANCHOR
+    // turf's figures, not an aggregate across siblings, so a collapsed
+    // multi-turf row would print one turf's people under the whole
+    // campaign's name. Same guard and same reason as the drawer's Overview
+    // cells and progress bar; per-turf figures live on the sibling list.
+    if ((row.turfCount ?? 1) > 1) {
+      return <span className="text-muted-foreground">—</span>
+    }
     return (
       <DoorKnockingPeopleMetric
         id={row.id}
@@ -221,19 +234,57 @@ const RowMetric = ({
 // missing-results placeholder. Social keeps it permanently (engagements are
 // cut from v1 by the social channel spec). nativePhoneBanking's results
 // (supporter count) are already computed on the detail, so it fills the slot.
+// A completed SMS row on the SERVE surface fills it too — see below.
+
+// The design's collapsed SMS row: "{responses} responses · {unsub} unsub",
+// off the same three numbers the Statistics card reads.
+//
+// Serve-only, and that is a scope line rather than a design one. Win's
+// Results column is still the placeholder described above, and filling it
+// would add a results fetch per completed text row to a surface that has not
+// asked for one. Give this the Win fetcher the day Win's column should fill.
+const ServeSmsResponsesMetric = ({ id }: { id: number }) => {
+  const { data } = useSmsResults(id, true, 'serve')
+  if (!data) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  return (
+    <>
+      {data.responded.toLocaleString()} responses ·{' '}
+      {data.optedOut.toLocaleString()} unsub
+    </>
+  )
+}
+
+// Which result metric a row shows, by channel and by surface.
 const RowResults = ({
   row,
   detailFetcher,
+  isServe,
 }: {
   row: HistoryRow
   detailFetcher: OutreachDetailFetcher
+  isServe?: boolean
 }) => {
+  if (
+    isServe &&
+    row.status === 'completed' &&
+    (row.outreachType === OUTREACH_TYPES.text ||
+      row.outreachType === OUTREACH_TYPES.p2p)
+  ) {
+    return <ServeSmsResponsesMetric id={row.id} />
+  }
   if (row.outreachType === OUTREACH_TYPES.nativePhoneBanking) {
     return (
       <PhoneBankingSupportersMetric id={row.id} detailFetcher={detailFetcher} />
     )
   }
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
+    // Anchor-only, exactly as above — and the dash is already this
+    // function's answer for a row with nothing to report.
+    if ((row.turfCount ?? 1) > 1) {
+      return <span className="text-muted-foreground">—</span>
+    }
     return (
       <DoorKnockingLoggedMetric id={row.id} detailFetcher={detailFetcher} />
     )
@@ -303,6 +354,7 @@ export const OutreachHistoryTable = ({
   onRowClick,
   rowClickable = () => true,
   detailFetcher = fetchOutreachDetail,
+  isServe = false,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
   const [showArchive, setShowArchive] = useState(false)
@@ -320,7 +372,7 @@ export const OutreachHistoryTable = ({
     if (row.archivedAt) {
       return 'Archived'
     }
-    return getHistoryStatusLabel(row)
+    return getHistoryStatusLabel(row, isServe)
   }
 
   const visible = useMemo(
@@ -407,7 +459,9 @@ export const OutreachHistoryTable = ({
           </h2>
           <p className="text-sm text-muted-foreground">
             {showArchive
-              ? 'Completed and cancelled campaigns from earlier cycles.'
+              ? isServe
+                ? 'Completed and cancelled campaigns you have archived.'
+                : 'Completed and cancelled campaigns from earlier cycles.'
               : "Every campaign you've sent, most recent first."}
           </p>
         </div>
@@ -535,15 +589,30 @@ export const OutreachHistoryTable = ({
                       <ChannelBadge type={row.outreachType} />
                     </TableCell>
                     <TableCell className="max-w-0 font-medium">
-                      <span className="block truncate">
-                        {row.name || row.title || 'Untitled campaign'}
+                      <span className="flex items-center gap-2">
+                        <span className="min-w-0 truncate">
+                          {row.name || row.title || 'Untitled campaign'}
+                        </span>
+                        {(row.turfCount ?? 1) > 1 && (
+                          <Badge
+                            shape="pill"
+                            variant="secondary"
+                            className="shrink-0"
+                          >
+                            {row.turfCount} turfs
+                          </Badge>
+                        )}
                       </span>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       <RowMetric row={row} detailFetcher={detailFetcher} />
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                      <RowResults row={row} detailFetcher={detailFetcher} />
+                      <RowResults
+                        row={row}
+                        detailFetcher={detailFetcher}
+                        isServe={isServe}
+                      />
                     </TableCell>
                     <TableCell className="text-right">
                       <HistoryStatusText label={displayStatusLabel(row)} />
@@ -590,12 +659,28 @@ export const OutreachHistoryTable = ({
                   </div>
                   <HistoryStatusText label={displayStatusLabel(row)} />
                 </div>
-                <span className="truncate text-base font-medium text-foreground">
-                  {row.name || row.title || 'Untitled campaign'}
+                <span className="flex items-center gap-2 text-base font-medium text-foreground">
+                  <span className="min-w-0 truncate">
+                    {row.name || row.title || 'Untitled campaign'}
+                  </span>
+                  {(row.turfCount ?? 1) > 1 && (
+                    <Badge
+                      shape="pill"
+                      variant="secondary"
+                      className="shrink-0"
+                    >
+                      {row.turfCount} turfs
+                    </Badge>
+                  )}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   <RowMetric row={row} compact detailFetcher={detailFetcher} />{' '}
-                  · <RowResults row={row} detailFetcher={detailFetcher} />
+                  ·{' '}
+                  <RowResults
+                    row={row}
+                    detailFetcher={detailFetcher}
+                    isServe={isServe}
+                  />
                 </span>
               </Card>
             )

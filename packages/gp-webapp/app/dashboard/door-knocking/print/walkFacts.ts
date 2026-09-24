@@ -1,5 +1,6 @@
 import type {
   DoorKnockingRoutePayload,
+  DoorKnockOutcome,
   RoutePayloadStop,
   RoutePayloadTarget,
   RouteTargetActivity,
@@ -10,8 +11,8 @@ import {
   ENGAGEMENT_OPTIONS,
   FOLLOW_UP_OPTIONS,
   FOLLOW_UP_QUESTION,
-  OUTCOME_OPTIONS,
   OUTCOME_QUESTION,
+  outcomeOptions,
   SUPPORT_OPTIONS,
   SUPPORT_QUESTION,
 } from '../native/knockQuestions'
@@ -139,8 +140,10 @@ export const MARK_INSTRUCTION =
 // paper has no equivalent of and the template therefore has no opinion about.
 // The fact it states is still true and still load-bearing: nothing written on a
 // sheet reaches gp-api until a person re-keys it.
-export const RECORDS_NOTICE =
-  'Answers already logged in the app are printed below. Log these doors in the app when you’re back online — nothing written here reaches your voter records on its own.'
+export const recordsNotice = (isServe: boolean): string =>
+  `Answers already logged in the app are printed below. Log these doors in the app when you’re back online — nothing written here reaches your ${
+    isServe ? 'constituent' : 'voter'
+  } records on its own.`
 
 // The tagline both sheets are signed with, from the design template's footer.
 // Quoted rather than typed twice, like every other string both surfaces state:
@@ -212,17 +215,22 @@ const contactMonth = new Intl.DateTimeFormat('en-US', {
 // Paper's own outcome wording — the same labels as the tick-boxes further down
 // the page and as the form the sheet is transcribed back into, so one knock
 // isn't named two things on one sheet.
-const OUTCOME_LABELS = new Map(OUTCOME_OPTIONS)
+const outcomeLabels = (isServe: boolean): Map<DoorKnockOutcome, string> =>
+  new Map(outcomeOptions(isServe))
 
 // What a row of the resident's history was, in the CRM feed's own channel
 // words. `null` for anything that is not outreach: a STATUS_CHANGE row is a
 // record edit (a flag set at a desk or at a door), not a contact, and
 // `skipInstruction` already prints what a flag means for this resident.
-const contactDescription = (activity: RouteTargetActivity): string | null => {
+const contactDescription = (
+  activity: RouteTargetActivity,
+  isServe: boolean,
+): string | null => {
   switch (activity.type) {
     case 'DOOR_KNOCK':
       return `Door knock: ${
-        OUTCOME_LABELS.get(activity.data.outcome) ?? activity.data.outcome
+        outcomeLabels(isServe).get(activity.data.outcome) ??
+        activity.data.outcome
       }`
     case 'TEXT':
       return 'Text'
@@ -251,11 +259,14 @@ const contactDescription = (activity: RouteTargetActivity): string | null => {
 // two formats wording the same history differently. Absent history prints
 // nothing rather than "never contacted" — a route snapshotted offline before
 // ADR 0009 shipped carries no `history` key at all, so absence is not a claim.
-export const lastContactLine = (target: RoutePayloadTarget): string | null => {
+export const lastContactLine = (
+  target: RoutePayloadTarget,
+  isServe: boolean,
+): string | null => {
   // Newest first and capped server-side (ADR 0009), so the first row that is
   // outreach rather than a record edit is the last contact.
   for (const activity of target.history ?? []) {
-    const what = contactDescription(activity)
+    const what = contactDescription(activity, isServe)
     const when = new Date(activity.date)
     if (what === null || Number.isNaN(when.getTime())) continue
     return `Last contact: ${contactMonth.format(when)} · ${what}`

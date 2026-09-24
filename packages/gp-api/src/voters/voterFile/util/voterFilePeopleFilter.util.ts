@@ -41,6 +41,8 @@ const CUSTOM_FILTER_TO_FIELD: Record<
   ethnicity_asian: 'ethnicityAsian',
   ethnicity_hispanic: 'ethnicityHispanic',
   ethnicity_african_american: 'ethnicityAfricanAmerican',
+  ethnicity_other: 'ethnicityOther',
+  ethnicity_unknown: 'ethnicityUnknown',
 }
 
 // Per-channel population rules, mirroring segmentsToFiltersMap.const.ts (the

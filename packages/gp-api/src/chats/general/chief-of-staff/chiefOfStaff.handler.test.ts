@@ -1,10 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { asSchema } from 'ai'
 import { ChatScope } from '../../../generated/prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
   ChiefOfStaffHandler,
 } from './chiefOfStaff.handler'
-import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { PrioritiesToolPort } from './services/prioritiesPort'
@@ -17,6 +17,7 @@ import type { Organization } from '../../../generated/prisma'
 import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -49,7 +50,6 @@ const TEST_TABLES = [
 ]
 
 describe('ChiefOfStaffHandler', () => {
-  let store: GeneralChatStoreService
   let context: ChiefOfStaffContextService
   let port: PrioritiesToolPort
 
@@ -63,9 +63,6 @@ describe('ChiefOfStaffHandler', () => {
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = 'test-key'
     port = buildPort()
-    store = {
-      createScopedConversation: vi.fn(),
-    } as unknown as GeneralChatStoreService
     context = {
       load: vi.fn(() =>
         Promise.resolve({
@@ -87,6 +84,7 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
+          attachmentsEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -108,54 +106,15 @@ describe('ChiefOfStaffHandler', () => {
     }) as unknown as DistrictResolverService
 
   it('is a sensitive, Anthropic-only scope', () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
+    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
     expect(handler.scope).toBe(ChatScope.chief_of_staff)
     expect(handler.isSensitive).toBe(true)
     expect(handler.models).toEqual([...CHIEF_OF_STAFF_MODELS])
     expect(handler.models.every((m) => m.startsWith('claude'))).toBe(true)
   })
 
-  it('always creates a new conversation (never resumes the latest)', async () => {
-    // Each "new chat" must be its own conversation: resolveConversation always
-    // creates a fresh one rather than resuming the most recent.
-    store.createScopedConversation = vi.fn(() =>
-      Promise.resolve({ id: 'fresh' }),
-    ) as never
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
-    const result = await handler.resolveConversation(
-      { scope: ChatScope.chief_of_staff, organizationSlug: ORG },
-      USER_ID,
-    )
-    expect(result).toEqual({ conversationId: 'fresh', created: true })
-    expect(store.createScopedConversation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerUserId: USER_ID,
-        organizationSlug: ORG,
-        scope: ChatScope.chief_of_staff,
-      }),
-    )
-  })
-
   it('builds the safe v1 tool set (priorities + briefing reads)', async () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
+    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
     const ctx = await handler.loadContext('c1', USER_ID)
     const tools = handler.buildTools(ctx)
     // web_search is always present now (Anthropic native, gated at the LLM
@@ -169,25 +128,13 @@ describe('ChiefOfStaffHandler', () => {
   })
 
   it('includes web_search (Anthropic native, no provider needed)', async () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
+    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
     const ctx = await handler.loadContext('c1', USER_ID)
     expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
   })
 
   it('builds a governance system prompt grounded in the context', async () => {
-    const handler = new ChiefOfStaffHandler(
-      store,
-      context,
-      buildBriefings(),
-      port,
-      [],
-    )
+    const handler = new ChiefOfStaffHandler(context, buildBriefings(), port, [])
     const ctx = await handler.loadContext('c1', USER_ID)
     const prompt = handler.buildSystemPrompt(ctx)
     expect(prompt).toContain('Chief of Staff')
@@ -196,7 +143,6 @@ describe('ChiefOfStaffHandler', () => {
 
   it('registers constituent-data tools when provider + filters + table are present', async () => {
     const handler = new ChiefOfStaffHandler(
-      store,
       context,
       buildBriefings(),
       port,
@@ -213,7 +159,6 @@ describe('ChiefOfStaffHandler', () => {
 
   it('omits constituent-data tools without a scoped provider', async () => {
     const handler = new ChiefOfStaffHandler(
-      store,
       context,
       buildBriefings(),
       port,
@@ -229,7 +174,6 @@ describe('ChiefOfStaffHandler', () => {
 
   it('omits constituent-data tools when no table is configured', async () => {
     const handler = new ChiefOfStaffHandler(
-      store,
       context,
       buildBriefings(),
       port,
@@ -249,7 +193,6 @@ describe('ChiefOfStaffHandler', () => {
       toMandatoryFilters: vi.fn(),
     } as unknown as DistrictResolverService
     const handler = new ChiefOfStaffHandler(
-      store,
       context,
       buildBriefings(),
       port,
@@ -275,34 +218,6 @@ describe('ChiefOfStaffHandler', () => {
       },
     }
 
-    it('passes anchor and title to createScopedConversation', async () => {
-      store.createScopedConversation = vi.fn(() =>
-        Promise.resolve({ id: 'anchored' }),
-      ) as never
-      const handler = new ChiefOfStaffHandler(
-        store,
-        context,
-        buildBriefings(),
-        port,
-        [],
-      )
-      const result = await handler.resolveConversation(
-        {
-          scope: ChatScope.chief_of_staff,
-          organizationSlug: ORG,
-          anchor: ANCHOR,
-        },
-        USER_ID,
-      )
-      expect(result).toEqual({ conversationId: 'anchored', created: true })
-      expect(store.createScopedConversation).toHaveBeenCalledWith(
-        expect.objectContaining({
-          anchor: ANCHOR,
-          title: 'Fix the potholes on Main Street',
-        }),
-      )
-    })
-
     it('prompt contains anchored_issue block with snapshot title and summary', async () => {
       const contextWithAnchor = {
         load: vi.fn(() =>
@@ -324,11 +239,11 @@ describe('ChiefOfStaffHandler', () => {
             anchor: ANCHOR,
             districtFilters: null,
             constituentToolEnabled: false,
+            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
       const handler = new ChiefOfStaffHandler(
-        store,
         contextWithAnchor,
         buildBriefings(),
         port,
@@ -368,11 +283,11 @@ describe('ChiefOfStaffHandler', () => {
             anchor: anchorWithHighlight,
             districtFilters: null,
             constituentToolEnabled: false,
+            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
       const handler = new ChiefOfStaffHandler(
-        store,
         contextWithAnchor,
         buildBriefings(),
         port,
@@ -388,7 +303,6 @@ describe('ChiefOfStaffHandler', () => {
         getDetail: vi.fn(),
       }
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -405,7 +319,6 @@ describe('ChiefOfStaffHandler', () => {
 
     it('omits read_community_issues tool when port is absent', async () => {
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -423,7 +336,6 @@ describe('ChiefOfStaffHandler', () => {
   describe('help center tool', () => {
     const buildHelpCenterHandler = (helpCenter?: HelpCenterSearchService) =>
       new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -470,7 +382,6 @@ describe('ChiefOfStaffHandler', () => {
       voterFileFilters?: VoterFileFilterService
     }) =>
       new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -489,6 +400,27 @@ describe('ChiefOfStaffHandler', () => {
       const toolNames = Object.keys(handler.buildTools(ctx))
       expect(toolNames).toContain('describe_filter_dimensions')
       expect(toolNames).toContain('count_contacts')
+    })
+
+    it('tells the catalog which registered tools take its filter shape', async () => {
+      const handler = buildCrmHandler({ contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const tools = handler.buildTools(ctx)
+      expect(
+        descriptionOf(tools.describe_filter_dimensions).split('\n\n')[0],
+      ).toContain('for count_contacts')
+    })
+
+    // Precinct is the one filter dimension describe_filter_dimensions
+    // cannot carry — its values are per-district — so this tool is the only
+    // route to it. Without it registered the assistant tells an office
+    // holder their own precinct is not a dimension it can filter on, while
+    // the wizard beside it offers exactly that filter.
+    it('registers list_precincts alongside the other aggregate reads', async () => {
+      const handler = buildCrmHandler({ contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).toContain('list_precincts')
     })
 
     it('registers CRM tools whose descriptions carry the shared routing rules', async () => {
@@ -552,10 +484,84 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
+  describe('serve-chat-attachments flag gate (compose_handoff tool)', () => {
+    const buildCtxWith = (attachmentsEnabled: boolean) =>
+      ({
+        load: vi.fn(() =>
+          Promise.resolve({
+            conversationId: 'c1',
+            electedOfficeId: 'office-1',
+            organizationSlug: ORG,
+            organization: { slug: ORG } as Organization,
+            userFirstName: 'Jordan',
+            userLastName: 'Lee',
+            officeTitle: 'Council Member',
+            jurisdiction: null,
+            swornInDate: null,
+            party: null,
+            electedDate: null,
+            termStartDate: null,
+            termEndDate: null,
+            priorities: [],
+            isFirstConversation: false,
+            anchor: null,
+            districtFilters: null,
+            constituentToolEnabled: false,
+            attachmentsEnabled,
+          }),
+        ),
+      }) as unknown as ChiefOfStaffContextService
+
+    it('registers compose_handoff when the flag is on', async () => {
+      const handler = new ChiefOfStaffHandler(
+        buildCtxWith(true),
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).toContain('compose_handoff')
+    })
+
+    it('omits compose_handoff when the flag is off', async () => {
+      const handler = new ChiefOfStaffHandler(
+        buildCtxWith(false),
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'compose_handoff',
+      )
+    })
+
+    it('inputSchema converts to a top-level object json schema (Anthropic rejects anyOf roots)', async () => {
+      const tool = buildComposeHandoffTool()
+      const converted = await asSchema(tool.inputSchema).jsonSchema
+      expect(converted.type).toBe('object')
+      expect(converted.anyOf).toBeUndefined()
+    })
+
+    it('execute returns the validated payload verbatim on valid input', async () => {
+      const tool = buildComposeHandoffTool()
+      const input = { channel: 'serve_social' as const, draftText: 'Hello!' }
+      const result = await tool.execute(input)
+      expect(result).toEqual(input)
+    })
+
+    it('execute throws on invalid input (schema parse error)', () => {
+      const tool = buildComposeHandoffTool()
+      type Input = Parameters<typeof tool.execute>[0]
+      expect(() =>
+        tool.execute({ channel: 'unknown' } as unknown as Input),
+      ).toThrow()
+    })
+  })
+
   describe('finalizeAssistantText (professional-advice backstop)', () => {
     it('appends the disclaimer to an eval-style legal-advice answer', () => {
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -576,7 +582,6 @@ describe('ChiefOfStaffHandler', () => {
 
     it('leaves an ordinary office answer untouched', () => {
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
@@ -591,7 +596,6 @@ describe('ChiefOfStaffHandler', () => {
 
     it("does not double the model's own disclaimer", () => {
       const handler = new ChiefOfStaffHandler(
-        store,
         context,
         buildBriefings(),
         port,
