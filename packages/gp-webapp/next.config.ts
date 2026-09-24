@@ -69,10 +69,14 @@ const nextConfig: NextConfig = {
       // descriptively named prefix on any origin. It is also excluded from the
       // middleware matcher so these requests never reach Clerk.
       //
-      // Paths mirror what @segment/analytics-next builds: `cdnURL` is used for
-      // `/v1/projects/<writeKey>/settings` and `/next-integrations/*`, and
-      // `apiHost` (which includes the API version segment) for `/<t|i|p|g|a>`
-      // and `/b`.
+      // Only the CDN half lives here. These are static asset fetches with no
+      // per-client semantics, so a rewrite is free and correct. The ingestion
+      // half (`/mx/evs/*`) is a route handler instead — see
+      // `app/mx/evs/[...path]/route.ts` for why it has to forward the client
+      // IP itself.
+      //
+      // Paths mirror what @segment/analytics-next builds from `cdnURL`:
+      // `/v1/projects/<writeKey>/settings` and `/next-integrations/*`.
       {
         source: '/mx/v1/projects/:path*',
         destination: 'https://cdn.segment.com/v1/projects/:path*',
@@ -80,10 +84,6 @@ const nextConfig: NextConfig = {
       {
         source: '/mx/next-integrations/:path*',
         destination: 'https://cdn.segment.com/next-integrations/:path*',
-      },
-      {
-        source: '/mx/evs/:path*',
-        destination: 'https://api.segment.io/v1/:path*',
       },
       // Public PDF share link for meeting briefings. Proxies to gp-api so the
       // shareable URL lives on this app's own origin (e.g.
