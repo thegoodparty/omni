@@ -50,6 +50,13 @@ export class CampaignsResource extends BaseResource {
         '/compliance-state',
     )
 
+  overrideCvValidation = (campaignId: number): Promise<void> =>
+    this.postRequest<void>(
+      `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
+        '/override-cv-validation',
+      {},
+    )
+
   resendCvPin = (campaignId: number): Promise<void> =>
     this.postRequest<void>(
       `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
