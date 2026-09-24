@@ -629,7 +629,11 @@ export class OrganizationTeamService {
     // Mailgun outage must not 502 a request whose real effect succeeded —
     // that would read to the caller as a failed invite when it wasn't.
     try {
-      await this.email.sendTeamMemberAddedEmail(existingUser, campaignName)
+      await this.email.sendTeamMemberAddedEmail(
+        existingUser,
+        campaignName,
+        role,
+      )
     } catch (err) {
       this.logger.warn(
         { err, userId: existingUser.id },

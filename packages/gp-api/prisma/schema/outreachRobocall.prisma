@@ -148,6 +148,27 @@ model OutreachRobocall {
   completedCallCount     Int?                @map("completed_call_count")
   // When the completion sweep last polled CallHub for this run's count.
   completionPolledAt     DateTime?           @map("completion_polled_at")
+  // A reward promotion code applied on the pay step. CAS mints these in Stripe
+  // as single-use, amount-off codes; Stripe only applies a code to a Checkout
+  // Session or invoice, never to the manual-capture hold this run pays with, so
+  // the discount is folded into the authorized amount here and Stripe is asked
+  // only whether the code is real. `promotionCodeId` is Stripe's `promo_…` id,
+  // `promoCode` the human code for display. `promoDiscountInCents` is the
+  // discount folded into the hold, frozen at redemption. `promoRedeemedAt` is
+  // stamped when money commits (the hold places, or a fully covered run is
+  // scheduled) — until then the code stays active and re-usable, and a pending
+  // draft merely remembers it. `promoCoversTotal` marks a run the code paid for
+  // in full: it carries no hold (Stripe refuses one under 50 cents), so the
+  // send gate skips the live-hold re-read and capture records $0. A code may be
+  // REMEMBERED by many drafts but REDEEMED by one: the migration adds a partial
+  // unique index on `promotion_code_id WHERE promo_redeemed_at IS NOT NULL`,
+  // which Prisma cannot declare here (`prisma migrate diff` ignores partial
+  // indexes, so it is not drift).
+  promotionCodeId        String?             @map("promotion_code_id")
+  promoCode              String?             @map("promo_code")
+  promoDiscountInCents   Int?                @map("promo_discount_in_cents")
+  promoRedeemedAt        DateTime?           @map("promo_redeemed_at")
+  promoCoversTotal       Boolean             @default(false) @map("promo_covers_total")
   settleState            RobocallSettleState @default(pending_payment) @map("settle_state")
 
   @@map("outreach_robocall")

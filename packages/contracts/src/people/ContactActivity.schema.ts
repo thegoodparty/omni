@@ -3,6 +3,7 @@ import {
   ContactStatusFieldSchema,
   ContactStatusSourceSchema,
   DoorKnockOutcomeSchema,
+  FollowUpAnswerSchema,
   OutreachTypeSchema,
   PhoneBankCallOutcomeSchema,
   SupportAnswerSchema,
@@ -89,7 +90,12 @@ export const DoorKnockConstituentActivitySchema = z.object({
   data: z.object({
     activityId: z.string(),
     outcome: DoorKnockOutcomeSchema,
+    // One vocabulary per row, decided by the org the feed is read for:
+    // supportAnswer is Win's and reads null for an `eo-` org, followUp is
+    // Serve's and reads null otherwise (contactEngagement.service.ts). A row
+    // logged before its surface asked its question carries neither.
     supportAnswer: SupportAnswerSchema.nullable(),
+    followUp: FollowUpAnswerSchema.nullable(),
     note: z.string().nullable(),
     manual: z.boolean(),
     actorName: z.string().nullable(),
@@ -141,8 +147,10 @@ export const PhoneBankingConstituentActivitySchema = z.object({
   data: z.object({
     activityId: z.string(),
     outcome: PhoneBankCallOutcomeSchema,
+    // Same rule as the door-knock row above.
     supportAnswer: SupportAnswerSchema.nullable(),
     willVote: WillVoteAnswerSchema.nullable(),
+    followUp: FollowUpAnswerSchema.nullable(),
     note: z.string().nullable(),
     manual: z.boolean(),
     actorName: z.string().nullable(),

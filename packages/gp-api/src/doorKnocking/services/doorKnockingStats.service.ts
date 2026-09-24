@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { subHours } from 'date-fns'
+import { getTime, subHours } from 'date-fns'
 import pMap from 'p-map'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
@@ -88,6 +88,15 @@ export class DoorKnockingStatsService extends createPrismaBase(
     // traits by AnalyticsService. They ride the payload as well because the
     // HubSpot workflow reads event properties, not context, and CS asked for
     // both ids on the event itself.
+    //
+    // The timestamp rides as epoch millis, and its key is absent rather than
+    // null on an org that has drawn a list but never knocked. HubSpot
+    // coerces an empty value into a datetime property as 0, which the
+    // workflow writes as 31 Dec 1969 and CS reads as a real date. Millis is
+    // also what HubSpot stores natively, so no string is parsed on the way
+    // in. The workflow still needs its own "is known" branch; this only
+    // stops us handing it the value that becomes 1969.
+    const { lastCanvassActivityAt, ...counts } = totals
     await this.analytics.track(
       userId,
       EVENTS.DoorKnocking.CanvassingTotalsUpdated,
@@ -97,9 +106,10 @@ export class DoorKnockingStatsService extends createPrismaBase(
         hubspotCompanyId: campaign?.data.hubspotId ?? null,
         organizationSlug,
         campaignId: campaign?.id ?? null,
-        ...totals,
-        lastCanvassActivityAt:
-          totals.lastCanvassActivityAt?.toISOString() ?? null,
+        ...counts,
+        ...(lastCanvassActivityAt
+          ? { lastCanvassActivityAt: getTime(lastCanvassActivityAt) }
+          : {}),
       },
     )
   }

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
   ServiceUnavailableException,
   UnprocessableEntityException,
@@ -896,6 +897,46 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         cvValidationFailureReasons: [],
         cvValidationTransientCount: 0,
       },
+    })
+  }
+
+  // Staff rename after a committee files an amendment (ENG-11169). The name
+  // lives in two copies that must move together: this row (what the SMS
+  // "Paid for by" footer, checkSmsStandards, and Peerly submission read) and
+  // campaign.details.campaignCommittee (the filing-form prefill). The Peerly
+  // brand is deliberately untouched — resubmitting a finalized identity risks
+  // re-triggering carrier review, and the brand copy is carrier-facing only.
+  async updateCommitteeName(campaignId: number, committeeName: string) {
+    const existing = await this.fetchByCampaignId(campaignId)
+    if (!existing) {
+      throw new NotFoundException(
+        `TcrCompliance record not found for campaignId=${campaignId}`,
+      )
+    }
+    return this.client.$transaction(async (tx) => {
+      const updated = await tx.tcrCompliance.update({
+        where: { id: existing.id },
+        data: { committeeName },
+      })
+      // Same single-statement merge as patchCampaignDetails — campaign JSON
+      // columns must never be read-modify-written (src/campaigns/CLAUDE.md);
+      // inlined here so the write is bound to this transaction.
+      const merged = await tx.$executeRaw`
+        UPDATE campaign
+        SET details = details ||
+              ${JSON.stringify({ campaignCommittee: committeeName })}::jsonb,
+            updated_at = NOW()
+        WHERE id = ${campaignId}
+          AND jsonb_typeof(details) = 'object'
+      `
+      // The record's campaignId FK proves the campaign exists, so zero rows
+      // means a malformed details column; throwing rolls back the rename.
+      if (merged === 0) {
+        throw new InternalServerErrorException(
+          `Campaign ${campaignId} has no details JSON`,
+        )
+      }
+      return updated
     })
   }
 

@@ -11,6 +11,8 @@ import {
   BadGatewayException,
   BadRequestException,
   ForbiddenException,
+  ServiceUnavailableException,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common'
 import { ServiceException } from '@smithy/smithy-client'
@@ -291,6 +293,29 @@ describe('S3Service', () => {
       ).rejects.toThrow(BadGatewayException)
     })
 
+    it.each([
+      'ThrottlingException',
+      'Throttling',
+      'TooManyRequestsException',
+      'RequestLimitExceeded',
+      'SlowDown',
+    ])('throws ServiceUnavailableException on %s', async (name) => {
+      // These five names are load-bearing: callers distinguish "we were rate
+      // limited" from "the request was wrong" by the 503, and a typo here
+      // routes throttling to a 500 that reads as a permanent failure.
+      const awsError = new ServiceException({
+        name,
+        message: 'Rate exceeded',
+        $fault: 'client',
+        $metadata: {},
+      })
+      mockUploadDone.mockRejectedValue(awsError)
+
+      await expect(
+        service.uploadFile(bucket, mockFileBody, key),
+      ).rejects.toThrow(ServiceUnavailableException)
+    })
+
     it('throws BadRequestException on AWS validation errors', async () => {
       const awsError = new ServiceException({
         name: 'InvalidParameter',
@@ -337,6 +362,25 @@ describe('S3Service', () => {
       expect(result).toBeUndefined()
     })
 
+    // S3 GET on a missing key surfaces as either NoSuchKey or a plain 404
+    // (e.g. without s3:ListBucket, or NoSuchBucket) depending on permissions
+    // and error shape. Treat both as "missing" — mirroring objectExists /
+    // headObject — so we don't turn a stale artifact pointer into a 502 that
+    // tells the client to retry a never-succeeding request (ENG-11117).
+    it('returns undefined when S3 returns a plain 404', async () => {
+      const plain404 = new ServiceException({
+        name: 'NotFound',
+        message: 'Not Found',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 404 },
+      })
+      s3Mock.on(GetObjectCommand).rejects(plain404)
+
+      const result = await service.getFile(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+
     it('throws other errors when file retrieval fails', async () => {
       const otherError = new Error('Network error')
       s3Mock.on(GetObjectCommand).rejects(otherError)
@@ -360,6 +404,50 @@ describe('S3Service', () => {
       )
     })
 
+    // The real one, verbatim from dev. A briefing row points at a bucket named
+    // `seed` that exists in ap-south-1 and belongs to somebody else, so S3
+    // answers 301 PermanentRedirect in ~120ms with `$fault: "client"`.
+    //
+    // This used to be a 502, because the switch above only names about a dozen
+    // client faults and everything else fell to the gateway default. That is
+    // not a cosmetic mislabel: 502 tells the caller to retry, and one browser
+    // tab took that advice 768 times in a week against a request that could
+    // never succeed. A 500 says the failure is ours and permanent.
+    it('reports a permanent client fault as a server error, not a retryable gateway error', async () => {
+      const permanentRedirect = new ServiceException({
+        name: 'PermanentRedirect',
+        message:
+          'The bucket you are attempting to access must be addressed using the specified endpoint.',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 301 },
+      })
+      s3Mock.on(GetObjectCommand).rejects(permanentRedirect)
+
+      await expect(service.getFile(bucket, key)).rejects.toThrow(
+        InternalServerErrorException,
+      )
+      await expect(service.getFile(bucket, key)).rejects.not.toThrow(
+        BadGatewayException,
+      )
+    })
+
+    // Named client faults keep their specific statuses; the change above only
+    // moves the ones that were falling through.
+    it('still answers a named input fault with 400', async () => {
+      s3Mock.on(GetObjectCommand).rejects(
+        new ServiceException({
+          name: 'InvalidArgument',
+          message: 'bad argument',
+          $fault: 'client',
+          $metadata: {},
+        }),
+      )
+
+      await expect(service.getFile(bucket, key)).rejects.toThrow(
+        BadRequestException,
+      )
+    })
+
     it('handles missing Body in response', async () => {
       const mockResponse: GetObjectCommandOutput = {
         Body: undefined,
@@ -368,6 +456,68 @@ describe('S3Service', () => {
       s3Mock.on(GetObjectCommand).resolves(mockResponse)
 
       const result = await service.getFile(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+  })
+
+  describe('getFileBytes', () => {
+    const bucket = 'test-bucket'
+    const key = 'folder/file.bin'
+
+    it('returns undefined when file does not exist (NoSuchKey)', async () => {
+      const noSuchKeyError = new NoSuchKey({
+        message: 'The specified key does not exist',
+        $metadata: {},
+      })
+      s3Mock.on(GetObjectCommand).rejects(noSuchKeyError)
+
+      const result = await service.getFileBytes(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+
+    it('returns undefined when S3 returns a plain 404', async () => {
+      const plain404 = new ServiceException({
+        name: 'NotFound',
+        message: 'Not Found',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 404 },
+      })
+      s3Mock.on(GetObjectCommand).rejects(plain404)
+
+      const result = await service.getFileBytes(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+  })
+
+  describe('getFileBytesWithContentType', () => {
+    const bucket = 'test-bucket'
+    const key = 'folder/file.bin'
+
+    it('returns undefined when file does not exist (NoSuchKey)', async () => {
+      const noSuchKeyError = new NoSuchKey({
+        message: 'The specified key does not exist',
+        $metadata: {},
+      })
+      s3Mock.on(GetObjectCommand).rejects(noSuchKeyError)
+
+      const result = await service.getFileBytesWithContentType(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+
+    it('returns undefined when S3 returns a plain 404', async () => {
+      const plain404 = new ServiceException({
+        name: 'NotFound',
+        message: 'Not Found',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 404 },
+      })
+      s3Mock.on(GetObjectCommand).rejects(plain404)
+
+      const result = await service.getFileBytesWithContentType(bucket, key)
 
       expect(result).toBeUndefined()
     })

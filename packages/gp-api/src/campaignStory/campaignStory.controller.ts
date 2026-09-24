@@ -7,10 +7,11 @@ import {
   UseInterceptors,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { Campaign, User } from '../generated/prisma'
+import { Campaign } from '../generated/prisma'
+import { CampaignWith } from '@/campaigns/campaigns.types'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
-import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import {
@@ -30,11 +31,11 @@ import {
   RewriteCampaignStorySchema,
 } from './schemas/rewriteCampaignStory.schema'
 
-const candidateName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
-
 @Controller('campaigns/mine/story')
-@UseCampaign()
+// The story is voiced by the campaign OWNER, not the requester — a Campaign
+// Manager's rewrite must not re-voice it as themselves (ENG-11139), so the
+// owner relation rides every campaign load here.
+@UseCampaign({ include: { user: true } })
 @UseInterceptors(ZodResponseInterceptor)
 export class CampaignStoryController {
   constructor(
@@ -61,14 +62,13 @@ export class CampaignStoryController {
   @Post('rewrite')
   @ResponseSchema(CampaignStoryRewriteSchema)
   rewrite(
-    @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @Body(new ZodValidationPipe(RewriteCampaignStorySchema))
     input: RewriteCampaignStoryInput,
   ): Promise<CampaignStoryRewrite> {
     return this.campaignStoryRewrite.rewrite(
       input,
-      candidateName(user),
+      ownerCandidateName(campaign),
       campaign.id,
     )
   }

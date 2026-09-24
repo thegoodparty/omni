@@ -48,6 +48,10 @@ export const ComplianceStateOutputSchema = z.object({
   // internalTestingApprovedAt null) to detect real compliance in progress and
   // disable the internal-testing checkbox.
   hasComplianceRecord: z.boolean(),
+  // The persisted committee name off the TcrCompliance row — the copy every
+  // runtime read uses (SMS "Paid for by" footer, checkSmsStandards, Peerly
+  // submission). Null when no record exists.
+  committeeName: z.string().nullable(),
 })
 
 export type ComplianceStateOutput = z.infer<typeof ComplianceStateOutputSchema>

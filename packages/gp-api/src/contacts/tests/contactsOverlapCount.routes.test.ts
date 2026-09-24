@@ -68,6 +68,103 @@ describe('POST /v1/contacts/overlap-count', () => {
       .spyOn(service.app.get(VoterQueryService), 'getOverlapCount')
       .mockResolvedValue(data)
 
+  const SQUARE = {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ],
+  }
+
+  // A saved list narrowed by a drawn boundary joins the union at the size
+  // its SHAPE holds, not the size its criteria match across the district.
+  // Getting this wrong overstates in the one direction that matters: the
+  // strip exists to say "you may not need this list", so counting too many
+  // argues against building something the holder does need.
+  describe('a saved list carrying a drawn boundary', () => {
+    const seedBoundariedList = async (slug: string, enclosed: string[]) => {
+      const saved = await createSavedFilter(slug, {
+        genderFemale: true,
+        geoPoly: SQUARE,
+        geoMembersResolvedAt: new Date(),
+      })
+      await service.prisma.voterFileFilterGeoMember.createMany({
+        data: enclosed.map((personId) => ({
+          voterFileFilterId: saved.id,
+          personId,
+        })),
+      })
+      return saved
+    }
+
+    it('joins the union narrowed to the people inside its shape', async () => {
+      const slug = await setupProOrg('geo-narrowed')
+      const enclosed = randomUUID()
+      await seedBoundariedList(slug, [enclosed])
+      const overlapSpy = spyOnOverlapCount({ count: 1 })
+
+      const response = await service.client.post(
+        '/v1/contacts/overlap-count',
+        { genderFemale: true },
+        { headers: { [ORG_SLUG_HEADER]: slug } },
+      )
+
+      expect(response.status).toBe(201)
+      const savedSets = overlapSpy.mock.calls[0]?.[0]?.savedFilterSets
+      expect(savedSets).toHaveLength(1)
+      expect(savedSets?.[0]).toMatchObject({
+        filterOperators: { id: { operator: 'in', values: [enclosed] } },
+      })
+    })
+
+    // The shape enclosing nobody is not "no constraint". Dropped from the
+    // union entirely, the same way an activity condition that resolves to
+    // nobody already is — contributing its unbounded criteria instead would
+    // be the original bug at its worst.
+    it('drops a list whose shape encloses nobody', async () => {
+      const slug = await setupProOrg('geo-empty')
+      await createSavedFilter(slug, {
+        genderFemale: true,
+        geoPoly: SQUARE,
+        geoMembersResolvedAt: new Date(),
+      })
+      const overlapSpy = spyOnOverlapCount({ count: 7 })
+
+      const response = await service.client.post(
+        '/v1/contacts/overlap-count',
+        { genderFemale: true },
+        { headers: { [ORG_SLUG_HEADER]: slug } },
+      )
+
+      expect(response.status).toBe(201)
+      expect(response.data).toEqual({ count: 0 })
+      expect(overlapSpy).not.toHaveBeenCalled()
+    })
+
+    // The other half: a list with no shape must keep contributing
+    // everything its criteria match, or this fix would silently shrink
+    // every ordinary list's contribution to nothing.
+    it('leaves a list without a boundary unconstrained', async () => {
+      const slug = await setupProOrg('geo-absent')
+      await createSavedFilter(slug, { genderFemale: true })
+      const overlapSpy = spyOnOverlapCount({ count: 3 })
+
+      await service.client.post(
+        '/v1/contacts/overlap-count',
+        { genderFemale: true },
+        { headers: { [ORG_SLUG_HEADER]: slug } },
+      )
+
+      const savedSets = overlapSpy.mock.calls[0]?.[0]?.savedFilterSets
+      expect(savedSets?.[0]?.filters).not.toContain('id')
+    })
+  })
+
   // outreach-pro-gating-v2: the build path prices a list before the upgrade,
   // so the overlap strip is served to a free organization too. With no saved
   // lists there is nothing to overlap with, so people-db is still not asked.
@@ -284,6 +381,62 @@ describe('POST /v1/contacts/overlap-count', () => {
       expect.objectContaining({ organizationSlug: slug }),
       expect.stringContaining('party predicate'),
     )
+  })
+
+  // The same hole, the same shape, one rule later: #1933 barred subsetting by
+  // ethnicity for both products and the Win half was reverted, so a pre-rule
+  // `eo-` row still carrying the six columns must drop out of the union too.
+  it('drops an ethnicity-tainted saved list from the union for an elected-office org', async () => {
+    const slug = await setupProOrg('ethnicity-tainted')
+    await createSavedFilter(slug, { name: 'clean', genderFemale: true })
+    await createSavedFilter(slug, {
+      name: 'tainted',
+      ethnicityHispanic: true,
+    })
+    const warnSpy = vi.spyOn(PinoLogger.prototype, 'warn')
+    const overlapSpy = spyOnOverlapCount({ count: 3 })
+
+    const response = await service.client.post(
+      '/v1/contacts/overlap-count',
+      { genderMale: true },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    expect(response.status).toBe(201)
+    const savedFilterSets = overlapSpy.mock.calls[0]?.[0]?.savedFilterSets ?? []
+    expect(savedFilterSets).toHaveLength(1)
+    expect(
+      savedFilterSets.some((set) => 'ethnicity' in set.filterOperators),
+    ).toBe(false)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: slug }),
+      expect.stringContaining('ethnicity predicate'),
+    )
+  })
+
+  // And the Win half, so the drop above is a mode rule rather than a blanket
+  // one — a candidate's saved list keeps its ethnicity predicate.
+  it('still includes a Win org saved list carrying an ethnicity predicate in the union', async () => {
+    const slug = await setupWinProOrg('ethnicity-allowed')
+    await createSavedFilter(slug, {
+      name: 'ethnicity list',
+      ethnicityHispanic: true,
+    })
+    const overlapSpy = spyOnOverlapCount({ count: 4 })
+
+    const response = await service.client.post(
+      '/v1/contacts/overlap-count',
+      { genderMale: true },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    expect(response.status).toBe(201)
+    const savedFilterSets = overlapSpy.mock.calls[0]?.[0]?.savedFilterSets ?? []
+    expect(savedFilterSets).toHaveLength(1)
+    expect(savedFilterSets[0]?.filterOperators.ethnicity).toEqual({
+      operator: 'eq',
+      value: 'Hispanic',
+    })
   })
 
   it('still includes a Win org saved list carrying a party predicate in the union', async () => {

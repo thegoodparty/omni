@@ -5,6 +5,7 @@ import { PeerlyBaseConfig } from '../config/peerlyBaseConfig'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { CreateScheduleResponseDto } from '../schemas/peerlySchedule.schema'
+import { SEND_WINDOW_END } from '../utils/sendWindowStart.util'
 
 const SCHEDULE_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 
@@ -18,8 +19,14 @@ export class PeerlyScheduleService extends PeerlyBaseConfig {
     super(logger)
   }
 
-  async createSchedule(scheduleName: string): Promise<number> {
-    const body = this.buildScheduleBody(scheduleName)
+  // `startTime` is the resolved "HH:mm" window open (sendWindowStart.util);
+  // the schedule is what Peerly's console shows as the job's hours, so it
+  // must agree with the canvasser request or CAS reads a 9am send.
+  async createSchedule(
+    scheduleName: string,
+    startTime: string,
+  ): Promise<number> {
+    const body = this.buildScheduleBody(scheduleName, startTime)
 
     try {
       this.logger.info(`Creating Peerly schedule: ${scheduleName}`)
@@ -43,11 +50,11 @@ export class PeerlyScheduleService extends PeerlyBaseConfig {
     }
   }
 
-  private buildScheduleBody(scheduleName: string) {
+  private buildScheduleBody(scheduleName: string, startTime: string) {
     const dayFields = Object.fromEntries(
       SCHEDULE_DAYS.flatMap((day) => [
-        [`${day}_start`, P2P_SCHEDULE_DEFAULTS.START_TIME],
-        [`${day}_end`, P2P_SCHEDULE_DEFAULTS.END_TIME],
+        [`${day}_start`, `${startTime}:00`],
+        [`${day}_end`, `${SEND_WINDOW_END}:00`],
       ]),
     )
 

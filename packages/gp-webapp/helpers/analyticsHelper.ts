@@ -196,8 +196,6 @@ export const EVENTS = {
     },
     Dashboard: {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
-      ClickVoterData: 'Navigation - Dashboard: Click Voter Data',
-      ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickCommunity: 'Navigation - Dashboard: Click Community',
@@ -495,6 +493,13 @@ export const EVENTS = {
       MethodCompleted: 'Contacts - List Wizard Method Completed',
       ConditionsViewed: 'Contacts - List Wizard Conditions Viewed',
       ConditionsCompleted: 'Contacts - List Wizard Conditions Completed',
+      // Serve only — the boundary step sits between conditions and name and
+      // Win's wizard has no such stage, so these two never fire with
+      // context 'win'. Completed carries { hasBoundary }: the step is
+      // skippable, and how often it is skipped is the question the stage
+      // exists to answer.
+      BoundaryViewed: 'Contacts - List Wizard Boundary Viewed',
+      BoundaryCompleted: 'Contacts - List Wizard Boundary Completed',
       NameViewed: 'Contacts - List Wizard Name Viewed',
       NameCompleted: 'Contacts - List Wizard Name Completed',
     },
@@ -525,6 +530,21 @@ export const EVENTS = {
     ListCreated: 'Constituent Data - List Created',
     ActivityListCreated: 'Constituent Data - Activity List Created',
     ListExported: 'Constituent Data - List Exported',
+    // The boundary saved onto an existing list from the map on its detail
+    // sheet. `{ listId, cleared }` — clearing a boundary is the same write
+    // and is worth telling apart from setting one. Serve-only surface (the
+    // map itself is), so there is no VoterData variant, same as
+    // ContactStatusChanged below in the other direction.
+    ListBoundarySaved: 'Constituent Data - List Boundary Saved',
+    // The person-record follow-up toggle. Fires once per confirmed-successful
+    // change with { from, to } — never on a failed PATCH. Serve-only
+    // surface, the mirror of VoterData.ContactStatusChanged below.
+    FollowUpChanged: 'Constituent Data - Follow Up Changed',
+    // The closed-campaign follow-up block's two actions. Fires once per
+    // successful list save with { action: 'call' | 'save', outstanding },
+    // never on a failed save. Answers whether officials actually work the
+    // follow-ups a campaign produces, or only read the count.
+    FollowUpListCreated: 'Constituent Data - Follow Up List Created',
   },
   VoterData: {
     ContactSearched: 'Voter Data - Contact Searched',
@@ -678,6 +698,16 @@ export const EVENTS = {
     DidYouWinModalCompleted: 'Candidacy - Did You Win Modal Completed',
     CampaignCompleted: 'Candidacy - Campaign Completed',
     DebriefClicked: 'Candidacy - Debrief Clicked',
+  },
+  ChiefOfStaff: {
+    DocumentAttached: 'Chief Of Staff - Document Attached',
+    LinkSubmitted: 'Chief Of Staff - Link Submitted',
+    LinkFetchFailed: 'Chief Of Staff - Link Fetch Failed',
+    SourceUnreachablePromptShown:
+      'Chief Of Staff - Source Unreachable Prompt Shown',
+    CitationOpened: 'Chief Of Staff - Citation Opened',
+    UploadGuardShown: 'Chief Of Staff - Upload Guard Shown',
+    ComposeHandoffOpened: 'Chief Of Staff - Compose Handoff Opened',
   },
   BriefingAssistant: {
     ListViewed: 'Briefing Assistant - List Viewed',

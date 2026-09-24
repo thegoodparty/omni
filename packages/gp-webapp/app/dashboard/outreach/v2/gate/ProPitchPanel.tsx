@@ -12,7 +12,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   DoorOpenIcon,
-  HeadphonesIcon,
+  HeadsetIcon,
   MessageSquareIcon,
   PhoneIcon,
   ShieldCheckIcon,
@@ -26,7 +26,7 @@ const CHANNEL_ICON: Record<
   sms: MessageSquareIcon,
   robocall: PhoneIcon,
   door: DoorOpenIcon,
-  'phone-bank': HeadphonesIcon,
+  'phone-bank': HeadsetIcon,
 }
 
 // Each channel's tint: the design's `CHANNEL_TINT`, a brand-palette 200 step

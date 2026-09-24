@@ -7,6 +7,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
+import type { TurfDraft } from '../turfDrafts'
 
 // The create flow mounts milestone 2's in-flow gate, whose membership read
 // reaches for the organization provider this file does not stand up. Ungated
@@ -33,6 +34,16 @@ const OPEN_RING: PolygonRing = [
   [-87.65, 41.93],
 ]
 
+// The single turf every campaign here holds. Its polygon is `OPEN_RING`,
+// so a create posts the geometry these tests already assert on.
+const DRAFT: TurfDraft = {
+  clientId: 'draft-1',
+  polygon: OPEN_RING,
+  color: '#2563eb',
+  name: 'Turf 1',
+  assigneeId: null,
+}
+
 const baseProps = {
   filters: {},
   onFiltersChange: vi.fn(),
@@ -52,17 +63,11 @@ const baseProps = {
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,
-  turfStats: {
-    stops: 14,
-    people: 22,
-    households: 9,
-    partyMix: [],
-    ageMix: [],
-  },
+
   drawPointCount: 3,
-  onUndoPoint: vi.fn(),
   drawFullScreen: false,
   onDrawFullScreenChange: vi.fn(),
+  mapChromeBottomPx: 16,
   onRestartDrawing: vi.fn(),
   color: '#2563eb',
   drawnStops: null,
@@ -83,10 +88,19 @@ const baseProps = {
   onShowAddresses: vi.fn(),
   onHideAddresses: vi.fn(),
   onRetryAddresses: vi.fn(),
+  turfDrafts: [DRAFT],
+  draftStats: new Map(),
+  activeDraftId: null as string | null,
+  onSelectDraft: vi.fn(),
+  onStartNewTurf: vi.fn(),
+  onRemoveDraft: vi.fn(),
+  onUpdateDraft: vi.fn(),
+  onPickColor: vi.fn(),
 }
 
 const savedTurf = {
   id: 5,
+  outreachId: 900,
   voterFileFilterId: 21,
   name: 'Tuesday evening',
   color: '#2563eb',
@@ -278,6 +292,43 @@ describe('CreateListFlow — a recommendation carried in on ?recommended=', () =
     expect(onRecommendedPreselectApplied).toHaveBeenCalledTimes(1)
   })
 
+  // Same stale-cache race as the outreach flows: a copy fetched before the
+  // list was saved must not be applied while the fresh one is in flight.
+  it('waits for a fresh copy before applying a cached recommendation', async () => {
+    testQueryClient.setQueryData(
+      [
+        'door-knocking-preselected-recommendation',
+        'campaign-9',
+        'persuadeAffinity',
+      ],
+      { ...EXISTING_RECOMMENDATION, existingFilterId: null },
+    )
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity' ? [EXISTING_RECOMMENDATION] : [],
+    }))
+    const onFiltersChange = vi.fn()
+    renderCarried({
+      onFiltersChange,
+      savedLists: [
+        {
+          id: 501,
+          name: 'Persuadable independents',
+          households: 900,
+          filters: { partyDemocrat: true },
+        },
+      ],
+      preselectedRecommendedVariant: 'persuadeAffinity',
+    })
+
+    // Selected, not rebuilt — and only ever once.
+    await waitFor(() =>
+      expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true }),
+    )
+    expect(onFiltersChange).toHaveBeenCalledTimes(1)
+  })
+
   it('asks for nothing on the Serve surface', async () => {
     const queries: Record<string, unknown>[] = []
     api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
@@ -408,7 +459,7 @@ describe('CreateListFlow — recommended lists', () => {
         {...baseProps}
         onFiltersChange={onFiltersChange}
         filters={appliedFilters}
-        step="confirm"
+        step="name"
       />,
     )
     fireEvent.change(screen.getByLabelText('Campaign name'), {
@@ -503,7 +554,7 @@ describe('CreateListFlow — recommended lists', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     rerender(
-      <CreateListFlow {...baseProps} savedLists={savedLists} step="confirm" />,
+      <CreateListFlow {...baseProps} savedLists={savedLists} step="name" />,
     )
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Tuesday evening' },

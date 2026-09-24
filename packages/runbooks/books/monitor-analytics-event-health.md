@@ -17,6 +17,13 @@ runs and for the stage-2 code investigation, which is agent work the schedule ca
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
   Set `DATABRICKS_HTTP_PATH` in `scripts/.env` and pick the profile with
   `DATABRICKS_CONFIG_PROFILE` if it is not the default. No PAT — the backfill shares this path.
+- **`GP_DATA_PLATFORM_READ_TOKEN`** (DATA-2421): a read-only Contents token on
+  `thegoodparty/gp-data-platform`, in 1Password under `Product-Analytics` / "GP Data
+  Platform Read Token". `sem_anchors.py` uses it to read that repo's `sem_*.yml` over the
+  GitHub API — the semantic layer this monitor derives its OKR watch set from. Without
+  it, every OKR dormancy check (the latch, the path-qualified legs, the `okr:` tag
+  validation) disables itself for the run, and the digest says so with a red "OKR
+  dormancy checks degraded" line rather than failing.
 - **Tools**: `uv`, `git`, `ripgrep` (`rg`), a clone of the omni monorepo (this package lives in it).
 - **Setup**: `cd scripts/python && uv sync`.
 - **Code axis**: `scripts/python/instrumentation_data/amplitude_event_provenance.csv` must be
@@ -52,8 +59,8 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
-Severity ranks (0 = loudest): 0 counter blind spot — zero call sites but firing normally, a
-tooling alert, see DATA-2106 · 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
+Severity ranks (0 = loudest): 0 OKR anchor dormant (latched), see DATA-2421, or counter
+blind spot — zero call sites but firing normally, a tooling alert, see DATA-2106 · 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
 removed, name constant survives (DATA-2046) · 3 anomaly drop on an active elevated event · 4
 anomaly drop on any active/system event · 5 intent divergence · 6 dormant elevated · 7
 instrumented-never-observed · 8 dormant (collapsed to a single tail line in the digest).
@@ -62,20 +69,24 @@ instrumented-never-observed · 8 dormant (collapsed to a single tail line in the
 
 ```bash
 cd scripts/python
-uv run analytics_event_health.py
+uv run analytics_event_health.py --no-log
 ```
 
 Prints the dated digest section, inserts it newest-first at the top of
 `instrumentation_data/analytics-event-health-log.md` (the growing longitudinal history,
 below the header), and writes `analytics_event_health_state.json` (the flagged set, for
-next run's changes-since-last-run diff). Useful flags:
+next run's changes-since-last-run diff, plus the OKR latch records — their sticky
+pre-break reference survives only there). Useful flags:
 
 - `--today YYYY-MM-DD` — run "as of" a past date (replay / backfill).
 - `--json PATH` — also write the full per-event result JSON (gitignored; use it to dig into a flag).
-- `--no-log` — print only, do not write to the log.
+- `--no-log` — print only: writes neither the log nor the state file, so an ad-hoc local
+  run leaves the git-tracked `instrumentation_data/` files (the scheduled run authors
+  them) untouched. Use it for every local run you are not deliberately writing state from.
 - `--csv PATH` / `--watchlist PATH` / `--state PATH` — override the default locations.
 
-Read the digest top-down: priority flags table first (ranks 0-7), then the dormant tail,
+Read the digest top-down: the dormant-OKR-anchor latch table and any "OKR dormancy checks
+degraded" line first, then the priority flags table (ranks 0-7), then the dormant tail,
 then changes-since-last-run, then metadata completeness, then watchlist proposals. The loud
 ones (rank 1-2) are what you route to Eng/PM; everything else is awareness.
 
@@ -217,7 +228,8 @@ Set as constants at the top of `analytics_event_health.py`:
 
 - `DORMANT_DAYS = 30` — dormant cutoff and the deprecating -> retired holding window.
 - `RETIREMENT_FLOOR_PCT = 0.05` — current week below this fraction of the trailing 4-week
-  baseline = anomaly drop.
+  baseline = anomaly drop. The OKR-anchor latch does not use this floor: it has its own,
+  tighter `LATCH_BREAK_PCT = 0.10` in `okr_latch.py`.
 - `ABSOLUTE_FLOOR = 5` — baseline fires/week below which a fall to zero replaces the % rule.
 - `MIN_BASELINE_WEEKS = 5` — need the current week plus four complete baseline weeks to judge an anomaly.
 - `PROPOSAL_WINDOW_DAYS = 90` — surface watched-family events first seen within this window.

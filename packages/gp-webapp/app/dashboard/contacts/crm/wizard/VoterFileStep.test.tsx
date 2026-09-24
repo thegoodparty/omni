@@ -250,6 +250,9 @@ describe('VoterFileStep — prototype filter order', () => {
       .getAllByRole('heading', { level: 4 })
       .map((heading) => heading.textContent)
 
+    // Ethnicity is absent here and present in the Win list above: #1933
+    // barred subsetting by it for both products, and only the Win half was
+    // reverted.
     expect(headings).toEqual([
       'Support status',
       'Age',
@@ -261,7 +264,6 @@ describe('VoterFileStep — prototype filter order', () => {
       'Level of education',
       'Household income range',
       'Language',
-      'Ethnicity',
       'Gender',
       'Cell phone',
       'Landline',

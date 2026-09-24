@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { Campaign } from 'helpers/types'
+import { router } from 'helpers/test-utils/router-mocking'
 import DoorKnockingPageGate from './DoorKnockingPageGate'
 
 const flagState = { ready: true, enabled: false }
+const orgState: { slug: string } = { slug: 'some-campaign' }
 const electedOfficeState: { data: object | null; isPending: boolean } = {
   data: null,
   isPending: false,
@@ -20,6 +22,9 @@ vi.mock('app/shared/experiments/nativeDoorKnockingFlag', () => ({
 }))
 vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => electedOfficeState,
+}))
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => orgState,
 }))
 vi.mock('./NativeDoorKnockingPage', () => ({
   __esModule: true,
@@ -62,9 +67,16 @@ const setState = (
   flagState.enabled = flag.enabled
   electedOfficeState.data = electedOffice
   electedOfficeState.isPending = isElectedOfficePending
+  orgState.slug = 'some-campaign'
 }
 
 describe('DoorKnockingPageGate', () => {
+  // The router mock is module-level, so a bounce asserted in one test is still
+  // recorded in the next one's counts.
+  beforeEach(() => {
+    router.replace?.mockClear()
+  })
+
   it('renders the eCanvasser dashboard when the flag is off', () => {
     setState({ ready: true, enabled: false })
     render(<DoorKnockingPageGate {...props} />)
@@ -174,6 +186,122 @@ describe('DoorKnockingPageGate', () => {
     expect(screen.getByTestId('native-door-knocking')).toHaveAttribute(
       'data-preselected-variant',
       'persuadeAffinity',
+    )
+  })
+
+  // A Serve org has no control arm to fall back to: the eCanvasser dashboard
+  // reports a third-party integration only a campaign can connect, and door
+  // knocking reached the Serve rail already native. Off the flag this route
+  // does not exist for them, so they go back to the hub the card sits on.
+  it('bounces a flag-off Serve org to the constituent outreach hub', () => {
+    setState({ ready: true, enabled: false })
+    orgState.slug = 'eo-city-council'
+    render(<DoorKnockingPageGate {...props} campaign={null} />)
+    expect(screen.queryByTestId('ecanvasser-dashboard')).toBeNull()
+    expect(screen.queryByTestId('native-door-knocking')).toBeNull()
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/constituent-outreach',
+    )
+  })
+
+  // Read off the slug rather than the async elected-office query, so a
+  // control-arm candidate never waits on it to see their own page.
+  it('leaves the control arm alone for a campaign org', () => {
+    setState({ ready: true, enabled: false })
+    render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  // An unsettled flag is not an off flag: bouncing on it would race a Serve
+  // org off their own map on every cold load.
+  it('does not bounce a Serve org while the flag is unsettled', () => {
+    setState({ ready: false, enabled: false })
+    orgState.slug = 'eo-city-council'
+    render(<DoorKnockingPageGate {...props} campaign={null} />)
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  // Control has an entitlement of its own: without the eCanvasser connection
+  // candidate success provisions, every panel on that dashboard reads zero.
+  it('shows the unavailable card for a flag-off campaign with no eCanvasser', () => {
+    setState({ ready: true, enabled: false })
+    render(
+      <DoorKnockingPageGate
+        {...props}
+        campaign={{} as Campaign}
+        hasEcanvasser={false}
+      />,
+    )
+    expect(screen.queryByTestId('ecanvasser-dashboard')).toBeNull()
+    // By ROLE, not by text. `getByText` passes against the plain `div` that
+    // `CardTitle` renders, so it cannot catch the card losing its heading —
+    // which is exactly what the flag-gate e2e caught after this test was
+    // green.
+    expect(
+      screen.getByRole('heading', {
+        name: "Door knocking isn't turned on for your campaign",
+      }),
+    ).toBeVisible()
+  })
+
+  it('renders the eCanvasser dashboard for a connected campaign', () => {
+    setState({ ready: true, enabled: false })
+    render(
+      <DoorKnockingPageGate
+        {...props}
+        campaign={{} as Campaign}
+        hasEcanvasser={true}
+      />,
+    )
+    expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
+  })
+
+  // Unsettled is not a refusal: a failed or slow server read must not tell a
+  // connected campaign their feature is off.
+  it('falls back to the dashboard when the eCanvasser read is unavailable', () => {
+    setState({ ready: true, enabled: false })
+    render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
+  })
+
+  // An unsettled FLAG is a different not-knowing from an unsettled read, and
+  // the card is wrong for it in a louder way: this campaign may be about to
+  // get the native map, so claiming the feature is off would flash a
+  // contradiction on every cold load. Production always passes the prop, so
+  // the unsettled-read test above cannot catch this one.
+  it('does not show the card while the flag is unsettled', () => {
+    setState({ ready: false, enabled: false })
+    render(
+      <DoorKnockingPageGate
+        {...props}
+        campaign={{} as Campaign}
+        hasEcanvasser={false}
+      />,
+    )
+    expect(
+      screen.queryByRole('heading', {
+        name: "Door knocking isn't turned on for your campaign",
+      }),
+    ).toBeNull()
+    expect(screen.getByTestId('ecanvasser-dashboard')).toBeInTheDocument()
+  })
+
+  // The Serve bounce runs first, so a Serve org never reaches the card that
+  // names a campaign.
+  it('still bounces a flag-off Serve org rather than showing the card', () => {
+    setState({ ready: true, enabled: false })
+    orgState.slug = 'eo-city-council'
+    render(
+      <DoorKnockingPageGate {...props} campaign={null} hasEcanvasser={false} />,
+    )
+    expect(
+      screen.queryByRole('heading', {
+        name: "Door knocking isn't turned on for your campaign",
+      }),
+    ).toBeNull()
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/constituent-outreach',
     )
   })
 

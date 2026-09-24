@@ -34,7 +34,7 @@ same convention as every other `*.auto.tfvars` in this tree).
 | ClickUp folder | "Autopilot" `901319491206` (Engineering space `90138877046`) |
 | Board list (shared by feature cards + story subtasks) | `901329066225` |
 | Team / workspace id | `90132012119` |
-| Bot user id | `105985359` ("Collin Park" — the account `CLICKUP_API_KEY` in `AI_SECRETS_DEV` belongs to) |
+| Bot user id | `150125283` ("Amanda White" — the account `CLICKUP_API_KEY` and `AUTOPILOT_CLICKUP_API_KEY` in `AI_SECRETS_DEV` belong to; replaced Collin Park's `105985359` after his account was removed at offboarding, which killed the token) |
 | Slack channel | `#autopilot` `C0C1K9FBDG9` |
 
 Statuses on the list (set by hand in the ClickUp UI — the API cannot create

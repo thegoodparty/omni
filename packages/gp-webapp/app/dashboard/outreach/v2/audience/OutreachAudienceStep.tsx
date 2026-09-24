@@ -205,6 +205,14 @@ export const OutreachAudienceStep = ({
   // the picker's own root div — and scroll works.
   const pickerRootRef = useRef<HTMLDivElement | null>(null)
   const active = lists.find((l) => l.id === selectedId) ?? null
+  // The three nouns this step states itself, rather than reading from `copy`:
+  // a surface's OutreachAudienceCopy covers the titles and bodies, but these
+  // sit inside shared controls. Serve never says "voter", so they key off the
+  // same flag that strips the Win-only filter fields below.
+  const peopleNoun = isElectedOfficial ? 'constituents' : 'voters'
+  const emptyPickerLabel = isElectedOfficial
+    ? 'Choose a constituent list'
+    : 'Choose a voter list'
 
   // The carried-in recommendation, applied once the picker can act on it:
   // its saved list selected when the picker has that row, the card itself
@@ -270,7 +278,7 @@ export const OutreachAudienceStep = ({
           isCounting={builderCounting}
           isCapError={builderCapError}
           countErrorMessage={builderCountErrorMessage}
-          peopleNoun="voters"
+          peopleNoun={peopleNoun}
         />
       </div>
     )
@@ -406,138 +414,134 @@ export const OutreachAudienceStep = ({
         </div>
       )}
 
-      {
-        <div className="space-y-2">
-          <p className="text-xs font-bold uppercase text-primary">All lists</p>
-          <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-              <Card
-                role="button"
-                tabIndex={0}
-                className="cursor-pointer flex-row items-center justify-between gap-3 p-4 transition-colors hover:border-primary/50"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-foreground">
-                    {listsLoading
-                      ? 'Loading your lists…'
-                      : (active?.name ??
-                        // When recommendations sit above the picker, the
-                        // picker's role shifts to "here's where your saved
-                        // lists are" — the primary control is the card up
-                        // top. A plain "Choose a voter list" reads as
-                        // instructing the candidate to ignore what they
-                        // were just offered. Same conditional door
-                        // knocking's WhoStep already applies.
-                        (cards.length > 0
-                          ? 'View your lists here'
-                          : 'Choose a voter list'))}
+      <div className="space-y-2">
+        <p className="text-xs font-bold uppercase text-primary">All lists</p>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Card
+              role="button"
+              tabIndex={0}
+              className="cursor-pointer flex-row items-center justify-between gap-3 p-4 transition-colors hover:border-primary/50"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-foreground">
+                  {listsLoading
+                    ? 'Loading your lists…'
+                    : (active?.name ??
+                      // When recommendations sit above the picker, the
+                      // picker's role shifts to "here's where your saved
+                      // lists are" — the primary control is the card up
+                      // top. A plain "Choose a voter list" reads as
+                      // instructing the candidate to ignore what they
+                      // were just offered. Same conditional door
+                      // knocking's WhoStep already applies.
+                      (cards.length > 0
+                        ? 'View your lists here'
+                        : emptyPickerLabel))}
+                </p>
+                {active && (
+                  <p className="text-sm text-muted-foreground">
+                    {reachableLoading ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Loader2Icon className="size-3.5 animate-spin" />
+                        Counting reachable {peopleNoun}…
+                      </span>
+                    ) : reachableCount !== null ? (
+                      <>
+                        {copy.reachVerb} {reachableCount.toLocaleString()}{' '}
+                        {copy.reachNoun}
+                        {pricePerContact > 0 &&
+                          ` for $${money(reachableCount * pricePerContact)}`}
+                      </>
+                    ) : (
+                      "We couldn't count this list right now."
+                    )}
                   </p>
-                  {active && (
+                )}
+                {active &&
+                  !reachableLoading &&
+                  reachableCount !== null &&
+                  selectedListTotal !== null &&
+                  selectedListTotal > reachableCount &&
+                  copy.reachableOfTotalLine && (
                     <p className="text-sm text-muted-foreground">
-                      {reachableLoading ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2Icon className="size-3.5 animate-spin" />
-                          Counting reachable voters…
-                        </span>
-                      ) : reachableCount !== null ? (
-                        <>
-                          {copy.reachVerb} {reachableCount.toLocaleString()}{' '}
-                          {copy.reachNoun}
-                          {pricePerContact > 0 &&
-                            ` for $${money(reachableCount * pricePerContact)}`}
-                        </>
-                      ) : (
-                        "We couldn't count this list right now."
+                      {copy.reachableOfTotalLine(
+                        reachableCount,
+                        selectedListTotal,
                       )}
                     </p>
                   )}
-                  {active &&
-                    !reachableLoading &&
-                    reachableCount !== null &&
-                    selectedListTotal !== null &&
-                    selectedListTotal > reachableCount &&
-                    copy.reachableOfTotalLine && (
-                      <p className="text-sm text-muted-foreground">
-                        {copy.reachableOfTotalLine(
-                          reachableCount,
-                          selectedListTotal,
-                        )}
-                      </p>
-                    )}
-                </div>
-                <ChevronDownIcon
-                  className={cn(
-                    'size-5 shrink-0 text-muted-foreground transition-transform',
-                    open && 'rotate-180',
-                  )}
-                />
-              </Card>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              sideOffset={4}
-              // Portal into the picker's own root — see the ref declaration
-              // above for why the default body portal breaks scroll here.
-              container={pickerRootRef.current}
-              className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
-            >
-              <div className="divide-y divide-border">
-                {
+              </div>
+              <ChevronDownIcon
+                className={cn(
+                  'size-5 shrink-0 text-muted-foreground transition-transform',
+                  open && 'rotate-180',
+                )}
+              />
+            </Card>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={4}
+            // Portal into the picker's own root — see the ref declaration
+            // above for why the default body portal breaks scroll here.
+            container={pickerRootRef.current}
+            className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
+          >
+            <div className="divide-y divide-border">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  onStartBuilder()
+                }}
+                className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
+                  <PlusIcon className="size-4 text-primary" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-medium text-primary">
+                    Create a new list
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Build a custom audience
+                  </span>
+                </span>
+              </button>
+              {lists.length === 0 && !listsLoading && (
+                <p className="p-4 text-sm text-muted-foreground">
+                  No saved lists yet.
+                </p>
+              )}
+              {lists.map((list) => {
+                const on = list.id === selectedId
+                return (
                   <button
+                    key={list.id}
                     type="button"
                     onClick={() => {
+                      onSelect(list.id)
                       setOpen(false)
-                      onStartBuilder()
                     }}
-                    className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
+                    className={cn(
+                      'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
+                      on && 'bg-muted',
+                    )}
                   >
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
-                      <PlusIcon className="size-4 text-primary" />
+                    <span className="block min-w-0 truncate font-medium text-foreground">
+                      {list.name ?? `List ${list.id}`}
                     </span>
-                    <span className="min-w-0">
-                      <span className="block font-medium text-primary">
-                        Create a new list
-                      </span>
-                      <span className="block text-sm text-muted-foreground">
-                        Build a custom audience
-                      </span>
-                    </span>
+                    {on && (
+                      <CheckIcon className="size-5 shrink-0 text-primary" />
+                    )}
                   </button>
-                }
-                {lists.length === 0 && !listsLoading && (
-                  <p className="p-4 text-sm text-muted-foreground">
-                    No saved lists yet.
-                  </p>
-                )}
-                {lists.map((list) => {
-                  const on = list.id === selectedId
-                  return (
-                    <button
-                      key={list.id}
-                      type="button"
-                      onClick={() => {
-                        onSelect(list.id)
-                        setOpen(false)
-                      }}
-                      className={cn(
-                        'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
-                        on && 'bg-muted',
-                      )}
-                    >
-                      <span className="block min-w-0 truncate font-medium text-foreground">
-                        {list.name ?? `List ${list.id}`}
-                      </span>
-                      {on && (
-                        <CheckIcon className="size-5 shrink-0 text-primary" />
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-      }
+                )
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
       {pricePerContact > 0 && (
         <p className="text-sm text-muted-foreground">
           {copy.unitCostLabel} ${pricePerContact.toFixed(3)}

@@ -4,6 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common'
 import {
+  CONSTITUENT_NAME_TOKEN,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,
   PhoneBankingScriptPurpose,
   type RaceTargetMetrics,
@@ -216,14 +217,15 @@ const ELECTION_DATE_DISAMBIGUATION_RULE =
 // crosses PHONE_BANKING_SCRIPT_MAX_LENGTH. State an explicit budget with
 // headroom below the wire cap so the model stops itself on a clean
 // dialogue turn instead of relying on trimDraftToDialogueBoundary's
-// safety-net cut. Shared by Win and Serve — both surfaces use the same
-// You:/Voter: dialogue format and wire cap.
+// safety-net cut. The budget and the cap are shared by Win and Serve; the
+// speaker label the rule quotes is not, because Serve's scripts are
+// You:/Constituent: lines.
 const SCRIPT_LENGTH_BUDGET_HEADROOM = 200
-const SCRIPT_LENGTH_RULE =
+const scriptLengthRule = (speaker: string): string =>
   'Keep the entire script under ' +
   `${PHONE_BANKING_SCRIPT_MAX_LENGTH - SCRIPT_LENGTH_BUDGET_HEADROOM} ` +
-  'characters total, across every You:/Voter: line combined, and end on ' +
-  'a complete dialogue turn — never stop mid-sentence or mid-word.'
+  `characters total, across every You:/${speaker}: line combined, and end ` +
+  'on a complete dialogue turn — never stop mid-sentence or mid-word.'
 
 // ENG-10936: instructions personalize the draft but never outrank the
 // grounding/compliance/token rules above — named explicitly so the model
@@ -247,7 +249,7 @@ const DRAFT_SYSTEM_PROMPT = [
   '  materials, stay issue-neutral.',
   '- Follow the purpose instructions given below for this call,',
   '  including their You:/Voter: dialogue format and closing.',
-  `- ${SCRIPT_LENGTH_RULE}`,
+  `- ${scriptLengthRule('Voter')}`,
   `- ${COMPLIANCE_BAN_RULE}`,
   `- ${NO_PLACEHOLDER_BRACKETS_RULE}`,
   `- ${ELECTION_DATE_DISAMBIGUATION_RULE}`,
@@ -305,13 +307,15 @@ export const WIN_PHONE_BANKING_VOICE: PhoneBankingVoiceConfig<PhoneBankingScript
 // verbatim — do not paraphrase or "improve" it. Each is a full,
 // self-contained instruction block (rapport beat, per-purpose recipe,
 // invention ban, closing), injected as-is instead of a goal+structure
-// pair. "Voter:" is the CSV's own dialogue speaker label — format, not
-// candidate/voter framing.
+// pair. The CSV writes the dialogue speaker label as "Voter:"; Serve reads it
+// back as "Constituent:", because the label is the one part of the format a
+// human sees and a script an official's volunteer reads aloud cannot carry the
+// word.
 const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
   introduce_myself:
     'Write a phonebank script for a volunteer or staffer introducing ' +
     'the elected official to a constituent for the first time. Format ' +
-    'as alternating You:/Voter: lines. Open with a warm, brief rapport ' +
+    'as alternating You:/Constituent: lines. Open with a warm, brief rapport ' +
     "beat before introducing the official's name, office held, and " +
     'why-they-serve statement in a sentence or two. Ask an open-ended ' +
     'question about what issues matter most to the constituent, and ' +
@@ -326,7 +330,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
   explain_decision:
     'Write a phonebank script for a volunteer or staffer explaining a ' +
     'recent decision or vote made by the elected official and the ' +
-    'reasoning behind it. Format as alternating You:/Voter: lines. ' +
+    'reasoning behind it. Format as alternating You:/Constituent: lines. ' +
     'Open with a brief rapport beat, then state the decision plainly ' +
     'and explain the reasoning in 2-3 plain-language sentences using ' +
     'only the details provided, avoiding jargon. Include an example of ' +
@@ -340,7 +344,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
   event_invite:
     'Write a phonebank script for a volunteer or staffer inviting a ' +
     'constituent to a town hall or local event. Format as alternating ' +
-    'You:/Voter: lines. Open with a brief rapport beat, then state the ' +
+    'You:/Constituent: lines. Open with a brief rapport beat, then state the ' +
     'event name, date, time, and location as provided, and briefly ' +
     'explain why it matters (e.g. a chance to ask questions directly ' +
     'or weigh in on a local issue). Include an example follow-up ' +
@@ -351,7 +355,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
   community_input:
     'Write a phonebank script for a volunteer or staffer inviting a ' +
     'constituent to share input on a local issue or upcoming decision. ' +
-    'Format as alternating You:/Voter: lines. Open with a brief ' +
+    'Format as alternating You:/Constituent: lines. Open with a brief ' +
     'rapport beat, then name the issue or decision using the details ' +
     'provided and ask an open-ended question inviting the constituent ' +
     'to share their perspective, not a yes/no question. Include an ' +
@@ -365,7 +369,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
   share_resource:
     'Write a phonebank script for a volunteer or staffer telling a ' +
     'constituent about a local program, service, or resource available ' +
-    'to them. Format as alternating You:/Voter: lines. Open with a ' +
+    'to them. Format as alternating You:/Constituent: lines. Open with a ' +
     'brief rapport beat, then introduce the resource using the details ' +
     'provided in plain language, explain who it helps and how to ' +
     'access it, and include an example of the constituent asking a ' +
@@ -377,7 +381,7 @@ const SERVE_PURPOSE_PROMPTS: Record<ServePhoneBankingPurpose, string> = {
   custom:
     "Take the elected official's own message, provided as written, " +
     'and adapt it into a natural phonebank call script formatted as ' +
-    'alternating You:/Voter: lines. Preserve the substance and wording ' +
+    'alternating You:/Constituent: lines. Preserve the substance and wording ' +
     'of the original message as closely as possible; do not add new ' +
     'claims, priorities, or asks not present in the original. Add only ' +
     'the conversational scaffolding needed to make it sound like a ' +
@@ -390,10 +394,10 @@ const SERVE_OPENER_RULE =
   'The opener is the first line of every script and is spoken by the ' +
   'VOLUNTEER or staffer making the call, in their own first person, on ' +
   'behalf of the elected official, never the elected official ' +
-  `themselves: "Hi, is this ${VOTER_NAME_TOKEN}? My name is [your ` +
+  `themselves: "Hi, is this ${CONSTITUENT_NAME_TOKEN}? My name is [your ` +
   'name], and I am calling on behalf of" followed by the elected ' +
   'official name given below. Keep "[your name]" and ' +
-  `"${VOTER_NAME_TOKEN}" as literal bracketed placeholders — never ` +
+  `"${CONSTITUENT_NAME_TOKEN}" as literal bracketed placeholders — never ` +
   'invent a volunteer name or a constituent name.'
 
 const SERVE_COMPLIANCE_BAN_RULE =
@@ -404,7 +408,7 @@ const SERVE_COMPLIANCE_BAN_RULE =
 
 const SERVE_NO_PLACEHOLDER_BRACKETS_RULE =
   'Never emit a bracketed placeholder anywhere in the script other ' +
-  `than "[your name]" and "${VOTER_NAME_TOKEN}" in the opener. Where a ` +
+  `than "[your name]" and "${CONSTITUENT_NAME_TOKEN}" in the opener. Where a ` +
   'specific date, time, or place is not given below, write around the ' +
   'gap in plain language instead of inventing one or leaving a bracket ' +
   'for a volunteer to fill in.'
@@ -413,7 +417,7 @@ const SERVE_INSTRUCTIONS_PRIORITY_RULE =
   "If the elected official's own instructions are given below, follow " +
   'them as long as they do not conflict with the rules above — never ' +
   'invent a date, place, or fact even if instructed to, and never ' +
-  `drop the opener or the "[your name]"/"${VOTER_NAME_TOKEN}" tokens.`
+  `drop the opener or the "[your name]"/"${CONSTITUENT_NAME_TOKEN}" tokens.`
 
 const SERVE_DRAFT_SYSTEM_PROMPT = [
   'You are a writing assistant helping a local elected official draft',
@@ -427,8 +431,8 @@ const SERVE_DRAFT_SYSTEM_PROMPT = [
   '  places, or events the materials do not contain. With no',
   '  materials, stay general.',
   '- Follow the purpose instructions given below for this call,',
-  '  including their You:/Voter: dialogue format and closing.',
-  `- ${SCRIPT_LENGTH_RULE}`,
+  '  including their You:/Constituent: dialogue format and closing.',
+  `- ${scriptLengthRule('Constituent')}`,
   `- ${SERVE_COMPLIANCE_BAN_RULE}`,
   `- ${SERVE_NO_PLACEHOLDER_BRACKETS_RULE}`,
   `- ${SERVE_INSTRUCTIONS_PRIORITY_RULE}`,
@@ -444,7 +448,7 @@ const SERVE_IMPROVE_SYSTEM_PROMPT = [
   '  the opener, dates, deadlines, places, events, times, names,',
   '  numbers, and asks. Dropping one is a failure. Do not paraphrase',
   '  specifics away.',
-  `- The literal "[your name]" and "${VOTER_NAME_TOKEN}" placeholders`,
+  `- The literal "[your name]" and "${CONSTITUENT_NAME_TOKEN}" placeholders`,
   '  in the opener MUST be preserved exactly.',
   '- Strip any other bracketed placeholder the original contains and',
   '  rewrite around the gap in plain language instead — never leave it',
@@ -452,7 +456,7 @@ const SERVE_IMPROVE_SYSTEM_PROMPT = [
   '  fill it.',
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
-  '- Preserve the You:/Voter: alternating dialogue format.',
+  '- Preserve the You:/Constituent: alternating dialogue format.',
   '- Keep roughly the same length as the original and do not add new',
   "  sentences it does not have, UNLESS the elected official's own",
   '  instructions below explicitly ask for additions — then make the',
@@ -527,7 +531,7 @@ const buildPreviousDraftBlock = <TPurpose extends string>(
 ]
 
 // Safety net for a result that lands over PHONE_BANKING_SCRIPT_MAX_LENGTH
-// despite the SCRIPT_LENGTH_RULE budget above (see the no-max() comment on
+// despite the scriptLengthRule budget above (see the no-max() comment on
 // DraftSchema for why this can't be a Zod validation instead). A raw
 // `.slice()` cuts mid-word or mid-sentence — this cuts at the last complete
 // dialogue turn instead, falling back a step at a time when the draft

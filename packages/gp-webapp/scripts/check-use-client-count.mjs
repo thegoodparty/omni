@@ -421,6 +421,74 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-21: 585 -> 586 for ProPitchPanel, the Pro pitch the gate explainer
 // and the wizard's interstitial now share. Its verification card is a
 // collapsible the candidate opens and closes, so it holds React state.
+// 2026-09-18: 567 -> 569 for the Serve list-boundary surfaces. BoundaryStep
+// owns the wizard's drawn ring and reads the polygon-preview count, and
+// ListBoundaryOverlay owns the in-progress ring for the full-bleed drawing
+// surface a saved list's map opens into — both hold state and neither can
+// render on the server. Their sibling BoundaryDrawPanel stays directive-free
+// and inherits the boundary from its importers, the same rule ListMapSection
+// beside it already follows: it holds no state and only binds handlers it is
+// handed.
+// 2026-09-18: 567 -> 568 for FollowUpRow, the Serve contact card's follow-up
+// toggle. It owns a React Query mutation with an optimistic write, rollback
+// and a snackbar on failure, and reads the org from context — all client
+// state, and all of it inside an already-client overlay.
+// 2026-09-18: 568 -> 569 for FollowUpOutstandingSection, the closed-campaign
+// follow-up results block. It fetches its own outstanding count, saves the
+// audience as a list on click, and reports failure through the snackbar —
+// all client state, inside an already-client drawer.
+// 568 + 2 (the boundary surfaces above) + 1 (FollowUpOutstandingSection):
+// both sides of this merge raised the ratchet from the same base, so the
+// count is the sum of the two, not either one of them.
+// 2026-09-21: 571 -> 572 for outreach/v2/sms/ServeSmsScheduleStep.tsx, the
+// Serve SMS schedule step. It is an interactive date picker and cannot render
+// on the server for three independent reasons: it freezes `now` in useState
+// so a re-render cannot shift the 2-business-day floor under a date already
+// chosen, it reads the VIEWER's timezone through
+// Intl.DateTimeFormat().resolvedOptions() — the server's would be the wrong
+// answer for a step whose whole promise is "11am local" — and it renders
+// DateInputCalendar, itself client-only. Its Win sibling SmsScheduleStep.tsx
+// carries the directive for the same reasons. Inheriting the boundary from
+// SmsFlow.tsx (its only importer, already a client component) would have been
+// count-neutral, and is the rule RouteStep.tsx and TurfLegend.tsx follow — but
+// that rule is for modules holding no state, and the door-knocking entry above
+// already rejected directive-free for stateful ones, since they read as an
+// oversight to copy. The other four files added with it — serveSmsPurposes.ts
+// and three test files — are directive-free and stay that way.
+// 2026-09-21: 572 -> 574 for the Serve SMS results surface (slice 3).
+// ServeSmsRepliesSection.tsx holds the per-reply expanded/collapsed state and
+// the "Show all {n} responses" page size, and useOutreachResults.ts is a
+// React Query hook module (useQuery over the results and replies reads) — a
+// server component can do neither. The Statistics card itself added nothing:
+// it already existed inside OutreachDetailsDrawer.tsx, which is already a
+// client component, and this change only swapped which endpoint it reads.
+// 2026-09-21: 566 -> 564. SurveyAnimation and QuestionAnimation deleted with
+// the two door-knocking empty states that rendered them.
+// 2026-09-22: 567 on merging main into serve-sms. Neither side's number
+// survives: this branch counted up from a base main has since moved off, and
+// main's 564 predates the three Serve SMS client components above. Measured
+// rather than derived — the script was run against the merged tree.
+// 2026-09-21: main's removals took this to 564 (SurveyAnimation and
+// QuestionAnimation, deleted with the two door-knocking empty states that
+// rendered them) while this branch sat at 567. The merge is main's number
+// plus this branch's own net addition, not either side. The turf-panel work
+// is net-neutral: it added TurfPanel, TurfCard, removeTurfDialog,
+// draftCounts, useDrawExpand and useTeamOptions while deleting DrawToolbar,
+// DrawFullScreen and TurfDraftCard, and none of the new files carry the
+// directive.
+// 2026-09-22: 568 on the second merge of main into serve-sms, then 567 on
+// the third. Measured against the merged tree each time, not derived — both
+// sides keep moving the ratchet from bases the other no longer shares, so
+// neither number is reachable by arithmetic. Tightened rather than left
+// slack: a ratchet a point above the real count silently permits one.
+// 2026-09-24: 578 on merging main into feat/pro-upgrade-v2. Measured against
+// the merged tree, not derived: this branch counted up to 586 from a base
+// main has since moved off (main sits at 567 after its own removals), and
+// neither number is reachable by arithmetic from the other.
+// 2026-09-24: 586 on merging feat/pro-upgrade-v2 (itself just merged with main)
+// into feat/pro-upgrade-drafts. Measured against the merged tree: this branch
+// counted up to 586 from a base main has since moved off, and main sits at
+// 567 after its own removals, so neither number is reachable by arithmetic.
 const BASELINE = 586
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')

@@ -1,17 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMessageSegment } from './chatClient'
 
-// A live assistant turn as interleaved blocks: streamed text and tool-call
-// pills in the order they arrived. Shared by every agent-chat scope so the
-// streaming/reveal behavior is one implementation (Chief of Staff, ordinance
-// flow, ...). Feature-specific structured widgets stay in the scope and render
-// after the reached segment.
+// A live assistant turn as interleaved blocks: streamed text, tool-call pills,
+// and inline citation chips in the order they arrived. Shared by every
+// agent-chat scope so the streaming/reveal behavior is one implementation.
+// Feature-specific structured widgets stay in the scope and render after the
+// reached segment.
 export type LiveSegment =
   | { kind: 'text'; text: string }
   // `running` shimmers the pill while the tool is in flight (set on tool_call,
   // cleared on tool_result). Absent on persisted history, so reloaded pills are
-  // always static.
-  | { kind: 'tool'; toolName: string; running?: boolean }
+  // always static. `payload` carries structured tool-call args for widget tools
+  // (e.g. compose_handoff) so InlineSegments can render a CTA from the segment
+  // without a separate extraction pass.
+  | { kind: 'tool'; toolName: string; running?: boolean; payload?: unknown }
+  // Inline citation chip rendered at the position where the model cited a
+  // source attachment. `ordinal` is 1-based and assigned in stream order.
+  | {
+      kind: 'citation'
+      ordinal: number
+      attachmentId: string
+      page?: number | null
+      quotedText?: string | null
+    }
 
 // Project a persisted assistant message into interleaved LiveSegments, so a
 // reloaded turn renders identically to how it streamed: stored segments in order
@@ -21,19 +32,45 @@ export function segmentsToLive(
   segments: ChatMessageSegment[],
   content: string,
 ): LiveSegment[] {
-  return segments.length > 0
-    ? segments.flatMap((s): LiveSegment[] =>
-        s.kind === 'text'
-          ? s.text
-            ? [{ kind: 'text', text: s.text }]
-            : []
-          : s.toolName
-            ? [{ kind: 'tool', toolName: s.toolName }]
-            : [],
-      )
-    : content
-      ? [{ kind: 'text', text: content }]
-      : []
+  if (segments.length === 0) {
+    return content ? [{ kind: 'text', text: content }] : []
+  }
+  let citationOrdinal = 0
+  return segments.flatMap((s): LiveSegment[] => {
+    if (s.kind === 'text') {
+      return s.text ? [{ kind: 'text', text: s.text }] : []
+    }
+    if (s.kind === 'citation') {
+      // The history API returns citation data nested under `payload` (gp-api
+      // stores it there); live in-memory segments carry it at top-level. Fall
+      // back to payload so reload renders the same chips as streaming.
+      const p = s.payload as {
+        attachmentId?: string
+        page?: number | null
+        quotedText?: string | null
+      } | null
+      const attachmentId = s.attachmentId ?? p?.attachmentId ?? null
+      if (!attachmentId) return []
+      citationOrdinal += 1
+      return [
+        {
+          kind: 'citation',
+          ordinal: citationOrdinal,
+          attachmentId,
+          page: s.page ?? p?.page ?? null,
+          quotedText: s.quotedText ?? p?.quotedText ?? null,
+        },
+      ]
+    }
+    if (!s.toolName) return []
+    return [
+      {
+        kind: 'tool',
+        toolName: s.toolName,
+        ...(s.payload !== undefined && { payload: s.payload }),
+      },
+    ]
+  })
 }
 
 // Revealed-able characters in a turn (text only; pills reveal with the text

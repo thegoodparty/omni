@@ -98,13 +98,18 @@ describe('voterDemographicFacts', () => {
   // org, so keeping the row would print "Not on file" — a claim about the
   // voter file where the truth is that this product does not state party to an
   // elected official at all.
-  it('omits the party row entirely on Serve', () => {
+  it('omits the party row entirely on Serve, and names the other two its own way', () => {
     const labels = voterDemographicFacts(
       target({ politicalParty: 'Democratic' }),
       true,
     ).map((fact) => fact.label)
-    expect(labels).toEqual(['Registered voter', 'Turnout likelihood'])
+    // The registration fact is the same on both rails — whether this person
+    // can take part — but Serve cannot name them a voter to say it.
+    expect(labels).toEqual(['Registered to vote', 'Turnout likelihood'])
     expect(labels).not.toContain('Political party')
+    for (const label of labels) {
+      expect(label.toLowerCase()).not.toContain('voter')
+    }
   })
 })
 
@@ -124,6 +129,23 @@ describe('demographicFacts', () => {
       'Language',
       'Ethnicity group',
     ])
+  })
+
+  // Dropped for Serve on the same terms as the party row above, and for the
+  // same reason: gp-api nulls the field for an `eo-` org, so leaving it to
+  // `withFallback` would print "Not on file" about something this product
+  // does not tell an elected official (#1933).
+  it('omits the ethnicity row on Serve and keeps it on Win', () => {
+    const serveLabels = demographicFacts(
+      target({ ethnicityGroup: 'Hispanic' }),
+      true,
+    ).map((fact) => fact.label)
+    expect(serveLabels).not.toContain('Ethnicity group')
+    expect(
+      demographicFacts(target({ ethnicityGroup: 'Hispanic' })).map(
+        (fact) => fact.label,
+      ),
+    ).toContain('Ethnicity group')
   })
 
   // One decision about absence, applied across both cards. A profile where some

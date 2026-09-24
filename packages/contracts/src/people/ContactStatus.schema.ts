@@ -6,6 +6,8 @@ import {
   type ContactStatusSource as GeneratedContactStatusSource,
   DoNotKnockStatusSchema as GeneratedDoNotKnockStatusSchema,
   type DoNotKnockStatus as GeneratedDoNotKnockStatus,
+  FollowUpStatusSchema as GeneratedFollowUpStatusSchema,
+  type FollowUpStatus as GeneratedFollowUpStatus,
   NotAVoterStatusSchema as GeneratedNotAVoterStatusSchema,
   type NotAVoterStatus as GeneratedNotAVoterStatus,
   SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
@@ -38,6 +40,34 @@ export type DoNotKnockStatus = GeneratedDoNotKnockStatus
 // and likewise absent from UpdateContactStatusInputSchema below.
 export const NotAVoterStatusSchema = GeneratedNotAVoterStatusSchema
 export type NotAVoterStatus = GeneratedNotAVoterStatus
+
+// Serve's standing "this constituent asked to be followed up with", written
+// through its own endpoint for the same reason do-not-knock and not-a-voter
+// are — and for a second one. Theirs was that the CRM's status PATCH is
+// Pro-gated; that one does not apply here, since a Serve org needs no Pro
+// gate (the ElectedOffice row is the entitlement). The one that does is the
+// response: UpdateContactStatusInputSchema's reply guarantees BOTH of Win's
+// editable statuses, and a Serve write can supply neither honestly — an
+// elected official has no voter likelihood and no support status. Making
+// those optional to fit this field in would weaken the guarantee every Win
+// caller relies on, to describe a surface they never touch.
+export const FollowUpStatusSchema = GeneratedFollowUpStatusSchema
+export type FollowUpStatus = GeneratedFollowUpStatus
+
+// The contact card's toggle. `.strict()` so an extra key 400s, matching the
+// status PATCH's own branches.
+export const UpdateFollowUpInputSchema = z
+  .object({ value: FollowUpStatusSchema })
+  .strict()
+export type UpdateFollowUpInput = z.infer<typeof UpdateFollowUpInputSchema>
+
+// Read back from the persisted row, never echoed from the request.
+export const FollowUpStatusResponseSchema = z.object({
+  followUp: FollowUpStatusSchema,
+})
+export type FollowUpStatusResponse = z.infer<
+  typeof FollowUpStatusResponseSchema
+>
 
 // The two answers that mean something happened, without the off switch —
 // derived from the full vocabulary so the two can't drift apart. This is the
@@ -128,11 +158,20 @@ export const NOT_A_VOTER_LABELS: Record<NotAVoterStatus, string> = {
 // routed any field it did not recognize to the support-status labels, so a new
 // field's values silently rendered as raw strings. A Record fails to compile
 // instead.
+// Reads as "Follow-up: No -> Yes" in the feed. Yes/No rather than
+// Requested/Cleared because the card offers it as a yes/no toggle and the
+// history should read back in the words the person was offered.
+export const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
+  requested: 'Yes',
+  cleared: 'No',
+}
+
 const LABELS_BY_FIELD: Record<ContactStatusField, Record<string, string>> = {
   voter_likelihood: VOTER_LIKELIHOOD_LABELS,
   support_status: SUPPORT_STATUS_ROLLUP_LABELS,
   do_not_knock: DO_NOT_KNOCK_LABELS,
   not_a_voter: NOT_A_VOTER_LABELS,
+  follow_up: FOLLOW_UP_STATUS_LABELS,
 }
 
 export const resolveContactStatusLabel = (

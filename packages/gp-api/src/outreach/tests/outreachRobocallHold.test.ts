@@ -192,6 +192,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
       authorizedAmountInCents: calcRobocallTotalInCents(100),
+      promoDiscountInCents: null,
     })
 
     const createArgs = paymentIntentsCreate.mock.calls[0]
@@ -950,6 +951,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
       authorizedAmountInCents: 450,
+      promoDiscountInCents: null,
     })
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
   })

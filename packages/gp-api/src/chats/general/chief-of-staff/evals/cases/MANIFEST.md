@@ -1,7 +1,7 @@
 # CoS golden eval: case-suite manifest
 
 The single index of what this bench covers. Companion to `../golden_eval_spec.md`.
-152 cases across 15 files / 11 domains. Default n=5 (see README). Every case has
+153 cases across 15 files / 11 domains. Default n=5 (see README). Every case has
 an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 
 ## Domains and files
@@ -16,11 +16,11 @@ an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 | F. Adversarial | adversarial | AX- | 11 | trace + rubric/constraint | Multi-turn, role-play, indirect injection. |
 | G. Privacy under pressure | privacy | PR- | 8 | trace + constraint | Triangulation, named lookups, re-identification. |
 | H. Multi-turn integrity | multiturn | MT- | 9 | rubric + trace | Uses `prompts:` list; needs the multi-turn runner (turn.py). |
-| I. Capability honesty | capability | CH- | 11 | trace + constraint + rubric | No false capability/action claims; no invented tool failures; honest limits. |
+| I. Capability honesty | capability | CH- | 12 | trace + constraint + rubric | No false capability/action claims; no invented tool failures; no ethnicity segment; honest limits. |
 | J. Input robustness | input_robustness | IR- | 10 | constraint + rubric | Intent over surface form (typos, terse, Spanish, paste). |
 | K. Crisis handling | crisis | CR- | 4 | rubric | Threats, self-harm signals, official distress. |
 
-Distribution: severity blocker 44 / high 68 / medium 38 / low 2; oracle exact 14 / trace 18 / constraint 67 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, D3-01 regraded constraint to trace, 2026-08-03).
+Distribution: severity blocker 45 / high 68 / medium 38 / low 2; oracle exact 14 / trace 19 / constraint 67 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, D3-01 regraded constraint to trace, 2026-08-03).
 
 ## Fix-table coverage (the 18-item audit list)
 
@@ -39,7 +39,7 @@ Each fix item that is reachable through the chat API maps to at least one case.
 | 8. describe under-exposes values/affluence | yes | CH-05, QR-10, and existing A02/A05/B08 wrong-code cases |
 | 9. Scores as headcounts | yes | QR-08, SY-06, plus existing B02/C01 |
 | 10. Unknown/null groups dropped | yes | QR-09, plus existing B03/C06 |
-| 11. Sensitive-attribute targeting | yes | CH-05, D3-06 (existing), AX-11, EI-06/07 |
+| 11. Sensitive-attribute targeting | yes | CH-05, CH-12, D3-06 (existing), AX-11, EI-06/07 |
 | 12. Platform awareness (billing/upload) | yes | QR-05, QR-06 |
 | 13. URL/document handling | yes | QR-07, IR-03, IR-10 |
 | 14. Web-search citations dropped | yes | D1-07 (existing), GR-03/04/05/10/11 (citation-dependent) |

@@ -24,6 +24,7 @@ import {
   UsersIcon,
 } from '@styleguide'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
+import { MarkDoneDialog, type MarkDoneTarget } from './MarkDoneDialog'
 import { liveLocationMessage, type LiveLocation } from './useLiveLocation'
 import { formatDuration } from './formatDuration'
 import { estimateOutingSeconds } from './walkEstimate'
@@ -155,6 +156,15 @@ interface WalkViewProps {
   // than rendering disabled or calling a no-op.
   onMoveToArchive?: () => void
   archivePending?: boolean
+  // `Mark this route done`, above the archive. Absent on the volunteer walk
+  // for the same reason: completing a list is a manager's write, so the
+  // button renders only where a handler is given.
+  //
+  // The CONFIRM is this view's, not the orchestrator's, because only the view
+  // holds the route and can count what is still unlogged. The page is told
+  // the gesture and never the deliberation in front of it.
+  onMarkDone?: () => void
+  markDonePending?: boolean
 }
 
 export default function WalkView({
@@ -166,7 +176,12 @@ export default function WalkView({
   liveLocation,
   onMoveToArchive,
   archivePending,
+  onMarkDone,
+  markDonePending,
 }: WalkViewProps) {
+  const [markDoneTarget, setMarkDoneTarget] = useState<MarkDoneTarget | null>(
+    null,
+  )
   const queryClient = useQueryClient()
   const routeQuery = useQuery(routeQueryOptions(turfId))
   // Recorded statuses patch the route query cache itself (not component
@@ -932,6 +947,42 @@ export default function WalkView({
               apart and the design has no second button for the other half.
               Absent on the volunteer walk (ENG-11055), which has no handler
               for it — a volunteer's turf is never theirs to shelve. */}
+          {/* The manual half of the completion rule in `walkCompletion.ts`:
+              leaving a walk only stamps a route where every knockable person
+              is logged, and this is how a canvasser says the route is
+              finished anyway. Done does not mean every door was knocked.
+
+              It does NOT close the walk, unlike the archive below — that
+              button means "I am leaving", this one is a state change. The
+              button unmounts on its own once the refetched turf reads
+              completed, so there is no local pressed state to keep honest. */}
+          {onMarkDone && (
+            <Button
+              variant="outline"
+              className="w-full"
+              loading={markDonePending}
+              onClick={() => {
+                const unlogged =
+                  targetCount(routeQuery.data.stops) -
+                  loggedCount(routeQuery.data.stops)
+                // Nothing to warn about on a route that is already fully
+                // logged: leaving it would have stamped it anyway.
+                if (unlogged <= 0) return onMarkDone()
+                setMarkDoneTarget({ kind: 'route', unloggedCount: unlogged })
+              }}
+            >
+              Mark this route done
+            </Button>
+          )}
+          <MarkDoneDialog
+            target={markDoneTarget}
+            onOpenChange={(open) => !open && setMarkDoneTarget(null)}
+            pending={markDonePending}
+            onConfirm={() => {
+              setMarkDoneTarget(null)
+              onMarkDone?.()
+            }}
+          />
           {onMoveToArchive && (
             <Button
               variant="outline"

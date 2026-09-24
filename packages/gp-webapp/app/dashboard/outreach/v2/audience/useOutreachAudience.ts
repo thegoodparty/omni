@@ -293,6 +293,10 @@ export const useOutreachAudience = ({
     },
     enabled: open && preselectedRecommendedVariant !== undefined,
     refetchOnWindowFocus: false,
+    // Always refetch on open: whether the list exists yet can change
+    // between opens, and recommendationsLoading holds the step until the
+    // fresh copy lands (see below).
+    staleTime: 0,
   })
 
   const listsQuery = useQuery({
@@ -582,6 +586,18 @@ export const useOutreachAudience = ({
     [reachabilityKey],
   )
 
+  // A save changes the answer to "does this list exist yet" for every card
+  // that describes it, so both recommendation caches are refetched: the
+  // purpose's own cards and the carried-in copy.
+  const invalidateRecommendations = useCallback(() => {
+    queryClient.invalidateQueries({
+      queryKey: ['outreach-audience-recommendations', orgSlug],
+    })
+    queryClient.invalidateQueries({
+      queryKey: ['outreach-audience-preselected-recommendation', orgSlug],
+    })
+  }, [queryClient, orgSlug])
+
   // Seeds the builder from a recommendation, then POSTs the create with an
   // explicitly-passed name — the drawer's name input is the source of truth,
   // so building the payload from arguments (rather than from useState that
@@ -638,6 +654,7 @@ export const useOutreachAudience = ({
       queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
       })
+      invalidateRecommendations()
       setSelectedListId(data.id)
       // The card's own count is the reach figure for the list it just
       // became: selecting it drops `selectedRecommendation`, and with the
@@ -656,6 +673,7 @@ export const useOutreachAudience = ({
       queryClient,
       resetBuilder,
       orgSlug,
+      invalidateRecommendations,
     ],
   )
 
@@ -679,6 +697,7 @@ export const useOutreachAudience = ({
     await queryClient.invalidateQueries({
       queryKey: outreachAudienceListsKey(orgSlug),
     })
+    invalidateRecommendations()
     // The CRM lists tab reads the same endpoint under its own key; refresh it
     // too (fire-and-forget — it isn't mounted here) so a list built in this
     // flow shows up there without waiting out its default staleTime, mirroring
@@ -689,7 +708,14 @@ export const useOutreachAudience = ({
     setSelectedListId(created.id)
     resetBuilder()
     return created
-  }, [runCreateList, recommendedMeta, queryClient, resetBuilder, orgSlug])
+  }, [
+    runCreateList,
+    recommendedMeta,
+    queryClient,
+    resetBuilder,
+    orgSlug,
+    invalidateRecommendations,
+  ])
 
   return {
     mode,
@@ -736,9 +762,12 @@ export const useOutreachAudience = ({
     recommendations: recommendationsQuery.data ?? [],
     // The carried-in recommendation shares the landing skeleton: applying it
     // is the first thing the step does, so the picker must not paint first.
+    // isFetching, not isLoading: the cache outlives the flow, and a copy
+    // fetched before the list was saved still says existingFilterId null —
+    // applied during the refetch, it saved the same list a second time.
     recommendationsLoading:
       recommendationsQuery.isLoading ||
-      preselectedRecommendationQuery.isLoading,
+      preselectedRecommendationQuery.isFetching,
     recommendationsError: recommendationsQuery.isError,
     recommendedListsChannel: reachabilityKey,
     createRecommendedList,

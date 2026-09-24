@@ -7,6 +7,7 @@ import { PollIndividualMessageService } from '@/polls/services/pollIndividualMes
 import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/voterOutreachActivity.service'
 import { Injectable } from '@nestjs/common'
 import {
+  ContactStatusField,
   Poll,
   PollIndividualMessage,
   PollIndividualMessageSender,
@@ -258,32 +259,51 @@ export class ContactEngagementService {
           )
         : []
 
-    // Status-change history is Win-only (contacts.service.ts's status-update
-    // endpoint rejects the write for elected-office organizations, so a
-    // Serve org can never have a ContactStatusEvent row) — gated the same
-    // way the legacy outreach rows are gated on Win-ness, not on lalVoterId
-    // being present (status changes don't need the sunset param).
-    const statusChangeEvents = !electedOfficeId
-      ? await fetchWindow(
-          (windowTake) =>
+    // One vocabulary per row, decided here rather than per reader — this feed
+    // has two (the walk's person sheet and the Constituent Data overlay), and
+    // the `eo-` prefix is the whole rule, the same way `politicalParty` is
+    // stripped in `ContactsService`. A support answer and a turnout intention
+    // are Win facts about a person; a follow-up is Serve's. Each surface reads
+    // back only its own, so neither can show a reader the answer to a question
+    // their canvasser never asked.
+    const isServe = organizationSlug.startsWith('eo-')
+    const statusFieldFilter = {
+      field: isServe
+        ? ContactStatusField.follow_up
+        : { not: ContactStatusField.follow_up },
+    }
+
+    // Status-change history is filtered by field rather than by surface:
+    // Win's three editable statuses are Win facts (ContactsService rejects
+    // those writes for an `eo-` org), and `follow_up` is the only one Serve
+    // can produce. Filtering here rather than skipping the read keeps the
+    // same guarantee the vocabulary split below keeps — neither surface can
+    // show a reader the answer to a question their canvasser never asked.
+    const statusChangeEvents = await fetchWindow(
+      (windowTake) =>
+        this.contactStatus.findEventsForFeed({
+          where: {
+            organizationSlug,
+            personId,
+            ...statusFieldFilter,
+            ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
+          },
+          orderBy: statusOrderBy,
+          take: windowTake,
+        }),
+      cursorDate
+        ? () =>
             this.contactStatus.findEventsForFeed({
               where: {
                 organizationSlug,
                 personId,
-                ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
+                ...statusFieldFilter,
+                createdAt: cursorDate,
               },
               orderBy: statusOrderBy,
-              take: windowTake,
-            }),
-          cursorDate
-            ? () =>
-                this.contactStatus.findEventsForFeed({
-                  where: { organizationSlug, personId, createdAt: cursorDate },
-                  orderBy: statusOrderBy,
-                })
-            : null,
-        )
-      : []
+            })
+        : null,
+    )
 
     const doorKnockActivities: DoorKnockConstituentActivity[] = doorKnocks.map(
       (activity) => ({
@@ -292,7 +312,8 @@ export class ContactEngagementService {
         data: {
           activityId: activity.id,
           outcome: activity.outcome,
-          supportAnswer: activity.supportAnswer,
+          supportAnswer: isServe ? null : activity.supportAnswer,
+          followUp: isServe ? activity.followUp : null,
           note: activity.note,
           manual: activity.manual,
           actorName: activity.actor
@@ -340,8 +361,9 @@ export class ContactEngagementService {
         data: {
           activityId: activity.id,
           outcome: activity.outcome,
-          supportAnswer: activity.supportAnswer,
-          willVote: activity.willVote,
+          supportAnswer: isServe ? null : activity.supportAnswer,
+          willVote: isServe ? null : activity.willVote,
+          followUp: isServe ? activity.followUp : null,
           note: activity.note,
           manual: activity.manual,
           actorName: activity.actor
@@ -443,21 +465,29 @@ export class ContactEngagementService {
     electedOfficeId: string,
     personId: string,
   ): Promise<PollConstituentActivity[]> {
-    const messages: PollIndividualMessageWithPoll[] =
-      await this.pollIndividualMessage.findMany({
-        where: {
-          electedOfficeId,
-          personId,
-        },
-        include: {
-          poll: true,
-        },
-        orderBy: { sentAt: Prisma.SortOrder.desc },
-      })
+    // poll_individual_message now also holds text-outreach messages (exactly
+    // one of pollId / outreachId is set), so this reader has to say which it
+    // wants. An SMS reply is not a poll interaction.
+    const rows = await this.pollIndividualMessage.findMany({
+      where: {
+        electedOfficeId,
+        personId,
+        pollId: { not: null },
+      },
+      include: {
+        poll: true,
+      },
+      orderBy: { sentAt: Prisma.SortOrder.desc },
+    })
+    // The where clause guarantees this, but Prisma types the optional
+    // relation as nullable regardless; narrow rather than cast.
+    const messages: PollIndividualMessageWithPoll[] = rows.filter(
+      (row): row is PollIndividualMessageWithPoll => row.poll !== null,
+    )
 
     const messagesByPollId = new Map<string, PollIndividualMessageWithPoll[]>()
     for (const message of messages) {
-      const key = String(message.pollId)
+      const key = message.poll.id
       const list = messagesByPollId.get(key) ?? []
       list.push(message)
       messagesByPollId.set(key, list)
@@ -486,7 +516,7 @@ export class ContactEngagementService {
         type: ConstituentActivityType.POLL_INTERACTIONS,
         date: mostRecent.sentAt.toISOString(),
         data: {
-          pollId: mostRecent.pollId,
+          pollId: mostRecent.poll.id,
           pollTitle: mostRecent.poll.name,
           events: events.reverse(),
         },
@@ -510,6 +540,8 @@ export class ContactEngagementService {
         electedOfficeId,
         sender: 'CONSTITUENT',
         pollIssues: { some: {} },
+        // Poll-scoped rows only, same reason as getPollActivities above.
+        pollId: { not: null },
       },
       include: {
         pollIssues: true,
@@ -525,6 +557,9 @@ export class ContactEngagementService {
     const pageMessages = hasMore ? messages.slice(0, take) : messages
     const results: ConstituentIssue[] = []
     for (const msg of pageMessages) {
+      // Guaranteed by the pollId filter above; the relation is still typed
+      // nullable.
+      if (!msg.poll) continue
       const date = msg.sentAt.toISOString()
       for (const issue of msg.pollIssues) {
         results.push({

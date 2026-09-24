@@ -25,6 +25,12 @@ import {
   STATUS_RGB,
 } from './statusPresentation'
 
+// useDoorScript (via PersonSheet) reads the viewer's org role; these tests
+// render without an OrganizationProvider, whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganizationRole: () => undefined,
+}))
+
 // The walk sheet's PDF export acknowledges the press with a toast, and the
 // provider that would carry it belongs to the app shell rather than to this
 // view.
@@ -492,6 +498,67 @@ describe('WalkView', () => {
       expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
     )
     expect(screen.queryByRole('button', { name: 'Move to archive' })).toBeNull()
+  })
+
+  // Same optional-prop shape as the archive above, and the same reason: a
+  // volunteer's list is never theirs to finish.
+  it('renders no Mark done button when the walk has no handler for it', async () => {
+    render(
+      <WalkView
+        turfId={3}
+        selectedStopId={null}
+        onSelectStop={vi.fn()}
+        liveLocation={{ status: 'off', fix: null, approximate: false }}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Mark this route done' }),
+    ).toBeNull()
+  })
+
+  // The manual half of the completion rule: the walk-exit stamp only fires on
+  // a fully logged route, so this is how a canvasser finishes one that is not.
+  it('confirms before marking a part-walked route done', async () => {
+    const onMarkDone = vi.fn()
+    render(<WalkHarness turfId={3} onMarkDone={onMarkDone} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Mark this route done' }),
+    )
+
+    expect(await screen.findByText('Mark this route done?')).toBeInTheDocument()
+    expect(onMarkDone).not.toHaveBeenCalled()
+
+    const dialog = screen.getByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Mark done' }),
+    )
+    expect(onMarkDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps knocking without writing when the confirm is dismissed', async () => {
+    const onMarkDone = vi.fn()
+    render(<WalkHarness turfId={3} onMarkDone={onMarkDone} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Mark this route done' }),
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Keep knocking' }),
+    )
+
+    expect(onMarkDone).not.toHaveBeenCalled()
   })
 
   // The canvas segments its bar by outcome. Ours was one blue bar with the
@@ -1249,6 +1316,7 @@ describe('WalkView not-a-voter reason', () => {
       activityId: 'dk-1',
       outcome: 'not_a_voter',
       supportAnswer: null,
+      followUp: null,
       note: null,
       manual: false,
       actorName: null,
@@ -1919,6 +1987,7 @@ describe('WalkView auto-advance', () => {
                           activityId: 'dk-1',
                           outcome: 'not_home',
                           supportAnswer: null,
+                          followUp: null,
                           note: null,
                           manual: false,
                           actorName: null,

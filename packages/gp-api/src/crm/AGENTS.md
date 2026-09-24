@@ -7,6 +7,18 @@ saved filters, outreach). `src/personProfiles/` also writes to HubSpot
 contacts directly (candidate profile-completion counter) rather than
 through this module.
 
+**Test users never reach the portal.** Every contact/company write path —
+`trackContact` and `submitCrmForm` (`crmUsers.service.ts`), `syncTeamMember`
+(`crmTeamMembers.service.ts`), `trackCampaign` (`crmCampaigns.service.ts`) —
+is gated on `isTestUser` (`src/users/util/users.util.ts`). Dev, previews, and
+prod share this one portal, so the E2E suite's `@test.goodparty.org` users
+(created on every merge) were piling up as billable marketing contacts. A new
+sync path must carry the same gate. The server gates are only half of it:
+HubSpot's tracking script used to run on dev/previews too, and its
+collected-forms feature created contacts straight from the browser when E2E
+filled the Clerk sign-up form — so gp-webapp loads that script in production
+only (`app/layout.tsx`, `supportChatEnabled`).
+
 ## Key files
 
 | Path                                | Owns                                                             |

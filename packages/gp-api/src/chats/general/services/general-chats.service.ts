@@ -57,6 +57,7 @@ export interface SendMessageArgs {
   userMessage: string
   signal?: AbortSignal
   clientMessageId?: string
+  attachmentIds?: string[]
 }
 
 const toTitle = (message: string): string => {
@@ -84,11 +85,31 @@ export class GeneralChatsService {
     return handler
   }
 
-  resolveConversation(
+  // The default session model, shared by every scope that doesn't override it:
+  // opening a chat always starts a NEW conversation. Resuming is a separate
+  // path (history -> listMessages -> stream by id), so find-or-create here
+  // would collapse every open onto the candidate's latest thread. Clients defer
+  // the call until the first message so an open with nothing typed leaves no
+  // empty conversation behind.
+  async resolveConversation(
     params: ResolveConversationParams,
     userId: number,
   ): Promise<ResolveConversationResult> {
-    return this.requireHandler(params.scope).resolveConversation(params, userId)
+    const handler = this.requireHandler(params.scope)
+    if (handler.resolveConversation) {
+      return handler.resolveConversation(params, userId)
+    }
+    const created = await this.store.createScopedConversation({
+      ownerUserId: userId,
+      organizationSlug: params.organizationSlug,
+      scope: params.scope,
+      ...(params.anchor && {
+        anchor: params.anchor,
+        title: params.anchor.snapshot.title,
+      }),
+    })
+    await handler.seedConversation?.(created.id, params)
+    return { conversationId: created.id, created: true }
   }
 
   async listConversations(args: {
@@ -300,6 +321,7 @@ export class GeneralChatsService {
         ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(args.attachmentIds && { attachmentIds: args.attachmentIds }),
         ...(handler.onTurnUsage && {
           onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
         }),

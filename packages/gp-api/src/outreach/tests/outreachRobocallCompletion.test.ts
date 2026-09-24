@@ -61,6 +61,7 @@ const createDraft = async ({
   dialedHoursAgo = ROBOCALL_RUN_HOURS + 1,
   captureBeforeInHours = 24 * 5,
   authorizationIntentId = 'pi_1' as string | null,
+  promoCoversTotal = false,
 }: {
   settleState?: RobocallSettleState
   staged?: boolean
@@ -68,6 +69,7 @@ const createDraft = async ({
   dialedHoursAgo?: number
   captureBeforeInHours?: number
   authorizationIntentId?: string | null
+  promoCoversTotal?: boolean
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -94,6 +96,7 @@ const createDraft = async ({
       authorizedAmountInCents: 450,
       captureBefore: addHours(new Date(), captureBeforeInHours),
       ...(staged ? { callhubCampaignPkStr: 'vb_1' } : {}),
+      promoCoversTotal,
     },
   })
   return spine.id
@@ -177,6 +180,20 @@ describe('OutreachRobocallCompletionService.sweepRobocallCompletion', () => {
     // A second sweep no longer finds it in `dialed`, so it is not re-stopped.
     await completion.sweepRobocallCompletion()
     expect(abortSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('settles a promo-covered run that has no hold at all', async () => {
+    const outreachId = await createDraft({
+      dialedHoursAgo: ROBOCALL_RUN_HOURS + 1,
+      authorizationIntentId: null,
+      promoCoversTotal: true,
+    })
+
+    await completion.sweepRobocallCompletion()
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.settling)
+    expect(satellite.completedCallCount).toBe(100)
   })
 
   it('does NOT settle a dialed run still inside the run window', async () => {

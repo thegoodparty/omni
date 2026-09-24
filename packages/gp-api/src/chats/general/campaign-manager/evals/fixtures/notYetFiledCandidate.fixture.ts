@@ -25,6 +25,10 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   raceId: 'br-hash-springfield-ward-3',
   webSearchEnabled: true,
   helpCenterToolEnabled: true,
+  // null: the map then says nothing about Pro, so the evals built on this
+  // fixture keep the prompt they were written against. An eval that tests
+  // the gate sets it per case.
+  isPro: null,
   story: null,
   plan: null,
 }

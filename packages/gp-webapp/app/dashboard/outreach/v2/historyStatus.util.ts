@@ -99,6 +99,27 @@ export const draftLabelFor = (
   }
 }
 
+// A Serve SMS row: an elected official's text to constituents, which shares
+// `outreachType: 'text'` with two other things it is not.
+//
+// The SURFACE decides, not the row's own shape. Inferring Serve from
+// `campaignId == null` was the first attempt and is wrong: `campaignId` is
+// optional on the client `Outreach` type, so an absent field is
+// indistinguishable from an explicit null, and a Win text row that simply
+// does not carry one reads as Serve and takes the wrong vocabulary. A Serve
+// page only ever lists org-scoped rows and a Win page only ever lists
+// campaign-scoped ones, so `isServe` answers the question exactly, with no
+// inference from an absence — and it is the same argument the rest of this
+// directory already forks Serve copy on (see docs/product-vocabulary.md,
+// "A function of isServe").
+//
+// `phoneListId == null` separates a Serve row from one created through the
+// P2P flow, whose type is normalized to 'text'. Already guaranteed by the
+// early return in getHistoryStatusLabel; stated anyway so this predicate is
+// true on its own terms rather than on its caller's ordering.
+const isServeSmsRow = (row: HistoryRow, isServe: boolean): boolean =>
+  isServe && row.outreachType === 'text' && row.phoneListId == null
+
 const getP2pStatusLabel = (row: HistoryRow): string | null => {
   const { p2pJob, status } = row
   if (!status || !isStatusKey(status)) {
@@ -145,9 +166,13 @@ const getP2pStatusLabel = (row: HistoryRow): string | null => {
   return p2pStatusLabels[displayStatus]
 }
 
+// `membership` (Win, milestone 2) names the next step for a `draft` row;
+// `isServe` (Serve) picks the Serve SMS vocabulary. Both default off so every
+// existing caller and test behaves exactly as it did.
 export const getHistoryStatusLabel = (
   row: HistoryRow,
   membership: MembershipState | null = null,
+  isServe = false,
 ): string | null => {
   if (row.status === 'draft') {
     return draftLabelFor(row, membership)
@@ -183,6 +208,31 @@ export const getHistoryStatusLabel = (
   // and social share that map but have no in_progress lifecycle, so the map is
   // left untouched and only robocall is relabeled here.
   if (row.outreachType === 'robocall') {
+    if (status === 'pending') {
+      return 'Scheduled'
+    }
+    if (status === 'in_progress') {
+      return 'In progress'
+    }
+  }
+  // Serve SMS reads the same two words as robocall, for the same reasons, and
+  // is relabeled here rather than in the map for the same reason again:
+  // legacy Win text and social rows share nonP2pStatusLabels and must not
+  // move. Gated on the surface, so a Win text row cannot reach it at all.
+  //
+  // Its lifecycle is pending_payment → pending → in_progress → completed.
+  // `pending` is PAID and waiting for its send date (the Serve purchase
+  // handler leaves it there; the delivery service picks it up on the day), so
+  // the map's "In review" would tell an official a human is reviewing their
+  // request — the Political Assistant meaning, and not what is happening.
+  // `in_progress` is set at the fulfilment handoff and holds until the reply
+  // ingest completes the row, so the send is out and responses are coming
+  // back; the map's "Scheduled" says the opposite of what is true. Both
+  // replacement labels already exist in channelMeta's STATUS_DISPLAY, so
+  // neither loses its icon or tone. "In progress" rather than "Sending"
+  // because this state spans the send AND the days of replies after it —
+  // "Sending" would name only its first half.
+  if (isServeSmsRow(row, isServe)) {
     if (status === 'pending') {
       return 'Scheduled'
     }

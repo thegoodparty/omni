@@ -15,7 +15,7 @@ import {
   lastContactLine,
   legTravelLine,
   MARK_INSTRUCTION,
-  RECORDS_NOTICE,
+  recordsNotice,
   answerBoxes,
   targetPhone,
   walkColumns,
@@ -94,7 +94,7 @@ const ResidentRow = ({
   isServe,
 }: ResidentRowProps) => {
   const meta = describeTarget(target)
-  const lastContact = lastContactLine(target)
+  const lastContact = lastContactLine(target, isServe)
   // Already recorded in the app: print the answer instead of blank boxes, so a
   // door isn't knocked twice and a transcriber doesn't overwrite it.
   const recorded = target.knockStatus !== 'unknown'
@@ -274,7 +274,7 @@ const SheetHeader = ({ turfName, stops, payload }: SheetHeaderProps) => (
     </div>
     {/* One sentence, which is all the template's legend carries. The notice
         about re-keying moved to the screen-only preamble below — see
-        `RECORDS_NOTICE`. */}
+        `recordsNotice`. */}
     <p className="ws-legend">{MARK_INSTRUCTION}</p>
   </>
 )
@@ -307,7 +307,7 @@ export default function WalkSheet({
         <p className="font-semibold">
           Print this page (Ctrl+P, or ⌘P on a Mac), then take it with you.
         </p>
-        <p className="mt-1">{RECORDS_NOTICE}</p>
+        <p className="mt-1">{recordsNotice(isServe)}</p>
         {/* A plain link, not a button: the file is built by a route handler, so
             downloading it costs this page no JavaScript at all and works with
             scripting off. */}

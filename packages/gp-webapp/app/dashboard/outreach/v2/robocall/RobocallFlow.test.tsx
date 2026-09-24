@@ -227,7 +227,16 @@ const mockCreateDraft = (
 ) =>
   api.mock('POST /v1/outreach/robocall', {
     status: 200,
-    data: { outreachId, billableCount, amountInCents, numberFeeInCents },
+    data: {
+      outreachId,
+      billableCount,
+      amountInCents,
+      numberFeeInCents,
+      promoCode: null,
+      promoDiscountInCents: 0,
+      amountDueInCents: amountInCents,
+      coversTotal: false,
+    },
   })
 
 const mockSaveCardIntent = () =>
@@ -243,7 +252,12 @@ const mockAuthorize = (
 ) =>
   api.mock('POST /v1/outreach/robocall/:outreachId/authorize', {
     status: 200,
-    data: { status, settleState, authorizedAmountInCents },
+    data: {
+      status,
+      settleState,
+      authorizedAmountInCents,
+      promoDiscountInCents: null,
+    },
   })
 
 const mockSavedLists = () =>
@@ -1463,6 +1477,10 @@ describe('RobocallFlow', () => {
           billableCount: 80,
           amountInCents: 560,
           numberFeeInCents: 200,
+          promoCode: null,
+          promoDiscountInCents: 0,
+          amountDueInCents: 560,
+          coversTotal: false,
         },
       }
     })
@@ -1475,6 +1493,7 @@ describe('RobocallFlow', () => {
           status: 'authorized',
           settleState: 'authorized',
           authorizedAmountInCents: 560,
+          promoDiscountInCents: null,
         },
       }
     })
@@ -1531,6 +1550,96 @@ describe('RobocallFlow', () => {
     const done = screen.getByRole('button', { name: 'Done' })
     await userEvent.click(done)
     expect(onClose).toHaveBeenCalled()
+  })
+
+  it('applies a promo code and authorizes the discounted remainder', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    let promoBody: { code?: string } | null = null
+    api.mock('POST /v1/outreach/robocall/:outreachId/promo', ({ body }) => {
+      promoBody = body
+      return {
+        status: 200,
+        data: {
+          promoCode: 'CALLS100',
+          promoDiscountInCents: 200,
+          amountDueInCents: 360,
+          coversTotal: false,
+        },
+      }
+    })
+    mockAuthorize('authorized', 360, 'authorized')
+
+    await gotoReview()
+    await enterPay()
+    await screen.findByRole('button', { name: /Authorize \$5\.60/ })
+
+    await userEvent.type(
+      screen.getByPlaceholderText('Enter promo code'),
+      'CALLS100',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    // The server-priced discount and remainder replace the estimate; nothing
+    // is computed client-side.
+    expect(promoBody).toEqual({ code: 'CALLS100' })
+    expect(await screen.findByText('-$2.00')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: /Authorize \$3\.60/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('schedules a fully covered robocall without a card', async () => {
+    mockCreateDraft(560)
+    mockSaveCardIntent()
+    api.mock('POST /v1/outreach/robocall/:outreachId/promo', {
+      status: 200,
+      data: {
+        promoCode: 'CALLS1000',
+        promoDiscountInCents: 560,
+        amountDueInCents: 0,
+        coversTotal: true,
+      },
+    })
+    let authorizeBody: { paymentMethodId?: string } | null = null
+    api.mock('POST /v1/outreach/robocall/:outreachId/authorize', ({ body }) => {
+      authorizeBody = body
+      return {
+        status: 200,
+        data: {
+          status: 'authorized',
+          settleState: 'authorized',
+          authorizedAmountInCents: 0,
+          promoDiscountInCents: 560,
+        },
+      }
+    })
+
+    await gotoReview()
+    await enterPay()
+    await screen.findByRole('button', { name: /Authorize \$5\.60/ })
+    await userEvent.type(
+      screen.getByPlaceholderText('Enter promo code'),
+      'CALLS1000',
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    // The card form gives way to a plain schedule button.
+    const schedule = await screen.findByRole('button', {
+      name: 'Schedule robocall',
+    })
+    expect(
+      screen.queryByRole('button', { name: /Authorize/ }),
+    ).not.toBeInTheDocument()
+    await userEvent.click(schedule)
+
+    expect(await screen.findByText("You're all set")).toBeInTheDocument()
+    expect(
+      screen.getByText(/Your promo code covers this robocall\. We'll place/),
+    ).toBeInTheDocument()
+    // No payment method was ever vaulted or sent.
+    expect(confirmSetupMock).not.toHaveBeenCalled()
+    expect(authorizeBody).toEqual({})
   })
 
   it('bounces back to schedule if the send time elapses before payment', async () => {
@@ -1660,6 +1769,7 @@ describe('RobocallFlow', () => {
           status: 'authorized',
           settleState: 'authorized',
           authorizedAmountInCents: 560,
+          promoDiscountInCents: null,
         },
       }
     })
@@ -1709,6 +1819,7 @@ describe('RobocallFlow', () => {
           status: 'authorized',
           settleState: 'authorized',
           authorizedAmountInCents: 560,
+          promoDiscountInCents: null,
         },
       }
     })
@@ -1749,6 +1860,7 @@ describe('RobocallFlow', () => {
           status: 'authorized',
           settleState: 'authorized',
           authorizedAmountInCents: 560,
+          promoDiscountInCents: null,
         },
       }
     })
@@ -1780,6 +1892,7 @@ describe('RobocallFlow', () => {
           status: 'authorized',
           settleState: 'authorized',
           authorizedAmountInCents: 560,
+          promoDiscountInCents: null,
         },
       }
     })
@@ -1812,6 +1925,10 @@ describe('RobocallFlow', () => {
               billableCount: 80,
               amountInCents: 560,
               numberFeeInCents: 200,
+              promoCode: null,
+              promoDiscountInCents: 0,
+              amountDueInCents: 560,
+              coversTotal: false,
             },
           }
     })
@@ -1842,6 +1959,10 @@ describe('RobocallFlow', () => {
           billableCount: 80,
           amountInCents: 560,
           numberFeeInCents: 200,
+          promoCode: null,
+          promoDiscountInCents: 0,
+          amountDueInCents: 560,
+          coversTotal: false,
         },
       }
     })
@@ -2430,6 +2551,10 @@ describe('RobocallFlow', () => {
             billableCount: 80,
             amountInCents: 560,
             numberFeeInCents: 200,
+            promoCode: null,
+            promoDiscountInCents: 0,
+            amountDueInCents: 560,
+            coversTotal: false,
           },
         }
       })

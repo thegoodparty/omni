@@ -55,10 +55,12 @@ import {
   AgentExperimentResultSchema,
   DomainEmailForwardingMessage,
   CvStatusPollMessageSchema,
+  ExtractChatAttachmentMessageSchema,
   Nightly10DlcReportMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
+  OutreachTextSendEventSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -72,6 +74,7 @@ import {
   TcrComplianceStatusCheckMessage,
 } from '../queue.types'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
+import { ChatAttachmentsService } from '@/chats/services/chatAttachments.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
@@ -82,6 +85,8 @@ import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
+import { OutreachService } from '@/outreach/services/outreach.service'
+import { OutreachTextDeliveryService } from '@/outreach/services/outreachTextDelivery.service'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
@@ -171,6 +176,9 @@ export class QueueConsumerService {
     private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
     private readonly hubspotSingleSend: HubspotSingleSendService,
+    private readonly chatAttachments: ChatAttachmentsService,
+    private readonly outreachService: OutreachService,
+    private readonly outreachTextDelivery: OutreachTextDeliveryService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -467,6 +475,24 @@ export class QueueConsumerService {
         }
         return await this.ordinanceQualityLoop.handleStep(step.data)
       }
+      case QueueType.EXTRACT_CHAT_ATTACHMENT:
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const { attachmentId } = ExtractChatAttachmentMessageSchema.parse(
+            queueMessage.data,
+          )
+          await this.chatAttachments.runExtraction(attachmentId)
+          return true
+        })
+      case QueueType.OUTREACH_TEXT_SEND: {
+        this.logger.info('received outreachTextSend message')
+        // A malformed payload is left to throw: the producer is our own
+        // purchase handler, so a shape it cannot satisfy is a bug, and this
+        // is a paid send. Let it age to the DLQ where someone sees it rather
+        // than ack-dropping it the way a poison ordinance step is dropped.
+        const { data } = OutreachTextSendEventSchema.parse(queueMessage)
+        return await this.handleOutreachTextSend(data)
+      }
+
       default:
         this.logger.warn(
           { messageId: message.MessageId, body: message.Body },
@@ -474,6 +500,138 @@ export class QueueConsumerService {
         )
         return true
     }
+  }
+
+  /**
+   * The outbound half of the shared text delivery layer, triggered by the
+   * Serve SMS purchase handler's post-purchase step.
+   *
+   * The queue message carries the envelope id and nothing else, so the
+   * product-shaped half of `requestSend`'s input — which saved list, what
+   * message, which day — is read back off the row here. That is deliberate:
+   * the delivery layer takes an audience spec rather than an outreach id
+   * precisely so polls can hand it a random sample later without the layer
+   * learning what a poll is.
+   *
+   * Every refusal below ACKS rather than retrying. A row that is missing, or
+   * that has no saved list / message / date, is in exactly the same state on
+   * every redelivery, so retrying only burns the DLQ budget on a message
+   * nothing can act on. Real faults (S3, Slack, the database) still throw out
+   * of `requestSend` and redeliver; the send is idempotent under that.
+   */
+  private async handleOutreachTextSend({
+    outreachId,
+    sendSeq,
+  }: {
+    outreachId: number
+    sendSeq: number
+  }): Promise<boolean> {
+    const outreach = await this.outreachService.model.findUnique({
+      where: { id: outreachId },
+      select: {
+        message: true,
+        imageUrl: true,
+        scheduledLocalDate: true,
+        voterFileFilterId: true,
+        billableTextCount: true,
+        textCount: true,
+      },
+    })
+
+    if (!outreach) {
+      this.logger.error(
+        { outreachId, sendSeq },
+        'outreachTextSend: no such outreach; acking, retrying cannot help',
+      )
+      return true
+    }
+
+    const {
+      message,
+      imageUrl,
+      scheduledLocalDate,
+      voterFileFilterId,
+      billableTextCount,
+      textCount,
+    } = outreach
+
+    if (!message || !scheduledLocalDate || !voterFileFilterId) {
+      this.logger.error(
+        {
+          outreachId,
+          sendSeq,
+          hasMessage: Boolean(message),
+          hasScheduledLocalDate: Boolean(scheduledLocalDate),
+          hasVoterFileFilterId: Boolean(voterFileFilterId),
+        },
+        'outreachTextSend: the row is missing what a send needs; acking, ' +
+          'retrying cannot help',
+      )
+      return true
+    }
+
+    const result = await this.outreachTextDelivery.requestSend({
+      outreachId,
+      sendSeq,
+      audience: { kind: 'savedFilter', voterFileFilterId },
+      message,
+      imageUrl: imageUrl ?? undefined,
+      scheduledLocalDate,
+      // The audience the official authorized, which is `textCount` — NOT
+      // `billableTextCount`. The latter is what Stripe was charged, and
+      // `markFreeTextsConsumed` sets it to textCount minus the free-text
+      // allowance, so a send fully covered by the offer carries 0. Capping
+      // on that would truncate a legitimate send to nobody and hand
+      // fulfilment an empty file.
+      paidRecipientCap: textCount ?? undefined,
+    })
+
+    // `terminalReason` means nothing was handed off and nothing ever will be.
+    // `requestSend` returns rather than throwing for exactly these cases,
+    // because a redelivery would hit the same wall: ack instead of burning
+    // the redrive budget on the way to the DLQ.
+    if (result.terminalReason) {
+      this.logger.warn(
+        {
+          outreachId,
+          sendSeq,
+          sendKey: result.sendKey,
+          terminalReason: result.terminalReason,
+        },
+        result.terminalReason === 'send_failed'
+          ? 'outreachTextSend: nothing was sent — the send cannot be made ' +
+              'at all; the row is now failed'
+          : 'outreachTextSend: nothing was sent — the outreach was not ' +
+              'pending, or a previous attempt already handed off this send',
+      )
+      return true
+    }
+
+    this.logger.info(
+      {
+        outreachId,
+        sendSeq,
+        sendKey: result.sendKey,
+        recipientCount: result.recipientCount,
+        excludedOptedOutCount: result.excludedOptedOutCount,
+        excludedDuplicateCount: result.excludedDuplicateCount,
+        // What Stripe actually took, against what fulfilment actually got.
+        // The row is priced at checkout and the audience is re-scrubbed at
+        // send, so anyone who opts out in between was paid for and not
+        // texted. Logged rather than corrected: `billableTextCount` is the
+        // record of what was charged and must keep saying so, and the
+        // delivered set is already durable as OutreachTextRecipient rows.
+        // Whether a delta earns a refund is a product decision, not a
+        // silent one — this line is what makes it countable.
+        billableTextCount,
+        overBilledBy:
+          billableTextCount === null
+            ? null
+            : Math.max(0, billableTextCount - result.recipientCount),
+      },
+      'outreachTextSend: handed off to fulfilment',
+    )
+    return true
   }
 
   // TODO: ALL of the below functions should be moved to their respective

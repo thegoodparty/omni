@@ -33,7 +33,12 @@ import {
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { Intro } from '../social/Intro'
 import { ThinkingStream } from '../social/ThinkingStream'
-import { composeFooter, IMAGE_ACCEPT, IMAGE_MAX_BYTES } from './smsCompose.util'
+import {
+  composeFooter,
+  IMAGE_ACCEPT,
+  IMAGE_MAX_BYTES,
+  SERVE_SMS_GREETING_PREVIEW,
+} from './smsCompose.util'
 
 const TONE_LABELS: Record<SocialTone, string> = {
   warm: 'Warm',
@@ -49,7 +54,20 @@ const TONE_ICONS: Record<SocialTone, ReactNode> = {
   friendly: <SmileIcon className="size-4" />,
 }
 
+// The image dropzone is the one string in this shared step that names the
+// product. "Campaign" is Win vocabulary (docs/product-vocabulary.md): an
+// elected official has an office and a term, not a campaign. Keyed rather
+// than renamed, because a candidate uploading a campaign headshot is the
+// right words for them.
+const IMAGE_DROPZONE_LABEL = {
+  win: 'Add your campaign headshot or logo',
+  serve: 'Add a header image (optional)',
+} as const
+
 interface SmsComposeStepProps {
+  // Copy only. The surface config carries this for exactly the strings the
+  // per-surface records cannot reach, which is what the label above is.
+  isServe: boolean
   tone: SocialTone
   onToneChange: (tone: SocialTone) => void
   audienceName: string
@@ -93,6 +111,7 @@ const standardsFailureCopy = (
 }
 
 export const SmsComposeStep = ({
+  isServe,
   tone,
   onToneChange,
   audienceName,
@@ -237,7 +256,9 @@ export const SmsComposeStep = ({
               >
                 <ImageIcon className="size-6 text-muted-foreground" />
                 <span className="text-sm font-medium text-foreground">
-                  Add your campaign headshot or logo
+                  {isServe
+                    ? IMAGE_DROPZONE_LABEL.serve
+                    : IMAGE_DROPZONE_LABEL.win}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   Recipients see this in the message preview
@@ -268,18 +289,36 @@ export const SmsComposeStep = ({
                 {composedLength} chars · {segments} SMS
               </span>
             </div>
-            <p className="mb-2">
-              <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
-                Greeting First Name
-              </span>
-            </p>
+            {isServe ? (
+              <div className="mb-2">
+                <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
+                  {SERVE_SMS_GREETING_PREVIEW.greeting}
+                </span>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {SERVE_SMS_GREETING_PREVIEW.caption}
+                </p>
+              </div>
+            ) : (
+              <p className="mb-2">
+                <span className="inline-flex items-center rounded-full bg-primary-light px-2 py-0.5 text-xs font-medium text-primary-dark">
+                  Greeting First Name
+                </span>
+              </p>
+            )}
             <Textarea
               value={body}
               onChange={(e) => onBodyChange(e.target.value)}
               placeholder="Write your message…"
               aria-label="Message body"
               aria-invalid={overLimit}
-              className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
+              // Borderless at rest so the field sits seamlessly inside the
+              // card, which is the design — but `focus-visible:ring-0` also
+              // removed the focus indicator, so the draft read as static
+              // text and nobody realised it could be edited. It is a WCAG
+              // 2.4.7 failure too: keyboard users had nothing to follow.
+              // The ring is restored on focus only; the resting state is
+              // unchanged.
+              className="min-h-[140px] resize-none rounded-md border-0 p-0 ring-offset-2 ring-offset-card outline-none focus-visible:ring-[3px] focus-visible:ring-components-input-focus [field-sizing:content]"
             />
             <p className="mt-3 text-xs text-muted-foreground whitespace-pre-line">
               {composeFooter(committeeName)}
@@ -362,12 +401,13 @@ export const SmsComposeStep = ({
             lines) under {SMS_COMPOSED_MAX_LENGTH} characters.
           </p>
         )}
-        {/* Edit mode shows the stored image via imagePreviewUrl with no File
-            in hand, and the requirement is already met there. */}
+        {/* Win's edit mode shows the stored image via imagePreviewUrl with
+            no File in hand, and its requirement is already met there. */}
         {!image && !imagePreviewUrl && (
           <p className="text-xs text-muted-foreground">
-            An image is required for text campaigns — JPG, PNG, or GIF up to 500
-            KB.
+            {isServe
+              ? 'You can add a JPG, PNG, or GIF up to 500 KB.'
+              : 'An image is required for text campaigns — JPG, PNG, or GIF up to 500 KB.'}
           </p>
         )}
       </div>

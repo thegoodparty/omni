@@ -157,6 +157,9 @@ interface PhoneBankingFlowCreateInput {
 // hit — everything else (steps, shell, tone/Improve, the audience picker's
 // reachabilityKey/countOverlay) is shared. Mirrors SocialFlowSurface.
 export interface PhoneBankingFlowSurface {
+  // Which product this surface belongs to. Read only for copy the
+  // per-surface records below don't reach — the shared steps' own strings.
+  isServe: boolean
   purposes: { id: PhoneBankingFlowPurpose; label: string }[]
   nameSuggestion: (purpose: PhoneBankingFlowPurpose) => string
   audienceCopy: OutreachAudienceCopy
@@ -174,6 +177,7 @@ export interface PhoneBankingFlowSurface {
 // and the flow only ever calls these endpoints with a purpose drawn from
 // them.
 const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
+  isServe: false,
   purposes: PHONE_BANKING_PURPOSES,
   nameSuggestion: phoneBankingPurposeNameSuggestion,
   audienceCopy: WIN_PHONE_BANKING_AUDIENCE_COPY,
@@ -199,6 +203,7 @@ const WIN_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
 // the wiring ticket passes this as PhoneBankingFlow's `surface` prop on the
 // serve phone-banking tile.
 export const SERVE_PHONE_BANKING_SURFACE: PhoneBankingFlowSurface = {
+  isServe: true,
   purposes: SERVE_PHONE_BANKING_PURPOSES,
   nameSuggestion: servePhoneBankingPurposeNameSuggestion,
   audienceCopy: SERVE_PHONE_BANKING_AUDIENCE_COPY,
@@ -859,6 +864,7 @@ export const PhoneBankingFlow = ({
         </>
       ) : stepId === 'script' ? (
         <ScriptStep
+          isServe={surface.isServe}
           name={name}
           onNameChange={(value) => {
             setName(value)

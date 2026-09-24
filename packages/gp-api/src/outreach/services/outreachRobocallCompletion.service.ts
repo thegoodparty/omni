@@ -59,20 +59,34 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
       where: {
         settleState: RobocallSettleState.dialed,
         callhubCampaignPkStr: { not: null },
-        // Only a hold-model run settles here. An estimate-billed run (charged
-        // upfront, `chargeIntentId` set, NO authorization hold) also reaches
-        // `dialed`, but capturing off a non-existent hold would double-charge it,
-        // so its own sweeps own it and `dialed` is its terminal — exclude it.
-        authorizationIntentId: { not: null },
-        OR: [
-          // The run window has elapsed since the dial: the calls have had their
-          // chance, so settle and bill the estimate.
-          { dialedAt: { lte: runWindowElapsed } },
-          // Or the hold is approaching its capture deadline: settle now
-          // regardless so a hold never lapses uncaptured (the capture sweep still
-          // prioritizes by captureBefore asc). Guards a send whose window is
-          // shorter than the run — the hold must be captured before it expires.
-          { captureBefore: { lte: captureDeadlineSoon } },
+        AND: [
+          {
+            OR: [
+              // Only a hold-model run settles here. An estimate-billed run
+              // (charged upfront, `chargeIntentId` set, NO authorization hold)
+              // also reaches `dialed`, but capturing off a non-existent hold
+              // would double-charge it, so its own sweeps own it and `dialed`
+              // is its terminal — exclude it.
+              { authorizationIntentId: { not: null } },
+              // A run a reward code paid for in full has no hold either, but
+              // it must still settle so the spine completes; capture records
+              // it at $0 without touching Stripe.
+              { promoCoversTotal: true },
+            ],
+          },
+          {
+            OR: [
+              // The run window has elapsed since the dial: the calls have had
+              // their chance, so settle and bill the estimate.
+              { dialedAt: { lte: runWindowElapsed } },
+              // Or the hold is approaching its capture deadline: settle now
+              // regardless so a hold never lapses uncaptured (the capture sweep
+              // still prioritizes by captureBefore asc). Guards a send whose
+              // window is shorter than the run — the hold must be captured
+              // before it expires.
+              { captureBefore: { lte: captureDeadlineSoon } },
+            ],
+          },
         ],
       },
       orderBy: { captureBefore: Prisma.SortOrder.asc },

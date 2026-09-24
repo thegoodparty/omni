@@ -100,7 +100,12 @@ export const voterDemographicFacts = (
   isServe = false,
 ): DemographicFact[] =>
   withFallback([
-    { label: 'Registered voter', value: yesNo(target.registeredVoter) },
+    {
+      // The fact is the same on both rails — whether this person can take
+      // part — but Serve cannot name them a voter to say it.
+      label: isServe ? 'Registered to vote' : 'Registered voter',
+      value: yesNo(target.registeredVoter),
+    },
     // **"Turnout likelihood", not the canvas's "Voter status".**
     // `Voter_Status` holds turnout propensity (Super / Likely / Unreliable /
     // Unlikely), while "voter status" in this industry means active-or-inactive
@@ -137,6 +142,7 @@ export const demographicFacts = (
     | 'language'
     | 'ethnicityGroup'
   >,
+  isServe = false,
 ): DemographicFact[] =>
   withFallback([
     // First, as the canvas orders it. It used to be the sheet's header
@@ -160,5 +166,13 @@ export const demographicFacts = (
       value: incomeRangeLabel(target.estimatedIncomeAmount),
     },
     { label: 'Language', value: target.language },
-    { label: 'Ethnicity group', value: target.ethnicityGroup },
+    // **Dropped for Serve, not left to `withFallback`.** The served route
+    // already nulls `ethnicityGroup` for an `eo-` org, and the fallback
+    // would print "Not on file" — a claim about a gap in the voter file,
+    // where the truth is that an elected official is not shown a
+    // constituent's ethnicity (#1933). Same treatment, and the same reason,
+    // as the Political party row in `voterDemographicFacts` above.
+    ...(isServe
+      ? []
+      : [{ label: 'Ethnicity group', value: target.ethnicityGroup }]),
   ])

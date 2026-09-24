@@ -162,6 +162,8 @@ Call the gp-api MCP tool **that searches the registrar for an available domain m
 
 **Pre-call guard — validate the request before sending it.** Before invoking the search tool, confirm the request you are about to send (a) includes **all four** approved patterns, (b) includes **all six** approved TLDs (`run`, `bio`, `fyi`, `win`, `digital`, `site`), and (c) presents them in **randomized order** for this run. If you cannot satisfy all three — for example the tool surface only accepts a subset, or forces a fixed ordering with early exit — do **not** call it with a narrowed catalog. Append blocker `{ step: "domain_search", code: "pattern_catalog_incomplete", detail: <what was missing>, first_seen_at: <ISO>, retry_count: 0, is_recoverable: false }`, set `stage: "failed"`, and go to Step 7.
 
+This guard is about the request you **send**, not the response you get back. The tool deliberately returns a shortlist: it stops once enough candidates qualify and hard-stops on a wall-clock budget, so it is never exhaustive. A short list is normal and is **not** `pattern_catalog_incomplete`. This is exactly why the catalog order must be randomized per run — the tool checks in the order you send, so randomization is what keeps the shortlist unbiased across patterns and TLDs. An **empty** list is authoritative (every candidate was checked and none matched); if any candidate could not be checked and nothing else qualified, the tool returns a 502 instead, which is the transient path below.
+
 Set `stage` to `domain_search_started` while the call is in flight.
 
 Let `initial_cap = min(10, domain_budget_cap_usd)`. Outcomes:

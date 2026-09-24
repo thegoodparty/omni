@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
+  LEGAL_LINE,
 } from './campaignManagerPrompt'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import type { Organization } from '../../../generated/prisma'
 
 const ctx = (
@@ -38,6 +40,7 @@ const ctx = (
   raceId: null,
   webSearchEnabled: true,
   helpCenterToolEnabled: false,
+  isPro: null,
   story: null,
   plan: null,
   ...over,
@@ -47,6 +50,19 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('frames the agent as a campaign manager', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt.toLowerCase()).toContain('campaign manager')
+  })
+
+  // The product map's status line is the only place the prompt says whether
+  // this campaign has Pro; the generic access rule reads it from there.
+  it('tells the manager when the campaign is locked out of Pro areas', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx({ isPro: false }))
+    expect(prompt).toContain('Pro status: this campaign does not have Pro')
+  })
+
+  it('tells the manager when the campaign has Pro', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx({ isPro: true }))
+    expect(prompt).toContain('Pro status: this campaign has Pro.')
+    expect(prompt).not.toContain('does not have Pro')
   })
 
   it('injects the office, location, and weeks-to-election when present', () => {
@@ -115,13 +131,16 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const on = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
     expect(on).toContain('count_contacts')
     expect(on).toContain('describe_filter_dimensions')
     expect(on).toContain('Pro upgrade')
-    expect(on).toContain('say so before quoting any numbers')
+    expect(on).toContain(
+      'name any part of the request the filter could not apply',
+    )
 
     // Flag on but no org row resolved = tools not registered, so no block.
     const noOrg = buildCampaignManagerSystemPrompt(
@@ -130,10 +149,47 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(noOrg).not.toContain('count_contacts')
   })
 
+  it('renders no voter data block without Pro', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: false,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+
+    // Nothing is registered, so nothing is described; the map carries what
+    // filtering covers and what it needs.
+    for (const name of [
+      'describe_filter_dimensions',
+      'count_contacts',
+      'list_precincts',
+      'crud_saved_filters',
+    ]) {
+      expect(prompt).not.toContain(name)
+    }
+  })
+
+  it('keeps the full voter-data guidance when Pro status is unknown', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: null,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+
+    expect(prompt).toContain('count_contacts')
+    expect(prompt).toContain('crud_saved_filters')
+  })
+
   it('advertises the saved-list tool only when it is registered', () => {
     const readOnly = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
@@ -144,6 +200,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
       ctx({
         crmToolsEnabled: true,
         savedFilterToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
@@ -152,6 +209,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(withWrites).toContain('duplicated')
     expect(withWrites).toContain('confirm the size')
     expect(withWrites).toContain('report the count crud_saved_filters returned')
+    expect(withWrites).toContain('abbreviating it does not make it belong')
   })
 
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {
@@ -452,6 +510,64 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(prompt).toContain('rests on an assumption')
       expect(prompt).toContain('say plainly which part is the assumption')
     }
+  })
+
+  it('defines a legal question by intent, with tools on or off', () => {
+    const allOff = ctx({
+      webSearchEnabled: false,
+      helpCenterToolEnabled: false,
+    })
+    for (const prompt of [
+      buildCampaignManagerSystemPrompt(ctx()),
+      buildCampaignManagerSystemPrompt(allOff),
+    ]) {
+      expect(prompt).toContain('underlying intent')
+      expect(prompt).toContain('what the law allows, prohibits, requires')
+      expect(prompt).toContain('Getting on the ballot and filing to run')
+    }
+  })
+
+  it('attributes the rule to a source or says none established it', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('attribute the rule to that source')
+    expect(prompt).toContain(
+      'do not supply the missing rule from model knowledge',
+    )
+    expect(prompt).toContain('identify what remains unresolved')
+    expect(prompt).toContain('practical next steps')
+  })
+
+  it('keeps product facts separate from legal requirements', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Keep product facts separate from legal requirements',
+    )
+    expect(prompt).toContain(
+      'does not establish what the law permits or requires',
+    )
+  })
+
+  it('keeps ordinary campaign work out of the legal route', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('Ordinary campaign work is not a legal question')
+    expect(prompt).toContain(
+      'Drafting, strategy, product how-tos, and tool use',
+    )
+  })
+
+  it('handles mixed product and legal requests part by part', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('For a mixed request')
+    expect(prompt).toContain('answer each part under the applicable rule')
+  })
+
+  it('pins the legal line to one the finish-time check recognizes', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(`include this line: "${LEGAL_LINE}"`)
+    // A statute-citing reply that carries the line gets nothing appended.
+    expect(
+      professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
+    ).toBeNull()
   })
 
   it('never invents facts (candidate-in-control guardrail)', () => {

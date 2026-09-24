@@ -43,6 +43,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
+  attachmentsEnabled: false,
   ...overrides,
 })
 
@@ -197,24 +198,27 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
 
-  it('gates the missing-filter disclosure sentence on count_contacts', () => {
+  it('gates the applied-filter disclosure on count_contacts', () => {
     const withCount = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: ['describe_filter_dimensions', 'count_contacts'],
     })
-    expect(withCount).toContain('say so before quoting any numbers')
-    expect(withCount).not.toContain(
-      'report the count crud_saved_filters returned',
+    expect(withCount).toContain(
+      'name any part of the request the filter could not apply',
     )
+    expect(withCount).not.toContain('abbreviating it does not make it belong')
   })
 
-  it('gates the count-readback sentence on crud_saved_filters', () => {
+  it('gates the naming and count-readback rules on crud_saved_filters', () => {
     const withSaved = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: ['crud_saved_filters'],
     })
     expect(withSaved).toContain('report the count crud_saved_filters returned')
-    expect(withSaved).not.toContain('say so before quoting any numbers')
+    expect(withSaved).toContain('abbreviating it does not make it belong')
+    expect(withSaved).not.toContain(
+      'name any part of the request the filter could not apply',
+    )
   })
 
   it('omits the provenance rules when the CRM tools are not registered', () => {
@@ -301,6 +305,24 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain("that dimension's unknown value selected")
   })
 
+  it('teaches the map rules once show_list_map is registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...ALL_TOOLS, 'show_list_map'],
+    })
+    expect(prompt).toContain('LIST MAP RULES')
+    // The rule that keeps it honest: it cannot see the map it just drew.
+    expect(prompt).toContain('The dots are markers, not a directory')
+  })
+
+  it('omits the map rules when the tool is not registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).not.toContain('LIST MAP RULES')
+  })
+
   it('instructs against over-refusing borderline in-scope requests', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
@@ -331,6 +353,46 @@ describe('buildChiefOfStaffSystemPrompt', () => {
   // A model that says it hit an authentication error it never hit is not a
   // capability problem, it is a reporting one, so these rules are unconditional
   // rather than hung off any one tool.
+  // The dimension is `modes: 'win'` in the catalog and 400s for an `eo-` org
+  // at the routes, so the tool path cannot express it for Serve. This is for
+  // the turn where the user asks for it by name, and for the proxy the model
+  // would otherwise reach for.
+  it('refuses to segment constituents by ethnicity', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['count_contacts', 'describe_filter_dimensions'],
+    })
+    expect(prompt).toContain('Never segment constituents by ethnicity')
+    expect(prompt).toContain('lists cannot be cut by ethnicity')
+    expect(prompt).toContain('do not explain the rule as a data gap')
+  })
+
+  // Two rules, deliberately scoped differently. Cutting a list is a tool
+  // capability, so that rule rides with the CRM tools. Refusing to plan around
+  // who to hear from by ethnicity is a policy boundary that does not depend on
+  // which tools happen to be registered, so it sits with the guardrails.
+  it('carries the list-cutting rule only where the CRM tools are registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['crud_priorities'],
+    })
+    expect(prompt).not.toContain('Never segment constituents by ethnicity')
+  })
+
+  it('refuses exclusionary planning by ethnicity whatever the tools', () => {
+    for (const toolNames of [[], ['crud_priorities'], ['count_contacts']]) {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames,
+      })
+      expect(prompt).toContain(
+        'Never help decide who to consult, hear from, reach, or skip on the basis of ethnicity',
+      )
+      expect(prompt).toContain('used as a proxy')
+      expect(prompt).toContain('in aggregate is a')
+    }
+  })
+
   it('always includes the honest reporting rules', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
@@ -414,6 +476,10 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       'If the user asks about the platform itself, never use the decline line',
     )
     expect(prompt).toContain('<product_map>')
+    // Serve passes no Pro flag, so its map carries no status line and its
+    // rules carry no rule that reads one.
+    expect(prompt).not.toContain('Pro status:')
+    expect(prompt).not.toContain('Access note says it needs Pro')
     expect(prompt).toContain('SUPPORT HANDOFFS')
   })
 

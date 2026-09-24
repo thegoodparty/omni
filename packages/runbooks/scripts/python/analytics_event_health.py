@@ -44,6 +44,8 @@ from typing import Any
 
 import yaml
 
+import sem_anchors
+
 # --- locations ---------------------------------------------------------------
 
 CATALOG = "goodparty_data_catalog"
@@ -118,6 +120,63 @@ where cast(event_time as date) >= date_sub(current_date(), 63)
   and event_type is not null
 group by event_type, date_trunc('week', cast(event_time as date))
 """
+
+
+def _sql_quote(value: str) -> str:
+    """Single-quoted SQL literal with embedded quotes doubled. Event names are declared
+    upstream in the semantic layer, not user input, but an apostrophe in a declared name
+    would silently corrupt the predicate — the same class of bug as DATA-2427."""
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"
+
+
+def build_path_weekly_sql(legs: Sequence[Any]) -> str:
+    """Weekly counts for path-qualified legs, or "" when there are none.
+
+    A separate query from WEEKLY_SQL because the site-wide page event is 4.46M rows and
+    only its '/dashboard' slice is the instrument; grouping the whole event would drown
+    the signal it exists to watch.
+    """
+    pathed = [leg for leg in legs if leg.path]
+    if not pathed:
+        return ""
+    predicates = " or ".join(
+        f"(event_type = {_sql_quote(leg.event)} "
+        f"and event_properties:path::string = {_sql_quote(leg.path)})"
+        for leg in pathed
+    )
+    return f"""
+select event_type,
+       event_properties:path::string as page_path,
+       date_trunc('week', cast(event_time as date)) as week_start,
+       count(*) as n
+from {STREAM_TABLE}
+where cast(event_time as date) >= date_sub(current_date(), 63)
+  and ({predicates})
+group by event_type, event_properties:path::string,
+         date_trunc('week', cast(event_time as date))
+"""
+
+
+def key_path_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict]:
+    """Rewrite path-qualified rows onto their leg key so they flow through
+    ``weekly_series`` and ``detect_anomaly`` with no special-casing downstream."""
+    return [
+        {
+            "event_type": sem_anchors.Leg(row["event_type"], row["page_path"]).key,
+            "week_start": row["week_start"],
+            "n": row["n"],
+        }
+        for row in rows
+    ]
+
+
+def fetch_path_weekly(run_query: Callable[[str], Any], legs: Sequence[Any]) -> list[dict]:
+    sql = build_path_weekly_sql(legs)
+    if not sql:
+        return []
+    return key_path_rows(_records_from_df(run_query(sql)))
+
 
 # Provenance CSV column carrying the code-removed date (empty = code still present).
 RETIRED_COL = "retired_date"
@@ -350,6 +409,11 @@ def rank_record(record: Mapping[str, Any]) -> int:
     """Digest severity rank (0 = highest). 99 = not flagged."""
     status, elevated, anomaly = record["status"], record["elevated"], record["anomaly"]
     div = record["divergence"] or ""
+    # DATA-2421: a latched break on an OKR-anchored instrument outranks every other
+    # signal, including the counter canary. The canary means "the tooling is blind";
+    # this means "a number the company steers by is wrong right now".
+    if record.get("latched"):
+        return 0
     # DATA-2106 canary: a client event firing normally (active, no anomaly) with zero counted
     # call sites is a contradiction -- the data axis says alive, the code axis says gone. The
     # counter is blind (an aliased or Prettier-wrapped reference it cannot see), not the
@@ -620,8 +684,16 @@ def diff_flagged(
 
 # --- rendering ----------------------------------------------------------------
 
+# Rank 0 carries two unrelated findings, so the two wordings live apart and the digest
+# picks between them per record (``_record_rank_label``). The dict entry stays the rank's
+# own summary, for anything reading the rank rather than a record.
+_LATCHED_LABEL = "OKR anchor dormant (latched)"
+_CANARY_LABEL = (
+    "counter blind spot: 0 call sites but firing normally (fix the counter, not the event)"
+)
+
 _RANK_LABEL = {
-    0: "counter blind spot: 0 call sites but firing normally (fix the counter, not the event)",
+    0: f"{_LATCHED_LABEL} / counter blind spot",
     1: "orphaned-firing / not-in-use still firing",
     2: "call site removed, name constant remains",
     3: "anomaly drop, active (elevated)",
@@ -631,6 +703,21 @@ _RANK_LABEL = {
     7: "instrumented, never observed",
     8: "dormant",
 }
+
+
+def _record_rank_label(record: Mapping[str, Any]) -> str:
+    """The rank's label narrowed to the condition this record actually hit.
+
+    Only rank 0 needs narrowing: a latched OKR anchor and the DATA-2106 counter blind
+    spot share it, and it is the row a reader acts on first. Rendering the shared label
+    there tells someone a number the company steers by is dormant when the finding is a
+    tooling alert, which is the credibility the digest cannot afford to spend.
+    """
+    if record.get("latched"):
+        return _LATCHED_LABEL
+    if record["rank"] == 0:
+        return _CANARY_LABEL
+    return _RANK_LABEL.get(record["rank"], "")
 
 
 def _evidence(record: Mapping[str, Any]) -> str:
@@ -688,16 +775,48 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
         f"{result['total_events']} events — "
         + ", ".join(f"{k} {v}" for k, v in sorted(sc.items(), key=lambda x: -x[1]))
         + f". {len(flagged)} flagged ({len(priority)} priority, {len(tail)} dormant tail).",
-        "",
-        "### Flagged (ranked)",
-        "",
-        "| rank | event | status | elev | evidence | divergence |",
-        "| --- | --- | --- | --- | --- | --- |",
     ]
+    latched = {k: v for k, v in (result.get("latches") or {}).items() if v.get("latched")}
+    if latched:
+        lines.append("")
+        lines.append("### OKR anchors dormant (latched)")
+        lines.append("")
+        lines.append("| instrument | metric | broken since | pre-break level |")
+        lines.append("| --- | --- | --- | --- |")
+        for key, rec in sorted(latched.items()):
+            # Read defensively: a hand-edited state file can drop a field, and okr_latch
+            # carries such a record through rather than crashing. A renderer that then
+            # raises would take the whole digest down over the corruption it was built
+            # to survive.
+            lines.append(
+                f"| {key} | {rec.get('metric', '?')} | {rec.get('since', '?')} | "
+                f"{rec.get('reference', '?')} /wk |"
+            )
+        lines.append("")
+        lines.append(
+            "Clears on recovery, or when the metric's `anchored_on` changes in the "
+            "semantic layer. There is no dismiss path."
+        )
+    # The guard disabling itself must be as loud as the thing it guards against.
+    for problem in result.get("anchor_problems") or []:
+        lines.append("")
+        lines.append(f"> **OKR dormancy checks degraded.** {problem}")
+    tag_problems = result.get("okr_tag_problems") or []
+    if tag_problems:
+        lines.append("")
+        lines.append("### OKR tags the semantic layer does not back")
+        lines.append("")
+        for problem in tag_problems:
+            lines.append(f"- {problem}")
+    lines.append("")
+    lines.append("### Flagged (ranked)")
+    lines.append("")
+    lines.append("| rank | event | status | elev | evidence | divergence |")
+    lines.append("| --- | --- | --- | --- | --- | --- |")
     for r in priority:
         elev = "yes" if r["elevated"] else ""
         lines.append(
-            f"| {r['rank']} {_RANK_LABEL.get(r['rank'], '')} | {r['event_type']} | "
+            f"| {r['rank']} {_record_rank_label(r)} | {r['event_type']} | "
             f"{r['status']} | {elev} | {_evidence(r)} | {r['divergence'] or ''} |"
         )
     if tail:
@@ -849,6 +968,19 @@ def load_prior_state(path: Path | None) -> dict[str, str] | None:
     return flagged if isinstance(flagged, dict) else None
 
 
+def load_prior_latches(path: Path | None) -> dict[str, dict]:
+    """Prior run's latch records (DATA-2421). ``{}`` when absent or corrupt: a lost latch
+    re-arms on the next broken week rather than crashing the run."""
+    if not path or not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    latches = data.get("latches")
+    return latches if isinstance(latches, dict) else {}
+
+
 def load_prior_anomalous(path: Path | None) -> set[str] | None:
     """Read the prior run's anomalous-event set from the state file (DATA-2057). Lets the
     Slack quiet gate tell a *newly* anomalous event from a persistent one. None when the
@@ -863,6 +995,114 @@ def load_prior_anomalous(path: Path | None) -> set[str] | None:
     return set(anomalous) if isinstance(anomalous, list) else None
 
 
+# Status carried by a latched anchor leg the catalog has no row for. A path-qualified
+# slice of an event is an instrument in its own right, but not something Amplitude counts
+# as an event, so none of the SOP statuses fit it.
+LATCHED_STATUS = "okr_anchor_dormant"
+
+
+def _latched_leg_record(
+    key: str, latch: Mapping[str, Any], weeks: Sequence[tuple[date, int]], today: date
+) -> dict:
+    """A flagged row for a latched leg that ``reconcile`` never built a record for.
+
+    ``reconcile`` builds records from the catalog, so a path-qualified leg
+    (``Viewed[path=/dashboard]``) has none — and a latch that reaches no consumer is the
+    same silent failure this ticket exists to remove. The shape mirrors a reconcile record
+    key for key so the digest table, ``digest_triage`` and the state diff need no special
+    case for it.
+    """
+    cutoff = today - timedelta(days=DORMANT_DAYS)
+    record = {
+        "event_type": key,
+        "family": None,
+        "status": LATCHED_STATUS,
+        # An OKR anchor is elevated by definition; nothing else about this leg is known.
+        "elevated": True,
+        "on_watchlist": False,
+        "okr": latch["metric"],
+        # The catalog counts whole events, so the leg's own weekly rows are the only
+        # honest source for the digest's count column.
+        "event_count_30d": sum(n for week_start, n in weeks if week_start >= cutoff),
+        "last_seen_date": None,
+        "anomaly": None,
+        "instrumented_pr": None,
+        "call_site_count": None,
+        "call_site_retired_date": None,
+        "divergence": None,
+        "gpmeta": None,
+        "has_description": None,
+        "watchlist_status": "—",
+        "latched": True,
+    }
+    record["rank"] = rank_record(record)
+    return record
+
+
+def validate_okr_tags(
+    okr_by_event: Mapping[str, str],
+    anchors: Mapping[str, Sequence[Any]],
+) -> list[str]:
+    """Report `okr:` tags in monitored_events.yaml that the semantic layer does not back.
+
+    The tag is a local convenience copy; the declaration is the kernel. Two problem
+    classes, both worth saying out loud every run:
+
+    1. Unknown — the tagged event appears in no metric's anchored_on at all. This is
+       how the era-2 break went unescalated for a month: a tag pointing at a retired
+       event name.
+    2. Stale-to-historical — the tagged event is not live anywhere, but is declared as
+       an ``era: historical`` leg on a metric that still has a live leg elsewhere. The
+       instrument moved; the tag did not follow it. Reported with a softer message that
+       names the live leg(s) to point the tag at instead.
+
+    A tag whose event is historical on one metric but live on another is backed by a
+    live declaration and is not reported. Nor is a tag on a historical leg of a metric
+    whose every leg is historical — that metric has nowhere for the tag to move to, and
+    run_monitor's own anchor_problems check already reports the metric itself; reporting
+    the tag too would be duplicate noise under a different heading.
+
+    An empty ``anchors`` means the cross-repo read did not happen (no token, GitHub
+    down). Validating against nothing would report every tag as broken, so return
+    nothing instead.
+    """
+    if not anchors:
+        return []
+
+    all_events = {leg.event for legs in anchors.values() for leg in legs}
+    live_events = {leg.event for legs in anchors.values() for leg in legs if leg.watched}
+
+    # event -> live leg keys of every metric where the event is a historical leg AND
+    # that metric still has a live leg for the tag to move to.
+    stale_targets: dict[str, list[str]] = {}
+    for legs in anchors.values():
+        live_keys = [leg.key for leg in legs if leg.watched]
+        if not live_keys:
+            continue
+        for leg in legs:
+            if not leg.watched:
+                stale_targets.setdefault(leg.event, []).extend(live_keys)
+
+    problems = []
+    for event, metric in sorted(okr_by_event.items()):
+        if event in live_events:
+            continue
+        if event not in all_events:
+            problems.append(
+                f"okr: tag on '{event}' ({metric}) — no governed metric declares this event in "
+                f"anchored_on. Either the instrument moved and the semantic layer needs "
+                f"updating, or the tag is stale."
+            )
+        elif event in stale_targets:
+            targets = ", ".join(sorted(set(stale_targets[event])))
+            problems.append(
+                f"okr: tag on '{event}' ({metric}) — the semantic layer has moved this "
+                f"instrument on; that event is now historical. Point the tag at "
+                f"{targets} instead."
+            )
+    return problems
+
+
 def run_monitor(
     run_query: Callable[[str], Any],
     *,
@@ -870,19 +1110,144 @@ def run_monitor(
     csv_path: Path = CODE_CSV,
     watchlist_path: Path = WATCHLIST,
     state_path: Path | None = None,
+    anchors: Mapping[str, Sequence[Any]] | None = None,
 ) -> tuple[dict, dict[str, list[str]]]:
-    """Orchestrate a full pass: fetch the two queries, read the code axis + watchlist,
-    reconcile, diff."""
+    """Orchestrate a full pass: fetch the queries, read the code axis + watchlist +
+    semantic-layer anchors, reconcile, latch, diff.
+
+    ``anchors`` defaults to a live read; pass a dict in tests. An empty mapping (no
+    token, or GitHub unreachable) disables the anchored checks and leaves every other
+    check working, which is why the whole monitor does not hinge on a cross-repo read.
+    """
+    import okr_latch as ol  # local: okr_latch imports this module's constants
+
+    read_problems: list[str] = []
+    if anchors is None:
+        anchors, read_problems = sem_anchors.load_anchors()
+
+    # A metric that declares anchored_on but whose every leg is historical has no live
+    # instrument left to watch. That is this ticket's disease in its purest form — the
+    # metric still reports a number, and nothing is checking that anything still feeds
+    # it — so it is reported even though the read itself succeeded.
+    anchor_problems = read_problems + [
+        f"'{metric}' declares anchored_on but every leg is historical, so no live "
+        "instrument is being watched for it. Either the metric is retired, or its "
+        "current instrument was never declared."
+        for metric, legs in sorted(anchors.items())
+        if legs and not any(leg.watched for leg in legs)
+    ]
+
+    watched_legs = [leg for legs in anchors.values() for leg in legs if leg.watched]
+    # Last-wins if two governed metrics ever anchor the same leg key — no overlap in the
+    # real declaration today, so this is latent. Not handled: an ambiguity here is a
+    # semantic-layer authoring problem to fix at the source, not something to paper over.
+    watched_by_key = {
+        leg.key: metric
+        for metric, legs in anchors.items()
+        for leg in legs
+        if leg.watched
+    }
+
     catalog = fetch_catalog(run_query)
-    weekly = fetch_weekly(run_query)
+    weekly = fetch_weekly(run_query) + fetch_path_weekly(run_query, watched_legs)
     code = load_code_axis(csv_path)
-    watched_families, watchlist_events, dismissed_events, okr_by_event = load_monitored_events(
-        watchlist_path
+    watched_families, watchlist_events, dismissed_events, local_okr_tags = (
+        load_monitored_events(watchlist_path)
     )
+    # A leg's metric name is authoritative over any hand-typed okr: tag for the same
+    # event, because the semantic layer is the kernel and the tag is a local copy.
+    okr_for_digest = {**local_okr_tags, **watched_by_key}
+
     result = reconcile(
         catalog, weekly, code, today, watchlist_events, watched_families,
-        dismissed_events=dismissed_events, okr_by_event=okr_by_event,
+        dismissed_events=dismissed_events, okr_by_event=okr_for_digest,
     )
+    # Against local_okr_tags, not okr_for_digest: the merged map also carries
+    # watched_by_key's entries, and those are keyed by LEG KEY, not event name — a path
+    # leg's key is a synthetic string like "Viewed[path=/dashboard]" that no leg's
+    # `.event` ever equals. Validating the merged map would spuriously fire Class 1
+    # ("unknown event") on that synthetic key.
+    result["okr_tag_problems"] = validate_okr_tags(local_okr_tags, anchors)
+
+    current_monday = today - timedelta(days=today.weekday())
+    # The WHOLE warehouse series, never a watched-only slice: update_latches tells a leg
+    # going silent from the warehouse not having loaded that week by looking at the other
+    # events' rows, and a filtered mapping would silently revert this ticket's fix.
+    series = weekly_series(weekly, current_monday)
+
+    # okr_latch caps its zero-fill at the most recent week ANY event has rows for, which
+    # is what stops a warehouse outage false-latching every leg at once. But a frozen cap
+    # is silent: the monitor keeps running, every verdict quietly ages, and nothing says
+    # the data stopped arriving. Read through okr_latch's own function rather than
+    # recomputing the same max here — a second derivation could disagree with the cap that
+    # caused the staleness. With ~581 events in a 63-day window there are rows for a
+    # completed week unless the pipeline has genuinely broken, so this is not chatty.
+    last_complete_week = current_monday - timedelta(days=7)
+    warehouse_last_loaded = ol._warehouse_last_loaded(series)
+    warehouse_lag_problems: list[str] = []
+    if warehouse_last_loaded is not None and warehouse_last_loaded < last_complete_week:
+        warehouse_lag_problems.append(
+            f"The warehouse has loaded no event rows past the week of "
+            f"{warehouse_last_loaded.isoformat()}, but the most recent complete week is "
+            f"{last_complete_week.isoformat()}. Every dormancy verdict below is as of the "
+            f"older week, and a break in the missing weeks is invisible to the latch."
+        )
+    # anchor_problems, not read_problems: this is not an anchor read failure, and it must
+    # not take the read-failure path that holds every latch open — a leg that genuinely
+    # recovered in the weeks that DID load still has to be allowed to clear.
+    anchor_problems += warehouse_lag_problems
+
+    prior_latches = load_prior_latches(state_path)
+    latches = ol.update_latches(prior_latches, series, watched_by_key, today)
+    # Keyed on read_problems, not on the per-metric all-historical entries in
+    # anchor_problems: a metric going fully historical is an unambiguous governed
+    # declaration change, one of the two sanctioned ways a latch clears, so THAT must
+    # not hold the clear open. read_problems itself is not pure read failure — it also
+    # carries "every sem file read fine but declared nothing anywhere", which IS
+    # declaration content, held open here because an empty result can't be told apart
+    # from the declaration not having landed yet.
+    if read_problems:
+        # A failed anchor read is not a de-declaration. update_latches drops every key it
+        # cannot see in `watched`, and the state write below is the only place a sticky
+        # reference lives — so one unreadable run would erase references that cannot be
+        # re-derived once the break has aged into the baseline. That is this ticket's own
+        # bug, rebuilt inside the degradation path. Hold what we can no longer check.
+        latches = {
+            **{k: v for k, v in prior_latches.items()
+               if k not in watched_by_key and isinstance(v, Mapping) and v.get("metric")},
+            **latches,
+        }
+    result["latches"] = latches
+    result["anchor_problems"] = anchor_problems
+    # Carried separately as well so the Slack build can tier it yellow; the digest reads
+    # anchor_problems and needs no such distinction.
+    result["warehouse_lag_problems"] = warehouse_lag_problems
+
+    # Walk `records`, not `flagged`: a latched break is by construction one whose
+    # detect_anomaly has gone quiet, so its record already ranks 99 and has dropped out of
+    # `flagged` — and `flagged` is the only list digest_triage and the Slack quiet gate
+    # read. Marking the flagged list alone would leave the latch visible in the markdown
+    # log and invisible on the surface people actually read.
+    by_event = {r["event_type"]: r for r in result["records"]}
+    already_flagged = {id(r) for r in result["flagged"]}
+    for key, latch in latches.items():
+        if not latch.get("latched"):
+            continue
+        record = by_event.get(key)
+        if record is None:
+            # Deliberately appended to `flagged` only: a path leg is not a catalog event,
+            # so adding it to `records` would corrupt total_events and status_counts.
+            result["flagged"].append(
+                _latched_leg_record(key, latch, series.get(key, ()), today)
+            )
+            continue
+        record["latched"] = True
+        record["okr"] = latch["metric"]
+        record["rank"] = rank_record(record)
+        if id(record) not in already_flagged:
+            result["flagged"].append(record)
+    result["flagged"].sort(key=lambda r: (r["rank"], -r["event_count_30d"]))
+
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes
 
@@ -925,6 +1290,69 @@ def build_slack_triage(
         prior_anomalous=prior_anomalous,
     )
     triage = dt.run_triage(items, api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    # An expired token is the single most likely way the OKR dormancy checks stop
+    # working, and it produces no other symptom, so it posts as red rather than as a
+    # quiet line in the markdown log. Added AFTER run_triage, not before: run_triage
+    # overwrites headline and action on every item it is handed, and this text is
+    # run-level and authored here, so it is not the judge's to rewrite.
+    # Spliced as a block rather than inserted one at a time, which would reverse them.
+    # Warehouse staleness rides in anchor_problems so it reaches the digest's degraded
+    # line, but it is an operational condition rather than a broken guard, so it is held
+    # out here and re-added below as yellow. Excluded by exact-text membership in the
+    # lag list — that is a real text match, but no genuine read-failure string can equal
+    # a lag string, so a genuine read failure in the same run still keeps its red.
+    lag_problems = result.get("warehouse_lag_problems") or []
+    triage["items"][:0] = [
+        {
+            "id": "(OKR dormancy checks)",
+            "event_type": "(OKR dormancy checks)",
+            "rank": 0, "okr": "run-level",
+            "rules_tier": "red", "tier": "red",
+            "headline": problem,
+            # Generic because anchor_problems now covers five causes — a missing
+            # token, a network/read failure, a sem file that will not parse, every
+            # sem file reading fine but declaring nothing anywhere, and a metric with
+            # no live leg — and each problem string already names its own.
+            "action": ("Check GP_DATA_PLATFORM_READ_TOKEN and the sem files in "
+                       "gp-data-platform, then re-run."),
+        }
+        for problem in result.get("anchor_problems") or []
+        if problem not in lag_problems
+    ]
+    # Yellow for the same reason the okr: tag items are: a lagging load is worth saying
+    # out loud, but it resolves itself when the pipeline catches up, and forcing a red
+    # post every week through a multi-day outage is the alert fatigue this digest avoids.
+    triage["items"].extend([
+        {
+            "id": "(warehouse freshness)",
+            "event_type": "(warehouse freshness)",
+            "rank": 5, "okr": "run-level",
+            "rules_tier": "yellow", "tier": "yellow",
+            "headline": problem,
+            "action": ("Check the Databricks load for the Amplitude event tables before "
+                       "acting on this run's dormancy verdicts."),
+        }
+        for problem in lag_problems
+    ])
+    # Same reasoning, added after run_triage for the same reason: a stale okr: tag is
+    # slow-moving governance drift, not a broken pipe, so it goes in yellow (never red,
+    # and it must never flip red_open below) — forcing a post every week on a persistent
+    # tag mismatch is the alert-fatigue pattern this project's digest explicitly avoids.
+    # Appended rather than prepended: anchor_problems are run-level incidents that belong
+    # at the top, tag problems are secondary detail.
+    triage["items"].extend([
+        {
+            "id": "(okr tag check)",
+            "event_type": "(okr tag check)",
+            "rank": 5, "okr": "run-level",
+            "rules_tier": "yellow", "tier": "yellow",
+            "headline": problem,
+            "action": ("Point the okr: tag in monitored_events.yaml at the event(s) the "
+                       "semantic layer currently anchors, or remove it if the metric "
+                       "itself is retired."),
+        }
+        for problem in result.get("okr_tag_problems") or []
+    ])
     red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
     if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
         return None
@@ -937,7 +1365,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--watchlist", type=Path, default=WATCHLIST, help="curated watchlist YAML")
     parser.add_argument("--json", type=Path, help="also write the full result JSON here")
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG, help="longitudinal log to write to")
-    parser.add_argument("--no-log", action="store_true", help="do not write to the log")
+    parser.add_argument(
+        "--no-log",
+        action="store_true",
+        help="print the digest only: write neither the log nor the state file, so a "
+        "local run leaves the git-tracked instrumentation_data/ files untouched",
+    )
     parser.add_argument(
         "--state",
         type=Path,
@@ -1021,15 +1454,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
                 print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)
 
-    if args.state:
+    # Gated on --no-log as well as --state: the state file is git-tracked and authored by
+    # the scheduled run, so a local ad-hoc run rewriting it dirties a shared checkout with
+    # a diff that has to be reverted by hand. --no-log means "leave nothing behind"; the
+    # scheduled workflow never passes it, so the cron still advances the diff and still
+    # persists the latches' sticky references.
+    if args.state and not args.no_log:
         state = {
             "run_date": today.isoformat(),
             "flagged": {r["event_type"]: r["status"] for r in result["flagged"]},
             # anomalous set persisted for the Slack quiet gate (DATA-2057): distinguishes a
             # newly anomalous event from one that was already anomalous last run.
             "anomalous": sorted(r["event_type"] for r in result["flagged"] if r["anomaly"]),
+            # DATA-2421: the latch's sticky reference and "broken since" only survive
+            # across runs here — losing them re-derives a reference from the already
+            # broken weeks, which is the drift the latch exists to prevent.
+            "latches": result.get("latches") or {},
         }
-        _atomic_write(args.state, json.dumps(state, indent=2) + "\n")
+        # default=_json_default like the --json write: the latch records are authored by
+        # okr_latch, and this file is the only place the sticky reference survives, so a
+        # date sneaking into one must not fail the write that preserves it.
+        _atomic_write(
+            args.state, json.dumps(state, indent=2, default=_json_default) + "\n")
     return 0
 
 

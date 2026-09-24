@@ -29,6 +29,10 @@ import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
 import { Intro } from '../social/Intro'
+import {
+  SERVE_SMS_GREETING_PREVIEW,
+  withSampleFirstName,
+} from './smsCompose.util'
 
 // A 400 from complete-free-purchase carries a user-fixable message (e.g.
 // Peerly rejecting a banned link in the script) worth showing verbatim.
@@ -50,6 +54,10 @@ const fmtDate = (d: Date) =>
   })
 
 interface SmsReviewStepProps {
+  // Display only. Serve's greeting carries a merge token fulfilment fills
+  // per recipient, so the bubble shows a stand-in name instead of the token
+  // — the script sent to the API is untouched.
+  isServe: boolean
   name: string
   audienceName: string
   sendAt: Date
@@ -78,6 +86,7 @@ interface SmsReviewStepProps {
 }
 
 export const SmsReviewStep = ({
+  isServe,
   name,
   audienceName,
   sendAt,
@@ -312,9 +321,17 @@ export const SmsReviewStep = ({
                 className="mb-2 max-h-48 w-full rounded-xl object-cover"
               />
             )}
-            <p className="whitespace-pre-wrap">{composedMessage}</p>
+            <p className="whitespace-pre-wrap">
+              {isServe ? withSampleFirstName(composedMessage) : composedMessage}
+            </p>
           </div>
         </div>
+      )}
+
+      {preview && isServe && (
+        <p className="-mt-3 text-center text-xs text-muted-foreground">
+          {SERVE_SMS_GREETING_PREVIEW.caption}
+        </p>
       )}
 
       {readOnlySummary ? null : prepareError ? (

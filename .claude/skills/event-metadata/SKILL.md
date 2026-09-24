@@ -48,6 +48,16 @@ Write to **both** projects (default branch — neither has branch protection). U
 exact Amplitude event **name** (the Title Case event string, e.g.
 `Onboarding V2 - Welcome Completed`), not the EVENTS-map key.
 
+**One carve-out, and it only applies to a retirement: never add an event to a tracking
+plan in order to declare it dead.** An event at status `unexpected` in a project has
+been ingested but was never planned there, so the create-then-retire path below would
+plan it for the sole purpose of marking it not-in-use — governance noise standing in for
+a governance record. Such an event gets the **provenance retirement only** (the CSV) and
+is skipped in that project, which is what the DATA-2291 sweep did for dev's ten
+unexpected events. It is common for an event to be `live` in prod and `unexpected` in
+dev, so the same retirement legitimately writes to one project and skips the other. An
+`unexpected` event being *enriched* or *added* still follows the normal path.
+
 ## The metadata block
 
 Written inside an idempotent marker so re-runs replace it in place and any human prose
@@ -296,7 +306,9 @@ Adds and removes are routed independently — the caller never pairs a removal w
 - Blind-overwriting the description with just the `gp-meta` block — it wipes human edits
   made in the UI. Always read-modify-write: keep all existing text, change only the block.
 - Appending a second `gp-meta` block instead of replacing the existing one in place.
-- Writing to only one project — write dev and prod both.
+- Writing to only one project — write dev and prod both. The single exception is a
+  retirement in a project where the event is `unexpected`: skip that project rather than
+  planning a dead event (see Fixed facts).
 - Writing `isOfficial`/`is_active`/visibility or an `owner:` tag — out of scope.
 - Letting a surface-refresh failure fail the skill or roll back the Amplitude write — the
   refresh is a separate, non-fatal step that runs only after the confirmed write.

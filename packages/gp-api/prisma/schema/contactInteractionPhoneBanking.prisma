@@ -32,6 +32,11 @@ model ContactInteractionPhoneBanking {
   supportAnswer      SupportAnswer?       @map("support_answer")
   // GOTV signal captured by the call session; null on manual/legacy rows.
   willVote           WillVoteAnswer?      @map("will_vote")
+  // The Serve surface's only answered-call answer, where Win writes
+  // supportAnswer/willVote: what the office owes this constituent after the
+  // call. Same column the door-knock model carries, for the same question.
+  // Null on every Win row and on anything logged before Serve calls asked it.
+  followUp           FollowUpAnswer?      @map("follow_up")
   note               String?
   manual             Boolean              @default(false)
   // ENG-10946: the caller who logged this row. Null on rows written before

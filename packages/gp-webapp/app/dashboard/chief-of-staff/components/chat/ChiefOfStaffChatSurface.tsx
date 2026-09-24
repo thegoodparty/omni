@@ -11,7 +11,10 @@ import {
 import ChiefOfStaffChatBody, {
   type ChatSuggestion,
 } from './ChiefOfStaffChatBody'
-import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import type {
+  AgentChatClient,
+  ChatScope,
+} from '../../../shared/agent-chat/chatClient'
 
 interface Props {
   open: boolean
@@ -53,6 +56,11 @@ interface Props {
   hiddenMessageContents?: string[]
   /** Show the per-message copy + thumbs bar under each assistant turn. */
   showMessageActions?: boolean
+  /**
+   * The chat scope forwarded to the body's useAttachmentsEnabled call.
+   * Defaults to 'chief_of_staff'; Campaign Manager passes 'campaign_assistant'.
+   */
+  scope?: ChatScope
 }
 
 /**
@@ -81,6 +89,7 @@ export default function ChiefOfStaffChatSurface({
   disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
   showMessageActions,
+  scope,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -111,8 +120,13 @@ export default function ChiefOfStaffChatSurface({
         <ChiefOfStaffChatBody
           // Remount on conversation switch (or onboarding-card switch) so the
           // body picks up the right conversation / a clean deferred-create
-          // state with the right opener.
-          key={selectedId ?? openerKey ?? 'new'}
+          // state with the right opener. `pendingKickoff` is part of the
+          // identity too: a caller can swap one kickoff for another on an
+          // ALREADY-OPEN surface (the manager's story and ballot home cards),
+          // and without it the key stays 'new', the body keeps the
+          // conversation the first kickoff created, and the second kickoff is
+          // appended to that thread instead of starting its own.
+          key={selectedId ?? openerKey ?? pendingKickoff ?? 'new'}
           active={open}
           conversationIdOverride={selectedId ?? undefined}
           opener={opener}
@@ -130,6 +144,7 @@ export default function ChiefOfStaffChatSurface({
           disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}
           showMessageActions={showMessageActions}
+          scope={scope}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />
       </DrawerContent>

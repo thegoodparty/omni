@@ -824,11 +824,12 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   // `updated_at` is set by hand because raw SQL does not fire Prisma's
   // `@updatedAt`.
   //
-  // Of the other two contended writers on the `campaign` row that this did
-  // not fix, `updateJsonFields` has since been fixed a different way (a row
-  // lock, because it cannot be reduced to one merge — see its comment).
-  // setIsPro's own read-then-write transaction is still unfixed: 1 prod /
-  // ~679 dev, the dev figure inflated by the test-set-pro E2E route.
+  // The other two contended writers on the `campaign` row that this did not
+  // fix have both since been fixed a different way, with a row lock, because
+  // neither reduces to one merge: `updateJsonFields` (it deep-merges three
+  // columns and derives flags from the pre-write row) and setIsPro (it reads
+  // the prior isPro to decide whether the write is a transition). See their
+  // comments.
   async patchCampaignDetails(
     campaignId: number,
     details: Partial<PrismaJson.CampaignDetails>,
@@ -893,24 +894,30 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // the same subscription could otherwise both read isPro=false, both compute
     // becamePro=true, and both fire the one-time Pro-upgrade side effects.
     //
-    // Serializable does NOT make the second writer observe isPro=true, which is
-    // what this comment used to claim. At that isolation level a row already
-    // updated by a concurrent committed transaction cannot be updated at all:
-    // Postgres raises 40001, Prisma surfaces P2034, and the second delivery
-    // fails rather than recomputing becamePro=false. The gate holds only
-    // because the failure is loud and Stripe redelivers into a row that is by
-    // then already Pro. Measured 1 prod and ~679 dev P2034 from this
-    // transaction in the 30 days to 2026-09-17.
+    // The row lock is what serializes them, at the default READ COMMITTED.
+    // Serializable did not, whatever this comment used to claim: at that level
+    // a row a concurrent committed transaction has already updated cannot be
+    // updated at all, so the second delivery raised 40001 / P2034 rather than
+    // recomputing becamePro=false, and the gate held only because the failure
+    // was loud and Stripe redelivered into a row that was Pro by then.
+    // Measured 1 prod and ~679 dev P2034 from this transaction in the 30 days
+    // to 2026-09-17, the dev figure inflated by the test-set-pro E2E route.
     //
-    // The fix is the same one updateJsonFields just took — `SELECT ... FOR
-    // UPDATE` on the campaign row and the default READ COMMITTED, so the
-    // second writer blocks, re-reads isPro=true, and computes becamePro=false
-    // for real. Deliberately not done here: this is the payment path's
-    // one-time-side-effect gate, and turning a loud failure that Stripe
-    // retries into a silent no-op belongs in a change that can test that
-    // transition on its own.
+    // Taking `FOR UPDATE` first makes the second writer block, and READ
+    // COMMITTED's per-statement snapshot then lets the read below see the
+    // committed isPro=true, so becamePro=false is computed for real instead of
+    // being approximated by a failed webhook. Same fix updateJsonFields took;
+    // this is the path #1948 deferred, because the transition gates one-time
+    // side effects on the payment path and wanted a test of its own. That test
+    // is `lets a duplicate delivery succeed with becamePro=false, firing the
+    // one-time effects once`, in campaigns.update.integration.test.ts.
+    //
+    // This transaction locks exactly one row and nothing else, so there is no
+    // lock-order pair to deadlock on — and with Serializable gone there is no
+    // P2034 left for a retry to catch.
     const { campaign, isBecomingProFirstTime } = await this.client.$transaction(
       async (tx) => {
+        await tx.$queryRaw`SELECT id FROM campaign WHERE id = ${campaignId} FOR UPDATE`
         const existingCampaign = await tx.campaign.findUnique({
           where: { id: campaignId },
           select: {
@@ -932,22 +939,58 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           },
         })
 
+        // `isProUpdatedAt` is what the CRM sync publishes as HubSpot's
+        // `pro_upgrade_date`, so only a genuine non-Pro -> Pro transition may
+        // stamp it. Stamping unconditionally overwrote the real upgrade date
+        // with the cancellation date on every downgrade, and re-stamped it on
+        // no-op rewrites from at-least-once Stripe webhook deliveries.
+        //
+        // Stamped in here rather than after the commit, because the failure was
+        // not merely a second write that could fail on its own — it was
+        // unrecoverable. `isBecomingProFirstTime` is derived from the PRIOR
+        // isPro, which this transaction has already committed as true, so the
+        // redelivery that should repair a failed stamp instead computes
+        // false and skips it. The campaign stayed Pro with no `isProUpdatedAt`
+        // and no Slack announcement, permanently, and the CRM sync published it
+        // to HubSpot as Pro with no `pro_upgrade_date`. At-least-once delivery
+        // cannot heal a state whose own repair path it has already closed.
+        // Rolling the flip back with the stamp leaves the transition for the
+        // redelivery to re-run.
+        //
+        // The merge is `patchCampaignDetails`' statement bound to this
+        // transaction. It cannot go through that method: a nested call would
+        // run on a different connection, outside this row lock. The CASE is
+        // what that method's `jsonb_typeof` guard has to become in here — a
+        // zero rowcount would silently drop the stamp, and throwing on it would
+        // roll back a payment's Pro flip over a column shape that cannot occur
+        // (`Json @default("{}")`, NOT NULL).
+        if (isBecomingProFirstTime) {
+          await tx.$executeRaw`
+            UPDATE campaign
+            SET details = CASE jsonb_typeof(details)
+                  WHEN 'object' THEN details
+                  ELSE '{}'::jsonb
+                END || ${JSON.stringify({
+                  isProUpdatedAt: formatISO(new Date()),
+                })}::jsonb,
+                updated_at = NOW()
+            WHERE id = ${campaignId}
+          `
+        }
+
         return { campaign, isBecomingProFirstTime }
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
 
-    // `isProUpdatedAt` is what the CRM sync publishes as HubSpot's
-    // `pro_upgrade_date`, so only a genuine non-Pro -> Pro transition may stamp
-    // it. Stamping unconditionally overwrote the real upgrade date with the
-    // cancellation date on every downgrade, and re-stamped it on no-op rewrites
-    // from at-least-once Stripe webhook deliveries.
-    if (isBecomingProFirstTime) {
-      await this.patchCampaignDetails(campaignId, {
-        isProUpdatedAt: formatISO(new Date()),
-      })
-    }
-
+    // Deliberately outside the commit boundary, all three of them. Slack,
+    // Segment and HubSpot are network calls to third parties: holding the
+    // campaign row lock across them would re-create, at seconds rather than
+    // milliseconds, exactly the contention this method just stopped causing.
+    // None of them is rollback-able either. `notifySlackOnProUpgrade` owns its
+    // own idempotency (a `proUpgradeSlackNotifiedAt` stamp) and catches its own
+    // failures, so the `void` cannot reject; the CRM sync reconciles on its own
+    // schedule. What they needed was not to be inside the transaction but to be
+    // unreachable when it rolls back, which they now are.
     if (isBecomingProFirstTime) {
       void this.campaignTasks.notifySlackOnProUpgrade(campaignId)
     }

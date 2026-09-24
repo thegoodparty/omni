@@ -668,6 +668,31 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(1)
     })
 
+    it('finalize hands the stored send time to the Peerly job schedule', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        scheduledLocalTime: '18:00',
+        draft: true,
+      })
+      expect(res.status).toBe(201)
+      const draft = firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+      mockDraftImageInS3()
+
+      const outreachSvc = service.app.get(OutreachService)
+      await outreachSvc.finalizeOutreachPurchase(draft.id, campaign.id)
+
+      expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledWith(
+        expect.objectContaining({ scheduledStartTime: '18:00' }),
+      )
+    })
+
     it('concurrent finalize calls create exactly one Peerly job', async () => {
       const draft = await createDraftRow()
       mockDraftImageInS3()

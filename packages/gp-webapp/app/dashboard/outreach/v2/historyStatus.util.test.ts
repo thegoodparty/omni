@@ -218,3 +218,118 @@ describe('getHistoryStatusLabel — robocall', () => {
     )
   })
 })
+
+describe('getHistoryStatusLabel — Serve SMS', () => {
+  // The SURFACE decides. `campaignId == null` was the first discriminator and
+  // is wrong: the field is optional on the client row, so a Win text row that
+  // simply omits it is indistinguishable from an org-scoped one — the
+  // "leaves a draft with no footer" drawer test is the row shape that proves
+  // it. `phoneListId` still separates this from a P2P-flow row.
+  const serveSmsRow = (overrides: Partial<HistoryRow>): HistoryRow =>
+    ({
+      id: 3,
+      outreachType: 'text',
+      phoneListId: null,
+      ...overrides,
+    }) as HistoryRow
+
+  it('labels a pending Serve SMS Scheduled, not In review', () => {
+    // `pending` here is PAID and waiting for its send date. "In review" is the
+    // Political Assistant meaning and would tell an official a human is
+    // looking at their request, which nobody is.
+    expect(
+      getHistoryStatusLabel(serveSmsRow({ status: 'pending' }), null, true),
+    ).toBe('Scheduled')
+  })
+
+  it('labels an in_progress Serve SMS In progress, not Scheduled', () => {
+    // Set at the fulfilment handoff and held until the reply ingest completes
+    // the row: the send is out and responses are coming back, which is the
+    // opposite of what "Scheduled" says.
+    expect(
+      getHistoryStatusLabel(serveSmsRow({ status: 'in_progress' }), null, true),
+    ).toBe('In progress')
+  })
+
+  it('reads Scheduled → In progress → Done across the lifecycle', () => {
+    expect(
+      getHistoryStatusLabel(serveSmsRow({ status: 'completed' }), null, true),
+    ).toBe('Done')
+    expect(
+      getHistoryStatusLabel(
+        serveSmsRow({ status: 'pending_payment' }),
+        null,
+        true,
+      ),
+    ).toBe('Pending payment')
+    expect(
+      getHistoryStatusLabel(serveSmsRow({ status: 'canceled' }), null, true),
+    ).toBe('Canceled')
+  })
+
+  // The whole constraint on the change above: legacy Win text rows share
+  // nonP2pStatusLabels, and their vocabulary must not move. The default
+  // argument is what guarantees it — a Win caller passes nothing.
+  it('leaves a legacy Win text row reading exactly as it did', () => {
+    const winTextRow = (status: HistoryRow['status']): HistoryRow =>
+      ({
+        id: 4,
+        outreachType: 'text',
+        phoneListId: null,
+        campaignId: 99,
+        status,
+      }) as HistoryRow
+
+    expect(getHistoryStatusLabel(winTextRow('pending'))).toBe('In review')
+    expect(getHistoryStatusLabel(winTextRow('in_progress'))).toBe('Scheduled')
+    expect(getHistoryStatusLabel(winTextRow('approved'))).toBe('In review')
+    expect(getHistoryStatusLabel(winTextRow('completed'))).toBe('Done')
+  })
+
+  // The row shape that broke the first attempt: a Win text row carrying no
+  // campaignId at all. Absence is not org-scoping, and only the surface can
+  // say which this is.
+  it('leaves a Win text row with no campaignId reading as Win', () => {
+    const bareWinRow = {
+      id: 6,
+      outreachType: 'text',
+      status: 'pending',
+    } as HistoryRow
+
+    expect(getHistoryStatusLabel(bareWinRow)).toBe('In review')
+  })
+
+  // Social is the other rider on that map, and a Serve org sends social too —
+  // so prove the branch is keyed on the channel as well as the surface.
+  it('leaves a Serve social row on the shared map', () => {
+    expect(
+      getHistoryStatusLabel(
+        {
+          id: 5,
+          outreachType: 'socialMedia',
+          phoneListId: null,
+          status: 'pending',
+        } as HistoryRow,
+        null,
+        true,
+      ),
+    ).toBe('In review')
+  })
+
+  // A Serve org that sent through the P2P flow would carry a phone list; its
+  // status merges the vendor job and must not take this branch.
+  it('leaves a phone-list row on the p2p path even on the Serve surface', () => {
+    expect(
+      getHistoryStatusLabel(
+        {
+          id: 7,
+          outreachType: 'text',
+          phoneListId: 9,
+          status: 'canceled',
+        } as HistoryRow,
+        null,
+        true,
+      ),
+    ).toBe('Canceled')
+  })
+})

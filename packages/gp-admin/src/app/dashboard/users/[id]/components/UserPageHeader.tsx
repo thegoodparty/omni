@@ -25,45 +25,47 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
     : pathname.replace(basePath, '')
 
   return (
-    <Flex gap="5" align="center" justify="between">
-      <Flex gap="4" align="center">
-        {isEditMode && (
-          <Link
-            href={`${basePath}${subRoute}`}
-            aria-label="Back to user"
-            className="text-[var(--gray-11)] hover:text-[var(--gray-12)]"
-          >
-            <HiArrowLeft className="w-5 h-5" />
-          </Link>
-        )}
-        <Avatar
-          size="6"
-          src={avatar ?? undefined}
-          fallback={firstName?.[0] ?? 'U'}
-          radius="medium"
-        />
-        <Heading size="6">
-          {`${isEditMode ? 'Edit: ' : ''}${firstName} ${lastName}`}
-        </Heading>
-      </Flex>
-      {!isEditMode && (
-        <Flex gap="3" align="center">
-          <CvPinStatus />
-          <ImpersonateButton userId={id} />
-          <SignInLinkButton userId={id} />
-          <ProtectedContent
-            requiredPermission={PERMISSIONS.WRITE_USERS}
-            hideWhenUnauthorized
-          >
-            <Button asChild>
-              <Link href={`${basePath}/edit${subRoute}`}>
-                <HiPencil className="w-4 h-4" />
-                Edit
-              </Link>
-            </Button>
-          </ProtectedContent>
+    <Flex direction="column" gap="3">
+      <Flex gap="5" align="center" justify="between">
+        <Flex gap="4" align="center">
+          {isEditMode && (
+            <Link
+              href={`${basePath}${subRoute}`}
+              aria-label="Back to user"
+              className="text-[var(--gray-11)] hover:text-[var(--gray-12)]"
+            >
+              <HiArrowLeft className="w-5 h-5" />
+            </Link>
+          )}
+          <Avatar
+            size="6"
+            src={avatar ?? undefined}
+            fallback={firstName?.[0] ?? 'U'}
+            radius="medium"
+          />
+          <Heading size="6">
+            {`${isEditMode ? 'Edit: ' : ''}${firstName} ${lastName}`}
+          </Heading>
         </Flex>
-      )}
+        {!isEditMode && (
+          <Flex gap="3" align="center">
+            <ImpersonateButton userId={id} />
+            <SignInLinkButton userId={id} />
+            <ProtectedContent
+              requiredPermission={PERMISSIONS.WRITE_USERS}
+              hideWhenUnauthorized
+            >
+              <Button asChild>
+                <Link href={`${basePath}/edit${subRoute}`}>
+                  <HiPencil className="w-4 h-4" />
+                  Edit
+                </Link>
+              </Button>
+            </ProtectedContent>
+          </Flex>
+        )}
+      </Flex>
+      {!isEditMode && <CvPinStatus />}
     </Flex>
   )
 }

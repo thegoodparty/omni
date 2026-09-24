@@ -28,6 +28,12 @@ import {
   withUpdatedNote,
 } from './doorNotes'
 
+// useDoorScript reads the viewer's org role; these tests render without an
+// OrganizationProvider, whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganizationRole: () => undefined,
+}))
+
 // The knock form owns the dictation stack and its own mutation; this file is
 // about what the sheet itself puts on screen.
 vi.mock('./RecordKnockForm', () => ({
@@ -704,6 +710,7 @@ describe('PersonSheet activity feed', () => {
       activityId,
       outcome,
       supportAnswer: null,
+      followUp: null,
       note: null,
       manual: false,
       actorName: null,
@@ -834,6 +841,7 @@ describe('PersonSheet voter support', () => {
       activityId,
       outcome: 'answered',
       supportAnswer,
+      followUp: null,
       note: null,
       manual: false,
       actorName: null,
@@ -1145,6 +1153,16 @@ describe('PersonSheet demographic information', () => {
     expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
       9,
     )
+  })
+
+  // The Serve half. gp-api nulls `ethnicityGroup` for an `eo-` org, and the
+  // row is dropped rather than left to print "Not on file" about a field this
+  // product does not state to an elected official (#1933) — so the card is one
+  // row shorter here than in the Win case above, not one "Not on file" longer.
+  it('drops the ethnicity row in serve mode', () => {
+    renderSheet([fullTarget({ ethnicityGroup: null })], undefined, true)
+
+    expect(within(demographicCard()).queryByText('Ethnicity group')).toBeNull()
   })
 
   // The two presence-only columns hold a value meaning yes or nothing at all,

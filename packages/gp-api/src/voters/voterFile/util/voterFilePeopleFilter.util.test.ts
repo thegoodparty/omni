@@ -29,6 +29,20 @@ describe('buildVoterFilePeopleFilter', () => {
     expect(groupByHousehold).toBe(false)
   })
 
+  // The two ethnicity buckets that the underscore vocabulary predates. Both
+  // sides of the round trip matter: `getCustomFilters` has to emit the key
+  // (voterFileFilter.service.test.ts) and this map has to accept it back.
+  it('maps the ethnicity Other and Unknown filters', () => {
+    const { filterInput } = buildVoterFilePeopleFilter(VoterFileType.custom, {
+      filters: ['ethnicity_other', 'ethnicity_unknown'],
+    })
+
+    expect(filterInput).toEqual({
+      ethnicityOther: true,
+      ethnicityUnknown: true,
+    })
+  })
+
   it('maps audience_unknown to audienceUnknown', () => {
     const { filterInput } = buildVoterFilePeopleFilter(VoterFileType.sms, {
       filters: ['audience_unknown'],

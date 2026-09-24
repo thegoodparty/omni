@@ -91,6 +91,13 @@ module "engineer_agent_fargate" {
   # apply — that is the kill switch, and it is faster than reverting code because
   # it does not wait on a release train.
   escalate_analysis_to_work = true
+
+  # #bugs, the same channel vars.GPBOT_PR_CHANNEL_ID names for the workflows.
+  # Hardcoded here rather than read from a GitHub Actions variable because
+  # nothing in Terraform can read one — so the id is written twice, in this file
+  # and in the repository variable, and the two are only ever compared by a
+  # human. Moving the channel means moving both.
+  bugs_channel_id = "C022VR6PRQC"
 }
 
 output "cluster_name" {

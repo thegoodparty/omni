@@ -1,11 +1,14 @@
-# Build context is packages/gp-ai (same as engineer_agent/Dockerfile), PLUS a
-# named additional context "runbooks" pointing at packages/runbooks, since this
-# is the first gp-ai image that also needs to bake in commands/agents from a
-# sibling package. Build locally from packages/gp-ai — every path below is
-# relative to that cwd, matching how this file was actually built and
+# Build context is packages/gp-ai (same as engineer_agent/Dockerfile), PLUS two
+# named additional contexts: "runbooks" (packages/runbooks) and, since
+# ENG-11149, "omni-checkout" (the repo root) — the warm-image bake below COPYs
+# CI's own already-authenticated, already-shallow checkout rather than cloning
+# omni again over the network. Build locally from packages/gp-ai — every path
+# below is relative to that cwd, matching how this file was actually built and
 # verified:
 #
-#   docker buildx build --build-context runbooks=../runbooks \
+#   docker buildx build \
+#     --build-context runbooks=../runbooks \
+#     --build-context omni-checkout=../.. \
 #     -f autopilot/Dockerfile \
 #     --build-arg INSTALL_PLAYWRIGHT=false \
 #     -t autopilot-agent .
@@ -15,9 +18,9 @@
 # for gp-ai; wiring this image in needs one extra `build-contexts` input
 # alongside the existing `context: packages/gp-ai` — since actions/checkout
 # puts CI's cwd at the repo root (not packages/gp-ai), that line reads
-# `build-contexts: runbooks=packages/runbooks`, repo-root-relative rather than
-# the packages/gp-ai-relative `../runbooks` used above. See gp-ai.yml's build
-# job (task 13).
+# `build-contexts: runbooks=packages/runbooks,omni-checkout=.`,
+# repo-root-relative rather than the packages/gp-ai-relative `../..` used
+# above. See gp-ai.yml's build job (task 13).
 
 # Stage 1: Builder
 FROM python:3.12-slim AS builder
@@ -114,8 +117,10 @@ RUN git config --system user.email "gp-bot@goodparty.org" && \
 # unlike ops/delegate/worker, which clones omni fresh on every boot (see
 # packages/runbooks/AGENTS.md "Used by the delegate worker"), an autopilot
 # image only picks up runbooks changes on its next image build. Repo-scoped
-# skills (e.g. /ship-pr) need no separate step: they arrive with the runtime
-# omni clone workspace.clone_omni makes at container start.
+# skills (e.g. /ship-pr) need no separate step: they arrive with the omni
+# checkout workspace.prepare_omni_workspace puts in place at container start
+# (the warm bake below, refreshed onto origin/main; or a cold clone_omni
+# fallback).
 COPY --from=runbooks . /opt/runbooks
 ENV RUNBOOKS_DIR="/opt/runbooks"
 
@@ -127,6 +132,44 @@ ENV RUNBOOKS_DIR="/opt/runbooks"
 ENV CLAUDE_CONFIG_DIR="/home/agent/.claude"
 RUN /opt/runbooks/install.sh copy user && \
     chown -R agent:agent "$CLAUDE_CONFIG_DIR"
+
+# Warm-image bake (ENG-11149): every stage run used to start from a fresh
+# network clone + agent/scripts/worktree-setup.sh-equivalent work the MODEL
+# itself paid to run (5-10 min/run, and the source of the ENOSPC incident
+# PR #1989's 60 GiB ephemeral storage papers over). Baking omni's source and
+# its installed node_modules here turns that into a `git fetch` + `git reset
+# --hard` the HARNESS does before the model's first turn (agent/workspace.py's
+# prepare_omni_workspace) — unpaid, and seconds instead of minutes.
+#
+# COPY, not `git clone`: the CI checkout that builds this image is already an
+# authenticated, shallow clone of the exact commit being baked (the
+# "omni-checkout" named context, see the header comment) — cloning again over
+# the network would just re-fetch what's already sitting in the build context,
+# for no benefit and one more place a clone could hang or fail. The runtime
+# fetch+reset (workspace.py) re-authenticates with that run's own short-lived
+# token; nothing bakes a credential here.
+#
+# --ignore-scripts is the load-bearing half of "no credential in a layer": an
+# npm postinstall/prepare script — the repo's own root one, or a transitive
+# dependency's — is arbitrary code, and this build passes it no build-time
+# secret to find, but ignore-scripts removes the question rather than relying
+# on that staying true forever. The skipped lifecycle (root package.json's
+# ai-rules submodule init, the workspace-internal builds, Prisma generation)
+# runs once at container start instead (workspace.py's run_post_bake_setup),
+# where the run's own real env is in scope and there is no image layer for
+# anything to leak into.
+#
+# The lockfile hash is written to a file OUTSIDE the checkout (a sibling, not
+# inside /opt/omni-bake/omni) so `git reset --hard` at runtime can never touch
+# it — workspace.py's npm_ci_needed reads it to decide whether the baked
+# node_modules still matches HEAD's package-lock.json, or has drifted enough
+# since this build that a real `npm ci` is required.
+ENV BAKED_OMNI_DIR="/opt/omni-bake"
+COPY --from=omni-checkout . "$BAKED_OMNI_DIR/omni"
+RUN cd "$BAKED_OMNI_DIR/omni" && \
+    sha256sum package-lock.json | awk '{print $1}' > "$BAKED_OMNI_DIR/lockfile.sha256" && \
+    npm ci --ignore-scripts && \
+    chown -R agent:agent "$BAKED_OMNI_DIR"
 
 # ARG, not ENV: only needs to affect this build's layers, never the running
 # container's environment.

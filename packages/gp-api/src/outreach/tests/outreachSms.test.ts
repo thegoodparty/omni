@@ -196,6 +196,60 @@ describe('POST /v1/outreach/sms/draft', () => {
     expect(userPrompt).not.toContain('three short bullet points')
   })
 
+  // Nine 502s in the two weeks to 2026-09-22 were polishes the model
+  // returned at 860-950 characters against an 850 schema cap, retried four
+  // times each with the same prompt. The webapp already counts the composed
+  // message and blocks Continue past SMS_COMPOSED_MAX_LENGTH, so the server
+  // only needs to refuse a body that could never fit.
+  it('accepts a body up to the composed cap, fresh and polished alike', async () => {
+    jsonCompletion.mockResolvedValue(llmDraft('A body.'))
+
+    await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+    await postDraft({
+      purpose: 'custom',
+      tone: 'warm',
+      currentDraft: 'A message the candidate wrote.',
+    })
+
+    expect(jsonCompletion).toHaveBeenCalledTimes(2)
+    for (const call of jsonCompletion.mock.calls) {
+      const schema = call[0].schema
+      expect(schema.safeParse({ draft: 'x'.repeat(900) }).success).toBe(true)
+      expect(schema.safeParse({ draft: 'x'.repeat(1000) }).success).toBe(true)
+      expect(schema.safeParse({ draft: 'x'.repeat(1001) }).success).toBe(false)
+    }
+  })
+
+  it('asks the model to tighten a draft that already runs long', async () => {
+    jsonCompletion.mockResolvedValue(llmDraft('A tighter version.'))
+
+    await postDraft({
+      purpose: 'custom',
+      tone: 'warm',
+      currentDraft: 'x'.repeat(900),
+    })
+
+    const longCall = jsonCompletion.mock.calls[0]?.[0]
+    const longPrompt = longCall.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(longPrompt).toContain(
+      'The original runs 900 characters; bring it under 800',
+    )
+
+    await postDraft({
+      purpose: 'custom',
+      tone: 'warm',
+      currentDraft: 'Short and sweet.',
+    })
+
+    const shortCall = jsonCompletion.mock.calls[1]?.[0]
+    const shortPrompt = shortCall.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(shortPrompt).not.toContain('bring it under')
+  })
+
   it('rejects custom purpose without currentDraft, and bad input', async () => {
     const custom = await postDraft({ purpose: 'custom', tone: 'warm' })
     expect(custom.status).toBe(HttpStatus.BAD_REQUEST)

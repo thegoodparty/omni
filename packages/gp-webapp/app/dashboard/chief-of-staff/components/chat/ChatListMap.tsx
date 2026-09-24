@@ -1,0 +1,126 @@
+import { useMemo } from 'react'
+import dynamic from 'next/dynamic'
+import Link from 'next/link'
+import { Button, CropIcon } from '@styleguide'
+import type { ShowListMap } from '@goodparty_org/contracts'
+import {
+  drawnRings,
+  ringsFromGeoJsonShape,
+} from 'app/dashboard/shared/ringGeometry'
+import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
+import { useListPeople } from '../../../contacts/crm/map/useListPeople'
+import { useSavedList } from '../../../contacts/crm/map/useSavedList'
+
+// maplibre-gl touches `window` at module scope, so the canvas stays out of
+// the server bundle. The chat around it is client-rendered either way.
+const ContactListMap = dynamic(
+  () => import('../../../contacts/crm/map/ContactListMap'),
+  { ssr: false, loading: () => <MapFrame>Loading map…</MapFrame> },
+)
+
+const MapFrame = ({ children }: { children: React.ReactNode }) => (
+  <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+    {children}
+  </div>
+)
+
+// The list's own page, so the transcript is a starting point rather than a
+// dead end: everything the map cannot do — opening a person, editing the
+// filter, downloading — already exists there.
+const listHref = (listId: number) => `/dashboard/contacts/lists/${listId}`
+
+interface ChatListMapProps extends ShowListMap {
+  // Asks the chat body to open the drawing surface for this list. Absent on
+  // a transcript that cannot draw — and the body owns the overlay rather
+  // than this component because a streaming turn's row is rebuilt under a
+  // new key when it commits, which would unmount an overlay mounted here
+  // and throw away a ring mid-draw.
+  onRefineArea?: (list: ShowListMap) => void
+}
+
+export default function ChatListMap({
+  listId,
+  name,
+  onRefineArea,
+}: ChatListMapProps) {
+  const { people, total, truncated, isLoading, isError } = useListPeople(listId)
+  // Serve-only surface, so the labels are the constituent ones.
+  const labels = getContactsLabels(false)
+  const { list } = useSavedList(listId)
+  // Memoised for the same reason both sibling callers memoise it, and more
+  // sharply here: ringsFromGeoJsonShape allocates a fresh array every call
+  // — including the empty one, so a list with no boundary is not exempt —
+  // and ContactListMap lists otherRings among the dependencies of the effect
+  // that rebuilds its deck.gl layers. A transcript re-renders on every
+  // streaming token, so a bare call rebuilt the polygon and vertex layers
+  // continuously while the assistant was mid-reply.
+  const savedRings = useMemo(
+    () => ringsFromGeoJsonShape(list?.geoPoly),
+    [list?.geoPoly],
+  )
+  // Requires the row to have ARRIVED, not merely to be unlocked. An absent
+  // row reads as unlocked, so gating on the lock alone offered the button
+  // while the list was still loading — and the overlay behind it seeds its
+  // ring into useState once, at mount. Opened in that window it came up
+  // blank over a list that already had a shape, and saving from there wiped
+  // the shape the holder came to edit. A list the org does not own leaves
+  // `list` undefined too, and gets no button for the same reason.
+  const canRefine =
+    Boolean(onRefineArea) && Boolean(list) && !list?.firstUsedForOutreachAt
+
+  return (
+    <div className="my-3 w-full overflow-hidden rounded-lg border">
+      <div className="flex items-baseline justify-between gap-2 border-b px-3 py-2">
+        <span className="truncate text-sm font-semibold">{name}</span>
+        {!isLoading && !isError ? (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {total.toLocaleString()} constituents
+          </span>
+        ) : null}
+      </div>
+
+      {isLoading ? (
+        <MapFrame>Loading map…</MapFrame>
+      ) : isError ? (
+        <MapFrame>This list could not be mapped right now.</MapFrame>
+      ) : people.length === 0 ? (
+        <MapFrame>This list has no members yet.</MapFrame>
+      ) : (
+        <div className="h-64">
+          {/* No onSelectPerson: a transcript has no person overlay to open,
+              so the dots are markers. A saved boundary still draws, without
+              a writer, so the map shows the geography the list was cut
+              with even when it cannot be re-cut here. */}
+          <ContactListMap people={people} otherRings={savedRings} />
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
+        <span className="text-xs text-muted-foreground">
+          {truncated
+            ? `Showing the first ${people.length.toLocaleString()}.`
+            : ''}
+        </span>
+        <div className="flex items-center gap-1">
+          {canRefine ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="small"
+              className="gap-2"
+              onClick={() => onRefineArea?.({ listId, name })}
+            >
+              <CropIcon className="size-4" aria-hidden />
+              {drawnRings(savedRings).length > 0
+                ? labels.boundaryEditCta
+                : labels.boundaryDrawCta}
+            </Button>
+          ) : null}
+          <Button asChild variant="ghost" size="small">
+            <Link href={listHref(listId)}>Open list</Link>
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}

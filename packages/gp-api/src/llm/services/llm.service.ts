@@ -236,6 +236,15 @@ export interface LlmStreamOptions {
   // onError callback rather than throwing from textStream, so a consumer that
   // only reads textStream must be notified here to surface the failure.
   onStreamError?: (error: Error) => void
+  // Called for each source (document citation) event in the stream.
+  onSource?: (source: {
+    sourceType: 'url' | 'document'
+    id: string
+    mediaType?: string
+    title?: string
+    filename?: string
+    providerMetadata?: Record<string, Record<string, unknown>>
+  }) => void
 }
 
 export interface LlmStreamUsage {
@@ -527,6 +536,7 @@ export class LlmService {
       onToolCallEnd,
       onToolInputStart,
       onStreamError,
+      onSource,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -597,8 +607,36 @@ export class LlmService {
             // stream to drive the same onToolCallStart/End the client-tool
             // execute wrapper fires.
             ...((onToolInputStart ||
+              onSource ||
               (providerToolNames && providerToolNames.size > 0)) && {
               onChunk: ({ chunk }) => {
+                if (chunk.type === 'source') {
+                  // The TypeScript type only has sourceType: 'url', but the
+                  // Anthropic provider also emits sourceType: 'document' at
+                  // runtime for citation events. Cast to access those fields.
+                  const src = chunk as {
+                    type: 'source'
+                    sourceType: string
+                    id: string
+                    mediaType?: string
+                    title?: string
+                    filename?: string
+                    providerMetadata?: Record<string, Record<string, unknown>>
+                  }
+                  const srcType =
+                    src.sourceType === 'document' ? 'document' : 'url'
+                  onSource?.({
+                    sourceType: srcType,
+                    id: src.id,
+                    ...(src.mediaType && { mediaType: src.mediaType }),
+                    ...(src.title && { title: src.title }),
+                    ...(src.filename && { filename: src.filename }),
+                    ...(src.providerMetadata && {
+                      providerMetadata: src.providerMetadata,
+                    }),
+                  })
+                  return
+                }
                 if (chunk.type === 'tool-input-start') {
                   onToolInputStart?.({ toolName: chunk.toolName })
                   return

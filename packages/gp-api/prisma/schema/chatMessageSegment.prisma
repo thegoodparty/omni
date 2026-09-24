@@ -25,4 +25,5 @@ model ChatMessageSegment {
 enum ChatMessageSegmentKind {
   text
   tool
+  citation
 }

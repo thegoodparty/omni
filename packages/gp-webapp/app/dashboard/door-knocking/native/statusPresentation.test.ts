@@ -400,14 +400,29 @@ describe('the two vocabularies', () => {
 // The Serve overrides are sparse, so the interesting assertion is not what
 // moves but what does not: a second copy of "Not home" is how the two surfaces
 // end up disagreeing about a door neither of them asks anything different at.
+const SERVE_RENAMED_STATUSES = ['unknown', 'not_a_voter'] as const
+
 describe('statusLabel', () => {
-  it('renames only the unknown bucket on Serve', () => {
+  it('renames only the two buckets that carry a Win word on Serve', () => {
     expect(statusLabel('unknown', false)).toBe('Support unknown')
     expect(statusLabel('unknown', true)).toBe('Not yet contacted')
+    expect(statusLabel('not_a_voter', false)).toBe('Not a voter')
+    expect(statusLabel('not_a_voter', true)).toBe('Not a constituent')
 
-    for (const status of DOOR_KNOCK_STATUSES.filter((s) => s !== 'unknown')) {
+    for (const status of DOOR_KNOCK_STATUSES.filter(
+      (s) => !SERVE_RENAMED_STATUSES.includes(s as never),
+    )) {
       expect(statusLabel(status, true)).toBe(STATUS_LABELS[status])
       expect(statusLabel(status, false)).toBe(STATUS_LABELS[status])
+    }
+  })
+
+  // The other word a Serve reader must never see, asserted the same way and
+  // for the same reason as "support" below: against the whole vocabulary, so
+  // the next status added is caught rather than just the one fixed here.
+  it('never says voter anywhere in the Serve vocabulary', () => {
+    for (const status of surfaceStatuses(true)) {
+      expect(statusLabel(status, true).toLowerCase()).not.toContain('voter')
     }
   })
 

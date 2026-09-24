@@ -1865,6 +1865,533 @@ describe('door-knocking routes', () => {
         status: OutreachStatus.in_progress,
       })
     })
+
+    // A campaign has no row of its own — it is the anchor envelope plus
+    // every sibling pointing at it — so what a campaign is CALLED is a
+    // column on Outreach, while what a turf is called is a column on the
+    // turf. The multi-turf wizard asks for both, and these are the four
+    // ways the two can be told apart.
+    describe('campaign naming', () => {
+      it('titles the campaign from campaignName, not from the turf', async () => {
+        const res = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        expect(res.status).toBe(201)
+
+        expect(res.data.name).toBe('Turf 1')
+        const envelope = await envelopeFor(res.data.id)
+        expect(envelope.name).toBe('Fall canvass')
+      })
+
+      it('falls back to the turf name when no campaignName is sent', async () => {
+        // The single-turf flow, and every client that predates the field:
+        // one turf whose name IS the campaign's.
+        const turf = await createTurf('Elm St turf')
+
+        const envelope = await envelopeFor(turf.id)
+        expect(envelope.name).toBe('Elm St turf')
+      })
+
+      it('gives every turf in one campaign the same envelope name', async () => {
+        const anchorRes = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        expect(anchorRes.status).toBe(201)
+        const anchor = await envelopeFor(anchorRes.data.id)
+
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+        })
+        expect(siblingRes.status).toBe(201)
+
+        // Only the anchor's name is ever displayed, but the sibling carries
+        // it too: deleting the anchor promotes the earliest survivor, and a
+        // campaign that renamed itself to that survivor's turf name is the
+        // failure this avoids.
+        const sibling = await envelopeFor(siblingRes.data.id)
+        expect(sibling.name).toBe('Fall canvass')
+        expect(siblingRes.data.name).toBe('Turf 2')
+      })
+
+      it('refuses to let a joining turf rename the campaign', async () => {
+        const anchorRes = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        const anchor = await envelopeFor(anchorRes.data.id)
+
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+          campaignName: 'Something else entirely',
+        })
+        expect(siblingRes.status).toBe(201)
+
+        // The anchor's own name wins over anything on the wire, so a late
+        // "Add another turf" cannot retitle a campaign it is only joining.
+        const sibling = await envelopeFor(siblingRes.data.id)
+        expect(sibling.name).toBe('Fall canvass')
+        const anchorAfter = await envelopeFor(anchorRes.data.id)
+        expect(anchorAfter.name).toBe('Fall canvass')
+      })
+    })
+
+    // The drawer's sibling read. It is the one turf endpoint whose `where`
+    // fans out on a relation (`route.outreach.OR`), so the thing worth
+    // pinning is which rows that fan-out reaches — and which it must not.
+    describe('campaign list', () => {
+      const listCampaign = (anchorId: number) =>
+        service.client.get(`/v1/door-knocking/campaigns/${anchorId}`, {
+          ...orgHeaders(),
+          validateStatus: () => true,
+        })
+
+      it('returns the anchor and every turf pointing at it', async () => {
+        const anchorRes = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        expect(anchorRes.status).toBe(201)
+        const anchorEnvelope = await envelopeFor(anchorRes.data.id)
+
+        const siblingRes = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchorEnvelope.id,
+        })
+        expect(siblingRes.status).toBe(201)
+
+        const res = await listCampaign(anchorEnvelope.id)
+        expect(res.status).toBe(200)
+        // Both halves of the OR: the anchor matches on `id`, the sibling on
+        // `campaignOutreachId`. Ordered by creation, which is what makes the
+        // drawer's list stable as turfs are added.
+        expect(res.data.map((turf: { name: string }) => turf.name)).toEqual([
+          'Turf 1',
+          'Turf 2',
+        ])
+      })
+
+      it('leaves a solo campaign as a campaign of one', async () => {
+        const turf = await createTurf('Elm St turf')
+        const envelope = await envelopeFor(turf.id)
+
+        const res = await listCampaign(envelope.id)
+        expect(res.status).toBe(200)
+        expect(res.data).toHaveLength(1)
+        expect(res.data[0].id).toBe(turf.id)
+      })
+
+      it('returns nothing for an anchor belonging to another organization', async () => {
+        const anchorRes = await postTurf({ name: 'Turf 1' })
+        expect(anchorRes.status).toBe(201)
+        const envelope = await envelopeFor(anchorRes.data.id)
+
+        await service.prisma.organization.create({
+          data: { slug: 'someone-else', ownerId: service.user.id },
+        })
+        // Pro, so what refuses the read is the org scope and not the Pro
+        // gate every route here runs first — which would pass this test
+        // while proving nothing about isolation.
+        await service.prisma.campaign.create({
+          data: {
+            userId: service.user.id,
+            slug: 'someone-else-campaign',
+            organizationSlug: 'someone-else',
+            isPro: true,
+          },
+        })
+
+        // A real anchor id, asked for on someone else's behalf. The org scope
+        // is applied to the TURF, so a foreign anchorId cannot pull a turf out
+        // of another tenant — it comes back empty rather than 404, because the
+        // caller is not entitled to learn the id exists.
+        const res = await service.client.get(
+          `/v1/door-knocking/campaigns/${envelope.id}`,
+          {
+            headers: { 'x-organization-slug': 'someone-else' },
+            validateStatus: () => true,
+          },
+        )
+        expect(res.status).toBe(200)
+        expect(res.data).toEqual([])
+      })
+    })
+
+    // The campaign-level pair. Like `list lifecycle`, every assertion reads
+    // the envelopes back through their routes rather than trusting the
+    // response: these routes take an ANCHOR id and write N envelopes, so the
+    // addressing and the storage differ twice over.
+    describe('campaign lifecycle', () => {
+      const completeCampaign = (anchorId: number) =>
+        service.client.post(
+          `/v1/door-knocking/campaigns/${anchorId}/complete`,
+          {},
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+      const archiveCampaign = (anchorId: number, archived: boolean) =>
+        service.client.post(
+          `/v1/door-knocking/campaigns/${anchorId}/archive`,
+          { archived },
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+      const campaignOfTwo = async () => {
+        const first = await postTurf({
+          name: 'Turf 1',
+          campaignName: 'Fall canvass',
+        })
+        expect(first.status).toBe(201)
+        const anchor = await envelopeFor(first.data.id)
+        const second = await postTurf({
+          name: 'Turf 2',
+          campaignOutreachId: anchor.id,
+        })
+        expect(second.status).toBe(201)
+        return {
+          anchorId: anchor.id,
+          turfIds: [first.data.id, second.data.id] as number[],
+        }
+      }
+
+      const envelopesFor = (turfIds: number[]) =>
+        Promise.all(turfIds.map((turfId) => envelopeFor(turfId)))
+
+      it('completes every sibling and answers with the campaign list', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+
+        const res = await completeCampaign(anchorId)
+
+        expect(res.status).toBe(201)
+        expect(
+          res.data.every((turf: { completed: boolean }) => turf.completed),
+        ).toBe(true)
+        for (const envelope of await envelopesFor(turfIds)) {
+          expect(envelope.status).toBe(OutreachStatus.completed)
+        }
+        // Identical to the read, ordering included. The drawer repaints from
+        // the mutation rather than refetching, which only holds while both go
+        // through the same scope, orderBy and counts.
+        const list = await service.client.get(
+          `/v1/door-knocking/campaigns/${anchorId}`,
+          orgHeaders(),
+        )
+        expect(list.data).toEqual(res.data)
+      })
+
+      // "Done does not mean every door was knocked." Not one knock is logged
+      // and the campaign still closes: the confirm dialog is the client's,
+      // and the server has no completeness precondition to add.
+      it('closes a campaign with no doors knocked at all', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(0)
+
+        expect((await completeCampaign(anchorId)).status).toBe(201)
+
+        for (const envelope of await envelopesFor(turfIds)) {
+          expect(envelope.status).toBe(OutreachStatus.completed)
+        }
+      })
+
+      // The partial campaign, which is the state the feature exists for: one
+      // turf finished by its canvasser, the rest closed by the candidate.
+      it('completes the siblings a per-turf complete left behind', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        const [first, second] = turfIds
+        await service.client.post(
+          `/v1/door-knocking/turfs/${first}/complete`,
+          {},
+          orgHeaders(),
+        )
+        const stamped = (await envelopeFor(first!)).updatedAt
+
+        expect((await completeCampaign(anchorId)).status).toBe(201)
+
+        // `status: in_progress` in the update's own `where` is what excludes
+        // the finished one, so the column the outreach history sorts by keeps
+        // its original value rather than being restamped.
+        expect((await envelopeFor(first!)).updatedAt).toEqual(stamped)
+        expect((await envelopeFor(second!)).status).toBe(
+          OutreachStatus.completed,
+        )
+      })
+
+      // Archive does not require completion, so an archived turf can sit at
+      // `in_progress` forever. The client's confirm counts only UNARCHIVED
+      // unfinished turfs, so finishing one here would make the press wider
+      // than the number the candidate agreed to.
+      it('does not finish a turf the candidate has already shelved', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        const [first, second] = turfIds
+        await service.client.post(
+          `/v1/door-knocking/turfs/${first}/archive`,
+          { archived: true },
+          orgHeaders(),
+        )
+
+        expect((await completeCampaign(anchorId)).status).toBe(201)
+
+        const shelved = await envelopeFor(first!)
+        expect(shelved.status).toBe(OutreachStatus.in_progress)
+        expect((await envelopeFor(second!)).status).toBe(
+          OutreachStatus.completed,
+        )
+      })
+
+      // Deleting a turf is a tombstone: the turf goes, its envelope stays,
+      // and the collapse still counts that envelope when it decides whether
+      // the campaign is done. So the write has to reach it — otherwise it
+      // sits at `in_progress` with nothing able to move it and the campaign
+      // can never read Done again, one turf deletion wide.
+      it('still reaches the envelope of a deleted turf', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        const [first, second] = turfIds
+        const deleted = await service.client.delete(
+          `/v1/door-knocking/turfs/${first}`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+        expect(deleted.status).toBeLessThan(300)
+
+        expect((await completeCampaign(anchorId)).status).toBe(201)
+
+        // Both envelopes, even though only one turf is still live — which is
+        // what lets `collapseDoorKnockingCampaigns` read the campaign done.
+        expect((await envelopeFor(first!)).status).toBe(
+          OutreachStatus.completed,
+        )
+        expect((await envelopeFor(second!)).status).toBe(
+          OutreachStatus.completed,
+        )
+      })
+
+      // There is no completion timestamp anywhere, so idempotence is asserted
+      // on the envelope's `updatedAt`, same as the per-turf pair.
+      it('writes nothing on a second press', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        await completeCampaign(anchorId)
+        const stamps = (await envelopesFor(turfIds)).map((e) => e.updatedAt)
+
+        const second = await completeCampaign(anchorId)
+
+        expect(second.status).toBe(201)
+        expect((await envelopesFor(turfIds)).map((e) => e.updatedAt)).toEqual(
+          stamps,
+        )
+      })
+
+      it('archives every sibling under one shared timestamp', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+
+        const res = await archiveCampaign(anchorId, true)
+
+        expect(res.status).toBe(201)
+        const stamps = (await envelopesFor(turfIds)).map((e) =>
+          e.archivedAt?.toISOString(),
+        )
+        expect(stamps[0]).toBeDefined()
+        // One statement, one bound parameter: siblings cannot come out of a
+        // single press carrying different "archived since" dates.
+        expect(new Set(stamps).size).toBe(1)
+      })
+
+      // The rule a repeat press must not break. The row renders "archived
+      // since", so a sibling already shelved keeps its own date instead of
+      // being walked forward onto the new one.
+      it('leaves an already-archived sibling on its original date', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        const [first, second] = turfIds
+        await service.client.post(
+          `/v1/door-knocking/turfs/${first}/archive`,
+          { archived: true },
+          orgHeaders(),
+        )
+        const original = (await envelopeFor(first!)).archivedAt
+
+        await archiveCampaign(anchorId, true)
+
+        expect((await envelopeFor(first!)).archivedAt).toEqual(original)
+        expect((await envelopeFor(second!)).archivedAt).not.toBeNull()
+
+        const before = (await envelopesFor(turfIds)).map((e) => e.archivedAt)
+        await archiveCampaign(anchorId, true)
+        expect((await envelopesFor(turfIds)).map((e) => e.archivedAt)).toEqual(
+          before,
+        )
+      })
+
+      it('restores every sibling', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        await archiveCampaign(anchorId, true)
+
+        const res = await archiveCampaign(anchorId, false)
+
+        expect(res.status).toBe(201)
+        for (const envelope of await envelopesFor(turfIds)) {
+          expect(envelope.archivedAt).toBeNull()
+        }
+      })
+
+      // The write fans out on `campaignOutreachId`, so what is worth pinning
+      // is where the fan-out STOPS.
+      it('does not reach a turf in another campaign', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        const outsider = await postTurf({ name: 'Other campaign' })
+        expect(outsider.status).toBe(201)
+
+        await completeCampaign(anchorId)
+        await archiveCampaign(anchorId, true)
+
+        const other = await envelopeFor(outsider.data.id)
+        expect(other.status).toBe(OutreachStatus.in_progress)
+        expect(other.archivedAt).toBeNull()
+        for (const envelope of await envelopesFor(turfIds)) {
+          expect(envelope.status).toBe(OutreachStatus.completed)
+        }
+      })
+
+      // The load-bearing one, and the reason this is a new route rather than
+      // a flag on the turf pair: the walk's footer and `finishAndArchive`
+      // both press the per-turf endpoints, so a canvasser finishing one turf
+      // must not close or shelve its siblings. Completion has no undo, so the
+      // regression this guards against is unrecoverable.
+      it('keeps the per-turf routes strictly per-turf', async () => {
+        const { turfIds } = await campaignOfTwo()
+        const [first, second] = turfIds
+
+        await service.client.post(
+          `/v1/door-knocking/turfs/${first}/complete`,
+          {},
+          orgHeaders(),
+        )
+        await service.client.post(
+          `/v1/door-knocking/turfs/${first}/archive`,
+          { archived: true },
+          orgHeaders(),
+        )
+
+        const sibling = await envelopeFor(second!)
+        expect(sibling.status).toBe(OutreachStatus.in_progress)
+        expect(sibling.archivedAt).toBeNull()
+      })
+
+      // Every turf deleted is unusual but real, and the envelopes are still
+      // there. The write has to land and answer with no live turfs, rather
+      // than 404 and roll itself back — which would strand the campaign on
+      // the active list, the very dead end the envelope scope exists to
+      // prevent.
+      it('archives a campaign whose every turf has been deleted', async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        for (const turfId of turfIds) {
+          const deleted = await service.client.delete(
+            `/v1/door-knocking/turfs/${turfId}`,
+            { ...orgHeaders(), validateStatus: () => true },
+          )
+          expect(deleted.status).toBeLessThan(300)
+        }
+
+        const res = await archiveCampaign(anchorId, true)
+
+        expect(res.status).toBe(201)
+        expect(res.data).toEqual([])
+        for (const envelope of await envelopesFor(turfIds)) {
+          expect(envelope.archivedAt).not.toBeNull()
+        }
+      })
+
+      // The write 404s where the read returns `[]`. Asserted together so the
+      // asymmetry reads as a decision: a press has to fail visibly, and a 404
+      // leaks no more than the empty list already does.
+      it("404s a write on another org's anchor while the read stays empty", async () => {
+        const { anchorId, turfIds } = await campaignOfTwo()
+        const outsiderSlug = `campaign-dk-outsider-${Date.now()}`
+        await service.prisma.organization.create({
+          data: { slug: outsiderSlug, ownerId: service.user.id },
+        })
+        await service.prisma.campaign.create({
+          data: {
+            userId: service.user.id,
+            slug: `${outsiderSlug}-campaign`,
+            organizationSlug: outsiderSlug,
+            isPro: true,
+          },
+        })
+        const cfg = {
+          headers: { 'x-organization-slug': outsiderSlug },
+          validateStatus: () => true,
+        }
+
+        const read = await service.client.get(
+          `/v1/door-knocking/campaigns/${anchorId}`,
+          cfg,
+        )
+        expect(read.status).toBe(200)
+        expect(read.data).toEqual([])
+
+        const completed = await service.client.post(
+          `/v1/door-knocking/campaigns/${anchorId}/complete`,
+          {},
+          cfg,
+        )
+        expect(completed.status).toBe(404)
+        const archived = await service.client.post(
+          `/v1/door-knocking/campaigns/${anchorId}/archive`,
+          { archived: true },
+          cfg,
+        )
+        expect(archived.status).toBe(404)
+
+        // And nothing moved on the real campaign.
+        for (const envelope of await envelopesFor(turfIds)) {
+          expect(envelope.status).toBe(OutreachStatus.in_progress)
+          expect(envelope.archivedAt).toBeNull()
+        }
+      })
+
+      // Serve needed nothing extra. The grouping is `Outreach.id` /
+      // `campaignOutreachId` and the scope is the turf's own filter, so
+      // neither reads `campaignId`, which is null on every sibling here.
+      it('completes a Serve campaign whose envelopes carry no campaign', async () => {
+        const { headers, filterId } = await serveOrg('campaign-complete')
+        const body = {
+          voterFileFilterId: filterId,
+          color: '#3355ff',
+          geoPoly: GEO_POLY,
+          mode: 'walk',
+          loop: false,
+        }
+        const first = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          { ...body, name: 'EO turf 1', campaignName: 'Ward walk' },
+          headers,
+        )
+        expect(first.status).toBe(201)
+        const anchor = await envelopeFor(first.data.id)
+        expect(anchor.campaignId).toBeNull()
+        const second = await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          { ...body, name: 'EO turf 2', campaignOutreachId: anchor.id },
+          headers,
+        )
+        expect(second.status).toBe(201)
+
+        const res = await service.client.post(
+          `/v1/door-knocking/campaigns/${anchor.id}/complete`,
+          {},
+          { ...headers, validateStatus: () => true },
+        )
+
+        expect(res.status).toBe(201)
+        expect(res.data).toHaveLength(2)
+        for (const turfId of [first.data.id, second.data.id]) {
+          expect((await envelopeFor(turfId)).status).toBe(
+            OutreachStatus.completed,
+          )
+        }
+      })
+    })
   })
   describe('serve', () => {
     const PERSON_1 = '00000001-1111-1111-1111-111111111111'
@@ -2888,7 +3415,12 @@ describe('door-knocking routes', () => {
       }
 
       type ServedStops = Array<{
-        addresses: Array<{ targets: Array<{ politicalParty: string | null }> }>
+        addresses: Array<{
+          targets: Array<{
+            politicalParty: string | null
+            ethnicityGroup: string | null
+          }>
+        }>
       }>
 
       const servedParties = (stops: ServedStops) =>
@@ -2915,6 +3447,34 @@ describe('door-knocking routes', () => {
         expect(servedParties(res.data.stops as ServedStops)).toContain(
           'Democratic',
         )
+      })
+
+      // The same leak, the same road, one rule later. #1933 barred subsetting
+      // by ethnicity for both products; the Win half was reverted, so the
+      // per-target value must still never reach an elected official.
+      it('nulls ethnicityGroup on every target for a Serve (eo-) org', async () => {
+        const res = await serveTurf('ethnicity')
+
+        expect(res.status).toBe(200)
+        const groups = (res.data.stops as ServedStops)
+          .flatMap((stop) => stop.addresses)
+          .flatMap((address) => address.targets)
+          .map((target) => target.ethnicityGroup)
+        expect(groups.length).toBeGreaterThan(0)
+        expect(groups.every((group) => group === null)).toBe(true)
+      })
+
+      // The other half, so the assertion above cannot pass vacuously.
+      it('keeps ethnicityGroup for a Win org', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(
+          (res.data.stops as ServedStops)
+            .flatMap((stop) => stop.addresses)
+            .flatMap((address) => address.targets)
+            .map((target) => target.ethnicityGroup),
+        ).toContain('Hispanic')
       })
 
       // The flag every downstream surface reads instead of re-deriving the
@@ -3817,6 +4377,181 @@ describe('door-knocking routes', () => {
           where: { organizationSlug: orgSlug, field: 'voter_likelihood' },
         })
         expect(events).toHaveLength(0)
+      })
+
+      // The inverse of the likelihood writer's guard: the standing follow-up
+      // flag is Serve's, so a Win door that happens to carry the answer
+      // records the column and nothing else.
+      it('writes no follow_up event for a Win organization', async () => {
+        const target = await knockAndGetTarget()
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, field: 'follow_up' },
+        })
+        expect(events).toHaveLength(0)
+      })
+
+      it('propagates a corrected follow-up answer on a re-synced knock', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('fixup')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up correction turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = (followUp: string) =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp,
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        expect((await recordEo('yes')).status).toBe(201)
+        expect((await recordEo('no')).status).toBe(201)
+
+        // The correction has to reach the projection, not just the column:
+        // on a stable-per-knock sourceId the second write collided with the
+        // first event and left the flag reading `requested` forever.
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('cleared')
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug, field: 'follow_up' },
+          orderBy: { createdAt: 'asc' },
+        })
+        expect(events.map((event) => event.toValue)).toEqual([
+          'requested',
+          'cleared',
+        ])
+      })
+
+      // Pinning a known limitation, not endorsing it (the likelihood twin
+      // has the same one): the sourceId is keyed to the knock and its
+      // answer, so a knock corrected BACK to an answer it already synced
+      // collides with its own first event. Telling that apart from a
+      // replayed sync needs a revision marker the row does not carry.
+      it('does not propagate a correction back to an already-synced answer', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('flipback')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up flip-back turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = (followUp: string) =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp,
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        await recordEo('yes')
+        await recordEo('no')
+        expect((await recordEo('yes')).status).toBe(201)
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('cleared')
+      })
+
+      it('writes a follow_up event for an eo- (Serve) organization, and no duplicate on a replayed knock', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('followup')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = () =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp: 'yes',
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        expect((await recordEo()).status).toBe(201)
+
+        const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: { organizationSlug: eoSlug, field: 'follow_up' },
+        })
+        expect(event).toMatchObject({
+          personId: eoTarget.personId,
+          fromValue: 'cleared',
+          toValue: 'requested',
+          source: 'door_knock',
+        })
+
+        expect((await recordEo()).status).toBe(201)
+        expect(
+          await service.prisma.contactStatusEvent.count({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          }),
+        ).toBe(1)
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('requested')
       })
     })
 
@@ -5062,7 +5797,7 @@ describe('door-knocking routes', () => {
     // prove the refusal is uniform. Bodies are valid on purpose: the
     // @Body ZodValidationPipe runs before the method body, so a malformed one
     // would 400 as 'Validation failed' and prove nothing about the gate.
-    const gatedRoutes = (turfId: number) =>
+    const gatedRoutes = (turfId: number, anchorId: number) =>
       [
         [
           'post',
@@ -5104,6 +5839,14 @@ describe('door-knocking routes', () => {
           `/v1/door-knocking/turfs/${turfId}/archive`,
           { archived: true },
         ],
+        // The campaign pair, addressed by the anchor envelope rather than the
+        // turf. Same `{}` reason as `complete` above.
+        ['post', `/v1/door-knocking/campaigns/${anchorId}/complete`, {}],
+        [
+          'post',
+          `/v1/door-knocking/campaigns/${anchorId}/archive`,
+          { archived: true },
+        ],
         // Last on purpose: the Pro-org loop below shares one turf, and a delete
         // in the middle would leave every route after it answering 404 without
         // ever reaching the gate under test. Order is irrelevant to the non-Pro
@@ -5115,9 +5858,10 @@ describe('door-knocking routes', () => {
 
     it('refuses every gated route for a non-Pro organization', async () => {
       const turf = await createTurf()
+      const anchorId = (await envelopeFor(turf.id)).id
       await downgrade()
 
-      for (const [method, path, body] of gatedRoutes(turf.id)) {
+      for (const [method, path, body] of gatedRoutes(turf.id, anchorId)) {
         const res =
           body === undefined
             ? await service.client[method](path, opts())
@@ -5131,6 +5875,7 @@ describe('door-knocking routes', () => {
 
     it('keeps every gated route open for a Pro organization', async () => {
       const turf = await createTurf()
+      const anchorId = (await envelopeFor(turf.id)).id
 
       const list = await service.client.get('/v1/door-knocking/turfs', opts())
       expect(list.status).toBe(200)
@@ -5146,7 +5891,7 @@ describe('door-knocking routes', () => {
       // carries a synthetic stopTargetId (404). A status assertion would be
       // testing that reason; this asserts exactly the one thing the gate could
       // get wrong, which is refusing an entitled org.
-      for (const [method, path, body] of gatedRoutes(turf.id)) {
+      for (const [method, path, body] of gatedRoutes(turf.id, anchorId)) {
         const res =
           body === undefined
             ? await service.client[method](path, opts())
@@ -5460,6 +6205,7 @@ describe('door-knocking routes', () => {
 
     it('403s a volunteer on every other manager+ route', async () => {
       const turf = await createTurf()
+      const anchorId = (await envelopeFor(turf.id)).id
       await createVolunteer('closed-routes-volunteer')
       const cfg = configFor('user_closed-routes-volunteer')
 
@@ -5481,6 +6227,15 @@ describe('door-knocking routes', () => {
         [
           'post',
           `/v1/door-knocking/turfs/${turf.id}/archive`,
+          { archived: true },
+        ],
+        // The campaign pair has no @AllowVolunteer() and never will: the
+        // assignment predicate is per envelope, so it has no answer for a
+        // write spanning N of them.
+        ['post', `/v1/door-knocking/campaigns/${anchorId}/complete`, {}],
+        [
+          'post',
+          `/v1/door-knocking/campaigns/${anchorId}/archive`,
           { archived: true },
         ],
         ['get', '/v1/door-knocking/quota', undefined],
@@ -5595,6 +6350,71 @@ describe('door-knocking routes', () => {
       const res = await postTurf()
 
       expect(res.status).toBe(201)
+    })
+
+    // ONE event for the campaign, not one per turf. The totals it carries are
+    // running numbers, so N events would not be wrong so much as N times the
+    // cost: an org-wide aggregate, a Segment call and a HubSpot workflow run
+    // each.
+    it('fires exactly once from a campaign complete', async () => {
+      const first = await postTurf({ name: 'Turf 1' })
+      const anchor = await envelopeFor(first.data.id)
+      await postTurf({ name: 'Turf 2', campaignOutreachId: anchor.id })
+      // Cleared rather than freshly spied: re-spying an already-spied method
+      // hands back the same mock, calls included (see `stubVendors` at the
+      // top of this file), and the two creates above each fired one.
+      const emit = spyOnEmit()
+      emit.mockClear()
+
+      const res = await service.client.post(
+        `/v1/door-knocking/campaigns/${anchor.id}/complete`,
+        {},
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      expect(emit).toHaveBeenCalledTimes(1)
+      expect(emit).toHaveBeenCalledWith(service.user.id, orgSlug)
+    })
+
+    // Behind the same guard as the write, so a second press on a finished
+    // campaign says nothing at all.
+    it('stays silent on a second campaign complete', async () => {
+      const turf = await createTurf()
+      const anchor = await envelopeFor(turf.id)
+      await service.client.post(
+        `/v1/door-knocking/campaigns/${anchor.id}/complete`,
+        {},
+        orgHeaders(),
+      )
+      const emit = spyOnEmit()
+      emit.mockClear()
+
+      await service.client.post(
+        `/v1/door-knocking/campaigns/${anchor.id}/complete`,
+        {},
+        orgHeaders(),
+      )
+
+      expect(emit).not.toHaveBeenCalled()
+    })
+
+    // Archive moves none of the nine totals, so it is silent here exactly as
+    // the per-turf archive is.
+    it('stays silent on a campaign archive', async () => {
+      const turf = await createTurf()
+      const anchor = await envelopeFor(turf.id)
+      const emit = spyOnEmit()
+      emit.mockClear()
+
+      const res = await service.client.post(
+        `/v1/door-knocking/campaigns/${anchor.id}/archive`,
+        { archived: true },
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      expect(emit).not.toHaveBeenCalled()
     })
   })
 })

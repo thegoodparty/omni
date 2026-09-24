@@ -339,17 +339,10 @@ test('contacts filters: household and socioeconomic', async ({ page }) => {
   })
 })
 
-test('contacts filters: ethnicity and multi-filter combos', async ({
-  page,
-}) => {
+test('contacts filters: multi-filter combos', async ({ page }) => {
   test.setTimeout(TEST_TIMEOUT)
   const client = await setUpCrmContacts(page)
   const { wizard, unfiltered } = await openWizard(page)
-
-  await test.step('Filter: Ethnicity', async () => {
-    await probeCount(page, wizard, unfiltered, [['Ethnicity', 'Hispanic']])
-    await probeCount(page, wizard, unfiltered, [['Ethnicity', 'European']])
-  })
 
   let maleCount = 0
   let age2534Count = 0
@@ -388,7 +381,7 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
     expect(comboCount).toBeLessThanOrEqual(maleCount)
   })
 
-  await test.step('Combo: Ages 35+, Landline, Children, Income $75-125k, Ethnicity', async () => {
+  await test.step('Combo: Ages 35+, Landline, Children, Income $75-125k', async () => {
     await probeCount(page, wizard, unfiltered, [
       ['Age', '35-49'],
       ['Age', '50-64'],
@@ -397,8 +390,6 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
       ['Children', 'Yes'],
       ['Household Income Range', '$75k - $100k'],
       ['Household Income Range', '$100k - $125k'],
-      ['Ethnicity', 'European'],
-      ['Ethnicity', 'Hispanic'],
     ])
   })
 
@@ -457,6 +448,14 @@ test('contacts filters: recommended-list dimensions (any-phone + Win-only gate)'
   await test.step('Independent Affinity and Ideology are absent for Serve (permanent Win-only gate)', async () => {
     await expect(wizardPillGroup(wizard, 'Independent Affinity')).toHaveCount(0)
     await expect(wizardPillGroup(wizard, 'Ideology')).toHaveCount(0)
+  })
+
+  // Same negative space, different rule. #1933 barred subsetting by ethnicity
+  // for both products and the Win half was reverted, so the dimension exists
+  // again — for Win. An elected official must not be offered it, and the Win
+  // side is exercised in win-contacts-filters.spec.ts.
+  await test.step('Ethnicity is absent for Serve (permanent Win-only gate)', async () => {
+    await expect(wizardPillGroup(wizard, 'Ethnicity')).toHaveCount(0)
   })
 
   let cellCount = 0

@@ -70,17 +70,11 @@ const baseProps = {
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,
-  turfStats: {
-    stops: 14,
-    people: 22,
-    households: 9,
-    partyMix: [],
-    ageMix: [],
-  },
+
   drawPointCount: 3,
-  onUndoPoint: vi.fn(),
   drawFullScreen: false,
   onDrawFullScreenChange: vi.fn(),
+  mapChromeBottomPx: 16,
   onRestartDrawing: vi.fn(),
   color: '#2563eb',
   drawnStops: null,
@@ -95,6 +89,25 @@ const baseProps = {
   onShowAddresses: vi.fn(),
   onHideAddresses: vi.fn(),
   onRetryAddresses: vi.fn(),
+  // One turf, so the route step's Build route is live. These tests are
+  // about the card, not the campaign, so the draft is the minimum that
+  // gets them past the draw step.
+  turfDrafts: [
+    {
+      clientId: 'draft-1',
+      polygon: OPEN_RING,
+      color: '#2563eb',
+      name: 'Turf 1',
+      assigneeId: null,
+    },
+  ],
+  draftStats: new Map(),
+  activeDraftId: null as string | null,
+  onSelectDraft: vi.fn(),
+  onStartNewTurf: vi.fn(),
+  onRemoveDraft: vi.fn(),
+  onUpdateDraft: vi.fn(),
+  onPickColor: vi.fn(),
 }
 
 const POINTS = {
@@ -142,7 +155,7 @@ const renderAtPoints = async (
     <CreateListFlow {...baseProps} {...props} step="filters" />,
   )
   fireEvent.click(screen.getByRole('button', { name: goal }))
-  view.rerender(<CreateListFlow {...baseProps} {...props} step="confirm" />)
+  view.rerender(<CreateListFlow {...baseProps} {...props} step="name" />)
   fireEvent.change(screen.getByLabelText('Campaign name'), {
     target: { value: 'Westside turnout' },
   })
@@ -329,7 +342,7 @@ describe('the talking points step', () => {
 
       const view = render(<CreateListFlow {...baseProps} step="filters" />)
       fireEvent.click(screen.getByRole('button', { name: /Something else/ }))
-      view.rerender(<CreateListFlow {...baseProps} step="confirm" />)
+      view.rerender(<CreateListFlow {...baseProps} step="name" />)
       fireEvent.change(screen.getByLabelText('Campaign name'), {
         target: { value: 'My own walk' },
       })
@@ -360,7 +373,7 @@ describe('the talking points step', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    view.rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    view.rerender(<CreateListFlow {...baseProps} step="name" />)
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Westside turnout' },
     })
@@ -387,7 +400,7 @@ describe('the talking points step', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    view.rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    view.rerender(<CreateListFlow {...baseProps} step="name" />)
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Westside turnout' },
     })
@@ -410,7 +423,7 @@ describe('the talking points step', () => {
   // "running for".
   it('asks the serve endpoint on the serve surface', async () => {
     mockDraft()
-    const serveSurface = (step: 'filters' | 'confirm' | 'points') => (
+    const serveSurface = (step: 'filters' | 'name' | 'points') => (
       <DoorKnockingSurfaceProvider value>
         <CreateListFlow {...baseProps} step={step} />
       </DoorKnockingSurfaceProvider>
@@ -420,7 +433,7 @@ describe('the talking points step', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Ask for community input/ }),
     )
-    view.rerender(serveSurface('confirm'))
+    view.rerender(serveSurface('name'))
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Ward 3 listening' },
     })
@@ -446,6 +459,7 @@ describe('freezing the card with the list', () => {
         status: 200,
         data: {
           id: 5,
+          outreachId: 900,
           voterFileFilterId: 77,
           name: 'Westside turnout',
           color: '#2563eb',
@@ -506,7 +520,7 @@ describe('freezing the card with the list', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    view.rerender(<CreateListFlow {...baseProps} {...props} step="confirm" />)
+    view.rerender(<CreateListFlow {...baseProps} {...props} step="name" />)
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Westside turnout' },
     })
@@ -539,7 +553,7 @@ describe('freezing the card with the list', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    view.rerender(<CreateListFlow {...baseProps} {...props} step="confirm" />)
+    view.rerender(<CreateListFlow {...baseProps} {...props} step="name" />)
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Westside turnout' },
     })
@@ -596,7 +610,7 @@ describe('freezing the card with the list', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    view.rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    view.rerender(<CreateListFlow {...baseProps} step="name" />)
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Westside turnout' },
     })

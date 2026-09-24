@@ -1,5 +1,6 @@
 import {
   BadGatewayException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -66,6 +67,12 @@ export class BriefingArtifactCacheService {
         { err, bucket, key },
         'failed to fetch briefing artifact from S3',
       )
+      // S3Service already decided who was at fault for anything S3 answered:
+      // our own bad request is a 500, an AWS outage a 502. Flattening all of
+      // it back to 502 here is what kept the briefing tab retrying a wrong
+      // bucket forever. Only a failure that never reached S3 at all — a
+      // transport error the SDK never classified — is a gateway failure.
+      if (err instanceof HttpException) throw err
       throw new BadGatewayException('Failed to fetch briefing artifact from S3')
     }
     if (body === undefined) {

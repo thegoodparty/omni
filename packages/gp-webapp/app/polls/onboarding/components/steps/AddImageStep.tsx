@@ -26,7 +26,7 @@ export default function AddImageStep() {
         Text messages perform better with an image.
       </h1>
       <p className="text-left md:text-center mt-4 text-lg font-normal text-muted-foreground w-full">
-        Add your campaign headshot, logo or a community photo for credibility.
+        Add your official headshot, logo or a community photo for credibility.
       </p>
 
       <PollImageUpload imageUrl={localImageUrl} onUploaded={handleUpload} />

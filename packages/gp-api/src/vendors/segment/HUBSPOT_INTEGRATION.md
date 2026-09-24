@@ -373,7 +373,7 @@ event carries, in the camelCase the payload uses:
 | `votersPersuaded`       | number             | Answered `non_supporter` at one door and `supporter` at a later one                               |
 | `uniqueTurfsCreated`    | number             | Lists drawn and still held                                                                        |
 | `uniqueTurfsCompleted`  | number             | The subset marked done                                                                            |
-| `lastCanvassActivityAt` | ISO string \| null | The newest knock's timestamp                                                                      |
+| `lastCanvassActivityAt` | epoch millis       | The newest knock's timestamp. **Absent from the payload when the org has never knocked**          |
 | `organizationSlug`      | string             | Attribution                                                                                       |
 | `campaignId`            | number \| null     | Attribution; null for a Serve (`eo-`) org                                                         |
 | `email`                 | string \| null     | The acting user's, also present as a context trait                                                |
@@ -385,6 +385,13 @@ Notes:
 - **Every number is a running total, deliberately.** A workflow can copy a
   value onto a property but cannot sum across events, so the property should be
   SET from the event, never incremented.
+- **The workflow must branch on `lastCanvassActivityAt` being known before it
+  copies.** An org that has drawn a list but not yet walked it has no knock to
+  report, so the property carries no value. HubSpot coerces an empty value into
+  a datetime property as 0 and writes it as 31 Dec 1969, which reads as a real
+  date rather than as missing. Sending epoch millis and omitting the key
+  removes our half; the branch is the other half, and without it the 1969 comes
+  back the moment HubSpot has nothing to copy.
 - Property keys are camelCase here (the analytics standard) rather than
   snake_case matching HubSpot internal names, unlike `Peerly Identity ID
 Created` above. The workflow maps them.

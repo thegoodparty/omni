@@ -49,6 +49,17 @@ export interface Outreach {
   billableTextCount?: number | null
   textCount?: number | null
   archivedAt?: Date | string | null
+  // For a door-knocking sibling: the id of the anchor Outreach whose
+  // campaign it belongs to. Null on an anchor and on every non-door-knocking
+  // row. Rides the row because the history table collapses siblings into
+  // their anchor server-side — the collapsed row IS the anchor and carries
+  // this null, but a deep-linked sibling arrives with the anchor id here.
+  campaignOutreachId?: number | null
+  // How many turfs the door-knocking campaign this row anchors currently
+  // holds. Server-side rollup, present on door-knocking rows only; every
+  // other channel is `1` (a campaign of one). Read by the history table's
+  // "N turfs" badge and by the drawer's siblings section.
+  turfCount?: number
 }
 
 type OutreachContextValue = [Outreach[], (outreaches: Outreach[]) => void]

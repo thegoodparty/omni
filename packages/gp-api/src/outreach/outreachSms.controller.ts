@@ -13,15 +13,14 @@ import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { Campaign, User } from '../generated/prisma'
+import { User } from '../generated/prisma'
+import { CampaignWith } from '@/campaigns/campaigns.types'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
-
-const candidateName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
 
 @Controller('outreach')
-@UseCampaign()
+@UseCampaign({ include: { user: true } })
 @UseInterceptors(ZodResponseInterceptor)
 export class OutreachSmsController {
   constructor(
@@ -37,7 +36,7 @@ export class OutreachSmsController {
   @ResponseSchema(SmsDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @Body(new ZodValidationPipe(SmsDraftRequestSchema))
     input: SmsDraftRequest,
   ): Promise<SmsDraftResponse> {
@@ -58,7 +57,7 @@ export class OutreachSmsController {
     return {
       draft: await this.generationService.generateDraft(
         input,
-        candidateName(user),
+        ownerCandidateName(campaign),
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
         [

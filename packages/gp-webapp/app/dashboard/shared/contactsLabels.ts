@@ -37,6 +37,27 @@ export interface ContactsLabels {
   listDetailsTitle: string
   // crm/wizard/CreateListWizard.tsx's step-2 voter-file-branch title.
   wizardVoterFileStepTitle: string
+  // The boundary step and the list map's draw surface. Only Serve renders
+  // them today, but this helper is mode-keyed and not mode-gated: a Win
+  // literal saying "constituents" is exactly the drift it exists to prevent.
+  boundaryStepTitle: string
+  // Under the wizard step's read-only preview, where the map cannot be
+  // drawn on. `boundaryStepHint` is the drawing surface's own hint and
+  // still says to tap the map, which is only true once it is open.
+  boundaryGatewayHint: string
+  boundaryStepHint: string
+  // Above the shape chips, once a boundary has more than one part.
+  boundaryEditShapeHint: string
+  boundaryDrawCta: string
+  boundaryEditCta: string
+  boundaryClearCta: string
+  // `parts` is how many shapes the boundary is drawn in, because the count
+  // is the whole boundary's and "this area" stops being true at two.
+  boundaryCountLabel: (count: number, parts?: number) => string
+  boundaryEmptyShape: string
+  boundaryEmptyAudience: string
+  boundaryUnmappable: (count: number) => string
+  boundaryEstimateNote: string
   // crm/wizard/BranchStep.tsx's step-1 radio cards. The activity branch's
   // title never carries the voter/constituent noun, so it isn't listed here.
   wizardVoterFileBranchTitle: string
@@ -67,6 +88,26 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         allContactsTitle: 'All voters',
         listDetailsTitle: 'Voter list details',
         wizardVoterFileStepTitle: 'Build a voter list',
+        boundaryStepTitle: 'What area should this list cover?',
+        boundaryGatewayHint:
+          'Draw an area to narrow this list, or continue to keep the whole district.',
+        boundaryStepHint:
+          'Tap the map to place corners, or continue to keep the whole district.',
+        boundaryEditShapeHint: 'Pick a shape to change its corners.',
+        boundaryDrawCta: 'Draw an area',
+        boundaryEditCta: 'Edit area',
+        boundaryClearCta: 'Remove area',
+        boundaryCountLabel: (count: number, parts = 1) =>
+          `${count.toLocaleString()} voters in ${
+            parts > 1 ? 'these areas' : 'this area'
+          }`,
+        boundaryEmptyShape:
+          'No voters here. Try moving the area or making it wider.',
+        boundaryEmptyAudience:
+          'No voters match your filters yet. Go back and widen them.',
+        boundaryUnmappable: (count: number) =>
+          `${count.toLocaleString()} voters have no location on file.`,
+        boundaryEstimateNote: 'This number is an estimate until you save.',
         wizardVoterFileBranchTitle:
           'Build a list using voter demographics and data',
         wizardVoterFileBranchDescription:
@@ -95,6 +136,26 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         allContactsTitle: 'All constituents',
         listDetailsTitle: 'Constituent list details',
         wizardVoterFileStepTitle: 'Build a constituent list',
+        boundaryStepTitle: 'What area should this list cover?',
+        boundaryGatewayHint:
+          'Draw an area to narrow this list, or continue to keep the whole district.',
+        boundaryStepHint:
+          'Tap the map to place corners, or continue to keep the whole district.',
+        boundaryEditShapeHint: 'Pick a shape to change its corners.',
+        boundaryDrawCta: 'Draw an area',
+        boundaryEditCta: 'Edit area',
+        boundaryClearCta: 'Remove area',
+        boundaryCountLabel: (count: number, parts = 1) =>
+          `${count.toLocaleString()} constituents in ${
+            parts > 1 ? 'these areas' : 'this area'
+          }`,
+        boundaryEmptyShape:
+          'No constituents here. Try moving the area or making it wider.',
+        boundaryEmptyAudience:
+          'No constituents match your filters yet. Go back and widen them.',
+        boundaryUnmappable: (count: number) =>
+          `${count.toLocaleString()} constituents have no location on file.`,
+        boundaryEstimateNote: 'This number is an estimate until you save.',
         wizardVoterFileBranchTitle: 'Build my list using the constituent file.',
         wizardVoterFileBranchDescription:
           'Use this option to select constituents from your constituent file.',

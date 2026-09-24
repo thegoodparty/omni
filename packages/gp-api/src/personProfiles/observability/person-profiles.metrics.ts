@@ -209,12 +209,14 @@ export type VoterDensityResult = 'live' | 'empty' | 'no_district' | 'error'
 /**
  * Agreement between the two voter-density sources while the serving tables move
  * from people-db into election-db:
- *  - match:             both sides returned the same coverage and the same cells
- *  - cell_mismatch:     the cells differ in count, position, or voter count
- *  - coverage_mismatch: the cells agree but the coverage does not
- *  - only_legacy:       people-db has cells, election-api has none
- *  - only_new:          election-api has cells, people-db has none
- *  - error:             the shadow read threw, so there was nothing to compare
+ *  - match:                  identical coverage and identical cells
+ *  - match_within_tolerance: they differ, by less than the difference between
+ *                            two build vintages of the same mart is worth
+ *  - cell_mismatch:          the cells differ by more than that
+ *  - coverage_mismatch:      the cells agree but the coverage does not
+ *  - only_legacy:            people-db has cells, election-api has none
+ *  - only_new:               election-api has cells, people-db has none
+ *  - error:                  the shadow read threw, so there was nothing to compare
  *
  * `only_legacy` is the one that gates the cutover. During the window it is the
  * expected majority — it just means the data platform has not published that
@@ -222,9 +224,22 @@ export type VoterDensityResult = 'live' | 'empty' | 'no_district' | 'error'
  * is also exactly what an id-derivation mistake would look like. Separating it
  * from `cell_mismatch` is the whole point: "not loaded yet" and "loaded, and
  * wrong" need different responses and would otherwise be one number.
+ *
+ * `match_within_tolerance` exists for the same reason one level down. The two
+ * legs are copies of ONE mart on different schedules — people-db monthly,
+ * election-db nightly — so they are almost never built from the same vintage
+ * and a strict comparison called ~70% of production traffic a mismatch. That
+ * number gated nothing, because it was dominated by single suppressed cells
+ * flickering across the K-anonymity boundary. Splitting it out means
+ * `cell_mismatch` once again means "loaded, and wrong", and the ratio of
+ * tolerated to exact is itself the thing to watch: it should track the gap
+ * between the two refresh schedules, and a jump in it without a schedule
+ * change is a real signal. See voterDensityComparison.ts for the measurements
+ * the tolerances come from.
  */
 export type VoterDensityCompareResult =
   | 'match'
+  | 'match_within_tolerance'
   | 'cell_mismatch'
   | 'coverage_mismatch'
   | 'only_legacy'

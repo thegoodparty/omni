@@ -4,6 +4,7 @@ import {
   formatDate,
   formatDateTime,
   formatLocalDateString,
+  formatLocalSendTime,
   formatLocalTimeString,
   formatTimestampString,
 } from './date'
@@ -112,6 +113,32 @@ describe('formatLocalTimeString', () => {
   it('returns null for malformed input', () => {
     expect(formatLocalTimeString('9:00')).toBeNull()
     expect(formatLocalTimeString('not-a-time')).toBeNull()
+  })
+})
+
+describe('formatLocalSendTime', () => {
+  it('renders the stored day and wall-clock time with no zone conversion', () => {
+    expect(formatLocalSendTime('2026-09-26', '10:00')).toBe(
+      'Sep 26, 2026, 10:00 AM'
+    )
+    expect(formatLocalSendTime('2026-09-22', '17:00')).toBe(
+      'Sep 22, 2026, 5:00 PM'
+    )
+  })
+
+  // A row with no stored time is booked at Peerly's 9am open.
+  it('reads 9:00 AM when no time is stored', () => {
+    expect(formatLocalSendTime('2026-09-10', null)).toBe(
+      'Sep 10, 2026, 9:00 AM'
+    )
+    expect(formatLocalSendTime('2026-09-10', 'bogus')).toBe(
+      'Sep 10, 2026, 9:00 AM'
+    )
+  })
+
+  it('returns null without a day so callers fall back to the instant', () => {
+    expect(formatLocalSendTime(null, '10:00')).toBeNull()
+    expect(formatLocalSendTime('not-a-day', '10:00')).toBeNull()
   })
 })
 

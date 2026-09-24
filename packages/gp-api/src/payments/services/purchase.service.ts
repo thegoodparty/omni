@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { Campaign, User } from '../../generated/prisma'
 import {
+  CheckoutSessionPaymentFailedHandler,
   CheckoutSessionPostPurchaseHandler,
   CompleteCheckoutSessionDto,
   CompleteFreePurchaseDto,
@@ -35,6 +36,10 @@ export class PurchaseService {
     PurchaseType,
     CheckoutSessionPostPurchaseHandler<unknown>
   > = new Map()
+  private checkoutSessionPaymentFailedHandlers: Map<
+    PurchaseType,
+    CheckoutSessionPaymentFailedHandler<unknown>
+  > = new Map()
 
   constructor(
     private readonly stripeService: StripeService,
@@ -55,6 +60,13 @@ export class PurchaseService {
     handler: CheckoutSessionPostPurchaseHandler<unknown>,
   ): void {
     this.checkoutSessionPostPurchaseHandlers.set(type, handler)
+  }
+
+  registerCheckoutSessionPaymentFailedHandler(
+    type: PurchaseType,
+    handler: CheckoutSessionPaymentFailedHandler<unknown>,
+  ): void {
+    this.checkoutSessionPaymentFailedHandlers.set(type, handler)
   }
 
   /**
@@ -285,6 +297,29 @@ export class PurchaseService {
     return { alreadyProcessed: false, result }
   }
 
+  // The counterpart of the deferral in completeCheckoutSession: a
+  // delayed-notification payment that completed checkout 'unpaid' has now
+  // failed to settle, so the fulfillment it deferred will never run and the
+  // purchase type gets to unwind whatever it parked at checkout.
+  async failCheckoutSession(session: Stripe.Checkout.Session): Promise<void> {
+    // Stripe SDK uses broad union types — metadata values are plain strings
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const purchaseType = session.metadata?.purchaseType as
+      | PurchaseType
+      | undefined
+    const handler = purchaseType
+      ? this.checkoutSessionPaymentFailedHandlers.get(purchaseType)
+      : undefined
+    if (!handler) {
+      this.logger.warn(
+        { sessionId: session.id, purchaseType },
+        'No payment-failed handler for this purchase type; nothing to unwind',
+      )
+      return
+    }
+    await handler(session.id, session.metadata)
+  }
+
   private getDefaultProductName(purchaseType: PurchaseType): string {
     switch (purchaseType) {
       case PurchaseType.DOMAIN_REGISTRATION:
@@ -377,6 +412,13 @@ export class PurchaseService {
       case PurchaseType.DOMAIN_REGISTRATION:
         return PaymentType.DOMAIN_REGISTRATION
       case PurchaseType.TEXT:
+        return PaymentType.OUTREACH_PURCHASE
+      // A Serve SMS send is still an outreach purchase on the payment side —
+      // only the handler differs (a Serve row has no campaign and no Peerly
+      // identity). Missing this line is not a missing feature: the default
+      // branch below THROWS, so checkout 500s with an error that names the
+      // payment-type map rather than anything about Serve SMS.
+      case PurchaseType.SERVE_TEXT:
         return PaymentType.OUTREACH_PURCHASE
       case PurchaseType.POLL:
         return PaymentType.POLL

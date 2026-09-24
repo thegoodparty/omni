@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
+import { api } from 'helpers/test-utils/api-mocking'
 import { Organization } from 'gpApi/api-endpoints'
 import { User, UserRole } from 'helpers/types'
 
@@ -17,12 +18,20 @@ vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => mockUseUser(),
 }))
 vi.mock('@shared/organization-picker', () => ({
+  ORGANIZATIONS_QUERY_KEY: ['organizations'],
   useOrganization: () => mockUseOrganization(),
   useOrganizations: () => mockUseOrganizations(),
   useSetOrganizationSlug: () => mockSetOrganizationSlug,
 }))
 vi.mock('@shared/user/handleLogOut', () => ({
   useHandleLogOut: () => mockHandleLogOut,
+}))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    displaySnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+    errorSnackbar: vi.fn(),
+  }),
 }))
 vi.mock('@shared/experiments/teamAccountsFlag', () => ({
   useTeamAccountsFlag: (...args: unknown[]) => mockUseTeamAccountsFlag(...args),
@@ -206,6 +215,116 @@ describe('VolunteerSidebar', () => {
 
       expect(mockSetOrganizationSlug).toHaveBeenCalledWith('org-3')
       expect(router.push).toHaveBeenCalledWith('/dashboard')
+    })
+  })
+
+  // ENG-11137: self-removal. The dialog confirms before anything is sent;
+  // the destination after leaving follows the same rule as the campaign
+  // switcher (next org's role decides the shell), or the post-auth resolver
+  // at `/` when no campaign remains.
+  describe('Leave campaign', () => {
+    const confirmLeave = async (
+      userEventInstance: ReturnType<typeof userEvent.setup>,
+    ) => {
+      await userEventInstance.click(
+        screen.getByRole('button', { name: /leave campaign/i }),
+      )
+      const dialog = await screen.findByRole('alertdialog')
+      await userEventInstance.click(
+        within(dialog).getByRole('button', { name: /leave campaign/i }),
+      )
+    }
+
+    it('opens a confirmation dialog and sends nothing until confirmed', async () => {
+      const leaveRequest = vi.fn()
+      api.mock('DELETE /v1/organizations/team/members/me', () => {
+        leaveRequest()
+        return { status: 200, data: undefined }
+      })
+      const userEventInstance = userEvent.setup()
+      render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+      await userEventInstance.click(
+        screen.getByRole('button', { name: /leave campaign/i }),
+      )
+
+      const dialog = await screen.findByRole('alertdialog')
+      expect(
+        within(dialog).getByText('Leave this campaign?'),
+      ).toBeInTheDocument()
+      expect(leaveRequest).not.toHaveBeenCalled()
+
+      await userEventInstance.click(
+        within(dialog).getByRole('button', { name: /cancel/i }),
+      )
+      expect(leaveRequest).not.toHaveBeenCalled()
+      expect(router.push).not.toHaveBeenCalled()
+    })
+
+    it('leaves the only campaign and hands routing to the post-auth resolver', async () => {
+      const leaveRequest = vi.fn()
+      api.mock('DELETE /v1/organizations/team/members/me', () => {
+        leaveRequest()
+        return { status: 200, data: undefined }
+      })
+      const userEventInstance = userEvent.setup()
+      render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+      await confirmLeave(userEventInstance)
+
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/'))
+      expect(leaveRequest).toHaveBeenCalledTimes(1)
+      expect(mockSetOrganizationSlug).not.toHaveBeenCalled()
+    })
+
+    it('switches to the next campaign after leaving one of several', async () => {
+      mockUseOrganizations.mockReturnValue([orgOne, orgTwo])
+      api.mock('DELETE /v1/organizations/team/members/me', {
+        status: 200,
+        data: undefined,
+      })
+      const userEventInstance = userEvent.setup()
+      render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+      await confirmLeave(userEventInstance)
+
+      await waitFor(() =>
+        expect(mockSetOrganizationSlug).toHaveBeenCalledWith('org-2'),
+      )
+      expect(router.push).toHaveBeenCalledWith('/volunteer')
+    })
+
+    it('routes to /dashboard when the remaining campaign is one the user owns', async () => {
+      mockUseOrganizations.mockReturnValue([orgOne, orgOwned])
+      api.mock('DELETE /v1/organizations/team/members/me', {
+        status: 200,
+        data: undefined,
+      })
+      const userEventInstance = userEvent.setup()
+      render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+      await confirmLeave(userEventInstance)
+
+      await waitFor(() =>
+        expect(mockSetOrganizationSlug).toHaveBeenCalledWith('org-3'),
+      )
+      expect(router.push).toHaveBeenCalledWith('/dashboard')
+    })
+
+    it('stays put when the leave request fails', async () => {
+      const leaveRequest = vi.fn()
+      api.mock('DELETE /v1/organizations/team/members/me', () => {
+        leaveRequest()
+        return { status: 500, data: {} }
+      })
+      const userEventInstance = userEvent.setup()
+      render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+      await confirmLeave(userEventInstance)
+
+      await waitFor(() => expect(leaveRequest).toHaveBeenCalled())
+      expect(router.push).not.toHaveBeenCalled()
+      expect(mockSetOrganizationSlug).not.toHaveBeenCalled()
     })
   })
 })

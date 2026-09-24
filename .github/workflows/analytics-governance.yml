@@ -138,6 +138,11 @@ jobs:
           # degrades to the rules tier via run_triage's "skipped: ANTHROPIC_API_KEY
           # unset" status and the run continues.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
+          # Read-only cross-repo token for gp-data-platform's sem_*.yml, the kernel the
+          # OKR dormancy checks derive their watch set from (DATA-2421). Unset until an
+          # omni repo admin adds it; load_anchors then disables those checks and the
+          # digest posts a red "OKR dormancy checks degraded" item saying so.
+          GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
         run: |
           # --gap-slack degrades to a health-only post when the file is absent (e.g. the
           # gap sweep step above failed) — never fails this step.

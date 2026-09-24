@@ -256,6 +256,31 @@ describe('PeerlyP2pJobService', () => {
       )
     })
 
+    it('mints the schedule at the chosen start and stamps the window in its name', async () => {
+      await service.createPeerlyP2pJob({
+        ...baseJobParams,
+        scheduledDate: '2026-09-26T10:00:00-05:00',
+        scheduledStartTime: '10:00',
+      })
+
+      expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
+        expect.stringContaining(' - 2026-09-26 10:00 - '),
+        '10:00',
+      )
+    })
+
+    it('opens the schedule at 9am when no start time is stored', async () => {
+      await service.createPeerlyP2pJob({
+        ...baseJobParams,
+        scheduledDate: '2025-03-15T14:30:00.000Z',
+      })
+
+      expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
+        expect.stringContaining(' - 2025-03-15 09:00 - '),
+        '09:00',
+      )
+    })
+
     it('rejects script text over the MMS limit before any Peerly calls', async () => {
       await expect(
         service.createPeerlyP2pJob({
@@ -498,10 +523,12 @@ describe('PeerlyP2pJobService', () => {
         jobId: 'job-1',
         campaignId: 42,
         date: '2026-10-01',
+        startTime: '18:00',
       })
 
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
-        expect.stringContaining('GP P2P - Campaign 42 - 2026-10-01'),
+        expect.stringContaining('GP P2P - Campaign 42 - 2026-10-01 18:00 - '),
+        '18:00',
       )
       expect(mockHttpService.put).toHaveBeenCalledWith(
         '/1to1/jobs/job-1',
@@ -534,6 +561,7 @@ describe('PeerlyP2pJobService', () => {
           jobId: 'job-1',
           campaignId: 42,
           date: '2026-10-01',
+          startTime: '09:00',
         }),
       ).rejects.toThrow(BadGatewayException)
       expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
@@ -549,6 +577,7 @@ describe('PeerlyP2pJobService', () => {
           jobId: 'job-1',
           campaignId: 42,
           date: '2026-10-01',
+          startTime: '09:00',
         }),
       ).rejects.toThrow(BadGatewayException)
       expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
@@ -594,6 +623,98 @@ describe('PeerlyP2pJobService', () => {
           ],
         }),
       )
+    })
+
+    it('re-mints the schedule when the job predates the honored send time', async () => {
+      mockHttpService.get.mockResolvedValueOnce({
+        data: {
+          ...pausedJob,
+          schedule_details: {
+            schedule_id: 11,
+            is_global: 1,
+            schedule_name:
+              'GP P2P - Campaign 42 - 2026-09-10 - 2026-09-01T00:00:00Z',
+          },
+        },
+      })
+
+      await service.activateJob('job-1', {
+        campaignId: 42,
+        date: '2026-09-10',
+        startTime: '18:00',
+      })
+
+      expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
+        expect.stringContaining('GP P2P - Campaign 42 - 2026-09-10 18:00 - '),
+        '18:00',
+      )
+      expect(mockHttpService.put).toHaveBeenCalledWith(
+        '/1to1/jobs/job-1',
+        expect.objectContaining({
+          status: 'active',
+          schedule_id: 99999,
+          start_date: '2026-09-10',
+          end_date: '2026-09-10',
+        }),
+      )
+    })
+
+    it('still activates when the aligned schedule cannot be minted', async () => {
+      mockHttpService.get.mockResolvedValueOnce({
+        data: {
+          ...pausedJob,
+          schedule_details: {
+            schedule_id: 11,
+            is_global: 1,
+            schedule_name:
+              'GP P2P - Campaign 42 - 2026-09-10 - 2026-09-01T00:00:00Z',
+          },
+        },
+      })
+      mockScheduleService.createSchedule.mockRejectedValueOnce(
+        new BadGatewayException('schedule create failed'),
+      )
+
+      await service.activateJob('job-1', {
+        campaignId: 42,
+        date: '2026-09-10',
+        startTime: '18:00',
+      })
+
+      const [, body] = mockHttpService.put.mock.calls.at(-1) as [
+        string,
+        Record<string, unknown>,
+      ]
+      expect(body.status).toBe('active')
+      expect(body).not.toHaveProperty('schedule_id')
+    })
+
+    it('keeps a schedule already minted for the same window', async () => {
+      mockHttpService.get.mockResolvedValueOnce({
+        data: {
+          ...pausedJob,
+          schedule_details: {
+            schedule_id: 11,
+            is_global: 1,
+            schedule_name:
+              'GP P2P - Campaign 42 - 2026-09-10 18:00 - 2026-09-01T00:00:00Z',
+          },
+        },
+      })
+
+      await service.activateJob('job-1', {
+        campaignId: 42,
+        date: '2026-09-10',
+        startTime: '18:00',
+      })
+
+      expect(mockScheduleService.createSchedule).not.toHaveBeenCalled()
+      const [, body] = mockHttpService.put.mock.calls.at(-1) as [
+        string,
+        Record<string, unknown>,
+      ]
+      expect(body).not.toHaveProperty('schedule_id')
+      expect(body.status).toBe('active')
     })
 
     it('omits media for a template without one', async () => {

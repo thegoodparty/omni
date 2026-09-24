@@ -6,19 +6,14 @@ import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
 } from '@/llm/tools/queryConstituentData.tool'
-import {
-  ChatScopeHandler,
-  ResolveConversationParams,
-  ResolveConversationResult,
-} from '../types/chatScopeHandler'
-import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { ChatScopeHandler } from '../types/chatScopeHandler'
 import {
   ChiefOfStaffContext,
   ChiefOfStaffContextService,
 } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
-import { professionalAdviceDisclaimer } from './services/professionalAdviceCheck'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildConstituentDataScope,
   ConstituentTableConfig,
@@ -35,10 +30,16 @@ import {
   CommunityIssueReadPort,
 } from './services/communityIssueRead.port'
 import { buildReadCommunityIssuesTool } from './services/communityIssueRead.tool'
+import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
+import {
+  buildDescribeFilterDimensionsTool,
+  registeredFilterConsumers,
+} from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
+import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
@@ -67,7 +68,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
   readonly models = [...CHIEF_OF_STAFF_MODELS]
 
   constructor(
-    private readonly store: GeneralChatStoreService,
     private readonly contextService: ChiefOfStaffContextService,
     private readonly briefings: ChiefOfStaffBriefingsService,
     @Inject(PRIORITIES_PORT)
@@ -89,27 +89,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
   ) {}
-
-  async resolveConversation(
-    params: ResolveConversationParams,
-    userId: number,
-  ): Promise<ResolveConversationResult> {
-    // Chief of Staff supports multiple conversations, so every "new chat"
-    // creates a fresh one rather than resuming the most recent. Resuming a
-    // prior chat goes through its conversation id directly (history →
-    // listMessages → stream), never through here — so find-or-create here would
-    // collapse every new chat onto the latest existing conversation.
-    const created = await this.store.createScopedConversation({
-      ownerUserId: userId,
-      organizationSlug: params.organizationSlug,
-      scope: ChatScope.chief_of_staff,
-      ...(params.anchor && {
-        anchor: params.anchor,
-        title: params.anchor.snapshot.title,
-      }),
-    })
-    return { conversationId: created.id, created: true }
-  }
 
   async loadContext(
     conversationId: string,
@@ -222,11 +201,16 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     // the resolved context; ContactsService enforces the Serve party
     // rejection and every other filter rule.
     if (this.contacts) {
-      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
+      const crmTools: Record<string, LlmTool> = {}
+      crmTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
-      tools.count_contacts = buildCountContactsTool({
+      // Beside describe_filter_dimensions rather than with the saved-list
+      // tools: it IS the vocabulary read for the one dimension the catalog
+      // cannot carry, and a count is as entitled to a precinct as a saved
+      // list is.
+      crmTools.list_precincts = buildListPrecinctsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
@@ -235,12 +219,30 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       // locked-filter conflict all inherited). The prompt rules key off the
       // registered tool name.
       if (this.voterFileFilters) {
-        tools.crud_saved_filters = buildCrudSavedFiltersTool({
+        crmTools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
         })
+        // Registered with the saved-list tool rather than beside the other
+        // reads: the only id it can legitimately be given is one
+        // crud_saved_filters just returned, so advertising it in a session
+        // that cannot create a list would be offering a map of nothing.
+        crmTools.show_list_map = buildShowListMapTool()
       }
+      // The catalog is built over the other CRM tools so its description
+      // names only the filter tools registered beside it, and is still
+      // listed first, as it always was.
+      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+        filterConsumers: registeredFilterConsumers(crmTools),
+      })
+      Object.assign(tools, crmTools)
+    }
+
+    if (ctx.attachmentsEnabled) {
+      tools.compose_handoff = buildComposeHandoffTool()
     }
 
     return tools

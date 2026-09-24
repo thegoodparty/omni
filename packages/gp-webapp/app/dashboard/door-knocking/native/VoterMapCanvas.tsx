@@ -20,10 +20,19 @@ import {
   IconButton,
   LocateFixedIcon,
   LocateOffIcon,
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  Undo2Icon,
   MinusIcon,
   PlusIcon,
 } from '@styleguide'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
+import {
+  ringInsertIndex,
+  type PolygonRing,
+} from 'app/dashboard/shared/ringGeometry'
 import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
@@ -132,7 +141,10 @@ const ARCHIVED_RING_ALPHA = 0.28
 // If both apply (a walk on an archived list, rare), the two multiply.
 const WALK_ACTIVE_RING_ALPHA = 0.3
 
-export type PolygonRing = Array<[number, number]>
+// Re-exported rather than moved out of every caller: the shape and the
+// tap-placement maths now belong to the constituent-list map too, so they
+// live in app/dashboard/shared/ringGeometry.ts.
+export { ringInsertIndex, type PolygonRing }
 
 export interface RoutePin {
   // Which stop this pin is, so a tap can be turned back into a door to open.
@@ -185,6 +197,21 @@ interface VoterMapCanvasProps {
   // Continue must keep the boundary that is already drawn. Only the caller
   // knows which it is.
   resumeDrawToken: number
+  // Bump to enter polygon-draw mode on a ring that is already finished —
+  // `loadDrawRing` below becomes the in-progress shape, vertices and all.
+  //
+  // The third way into drawing mode, and the only one that puts a shape the
+  // canvas did not draw onto the canvas. `startDrawToken` empties the ring
+  // and `resumeDrawToken` leaves whatever is there alone; both assume the
+  // in-progress shape is the only shape there has ever been. The multi-turf
+  // drawing surface breaks that assumption: a candidate cuts several turfs in
+  // one sitting, and picking an earlier one out of the toolbar has to put its
+  // boundary back under the cursor so its corners can be moved again.
+  loadDrawToken: number
+  // The ring `loadDrawToken` installs. Read at the bump only, never watched:
+  // the ring changes on every vertex the candidate then moves, and a canvas
+  // that reinstalled it on each change would fight the drag that produced it.
+  loadDrawRing: PolygonRing | null
   // Bump to clear the in-progress drawing AND leave draw mode (e.g. after a
   // turf is saved, or when the flow closes).
   clearDrawToken: number
@@ -221,6 +248,17 @@ interface VoterMapCanvasProps {
   // so the cluster has to be told where the uncovered map ends; every other
   // surface leaves it at the design's 16px edge.
   controlsBottomPx?: number
+  // Drop the most recently placed corner. Only supplied while a boundary is
+  // being drawn and there is something to take back, so the button's
+  // presence IS the "there is a point to undo" state and it needs no
+  // disabled form. It joins the cluster below rather than floating
+  // somewhere of its own — see the comment on that cluster.
+  onUndoDrawPoint?: () => void
+  // What the shape under the cursor is worth, and whether it is over the
+  // 150-stop cap. Printed on a pill immediately left of Undo, so the count
+  // and the control that changes it are one group that moves together.
+  drawStopCount?: number
+  drawStopsOverCap?: boolean
   // Bottom padding to reserve when framing the route with fitBounds — the
   // canvas re-fits the pins to keep them visible above the walk sheet,
   // Google Maps pattern for a persistent bottom sheet over a route map.
@@ -247,6 +285,22 @@ interface VoterMapCanvasProps {
   // door's log from the map. Never fires while drawing: a tap is a vertex
   // there, and the two are different modes.
   onRoutePinClick?: (pin: RoutePin) => void
+  // The campaign drawer's sibling map draws every turf in the campaign and
+  // needs bidirectional select/hover with its own turf list. All four are
+  // optional: every existing caller — the create flow, the walk, the
+  // volunteer page, the print previews — passes none, so `saved-turfs` stays
+  // `pickable: false` and reads no selection, matching the pre-change layer
+  // byte-for-byte. When any handler is provided the layer flips pickable and
+  // the fill/stroke bump the selected/hovered rings.
+  //
+  // Matched on `id` rather than the turf object, so a re-fetched turf list
+  // (a rename, an archive) does not clear selection just because the row
+  // is a new reference. `null` on the selection means "no turf selected"
+  // and the whole campaign draws at rest strength.
+  selectedTurfId?: number | null
+  hoveredTurfId?: number | null
+  onTurfClick?: (turf: DoorKnockingTurf) => void
+  onTurfHover?: (turf: DoorKnockingTurf | null) => void
 }
 
 // An archived list keeps its own colour and loses most of its strength. It is
@@ -275,6 +329,59 @@ const archivedAlpha = (turf: DoorKnockingTurf, alpha: number): number =>
 // right now" and takes the alpha down by the same strength-only pattern.
 const walkActiveAlpha = (alpha: number, walkActive: boolean): number =>
   walkActive ? Math.round(alpha * WALK_ACTIVE_RING_ALPHA) : alpha
+
+// A selected turf swaps its resting alpha for one of these two; siblings
+// (every other turf while a selection is live) get pulled by the multiplier
+// so the choice reads as a foreground against a receded backdrop. Numbers
+// are strength-only, matching the archived and walk-active pullbacks above,
+// so a selection composes with them rather than fighting them — a selected
+// archived turf, or a selected turf during a walk, still dims by its own
+// factor and just picks its foreground alpha from these constants instead of
+// the resting one. Nothing here recolours the ring: an override on hue would
+// break the one thing tying the map's polygon to the sidebar row that names
+// it, exactly the same argument `archivedAlpha` makes.
+const SELECTED_FILL_ALPHA = 78
+const SELECTED_LINE_ALPHA = 255
+const SIBLING_ALPHA_MULT = 0.42
+// Line widths on the campaign sibling layer. `pixels` units keep the ring
+// the same weight as the canvasser zooms, matching everything else on this
+// canvas whose width is written in pixels.
+const REST_TURF_LINE_WIDTH = 2
+const HOVER_TURF_LINE_WIDTH = 2.5
+const SELECTED_TURF_LINE_WIDTH = 3.5
+
+// Selection is applied additively per turf: the picked one takes the
+// foreground alpha, every sibling gets pulled by the multiplier, and a
+// campaign with no selection at all reads at rest (no siblings, no
+// foreground). Returns the resting `base` unchanged for the no-selection
+// case so the layer's byte output matches the pre-interactive era exactly
+// when the drawer is not driving this canvas.
+const turfInteractiveAlpha = (
+  turfId: number,
+  base: number,
+  selectedId: number | null,
+  selectedAlpha: number,
+): number => {
+  if (selectedId === null) return base
+  if (turfId === selectedId) return selectedAlpha
+  return Math.round(base * SIBLING_ALPHA_MULT)
+}
+
+// Selection outranks hover: a hover ring on the already-selected turf would
+// double-hint the same row, and a hover ring on a sibling next to a heavy
+// selected fill would out-shout the choice. Off any selection, hover is the
+// only signal, so it uses the same bump the selected ring does.
+const turfLineWidth = (
+  turfId: number,
+  selectedId: number | null,
+  hoveredId: number | null,
+): number => {
+  if (turfId === selectedId) return SELECTED_TURF_LINE_WIDTH
+  if (turfId === hoveredId && selectedId === null) {
+    return HOVER_TURF_LINE_WIDTH
+  }
+  return REST_TURF_LINE_WIDTH
+}
 
 const hexToRgba = (
   hex: string,
@@ -378,7 +485,7 @@ export const packOpeningCenter = (
   const mid = dots >> 1
   const anchorLng = lngs[mid] ?? 0
   const anchorLat = lats[mid] ?? 0
-  // Scaled for the reason distanceToSegment below scales: compared in bare
+  // Scaled for the reason ringGeometry's distanceToSegment scales: in bare
   // degrees a district's east-west spread reads wider than it is on the
   // ground, and the wrong dot wins.
   const lngScale = Math.cos((anchorLat * Math.PI) / 180)
@@ -421,53 +528,6 @@ const ringBounds = (
   ]
 }
 
-// Shortest distance from `point` to the segment a-b. Longitude is scaled by
-// cos(latitude) first because a degree of longitude is only ~0.75 of a degree
-// of latitude at US latitudes — compared in raw degrees, a tall narrow ring's
-// long sides read as closer than they are and the wrong edge wins.
-const distanceToSegment = (
-  point: [number, number],
-  a: [number, number],
-  b: [number, number],
-  lngScale: number,
-): number => {
-  const px = point[0] * lngScale
-  const ax = a[0] * lngScale
-  const dx = b[0] * lngScale - ax
-  const dy = b[1] - a[1]
-  const lengthSq = dx * dx + dy * dy
-  const projected =
-    lengthSq === 0 ? 0 : ((px - ax) * dx + (point[1] - a[1]) * dy) / lengthSq
-  const t = Math.max(0, Math.min(1, projected))
-  return Math.hypot(px - (ax + t * dx), point[1] - (a[1] + t * dy))
-}
-
-// Where a tap belongs in the ring being drawn. Under three points there are no
-// edges yet, so it appends; from three the ring is read as closed and the point
-// splices into whichever edge it is nearest. Appending unconditionally meant a
-// tap between two existing vertices jumped the boundary across the shape and
-// back, leaving a criss-crossed, self-intersecting outline.
-export const ringInsertIndex = (
-  ring: PolygonRing,
-  point: [number, number],
-): number => {
-  if (ring.length < 3) return ring.length
-  const lngScale = Math.cos((point[1] * Math.PI) / 180)
-  let bestIndex = ring.length
-  let bestDistance = Infinity
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i]
-    const b = ring[(i + 1) % ring.length]
-    if (!a || !b) continue
-    const distance = distanceToSegment(point, a, b, lngScale)
-    if (distance < bestDistance) {
-      bestDistance = distance
-      bestIndex = i + 1
-    }
-  }
-  return bestIndex
-}
-
 export default function VoterMapCanvas({
   pack,
   filterResult,
@@ -480,6 +540,8 @@ export default function VoterMapCanvas({
   initialZoom,
   startDrawToken,
   resumeDrawToken,
+  loadDrawToken,
+  loadDrawRing,
   clearDrawToken,
   undoDrawToken,
   drawColor,
@@ -488,6 +550,9 @@ export default function VoterMapCanvas({
   frameDrawBottomPct,
   controlsHidden = false,
   controlsBottomPx = 16,
+  onUndoDrawPoint,
+  drawStopCount = 0,
+  drawStopsOverCap = false,
   routeFrameBottomPx = null,
   location,
   liveLocationEnabled = false,
@@ -496,7 +561,30 @@ export default function VoterMapCanvas({
   onPolygonChange,
   onDrawPointCount,
   onRoutePinClick,
+  selectedTurfId = null,
+  hoveredTurfId = null,
+  onTurfClick,
+  onTurfHover,
 }: VoterMapCanvasProps) {
+  // Shake on every change that lands the count over cap, in either
+  // direction — 165→160 is still over the limit, and the point of the shake
+  // is to keep saying so with every tap until the shape gets under it.
+  const stopPillRef = useRef<HTMLSpanElement>(null)
+  const prevStopsRef = useRef(drawStopCount)
+  useEffect(() => {
+    const previous = prevStopsRef.current
+    prevStopsRef.current = drawStopCount
+    if (!drawStopsOverCap || drawStopCount === previous) return
+    const el = stopPillRef.current
+    if (!el) return
+    el.classList.remove('animate-shake')
+    // Reflow: React seeing the same class on re-render will not restart the
+    // CSS animation, so the class has to go away and come back with a
+    // layout between the two writes.
+    void el.offsetWidth
+    el.classList.add('animate-shake')
+  }, [drawStopCount, drawStopsOverCap])
+
   const containerRef = useRef<HTMLDivElement>(null)
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
@@ -556,6 +644,10 @@ export default function VoterMapCanvas({
   onPolygonChangeRef.current = onPolygonChange
   const onDrawPointCountRef = useRef(onDrawPointCount)
   onDrawPointCountRef.current = onDrawPointCount
+  // Read at the token bump, never depended on — see `loadDrawRing` on the
+  // props above for why watching it would fight the candidate's own drag.
+  const loadDrawRingRef = useRef(loadDrawRing)
+  loadDrawRingRef.current = loadDrawRing
   const onRoutePinClickRef = useRef(onRoutePinClick)
   onRoutePinClickRef.current = onRoutePinClick
   // Read when a framing is asked for, never depended on: dragging the sheet
@@ -579,18 +671,17 @@ export default function VoterMapCanvas({
       attributionControl: false,
     })
     mapRef.current = map
-    // No `NavigationControl`. The design puts zoom on the bottom LEFT as a
-    // three-button cluster whose third button is a location toggle maplibre's
-    // stack has no equivalent of, so the cluster is rendered below in React
-    // and maplibre's own would only be a second, differently-styled pair of
-    // zoom buttons under the rail that now occupies the top-left corner.
+    // No `NavigationControl`. The cluster is a three-button stack whose
+    // third button is a location toggle maplibre's own has no equivalent of,
+    // so it is rendered below in React and maplibre's would only be a
+    // second, differently-styled pair of zoom buttons beside it.
     //
-    // Attribution goes bottom-RIGHT for the same reason it was moved off there
-    // before: the corner it used to share is the cluster's now. Nothing floats
-    // over the bottom-right on any of the three surfaces.
+    // Attribution takes whichever bottom corner the cluster does not. It is
+    // bottom-LEFT now because the cluster moved to the right — see the
+    // cluster's own comment for why that corner came free.
     map.addControl(
       new maplibregl.AttributionControl({ compact: true }),
-      'bottom-right',
+      'bottom-left',
     )
 
     // osm-liberty ships transit overlays and 3D building extrusions we
@@ -896,21 +987,57 @@ export default function VoterMapCanvas({
           // the archived treatment above — a walk on an archived list gets
           // both multiplications and reads as nearly invisible, which is
           // the right answer for that rare state.
-          getFillColor: (turf) =>
-            hexToRgba(
-              turf.color,
-              walkActiveAlpha(archivedAlpha(turf, 40), routePins.length > 0),
-            ),
-          getLineColor: (turf) =>
-            hexToRgba(
-              turf.color,
-              walkActiveAlpha(archivedAlpha(turf, 220), routePins.length > 0),
-            ),
+          //
+          // The campaign drawer's own overrides sit on top of both: a
+          // selection bumps the picked turf's fill and every sibling gets
+          // pulled to `SIBLING_ALPHA_MULT` so the choice reads as a foreground
+          // against a receded backdrop. Hover is a thinner ring on the
+          // pre-selection turf and never touches the fill, because a hover on
+          // a sibling should not out-shout the selected fill next to it.
+          getFillColor: (turf) => {
+            const base = walkActiveAlpha(
+              archivedAlpha(turf, 40),
+              routePins.length > 0,
+            )
+            const alpha = turfInteractiveAlpha(
+              turf.id,
+              base,
+              selectedTurfId,
+              SELECTED_FILL_ALPHA,
+            )
+            return hexToRgba(turf.color, alpha)
+          },
+          getLineColor: (turf) => {
+            const base = walkActiveAlpha(
+              archivedAlpha(turf, 220),
+              routePins.length > 0,
+            )
+            const alpha = turfInteractiveAlpha(
+              turf.id,
+              base,
+              selectedTurfId,
+              SELECTED_LINE_ALPHA,
+            )
+            return hexToRgba(turf.color, alpha)
+          },
+          getLineWidth: (turf) =>
+            turfLineWidth(turf.id, selectedTurfId, hoveredTurfId),
+          lineWidthUnits: 'pixels',
           lineWidthMinPixels: 2,
-          pickable: false,
+          pickable: Boolean(onTurfClick || onTurfHover),
+          onClick: onTurfClick
+            ? (info) => {
+                if (info.object) onTurfClick(info.object as DoorKnockingTurf)
+              }
+            : undefined,
+          onHover: onTurfHover
+            ? (info) =>
+                onTurfHover((info.object as DoorKnockingTurf | null) ?? null)
+            : undefined,
           updateTriggers: {
-            getFillColor: routePins.length > 0,
-            getLineColor: routePins.length > 0,
+            getFillColor: [routePins.length > 0, selectedTurfId],
+            getLineColor: [routePins.length > 0, selectedTurfId],
+            getLineWidth: [selectedTurfId, hoveredTurfId],
           },
         }),
         // Null on the volunteer walk (ENG-11055), which never reads the pack —
@@ -1146,6 +1273,10 @@ export default function VoterMapCanvas({
     location.approximate,
     labelBeforeId,
     drawing,
+    selectedTurfId,
+    hoveredTurfId,
+    onTurfClick,
+    onTurfHover,
   ])
 
   // One recenter per time the canvasser turns location on: they asked where
@@ -1265,6 +1396,27 @@ export default function VoterMapCanvas({
     armDrawing()
   }, [resumeDrawToken, armDrawing])
 
+  // Putting a finished boundary back under the cursor: the multi-turf surface
+  // hands back a turf the candidate cut earlier so its corners can be moved
+  // again.
+  //
+  // The undo stack is emptied rather than carried, and that is the point
+  // rather than a shortcut. Its entries are indexes into `drawPoints` from a
+  // DIFFERENT shape's history, so replaying one would drop or move a vertex
+  // of this ring at an index that meant something else — and undoing past the
+  // load would silently unbuild a turf the candidate has already committed.
+  // The loaded ring is the floor: undo can walk back to it and no further.
+  useEffect(() => {
+    if (loadDrawToken === 0) return
+    armDrawing()
+    const ring = loadDrawRingRef.current ?? []
+    drawPointsRef.current = ring
+    undoStackRef.current = []
+    setDrawPoints(ring)
+    onDrawPointCountRef.current?.(ring.length)
+    onPolygonChangeRef.current(ring.length >= 3 ? ring : null)
+  }, [loadDrawToken, armDrawing])
+
   useEffect(() => {
     if (undoDrawToken === 0) return
     // Settle any in-flight drag first, or it would keep writing to an index
@@ -1371,14 +1523,25 @@ export default function VoterMapCanvas({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
-      {/* The design's cluster: bottom left, vertical, 8px apart, each an
-          outline icon button on a card background so it reads against both
-          the pale street fill and the dark park fill it can sit over.
-          Rendered here rather than by each surface because it drives the map
-          and the map is this component's. */}
+      {/* The cluster: bottom right, vertical, 8px apart, each an outline
+          icon button on a card background so it reads against both the pale
+          street fill and the dark park fill it can sit over. Rendered here
+          rather than by each surface because it drives the map and the map
+          is this component's.
+          
+          It sat bottom-LEFT for a while, and the reason is worth knowing
+          before moving it back: the create flow's landing surface used to be
+          an inset card (`lg:right-4 lg:w-96`) floating OVER the map's right
+          edge, which left all three of these buttons drawn, looking
+          pressable and unclickable at 1440px. What makes the right corner
+          safe again is that the panel beside the map now RESERVES its width
+          instead of floating over it, so the map's own right edge is inside
+          the map at every width — and below `lg` the panel is a bottom sheet
+          the cluster already clears by measurement. If anything is ever put
+          back over the map's right half, this moves again. */}
       {!controlsHidden && (
         <div
-          className="absolute left-8 z-20 flex flex-col gap-2 transition-[bottom] duration-200 ease-out"
+          className="absolute right-8 z-20 flex flex-col items-end gap-2 transition-[bottom] duration-200 ease-out"
           style={{ bottom: controlsBottomPx }}
         >
           <IconButton
@@ -1420,6 +1583,56 @@ export default function VoterMapCanvas({
                 <LocateOffIcon className="size-[18px]" />
               )}
             </IconButton>
+          )}
+          {/* Below the locate button, last in the stack. Undo is a
+              direct-manipulation gesture and belongs on the map, but every
+              free-floating position was worse: following the last point put
+              a 44px target over the 12px vertex handle you grab to drag,
+              bottom-centre ate the taps meant for the shape, and top-left
+              was out of reach of the thumb doing the drawing. The cluster
+              is the one place on this map that is already understood to
+              hold controls, already clears the sheet by measurement, and
+              already sits under the hand. */}
+          {onUndoDrawPoint && (
+            <div className="flex items-center gap-2">
+              {/* Left of Undo and inside the same row, so the count and the
+                  control that changes it are one object: the cluster moves
+                  with the sheet, and a pill anchored anywhere else would
+                  drift away from its own button. */}
+              <Tooltip open={drawStopsOverCap ? true : undefined}>
+                <TooltipTrigger asChild>
+                  <span
+                    ref={stopPillRef}
+                    onAnimationEnd={(e) =>
+                      e.currentTarget.classList.remove('animate-shake')
+                    }
+                    className={`inline-flex h-10 shrink-0 items-center rounded-full border px-3.5 text-sm font-semibold ${
+                      drawStopsOverCap
+                        ? 'border-destructive bg-brand-red-100 text-destructive-dark'
+                        : 'border-border bg-card text-foreground'
+                    }`}
+                  >
+                    {drawStopCount.toLocaleString()} selected
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  Limit is 150 per list
+                </TooltipContent>
+              </Tooltip>
+              {/* Labelled, not an icon button. The other three controls in
+                  this stack are universal map glyphs; an undo arrow beside
+                  them reads as a third map control rather than as the way
+                  back from the tap just made. */}
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-card hover:bg-card"
+                onClick={onUndoDrawPoint}
+              >
+                <Undo2Icon className="size-[18px]" />
+                Undo
+              </Button>
+            </div>
           )}
         </div>
       )}

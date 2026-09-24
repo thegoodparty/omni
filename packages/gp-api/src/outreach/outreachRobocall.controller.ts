@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Delete,
   Body,
   Controller,
   Param,
@@ -12,6 +13,10 @@ import {
   RobocallAuthorizeRequestSchema,
   RobocallAuthorizeResponse,
   RobocallAuthorizeResponseSchema,
+  RobocallPromoApplyRequestSchema,
+  type RobocallPromoApplyRequest,
+  RobocallPromoStateResponseSchema,
+  type RobocallPromoStateResponse,
   RobocallComplianceRequest,
   RobocallComplianceRequestSchema,
   RobocallComplianceVerdict,
@@ -47,6 +52,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
+import { OutreachRobocallPromoService } from './services/outreachRobocallPromo.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
@@ -55,16 +61,15 @@ import {
   areaCodeFromE164UsNumber,
   resolveRobocallAreaCode,
 } from './util/robocallAreaCode.util'
-
-const candidateName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+import { ownerCandidateName } from '@/campaigns/util/ownerCandidateName.util'
+import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // Robocall endpoints. The compose surface (script draft, number rental,
 // compliance) is stateless — nothing persists there. `POST robocall` is the
 // one write: it saves the pending_payment draft (spine + satellite) the
 // hold/settlement slices act on.
 @Controller('outreach')
-@UseCampaign()
+@UseCampaign({ include: { user: true } })
 @UseOrganization()
 @UseInterceptors(ZodResponseInterceptor)
 export class OutreachRobocallController {
@@ -72,6 +77,7 @@ export class OutreachRobocallController {
     private readonly generationService: OutreachRobocallGenerationService,
     private readonly robocallService: OutreachRobocallService,
     private readonly holdService: OutreachRobocallHoldService,
+    private readonly promos: OutreachRobocallPromoService,
     private readonly compliance: RobocallComplianceService,
     private readonly complianceResults: RobocallComplianceResultService,
     private readonly composeContext: OutreachComposeContextService,
@@ -176,14 +182,14 @@ export class OutreachRobocallController {
   @ResponseSchema(RobocallScriptDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @Body(new ZodValidationPipe(RobocallScriptDraftRequestSchema))
     input: RobocallScriptDraftRequest,
   ): Promise<RobocallScriptDraftResponse> {
     return {
       draft: await this.generationService.generateDraft(
         input,
-        candidateName(user),
+        ownerCandidateName(campaign),
         await this.resolveOffice(campaign),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
@@ -241,6 +247,34 @@ export class OutreachRobocallController {
     )
   }
 
+  // Remembers a reward promotion code on the pending draft and returns the
+  // server-priced discount. Nothing is consumed here: the hold service spends
+  // the code when money commits, so a candidate who applies a code and leaves
+  // keeps it. Pro-gated and campaign-scoped like the siblings.
+  @Post('robocall/:outreachId/promo')
+  @ResponseSchema(RobocallPromoStateResponseSchema)
+  async applyPromo(
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+    @Body(new ZodValidationPipe(RobocallPromoApplyRequestSchema))
+    input: RobocallPromoApplyRequest,
+  ): Promise<RobocallPromoStateResponse> {
+    await this.contacts.assertProAccess(organization)
+    return this.promos.apply(campaign, outreachId, input.code)
+  }
+
+  @Delete('robocall/:outreachId/promo')
+  @ResponseSchema(RobocallPromoStateResponseSchema)
+  async removePromo(
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+  ): Promise<RobocallPromoStateResponse> {
+    await this.contacts.assertProAccess(organization)
+    return this.promos.remove(campaign, outreachId)
+  }
+
   // Fail-closed compliance gate for the recorded audio: transcribe and verify
   // the candidate self-ID, organization, and callback number are spoken. The
   // audio key is client-held, so confirm it belongs to THIS campaign first, so
@@ -249,7 +283,7 @@ export class OutreachRobocallController {
   @ResponseSchema(RobocallComplianceVerdictSchema)
   async checkCompliance(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @Body(new ZodValidationPipe(RobocallComplianceRequestSchema))
     input: RobocallComplianceRequest,
   ): Promise<RobocallComplianceVerdict> {
@@ -260,13 +294,14 @@ export class OutreachRobocallController {
       throw new BadRequestException('Audio does not belong to this campaign')
     }
 
-    const name = candidateName(user)
+    const name = ownerCandidateName(campaign)
     // Without a name the self-ID check can never pass and the audio can't say
     // it either — fail fast with a fixable error, not a misleading verdict the
     // user is stuck behind.
     if (!name) {
       throw new BadRequestException(
-        'Add your name to your campaign profile before recording a robocall.',
+        "Add the candidate's name to the campaign profile before recording" +
+          ' a robocall.',
       )
     }
     const office = await this.resolveOffice(campaign)
