@@ -1514,6 +1514,24 @@ def test_degraded_anchor_read_says_okr_markers_are_unavailable(tmp_path, monkeyp
     assert "OKR markers are unavailable this run" in digest
 
 
+def test_a_partial_sem_read_marks_okr_markers_unavailable(tmp_path, monkeypatch):
+    # One sem file failed, the rest read fine. The metrics in the failed file go
+    # unmarked, so a red OKR item there would quietly render yellow.
+    monkeypatch.setattr(sa, "load_anchors", lambda: (
+        {_METRIC: [sa.Leg(_TRACKER, None, None)]}, ["could not read users_serve.yml"]))
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path)
+
+    assert result["okr_markers_unavailable"] is True
+    record = next(r for r in result["records"] if r["event_type"] == _TRACKER)
+    assert record["okr"] == _METRIC
+
+
 # --- latch state file ---------------------------------------------------------
 
 

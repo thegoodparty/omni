@@ -804,8 +804,9 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
     if result.get("okr_markers_unavailable"):
         lines.append("")
         lines.append(
-            "> **OKR markers are unavailable this run.** No event below is marked OKR, "
-            "because the semantic layer could not be read. Red OKR items may render yellow."
+            "> **OKR markers are unavailable this run.** Some or all OKR events below "
+            "are unmarked, because the semantic layer could not be read in full. "
+            "Red OKR items may render yellow."
         )
     import anchor_alignment as aa  # local: it imports behavior_registry, which imports this
 
@@ -1092,9 +1093,10 @@ def run_monitor(
         catalog, weekly, code, today, watchlist_events, watched_families,
         dismissed_events=dismissed_events, okr_by_event=watched_by_key,
     )
-    # A failed read leaves every record unmarked. Say so, or a red OKR item quietly
-    # reads yellow the week the token expires.
-    result["okr_markers_unavailable"] = bool(read_problems) and not anchors
+    # A read problem leaves the metrics it covers unmarked, and a partial read leaves
+    # only the failed file's. Say so on any of them, or a red OKR item quietly reads
+    # yellow the week the token expires or one sem file breaks.
+    result["okr_markers_unavailable"] = bool(read_problems)
 
     current_monday = today - timedelta(days=today.weekday())
     # The WHOLE warehouse series, never a watched-only slice: update_latches tells a leg
@@ -1267,7 +1269,7 @@ def build_slack_triage(
             "rank": 0, "okr": "run-level",
             "rules_tier": "red", "tier": "red",
             "headline": ("OKR markers are unavailable this run: the semantic layer "
-                         "could not be read."),
+                         "could not be read in full."),
             "action": "Restore the semantic-layer read before trusting any tier below.",
         })
     # Yellow rather than red: a lagging load is worth saying out loud, but it resolves
