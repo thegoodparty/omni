@@ -1,5 +1,5 @@
 {
- "refreshed_at": "2026-09-24T17:41:37+00:00",
+ "refreshed_at": "2026-09-24T19:25:14+00:00",
  "generated_at": "2026-09-24",
  "source": "assembled event state + accepted anchors + question registry",
  "series_weeks": [
@@ -1943,7 +1943,7 @@
     5
    ],
    "tags": [],
-   "okr": "Activated Candidates, Outreach Intensity",
+   "okr": "",
    "supersession": "",
    "declared_intent": "",
    "watchlist_status": "tracked",
@@ -3168,7 +3168,7 @@
     21
    ],
    "tags": [],
-   "okr": "Activated Candidates, Outreach Intensity",
+   "okr": "",
    "supersession": "",
    "declared_intent": "",
    "watchlist_status": "tracked",
@@ -3389,7 +3389,7 @@
    "tags": [
     "product:win"
    ],
-   "okr": "",
+   "okr": "win_active_candidates_30d",
    "supersession": "supersedes Dashboard - Campaign Plan Viewed",
    "declared_intent": "in use",
    "watchlist_status": "tracked",
@@ -7223,7 +7223,7 @@
    "tags": [
     "product:win"
    ],
-   "okr": "Onboarding Completed (pledge)",
+   "okr": "",
    "supersession": "superseded by Onboarding V2 - Pledge Completed (Onboarding V2 rebuild)",
    "declared_intent": "not in use",
    "watchlist_status": "tracked",
@@ -7839,13 +7839,11 @@
    "tags": [
     "product:win"
    ],
-   "okr": "Active Candidates",
+   "okr": "",
    "supersession": "",
    "declared_intent": "not in use",
-   "watchlist_status": "tracked",
-   "questions": [
-    "How many candidates are active in a given week, and what actions does active mean?"
-   ],
+   "watchlist_status": "\u2014",
+   "questions": [],
    "used_by": [
     {
      "kind": "report",
@@ -8564,7 +8562,7 @@
    "tags": [
     "product:win"
    ],
-   "okr": "Onboarding Completed (pledge)",
+   "okr": "",
    "supersession": "",
    "declared_intent": "not in use",
    "watchlist_status": "tracked",
@@ -11738,7 +11736,7 @@
    "tags": [
     "product:win"
    ],
-   "okr": "Onboarded",
+   "okr": "",
    "supersession": "",
    "declared_intent": "in use",
    "watchlist_status": "tracked",
@@ -12632,7 +12630,7 @@
    "tags": [
     "product:win"
    ],
-   "okr": "Win Onboarding Completed",
+   "okr": "",
    "supersession": "supersedes Onboarding - Pledge Completed",
    "declared_intent": "in use",
    "watchlist_status": "tracked",
@@ -12902,7 +12900,7 @@
    "tags": [
     "product:win"
    ],
-   "okr": "Pro Conversions",
+   "okr": "",
    "supersession": "",
    "declared_intent": "in use",
    "watchlist_status": "tracked",
@@ -14504,7 +14502,7 @@
    "tags": [
     "product:win"
    ],
-   "okr": "Pro Conversions",
+   "okr": "",
    "supersession": "",
    "declared_intent": "in use",
    "watchlist_status": "tracked",
@@ -14551,7 +14549,7 @@
    "tags": [
     "product:win"
    ],
-   "okr": "Pro Conversions",
+   "okr": "",
    "supersession": "",
    "declared_intent": "in use",
    "watchlist_status": "tracked",
@@ -14889,7 +14887,7 @@
    "tags": [
     "product:serve"
    ],
-   "okr": "Active Serve Users, People Served",
+   "okr": "",
    "supersession": "",
    "declared_intent": "in use",
    "watchlist_status": "tracked",
@@ -15455,7 +15453,7 @@
     26
    ],
    "tags": [],
-   "okr": "Pro Conversions",
+   "okr": "",
    "supersession": "",
    "declared_intent": "",
    "watchlist_status": "tracked",
@@ -15490,7 +15488,7 @@
    "first_seen": "2025-05-28",
    "series": [],
    "tags": [],
-   "okr": "Onboarding Completed (legacy)",
+   "okr": "",
    "supersession": "",
    "declared_intent": "",
    "watchlist_status": "tracked",
@@ -18410,7 +18408,7 @@
    "tags": [
     "product:serve"
    ],
-   "okr": "Active Serve Users, People Served, Serve Onboarding Completed",
+   "okr": "activated_serve_users",
    "supersession": "",
    "declared_intent": "in use",
    "watchlist_status": "tracked",
@@ -20033,7 +20031,7 @@
     129
    ],
    "tags": [],
-   "okr": "Onboarded",
+   "okr": "",
    "supersession": "",
    "declared_intent": "",
    "watchlist_status": "tracked",
@@ -20079,7 +20077,7 @@
     56
    ],
    "tags": [],
-   "okr": "Activated Candidates, Outreach Intensity",
+   "okr": "win_activated_users",
    "supersession": "",
    "declared_intent": "",
    "watchlist_status": "tracked",
@@ -22091,13 +22089,13 @@
    "series": [
     95740,
     187535,
-    173077,
-    161931,
+    173078,
+    161932,
     246175,
-    344589,
-    341912,
-    162909,
-    399072
+    344592,
+    341913,
+    162910,
+    399074
    ],
    "tags": [],
    "okr": "",
@@ -22134,13 +22132,13 @@
    "series": [
     94824,
     223409,
-    172634,
+    172637,
     184390,
-    215937,
-    284554,
+    215939,
+    284555,
     255549,
-    133318,
-    288164
+    133321,
+    288168
    ],
    "tags": [],
    "okr": "",
@@ -22176,14 +22174,14 @@
    "first_seen": "2026-04-20",
    "series": [
     66094,
-    125521,
-    114418,
-    120651,
-    165126,
-    193444,
-    188621,
-    89511,
-    221606
+    125522,
+    114422,
+    120655,
+    165130,
+    193450,
+    188627,
+    89518,
+    221628
    ],
    "tags": [],
    "okr": "",
@@ -22220,13 +22218,13 @@
    "series": [
     55521,
     146690,
-    93018,
+    93020,
     113891,
     123020,
     159241,
     130668,
-    71740,
-    149418
+    71743,
+    149423
    ],
    "tags": [],
    "okr": "",
@@ -22262,11 +22260,11 @@
    "first_seen": "2026-03-12",
    "series": [
     57221,
-    285549,
-    133830,
+    285550,
+    133831,
     159108,
-    148025,
-    224316,
+    148027,
+    224318,
     76129,
     61869,
     93549
@@ -22351,18 +22349,20 @@
     119070,
     79139,
     118645,
-    99343,
+    99344,
     127166,
     69656,
     59507,
-    96151
+    96152
    ],
    "tags": [],
    "okr": "",
    "supersession": "",
    "declared_intent": "",
    "watchlist_status": "\u2014",
-   "questions": [],
+   "questions": [
+    "How many candidates are active in a given week, and what actions does active mean?"
+   ],
    "used_by": [],
    "provenance": {
     "instrumented_pr": "",
@@ -22436,12 +22436,12 @@
     5581,
     9732,
     10849,
-    8573,
-    8222,
-    8534,
-    8682,
-    8084,
-    9216
+    8574,
+    8224,
+    8535,
+    8684,
+    8086,
+    9221
    ],
    "tags": [],
    "okr": "",
@@ -22525,7 +22525,7 @@
     4523,
     6676,
     8729,
-    8508,
+    8509,
     3953,
     9723
    ],
@@ -22651,12 +22651,12 @@
     1937,
     3569,
     3777,
-    3487,
-    3528,
-    3517,
-    3556,
-    3341,
-    3486
+    3489,
+    3531,
+    3524,
+    3565,
+    3360,
+    3540
    ],
    "tags": [],
    "okr": "",
@@ -22785,7 +22785,7 @@
     981,
     783,
     613,
-    635
+    637
    ],
    "tags": [],
    "okr": "",
@@ -22866,12 +22866,12 @@
     146,
     255,
     293,
-    261,
+    262,
     286,
-    285,
+    286,
     213,
     204,
-    213
+    214
    ],
    "tags": [
     "product:shared"
@@ -24332,12 +24332,14 @@
      "label": "experiment_assignment",
      "path": "packages/gp-webapp/app/shared/experiments/getFlagVariants.ts",
      "instrumented_by": "Assignment",
+     "key": "Assignment",
      "state": "dead"
     },
     {
      "label": "experiment_exposure",
      "path": "packages/gp-webapp/app/shared/experiments/FeatureFlagsProvider.tsx",
      "instrumented_by": "Exposure",
+     "key": "Exposure",
      "state": "dead"
     }
    ]
@@ -24360,34 +24362,7 @@
      "label": "subscription_state_of_record",
      "path": "packages/gp-api/src/payments/services/paymentEventsService.ts",
      "instrumented_by": null,
-     "state": "gap"
-    }
-   ]
-  },
-  {
-   "id": "weekly_active_candidates",
-   "question": "How many candidates are active in a given week, and what actions does active mean?",
-   "also_answers": [],
-   "coverage": "uncovered",
-   "product": "win",
-   "asked_by": "bryan@goodparty.org",
-   "headline": "The weekly active number in circulation is wrong. It reads leftover traffic to a page event that no longer exists in the product.",
-   "caveats": "A WAU number is already circulating and is already wrong. The Active Candidates OKR anchors on `Dashboard - Candidate Dashboard Viewed`, retired in PR #732 and absent from the codebase, so the metric reads residual traffic. Re-anchoring is a PAIRED change across omni's okr: tag and gp-data-platform's semantic layer; nothing links or enforces the pairing, so the omni side is deliberately not edited alone (DATA-2173, DATA-2421, DATA-2432). Defining \"active\" is separate and downstream of that.",
-   "okr": "Active Candidates",
-   "clickup_task": "86akjz9xb",
-   "answer_url": "https://claude.ai/code/artifact/f9f3474a-d05f-4dcd-90da-bc9b2ee43aac",
-   "answer_label": "Win engagement report (DATA-2247)",
-   "surfaces": [
-    {
-     "label": "dashboard_visit",
-     "path": "packages/gp-webapp/app/dashboard/page.tsx",
-     "instrumented_by": "Dashboard - Candidate Dashboard Viewed",
-     "state": "dead"
-    },
-    {
-     "label": "breadth_of_navigation",
-     "path": "packages/gp-webapp/app/shared/layouts/navigation",
-     "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24410,6 +24385,7 @@
      "label": "value_prop_feature_identity",
      "path": "packages/gp-webapp/app/dashboard/pro-upgrade",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24422,7 +24398,7 @@
    "product": "win",
    "asked_by": "nate@goodparty.org",
    "headline": "Treat this as a floor. A candidate looking at a plan that has not been generated yet is not counted.",
-   "caveats": "Two things make a plan-open number a floor rather than a count. The tracker event returns early unless a generated strategy exists, so a candidate looking at an ungenerated plan fires nothing \u2014 \"opened their campaign plan\" means \"opened a plan that exists\". And the Active Candidates OKR anchored here has its own broken anchor elsewhere in this file: `Dashboard - Candidate Dashboard Viewed` was retired in PR #732 and no longer exists in the codebase. Re-anchoring spans omni and gp-data-platform's semantic layer, so it is not done here (DATA-2173, DATA-2421).",
+   "caveats": "One thing makes a plan-open number a floor rather than a count. The tracker event returns early unless a generated strategy exists, so a candidate looking at an ungenerated plan fires nothing \u2014 \"opened their campaign plan\" means \"opened a plan that exists\".",
    "okr": "",
    "clickup_task": "86ak20ama",
    "answer_url": "",
@@ -24432,12 +24408,14 @@
      "label": "campaign_plan_tracker",
      "path": "packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx",
      "instrumented_by": "Campaign Plan - Campaign Tracker Viewed",
+     "key": "Campaign Plan - Campaign Tracker Viewed",
      "state": "live"
     },
     {
      "label": "campaign_plan_read_through",
      "path": "packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24460,12 +24438,14 @@
      "label": "abandon_point",
      "path": "packages/gp-webapp/app/onboarding/[slug]/[step]",
      "instrumented_by": "Onboarding V2 - Office Completed",
+     "key": "Onboarding V2 - Office Completed",
      "state": "live"
     },
     {
      "label": "resume_point",
      "path": "packages/gp-webapp/app/post-auth-redirect/page.tsx",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24488,12 +24468,14 @@
      "label": "self_reported_outcome",
      "path": "packages/gp-webapp/app/dashboard/election-result/components/ElectionResultPage.tsx",
      "instrumented_by": "Candidacy - Did You Win Modal Completed",
+     "key": "Candidacy - Did You Win Modal Completed",
      "state": "live"
     },
     {
      "label": "external_results_feed",
      "path": "packages/gp-api/src/campaigns/services/campaigns.service.ts",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24516,30 +24498,65 @@
      "label": "plan_artifact_displayed",
      "path": "packages/gp-webapp/app/dashboard/campaign-plan",
      "instrumented_by": "Dashboard - Campaign Plan: Media Displayed",
+     "key": "Dashboard - Campaign Plan: Media Displayed",
      "state": "live"
     },
     {
      "label": "campaign_story_acted_on",
      "path": "packages/gp-webapp/app/dashboard/campaign-story",
      "instrumented_by": "Campaign Story - Rewrite Accepted",
+     "key": "Campaign Story - Rewrite Accepted",
      "state": "live"
     },
     {
      "label": "opponent_contrast_acted_on",
      "path": "packages/gp-api/src/raceOpponent",
      "instrumented_by": "Win - Contrast Used",
+     "key": "Win - Contrast Used",
      "state": "dead"
     },
     {
      "label": "plan_acted_on",
      "path": "packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CampaignStrategySection.tsx",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     },
     {
      "label": "campaign_manager_any_usage",
      "path": "packages/gp-webapp/app/dashboard/campaign-manager",
      "instrumented_by": null,
+     "key": null,
+     "state": "gap"
+    }
+   ]
+  },
+  {
+   "id": "weekly_active_candidates",
+   "question": "How many candidates are active in a given week, and what actions does active mean?",
+   "also_answers": [],
+   "coverage": "partial",
+   "product": "win",
+   "asked_by": "bryan@goodparty.org",
+   "headline": "The weekly active number in circulation is wrong. It reads leftover traffic to a page event that no longer exists in the product.",
+   "caveats": "The Active Candidates OKR counts the dashboard-view union `win_active_candidates_30d` declares: the site-wide page event at path `/dashboard` plus `Campaign Plan - Campaign Tracker Viewed`. Its two historical legs, `Dashboard - Candidate Dashboard Viewed` and `Dashboard - Campaign Plan Viewed`, are gone from the codebase and no longer counted, so a WAU number taken off the retired dashboard event was reading residual traffic and has to be requoted. The 30 day window is evaluated against current_date() in the mart, so this metric is as-of-run-time and cannot be sliced historically. Defining what \"active\" should mean beyond a dashboard view is a separate question and still open.",
+   "okr": "",
+   "clickup_task": "86akjz9xb",
+   "answer_url": "https://claude.ai/code/artifact/f9f3474a-d05f-4dcd-90da-bc9b2ee43aac",
+   "answer_label": "Win engagement report (DATA-2247)",
+   "surfaces": [
+    {
+     "label": "dashboard_visit",
+     "path": "packages/gp-webapp/app/dashboard/page.tsx",
+     "instrumented_by": "Viewed",
+     "key": "Viewed[path=/dashboard]",
+     "state": "live"
+    },
+    {
+     "label": "breadth_of_navigation",
+     "path": "packages/gp-webapp/app/shared/layouts/navigation",
+     "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24562,18 +24579,21 @@
      "label": "compliance_block_moment",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/ChannelTileGrid.tsx",
      "instrumented_by": "Voter Outreach - 10DLC Compliance Modal Viewed",
+     "key": "Voter Outreach - 10DLC Compliance Modal Viewed",
      "state": "live"
     },
     {
      "label": "compliance_submitted",
      "path": "packages/gp-webapp/app/dashboard/profile/texting-compliance",
      "instrumented_by": "Voter Outreach - 10DLC Compliance Completed",
+     "key": "Voter Outreach - 10DLC Compliance Completed",
      "state": "live"
     },
     {
      "label": "compliance_resolution",
      "path": "packages/gp-webapp/app/dashboard/profile/texting-compliance",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24598,36 +24618,42 @@
      "label": "crm_wizard_voter_file",
      "path": "packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx",
      "instrumented_by": "Voter Data - List Created",
+     "key": "Voter Data - List Created",
      "state": "live"
     },
     {
      "label": "crm_wizard_activity",
      "path": "packages/gp-webapp/app/dashboard/contacts/crm/wizard/CreateListWizard.tsx",
      "instrumented_by": "Voter Data - Activity List Created",
+     "key": "Voter Data - Activity List Created",
      "state": "live"
     },
     {
      "label": "crm_list_duplicate",
      "path": "packages/gp-webapp/app/dashboard/contacts/crm/lists/useDuplicateList.ts",
      "instrumented_by": "Contacts - Segment Created",
+     "key": "Contacts - Segment Created",
      "state": "live"
     },
     {
      "label": "outreach_v2_audience_step",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/audience/useOutreachAudience.ts",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     },
     {
      "label": "door_knocking_list",
      "path": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx",
      "instrumented_by": "Door Knocking - List Created",
+     "key": "Door Knocking - List Created",
      "state": "live"
     },
     {
      "label": "phone_banking_call_list",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx",
      "instrumented_by": "Voter Outreach - Phone Banking Call List Created",
+     "key": "Voter Outreach - Phone Banking Call List Created",
      "state": "live"
     }
    ]
@@ -24642,11 +24668,8 @@
    "product": "win",
    "asked_by": "nate@goodparty.org",
    "headline": "This number is wrong today. It counts door knocks and self-reports rather than scheduled outreach, and three of the four channels record nothing when something is sent.",
-   "caveats": "BOTH OKRs anchored here are currently wrong. `Voter Outreach - Campaign Completed` stopped firing on outreach scheduling when the flow was rewritten to outreach/v2/ \u2014 it survives only on a completed door-knocking walk and on the manual self-report modal, so these metrics count door knocks and self-reports and call it outreach (DATA-2343 sweep, DATA-2432). Three of four channels have no scheduled/sent terminal at all, which reads identically to total abandonment rather than to missing instrumentation. Re-anchoring is a paired change across omni and gp-data-platform's semantic layer and is deliberately NOT done here: editing this tag alone would diverge the registry from the metric definition (DATA-2421).",
-   "okr": [
-    "Activated Candidates",
-    "Outreach Intensity"
-   ],
+   "caveats": "`win_activated_users` declares one leg, `Voter Outreach - Campaign Completed`, which stopped firing on outreach scheduling when the flow was rewritten to outreach/v2/ and survives only on a completed door-knocking walk and the manual self-report modal (DATA-2343 sweep). Three of four channels have no scheduled/sent terminal at all. The surfaces below name what actually fires; where that is broader than the declaration, the monitor reports it as a scope disagreement for the semantic-layer owners to settle. Outreach Intensity has no governed declaration yet and is not tracked as an OKR here.",
+   "okr": "",
    "clickup_task": "86ak20ac5",
    "answer_url": "",
    "answer_label": "",
@@ -24655,36 +24678,42 @@
      "label": "robocall_scheduled",
      "path": "packages/gp-api/src/outreach/services/outreachRobocall.service.ts",
      "instrumented_by": "Robocall - Scheduled",
+     "key": "Robocall - Scheduled",
      "state": "live"
     },
     {
      "label": "sms_scheduled",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     },
     {
      "label": "social_scheduled",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     },
     {
      "label": "phone_banking_scheduled",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     },
     {
      "label": "door_knocking_walk_completed",
      "path": "packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts",
      "instrumented_by": "Voter Outreach - Campaign Completed",
+     "key": "Voter Outreach - Campaign Completed",
      "state": "live"
     },
     {
      "label": "door_knocking_list_created",
      "path": "packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/CreateListFlow.tsx",
      "instrumented_by": "Door Knocking - List Created",
+     "key": "Door Knocking - List Created",
      "state": "live"
     }
    ]
@@ -24707,24 +24736,28 @@
      "label": "outreach_funnel_entry",
      "path": "packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx",
      "instrumented_by": "Voter Data - Send Outreach Clicked",
+     "key": "Voter Data - Send Outreach Clicked",
      "state": "live"
     },
     {
      "label": "outreach_hub_viewed",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/OutreachHubPage.tsx",
      "instrumented_by": "Outreach - View Accessed",
+     "key": "Outreach - View Accessed",
      "state": "live"
     },
     {
      "label": "outreach_channel_chosen",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/ChannelTileGrid.tsx",
      "instrumented_by": "Outreach - Click Create",
+     "key": "Outreach - Click Create",
      "state": "live"
     },
     {
      "label": "outreach_send_terminal",
      "path": "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24738,7 +24771,7 @@
    "asked_by": "bryan@goodparty.org",
    "headline": "Nothing marks onboarding as finished, so the last step is a stand-in. Count people rather than events: the steps fire again when someone resumes.",
    "caveats": "There is no terminal onboarding event. Completion exists only as the user property `onboardingCompleted`, so the last funnel step has to be proxied by Pledge Completed or a first-dashboard event \u2014 the DATA-2337 failure. Two further traps: signup and onboarding are separate funnels with a save point between them, so \"account with no campaign\" and \"campaign stuck at step N\" are different populations a single definition will conflate; and step events re-fire on resume, so count distinct users per step, not events.",
-   "okr": "Onboarded",
+   "okr": "",
    "clickup_task": "86akjz92p",
    "answer_url": "",
    "answer_label": "",
@@ -24747,18 +24780,21 @@
      "label": "signup_entry",
      "path": "packages/gp-webapp/app/sign-up",
      "instrumented_by": "Onboarding - Registration Completed",
+     "key": "Onboarding - Registration Completed",
      "state": "live"
     },
     {
      "label": "onboarding_steps",
      "path": "packages/gp-webapp/app/onboarding/[slug]/[step]",
      "instrumented_by": "Onboarding V2 - Welcome Completed",
+     "key": "Onboarding V2 - Welcome Completed",
      "state": "live"
     },
     {
      "label": "onboarding_terminal",
      "path": "packages/gp-webapp/app/onboarding/success",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24781,12 +24817,14 @@
      "label": "upgrade_timestamp",
      "path": "packages/gp-api/src/payments/services/paymentEventsService.ts",
      "instrumented_by": "Account - Pro Subscription Confirmed",
+     "key": "Account - Pro Subscription Confirmed",
      "state": "dead"
     },
     {
      "label": "post_upgrade_activity",
      "path": "packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx",
      "instrumented_by": "Voter Data - List Exported",
+     "key": "Voter Data - List Exported",
      "state": "live"
     }
    ]
@@ -24809,12 +24847,14 @@
      "label": "utm_capture",
      "path": "packages/gp-webapp/helpers/analyticsHelper.ts",
      "instrumented_by": "Onboarding - Registration Completed",
+     "key": "Onboarding - Registration Completed",
      "state": "live"
     },
     {
      "label": "first_last_touch",
      "path": "packages/gp-webapp/app/shared/layouts/navigation/SegmentIdentify.tsx",
      "instrumented_by": null,
+     "key": null,
      "state": "gap"
     }
    ]
@@ -24839,6 +24879,7 @@
      "label": "crm_list_detail",
      "path": "packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx",
      "instrumented_by": "Voter Data - List Exported",
+     "key": "Voter Data - List Exported",
      "state": "live"
     }
    ]
@@ -24861,12 +24902,14 @@
      "label": "retention_activity_export",
      "path": "packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx",
      "instrumented_by": "Voter Data - List Exported",
+     "key": "Voter Data - List Exported",
      "state": "live"
     },
     {
      "label": "retention_activity_outreach",
      "path": "packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts",
      "instrumented_by": "Voter Outreach - Campaign Completed",
+     "key": "Voter Outreach - Campaign Completed",
      "state": "live"
     }
    ]
@@ -24880,7 +24923,7 @@
    "asked_by": "bryan@goodparty.org",
    "headline": "Treat conversions as a floor. Stripe is the number of record, and the people who saw the offer are only counted on the dashboard.",
    "caveats": "The best-instrumented flow in the product, with two reasons the number is a floor rather than exact. Both terminal events fire from the Stripe webhook inside try/catch that logs and continues, so a Segment outage loses the conversion while the upgrade succeeds, and the two can disagree because they fail independently \u2014 Stripe is the count of record. And the denominator rests on `Pro Upgrade - Banner Viewed`, seen firing on the dashboard only; if the banner renders elsewhere without firing, conversion looks better than it is. Step events also repeat on funnel re-entry, so count distinct users per step.",
-   "okr": "Pro Conversions",
+   "okr": "",
    "clickup_task": "86akjza5w",
    "answer_url": "",
    "answer_label": "",
@@ -24889,18 +24932,21 @@
      "label": "pro_funnel_entry",
      "path": "packages/gp-webapp/app/dashboard/pro-upgrade",
      "instrumented_by": "Pro Upgrade - Banner: Click Get Pro",
+     "key": "Pro Upgrade - Banner: Click Get Pro",
      "state": "live"
     },
     {
      "label": "pro_filing_details",
      "path": "packages/gp-webapp/app/dashboard/pro-upgrade",
      "instrumented_by": "Pro Upgrade - Filing Details Submitted",
+     "key": "Pro Upgrade - Filing Details Submitted",
      "state": "live"
     },
     {
      "label": "pro_purchase_confirmed",
      "path": "packages/gp-api/src/payments/services/paymentEventsService.ts",
      "instrumented_by": "pro_upgrade_complete",
+     "key": "pro_upgrade_complete",
      "state": "live"
     }
    ]
@@ -24923,24 +24969,28 @@
      "label": "first_value_export",
      "path": "packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx",
      "instrumented_by": "Voter Data - List Exported",
+     "key": "Voter Data - List Exported",
      "state": "live"
     },
     {
      "label": "first_value_robocall",
      "path": "packages/gp-api/src/outreach/services/outreachRobocall.service.ts",
      "instrumented_by": "Robocall - Scheduled",
+     "key": "Robocall - Scheduled",
      "state": "live"
     },
     {
      "label": "first_value_door_knocking",
      "path": "packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts",
      "instrumented_by": "Voter Outreach - Campaign Completed",
+     "key": "Voter Outreach - Campaign Completed",
      "state": "live"
     },
     {
      "label": "first_value_website",
      "path": "packages/gp-webapp/app/dashboard/website",
      "instrumented_by": "Candidate Website - Published",
+     "key": "Candidate Website - Published",
      "state": "live"
     }
    ]

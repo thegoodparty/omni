@@ -34,10 +34,24 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 - **`searchDomainsForCampaign` returns a shortlist, not an inventory.** It
   stops once enough candidates qualify and hard-stops on a wall-clock budget
   under the broker's upstream timeout (constants in `domains.service.ts`) —
-  an exhaustive check of 50 candidates under Route53 throttling backoff took
-  ~6 minutes, timed out every agent call, and resume-looped nine compliance
-  runs to death (2026-09-20..22). Budget exhausted with zero found is a 502
-  (retryable), never an empty list.
+  an exhaustive check under Route53 throttling backoff took ~6 minutes, timed
+  out every agent call, and resume-looped nine compliance runs to death
+  (2026-09-20..22). Budget exhausted with zero found is a 502 (retryable),
+  never an empty list.
+- **The candidate cap applies after the TLD fan-out, not before it.**
+  `MAX_PATTERN_CANDIDATES` bounds SLDs, and the fan-out then multiplies each
+  by `SUPPORTED_TLDS`, so the nominal 50 was really up to 300 Route53 calls
+  per search. `MAX_AVAILABILITY_CHECKS` bounds the number that actually
+  reaches the registrar; raising one without the other silently multiplies
+  quota spend on an account-wide bucket shared with the purchase path.
+- **A throttled availability check is not a taken domain.** Route53
+  throttling surfaces as a 503 (`AwsService.handleAwsError`) and returns the
+  `UNCHECKED` sentinel, so it is counted rather than folded into "unavailable".
+  An empty candidate list is therefore authoritative: it is only returned when
+  every candidate got a real verdict. If anything went unchecked — throttled,
+  truncated at `MAX_AVAILABILITY_CHECKS`, or cut off by the time budget — and
+  nothing else qualified, the search raises a 502 instead. Never return an
+  empty list the caller could read as "the namespace is taken".
 - **Vercel registrar buys are asynchronous orders.** `buySingleDomain` 2xx means "order accepted", not "domain bought" — an order can still fail on Vercel's side (completion is typically ~13s). `completeDomainRegistration` polls `getRegistrarOrder` and only stamps `submitted`/`registrantVerifiedAt` once the order reports completed; the real orderId is persisted as `Domain.operationId`. Never treat the buy response alone as proof of registration.
 - `forwardRef(() => CampaignsModule)` — circular with campaigns. Keep new edges to the campaigns side as forwardRefs to avoid breaking module init.
 - `WebsiteView` uses a localStorage-issued visitor UUID; treat it as advisory, not authoritative analytics.

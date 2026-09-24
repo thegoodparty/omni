@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OutreachType } from '../../generated/prisma'
+import { OutreachStatus, OutreachType } from '../../generated/prisma'
 import { collapseDoorKnockingCampaigns } from './collapseDoorKnockingCampaigns.util'
 
 const at = (iso: string) => new Date(iso)
@@ -9,10 +9,35 @@ const row = (
   outreachType: OutreachType,
   campaignOutreachId: number | null,
   createdAt: string,
-) => ({ id, outreachType, campaignOutreachId, createdAt: at(createdAt) })
+  status: OutreachStatus | null = OutreachStatus.in_progress,
+  archivedAt: string | null = null,
+) => ({
+  id,
+  outreachType,
+  campaignOutreachId,
+  createdAt: at(createdAt),
+  status,
+  archivedAt: archivedAt === null ? null : at(archivedAt),
+})
 
-const dk = (id: number, campaignOutreachId: number | null, createdAt: string) =>
-  row(id, OutreachType.nativeDoorKnocking, campaignOutreachId, createdAt)
+const dk = (
+  id: number,
+  campaignOutreachId: number | null,
+  createdAt: string,
+  status: OutreachStatus | null = OutreachStatus.in_progress,
+  archivedAt: string | null = null,
+) =>
+  row(
+    id,
+    OutreachType.nativeDoorKnocking,
+    campaignOutreachId,
+    createdAt,
+    status,
+    archivedAt,
+  )
+
+const done = OutreachStatus.completed
+const going = OutreachStatus.in_progress
 
 describe('collapseDoorKnockingCampaigns', () => {
   it('collapses an anchor and its siblings into one row carrying the count', () => {
@@ -109,6 +134,104 @@ describe('collapseDoorKnockingCampaigns', () => {
     expect(result).toHaveLength(1)
     expect(result[0]?.id).toBe(30)
     expect(result[0]?.turfCount).toBe(2)
+  })
+
+  // The campaign's status is not the anchor turf's. `complete` takes a TURF
+  // id and writes one envelope, so an anchor finished ahead of its siblings
+  // used to make the whole campaign read "Done" in outreach history while
+  // turfs were still unwalked.
+  it('is not done while any turf in the campaign is unfinished', () => {
+    const result = collapseDoorKnockingCampaigns([
+      dk(1, null, '2026-01-01T00:00:00Z', done),
+      dk(2, 1, '2026-01-02T00:00:00Z', going),
+      dk(3, 1, '2026-01-03T00:00:00Z', done),
+    ])
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.id).toBe(1)
+    expect(result[0]?.status).toBe(going)
+  })
+
+  it('is done once every turf is', () => {
+    const result = collapseDoorKnockingCampaigns([
+      dk(1, null, '2026-01-01T00:00:00Z', done),
+      dk(2, 1, '2026-01-02T00:00:00Z', done),
+    ])
+
+    expect(result[0]?.status).toBe(done)
+  })
+
+  // A shelved turf is out of the reckoning. `completeCampaign` skips it and
+  // the confirm dialog does not count it, so counting it here would leave a
+  // campaign reading In progress with nothing left that could finish it.
+  it('is done when the only unfinished turf is archived', () => {
+    const result = collapseDoorKnockingCampaigns([
+      dk(1, null, '2026-01-01T00:00:00Z', done),
+      dk(2, 1, '2026-01-02T00:00:00Z', going, '2026-06-01T00:00:00Z'),
+    ])
+
+    expect(result[0]?.status).toBe(done)
+    // Not every turf is shelved, so the campaign is still on the active list.
+    expect(result[0]?.archivedAt).toBeNull()
+  })
+
+  it('leaves an unfinished anchor alone', () => {
+    // The correction only ever walks a campaign BACK from done. An anchor
+    // that is still going stays going, whatever its siblings say.
+    const result = collapseDoorKnockingCampaigns([
+      dk(1, null, '2026-01-01T00:00:00Z', going),
+      dk(2, 1, '2026-01-02T00:00:00Z', done),
+    ])
+
+    expect(result[0]?.status).toBe(going)
+  })
+
+  it('does not touch a non-door-knocking row’s status', () => {
+    const result = collapseDoorKnockingCampaigns([
+      row(10, OutreachType.text, null, '2026-02-01T00:00:00Z', done),
+    ])
+
+    expect(result[0]?.status).toBe(done)
+  })
+
+  // Same correction, one field over. The history table sections on
+  // `archivedAt`, and the walk's "Move to archive" writes ONE turf's
+  // envelope, so shelving the anchor turf used to take the whole campaign off
+  // the active list while its siblings were still being walked.
+  it('is not archived while any turf is still on the rail', () => {
+    const result = collapseDoorKnockingCampaigns([
+      dk(1, null, '2026-01-01T00:00:00Z', going, '2026-06-01T00:00:00Z'),
+      dk(2, 1, '2026-01-02T00:00:00Z', going),
+    ])
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.archivedAt).toBeNull()
+  })
+
+  it('is archived once every turf is, as of the last one shelved', () => {
+    const result = collapseDoorKnockingCampaigns([
+      dk(1, null, '2026-01-01T00:00:00Z', done, '2026-06-01T00:00:00Z'),
+      dk(2, 1, '2026-01-02T00:00:00Z', done, '2026-06-09T00:00:00Z'),
+    ])
+
+    // The later of the two: "archived since" for a campaign is when the last
+    // turf in it reached the shelf, not when the first did.
+    expect(result[0]?.archivedAt).toEqual(at('2026-06-09T00:00:00Z'))
+  })
+
+  it('does not touch a non-door-knocking row’s archivedAt', () => {
+    const result = collapseDoorKnockingCampaigns([
+      row(
+        10,
+        OutreachType.text,
+        null,
+        '2026-02-01T00:00:00Z',
+        done,
+        '2026-06-01T00:00:00Z',
+      ),
+    ])
+
+    expect(result[0]?.archivedAt).toEqual(at('2026-06-01T00:00:00Z'))
   })
 
   it('returns nothing for no rows', () => {

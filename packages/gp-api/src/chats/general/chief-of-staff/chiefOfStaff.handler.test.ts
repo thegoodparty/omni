@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { asSchema } from 'ai'
 import { ChatScope } from '../../../generated/prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -16,6 +17,7 @@ import type { Organization } from '../../../generated/prisma'
 import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -82,6 +84,7 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
+          attachmentsEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -236,6 +239,7 @@ describe('ChiefOfStaffHandler', () => {
             anchor: ANCHOR,
             districtFilters: null,
             constituentToolEnabled: false,
+            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
@@ -279,6 +283,7 @@ describe('ChiefOfStaffHandler', () => {
             anchor: anchorWithHighlight,
             districtFilters: null,
             constituentToolEnabled: false,
+            attachmentsEnabled: false,
           }),
         ),
       } as unknown as ChiefOfStaffContextService
@@ -397,6 +402,15 @@ describe('ChiefOfStaffHandler', () => {
       expect(toolNames).toContain('count_contacts')
     })
 
+    it('tells the catalog which registered tools take its filter shape', async () => {
+      const handler = buildCrmHandler({ contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const tools = handler.buildTools(ctx)
+      expect(
+        descriptionOf(tools.describe_filter_dimensions).split('\n\n')[0],
+      ).toContain('for count_contacts')
+    })
+
     // Precinct is the one filter dimension describe_filter_dimensions
     // cannot carry — its values are per-district — so this tool is the only
     // route to it. Without it registered the assistant tells an office
@@ -467,6 +481,81 @@ describe('ChiefOfStaffHandler', () => {
       expect(toolNames).toContain('count_contacts')
       expect(toolNames).not.toContain('crud_saved_filters')
       expect(handler.buildSystemPrompt(ctx)).not.toContain('crud_saved_filters')
+    })
+  })
+
+  describe('serve-chat-attachments flag gate (compose_handoff tool)', () => {
+    const buildCtxWith = (attachmentsEnabled: boolean) =>
+      ({
+        load: vi.fn(() =>
+          Promise.resolve({
+            conversationId: 'c1',
+            electedOfficeId: 'office-1',
+            organizationSlug: ORG,
+            organization: { slug: ORG } as Organization,
+            userFirstName: 'Jordan',
+            userLastName: 'Lee',
+            officeTitle: 'Council Member',
+            jurisdiction: null,
+            swornInDate: null,
+            party: null,
+            electedDate: null,
+            termStartDate: null,
+            termEndDate: null,
+            priorities: [],
+            isFirstConversation: false,
+            anchor: null,
+            districtFilters: null,
+            constituentToolEnabled: false,
+            attachmentsEnabled,
+          }),
+        ),
+      }) as unknown as ChiefOfStaffContextService
+
+    it('registers compose_handoff when the flag is on', async () => {
+      const handler = new ChiefOfStaffHandler(
+        buildCtxWith(true),
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).toContain('compose_handoff')
+    })
+
+    it('omits compose_handoff when the flag is off', async () => {
+      const handler = new ChiefOfStaffHandler(
+        buildCtxWith(false),
+        buildBriefings(),
+        port,
+        [],
+      )
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'compose_handoff',
+      )
+    })
+
+    it('inputSchema converts to a top-level object json schema (Anthropic rejects anyOf roots)', async () => {
+      const tool = buildComposeHandoffTool()
+      const converted = await asSchema(tool.inputSchema).jsonSchema
+      expect(converted.type).toBe('object')
+      expect(converted.anyOf).toBeUndefined()
+    })
+
+    it('execute returns the validated payload verbatim on valid input', async () => {
+      const tool = buildComposeHandoffTool()
+      const input = { channel: 'serve_social' as const, draftText: 'Hello!' }
+      const result = await tool.execute(input)
+      expect(result).toEqual(input)
+    })
+
+    it('execute throws on invalid input (schema parse error)', () => {
+      const tool = buildComposeHandoffTool()
+      type Input = Parameters<typeof tool.execute>[0]
+      expect(() =>
+        tool.execute({ channel: 'unknown' } as unknown as Input),
+      ).toThrow()
     })
   })
 

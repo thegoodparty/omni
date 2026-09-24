@@ -8,6 +8,7 @@ import {
   useState,
   type RefObject,
 } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, toast } from '@styleguide'
 import {
@@ -33,11 +34,16 @@ import type {
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
-import { ShowListMapSchema, type ShowListMap } from '@goodparty_org/contracts'
+import {
+  ShowListMapSchema,
+  type ShowListMap,
+  type ComposeHandoffPayload,
+} from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
 import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
+import type { ChatScope } from '../../../shared/agent-chat/chatClient'
 import {
   uploadChatAttachment,
   linkChatAttachment,
@@ -48,6 +54,7 @@ import {
   linkErrorMessage,
   type ChatAttachmentState,
 } from '../../../shared/agent-chat/chatAttachments-api'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 interface Props {
   /**
@@ -123,6 +130,12 @@ interface Props {
    * it; the issue and ordinance docks don't.
    */
   showMessageActions?: boolean
+  /**
+   * The chat scope used to gate attachment support. Defaults to
+   * 'chief_of_staff' so existing CoS callers need no change; Campaign Manager
+   * passes 'campaign_assistant' to correctly suppress the paperclip.
+   */
+  scope?: ChatScope
 }
 
 /**
@@ -191,7 +204,9 @@ export default function ChiefOfStaffChatBody({
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
   showMessageActions = false,
+  scope = 'chief_of_staff',
 }: Props): React.JSX.Element {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
@@ -251,7 +266,7 @@ export default function ChiefOfStaffChatBody({
     [composerRef],
   )
 
-  const attachmentsEnabled = useAttachmentsEnabled('chief_of_staff')
+  const attachmentsEnabled = useAttachmentsEnabled(scope)
 
   const [attachments, setAttachments] = useState<ChatAttachmentState[]>([])
 
@@ -272,6 +287,27 @@ export default function ChiefOfStaffChatBody({
     }
     setGuardAcknowledged(true)
   }, [])
+
+  useEffect(() => {
+    if (attachmentsEnabled.enabled && guardAcknowledged === false) {
+      void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, {})
+    }
+  }, [attachmentsEnabled.enabled, guardAcknowledged])
+
+  const reportedFailedIdsRef = useRef(new Set<string>())
+  useEffect(() => {
+    for (const attachment of attachments) {
+      if (
+        attachment.status === 'failed' &&
+        !reportedFailedIdsRef.current.has(attachment.id)
+      ) {
+        reportedFailedIdsRef.current.add(attachment.id)
+        void trackEvent(EVENTS.ChiefOfStaff.SourceUnreachablePromptShown, {
+          promptContext: attachment.failureReason ?? 'unknown',
+        })
+      }
+    }
+  }, [attachments])
 
   const toolLabel = useCallback(
     (name: string): string => toolDisplayName(name),
@@ -568,6 +604,12 @@ export default function ChiefOfStaffChatBody({
         setAttachments((prev) =>
           prev.map((a) => (a.id === tempId ? result : a)),
         )
+        void trackEvent(EVENTS.ChiefOfStaff.DocumentAttached, {
+          sourceType: 'file',
+          fileType: file.type || (file.name.split('.').pop() ?? ''),
+          byteSize: file.size,
+          pageCount: result.pageCount ?? null,
+        })
       } catch (err) {
         reportErrorToSentry(err, {
           surface: 'chief-of-staff-chat',
@@ -600,6 +642,12 @@ export default function ChiefOfStaffChatBody({
           failureReason: null,
         },
       ])
+      let linkHost = ''
+      try {
+        linkHost = new URL(url).hostname
+      } catch {
+        // malformed url — leave linkHost as empty string
+      }
       try {
         const result = await linkChatAttachment(cid, url)
         if (result.ok) {
@@ -614,6 +662,10 @@ export default function ChiefOfStaffChatBody({
               return true
             })
           })
+          void trackEvent(EVENTS.ChiefOfStaff.LinkSubmitted, {
+            linkHost,
+            fetchSucceeded: true,
+          })
         } else {
           setAttachments((prev) =>
             prev.map((a) =>
@@ -626,6 +678,10 @@ export default function ChiefOfStaffChatBody({
                 : a,
             ),
           )
+          void trackEvent(EVENTS.ChiefOfStaff.LinkFetchFailed, {
+            linkHost,
+            failureReason: result.error,
+          })
         }
       } catch (err) {
         reportErrorToSentry(err, {
@@ -643,6 +699,10 @@ export default function ChiefOfStaffChatBody({
               : a,
           ),
         )
+        void trackEvent(EVENTS.ChiefOfStaff.LinkFetchFailed, {
+          linkHost,
+          failureReason: 'network_error',
+        })
       }
     },
     [conversationId, ensureConversationId],
@@ -708,6 +768,10 @@ export default function ChiefOfStaffChatBody({
       page: number | null | undefined,
     ): Promise<void> => {
       if (!conversationId) return
+      void trackEvent(EVENTS.ChiefOfStaff.CitationOpened, {
+        documentId: attachmentId,
+        pageNumber: page ?? null,
+      })
       // Open the tab immediately while the user gesture is still live so browsers
       // don't block the popup. Navigate it to the presigned URL once fetched.
       const tab = window.open('', '_blank')
@@ -725,6 +789,37 @@ export default function ChiefOfStaffChatBody({
       }
     },
     [conversationId],
+  )
+
+  // Chief of staff users are Serve (elected officials): /dashboard/outreach is
+  // the Win hub behind candidateAccess() and bounces them to the marketing
+  // site. The nonce is written to sessionStorage so the payload survives the
+  // navigation without riding the URL (which would expose the draft text).
+  const handleComposeHandoff = useCallback(
+    (payload: ComposeHandoffPayload): void => {
+      const prefilledFields: string[] =
+        payload.channel === 'serve_social'
+          ? ['draftText', ...(payload.purpose ? ['purpose'] : [])]
+          : []
+      void trackEvent(EVENTS.ChiefOfStaff.ComposeHandoffOpened, {
+        channel: payload.channel,
+        prefilledFields,
+      })
+      let nonce: string
+      try {
+        nonce = crypto.randomUUID()
+        sessionStorage.setItem(`cos-handoff-${nonce}`, JSON.stringify(payload))
+      } catch {
+        // sessionStorage unavailable (private browsing, quota exceeded):
+        // navigate without prefill rather than failing the handoff entirely.
+        router.push('/dashboard/constituent-outreach')
+        return
+      }
+      router.push(
+        `/dashboard/constituent-outreach?compose=social&handoff=${nonce}`,
+      )
+    },
+    [router],
   )
 
   // The shared send path. `hidden` skips the optimistic user bubble AND drops
@@ -1032,6 +1127,7 @@ export default function ChiefOfStaffChatBody({
                     ? handleCitationClick
                     : undefined
                 }
+                onComposeHandoff={handleComposeHandoff}
               />
               {m.listMap ? (
                 <ChatListMap
@@ -1066,6 +1162,7 @@ export default function ChiefOfStaffChatBody({
                   ? handleCitationClick
                   : undefined
               }
+              onComposeHandoff={handleComposeHandoff}
             />
             {liveListMap ? (
               <ChatListMap

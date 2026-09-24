@@ -30,8 +30,12 @@ import {
   CommunityIssueReadPort,
 } from './services/communityIssueRead.port'
 import { buildReadCommunityIssuesTool } from './services/communityIssueRead.tool'
+import { buildComposeHandoffTool } from './services/composeHandoff.tool'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
+import {
+  buildDescribeFilterDimensionsTool,
+  registeredFilterConsumers,
+} from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
@@ -197,11 +201,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     // the resolved context; ContactsService enforces the Serve party
     // rejection and every other filter rule.
     if (this.contacts) {
-      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
-        contacts: this.contacts,
-        organization: ctx.organization,
-      })
-      tools.count_contacts = buildCountContactsTool({
+      const crmTools: Record<string, LlmTool> = {}
+      crmTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
@@ -209,7 +210,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       // tools: it IS the vocabulary read for the one dimension the catalog
       // cannot carry, and a count is as entitled to a precinct as a saved
       // list is.
-      tools.list_precincts = buildListPrecinctsTool({
+      crmTools.list_precincts = buildListPrecinctsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
@@ -218,7 +219,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       // locked-filter conflict all inherited). The prompt rules key off the
       // registered tool name.
       if (this.voterFileFilters) {
-        tools.crud_saved_filters = buildCrudSavedFiltersTool({
+        crmTools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
@@ -227,8 +228,21 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         // reads: the only id it can legitimately be given is one
         // crud_saved_filters just returned, so advertising it in a session
         // that cannot create a list would be offering a map of nothing.
-        tools.show_list_map = buildShowListMapTool()
+        crmTools.show_list_map = buildShowListMapTool()
       }
+      // The catalog is built over the other CRM tools so its description
+      // names only the filter tools registered beside it, and is still
+      // listed first, as it always was.
+      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+        filterConsumers: registeredFilterConsumers(crmTools),
+      })
+      Object.assign(tools, crmTools)
+    }
+
+    if (ctx.attachmentsEnabled) {
+      tools.compose_handoff = buildComposeHandoffTool()
     }
 
     return tools

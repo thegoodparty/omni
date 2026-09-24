@@ -63,6 +63,20 @@ const updatedCampaign = await client.campaigns.update(1, {
 await client.campaigns.grantInternalTestingApproval(1)
 await client.campaigns.revokeInternalTestingApproval(1)
 
+// Admin CV validation override (M2M): clears a CV pre-submission
+// validation hold (stamps cvValidationOverriddenAt and clears the hold
+// columns) so the next submission attempt bypasses the gate. The override
+// is scoped to the current filing data.
+await client.campaigns.overrideCvValidation(1)
+
+// Admin committee rename (M2M): updates both persisted copies of a
+// campaign's committee name (TcrCompliance.committeeName +
+// details.campaignCommittee). 404 when the campaign has no compliance
+// record. The Peerly brand is not resubmitted.
+const { committeeName } = await client.campaigns.updateCommitteeName(1, {
+  committeeName: 'Committee to Elect Jane Doe for Council',
+})
+
 const offices = await client.electedOffices.list({
   userId: 42,
   offset: 0,

@@ -176,10 +176,17 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 //       Other-language speaker — the pack's copy of buildLanguageFilter's
 //       `OR ... IS NULL`. Now UNKNOWN/English/Spanish/Other, byte 0 meaning
 //       "no data" as it does in every other dim.
-//   4 — the ethnicity dim is gone. Nobody may subset constituents or voters
-//       by ethnicity (PeopleFilters.schema.ts), and this pack was shipping a
-//       per-person ethnicity byte to the browser, so the plane went with the
-//       filter rather than lingering as an unselectable shading option.
+//   4 — the ethnicity dim was dropped when ethnicity subsetting was removed
+//       from both products (#1933).
+//   5 — the ethnicity dim is back, because that removal was correct for Serve
+//       and wrong for Win, and Win's create-flow preview shades on it. The
+//       counter does not rewind to 3: a revision-4 buffer carries no
+//       ethnicity plane, so pointing at 3 again would serve those cached
+//       buffers as current and the preview would silently ignore an
+//       ethnicity pill the server count honors. The plane is district-scoped
+//       like party's, and Serve is held off it the same way party is — the
+//       dim is `modes: 'win'`, the create flow does not render the group,
+//       and the served route nulls the per-target value for an `eo-` org.
 //
 // Note this is the vocabulary axis and not `version`: a client reads the
 // bucket list out of the manifest, so one shipping the new keys reads an old
@@ -187,7 +194,7 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 // finds nothing for `languageUnknown`, which is the old pack honestly having
 // no such bucket. Bumping `version` would instead make every tab open across
 // the deploy reject the pack outright, which this change does not warrant.
-export const PACK_FORMAT_REVISION = 4
+export const PACK_FORMAT_REVISION = 5
 
 export const DoorKnockingPackManifestSchema = z
   .object({

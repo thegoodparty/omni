@@ -4,7 +4,7 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 
 - `payments.controller.ts` — `POST /payments/events` (Stripe webhook receiver) and `PATCH /payments/fix-missing-customer-id` (admin maintenance).
 - `purchase.controller.ts` — checkout flows under `/payments/purchase/*`: create/complete Stripe Custom Checkout sessions, billing-portal redirects, and free-purchase fast paths. This is the entry point external callers (websites, outreach, polls) use.
-  One-time custom sessions pin `payment_method_types` to card / US bank / Amazon Pay — Stripe's automatic set would add BNPL options (Klarna, Affirm) that are off-brand for campaign charges (product call, Aug 2026).
+  One-time custom sessions pin `payment_method_types` to card / Amazon Pay and Pro subscription sessions to card — Stripe's automatic set would add BNPL options (Klarna, Affirm) that are off-brand for campaign charges (product call, Aug 2026), and US bank debit was dropped from both 2026-09-22 because it settles days after checkout (see "Draft-first outreach fulfillment").
 
 `PurchaseService` orchestrates a typed purchase → checkout session → fulfillment flow. `PaymentsService` is a thinner Stripe wrapper used internally; rarely the right place to start.
 
@@ -19,7 +19,7 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 | `services/purchase.service.ts`     | Per-`PurchaseType` validation, amount calc, post-purchase handlers                                                                             |
 | `services/paymentEventsService.ts` | Stripe webhook event dispatcher (subscriptions, invoices, charges)                                                                             |
 | `payments.types.ts`                | `PaymentType`, `PaymentIntentPayload<T>`                                                                                                       |
-| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `POLL`) and per-type DTOs                                                                  |
+| `purchase.types.ts`                | `PurchaseType` enum (`DOMAIN_REGISTRATION`, `TEXT`, `SERVE_TEXT`, `POLL`) and per-type DTOs                                                    |
 
 Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suffix — historical, leave it.
 
@@ -342,17 +342,36 @@ so a loser's success can never stamp the marker while the winner fails.
 Sessions without `outreachId` (pre-draft-first clients) fall back to
 free-texts redemption only.
 
-A delayed-notification payment (ACH bank debit; one-time sessions offer
-`us_bank_account`) completes checkout with `payment_status: unpaid`.
-`completeCheckoutSession` then returns `{ deferred: true }` and fulfills
-nothing; `checkout.session.async_payment_succeeded` re-enters the same path
-with `paid` days later, and `checkout.session.async_payment_failed` routes to
-the purchase type's registered payment-failed handler
+A delayed-notification payment (ACH bank debit) completes checkout with
+`payment_status: unpaid`. `completeCheckoutSession` then returns
+`{ deferred: true }` and fulfills nothing;
+`checkout.session.async_payment_succeeded` re-enters the same path with `paid`
+days later, and `checkout.session.async_payment_failed` routes to the purchase
+type's registered payment-failed handler
 (`registerCheckoutSessionPaymentFailedHandler`; TEXT unwinds the draft to
 `failed` and notifies CAS + the candidate). Neither async event is subscribed
 by code: the Stripe dashboard's webhook endpoint must list them, and nothing in
 CI checks that it does. Before 2026-09-21 it did not, so every ACH text
-purchase since the `paid` gate landed (2026-06-11) sat deferred forever.
+purchase since the `paid` gate landed (2026-06-11) sat deferred forever. Since
+2026-09-22 one-time sessions no longer offer `us_bank_account` at all, so this
+path is a safety net for sessions minted before then, not a product feature.
+
+## Serve SMS fulfillment (SERVE_TEXT)
+
+`SERVE_TEXT` is the Serve twin of the TEXT flow above, for an elected official
+texting constituents. It exists as its own type because the TEXT handler
+returns early unless a `campaignId` is present and `outreachType === 'p2p'`,
+and then finalizes to Peerly — a Serve row has no campaign and no Peerly
+identity. `create-checkout-session` already accepts a campaign OR an
+organization, so no route change was needed.
+
+The handler is `outreach/services/outreachServeSmsPurchase.service.ts`. It
+prices off `Outreach.textCount` (server-written at draft, never a client
+count), refuses a row that is not `pending_payment` so a paid send cannot be
+checked out twice, and its post-purchase step is the same
+`pending_payment → pending` CAS claim the TEXT path uses, followed by an
+`outreachTextSend` queue message rather than a Peerly submission. Full
+invariants: `outreach/AGENTS.md`, "Serve SMS purchase".
 
 ## Gotchas
 

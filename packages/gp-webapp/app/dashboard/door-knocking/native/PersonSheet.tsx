@@ -698,7 +698,7 @@ export default function PersonSheet({
           <FactCard
             icon={FolderOpenIcon}
             title="Demographic information"
-            facts={demographicFacts(target)}
+            facts={demographicFacts(target, isServe)}
           />
 
           {/* ADR 0011, seventh, where the canvas draws Notes — see the sequence

@@ -53,6 +53,8 @@ export type {
   CommunityIssuesDispatchResult,
   ComplianceStateOutput,
   PinDelivery,
+  UpdateCommitteeNameInput,
+  UpdateCommitteeNameOutput,
 } from '@goodparty_org/contracts'
 
 export {

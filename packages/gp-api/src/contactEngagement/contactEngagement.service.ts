@@ -465,21 +465,29 @@ export class ContactEngagementService {
     electedOfficeId: string,
     personId: string,
   ): Promise<PollConstituentActivity[]> {
-    const messages: PollIndividualMessageWithPoll[] =
-      await this.pollIndividualMessage.findMany({
-        where: {
-          electedOfficeId,
-          personId,
-        },
-        include: {
-          poll: true,
-        },
-        orderBy: { sentAt: Prisma.SortOrder.desc },
-      })
+    // poll_individual_message now also holds text-outreach messages (exactly
+    // one of pollId / outreachId is set), so this reader has to say which it
+    // wants. An SMS reply is not a poll interaction.
+    const rows = await this.pollIndividualMessage.findMany({
+      where: {
+        electedOfficeId,
+        personId,
+        pollId: { not: null },
+      },
+      include: {
+        poll: true,
+      },
+      orderBy: { sentAt: Prisma.SortOrder.desc },
+    })
+    // The where clause guarantees this, but Prisma types the optional
+    // relation as nullable regardless; narrow rather than cast.
+    const messages: PollIndividualMessageWithPoll[] = rows.filter(
+      (row): row is PollIndividualMessageWithPoll => row.poll !== null,
+    )
 
     const messagesByPollId = new Map<string, PollIndividualMessageWithPoll[]>()
     for (const message of messages) {
-      const key = String(message.pollId)
+      const key = message.poll.id
       const list = messagesByPollId.get(key) ?? []
       list.push(message)
       messagesByPollId.set(key, list)
@@ -508,7 +516,7 @@ export class ContactEngagementService {
         type: ConstituentActivityType.POLL_INTERACTIONS,
         date: mostRecent.sentAt.toISOString(),
         data: {
-          pollId: mostRecent.pollId,
+          pollId: mostRecent.poll.id,
           pollTitle: mostRecent.poll.name,
           events: events.reverse(),
         },
@@ -532,6 +540,8 @@ export class ContactEngagementService {
         electedOfficeId,
         sender: 'CONSTITUENT',
         pollIssues: { some: {} },
+        // Poll-scoped rows only, same reason as getPollActivities above.
+        pollId: { not: null },
       },
       include: {
         pollIssues: true,
@@ -547,6 +557,9 @@ export class ContactEngagementService {
     const pageMessages = hasMore ? messages.slice(0, take) : messages
     const results: ConstituentIssue[] = []
     for (const msg of pageMessages) {
+      // Guaranteed by the pollId filter above; the relation is still typed
+      // nullable.
+      if (!msg.poll) continue
       const date = msg.sentAt.toISOString()
       for (const issue of msg.pollIssues) {
         results.push({

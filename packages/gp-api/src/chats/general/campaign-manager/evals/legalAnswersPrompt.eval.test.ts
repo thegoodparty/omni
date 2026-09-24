@@ -27,9 +27,9 @@ import { overrideEnvForEvals } from '../../../evals/envOverride'
 overrideEnvForEvals()
 
 import { describe, expect, it } from 'vitest'
-import { z } from 'zod'
 import type { LlmMessage } from '@/llm/types/llmMessages.types'
 import type { LlmTool } from '@/llm/services/llm.service'
+import { WEB_SEARCH_STUB } from './fixtures/webSearchStub'
 import { LlmService } from '@/llm/services/llm.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { assertEvalCase, type EvalCase } from '../../../evals/runEval'
@@ -78,25 +78,6 @@ const ON_BALLOT: CampaignManagerContext = {
   daysToFilingDeadline: null,
 }
 
-// Same stub as the ballot-access eval: lets the model reach for search without
-// a real, slow, nondeterministic call. The snippet states a fact and gives no
-// instruction, so any caution in the answer has to come from the rules.
-const webSearchStub: LlmTool = {
-  description:
-    'Search the web for current public information. Returns page snippets.',
-  inputSchema: z.object({ query: z.string() }).strict(),
-  execute: () => ({
-    results: [
-      {
-        title: 'Political texting and calling rules',
-        snippet:
-          'Rules for campaign texts and calls vary by state and by whether ' +
-          'messages are sent one at a time or by an automated system.',
-      },
-    ],
-  }),
-}
-
 // One compliance article, the way production answers a texting question. Its
 // summary describes only what the product does, so a reply that repeats it as
 // the law has crossed the line the rules draw.
@@ -119,7 +100,7 @@ const buildTools = (
   helpCenter: boolean,
   notYetFiled: boolean,
 ): Record<string, LlmTool> => ({
-  web_search: webSearchStub,
+  web_search: WEB_SEARCH_STUB,
   ...(notYetFiled && {
     get_ballot_requirements: buildGetBallotRequirementsTool({
       elections: {

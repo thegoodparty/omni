@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getTime } from 'date-fns'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
@@ -566,16 +567,29 @@ describe('DoorKnockingStatsService', () => {
       )
     })
 
-    it('sends the timestamp as an ISO string HubSpot can parse', async () => {
+    it('sends the timestamp as epoch millis', async () => {
       await knock('p1', DoorKnockOutcome.answered, { occurredAt: T2 })
       const track = trackSpy()
 
       await stats.emitCanvassingTotals(service.user.id, orgSlug)
 
       expect(track.mock.calls[0]?.[2]).toMatchObject({
-        lastCanvassActivityAt: T2.toISOString(),
+        lastCanvassActivityAt: getTime(T2),
         doorAttempts: 1,
       })
+    })
+
+    // Absent, not null. A null reaches the HubSpot datetime property as 0
+    // and renders as 31 Dec 1969 on every org that has drawn a list but not
+    // yet walked it, which is the shape CS reported.
+    it('omits the timestamp when the org has no knocks', async () => {
+      const track = trackSpy()
+
+      await stats.emitCanvassingTotals(service.user.id, orgSlug)
+
+      const payload = track.mock.calls[0]?.[2]
+      expect(payload).toMatchObject({ doorAttempts: 0 })
+      expect(payload).not.toHaveProperty('lastCanvassActivityAt')
     })
   })
 

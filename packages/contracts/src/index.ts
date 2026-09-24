@@ -478,6 +478,13 @@ export {
   type SubmitToPeerlyOutput,
 } from './campaigns/SubmitToPeerlyOutput.schema'
 
+export {
+  UpdateCommitteeNameSchema,
+  type UpdateCommitteeNameInput,
+  UpdateCommitteeNameOutputSchema,
+  type UpdateCommitteeNameOutput,
+} from './campaigns/UpdateCommitteeName.schema'
+
 export type { Ecanvasser, EcanvasserSummary } from './ecanvasser/types'
 
 export {
@@ -749,6 +756,11 @@ export {
 } from './chats/ChiefOfStaffWidgets.schema'
 
 export {
+  ComposeHandoffPayloadSchema,
+  type ComposeHandoffPayload,
+} from './chats/ComposeHandoff.schema'
+
+export {
   CHAT_ATTACHMENT_MAX_BYTES,
   CHAT_ATTACHMENT_MAX_PAGES,
   CHAT_ATTACHMENTS_PER_CONVERSATION,
@@ -926,6 +938,10 @@ export {
   type RobocallDraftCreateRequest,
   RobocallDraftCreateResponseSchema,
   type RobocallDraftCreateResponse,
+  RobocallPromoApplyRequestSchema,
+  type RobocallPromoApplyRequest,
+  RobocallPromoStateResponseSchema,
+  type RobocallPromoStateResponse,
 } from './outreach/RobocallPurchase.schema'
 export {
   RobocallAuthorizeRequestSchema,
@@ -952,6 +968,12 @@ export {
 export {
   SmsOutreachResultsSchema,
   type SmsOutreachResults,
+  SmsOutreachReplySchema,
+  type SmsOutreachReply,
+  SmsOutreachRepliesSchema,
+  type SmsOutreachReplies,
+  SMS_OUTREACH_REPLIES_DEFAULT_LIMIT,
+  SMS_OUTREACH_REPLIES_MAX_LIMIT,
 } from './outreach/OutreachResults.schema'
 
 export {
@@ -965,6 +987,30 @@ export {
   SmsDraftResponseSchema,
   type SmsDraftResponse,
 } from './outreach/OutreachSms.schema'
+export {
+  ServeSmsDraftRequestSchema,
+  type ServeSmsDraftRequest,
+  ServeSmsDraftResponseSchema,
+  type ServeSmsDraftResponse,
+  ServeSmsCreateRequestSchema,
+  type ServeSmsCreateRequest,
+  ServeSmsCreateResponseSchema,
+  type ServeSmsCreateResponse,
+  OutreachResultsUploadRowSchema,
+  type OutreachResultsUploadRow,
+  OutreachResultsParseReportSchema,
+  type OutreachResultsParseReport,
+  ResultsInboxKindSchema,
+  type ResultsInboxKind,
+  OutreachAwaitingResultsItemSchema,
+  type OutreachAwaitingResultsItem,
+  OutreachAwaitingResultsResponseSchema,
+  type OutreachAwaitingResultsResponse,
+  OutreachResultsTargetSchema,
+  type OutreachResultsTarget,
+  OutreachResultsUploadRequestSchema,
+  type OutreachResultsUploadRequest,
+} from './outreach/ServeSms.schema'
 export {
   SMS_APPROVAL_STATUS_VALUES,
   SmsApprovalStatusSchema,
@@ -1107,6 +1153,15 @@ export {
   AGE_KEY_TO_PACK_BUCKETS,
   encodeAgeBucket,
 } from './doorKnocking/PackAgeBuckets'
+
+export {
+  GeoJsonMultiPolygonSchema,
+  type GeoJsonMultiPolygon,
+  GeoJsonShapeSchema,
+  type GeoJsonShape,
+  shapePolygons,
+  shapePartCount,
+} from './shared/GeoJsonShape.schema'
 
 export {
   GeoJsonPolygonSchema,

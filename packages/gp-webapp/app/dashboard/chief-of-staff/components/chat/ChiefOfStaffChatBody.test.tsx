@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS } from 'helpers/analyticsHelper'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
 import type {
   ChatMessageDto,
@@ -34,18 +35,31 @@ vi.mock('../../data/chat-api', () => ({
 }))
 
 vi.mock('@shared/sentry', () => ({ reportErrorToSentry: vi.fn() }))
+vi.mock('helpers/analyticsHelper', async (orig) => ({
+  ...(await orig<object>()),
+  trackEvent: (...args: unknown[]) => trackEventMock(...args),
+}))
 
 // Attachments are flag-gated; the toggle lets the drag-and-drop block turn
 // them on without flipping the flag under every other test in this file.
+// The mock respects scope so the paperclip scope regression tests work without
+// touching the real GrowthBook client.
 let attachmentsOn = false
 vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
-  useAttachmentsEnabled: () => ({ ready: true, enabled: attachmentsOn }),
+  useAttachmentsEnabled: (scope: string) => ({
+    ready: true,
+    enabled: attachmentsOn && scope === 'chief_of_staff',
+  }),
 }))
 
 const uploadAttachmentMock = vi.fn()
+const downloadAttachmentMock = vi.fn()
+const trackEventMock = vi.fn()
 vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
   ...(await orig<object>()),
   uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
+  downloadChatAttachment: (...args: unknown[]) =>
+    downloadAttachmentMock(...args),
 }))
 
 // deck.gl and maplibre don't run in jsdom. The stub reports how many people
@@ -54,7 +68,7 @@ vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
 // Populated by the map stub below. `var` because vi.mock is hoisted above
 // const/let initialisation and the factory closes over this.
 // eslint-disable-next-line no-var
-var drawRingRefs: Array<Array<[number, number]> | undefined> = []
+var drawnRingsRefs: Array<Array<Array<[number, number]>> | undefined> = []
 
 // The boundary drawer reports save outcomes through the snackbar, and this
 // suite renders no provider — only reached once the overlay opens, which is
@@ -71,20 +85,20 @@ vi.mock('../../../contacts/crm/map/ContactListMap', () => ({
   __esModule: true,
   default: function ContactListMapStub({
     people,
-    drawRing,
+    otherRings,
   }: {
     people?: unknown[]
-    drawRing?: Array<[number, number]>
+    otherRings?: Array<Array<[number, number]>>
   }) {
     // Recorded by REFERENCE. ContactListMap rebuilds its deck.gl layers
-    // whenever drawRing changes identity, so an unmemoised ring is a real
-    // regression that no value assertion can see.
-    drawRingRefs.push(drawRing)
+    // whenever otherRings changes identity, so an unmemoised boundary is a
+    // real regression that no value assertion can see.
+    drawnRingsRefs.push(otherRings)
     return (
       <div
         data-testid="contact-map-stub"
         data-people={(people ?? []).length}
-        data-ring={JSON.stringify(drawRing ?? [])}
+        data-ring={JSON.stringify(otherRings ?? [])}
       />
     )
   },
@@ -146,6 +160,8 @@ beforeEach(() => {
   seq = 0
   attachmentsOn = false
   uploadAttachmentMock.mockReset()
+  downloadAttachmentMock.mockReset()
+  trackEventMock.mockReset()
   window.localStorage.clear()
 })
 
@@ -365,6 +381,42 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(createMock).not.toHaveBeenCalled()
     // Intro messages are not shown when replaying an existing conversation.
     expect(screen.queryByText(COS_INTRO_MESSAGES[0]!)).not.toBeInTheDocument()
+  })
+
+  it('fires CitationOpened when a citation chip is clicked', async () => {
+    attachmentsOn = true
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Per the resolution [1], the budget is set.', {
+        id: 'a-cite',
+        segments: [
+          { kind: 'text', text: 'Per the resolution ' },
+          {
+            kind: 'citation',
+            attachmentId: 'att-42',
+            page: 3,
+            quotedText: 'allocate $500K',
+          },
+          { kind: 'text', text: ', the budget is set.' },
+        ],
+      }),
+    ])
+    downloadAttachmentMock.mockResolvedValue(null)
+    const openSpy = vi
+      .spyOn(window, 'open')
+      .mockReturnValue(null as unknown as Window)
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_cite" />)
+
+    const chip = await screen.findByRole('button', { name: 'Open source 1' })
+    fireEvent.click(chip)
+
+    await waitFor(() =>
+      expect(trackEventMock).toHaveBeenCalledWith(
+        EVENTS.ChiefOfStaff.CitationOpened,
+        { documentId: 'att-42', pageNumber: 3 },
+      ),
+    )
+    openSpy.mockRestore()
   })
 
   it('replays persisted tool segments in order on reload', async () => {
@@ -1283,12 +1335,12 @@ describe('<ChiefOfStaffChatBody>', () => {
     })
 
     // A transcript re-renders on every streaming token, and
-    // ringFromGeoJsonPolygon allocates a fresh array each call — the empty
+    // ringsFromGeoJsonShape allocates a fresh array each call — the empty
     // one included, so a list with no boundary is not exempt. ContactListMap
-    // lists drawRing among the dependencies of the effect that rebuilds its
-    // deck.gl layers, so a bare call rebuilt polygon and vertex layers
+    // lists otherRings among the dependencies of the effect that rebuilds
+    // its deck.gl layers, so a bare call rebuilt polygon and vertex layers
     // continuously mid-reply.
-    it('hands the map a stable ring across re-renders', async () => {
+    it('hands the map a stable boundary across re-renders', async () => {
       const user = userEvent.setup()
       mockListPeople(2)
       mockSavedList({
@@ -1320,15 +1372,15 @@ describe('<ChiefOfStaffChatBody>', () => {
       render(<ChiefOfStaffChatBody active conversationIdOverride="c_ring" />)
       await screen.findByTestId('contact-map-stub')
 
-      drawRingRefs.length = 0
+      drawnRingsRefs.length = 0
       // Any state change in the body re-renders the card, the way a
       // streaming token does.
       await user.type(screen.getByLabelText(/ask a question/i), 'hello')
 
-      expect(drawRingRefs.length).toBeGreaterThan(1)
-      const [first] = drawRingRefs
+      expect(drawnRingsRefs.length).toBeGreaterThan(1)
+      const [first] = drawnRingsRefs
       expect(first).toBeDefined()
-      for (const ref of drawRingRefs) {
+      for (const ref of drawnRingsRefs) {
         expect(ref).toBe(first)
       }
     })
@@ -1515,6 +1567,29 @@ describe('<ChiefOfStaffChatBody>', () => {
       expect(await screen.findByText(LIST.name)).toBeInTheDocument()
       expect(screen.queryByText('show_list_map')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('<ChiefOfStaffChatBody> attachment scope', () => {
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+  })
+
+  it('hides the paperclip for campaign_assistant scope even when the flag is on', () => {
+    attachmentsOn = true
+    render(<ChiefOfStaffChatBody active scope="campaign_assistant" />)
+    // ChatComposer only renders the attachment trigger when attachmentsEnabled.enabled.
+    // With campaign_assistant scope the mock returns enabled:false, so no paperclip.
+    expect(
+      screen.queryByRole('button', { name: /attach/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the paperclip for chief_of_staff scope when the flag is on', () => {
+    attachmentsOn = true
+    render(<ChiefOfStaffChatBody active scope="chief_of_staff" />)
+    expect(screen.getByRole('button', { name: /attach/i })).toBeInTheDocument()
   })
 })
 

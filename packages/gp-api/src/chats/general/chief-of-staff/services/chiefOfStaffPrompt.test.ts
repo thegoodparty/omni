@@ -43,6 +43,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
+  attachmentsEnabled: false,
   ...overrides,
 })
 
@@ -352,9 +353,10 @@ describe('buildChiefOfStaffSystemPrompt', () => {
   // A model that says it hit an authentication error it never hit is not a
   // capability problem, it is a reporting one, so these rules are unconditional
   // rather than hung off any one tool.
-  // The dimension is gone from the catalog, the wire schemas and the pack, so
-  // the tool path cannot express it. This is for the turn where the user asks
-  // for it by name, and for the proxy the model would otherwise reach for.
+  // The dimension is `modes: 'win'` in the catalog and 400s for an `eo-` org
+  // at the routes, so the tool path cannot express it for Serve. This is for
+  // the turn where the user asks for it by name, and for the proxy the model
+  // would otherwise reach for.
   it('refuses to segment constituents by ethnicity', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
@@ -474,6 +476,10 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       'If the user asks about the platform itself, never use the decline line',
     )
     expect(prompt).toContain('<product_map>')
+    // Serve passes no Pro flag, so its map carries no status line and its
+    // rules carry no rule that reads one.
+    expect(prompt).not.toContain('Pro status:')
+    expect(prompt).not.toContain('Access note says it needs Pro')
     expect(prompt).toContain('SUPPORT HANDOFFS')
   })
 

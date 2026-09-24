@@ -1082,6 +1082,7 @@ describe('PersonSheet demographic information', () => {
       levelOfEducation: 'Graduate Degree',
       estimatedIncomeAmount: 82000,
       language: 'Spanish',
+      ethnicityGroup: 'Hispanic',
       ...overrides,
     })
 
@@ -1123,6 +1124,7 @@ describe('PersonSheet demographic information', () => {
       ['Level of education', 'Graduate Degree'],
       ['Estimated household income', '$75k - $100k'],
       ['Language', 'Spanish'],
+      ['Ethnicity group', 'Hispanic'],
     ])
     expect(within(demographicCard()).queryByText('Registered voter')).toBeNull()
   })
@@ -1149,8 +1151,18 @@ describe('PersonSheet demographic information', () => {
 
     expect(within(voterCard()).getAllByText('Not on file')).toHaveLength(3)
     expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
-      8,
+      9,
     )
+  })
+
+  // The Serve half. gp-api nulls `ethnicityGroup` for an `eo-` org, and the
+  // row is dropped rather than left to print "Not on file" about a field this
+  // product does not state to an elected official (#1933) — so the card is one
+  // row shorter here than in the Win case above, not one "Not on file" longer.
+  it('drops the ethnicity row in serve mode', () => {
+    renderSheet([fullTarget({ ethnicityGroup: null })], undefined, true)
+
+    expect(within(demographicCard()).queryByText('Ethnicity group')).toBeNull()
   })
 
   // The two presence-only columns hold a value meaning yes or nothing at all,

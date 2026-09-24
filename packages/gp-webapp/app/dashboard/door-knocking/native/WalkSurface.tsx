@@ -172,6 +172,11 @@ export interface WalkSurfaceProps {
   // button for it byte-for-byte.
   onMoveToArchive?: () => void
   archivePending?: boolean
+  // `Mark this route done`. Optional for the same reason the archive is: the
+  // volunteer walk has no lifecycle affordance at all. The orchestrator owns
+  // the write (`useWalkMarkDone`); this seam only carries the press.
+  onMarkDone?: () => void
+  markDonePending?: boolean
   // How far up the map this sheet reaches, so the zoom cluster can clear it.
   // Only the sheet knows, and only at its current snap.
   onMapControlsOffsetChange: (offsetPx: number | null) => void
@@ -201,6 +206,8 @@ export default function WalkSurface({
   onExit,
   onMoveToArchive,
   archivePending,
+  onMarkDone,
+  markDonePending,
   onMapControlsOffsetChange,
   openStopRequest,
   selectedStopId,
@@ -287,6 +294,8 @@ export default function WalkSurface({
           liveLocation={liveLocation}
           onMoveToArchive={onMoveToArchive}
           archivePending={archivePending}
+          onMarkDone={onMarkDone}
+          markDonePending={markDonePending}
         />
       )}
     </aside>

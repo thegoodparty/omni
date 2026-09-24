@@ -58,6 +58,10 @@ const CONTROLLER_OWNERS: Partial<
   'dashboard/onboarding-cards': [SERVE],
   'organizations/:slug/ordinance-code': [SERVE],
   'outreach/serve': [SERVE],
+  // The staff results surface. Serve, not Win, despite sitting beside the CAS
+  // SMS console: the sends it takes results for are elected officials' texts
+  // to constituents, and polls joins it later on the same side.
+  'outreach/admin/results': [SERVE],
   priorities: [SERVE],
   'admin/briefings': [SERVE],
   'admin/elected-office': [SERVE],

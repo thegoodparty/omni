@@ -439,6 +439,50 @@ export class StripeService {
     }
   }
 
+  // Looks up a reward promotion code by its human code. Stripe only APPLIES a
+  // code to a Checkout Session or invoice; the robocall hold is a bare
+  // PaymentIntent, so the caller folds the coupon into the held amount itself
+  // and Stripe is only asked whether the code exists and is still active. The
+  // `active` filter already excludes an expired or exhausted code (Stripe
+  // clears `active` when the coupon stops being valid). Returns null for an
+  // unknown or inactive code; a Stripe failure is a 502 like every other call.
+  async findActivePromotionCode(
+    code: string,
+  ): Promise<Stripe.PromotionCode | null> {
+    let found: Stripe.ApiList<Stripe.PromotionCode>
+    try {
+      found = await this.stripe.promotionCodes.list({
+        code,
+        active: true,
+        limit: 1,
+        expand: ['data.promotion.coupon'],
+      })
+    } catch (err) {
+      this.logger.error({ err }, 'Failed to look up Stripe promotion code')
+      throw new BadGatewayException('Failed to look up promotion code')
+    }
+    return found.data[0] ?? null
+  }
+
+  // Marks a promotion code redeemed (or restores it) by flipping `active`.
+  // Stripe never counts a redemption for a code we applied outside Checkout, so
+  // deactivating on consume is what stops a second use, and reactivating on a
+  // cancel-before-send hands the reward back. Best-effort: the money state
+  // already committed, and our own redemption record is the second guard.
+  async setPromotionCodeActive(
+    promotionCodeId: string,
+    active: boolean,
+  ): Promise<void> {
+    try {
+      await this.stripe.promotionCodes.update(promotionCodeId, { active })
+    } catch (err) {
+      this.logger.error(
+        { err, promotionCodeId, active },
+        'Failed to update Stripe promotion code active flag',
+      )
+    }
+  }
+
   // Finds LIVE (requires_capture) manual-capture holds for a robocall outreach,
   // by the outreachId metadata createManualCaptureHold stamps. Used by the
   // hold_pending stale-recovery sweep to locate an orphan hold whose intent id
@@ -569,6 +613,11 @@ export class StripeService {
       },
     ],
     mode: CheckoutSessionMode.SUBSCRIPTION,
+    // Pinned for the same reason as the one-time session: left to Stripe's
+    // dashboard set this offered bank debit, which completes checkout
+    // 'unpaid' and settles days later. The completion webhook flips isPro
+    // on completion, so an ACH signup was Pro before any money moved.
+    payment_method_types: ['card'],
     allow_promotion_codes: true,
     // Expanding for Segment / analytics
     expand: [
@@ -643,8 +692,11 @@ export class StripeService {
       mode: 'payment',
       // Explicit list: Stripe's automatic set adds BNPL options (Klarna,
       // Affirm) that are off-brand for campaign charges (product call,
-      // Aug 19). Card, bank debit, and Amazon Pay stay.
-      payment_method_types: ['card', 'us_bank_account', 'amazon_pay'],
+      // Aug 19). Bank debit is excluded on purpose: it completes checkout
+      // 'unpaid' and settles days later, which does not fit a text with a
+      // send date two days out and left a candidate's paid sends stranded
+      // (2026-09-21). Only methods that confirm at checkout stay.
+      payment_method_types: ['card', 'amazon_pay'],
       ...(customerId
         ? { customer: customerId }
         : email

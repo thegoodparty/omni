@@ -11,7 +11,10 @@ import {
 
 // `native-door-knocking` decides which of two entirely different products a
 // candidate sees at /dashboard/door-knocking: the native voter map, or the
-// legacy eCanvasser dashboard. DoorKnockingPageGate.test.tsx already covers the
+// flag-off arm — which is the legacy eCanvasser dashboard for a campaign
+// candidate success has connected, and an unavailable card for one they have
+// not. This user is the second kind; see the control arm below.
+// DoorKnockingPageGate.test.tsx already covers the
 // branch itself, but it mocks the flag hook — so it says nothing about whether
 // the variant actually arrives. This does: the override cookie is merged by
 // gp-api, seeded into the SSR render, and consumed by the gate, and a break
@@ -53,9 +56,26 @@ test.describe('native door-knocking flag gate', () => {
 
     await gotoDoorKnocking(page)
 
-    await expect(legacyDashboardHeading(page)).toBeVisible({ timeout: 30_000 })
-    // The eCanvasser refresh affordance exists only on the legacy surface.
-    await expect(page.getByRole('button', { name: 'Sync Now' })).toBeVisible()
+    // Control, and what it renders changed: the flag-off arm is now gated on
+    // the eCanvasser connection candidate success provisions, and this user
+    // has none — `setupProCampaignUser` mints a fresh campaign, and
+    // `POST /v1/ecanvasser` is behind `AdminOrM2MGuard`, credentials this
+    // harness deliberately does not hold (see serve.helper.ts). So the honest
+    // control assertion for THIS user is the unavailable card, not the
+    // eCanvasser dashboard it used to reach. The dashboard-for-a-connected-
+    // campaign branch is asserted in DoorKnockingPageGate.test.tsx, where the
+    // connection costs a prop instead of an admin token.
+    //
+    // The spec's question is unchanged — the flag still decides which of two
+    // products renders — and the control arm is still specific: this card
+    // exists only below the flag, so it proves the gate took the control
+    // branch as precisely as `Sync Now` did.
+    await expect(
+      page.getByRole('heading', {
+        name: "Door knocking isn't turned on for your campaign",
+      }),
+    ).toBeVisible({ timeout: 30_000 })
+    await expect(legacyDashboardHeading(page)).toBeHidden()
     await expect(nativeShellHeading(page)).toBeHidden()
 
     // Treatment arm: same user, same session, only the variant changes.
@@ -73,11 +93,17 @@ test.describe('native door-knocking flag gate', () => {
     // header. 3.0 draws the map edge to edge and has no header at all, so that
     // button no longer exists on either surface — asserting its absence is the
     // zero state's job (door-knocking-zero-state.spec.ts) and says nothing
-    // about the flag. `Sync Now` does: it is the eCanvasser refresh, so it
-    // proves the OLD product is gone as precisely as the control arm proved it
-    // was there.
+    // about the flag. `Sync Now` is kept instead: it is the eCanvasser
+    // refresh, so it holds the treatment arm to having neither flag-off
+    // surface. It no longer mirrors an assertion in the control arm, which
+    // this user reaches as the card rather than the dashboard.
     await expect(nativeShellHeading(page)).toBeVisible({ timeout: 30_000 })
     await expect(page.getByRole('button', { name: 'Sync Now' })).toBeHidden()
     await expect(legacyDashboardHeading(page)).toBeHidden()
+    await expect(
+      page.getByRole('heading', {
+        name: "Door knocking isn't turned on for your campaign",
+      }),
+    ).toBeHidden()
   })
 })

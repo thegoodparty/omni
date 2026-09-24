@@ -40,7 +40,10 @@ import {
 } from './campaignStoryIntake.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
+import {
+  buildDescribeFilterDimensionsTool,
+  registeredFilterConsumers,
+} from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
@@ -187,6 +190,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   savedFilterToolsEnabled: false,
   helpCenterToolEnabled: false,
   raceId: null,
+  isPro: null,
   // Overridden by the early-return sites below: web search does not depend on
   // the campaign resolving, so a campaign we could not load must not silently
   // lose it.
@@ -358,6 +362,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       organization,
       crmToolsEnabled,
       savedFilterToolsEnabled,
+      // The same column the contacts service reads before it refuses. That
+      // service also treats elected-office organizations as Pro; this handler
+      // only ever serves campaigns, so the row alone is the whole rule here.
+      isPro: campaign.isPro ?? false,
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
       helpCenterToolEnabled: !!this.helpCenter,
@@ -437,16 +445,24 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // Aggregate-only CRM reads (describe dimensions + count), unconditional
-    // for Win once contacts + the org resolve. The org is bound from the
-    // resolved context; ContactsService enforces the pro gate and every
-    // other filter rule.
-    if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
-      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
-        contacts: this.contacts,
-        organization: ctx.organization,
-      })
-      tools.count_contacts = buildCountContactsTool({
+    // No voter file tool registers when the campaign is known not to have
+    // access, the open catalog included: a catalog whose output this
+    // campaign cannot act on reads to the model as a menu to walk through,
+    // and what filtering covers is one line in the product map instead.
+    // Saved lists too: without Pro the service refuses every saved-list
+    // action except listing names, so the tool here would be a list of names
+    // the campaign cannot count, edit, or use, one more menu it cannot act
+    // on. Only a known false gates. An unknown flag
+    // arises only when no campaign resolved, which also turns these tools
+    // off, so the service stays the deciding check.
+    if (
+      this.contacts &&
+      ctx.crmToolsEnabled &&
+      ctx.organization &&
+      ctx.isPro !== false
+    ) {
+      const filterTools: Record<string, LlmTool> = {}
+      filterTools.count_contacts = buildCountContactsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
@@ -454,20 +470,29 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       // tools: it IS the vocabulary read for the one dimension the catalog
       // cannot carry, and a count is as entitled to a precinct as a saved
       // list is.
-      tools.list_precincts = buildListPrecinctsTool({
+      filterTools.list_precincts = buildListPrecinctsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
-      // Saved-filter CRUD goes through the same VoterFileFilterService paths
-      // as the voter-file routes (Pro gate, completed-outreach validation,
-      // org scoping, locked-filter conflict all inherited).
+      // Saved-filter CRUD goes through the same VoterFileFilterService
+      // paths as the voter-file routes (Pro gate, completed-outreach
+      // validation, org scoping, locked-filter conflict all inherited).
       if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
-        tools.crud_saved_filters = buildCrudSavedFiltersTool({
+        filterTools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,
           contacts: this.contacts,
           organization: ctx.organization,
         })
       }
+      // The catalog is built over the filter tools so its description names
+      // only the ones registered beside it. It is still listed first, as it
+      // always was.
+      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+        filterConsumers: registeredFilterConsumers(filterTools),
+      })
+      Object.assign(tools, filterTools)
     }
 
     return tools

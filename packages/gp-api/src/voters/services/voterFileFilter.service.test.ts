@@ -42,31 +42,44 @@ describe('voterFileFilterToAudience', () => {
 
   it('maps the rich list fields backed by an L2 column', async () => {
     const audience = await service.voterFileFilterToAudience(
-      filter({ hasCellPhone: true, hasLandline: true }),
+      filter({
+        hasCellPhone: true,
+        hasLandline: true,
+        ethnicityEuropean: true,
+        ethnicityAsian: true,
+        ethnicityHispanic: true,
+        ethnicityAfricanAmerican: true,
+        ethnicityOther: true,
+        ethnicityUnknown: true,
+      }),
     )
 
     expect(audience).toEqual({
       has_cell_phone: true,
       has_landline: true,
+      ethnicity_european: true,
+      ethnicity_asian: true,
+      ethnicity_hispanic: true,
+      ethnicity_african_american: true,
+      ethnicity_other: true,
+      ethnicity_unknown: true,
     })
   })
 
-  // Nobody may subset voters by ethnicity, and a row saved before that rule
-  // still carries the four columns. The export widens back to the rest of the
-  // filter rather than failing, so the list stays usable and stops narrowing
-  // by ethnicity.
-  it('drops the ethnicity columns a pre-rule row still carries', async () => {
+  // The regression this pair exists for: these two columns were added after
+  // the underscore vocabulary was written, so a list cut on Other or Unknown
+  // used to emit nothing for them and the export silently widened to every
+  // ethnicity. Asserted one at a time, because the combined case above passes
+  // on the other four alone.
+  it.each([
+    ['ethnicityOther', 'ethnicity_other'],
+    ['ethnicityUnknown', 'ethnicity_unknown'],
+  ])('maps %s to the %s filter', async (column, key) => {
     const audience = await service.voterFileFilterToAudience(
-      filter({
-        hasCellPhone: true,
-        ethnicityEuropean: true,
-        ethnicityAsian: true,
-        ethnicityHispanic: true,
-        ethnicityAfricanAmerican: true,
-      }),
+      filter({ [column]: true }),
     )
 
-    expect(audience).toEqual({ has_cell_phone: true })
+    expect(audience).toEqual({ [key]: true })
   })
 })
 

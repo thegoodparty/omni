@@ -56,15 +56,20 @@ export type TurfLifecycleAction =
   | 'complete'
   | 'archive'
   | 'restore'
-  // The walk view's one bottom button. The design labels it `Move to archive`
-  // and its own handler marks the list *completed*, toasting "List completed" —
-  // one gesture standing for both halves of a thing this product has always
-  // kept apart, because the canvas has no shelf and so no reason to. Splitting
-  // it back into two buttons would be inventing a control the design does not
-  // have; dropping the completion would leave a walked-out list on the shelf
-  // still reading "In progress" in the history table, which is the fact the
-  // `complete` endpoint exists to write. So the label ships as designed and
-  // both writes happen behind it, in that order.
+  // The walk view's `Move to archive`. The design labels it that and its own
+  // handler marks the list *completed*, toasting "List completed" — one
+  // gesture standing for both halves of a thing this product otherwise keeps
+  // apart, because the canvas has no shelf and so no reason to.
+  //
+  // This used to argue that splitting it into two buttons would be inventing
+  // a control the design does not have. The walk now HAS the other button
+  // (`Mark this route done`, `useWalkMarkDone`), because a canvasser needs to
+  // finish a route without shelving it and completion had no manual control
+  // anywhere. This one still does both, and deliberately: dropping the
+  // completion half would leave a walked-out list on the shelf still reading
+  // "In progress" in the history table, which is the fact the `complete`
+  // endpoint exists to write. Pressing both is harmless — complete is
+  // idempotent server-side.
   | 'completeAndArchive'
 
 // Both transitions used to also test `locked`, because a routeless turf 409s —
@@ -79,12 +84,16 @@ export const canArchiveTurf = (turf: DoorKnockingTurf) =>
 /**
  * The list lifecycle as three one-shot mutations against one turf.
  *
- * They live together because they share every decision worth making once: the
- * rail is the only reader of all three, `archive` and `restore` are the same
- * endpoint with the boolean flipped, and each has to invalidate the rail before
- * it reports success — the card the candidate is looking at is what moves
- * between sections, so a snackbar arriving ahead of the refetch would announce
- * a change the screen has not made yet.
+ * They live together because they share every decision worth making once:
+ * `archive` and `restore` are the same endpoint with the boolean flipped, and
+ * each has to invalidate the rail before it reports success — the surface the
+ * candidate is looking at is what moves, so a snackbar arriving ahead of the
+ * refetch would announce a change the screen has not made yet.
+ *
+ * The CAMPAIGN lifecycle is `campaignLifecycle.ts`, deliberately not a fourth
+ * action here: these are one request against one row and those are one request
+ * against N. The two share their cache keys and their ordering rule, and
+ * nothing else.
  *
  * Each action is ONE request against ONE row. The lifecycle lives on the
  * `Outreach` envelope alone now — these endpoints take a turf id and write the
@@ -139,7 +148,11 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
   })
 
   return {
-    markDone: () => mutation.mutate('complete'),
+    // Takes the same `options` shape `finishAndArchive` does, so a confirm
+    // dialog can stay open until the write resolves rather than closing on
+    // the press and leaving a failure to a snackbar nobody is looking at.
+    markDone: (options?: { onSuccess?: () => void }) =>
+      mutation.mutate('complete', { onSuccess: options?.onSuccess }),
     moveToArchive: () => mutation.mutate('archive'),
     restore: () => mutation.mutate('restore'),
     finishAndArchive: (options?: { onSettled?: () => void }) =>

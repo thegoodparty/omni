@@ -48,6 +48,19 @@ export const ComplianceStateOutputSchema = z.object({
   // internalTestingApprovedAt null) to detect real compliance in progress and
   // disable the internal-testing checkbox.
   hasComplianceRecord: z.boolean(),
+  // The persisted committee name off the TcrCompliance row — the copy every
+  // runtime read uses (SMS "Paid for by" footer, checkSmsStandards, Peerly
+  // submission). Null when no record exists.
+  committeeName: z.string().nullable(),
+  // The persisted election-filing URL off the TcrCompliance row. Null when no
+  // record exists. gp-admin links it at `filing_review_hold` so staff can
+  // verify the page by eye before overriding.
+  filingUrl: z.string().nullable(),
+  // The CV pre-submission validation hold (ENG-10965). Set when the gate held
+  // the record; reasons are the stored failed-check copy (same text as the
+  // Slack alert). Empty reasons with a null failedAt when not held.
+  cvValidationFailedAt: z.string().datetime({ offset: true }).nullable(),
+  cvValidationFailureReasons: z.array(z.string()),
 })
 
 export type ComplianceStateOutput = z.infer<typeof ComplianceStateOutputSchema>

@@ -69,6 +69,7 @@ const FIXTURE_PERSON: PersonOutput = {
   homeowner: 'Homeowner',
   businessOwner: null,
   levelOfEducation: 'College Degree',
+  ethnicityGroup: 'European',
   language: 'English',
 }
 

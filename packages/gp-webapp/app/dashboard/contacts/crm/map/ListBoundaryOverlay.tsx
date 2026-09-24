@@ -1,146 +1,53 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Dialog, DialogContent, DialogTitle } from '@styleguide'
+import { useMemo } from 'react'
 import type { ContactsLabels } from 'app/dashboard/shared/contactsLabels'
-import {
-  isPointInRing,
-  type PolygonRing,
-} from 'app/dashboard/shared/ringGeometry'
+import { drawnRings, type PolygonRing } from 'app/dashboard/shared/ringGeometry'
 import type { Person } from '../shared/contacts-types'
 import { toContactPoints } from './contactListPoints'
-import BoundaryDrawPanel from './BoundaryDrawPanel'
+import BoundaryDrawOverlay from './BoundaryDrawOverlay'
 
 interface ListBoundaryOverlayProps {
   people: Person[]
   truncated: boolean
-  initialRing: PolygonRing
+  initialRings: PolygonRing[]
   labels: ContactsLabels
   isSaving: boolean
   onCancel: () => void
-  onSave: (ring: PolygonRing) => void
+  onSave: (rings: PolygonRing[]) => void
 }
 
-// The full-bleed drawing surface a saved list's map opens into. It owns the
-// in-progress ring so cancelling leaves the list exactly as it was, and
-// hands the finished one back on save.
+// A SAVED list's half of the drawing surface: person records in, coordinates
+// out. The surface itself is `BoundaryDrawOverlay`, shared with the wizard,
+// which has no records to hand it.
 export default function ListBoundaryOverlay({
   people,
   truncated,
-  initialRing,
+  initialRings,
   labels,
   isSaving,
   onCancel,
   onSave,
 }: ListBoundaryOverlayProps) {
-  const [ring, setRing] = useState<PolygonRing>(initialRing)
-
-  // Radix restores focus when a dialog transitions open -> closed. Both
-  // callers mount this conditionally, so it never makes that transition —
-  // it is simply unmounted, and Radix's restore never runs. Everything else
-  // it gives us (the focus trap, aria-hiding the page behind, Escape) works
-  // regardless; only the hand-back needs doing here.
-  const openerRef = useRef<HTMLElement | null>(null)
-  if (openerRef.current === null && typeof document !== 'undefined') {
-    openerRef.current = document.activeElement as HTMLElement | null
-  }
-  useEffect(() => () => openerRef.current?.focus?.(), [])
-
   const { points, unmappable } = useMemo(
     () => toContactPoints(people),
     [people],
   )
 
-  // Ray-cast over the dots on screen rather than asked of the server: it
-  // answers on every drag of a handle, and it answers for exactly the shape
-  // being dragged. The server settles it on save.
-  const inside = useMemo(
-    () =>
-      ring.length < 3
-        ? 0
-        : points.reduce(
-            (total, point) =>
-              isPointInRing(point.lng, point.lat, ring)
-                ? total + point.residents.length
-                : total,
-            0,
-          ),
-    [points, ring],
-  )
-
-  // Truncated means the dots are a page of a longer list, and a boundary
-  // already saved means they are the people it kept — either way the number
-  // below describes what is drawn and not what will be saved.
-  const isEstimate = truncated || initialRing.length >= 3
-  const hasRing = ring.length >= 3
-
   return (
-    <Dialog open onOpenChange={(next) => !next && onCancel()}>
-      {/* Full-bleed rather than the centred card DialogContent defaults to:
-          `sm:max-w-none` is NOT redundant beside `max-w-none` — the base
-          component carries `sm:max-w-lg`, and a responsive variant wins over
-          a plain utility in the cascade, so without it this renders 512px
-          wide on every screen above the sm breakpoint.
-          the whole point of this surface is a map big enough to aim at.
-          z-[1400] because it opens from inside the list detail sheet, which
-          is itself a drawer. The last-child hide is the styleguide's own
-          idiom for dropping the built-in close (ModalOrDrawer uses it) —
-          Cancel is the close here, and two of them invite the holder to
-          guess which one discards their ring. */}
-      <DialogContent
-        className="flex h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 p-0 top-0 left-0 z-[1400] sm:max-w-none [&>button:last-child]:hidden"
-        data-testid="boundary-overlay"
-      >
-        <DialogTitle className="sr-only">{labels.boundaryDrawCta}</DialogTitle>
-        <BoundaryDrawPanel
-          points={points}
-          truncated={truncated}
-          ring={ring}
-          onRingChange={setRing}
-          pillLabel={labels.boundaryCountLabel(inside)}
-          hint={labels.boundaryStepHint}
-          className="min-h-0 flex-1"
-        />
-        <div className="border-t border-border bg-background px-6 py-4">
-          <div className="mx-auto flex w-full max-w-[608px] flex-col gap-2">
-            {hasRing && inside === 0 ? (
-              <p className="text-sm text-foreground" aria-live="polite">
-                {labels.boundaryEmptyShape}
-              </p>
-            ) : hasRing && isEstimate ? (
-              <p className="text-xs text-muted-foreground">
-                {labels.boundaryEstimateNote}
-              </p>
-            ) : null}
-            {unmappable > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {labels.boundaryUnmappable(unmappable)}
-              </p>
-            )}
-            <div className="flex flex-row-reverse items-center justify-between gap-3">
-              <Button
-                type="button"
-                size="large"
-                className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
-                disabled={hasRing && inside === 0}
-                loading={isSaving}
-                onClick={() => onSave(ring)}
-              >
-                Save
-              </Button>
-              <Button
-                type="button"
-                size="large"
-                variant="ghost"
-                className="shrink-0 lg:min-w-[140px]"
-                onClick={onCancel}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <BoundaryDrawOverlay
+      points={points}
+      truncated={truncated}
+      unmappable={unmappable}
+      initialRings={initialRings}
+      labels={labels}
+      // Truncated means the dots are a page of a longer list, and a boundary
+      // already saved means they are the people it kept — either way the
+      // running count describes what is drawn and not what will be saved.
+      isEstimate={truncated || drawnRings(initialRings).length > 0}
+      isSaving={isSaving}
+      onCancel={onCancel}
+      onSave={onSave}
+    />
   )
 }

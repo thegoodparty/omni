@@ -33,6 +33,7 @@ import {
   ForbiddenException,
   HttpStatus,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { DomainAvailability } from '@aws-sdk/client-route-53-domains'
 import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
@@ -893,6 +894,147 @@ describe('DomainsService', () => {
       )
 
       expect(result).toEqual({ candidates: [] })
+    })
+
+    it('caps availability checks after the TLD fan-out, not before it', async () => {
+      // The pattern budget counts SLDs; the fan-out below it multiplies each
+      // by six. Nine SLDs is 54 candidates — without a post-fan-out cap a
+      // single search can spend 300 calls of an account-wide bucket.
+      mockRoute53.checkDomainAvailability.mockResolvedValue({
+        Availability: DomainAvailability.UNAVAILABLE,
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      // Truncating and then finding nothing is not the same as checking
+      // everything and finding nothing, so this raises rather than returning
+      // an empty list the caller would read as "the namespace is taken".
+      await expect(
+        service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['vote{last_name}(1|2|3|4|5|6|7|8|9)'],
+          10,
+        ),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+
+      expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledTimes(50)
+    })
+
+    it('reports a throttled candidate as unchecked, not as unavailable', async () => {
+      mockRoute53.checkDomainAvailability.mockImplementation(
+        (domain: string) => {
+          if (domain === 'vote-oneill.bio') {
+            throw new ServiceUnavailableException(
+              'AWS is rate limiting this request.',
+            )
+          }
+          return { Availability: DomainAvailability.AVAILABLE }
+        },
+      )
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      const result = await service.searchDomainsForCampaign(
+        campaignWithUser,
+        ['vote-{last_name}.(run|bio)'],
+        10,
+      )
+
+      expect(result.candidates.map((c) => c.domain)).toEqual([
+        'vote-oneill.run',
+      ])
+    })
+
+    it('returns an authoritative empty list when every candidate was checked', async () => {
+      mockRoute53.checkDomainAvailability.mockResolvedValue({
+        Availability: DomainAvailability.UNAVAILABLE,
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      const result = await service.searchDomainsForCampaign(
+        campaignWithUser,
+        ['vote-{last_name}.(run|bio)'],
+        10,
+      )
+
+      expect(result).toEqual({ candidates: [] })
+    })
+
+    it('still returns the candidates it found when others were throttled', async () => {
+      // Throttling elsewhere must not discard real results — only an empty
+      // result is ambiguous enough to raise.
+      let calls = 0
+      mockRoute53.checkDomainAvailability.mockImplementation(() => {
+        calls += 1
+        if (calls > 2) {
+          throw new ServiceUnavailableException(
+            'AWS is rate limiting this request.',
+          )
+        }
+        return { Availability: DomainAvailability.AVAILABLE }
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      const result = await service.searchDomainsForCampaign(
+        campaignWithUser,
+        ['voteforoneill'],
+        10,
+      )
+
+      expect(result.candidates.length).toBeGreaterThan(0)
+    })
+
+    it('rejects 502 when every price lookup failed', async () => {
+      // A price we could not fetch is not a price over the cap. Returning []
+      // here told the caller every available domain was too expensive.
+      mockRoute53.checkDomainAvailability.mockResolvedValue({
+        Availability: DomainAvailability.AVAILABLE,
+      })
+      mockVercel.checkDomainPrice.mockImplementation(() => {
+        throw new Error('vercel boom')
+      })
+
+      await expect(
+        service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['vote-{last_name}.(run|bio)'],
+          10,
+        ),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it('rejects 502 when a transient AWS fault stopped every check', async () => {
+      // Not throttling: a server-fault outage. This used to return [], which
+      // the caller reads as "the whole namespace is taken".
+      mockRoute53.checkDomainAvailability.mockImplementation(() => {
+        throw new BadGatewayException('Error communicating with AWS service')
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      await expect(
+        service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['vote-{last_name}.(run|bio)'],
+          10,
+        ),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it('rejects 502 when every candidate was throttled rather than checked', async () => {
+      // Without this the caller gets an empty list and concludes the whole
+      // pattern catalogue is taken, when in fact nothing was ever checked.
+      mockRoute53.checkDomainAvailability.mockImplementation(() => {
+        throw new ServiceUnavailableException(
+          'AWS is rate limiting this request.',
+        )
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      await expect(
+        service.searchDomainsForCampaign(
+          campaignWithUser,
+          ['vote-{last_name}.(run|bio)'],
+          10,
+        ),
+      ).rejects.toBeInstanceOf(BadGatewayException)
     })
   })
 

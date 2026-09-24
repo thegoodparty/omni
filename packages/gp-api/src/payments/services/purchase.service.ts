@@ -413,6 +413,13 @@ export class PurchaseService {
         return PaymentType.DOMAIN_REGISTRATION
       case PurchaseType.TEXT:
         return PaymentType.OUTREACH_PURCHASE
+      // A Serve SMS send is still an outreach purchase on the payment side —
+      // only the handler differs (a Serve row has no campaign and no Peerly
+      // identity). Missing this line is not a missing feature: the default
+      // branch below THROWS, so checkout 500s with an error that names the
+      // payment-type map rather than anything about Serve SMS.
+      case PurchaseType.SERVE_TEXT:
+        return PaymentType.OUTREACH_PURCHASE
       case PurchaseType.POLL:
         return PaymentType.POLL
       default:

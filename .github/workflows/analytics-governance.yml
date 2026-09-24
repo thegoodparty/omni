@@ -138,6 +138,11 @@ jobs:
           # degrades to the rules tier via run_triage's "skipped: ANTHROPIC_API_KEY
           # unset" status and the run continues.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
+          # Read-only cross-repo token for gp-data-platform's sem_*.yml, the kernel the
+          # OKR dormancy checks derive their watch set from (DATA-2421). Unset until an
+          # omni repo admin adds it; load_anchors then disables those checks and the
+          # digest posts a red "OKR dormancy checks degraded" item saying so.
+          GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
         run: |
           # --gap-slack degrades to a health-only post when the file is absent (e.g. the
           # gap sweep step above failed) — never fails this step.
@@ -166,6 +171,7 @@ jobs:
       # sheet step. A scheduled republish turns the committed file into the live page
       # (DATA-2506).
       - name: Event explorer snapshot
+        id: explorer_snapshot
         working-directory: packages/runbooks/scripts/python
         # Non-fatal, like the gap sweep above and for the same reason: this step runs
         # before the commit, so failing the job here would throw away the provenance
@@ -230,6 +236,10 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         env:
           GP_SHEETS_TOKEN_PATH: ${{ runner.temp }}/gsheet_token.pickle
+          # Same read-only cross-repo token as the health monitor step above: refresh
+          # now derives the sheet's okr column from the same anchored_on declaration
+          # (DATA-2421), so a live assemble() here needs it too.
+          GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "$GP_SHEETS_TOKEN_B64" ] || [ -z "$GP_EVENT_STATE_SHEET_ID" ]; then
@@ -247,6 +257,9 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         env:
           CLICKUP_API_KEY: ${{ secrets.CLICKUP_API_TOKEN }}
+          # Same read-only cross-repo token as the steps above: the write-back runs its
+          # own assemble(), which reads anchored_on live (DATA-2421).
+          GP_DATA_PLATFORM_READ_TOKEN: ${{ secrets.GP_DATA_PLATFORM_READ_TOKEN }}
         run: |
           set -euo pipefail
           # The list ids default from questions_clickup.py, so the token is the only thing
@@ -268,7 +281,13 @@ jobs:
           retention-days: 30
 
       - name: Notify Slack on failure
-        if: failure() && env.SLACK_APP_BOT_TOKEN != '' && env.SLACK_EVENT_LIFECYCLE_CHANNEL_ID != ''
+        # `continue-on-error` on the snapshot step leaves the job green, so
+        # `failure()` alone would never see it and the header's promise that failures
+        # reach Slack would quietly stop holding for that one step.
+        if: >-
+          (failure() || steps.explorer_snapshot.outcome == 'failure')
+          && env.SLACK_APP_BOT_TOKEN != ''
+          && env.SLACK_EVENT_LIFECYCLE_CHANNEL_ID != ''
         run: |
           curl -sf -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \

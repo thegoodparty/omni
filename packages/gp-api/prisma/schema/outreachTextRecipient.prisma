@@ -1,0 +1,26 @@
+// Who a text send actually went to, and on which number. Written by the
+// delivery layer at handoff, read back when replies arrive: inbound events are
+// phone-keyed, and this row is where phone and personId are last seen
+// together.
+//
+// Win's equivalent is PeerlyPhoneListRecipient, which cannot serve here
+// because PeerlyPhoneList.campaignId is NOT NULL and a Serve send has no
+// campaign. Scoped to the outreach envelope instead, so it works for either
+// surface and for either product on top of the delivery layer.
+model OutreachTextRecipient {
+  id               String       @id @default(uuid(7))
+  createdAt        DateTime     @default(now()) @map("created_at")
+  outreach         Outreach     @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId       Int          @map("outreach_id")
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String       @map("person_id")
+  phone            String
+
+  // One row per person per send; the handoff writes with skipDuplicates so a
+  // redelivered queue message is a no-op rather than a duplicate.
+  @@unique([outreachId, personId])
+  // The inbound lookup: given a reply's number, which person on this send.
+  @@index([outreachId, phone])
+  @@map("outreach_text_recipient")
+}

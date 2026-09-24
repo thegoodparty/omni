@@ -164,6 +164,18 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
     dim: 'educationLevel',
     buckets: ['Unknown', 'unknown'],
   },
+  ethnicityAsian: { dim: 'ethnicity', buckets: ['Asian'] },
+  ethnicityEuropean: { dim: 'ethnicity', buckets: ['European'] },
+  ethnicityHispanic: { dim: 'ethnicity', buckets: ['Hispanic'] },
+  ethnicityAfricanAmerican: {
+    dim: 'ethnicity',
+    buckets: ['African American'],
+  },
+  ethnicityOther: { dim: 'ethnicity', buckets: ['Other'] },
+  ethnicityUnknown: {
+    dim: 'ethnicity',
+    buckets: ['Unknown', 'unknown'],
+  },
   incomeUnknown: { dim: 'income', buckets: ['Unknown', 'unknown'] },
   ...Object.fromEntries(
     Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [

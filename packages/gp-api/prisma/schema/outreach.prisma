@@ -130,6 +130,8 @@ model Outreach {
   campaignSiblings                  Outreach[]                         @relation("OutreachCampaign")
   social                            OutreachSocial?
   robocall                          OutreachRobocall?
+  textRecipients                    OutreachTextRecipient[]
+  textMessages                      PollIndividualMessage[]
   voterActivities                   VoterOutreachActivity[]
   raceOpponentContrasts             RaceOpponentContrast[]
   contactInteractionTexts           ContactInteractionText[]

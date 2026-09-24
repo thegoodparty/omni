@@ -9,6 +9,7 @@ import type {
   DoorKnockingTalkingPointsPurpose,
   DoorKnockingTurf,
   GeoJsonPolygon,
+  GeoJsonShape,
   ServeDoorKnockingTalkingPointsPurpose,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
@@ -38,12 +39,17 @@ import type {
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  SmsOutreachReplies,
   SmsOutreachResults,
   SocialDraftRequest,
   SocialDraftResponse,
   SocialGenerateRequest,
   SocialGenerateResponse,
   SocialSaveRequest,
+  ServeSmsCreateRequest,
+  ServeSmsCreateResponse,
+  ServeSmsDraftRequest,
+  ServeSmsDraftResponse,
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
   ServeSocialSaveRequest,
@@ -65,6 +71,8 @@ import type {
   RobocallSaveCardIntentResponse,
   RobocallAuthorizeRequest,
   RobocallAuthorizeResponse,
+  RobocallPromoApplyRequest,
+  RobocallPromoStateResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
   PeoplePrecinctsResponse,
@@ -391,6 +399,25 @@ export type APIEndpoints = {
     Response: SmsDraftResponse
   }
 
+  // Serve sibling of the SMS draft endpoint above: same shape with the
+  // purpose field swapped to the serve vocabulary, org-scoped rather than
+  // campaign-scoped, and grounded in a serve voice config. Not yet mounted
+  // by any flow — the wiring ticket points SmsFlow's serve surface at this.
+  'POST /v1/outreach/serve/sms/draft': {
+    Request: ServeSmsDraftRequest
+    Response: ServeSmsDraftResponse
+  }
+
+  // Draft-first create for a Serve SMS send. Org-scoped: there is no
+  // campaign and no Peerly phone list, so the audience is resolved
+  // server-side from `voterFileFilterId` and the response carries the
+  // recipient count the pay step quotes. The controller is registered by the
+  // module-wiring ticket; until then this key types a route that 404s.
+  'POST /v1/outreach/serve/sms': {
+    Request: ServeSmsCreateRequest
+    Response: ServeSmsCreateResponse
+  }
+
   // Persists the social campaign atomically (spine row + satellite +
   // assets). Response is the created row so the hub updates without a
   // refetch.
@@ -430,6 +457,26 @@ export type APIEndpoints = {
   'GET /v1/outreach/serve/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Serve's org-scoped results reads. Siblings of
+  // `GET /v1/outreach/:id/results`, scoped by organizationSlug with
+  // campaignId pinned null so an org that holds both a Campaign and an
+  // ElectedOffice cannot read its Win results here.
+  'GET /v1/outreach/serve/:id/results': {
+    Request: {}
+    Response: SmsOutreachResults
+  }
+
+  // The read-only reply list: first name, content, and the CRM facts the
+  // expandable panel shows. Serve-only — reply CONTENT is stored only for
+  // sends that came back through the shared ingest, which is the Serve
+  // fulfilment path; Win's Peerly sweep records timestamps and never bodies.
+  // `total` is every reply on the send, so "Show all {n} responses" can name
+  // a number it has not fetched.
+  'GET /v1/outreach/serve/:id/replies': {
+    Request: { limit?: number; offset?: number }
+    Response: SmsOutreachReplies
   }
 
   // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows
@@ -544,6 +591,19 @@ export type APIEndpoints = {
   'POST /v1/outreach/robocall/:outreachId/authorize': {
     Request: RobocallAuthorizeRequest
     Response: RobocallAuthorizeResponse
+  }
+
+  // Remembers a reward promotion code on the pending robocall draft and returns
+  // the server-priced discount + what is left to authorize. The code is only
+  // consumed when the hold places (authorize), never here.
+  'POST /v1/outreach/robocall/:outreachId/promo': {
+    Request: RobocallPromoApplyRequest
+    Response: RobocallPromoStateResponse
+  }
+
+  'DELETE /v1/outreach/robocall/:outreachId/promo': {
+    Request: {}
+    Response: RobocallPromoStateResponse
   }
 
   // Freezes the chosen script, sheet count, and audience (exactly one of
@@ -1210,7 +1270,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
-      geoPoly?: GeoJsonPolygon | null
+      geoPoly?: GeoJsonShape | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1219,7 +1279,7 @@ export type APIEndpoints = {
       name?: string
       activityConditions?: ActivityConditionInput[]
       supportStatus?: SupportStatusRollup[]
-      geoPoly?: GeoJsonPolygon | null
+      geoPoly?: GeoJsonShape | null
     } & Record<string, unknown>
     Response: SegmentResponse
   }
@@ -1287,7 +1347,7 @@ export type APIEndpoints = {
   // different things to go and fix.
   'POST /v1/contacts/polygon-preview': {
     Request: {
-      geoPoly: GeoJsonPolygon
+      geoPoly: GeoJsonShape
       filters: {
         activityConditions?: ActivityConditionInput[]
         supportStatus?: SupportStatusRollup[]
@@ -1410,6 +1470,24 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/turfs/:id/archive': {
     Request: DoorKnockingArchiveRequest
     Response: DoorKnockingTurf
+  }
+  // The campaign lifecycle: one request, every turf under the anchor, one
+  // server-side transaction. A route of its own rather than a scope parameter
+  // on the two above, so those stay per-turf — the walk's own
+  // `Move to archive` and its `finishAndArchive` press them, and a fan-out
+  // there would shelve a whole campaign when a canvasser finished one turf of
+  // it. Manager-only; a volunteer reaches neither. Both answer with the
+  // campaign's whole turf list, in the same order as the campaign read above,
+  // so a caller repaints from the response it already has.
+  'POST /v1/door-knocking/campaigns/:anchorId/complete': {
+    Request: {}
+    Response: DoorKnockingTurf[]
+  }
+  // Same body as the turf route. Every sibling it shelves gets ONE shared
+  // timestamp, and a sibling already shelved keeps its own date.
+  'POST /v1/door-knocking/campaigns/:anchorId/archive': {
+    Request: DoorKnockingArchiveRequest
+    Response: DoorKnockingTurf[]
   }
   'GET /v1/door-knocking/turfs/:id/route': {
     Request: {}

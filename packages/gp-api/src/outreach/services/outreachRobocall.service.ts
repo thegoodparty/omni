@@ -4,7 +4,10 @@ import {
   Injectable,
 } from '@nestjs/common'
 import { addDays, isAfter, isFuture, parseISO } from 'date-fns'
-import { RobocallDraftCreateRequest } from '@goodparty_org/contracts'
+import {
+  RobocallDraftCreateRequest,
+  RobocallDraftCreateResponse,
+} from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   ContactsFilterResolutionInput,
@@ -15,6 +18,7 @@ import {
   calcRobocallTotalInCents,
   ROBOCALL_NUMBER_FEE_CENTS,
 } from '@/shared/util/robocallPricing.util'
+import { robocallPromoState } from '@/shared/util/robocallPromo.util'
 import { ROBOCALL_MAX_SCHEDULE_DAYS } from '@/shared/util/robocallHold.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -30,12 +34,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 
-export interface RobocallDraftResult {
-  outreachId: number
-  billableCount: number
-  amountInCents: number
-  numberFeeInCents: number
-}
+export type RobocallDraftResult = RobocallDraftCreateResponse
 
 // The robocall spine + satellite persistence and the server-side billable-count
 // derivation the estimate prices off. Payment is a hold + capture-actual model:
@@ -234,6 +233,10 @@ export class OutreachRobocallService extends createPrismaBase(
         billableCount,
         amountInCents,
         numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
+        ...robocallPromoState(
+          { promoCode: null, promoDiscountInCents: 0 },
+          amountInCents,
+        ),
       }
     } catch (err) {
       // A concurrent create won the unique(audio_key) race: return its draft
@@ -312,16 +315,19 @@ export class OutreachRobocallService extends createPrismaBase(
         },
       },
     })
-    return existing
-      ? {
-          outreachId: existing.outreachId,
-          billableCount: existing.billableCount,
-          // Recompute rather than trust the stored column: a draft created
-          // before the number fee shipped has a stale, fee-less amountInCents,
-          // and returning it would understate the total by the fee.
-          amountInCents: calcRobocallTotalInCents(existing.billableCount),
-          numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
-        }
-      : null
+    if (!existing) return null
+    // Recompute rather than trust the stored column: a draft created before
+    // the number fee shipped has a stale, fee-less amountInCents, and returning
+    // it would understate the total by the fee.
+    const amountInCents = calcRobocallTotalInCents(existing.billableCount)
+    return {
+      outreachId: existing.outreachId,
+      billableCount: existing.billableCount,
+      amountInCents,
+      numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
+      // A code applied on an earlier visit to the pay step rides the re-read,
+      // so re-entering the step shows the same discounted total.
+      ...robocallPromoState(existing, amountInCents),
+    }
   }
 }

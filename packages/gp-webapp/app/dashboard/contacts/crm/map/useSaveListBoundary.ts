@@ -5,7 +5,8 @@ import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
-  ringToGeoJsonPolygon,
+  drawnRings,
+  ringsToGeoJsonShape,
   type PolygonRing,
 } from 'app/dashboard/shared/ringGeometry'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
@@ -35,15 +36,19 @@ export const useSaveListBoundary = (
   const orgSlug = useOrganization()?.slug
 
   return useMutation({
-    mutationFn: (ring: PolygonRing) =>
+    mutationFn: (rings: PolygonRing[]) =>
       clientRequest('PUT /v1/voters/voter-file/filter/:id', {
         id: String(listId),
-        geoPoly: ringToGeoJsonPolygon(ring),
+        geoPoly: ringsToGeoJsonShape(rings),
       }).then((res) => res.data),
-    onSuccess: async (_data, ring) => {
+    onSuccess: async (_data, rings) => {
+      const drawn = drawnRings(rings)
       trackEvent(EVENTS.ConstituentData.ListBoundarySaved, {
         listId,
-        cleared: ring.length < 3,
+        cleared: drawn.length === 0,
+        // How many parts the saved boundary has, so "do holders actually
+        // draw more than one" is answerable without reading geometry back.
+        shapeCount: drawn.length,
         surface,
       })
       successSnackbar('List updated')

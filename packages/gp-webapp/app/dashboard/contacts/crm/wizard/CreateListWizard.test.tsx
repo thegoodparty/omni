@@ -36,11 +36,13 @@ vi.mock('../map/ContactListMap', () => ({
     people,
     contactPoints,
     drawRing,
+    otherRings,
     onDrawRingChange,
   }: {
     people?: unknown[]
     contactPoints?: unknown[]
     drawRing?: Array<[number, number]>
+    otherRings?: Array<Array<[number, number]>>
     onDrawRingChange?: (ring: Array<[number, number]>) => void
   }) {
     return (
@@ -48,17 +50,22 @@ vi.mock('../map/ContactListMap', () => ({
         data-testid="contact-map-stub"
         data-people={(contactPoints ?? people ?? []).length}
         data-ring={JSON.stringify(drawRing ?? [])}
+        data-other-rings={JSON.stringify(otherRings ?? [])}
         data-draw-enabled={String(Boolean(onDrawRingChange))}
       >
-        {BOUNDARY_TAPS.map((tap, index) => (
-          <button
-            key={index}
-            type="button"
-            onClick={() => onDrawRingChange?.([...(drawRing ?? []), tap])}
-          >
-            {`place point ${index + 1}`}
-          </button>
-        ))}
+        {/* Only the writable map offers taps. The boundary step's preview
+            gets the same stub with no writer, and two sets of identically
+            named buttons would make every query ambiguous. */}
+        {onDrawRingChange &&
+          BOUNDARY_TAPS.map((tap, index) => (
+            <button
+              key={index}
+              type="button"
+              onClick={() => onDrawRingChange([...(drawRing ?? []), tap])}
+            >
+              {`place point ${index + 1}`}
+            </button>
+          ))}
       </div>
     )
   },
@@ -98,12 +105,18 @@ const skipBoundaryStep = async (
   await user.click(await screen.findByRole('button', { name: 'Continue' }))
 }
 
+// The shape is cut full-screen: the step itself carries a read-only preview
+// and a CTA into the overlay, and the ring only reaches the wizard on Save.
 const drawBoundary = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
+  await user.click(
+    await screen.findByRole('button', { name: /draw an area|edit area/i }),
+  )
   for (const label of ['place point 1', 'place point 2', 'place point 3']) {
     await user.click(await screen.findByRole('button', { name: label }))
   }
+  await user.click(await screen.findByRole('button', { name: 'Save' }))
 }
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
@@ -410,8 +423,8 @@ describe('CreateListWizard — step navigation', () => {
     )
     await drawBoundary(user)
     expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-ring',
-      JSON.stringify(BOUNDARY_TAPS),
+      'data-other-rings',
+      JSON.stringify([BOUNDARY_TAPS]),
     )
 
     const continueButton = await screen.findByRole('button', {
@@ -427,8 +440,8 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(screen.getByTestId('contact-map-stub')).toHaveAttribute(
-      'data-ring',
-      JSON.stringify(BOUNDARY_TAPS),
+      'data-other-rings',
+      JSON.stringify([BOUNDARY_TAPS]),
     )
   })
 

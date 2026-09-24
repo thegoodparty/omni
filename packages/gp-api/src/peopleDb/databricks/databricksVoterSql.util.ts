@@ -557,6 +557,14 @@ export const buildVoterFiltersSql = (
           VALUE_MAPPERS.educationLevel,
         )
         break
+      case 'ethnicity':
+        sql = buildMappedFieldFilter(
+          bag,
+          'EthnicGroups_EthnicGroup1Desc',
+          op,
+          VALUE_MAPPERS.ethnicity,
+        )
+        break
       case 'businessOwner':
         sql = buildBusinessOwnerFilter(op)
         break
@@ -1056,6 +1064,7 @@ export const DOOR_KNOCKING_RESIDENT_COLUMNS = [
   'Education_Of_Person',
   'Estimated_Income_Amount_Int',
   'Language_Code',
+  'EthnicGroups_EthnicGroup1Desc',
 ] as const
 
 export const buildDoorKnockingResidentsSql = (args: {
@@ -1108,6 +1117,7 @@ export const PACK_CSV_COLUMNS = [
   'Education_Of_Person',
   'Estimated_Income_Amount_Int',
   'Language_Code',
+  'EthnicGroups_EthnicGroup1Desc',
   'registered',
   'hasCellPhone',
   'hasLandline',
@@ -1132,6 +1142,7 @@ export const buildPackSql = (args: { district: DbxDistrict }): DbxStatement => {
     'Education_Of_Person',
     'Estimated_Income_Amount_Int',
     'Language_Code',
+    'EthnicGroups_EthnicGroup1Desc',
   ]
     // Read back as CSV, where the Statement Execution API renders a SQL NULL
     // as the literal text `null`. Coalescing to '' here makes the empty case
@@ -1194,4 +1205,5 @@ export type DbxResidentRow = {
   Education_Of_Person: string | null
   Estimated_Income_Amount_Int: number | null
   Language_Code: string | null
+  EthnicGroups_EthnicGroup1Desc: string | null
 }

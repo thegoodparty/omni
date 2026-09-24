@@ -62,7 +62,12 @@ import TurfDetailsSheet from './TurfDetailsSheet'
 import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
 import { useLiveLocation } from './useLiveLocation'
-import { useWalkArchive, useWalkCompletion } from './walkCompletion'
+import {
+  useWalkArchive,
+  useWalkCompletion,
+  useWalkMarkDone,
+} from './walkCompletion'
+import { canCompleteTurf } from './turfLifecycle'
 import { packBounds, type PolygonRing } from './VoterMapCanvas'
 import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
@@ -629,6 +634,10 @@ export default function NativeDoorKnockingPage({
   // The walk's own `Move to archive`. Same ref-held turf as the completion
   // above and for the same reason: the write outlives the walk it shelves.
   const walkArchive = useWalkArchive(walkTurfRow)
+  // The walk's manual Done. Same ref-held turf as the two above; the button
+  // is withheld rather than disabled on a list already done or archived,
+  // because the row itself is the authority and it refetches after the write.
+  const walkMarkDone = useWalkMarkDone(walkTurfRow)
   const quotaQuery = useQuery(quotaQueryOptions)
   // The allowance that refused, captured when it did rather than read from the
   // query while the dialog is up: the number is in the sentence on screen, and
@@ -1089,6 +1098,12 @@ export default function NativeDoorKnockingPage({
         // archive has already said so in a snackbar.
         onMoveToArchive={() => walkArchive.moveToArchive(endWalk)}
         archivePending={walkArchive.pending}
+        onMarkDone={
+          walkTurfRow && canCompleteTurf(walkTurfRow)
+            ? walkMarkDone.markDone
+            : undefined
+        }
+        markDonePending={walkMarkDone.pending}
         onMapControlsOffsetChange={setMapControlsOffset}
         onKnockRecorded={walk.recordDoor}
         openStopRequest={walkMap.openStopRequest}

@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
+import { BadRequestException } from '@nestjs/common'
 import {
   DoorKnockingEvaluateResponse,
   GeoJsonPolygon,
+  GeoJsonShape,
 } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
@@ -21,6 +23,58 @@ const SQUARE: GeoJsonPolygon = {
       [1, 1],
       [0, 1],
       [0, 0],
+    ],
+  ],
+}
+
+// Two parts with a gap between them, so each part's own box is tight and
+// neither holds the other's people.
+const DISJOINT_PAIR: GeoJsonShape = {
+  type: 'MultiPolygon',
+  coordinates: [
+    [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ],
+    [
+      [
+        [10, 10],
+        [11, 10],
+        [11, 11],
+        [10, 11],
+        [10, 10],
+      ],
+    ],
+  ],
+}
+
+// Two parts sharing the strip 0.5 <= lng <= 1, so a person standing there
+// is inside both and is returned by both scans.
+const OVERLAPPING_PAIR: GeoJsonShape = {
+  type: 'MultiPolygon',
+  coordinates: [
+    [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ],
+    [
+      [
+        [0.5, 0],
+        [1.5, 0],
+        [1.5, 1],
+        [0.5, 1],
+        [0.5, 0],
+      ],
     ],
   ],
 }
@@ -212,6 +266,94 @@ describe('saved list boundaries', () => {
   // The scan runs unfiltered on purpose: the frozen set is the geographic
   // half of a list and the criteria re-apply on every read, so a later
   // filter edit cannot invalidate a boundary nobody moved.
+  // The freeze path is its OWN implementation — its own part loop, its own
+  // Set, its own evaluate call — so the preview's multi-part tests say
+  // nothing about it. These three cover the same ground on this side.
+  it('freezes a multi-part boundary by scanning each part on its own box', async () => {
+    const slug = await setupServeOrg('multi-create')
+    const first = randomUUID()
+    const second = randomUUID()
+    const evaluateSpy = vi
+      .spyOn(service.app.get(VoterDoorKnockingService), 'evaluate')
+      .mockClear()
+      .mockResolvedValueOnce({ people: [person(first, 0.5, 0.5)] })
+      .mockResolvedValueOnce({ people: [person(second, 10.5, 10.5)] })
+
+    const response = await createFilter(slug, {
+      name: 'Two neighbourhoods',
+      genderFemale: true,
+      geoPoly: DISJOINT_PAIR,
+    })
+
+    expect(response.status).toBe(201)
+    expect(evaluateSpy).toHaveBeenCalledTimes(2)
+    expect(evaluateSpy.mock.calls[0]?.[0]?.bbox).toEqual({
+      minLng: 0,
+      maxLng: 1,
+      minLat: 0,
+      maxLat: 1,
+    })
+    expect(evaluateSpy.mock.calls[1]?.[0]?.bbox).toEqual({
+      minLng: 10,
+      maxLng: 11,
+      minLat: 10,
+      maxLat: 11,
+    })
+    expect(await geoMemberIds(response.data.id)).toEqual([first, second].sort())
+    const row = await service.prisma.voterFileFilter.findUniqueOrThrow({
+      where: { id: response.data.id },
+    })
+    expect(row.geoPoly).toEqual(DISJOINT_PAIR)
+  })
+
+  // The reason parts are allowed to overlap at all. One person, returned by
+  // both parts' scans, must be one member row — the unique constraint would
+  // survive a duplicate, but the COUNT the holder is shown would not.
+  it('writes one member row for a person standing in two parts', async () => {
+    const slug = await setupServeOrg('multi-dedup')
+    const shared = randomUUID()
+    const evaluateSpy = spyOnEvaluate([person(shared, 0.75, 0.5)])
+
+    const response = await createFilter(slug, {
+      name: 'Overlapping parts',
+      genderFemale: true,
+      geoPoly: OVERLAPPING_PAIR,
+    })
+
+    expect(response.status).toBe(201)
+    expect(evaluateSpy).toHaveBeenCalledTimes(2)
+    expect(await geoMemberIds(response.data.id)).toEqual([shared])
+  })
+
+  // The cap can be reached by any part. A loop that swallowed a later
+  // rejection would save a boundary whose frozen membership is a partial
+  // scan, and nothing afterwards could tell it from a complete one.
+  it('fails the whole save when a LATER part is over the cap', async () => {
+    const slug = await setupServeOrg('multi-cap')
+    vi.spyOn(service.app.get(VoterDoorKnockingService), 'evaluate')
+      .mockClear()
+      .mockResolvedValueOnce({ people: [person(randomUUID(), 0.5, 0.5)] })
+      .mockRejectedValueOnce(
+        new BadRequestException(
+          'Turf evaluation matched more than 50000 people — shrink the ' +
+            'polygon or narrow the filters',
+        ),
+      )
+
+    const response = await createFilter(slug, {
+      name: 'Too big in part two',
+      genderFemale: true,
+      geoPoly: DISJOINT_PAIR,
+    })
+
+    expect(response.status).toBe(400)
+    // Nothing half-written: no filter row survives a refused freeze.
+    const rows = await service.prisma.voterFileFilter.findMany({
+      where: { organizationSlug: slug },
+    })
+    expect(rows).toEqual([])
+  })
+
   it('freezes everyone inside the shape, not only those matching the criteria', async () => {
     const slug = await setupServeOrg('unfiltered')
     const evaluateSpy = spyOnEvaluate([])

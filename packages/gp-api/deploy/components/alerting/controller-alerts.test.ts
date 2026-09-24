@@ -11,6 +11,7 @@ import {
   ROUTE_ERROR_THRESHOLDS,
   SERVER_ERRORS_ONLY,
 } from '../alerts'
+import { buildAlertDescription } from './alert-notification'
 import { controllerAlerts } from './controller-alerts'
 
 /**
@@ -172,6 +173,27 @@ describe('controllerAlerts', () => {
     for (const alert of alerts) {
       expect(alert.summaryDetail).toContain('$labels.request_endpoint')
       expect(alert.message).toContain('$labels.request_endpoint')
+    }
+  })
+
+  // The rule counts "Request completed" lines, which carry the status but
+  // not the cause. The cause is on the exception lines for the same request,
+  // one query away — and on 2026-09-22 a POST /v1/outreach/sms/draft page
+  // took a Loki session to learn it was a schema-length reject, not the
+  // gateway timeout the message warns about. The link lands the reader on
+  // those lines for the route that actually fired.
+  it('links the reader to the error lines for the route that fired', () => {
+    for (const alert of alerts) {
+      expect(alert.message).toContain('https://goodparty.grafana.net/explore')
+      expect(alert.message).toContain(
+        '{{ $labels.request_endpoint | urlquery }}',
+      )
+      expect(alert.message).toContain('exception_type')
+
+      const description = buildAlertDescription(alert, 'prod')
+      expect(description).toContain('deployment_environment_name')
+      expect(description).toContain('prod')
+      expect(description).not.toContain('$ENV')
     }
   })
 

@@ -14,13 +14,48 @@ interface EcanvasserSummary {
   lastSync?: string
 }
 
+// Both reads below are wrapped, and the reason is that they share a
+// `Promise.all`: an unguarded `fetch` rejection (DNS, ECONNREFUSED, timeout)
+// propagates out of either one and crashes the whole server render, which
+// would take the page down instead of degrading it. Undefined is the
+// "unknown" both callers already handle.
 async function fetchEcanvasserSummary(): Promise<
   EcanvasserSummary | undefined
 > {
-  const response = await serverFetch<EcanvasserSummary>(
-    apiRoutes.ecanvasser.mySummary,
-  )
-  return response.data
+  try {
+    const response = await serverFetch<EcanvasserSummary>(
+      apiRoutes.ecanvasser.mySummary,
+    )
+    return response.data
+  } catch {
+    return undefined
+  }
+}
+
+// Whether candidate success has connected this campaign to eCanvasser, which
+// is the flag-off arm's own entitlement and the only thing that can put
+// numbers on its dashboard. `GET /ecanvasser/mine` answers it three ways: a
+// connected campaign gets its record, an unconnected one gets 200 with a null
+// body (the service's `findFirst`), and a Serve org gets a 404 from the
+// campaign guard because it has no campaign to look one up for.
+//
+// **`response.ok` is load-bearing, not belt-and-braces.** `clientFetch` puts
+// the parsed body on `.data` whatever the status, and Nest's 404 body is
+// `{"statusCode":404,"message":"Not Found"}` — a truthy object. Reading
+// `.data` alone therefore reports every Serve org as CONNECTED, which the
+// client-side Serve bounce would usually mask and would stop masking on any
+// cold load where the org slug has not hydrated yet.
+//
+// Read server-side beside the summary rather than through
+// `EcanvasserProvider`, which the gate mounts BELOW itself inside
+// `DashboardLayout` and so cannot read.
+async function fetchHasEcanvasser(): Promise<boolean | undefined> {
+  try {
+    const response = await serverFetch(apiRoutes.ecanvasser.mine)
+    return response.ok && Boolean(response.data)
+  } catch {
+    return undefined
+  }
 }
 
 const meta = pageMetaData({
@@ -52,10 +87,12 @@ export default async function Page({
     { listId, recommended, walkTurfId, outreachId, create, campaignOutreachId },
     campaign,
     summary,
+    hasEcanvasser,
   ] = await Promise.all([
     searchParams,
     fetchUserCampaign(),
     fetchEcanvasserSummary(),
+    fetchHasEcanvasser(),
   ])
 
   // Carries a saved list from the outreach hub's door-knocking tile so the
@@ -73,6 +110,7 @@ export default async function Page({
     pathname: '/dashboard/door-knocking',
     campaign,
     summary,
+    hasEcanvasser,
     preselectedListId,
     preselectedRecommendedVariant,
     // "Continue knocking" on an outreach row. A turf rather than a list, and

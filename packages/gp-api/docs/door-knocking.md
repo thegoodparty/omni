@@ -54,6 +54,29 @@ Many turfs make one campaign, and the campaign has no table. The anchor's
 id; `collapseDoorKnockingCampaigns.util.ts` folds them for every history
 surface, which reads the anchor and never a sibling.
 
+Folding means the anchor's row stands in for the campaign, so any column read
+off it is answering about one turf. `status` is the one the collapse corrects.
+Completion is written per TURF (`complete` takes a turf id and updates that
+turf's envelope), so an anchor finished ahead of its siblings made the whole
+campaign read Done in outreach history with turfs still unwalked. The util
+walks that back to `in_progress` unless every sibling is `completed`, which is
+exact because a door-knocking envelope's status only ever moves `in_progress`
+to `completed`: create writes the first, and `complete` (one turf) and
+`completeCampaign` (every sibling) are the only writers of the second, while
+archive and delete touch their own columns instead. Fixed in the collapse
+rather than at each surface because the history table and the details drawer
+both read this one row.
+
+`archivedAt` is corrected the same way and for the same reason: the history
+table sections on it, and the walk's own "Move to archive" writes ONE turf's
+envelope, so shelving the anchor turf used to take the whole campaign off the
+active list while its siblings were still being walked. A campaign is on the
+shelf only once every turf is, and its "archived since" is the latest of them.
+
+The counts are NOT corrected. There is no campaign-level rollup of doors,
+people or logged, so those surfaces withhold the figure instead; see the
+outreach `AGENTS.md` in gp-webapp.
+
 So a campaign's NAME is a column on an envelope, and `CreateDoorKnockingTurf`
 carries two names for two different things: `name` titles the turf, and
 `campaignName` titles the campaign. The create writes
@@ -119,11 +142,78 @@ Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
 
 `status` and `archivedAt` on the `Outreach` envelope, driven by
 `POST turfs/:id/complete` and `POST turfs/:id/archive`
-(`{ archived: boolean }`); `deletedAt` on the turf, driven by
-`DELETE turfs/:id`. The two lifecycle routes take a **turf** id and write the
+(`{ archived: boolean }`) for one turf, and by
+`POST campaigns/:anchorId/complete` and `POST campaigns/:anchorId/archive`
+(same body) for every turf in a campaign; `deletedAt` on the turf, driven by
+`DELETE turfs/:id`. The per-turf routes take a **turf** id and write the
 **envelope** it hangs off, which is the one place the addressing and the
 storage differ — the client holds turfs, and the turf is one `@unique` hop from
-the row that answers.
+the row that answers. The campaign routes take the **anchor Outreach** id, the
+same id `GET campaigns/:anchorId` already takes.
+
+### The campaign pair
+
+**A separate route, not a flag on the turf pair.** The turf routes are pressed
+by the walk's own footer and by `finishAndArchive`, so a `scope` field on them
+would let a canvasser finishing one turf close or shelve every other turf in
+the campaign, and completion has no undo anywhere in this product. They differ
+in every other respect too: the campaign routes are manager+, they address an
+anchor envelope rather than a turf, and they answer with the sibling array
+rather than one turf.
+
+**Manager+, deliberately.** A volunteer's reach is an `OutreachAssignment` on
+ONE envelope, so there is no honest answer to "may this volunteer close N of
+them": requiring an assignment on all N makes the route unreachable for a
+canvasser assigned to one turf, and requiring one lets them close a teammate's
+unwalked turf. Deciding a campaign is done despite unwalked doors is a
+judgement about where to stop spending field effort.
+
+**One statement, no advisory lock.** Each press is a single guarded
+`updateMany` over the envelopes: `status: in_progress` for complete,
+`archivedAt: null` (or `{ not: null }` for restore) for archive. The write set
+is chosen and applied in the same statement, so there is no read for a
+concurrent per-turf call to race, and Postgres re-checks the predicate against
+any row a per-turf write took first. That is also what makes the press
+idempotent and what gives archive ONE shared timestamp: a single bound
+parameter cannot vary across siblings, and a sibling already shelved is not
+matched, so a repeat press cannot walk its "archived since" forward. The
+per-turf advisory lock (`utils/turfLock.util.ts`) is deliberately NOT taken —
+it serializes a read-then-write, this has neither, and taking N of them would
+block every canvasser in the campaign to buy nothing.
+
+**Completion has no completeness precondition**, at either level. Done means
+stop walking this, not this list is exhausted. The client confirms when
+siblings are unfinished; the server does not refuse.
+
+**The rollup fires once.** `emitCanvassingTotals` sits behind the update's own
+`count > 0`, so N siblings produce one event and a second press produces none.
+The nine totals are running numbers recomputed per event and copied onto a
+HubSpot property rather than summed, so firing N times would write the same
+value N times rather than inflate it — what one event saves is N org-wide
+aggregates, N Segment calls and N workflow runs. `uniqueTurfsCompleted` moves
+by the number of turfs either way, because it counts envelopes with
+`status = completed` and not events. Campaign archive emits nothing, matching
+the per-turf archive: archive touches none of the nine (the turf CTE filters
+on `deletedAt`, and the completed CTE reads `status`).
+
+**The response is the sibling array**, identical in shape and ordering to
+`GET campaigns/:anchorId` (shared `CAMPAIGN_READ` and `withCountsMany`), so the
+drawer repaints from the mutation rather than refetching. There is no campaign
+status field on it: the badge is `every(turf => turf.completed)`, the same
+predicate `collapseDoorKnockingCampaigns` applies, and a second copy of one
+number is the failure ADR 0010 wrote the rule against.
+
+**A write 404s where the read returns `[]`.** The read withholds existence from
+a caller not entitled to it; a write has to fail visibly, and a 404 leaks no
+more than the empty list already does. Both go through `campaignTurfScope`
+(read) and `campaignEnvelopeScope` (write), composed from the same two halves
+in `utils/turfScope.util.ts`, so the set the confirm dialog counted and the set
+the write touches cannot drift apart.
+
+**Serve needs nothing extra.** The grouping is `Outreach.id` and
+`campaignOutreachId`; the scope is the turf's own filter. Neither reads
+`campaignId`, so a Serve campaign works through the same two routes with no
+`serve/` pair, exactly as `GET campaigns/:anchorId` has none.
 
 **Why the envelope and not the turf.** The envelope already has a `status` enum
 spelling `in_progress` and `completed` and an `archivedAt` of its own, and the
@@ -310,7 +400,7 @@ table is the plain-language version CS reads.
 | `votersPersuaded`       | People who answered `non_supporter` at one door and `supporter` at a later one                                               |
 | `uniqueTurfsCreated`    | Lists the organization has drawn and still has                                                                               |
 | `uniqueTurfsCompleted`  | The subset of those whose envelope reached `completed` ("End knocking session")                                              |
-| `lastCanvassActivityAt` | The newest `occurredAt` on any knock                                                                                         |
+| `lastCanvassActivityAt` | The newest `occurredAt` on any knock, as epoch millis. Omitted from the payload entirely when the org has never knocked |
 
 The edges worth knowing:
 
@@ -1476,6 +1566,16 @@ every other dim. `version` stays at 1 again — one u8 per person per dim either
 way, and a client reads the bucket list out of the manifest, so a tab open
 across the deploy reads an old three-value pack correctly and simply finds no
 `languageUnknown` bucket in it.
+
+**`PACK_FORMAT_REVISION` is now 5.** 4 dropped the ethnicity plane when
+ethnicity subsetting came out of both products (#1933); 5 put it back, because
+that removal was right for Serve and wrong for Win, and Win's create-flow
+preview shades on the dim. The counter does not rewind to 3 — a revision-4
+buffer has no ethnicity plane in it, so reusing 3 would serve those cached
+buffers as current and the preview would quietly ignore an ethnicity pill the
+server count applies. The plane is district-scoped like party's, and Serve is
+held off it by the same three gates party uses rather than by the plane's
+absence.
 
 ### Language: Other is not Unknown
 

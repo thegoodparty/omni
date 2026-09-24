@@ -158,8 +158,12 @@ export class DomainsController {
       '[{ domain, price }] } for ranking. Returns only available ' +
       'domains, as a shortlist: the search stops early once enough ' +
       'candidates qualify, so it is not exhaustive. An empty ' +
-      'candidates list means nothing matched under the cap; a 502 ' +
-      'means availability checks timed out. Read-only; safe to retry.',
+      'candidates list is authoritative — every candidate was checked ' +
+      'and none matched under the cap. If any candidate could not be ' +
+      'checked (registrar rate limiting, time budget, or a pattern set ' +
+      'larger than the per-search cap) and nothing else qualified, the ' +
+      'call fails with a 502 rather than returning an empty list. ' +
+      'Read-only; safe to retry.',
   })
   async searchDomains(
     @ReqCampaign() campaign: Campaign & { user: User },

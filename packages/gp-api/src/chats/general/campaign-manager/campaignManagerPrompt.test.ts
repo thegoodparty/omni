@@ -40,6 +40,7 @@ const ctx = (
   raceId: null,
   webSearchEnabled: true,
   helpCenterToolEnabled: false,
+  isPro: null,
   story: null,
   plan: null,
   ...over,
@@ -49,6 +50,19 @@ describe('buildCampaignManagerSystemPrompt', () => {
   it('frames the agent as a campaign manager', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx())
     expect(prompt.toLowerCase()).toContain('campaign manager')
+  })
+
+  // The product map's status line is the only place the prompt says whether
+  // this campaign has Pro; the generic access rule reads it from there.
+  it('tells the manager when the campaign is locked out of Pro areas', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx({ isPro: false }))
+    expect(prompt).toContain('Pro status: this campaign does not have Pro')
+  })
+
+  it('tells the manager when the campaign has Pro', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx({ isPro: true }))
+    expect(prompt).toContain('Pro status: this campaign has Pro.')
+    expect(prompt).not.toContain('does not have Pro')
   })
 
   it('injects the office, location, and weeks-to-election when present', () => {
@@ -117,6 +131,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     const on = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
@@ -134,10 +149,47 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(noOrg).not.toContain('count_contacts')
   })
 
+  it('renders no voter data block without Pro', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: false,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+
+    // Nothing is registered, so nothing is described; the map carries what
+    // filtering covers and what it needs.
+    for (const name of [
+      'describe_filter_dimensions',
+      'count_contacts',
+      'list_precincts',
+      'crud_saved_filters',
+    ]) {
+      expect(prompt).not.toContain(name)
+    }
+  })
+
+  it('keeps the full voter-data guidance when Pro status is unknown', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        isPro: null,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+
+    expect(prompt).toContain('count_contacts')
+    expect(prompt).toContain('crud_saved_filters')
+  })
+
   it('advertises the saved-list tool only when it is registered', () => {
     const readOnly = buildCampaignManagerSystemPrompt(
       ctx({
         crmToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
@@ -148,6 +200,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
       ctx({
         crmToolsEnabled: true,
         savedFilterToolsEnabled: true,
+        isPro: true,
         organization: { slug: 'win-campaign' } as Organization,
       }),
     )
@@ -515,33 +568,6 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(
       professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_LINE}`),
     ).toBeNull()
-  })
-
-  // Same rule as Serve, same wording about proxies, this prompt's voice. It
-  // rides with the CRM guidance because that is the block describing what the
-  // voter file can be cut by.
-  it('refuses to segment voters by ethnicity', () => {
-    const prompt = buildCampaignManagerSystemPrompt(
-      ctx({
-        organization: { slug: 'org-1' } as Organization,
-        crmToolsEnabled: true,
-      }),
-    )
-    expect(prompt).toContain('Never segment voters by ethnicity')
-    expect(prompt).toContain('lists cannot be cut by ethnicity')
-    expect(prompt).toContain('do not explain the rule as a data gap')
-  })
-
-  // Unlike the list-cutting rule above, this one is not hung off the CRM
-  // tools: it is a policy boundary, so it ships with the guardrails and holds
-  // for a candidate with no voter-file access at all.
-  it('refuses exclusionary planning by ethnicity without the CRM tools', () => {
-    const prompt = buildCampaignManagerSystemPrompt(ctx())
-    expect(prompt).toContain(
-      'Never help decide who to reach or skip on the basis of ethnicity',
-    )
-    expect(prompt).toContain('used as a proxy')
-    expect(prompt).toContain('in aggregate is a')
   })
 
   it('never invents facts (candidate-in-control guardrail)', () => {

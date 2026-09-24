@@ -22,7 +22,9 @@ import {
   Loader2Icon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { PaymentPortalButton } from '@shared/PaymentPortalButton'
+import PromoCodeSection from 'app/dashboard/purchase/components/PromoCodeSection'
 import { NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY } from 'appEnv'
 import { Intro } from '../social/Intro'
 import { CHANNEL_META } from '../channelMeta'
@@ -95,6 +97,14 @@ const messageForStatus = (
 const statusOf = (err: Error | null): number | undefined =>
   err instanceof FetchError ? err.status : undefined
 
+// A promo rejection carries a message the candidate can act on ("already been
+// used", "isn't valid"), so it is surfaced as-is; anything else gets the
+// fallback.
+const promoMessageOf = (err: unknown, fallback: string): string =>
+  (err instanceof FetchError
+    ? extractApiErrorInfo(err.data).message
+    : undefined) ?? fallback
+
 interface RobocallPayStepProps {
   // Everything the server-side draft-create needs, threaded from flow state.
   // The count and amount are NEVER sent — the server re-derives them from the
@@ -154,6 +164,8 @@ export const RobocallPayStep = ({
   // The client secret below is kept in state for the same reason.
   const [draft, setDraft] = useState<RobocallDraftCreateResponse | null>(null)
   const startedRef = useRef(false)
+  const [promoCode, setPromoCode] = useState('')
+  const [promoError, setPromoError] = useState<string | null>(null)
 
   const createDraftMutation = useMutation({
     mutationFn: async () => {
@@ -198,6 +210,68 @@ export const RobocallPayStep = ({
   })
   const { mutate: fetchCardIntent } = cardIntentMutation
 
+  // Applying or removing a code only re-prices the draft: the server returns
+  // the discount and what is left to authorize, and the code is spent only when
+  // the hold places (or the covered run is scheduled) below.
+  const applyPromoMutation = useMutation({
+    mutationFn: async (code: string) => {
+      if (!draft) throw new Error('missing draft')
+      const { data } = await clientRequest(
+        'POST /v1/outreach/robocall/:outreachId/promo',
+        { outreachId: String(draft.outreachId), code },
+      )
+      return data
+    },
+    onSuccess: (data) => {
+      setDraft((current) => (current ? { ...current, ...data } : current))
+      setPromoCode('')
+      setPromoError(null)
+    },
+    onError: (err) =>
+      setPromoError(
+        promoMessageOf(err, "We couldn't apply that promo code. Try again."),
+      ),
+  })
+  const removePromoMutation = useMutation({
+    mutationFn: async () => {
+      if (!draft) throw new Error('missing draft')
+      const { data } = await clientRequest(
+        'DELETE /v1/outreach/robocall/:outreachId/promo',
+        { outreachId: String(draft.outreachId) },
+      )
+      return data
+    },
+    onSuccess: (data) => {
+      setDraft((current) => (current ? { ...current, ...data } : current))
+      setPromoError(null)
+    },
+    onError: (err) =>
+      setPromoError(
+        promoMessageOf(err, "We couldn't remove the promo code. Try again."),
+      ),
+  })
+
+  // A code that covers the whole estimate leaves nothing to hold, so the run is
+  // scheduled with no card: the same authorize call, with no payment method.
+  const scheduleCoveredMutation = useMutation({
+    mutationFn: async () => {
+      if (!draft) throw new Error('missing draft')
+      const { data } = await clientRequest(
+        'POST /v1/outreach/robocall/:outreachId/authorize',
+        { outreachId: String(draft.outreachId) },
+      )
+      return data
+    },
+    onSuccess: onOutcome,
+    onError: (err) =>
+      setPromoError(
+        messageForStatus(
+          statusOf(err),
+          "We couldn't schedule your robocall. Try again.",
+        ),
+      ),
+  })
+
   // Fire both once on entering the step: the draft-create returns the estimate
   // to display, the save-card-intent returns the SetupIntent to mount against.
   const hasDetails =
@@ -238,10 +312,16 @@ export const RobocallPayStep = ({
         )}`
       : '—'
 
+    const promoCents = settled.promoDiscountInCents ?? 0
+    const covered =
+      settled.status === 'authorized' &&
+      promoCents > 0 &&
+      (settled.authorizedAmountInCents ?? 0) === 0
     const headline =
       settled.status === 'noop' ? 'Payment is already set up' : "You're all set"
-    const subhead =
-      settled.status === 'authorized'
+    const subhead = covered
+      ? `Your promo code covers this robocall. We'll place your calls on ${dateStr}.`
+      : settled.status === 'authorized'
         ? `Your card is saved and the estimated cost is authorized. We'll place your calls on ${dateStr}.`
         : settled.status === 'deferred'
           ? `Your card is saved. We'll authorize the estimated cost a few days before ${dateStr}, then place your calls.`
@@ -298,6 +378,14 @@ export const RobocallPayStep = ({
               </div>
             ))}
           </div>
+          {promoCents > 0 && (
+            <div className="flex justify-between border-t border-border p-4 text-sm">
+              <span className="text-muted-foreground">Promo code</span>
+              <span className="text-foreground">
+                -${formatCents(promoCents)}
+              </span>
+            </div>
+          )}
           {authorizedCents !== null && (
             <div className="flex justify-between border-t border-border p-4">
               <span className="font-medium text-foreground">Authorized</span>
@@ -308,7 +396,7 @@ export const RobocallPayStep = ({
           )}
         </Card>
 
-        {settled.status !== 'noop' && (
+        {settled.status !== 'noop' && !covered && (
           <Card className="p-4">
             <p className="text-sm text-muted-foreground">
               {settled.status === 'authorized'
@@ -376,7 +464,7 @@ export const RobocallPayStep = ({
       )
     }
 
-    if (cardIntentMutation.isError && !clientSecret) {
+    if (!draft?.coversTotal && cardIntentMutation.isError && !clientSecret) {
       return (
         <Card className="items-start gap-3 border-destructive p-4">
           <p role="alert" className="text-sm text-foreground">
@@ -389,7 +477,7 @@ export const RobocallPayStep = ({
       )
     }
 
-    if (!draft || !clientSecret) {
+    if (!draft || (!draft.coversTotal && !clientSecret)) {
       return (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2Icon className="size-4 animate-spin" />
@@ -417,12 +505,22 @@ export const RobocallPayStep = ({
               ${formatCents(draft.numberFeeInCents)}
             </span>
           </div>
+          {draft.promoCode && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">
+                Promo code ({draft.promoCode})
+              </span>
+              <span className="text-foreground">
+                -${formatCents(draft.promoDiscountInCents)}
+              </span>
+            </div>
+          )}
           <div className="flex justify-between border-t border-border pt-2 text-sm">
             <span className="font-medium text-foreground">
               Amount to authorize
             </span>
             <span className="font-semibold text-foreground">
-              ${formatCents(draft.amountInCents)}
+              ${formatCents(draft.amountDueInCents)}
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -431,17 +529,57 @@ export const RobocallPayStep = ({
             total.
           </p>
         </Card>
-        <Elements
-          key={clientSecret}
-          stripe={stripePromise}
-          options={{ clientSecret, appearance: elementsAppearance() }}
-        >
-          <RobocallPayForm
-            outreachId={draft.outreachId}
-            amountInCents={draft.amountInCents}
-            onOutcome={onOutcome}
-          />
-        </Elements>
+        <PromoCodeSection
+          promoCode={promoCode}
+          setPromoCode={setPromoCode}
+          promoError={promoError}
+          isApplyingPromo={
+            applyPromoMutation.isPending || removePromoMutation.isPending
+          }
+          appliedDiscount={
+            draft.promoCode
+              ? {
+                  promotionCode: draft.promoCode,
+                  minorUnitsAmount: draft.promoDiscountInCents,
+                }
+              : null
+          }
+          hasAppliedPromo={!!draft.promoCode}
+          handleApplyPromoCode={() => {
+            const code = promoCode.trim()
+            if (code) applyPromoMutation.mutate(code)
+          }}
+          handleRemovePromoCode={() => removePromoMutation.mutate()}
+        />
+        {draft.coversTotal ? (
+          <div className="space-y-3">
+            <Button
+              type="button"
+              size="large"
+              className="w-full"
+              disabled={scheduleCoveredMutation.isPending}
+              loading={scheduleCoveredMutation.isPending}
+              onClick={() => scheduleCoveredMutation.mutate()}
+            >
+              Schedule robocall
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Your promo code covers this robocall. No card needed.
+            </p>
+          </div>
+        ) : clientSecret ? (
+          <Elements
+            key={clientSecret}
+            stripe={stripePromise}
+            options={{ clientSecret, appearance: elementsAppearance() }}
+          >
+            <RobocallPayForm
+              outreachId={draft.outreachId}
+              amountInCents={draft.amountDueInCents}
+              onOutcome={onOutcome}
+            />
+          </Elements>
+        ) : null}
       </div>
     )
   }
@@ -451,7 +589,11 @@ export const RobocallPayStep = ({
       <Intro
         channel="robocall"
         title="Payment"
-        body="We save your card and authorize the estimated cost now. You are not charged yet. Once your calls go out we charge the final amount, and only for the calls we actually place."
+        body={
+          draft?.coversTotal
+            ? 'Your promo code covers this robocall, so there is nothing to charge.'
+            : 'We save your card and authorize the estimated cost now. You are not charged yet. Once your calls go out we charge the final amount, and only for the calls we actually place.'
+        }
       />
       {body()}
     </div>

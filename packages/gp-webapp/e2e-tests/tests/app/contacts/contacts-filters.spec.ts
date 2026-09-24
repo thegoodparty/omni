@@ -450,6 +450,14 @@ test('contacts filters: recommended-list dimensions (any-phone + Win-only gate)'
     await expect(wizardPillGroup(wizard, 'Ideology')).toHaveCount(0)
   })
 
+  // Same negative space, different rule. #1933 barred subsetting by ethnicity
+  // for both products and the Win half was reverted, so the dimension exists
+  // again — for Win. An elected official must not be offered it, and the Win
+  // side is exercised in win-contacts-filters.spec.ts.
+  await test.step('Ethnicity is absent for Serve (permanent Win-only gate)', async () => {
+    await expect(wizardPillGroup(wizard, 'Ethnicity')).toHaveCount(0)
+  })
+
   let cellCount = 0
   let anyPhoneCount = 0
   await test.step('Filter: hasAnyPhone is never narrower than Has Cell Phone alone (OR, not AND)', async () => {

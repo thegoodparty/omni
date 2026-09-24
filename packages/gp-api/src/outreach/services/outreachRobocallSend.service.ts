@@ -186,24 +186,30 @@ export class OutreachRobocallSendService extends createPrismaBase(
     // from Stripe AFTER winning the claim and BEFORE the launch; the persisted
     // settleState is not trusted. Only a manual-capture PaymentIntent still in
     // `requires_capture` (the hold live and uncaptured) may dial.
-    const intentId = draft.authorizationIntentId
-    if (!intentId) {
-      await this.markHoldNotLive(outreachId, userId, null)
-      return
-    }
-    let intent: Stripe.PaymentIntent
-    try {
-      intent = await this.stripe.retrievePaymentIntent(intentId)
-    } catch (err) {
-      // A Stripe read failure BEFORE the launch is infra, not a dead hold, and
-      // nothing has dialed — release the claim so a later sweep retries rather
-      // than stranding `dialing`, and rethrow so the sweep logs it per-record.
-      await this.revertClaim(outreachId)
-      throw err
-    }
-    if (intent.status !== 'requires_capture') {
-      await this.markHoldNotLive(outreachId, userId, intent.status)
-      return
+    // A run a reward code paid for in full carries no hold at all (Stripe
+    // refuses one under 50 cents), so there is nothing at Stripe to re-read: the
+    // redeemed code IS the payment. Every other run must show a live hold.
+    if (!draft.promoCoversTotal) {
+      const intentId = draft.authorizationIntentId
+      if (!intentId) {
+        await this.markHoldNotLive(outreachId, userId, null)
+        return
+      }
+      let intent: Stripe.PaymentIntent
+      try {
+        intent = await this.stripe.retrievePaymentIntent(intentId)
+      } catch (err) {
+        // A Stripe read failure BEFORE the launch is infra, not a dead hold,
+        // and nothing has dialed — release the claim so a later sweep retries
+        // rather than stranding `dialing`, and rethrow so the sweep logs it
+        // per-record.
+        await this.revertClaim(outreachId)
+        throw err
+      }
+      if (intent.status !== 'requires_capture') {
+        await this.markHoldNotLive(outreachId, userId, intent.status)
+        return
+      }
     }
 
     // COMPLIANCE GATE (never dial non-compliant — ANDed with the live-hold

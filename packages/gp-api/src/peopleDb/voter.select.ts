@@ -36,6 +36,7 @@ const VOTER_SELECT_COLUMNS = [
   'Presence_Of_Children',
   'Veteran_Status',
   'Voter_Status',
+  'EthnicGroups_EthnicGroup1Desc',
   'Age_Int',
   'VotingPerformanceEvenYearGeneral',
   'VotingPerformanceMinorElection',
@@ -104,6 +105,7 @@ export const DOWNLOAD_COLUMNS = [
     header: 'Combined General and Primary Likelihood to Vote',
   },
   { column: 'Residence_Addresses_ApartmentType', header: 'Apartment Type' },
+  { column: 'EthnicGroups_EthnicGroup1Desc', header: 'Ethnicity' },
   { column: 'Residence_Addresses_Latitude', header: 'Latitude' },
   { column: 'Residence_Addresses_Longitude', header: 'Longitude' },
   {
@@ -223,12 +225,18 @@ export type DownloadColumn = (typeof DOWNLOAD_COLUMNS)[number]['column']
 
 // Columns a caller may ask the download COPY to omit from its projection
 // (ENG-10696: the Serve party-visibility rule; ENG-10830: extended to the
-// remaining party fields, turnout propensity, and vote history). `satisfies`
-// pins this to an actual `DOWNLOAD_COLUMNS` column so a typo can't silently
-// become a no-op filter. This is also the Serve download's exclusion set:
-// `ContactsService` passes it verbatim, so every party, turnout-propensity, or
-// vote-history column added to `DOWNLOAD_COLUMNS` must be listed here too.
+// remaining party fields, turnout propensity, and vote history; #1933's
+// partial revert added ethnicity). `satisfies` pins this to an actual
+// `DOWNLOAD_COLUMNS` column so a typo can't silently become a no-op filter.
+// This is also the Serve download's exclusion set: `ContactsService` passes
+// it verbatim, so every party, turnout-propensity, vote-history or ethnicity
+// column added to `DOWNLOAD_COLUMNS` must be listed here too.
 export const EXCLUDABLE_VOTER_COLUMNS = [
+  // A Serve list may not be cut by ethnicity, so it may not carry the column
+  // out either — a per-person value in the CSV is the same individual-level
+  // attachment the filter gate refuses, reached by export instead of by
+  // filter. Win keeps it; this set is only ever applied to an `eo-` download.
+  'EthnicGroups_EthnicGroup1Desc',
   'Parties_Description',
   'Residence_HHParties_Description',
   'VoterParties_Change_Changed_Party',

@@ -7,10 +7,22 @@ import {
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import {
   buildDescribeFilterDimensionsTool,
+  registeredFilterConsumers,
   type DescribeFilterDimensionsOutput,
+  type FilterConsumerToolName,
 } from './describeFilterDimensions.tool'
 
 const ORGANIZATION = { slug: 'eo-council' } as Organization
+const CONSUMERS: FilterConsumerToolName[] = [
+  'count_contacts',
+  'crud_saved_filters',
+]
+
+// The instruction line is the first paragraph. The shared routing rules that
+// follow it name both filter tools as catalog labels, which is that
+// constant's concern, not this line's.
+const instructionLine = (description: string): string =>
+  description.split('\n\n')[0] ?? ''
 
 const isDescribeFilterDimensionsOutput = (
   value: unknown,
@@ -24,6 +36,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
     const tool = buildDescribeFilterDimensionsTool({
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
     })
     const result = await tool.execute({})
     expect(getFilterDimensions).toHaveBeenCalledWith(ORGANIZATION)
@@ -34,6 +47,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
     const tool = buildDescribeFilterDimensionsTool({
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
     })
     expect(tool.inputSchema.safeParse({}).success).toBe(true)
     expect(
@@ -47,6 +61,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
     const tool = buildDescribeFilterDimensionsTool({
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
     })
     expect(tool.description).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
@@ -58,6 +73,7 @@ describe('buildDescribeFilterDimensionsTool', () => {
     const tool = buildDescribeFilterDimensionsTool({
       contacts: { getFilterDimensions },
       organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
     })
     const result = await tool.execute({})
     if (!isDescribeFilterDimensionsOutput(result)) {
@@ -78,10 +94,47 @@ describe('buildDescribeFilterDimensionsTool', () => {
     expect(FILTER_DIMENSION_PROVENANCE_RULES).not.toMatch(/constituent/i)
   })
 
+  // The line names the registered tools that take a filter, so a session
+  // that has none is never told to prepare for a call it cannot make.
+  it('names the filter tools it was given as the ones to prepare for', () => {
+    const tool = buildDescribeFilterDimensionsTool({
+      contacts: { getFilterDimensions: vi.fn(() => []) },
+      organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
+    })
+    expect(instructionLine(tool.description)).toContain(
+      'before composing any filter for count_contacts or crud_saved_filters',
+    )
+  })
+
+  it('reads the registered consumers off a tool record, in catalog order', () => {
+    expect(
+      registeredFilterConsumers({
+        crud_saved_filters: {},
+        web_search: {},
+        count_contacts: {},
+      }),
+    ).toEqual(['count_contacts', 'crud_saved_filters'])
+    expect(registeredFilterConsumers({ web_search: {} })).toEqual([])
+  })
+
+  it('names no filter tool when it was given none', () => {
+    const tool = buildDescribeFilterDimensionsTool({
+      contacts: { getFilterDimensions: vi.fn(() => []) },
+      organization: ORGANIZATION,
+      filterConsumers: [],
+    })
+    expect(instructionLine(tool.description)).not.toMatch(
+      /count_contacts|crud_saved_filters/,
+    )
+    expect(instructionLine(tool.description)).toContain('never invent one')
+  })
+
   it('carries the cross-catalog routing rules in its description', () => {
     const tool = buildDescribeFilterDimensionsTool({
       contacts: { getFilterDimensions: vi.fn(() => []) },
       organization: ORGANIZATION,
+      filterConsumers: CONSUMERS,
     })
     expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })

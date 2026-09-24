@@ -37,7 +37,7 @@ describe('CreateListWizard open-reset effect', () => {
     'setPrecincts(',
     'setActivityConditions(',
     'setName(',
-    'setBoundaryRing(',
+    'setBoundaryRings(',
   ])('writes %s', (setterCall) => {
     expect(OPEN_EFFECT).toContain(setterCall)
   })

@@ -150,12 +150,14 @@ const expectToBeWithin = (
   expect(value).toBeLessThanOrEqual(expected + plusOrMinus)
 }
 
-// The poll Slack message used to carry an `aws s3 cp` command, and both the
-// results bucket and the SQS queue were regexed out of the
-// `serve-analyze-data-<env>` string inside it. That command is being retired
-// (it needs AWS credentials and an exact key, and a typo fails silently), so
-// both now come from the e2e environment instead. They are set in
-// `release.yml`'s `e2e-shard` job, alongside BASE_URL.
+// The poll Slack message carries an `aws s3 cp` command, and both the results
+// bucket and the SQS queue used to be regexed out of the
+// `serve-analyze-data-<env>` string inside it. They now come from the e2e
+// environment instead, because polls upload through the same gp-admin page
+// Serve SMS does and that line is only a backup for a day the page is
+// unavailable — it may be reworded or dropped without warning, and parsing it
+// would fail post-merge on the train, where no PR would have caught it. They
+// are set in `release.yml`'s `e2e-shard` job, alongside BASE_URL.
 const requireEnv = (name: string): string => {
   const value = process.env[name]
   if (!value) {

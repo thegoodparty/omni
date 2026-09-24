@@ -75,11 +75,16 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // Expiry-priority (captureBefore asc), NOT FIFO: under a backlog the holds
     // nearest their Stripe auto-expiry must capture first so none lapse
     // uncaptured. A settling row always carries the authorization + count, but
-    // guard on both so a data anomaly is filtered here rather than charged blind.
+    // guard on both so a data anomaly is filtered here rather than charged
+    // blind. A promo-covered run carries no authorization at all (nothing was
+    // held), so it is selected on its flag instead and settles at $0.
     const candidates = await this.model.findMany({
       where: {
         settleState: RobocallSettleState.settling,
-        authorizationIntentId: { not: null },
+        OR: [
+          { authorizationIntentId: { not: null } },
+          { promoCoversTotal: true },
+        ],
         completedCallCount: { not: null },
       },
       orderBy: { captureBefore: Prisma.SortOrder.asc },
@@ -186,6 +191,21 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       authorizedAmountInCents,
       completedCallCount,
     } = draft
+    const userId = draft.outreach.campaign?.user?.id
+
+    // A run a reward code paid for in full has no hold to capture: the code was
+    // spent when the run was scheduled, so settle it as captured at $0 and let
+    // the spine complete like any other delivered run. No Stripe call.
+    if (draft.promoCoversTotal) {
+      await this.commitCaptured(
+        outreachId,
+        0,
+        userId,
+        completedCallCount ?? draft.billableCount,
+      )
+      return
+    }
+
     // A settling row MUST carry these. A null here is a data anomaly, never a
     // reason to charge blind: surface it CRITICAL and park in uncollectable.
     if (
@@ -204,8 +224,6 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
       )
       return
     }
-
-    const userId = draft.outreach.campaign?.user?.id
 
     // FRESH re-read: never trust the persisted state before moving money. The PI
     // status decides the branch.

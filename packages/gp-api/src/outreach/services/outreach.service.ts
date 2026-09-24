@@ -47,6 +47,20 @@ import { collapseDoorKnockingCampaigns } from '../util/collapseDoorKnockingCampa
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
 
+/**
+ * Which product a read of the outreach spine belongs to.
+ *
+ * Win rows carry BOTH campaignId and organizationSlug (createRecord copies
+ * the campaign org's slug), so the Serve branch pins `campaignId: null` —
+ * otherwise an org that holds a Campaign and an ElectedOffice (the
+ * post-election transition) would read its Win history through a Serve route
+ * (ENG-10976). Every scoped reader on this service takes this one type so
+ * the two branches can never drift apart.
+ */
+export type OutreachScope =
+  | { campaignId: number }
+  | { organizationSlug: string; campaignId: null }
+
 /** Image payload for P2P outreach (decoupled from HTTP FileUpload). */
 export interface P2pOutreachImageInput {
   stream: Buffer | Readable
@@ -720,7 +734,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     archived: boolean,
   ): Promise<{ id: number; archivedAt: Date | null }> {
     const claimed = await this.model.updateMany({
-      where: { id, organizationSlug },
+      // A LEGACY row carries a null `organizationSlug` and resolves its org
+      // through the campaign join instead — the schema says so on that column
+      // ("legacy rows resolve their org via the campaignId join; no
+      // backfill"), and `voterFileFilter.service.ts` already scopes this way.
+      //
+      // Scoping on the column alone matched zero rows for every one of them,
+      // so archive 404'd on exactly the population that needs it: a
+      // pre-VO-2.0 request submitted, never fulfilled, and now unremovable.
+      // Tenancy is unchanged — a null-slug row still has to hang off a
+      // campaign in the caller's own org.
+      where: {
+        id,
+        OR: [
+          { organizationSlug },
+          { organizationSlug: null, campaign: { organizationSlug } },
+        ],
+      },
       data: { archivedAt: archived ? new Date() : null },
     })
     if (claimed.count === 0) {
@@ -1097,12 +1127,20 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // Counts only (reply content never leaves the CRM). The per-recipient
   // interaction rows are the source when they exist; a campaign that
   // predates recipient capture falls back to the purchase-time count.
+  //
+  // Scoped the way findByScope below is scoped, for the same reason: a Win
+  // row carries BOTH campaignId and organizationSlug, so the Serve scope has
+  // to pin `campaignId: null` or an org that holds a Campaign and an
+  // ElectedOffice would read its Win results through the Serve route
+  // (ENG-10976). The counts themselves need no surface branch —
+  // ContactInteractionText is organizationSlug-scoped already and the shared
+  // ingest writes both products' reply and opt-out events onto it.
   async getSmsResults(
     outreachId: number,
-    campaignId: number,
+    scope: OutreachScope,
   ): Promise<SmsOutreachResults> {
     const outreach = await this.model.findFirst({
-      where: { id: outreachId, campaignId },
+      where: { id: outreachId, ...scope },
     })
     if (!outreach) {
       throw new NotFoundException('Outreach not found')
@@ -1143,11 +1181,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // grouping by `COALESCE(campaignOutreachId, id)` reads both. The anchor
   // row is kept whole (name, dates, script), and its response carries a
   // `turfCount` alongside — the history badge reads that.
-  private async findByScope(
-    scope:
-      | { campaignId: number }
-      | { organizationSlug: string; campaignId: null },
-  ) {
+  private async findByScope(scope: OutreachScope) {
     const rows = await this.findMany({
       where: {
         ...scope,

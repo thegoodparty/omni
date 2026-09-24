@@ -155,6 +155,7 @@ const WIN_AREAS: ProductArea[] = [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
       'Each channel starts by asking who to reach, which reads from your saved lists',
+      'SMS and Robocall take a promo code on their payment step, in a Promo Code box above the card details. A code that covers the whole cost schedules the send with no card',
     ],
   },
   {
@@ -166,12 +167,13 @@ const WIN_AREAS: ProductArea[] = [
     inside: [
       'Saved lists live HERE, on the lists index below the district stat card. This is the answer to "where are my lists" and it is not under Contacts',
       'Create new list is in the top bar of the page',
+      'Filters cover voter likelihood, party, age, phone on file, prior contacts made, support status, and precinct, among others',
       'The district stat card carries projected turnout and voters needed to win',
       'Recommended voter lists sit above the saved lists: ready-made audiences (voters who have not heard from you, persuadable independent-leaning voters, your supporters to invite or turn out) with a Details view and a Send outreach button, no saving needed',
       'Send outreach on any list, saved or recommended, opens Choose a channel, then that channel’s outreach flow with the list already picked',
       'Opening a list shows its filter summary and outreach history, never a table of individual voters',
     ],
-    gate: 'Filtering the voter file needs the Pro upgrade. Without Pro the page still shows district aggregates and a blurred preview.',
+    gate: 'Filtering the voter file needs the Pro upgrade, and so does seeing which precincts it covers. Without Pro the page still shows district aggregates and a blurred preview.',
   },
   {
     navId: 'race-opponent-dashboard',
@@ -291,9 +293,12 @@ const SERVE_AREAS: ProductArea[] = [
     modes: ['serve'],
     does: 'Build and send outreach to constituents, and see what has gone out.',
     inside: [
-      'Three channels: Social media, Phone banking, and Door knocking',
+      'Four channels: Social media, SMS, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
+      'SMS drafts a text, picks a saved constituent list, and is paid for before it sends',
+      'A text send goes out at 11am local on the date chosen, which must be at least 2 business days ahead and no more than 30 days out',
     ],
+    gate: 'Texting is being rolled out office by office, so the SMS channel is not on every account yet. It is paid for per message at checkout, with no subscription.',
   },
   {
     navId: 'contacts-dashboard',
@@ -336,6 +341,7 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Reached from the Door knocking card on the outreach hub, not from a tab of its own',
       'Custom door-knocking surveys, so volunteers log answers in the field',
       'Summaries of interactions by day and by survey answer',
+      'A campaign can hold several turfs. Mark the whole campaign done, or one turf at a time, from its row in outreach history. Done does not require every door to have been knocked',
     ],
   },
 ]
