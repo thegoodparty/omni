@@ -15,17 +15,12 @@
 #   family:      taxonomy family the event belongs to
 #   floor:       optional absolute daily floor; null = use only zero + median checks
 #   owner:       team/person, TBD until assigned
-#   okr:         optional OKR metric name(s) anchored on this event (string or list).
-#                Marks the event as top-tier for the governance digest (DATA-2174):
-#                a breaking signal on an okr: row renders as 🔴 needs-action.
-#                DATA-2421: this is a LOCAL COPY. The kernel is the governed metric's
-#                config.meta.anchored_on in gp-data-platform's sem_*.yml. The monitor
-#                validates these tags against it every run and reports any tag whose
-#                event no declaration mentions at all, AND any tag whose event has
-#                gone historical while its metric still has a live leg elsewhere (the
-#                instrument moved and the tag did not follow). Re-anchoring a metric
-#                is a semantic layer change first; updating this tag is the downstream
-#                follow-up, never the fix.
+#   OKR status is NOT declared in this file. The monitor derives it from the governed
+#   metric's config.meta.anchored_on in gp-data-platform's sem_*.yml on every run
+#   (sem_anchors.py). A behavior links to its metric with `metric:` below, a pointer to
+#   the sem metric name, never a copy of the definition. Re-anchoring a metric is a
+#   semantic-layer change; omni follows it. When omni has evidence the declaration is
+#   behind the product, the triage skill's Queue C drafts the upstream change.
 
 # Families the monitor treats as "in scope" for coverage-drift / new-event detection.
 watched_families:
@@ -45,15 +40,15 @@ events:
   - {event: "Onboarding - Candidate Office Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - User Created",                product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Candidate Affiliation Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
-  # Pledge-union okr flags are doc-level confidence (knowledge-doc definition, no dbt model).
-  - {event: "Onboarding - Candidate Pledge Completed",  product: win, family: win_onboarding, floor: null, owner: TBD, okr: "Onboarding Completed (pledge)"}
-  - {event: "onboarding_complete",                      product: win, family: win_onboarding, floor: null, owner: TBD, okr: "Onboarding Completed (legacy)"}
+  # Pledge completion is doc-level confidence (knowledge-doc definition, no dbt model).
+  - {event: "Onboarding - Candidate Pledge Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "onboarding_complete",                      product: win, family: win_onboarding, floor: null, owner: TBD}
   # Win onboarding V2 (first seen 2026-05-07)
   - {event: "Onboarding - Welcome Completed",           product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Ballot Status Completed",     product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Party Selection Completed",   product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Office Selection Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
-  - {event: "Onboarding - Pledge Completed",            product: win, family: win_onboarding, floor: null, owner: TBD, okr: "Onboarding Completed (pledge)"}
+  - {event: "Onboarding - Pledge Completed",            product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Path To Victory Completed",   product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding - Know Your Voters Completed",  product: win, family: win_onboarding, floor: null, owner: TBD}
   # Magic-link auth funnel (replaced Serve/Win Onboarding - Magic Link *; first seen 2026-06)
@@ -78,7 +73,7 @@ events:
   - {event: "Serve Onboarding - Constituency Profile Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Meet Your Constituents Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Poll Strategy Viewed",  product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Serve Onboarding - SMS Poll Sent",         product: serve, family: serve, floor: null, owner: TBD, okr: ["Active Serve Users", "People Served", "Serve Onboarding Completed"]}
+  - {event: "Serve Onboarding - SMS Poll Sent",         product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Success Page Viewed",   product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Serve Onboarding - Sworn In Completed",    product: serve, family: serve, floor: null, owner: TBD}
   # Serve net-new onboarding (magic link + OTP, PR #198; first seen 2026-06)
@@ -106,28 +101,32 @@ events:
   - {event: "Org Switcher - Run For Office Clicked", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Dashboard - Campaign Plan: Campaign Manager Clicked", product: win, family: win_dashboard, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Agenda Not Created", product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Pro Upgrade - Candidate Profile Submitted", product: win, family: win_pro_upgrade, floor: null, owner: TBD, okr: ["Pro Conversions"]}
-  - {event: "Onboarding V2 - Pledge Completed", product: win, family: win_onboarding, floor: null, owner: TBD, okr: ["Win Onboarding Completed"]}
+  - {event: "Pro Upgrade - Candidate Profile Submitted", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Onboarding V2 - Pledge Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Onboarding V2 - Ballot Status Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Briefing Viewed", product: serve, family: serve, floor: null, owner: TBD}
-  - {event: "Briefing Assistant - Agenda Created", product: serve, family: serve, floor: null, owner: TBD, okr: ["Active Serve Users", "People Served"]}
+  - {event: "Briefing Assistant - Agenda Created", product: serve, family: serve, floor: null, owner: TBD}
 
 # Behaviors (DATA-2316): what we are trying to measure, and which events instrument it.
 # Absorbs the events: key above over time — a watchlist row is the degenerate case of a
 # behavior with one surface and one instrument. Coverage is derived, never written here.
 #
 # Every instrumented_by below is monitored exactly as an events: row is (DATA-2290): the
-# monitor unions the two keys, and a behavior's okr: anchors each of its instruments. So
-# never add an events: row for an event named here — validation rule 8 rejects it, and it
-# would be redundant anyway.
+# monitor unions the two keys, and a behavior's metric: names the semantic-layer metric it
+# answers, with OKR status derived from that metric's anchored_on. So never add an events:
+# row for an event named here — validation rule 8 rejects it, and it would be redundant
+# anyway.
 #
 #   id:            stable snake_case key
 #   question:      the plain-English thing this behavior lets us answer
 #   question_ref:  ClickUp task id in the Analytics Questions list (the intake identity)
 #   answers:       optional extra questions this behavior contributes to (composite questions)
 #   product:       win | serve | both
-#   okr:           optional OKR metric name(s); makes the behavior high-consequence
-#                  (same LOCAL COPY contract and validation as events:' okr: above)
+#   metric:        optional sem metric name(s) this behavior answers (string or list). A
+#                  foreign key into gp-data-platform's sem_*.yml; the events that count are
+#                  that metric's anchored_on, never anything written here.
+#   page_path:     optional, on a surface: the URL path that qualifies a site-wide page
+#                  event (instrumented_by: Viewed, page_path: /dashboard).
 #   surfaces[]:    path (repo-relative), label (stable, used in per-surface reporting),
 #                  instrumented_by (event name, or explicit null for a known gap)
 #   superseded[]:  historical instruments, for successor lineage
@@ -210,17 +209,16 @@ behaviors:
     answers:
       - "Are people creating and downloading lists but never doing outreach on our platform?"
     product: win
-    okr: ["Activated Candidates", "Outreach Intensity"]
+    metric: win_activated_users
     asked_by: nate@goodparty.org
     caveats: >-
-      BOTH OKRs anchored here are currently wrong. `Voter Outreach - Campaign Completed` stopped
-      firing on outreach scheduling when the flow was rewritten to outreach/v2/ — it survives only
-      on a completed door-knocking walk and on the manual self-report modal, so these metrics count
-      door knocks and self-reports and call it outreach (DATA-2343 sweep, DATA-2432). Three of four
-      channels have no scheduled/sent terminal at all, which reads identically to total abandonment
-      rather than to missing instrumentation. Re-anchoring is a paired change across omni and
-      gp-data-platform's semantic layer and is deliberately NOT done here: editing this tag alone
-      would diverge the registry from the metric definition (DATA-2421).
+      `win_activated_users` declares one leg, `Voter Outreach - Campaign Completed`, which
+      stopped firing on outreach scheduling when the flow was rewritten to outreach/v2/ and
+      survives only on a completed door-knocking walk and the manual self-report modal
+      (DATA-2343 sweep). Three of four channels have no scheduled/sent terminal at all. The
+      surfaces below name what actually fires; where that is broader than the declaration,
+      the monitor reports it as a scope disagreement for the semantic-layer owners to settle.
+      Outreach Intensity has no governed declaration yet and is not tracked as an OKR here.
     surfaces:
       # Per-channel, 2026-09-16. Only robocall has a true scheduled terminal; door knocking has a
       # completion event, which is a different moment. The three nulls replace a single
@@ -253,13 +251,9 @@ behaviors:
     product: win
     asked_by: nate@goodparty.org
     caveats: >-
-      Two things make a plan-open number a floor rather than a count. The tracker event returns
+      One thing makes a plan-open number a floor rather than a count. The tracker event returns
       early unless a generated strategy exists, so a candidate looking at an ungenerated plan fires
-      nothing — "opened their campaign plan" means "opened a plan that exists". And the Active
-      Candidates OKR anchored here has its own broken anchor elsewhere in this file: `Dashboard -
-      Candidate Dashboard Viewed` was retired in PR #732 and no longer exists in the codebase.
-      Re-anchoring spans omni and gp-data-platform's semantic layer, so it is not done here
-      (DATA-2173, DATA-2421).
+      nothing — "opened their campaign plan" means "opened a plan that exists".
     surfaces:
       # Cold entry confirmed 2026-09-16: the tracker event fires from a useEffect keyed on the
       # strategy resolving, latched per campaign id — not from a navigation event — so direct and
@@ -285,7 +279,6 @@ behaviors:
     question: "Of the people who start signup, how many complete signup, how many complete onboarding, and where do the rest stop?"
     question_ref: 86akjz92p
     product: win
-    okr: "Onboarded"
     asked_by: bryan@goodparty.org
     caveats: >-
       There is no terminal onboarding event. Completion exists only as the user property
@@ -444,19 +437,22 @@ behaviors:
     question: "How many candidates are active in a given week, and what actions does active mean?"
     question_ref: 86akjz9xb
     product: win
-    okr: "Active Candidates"
+    metric: win_active_candidates_30d
     asked_by: bryan@goodparty.org
     caveats: >-
-      A WAU number is already circulating and is already wrong. The Active Candidates OKR anchors on
-      `Dashboard - Candidate Dashboard Viewed`, retired in PR #732 and absent from the codebase, so
-      the metric reads residual traffic. Re-anchoring is a PAIRED change across omni's okr: tag and
-      gp-data-platform's semantic layer; nothing links or enforces the pairing, so the omni side is
-      deliberately not edited alone (DATA-2173, DATA-2421, DATA-2432). Defining "active" is separate
-      and downstream of that.
+      The Active Candidates OKR counts the dashboard-view union `win_active_candidates_30d`
+      declares: the site-wide page event at path `/dashboard` plus `Campaign Plan - Campaign
+      Tracker Viewed`. Its two historical legs, `Dashboard - Candidate Dashboard Viewed` and
+      `Dashboard - Campaign Plan Viewed`, are gone from the codebase and no longer counted, so a
+      WAU number taken off the retired dashboard event was reading residual traffic and has to be
+      requoted. The 30 day window is evaluated against current_date() in the mart, so this metric
+      is as-of-run-time and cannot be sliced historically. Defining what "active" should mean
+      beyond a dashboard view is a separate question and still open.
     surfaces:
       - path: packages/gp-webapp/app/dashboard/page.tsx
         label: dashboard_visit
-        instrumented_by: "Dashboard - Candidate Dashboard Viewed"
+        instrumented_by: "Viewed"
+        page_path: /dashboard
       - path: packages/gp-webapp/app/shared/layouts/navigation
         label: breadth_of_navigation
         instrumented_by: null
@@ -466,7 +462,6 @@ behaviors:
     question: "What share of candidates who see the Pro value prop convert, and at which step do the rest drop?"
     question_ref: 86akjza5w
     product: win
-    okr: "Pro Conversions"
     asked_by: bryan@goodparty.org
     caveats: >-
       The best-instrumented flow in the product, with two reasons the number is a floor rather than

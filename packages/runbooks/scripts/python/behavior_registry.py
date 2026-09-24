@@ -16,10 +16,10 @@ import yaml
 from analytics_event_health import WATCHLIST, load_watchlist
 
 BEHAVIOR_FIELDS = frozenset({
-    "id", "question", "question_ref", "answers", "product", "okr", "surfaces",
+    "id", "question", "question_ref", "answers", "product", "metric", "surfaces",
     "superseded", "caveats", "asked_by", "review",
 })
-SURFACE_FIELDS = frozenset({"path", "label", "instrumented_by"})
+SURFACE_FIELDS = frozenset({"path", "label", "instrumented_by", "page_path"})
 PRODUCTS = frozenset({"win", "serve", "both"})
 
 
@@ -38,11 +38,23 @@ def instrumenting_events(behavior: dict) -> list[str]:
     return [s["instrumented_by"] for s in behavior.get("surfaces") or [] if s.get("instrumented_by")]
 
 
-def okr_list(behavior: dict) -> list[str]:
-    okr = behavior.get("okr")
-    if not okr:
+def metric_list(behavior: dict) -> list[str]:
+    """The semantic-layer metric name(s) this behavior answers. A pointer, never a
+    definition: the metric's events live in gp-data-platform's anchored_on."""
+    metric = behavior.get("metric")
+    if not metric:
         return []
-    return [str(v) for v in okr] if isinstance(okr, list) else [str(okr)]
+    return [str(v) for v in metric] if isinstance(metric, list) else [str(metric)]
+
+
+def surface_key(surface: dict) -> str | None:
+    """The series key the monitor watches this surface under. Mirrors sem_anchors.Leg.key
+    so a page_path surface and a path-qualified leg compare equal."""
+    name = surface.get("instrumented_by")
+    if not name:
+        return None
+    page_path = surface.get("page_path")
+    return f"{name}[path={page_path}]" if page_path else name
 
 
 def _parse_date(value) -> date | None:
@@ -70,7 +82,6 @@ def validate_behaviors(
     errors: list[str] = []
     seen_ids: set[str] = set()
     seen_refs: dict[str, str] = {}
-    okr_seen: dict[str, str] = {}
     watchlist = set(watchlist_events)
 
     for b in behaviors:
@@ -99,13 +110,13 @@ def validate_behaviors(
         if b.get("product") not in PRODUCTS:
             errors.append(f"{bid}: product must be one of {sorted(PRODUCTS)}")
 
-        if b.get("okr") and not surfaces:
-            errors.append(f"{bid}: okr declared but the behavior has no surfaces")
-
-        for okr in okr_list(b):
-            if okr in okr_seen and okr_seen[okr] != bid:
-                errors.append(f"{bid}: duplicate okr anchor {okr!r}, also on {okr_seen[okr]}")
-            okr_seen.setdefault(okr, bid)
+        metric = b.get("metric")
+        if metric is not None:
+            values = metric if isinstance(metric, list) else [metric]
+            if not all(isinstance(v, str) and v for v in values):
+                errors.append(f"{bid}: metric must be a non-empty string or a list of them")
+            elif not surfaces:
+                errors.append(f"{bid}: metric declared but the behavior has no surfaces")
 
         for s in surfaces:
             for field in sorted(set(s) - SURFACE_FIELDS):
@@ -133,6 +144,9 @@ def validate_behaviors(
                 errors.append(
                     f"{bid}: {name!r} already migrated to a behavior; delete its events: row"
                 )
+            page_path = s.get("page_path")
+            if page_path is not None and not (isinstance(page_path, str) and page_path.startswith("/")):
+                errors.append(f"{bid}: surface {s.get('label')} page_path needs a leading slash")
 
         review = b.get("review") or {}
         last = _parse_date(review.get("last_reviewed"))
@@ -161,7 +175,7 @@ def load_validated_behaviors(path: Path = WATCHLIST) -> list[dict]:
     against the live catalog is deferred to DATA-2302.
     """
     behaviors = load_behaviors(path)
-    _, watchlist_events, _, _ = load_watchlist(Path(path))
+    _, watchlist_events, _ = load_watchlist(Path(path))
     named = {n for b in behaviors for n in instrumenting_events(b)}
     errors = validate_behaviors(
         behaviors, catalog_event_types=named, watchlist_events=watchlist_events

@@ -21,9 +21,11 @@ runs and for the stage-2 code investigation, which is agent work the schedule ca
   `thegoodparty/gp-data-platform`, in 1Password under `Product-Analytics` / "GP Data
   Platform Read Token". `sem_anchors.py` uses it to read that repo's `sem_*.yml` over the
   GitHub API — the semantic layer this monitor derives its OKR watch set from. Without
-  it, every OKR dormancy check (the latch, the path-qualified legs, the `okr:` tag
-  validation) disables itself for the run, and the digest says so with a red "OKR
-  dormancy checks degraded" line rather than failing.
+  it, every OKR dormancy check (the latch, the path-qualified legs, the registry
+  alignment check) disables itself for the run, and the digest says so with a red "OKR
+  dormancy checks degraded" line rather than failing. A laptop run without the token
+  now reads the sem files through the reviewer's own `gh` auth first, so it degrades
+  only when that also has no access.
 - **Tools**: `uv`, `git`, `ripgrep` (`rg`), a clone of the omni monorepo (this package lives in it).
 - **Setup**: `cd scripts/python && uv sync`.
 - **Code axis**: `scripts/python/instrumentation_data/amplitude_event_provenance.csv` must be
@@ -257,9 +259,10 @@ It is **quiet with one override**: nothing posts when no event was newly flagged
 or resolved, no new anomaly appeared, and no new instrumentation gap landed — **except** an
 OKR-anchored event sitting in a breaking state, which posts every run until it resolves (a
 one-time transition line scrolling away while the OKR sat broken for a month is exactly how
-DATA-2174 happened). Mark an event's OKR anchor via the `okr:` field on its
-`monitored_events.yaml` row — that field is the top-tier source the red-persistence rule and
-the rules-tier judge both key off of.
+DATA-2174 happened). An event is OKR-anchored when the governed metric declares it under `config.meta.anchored_on`
+in gp-data-platform's `sem_*.yml`. Nothing in this repo declares it. The red-persistence
+rule and the rules-tier judge key off the `okr` field the monitor derives from that
+declaration each run.
 
 The `<!here>` mention on a red section can be overridden with `SLACK_EVENT_ALERT_MENTION`
 (e.g. a subteam handle) so paging doesn't always go to the whole channel. The post happens
