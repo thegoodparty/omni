@@ -16,14 +16,14 @@ session, and one PR:
   `monitored_events.yaml` and the governed metric it points at disagree about which
   events count.
 
-This skill orchestrates existing Python modules and two other skills. It never
+This skill orchestrates existing Python modules and three other skills. It never
 re-implements enumeration, judgment, or proposal detection, and it never edits product
 code directly — accepted gaps either get a ClickUp ticket or get handed to
 `instrument-analytics-event`.
 
 Background: DATA-2151 built the sweep, the state file, the sheet tab, and the Slack
 digest; this skill (DATA-2152) is the missing disposition surface — the only way to act
-on either queue used to be hand-editing raw JSON/YAML on GitHub.
+on any queue used to be hand-editing raw JSON/YAML on GitHub.
 
 ## When to use
 
@@ -93,7 +93,7 @@ The reviewer never has to pre-load anything — this skill finds the run itself.
 Never post to Slack during this self-load — it's read-only (`slack_read_channel` /
 `slack_read_thread` / `slack_search_public`), never `slack_send_message`.
 
-With `run_date` in hand, load both queues scoped to that run.
+With `run_date` in hand, load all three queues scoped to that run.
 
 ## Queue A — instrumentation gaps
 
@@ -317,19 +317,24 @@ Each item carries `case`, `kind`, `behavior_id`, `metric`, `surface_label`, `eve
     | grep -n -A12 "name: <metric>"
   ```
 
-  (`sem_analytics__users_serve.yml` for serve metrics.)
+  (`sem_analytics__users_serve.yml` for serve metrics.) If `gh` cannot read the private
+  repo, read the same file from a local gp-data-platform checkout instead.
 
 **Case 1 kinds and the exact edit.** Edit the yaml as text. Never round-trip it through a
 dumper.
 
 - `surface_on_historical_leg`: on the named behavior's surface, replace `instrumented_by`
-  with one of the `suggested` legs. A suggested key of the form `Viewed[path=/dashboard]`
-  becomes two lines: `instrumented_by: Viewed` and `page_path: /dashboard`. Read the
-  surface's `path` file to confirm that is where the live event fires (a page event fires
-  from `app/shared/utils/analytics.ts`, so the surface path stays the page component).
-  If the behavior's caveat mentions the old leg, rewrite it.
+  with one of the `suggested` legs. `suggested` is a list of leg keys joined by `, `, and
+  event names carry their own spaces and hyphens, so split on the comma-space and pick the
+  leg whose event fires from the surface's `path` file. A suggested key of the form
+  `Viewed[path=/dashboard]` becomes two lines: `instrumented_by: Viewed` and
+  `page_path: /dashboard`. Read the surface's `path` file to confirm that is where the
+  live event fires (a page event fires from `app/shared/utils/analytics.ts`, so the
+  surface path stays the page component). If the behavior's caveat mentions the old leg,
+  rewrite it.
 - `declared_leg_unmonitored`: add a surface to the behavior that points at the metric, or
-  an `events:` row if no behavior owns the question. Same `page_path` rule.
+  an `events:` row if no behavior owns the question, in the exact row shape Queue B's
+  accept uses. Same `page_path` rule.
 - `metric_undeclared`: either the pointer is misspelled (fix it against the sem file's
   `name:` values) or the metric is not governed yet. In the second case remove the
   pointer and tell the reviewer the metric is not an OKR until it is declared. Do not
@@ -342,7 +347,7 @@ Case 1 has no dismiss. A stale pointer is always wrong.
 ```yaml
 # in <metric>'s config.meta.anchored_on
 - event: <event_key's event>
-  era: historical   # <evidence.retired_date, or "latched since <since>">
+  era: historical   # <evidence.retired_date, or evidence.last_seen_date if only latched>
 - event: <suggested's event>
   path: <suggested's path, when the key carries one>
 ```
@@ -363,7 +368,7 @@ many events (DATA-2427), so read the site, do not trust the count.
   4. Record the PR URL for the omni write-back body.
 - **dismiss** → the reviewer says the successor is not part of the metric. Append to
   `dismissed:` in `monitored_events.yaml`:
-  `- {event: "<suggested>", reason: "<reason>", date: "<run_date>", metric: <metric>}`
+  `- {event: "<suggested>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
   and file nothing.
 - **defer** → leave everything; it re-nags next run.
 
@@ -373,8 +378,10 @@ many events (DATA-2427), so read the site, do not trust the count.
 - **yes** → it becomes a case 2 recommendation: draft an `anchored_on` addition (no
   `era`, just the new leg) and follow the case 2 accept path.
 - **no** → the behavior answers a broader question than the metric. Append to
-  `dismissed:` as above so it stops re-nagging, and add one sentence to the behavior's
-  caveat naming the surface as outside the metric.
+  `dismissed:` in `monitored_events.yaml`, keyed on the finding's `event_key`:
+  `- {event: "<event_key>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
+  so it stops re-nagging, and add one sentence to the behavior's caveat naming the
+  surface as outside the metric.
 - **defer** → leave it. If the reviewer is not the metric's owner they may defer it to
   the semantic-layer owners; then the output is a Data backlog ticket (`901326391561`,
   same safe-payload discipline as Queue A) carrying the drafted addition.
@@ -471,16 +478,16 @@ ticket, or the reviewer's own follow-up message.
 
 ## Write back — one PR
 
-Once both queues are dispositioned:
+Once all three queues are dispositioned:
 
 1. `git status` should show only `instrumentation_gaps.json` and (if Queue B had any
    accept/dismiss, or Queue C had any case 1 edit or dismissal) `monitored_events.yaml`
    under `packages/runbooks/scripts/python/instrumentation_data/` /
    `packages/runbooks/scripts/python/`.
 2. Stage exactly those files.
-3. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the
-   run, e.g. `chore(governance): triage <run_date> — gap + watchlist review`. In the
-   body, list:
+3. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the run,
+   e.g. `chore(governance): triage <run_date> — gap + watchlist + alignment review`. In
+   the body, list:
    - Queue A: which gap ids were ticketed (with ClickUp links), which were handed to
      `instrument-analytics-event` (with the resulting event name/PR if different from
      this one), which were dismissed (with reason), which were deferred.
