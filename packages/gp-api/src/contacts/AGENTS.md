@@ -241,17 +241,17 @@ from the in-house model probability: `Unlikely` (<0.25), `Unreliable` (<0.50),
 populated values.
 
 This replaced an older participation-count CASE on 2026-07-31 (gp-data-platform
-#725 / DATA-2209), which reached production at the 2026-08-04 14:32 cutover to
-`gp-people-db-20260727-prod`. The old vocabulary had a `First Time` value and no
-`Unreliable`; both facts are now false, and the `expandUnreliableVoterStatus`
-workaround that compensated for them has been removed. `First Time` matches zero
-rows and is no longer offered anywhere.
+#725 / DATA-2209), which reached production on 2026-08-04. The old vocabulary
+had a `First Time` value and no `Unreliable`; both facts are now false, and
+the `expandUnreliableVoterStatus` workaround that compensated for them has
+been removed. `First Time` matches zero rows and is no longer offered
+anywhere.
 
 The model is scoped to a specific election cycle and will be re-cut. If
 `Voter_Status` stops matching the five values above, every likelihood filter in
 the product is silently wrong — check the live vocabulary against the
-SSM-resolved cluster (`people-db-connection-string-prod`) before trusting any
-filter-related bug report.
+`mart_gp_api` voter mart in Databricks before trusting any filter-related bug
+report.
 
 ### Override-aware Voter Likelihood filtering (ENG-10838)
 

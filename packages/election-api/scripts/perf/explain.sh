@@ -144,9 +144,9 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
 fi
 
 # Prisma URLs commonly include ?schema=public&connection_limit=... — psql
-# rejects those. Strip the query string for psql, but keep the schema name
-# so we can set search_path explicitly (people-api uses ?schema=green for
-# the Voter table, so plain `"Voter"` lookups fail without this).
+# rejects those. Strip the query string for psql, but keep the schema name so
+# we can set search_path explicitly — an unqualified table lookup fails without
+# it on any database whose URL names a non-default schema.
 PSQL_URL="$(strip_prisma_params "$DATABASE_URL")"
 PG_SCHEMA="$(extract_pg_schema "$DATABASE_URL")"
 

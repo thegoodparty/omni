@@ -38,11 +38,20 @@ A term a `Person` holds (or held) in an office — the "elected official" spine 
 
 ### `District` — `prisma/schema/district.prisma`
 An L2 voter-file district (e.g., a state house district, a school board district). Identified uniquely by `(state, L2DistrictType, L2DistrictName)`.
-- **Relations:** `ProjectedTurnout[]`, `Position[]`, `DistrictTopIssue[]`
+- **Relations:** `ProjectedTurnout[]`, `Position[]`, `DistrictTopIssue[]`, `DistrictVoterDensity[]`, `DistrictVoterDensityMeta[]`
 
 ### `DistrictTopIssue` — `prisma/schema/districtTopIssue.prisma`
 Top political issues per district, sourced from Haystaq voter scoring. `score` is the average Haystaq score (0-100), `issueRank` is the rank within the district (1 = highest).
 - **Unique:** `(districtId, issue)`
+
+### `DistrictVoterDensity` / `DistrictVoterDensityMeta` — `prisma/schema/districtVoterDensity.prisma`
+Precomputed voter-density heat-map cells for a district, one row per H3 cell per resolution, plus a per-`(district, resolution)` coverage row. Serves `GET /v1/persons/:personId/voter-density`; gp-api relays it to the public `/people` profiles.
+- **PK:** `(districtId, resolution, h3Index)` on the cells, `(districtId, resolution)` on the meta; the cells also carry an explicit `(districtId, resolution)` index, the only shape the app queries.
+- **Relations:** `District` (real FK on both — a cell keyed on a uuid no district has fails the load rather than rendering an empty map)
+- **Privacy contract:** every row is an aggregated, k-anonymized cell (`voterCount >= minCellCount`) whose `(lat, lng)` is the deterministic H3 cell centroid, never a voter location. No PII columns, and no H3 math in Postgres — the centroid is precomputed upstream, so the read is a plain indexed lookup.
+- **Note:** `coverage` (`renderedVoters / totalVoters`) is the only meta column the app reads, and it reads it to decide whether to render the map at all. The rest is build provenance, kept so a sparse district can be explained without re-running the pipeline; `minCellCount` records the K a build actually used, which is the only way to tell after the fact whether a district was cut at the agreed policy K.
+- **Loader rule — rebuild each district whole.** A `merge` on the cell key upserts surviving cells but cannot delete a cell that dropped below K since the last run, and that stale row leaks exactly the suppression K exists to enforce. Full-rebuild the mart, or do a whole-district `delete + insert`. Never a plain merge on `(district_id, resolution, h3_index)`.
+- **Loader rule — load after `District`, and guard the FK.** Stage the insert behind a `WHERE EXISTS (SELECT 1 FROM "District" d WHERE d.id = district_id::uuid)`, the same way `CANDIDACY_UPSERT_QUERY` guards `race_id` in `write__election_api_db.py`. Skipping a row for a district that hasn't landed yet is correct — the next push re-offers it. Failing the whole load on one is not.
 
 ### `ProjectedTurnout` — `prisma/schema/projectedTurnout.prisma`
 Modeled turnout for a district in a given election year. Stamped with `inferenceAt` and `modelVersion` so callers can reason about freshness.
@@ -71,6 +80,7 @@ Denormalized ZIP → position rollup, sourced from a dbt mart in `gp-data-platfo
 - **Candidate cards for a race** — `Race.findUnique({ where: { slug }, include: { Candidacies: { include: { Stances: { include: { Issue: true } } } } } })`.
 - **Office slug for a sitting officeholder** — `OfficeHolder.positionId` → `Position` → most recent `Race`, then read `Race.slug`/`Race.positionLevel`. See `src/persons/persons.service.ts`. A candidate reaches the same slug via `Candidacy.Race`.
 - **Top issues by district** — `DistrictTopIssue.findMany({ where: { districtId }, orderBy: { issueRank: 'asc' } })`.
+- **Heat map for a district** — `DistrictVoterDensity.findMany({ where: { districtId, resolution } })` plus the matching `DistrictVoterDensityMeta` row for `coverage`. See `src/persons/persons.service.ts`.
 
 ## Conventions
 

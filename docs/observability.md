@@ -9,7 +9,7 @@ configured in `.mcp.json`; required env vars are in `docs/mcp.md`.
 - **Datasource UIDs:** Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`,
   Prometheus `grafanacloud-prom`
 - **Labels for narrowing logs:**
-  - `service_name`: `gp-api` | `election-api` | `people-api`
+  - `service_name`: `gp-api` | `election-api`
   - `deployment_environment_name`: `dev` | `prod`
 
 Example LogQL:
@@ -59,10 +59,7 @@ A workable default playbook:
    is on the remote branch, not what your working tree happens to be — and this
    checkout is shared, so `HEAD` may be stale or moved under you by another session.
    Env → branch: `main` is the only branch. `origin/main` is what's on dev; prod
-   runs whatever commit automated promotion last shipped from `main`. The deployed
-   people-api service (dev/prod only) no longer has a repo package or branch-driven
-   deploy in omni — it's frozen at whatever was last deployed before the
-   people-db cutover; use its own logs to diagnose it, not this repo's HEAD.
+   runs whatever commit automated promotion last shipped from `main`.
    Before forming a hypothesis: `git fetch origin <branch>`, check how far
    behind you are (`git rev-list --count HEAD..origin/<branch>`), and read the
    deployed source with `git show origin/<branch>:path/to/file`. A stale checkout

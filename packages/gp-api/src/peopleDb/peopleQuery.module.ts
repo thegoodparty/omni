@@ -12,7 +12,6 @@ import { DatabricksVoterDownloadService } from './databricks/databricksVoterDown
 import { DatabricksVoterPackService } from './databricks/databricksVoterPack.service'
 import { PeopleDbxStatementClient } from './databricks/peopleDbxStatement.client'
 import { VoterReadLogService } from './databricks/voterReadLog.service'
-import { VoterDensityService } from './services/voterDensity.service'
 import { VoterRecommendedListsService } from './services/voterRecommendedLists.service'
 
 @Module({
@@ -29,7 +28,6 @@ import { VoterRecommendedListsService } from './services/voterRecommendedLists.s
     VoterDownloadService,
     VoterDoorKnockingService,
     VoterPackService,
-    VoterDensityService,
     VoterRecommendedListsService,
   ],
   exports: [
@@ -38,7 +36,6 @@ import { VoterRecommendedListsService } from './services/voterRecommendedLists.s
     VoterDownloadService,
     VoterDoorKnockingService,
     VoterPackService,
-    VoterDensityService,
     VoterRecommendedListsService,
   ],
 })
