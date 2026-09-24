@@ -39,9 +39,7 @@ npm run dev       -w candidate-sites # :4001
 
 gp-api reads voter data from Databricks (`src/peopleDb/`) — set the
 `PEOPLE_DATABRICKS_*` vars in gp-api's local env or every contacts and
-door-knocking read fails. The voter-density heat map additionally needs
-`PEOPLE_DATABASE_URL` pointed at a people-db instance. See
-`packages/gp-api/src/peopleDb/AGENTS.md`.
+door-knocking read fails. See `packages/gp-api/src/peopleDb/AGENTS.md`.
 
 ## Prisma
 

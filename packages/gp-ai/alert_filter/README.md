@@ -47,8 +47,8 @@ notification itself and never needs its own copy.
 ```ts
 knownCauses: [
   {
-    id: 'people-db-statement-timeout',
-    summary: 'The people DB statement timed out on a district too large for the current query plan.',
+    id: 'voter-statement-timeout',
+    summary: 'The voter query timed out on a district too large for the current query plan.',
     evidence: '{service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingPackBuildFailed" | json | elapsedMs > 25000',
     confirmedBy: 'the log line shows elapsedMs above 25000 and a districtId',
     action: 'suppress',

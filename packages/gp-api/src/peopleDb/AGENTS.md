@@ -1,45 +1,18 @@
 # peopleDb
 
 gp-api's voter engine: the filter pipeline, id `in`/`notIn`, trigram search,
-stats/aggregates, CSV download, door-knocking targeting, and the voter-density
-heat map. `ContactsService` (`src/contacts/`) and `src/doorKnocking/` call it
-directly.
+stats/aggregates, CSV download and door-knocking targeting.
+`ContactsService` (`src/contacts/`) and `src/doorKnocking/` call it directly.
 
 Voter reads are served from **Databricks** — the `mart_gp_api` schema, reached
 over the Statement Execution API (`databricks/`). No Prisma, no connection
 pool. The services under `services/` are the module's public surface; each one
 delegates to a `databricks/` service and logs the read.
 
-One read is the exception. `VoterDensityService` reads the precomputed H3
-heat-map table through a second, read-only Prisma client against people-db
-Postgres. Everything below about connection handling, the client hot-swap and
-`createPeopleDbBase` exists for that one read.
-
-**That read is being retired.** The density tables now also exist in
-election-db, beside the `District` they are keyed on, and
-`VoterDensityProxyService` reads both sources on every request and compares
-them (`person_profile_voter_density_compare_count_total`). Once that reads
-clean, `VOTER_DENSITY_SOURCE=election-api` makes election-api authoritative and
-this service — and with it the second Prisma client and everything below —
-comes out. The destination is election-db rather than `mart_gp_api`: the
-density rows join to `District`, and `District` lives in election-db. See
-`packages/election-api/docs/voter-density-election-db-handoff.md`.
-
-Its shadow arm is never awaited and its failures are swallowed, so it cannot
-slow or fail a request. Unlike a logged comparison it is counted rather than
-logged, because this one has an end condition someone has to watch for
-(`only_legacy` reaching zero is the cutover gate) rather than a standing
-agreement to monitor.
-
-The gate is `only_legacy`, not total agreement. The two sources are copies of
-one dbt mart on different refresh schedules — people-db monthly, election-db
-nightly — so they are rarely built from the same vintage and will not agree
-exactly. The comparison tolerates a difference in proportion to the voters it
-represents, and reports `match_within_tolerance` for skew at that scale, so
-`cell_mismatch` means "loaded, and actually wrong". Expect
-`match_within_tolerance` to dominate `match` until the schedules converge; see
-`personProfiles/services/voterDensityComparison.ts` for the thresholds and the
-production measurements behind them.
+The column contract is hand-maintained. `voter.types.ts` declares the `Voter`
+row shape the SQL builders and column shapes in `voter.select.ts` are written
+against — nothing generates it, so a column added to the mart has to be added
+there before anything here can read it.
 
 ## Every voter read emits one log line
 
@@ -142,87 +115,10 @@ own `warn`, naming the census lookup so the line is attributable to one of
 the two statements. The voter scan keeps `run()` and stays exactly as loud as
 every other voter read.
 
-## Connection: `PeopleDbUrlProvider` + `PEOPLE_DB_SSM_PARAM`
-
-`peopleDbUrl.provider.ts` resolves the people-db connection string, in order:
-
-1. `PEOPLE_DATABASE_URL` env var (local dev).
-2. `PEOPLE_DB_SSM_PARAM` override, if set — used to point preview
-   environments (which don't get their own people-db cluster) at the **dev**
-   people-db SSM parameter instead of the per-environment default.
-3. Default: SSM parameter `people-db-connection-string-${OTEL_SERVICE_ENVIRONMENT}`.
-
-The load is lazy and memoized (`ensureLoaded()`), not populated eagerly in
-`onModuleInit` — Nest doesn't guarantee a dependency's `onModuleInit` runs
-before its dependents' within the same module, so an eager read would race.
-Consumers `await ensureLoaded()` themselves. It revalidates SSM every 5
-minutes and notifies subscribers via `onChange()` only when the URL actually
-changes; a transient SSM failure during revalidation logs and keeps serving
-the last-known-good value rather than taking down a healthy process. The
-revalidation interval is scheduled even when the first load **fails** —
-consumers' `onModuleInit` is the only guaranteed caller of `ensureLoaded()`,
-so without that a failed boot load would never be retried and every people-db
-request would 500 until a task restart (the 2026-07-29 prod contacts outage;
-the trigger was a missing IAM grant, see `deploy/CLAUDE.md` § People-db
-connection string).
-
-## Hot-swap: `PeopleDbService.instance`
-
-`PeopleDbService` owns the live `PrismaClient` and exposes it only through
-the `instance` getter — **never cache the reference**, always read through
-`.instance` (or `createPeopleDbBase`'s `this.model`/`this.client`, below) so
-callers follow the client across a database-URL swap. `onModuleInit` itself
-is fail-soft end to end: `ensureLoaded()` + building the client are wrapped
-in try/catch, logged at `warn`, and left unset on failure — a satellite
-dependency (people-db) must never take down the whole gp-api monolith at
-boot. `instance` throws a clear error (`people-db client not initialized —
-PEOPLE_DATABASE_URL / SSM parameter is unresolved`) when the client was never
-built, so misconfiguration surfaces as a request-time error, not a boot
-crash. On a `PeopleDbUrlProvider` change event, `swap()` builds a fresh
-client, atomically repoints `instance` to it, and fire-and-forgets
-`$disconnect()` on the old client (drains in-flight queries; a failed
-teardown of the old client must never disturb the new one) — this is also
-what recovers a never-initialized client once the URL becomes resolvable.
-Each built client sets `connection_limit=50`, `pool_timeout=5`,
-`connect_timeout=5`, `socket_timeout=60` on the connection URL. Initial
-`$connect()` within `buildClient` is separately fail-soft: a broken
-`PEOPLE_DATABASE_URL` logs and moves on rather than throwing, so Prisma can
-reconnect lazily on the first real query.
-
-## `createPeopleDbBase` — the PrismaBase equivalent
-
-`peopleDbBase.util.ts` mirrors gp-api's `createPrismaBase(MODELS.X)` pattern
-for this second client: `createPeopleDbBase(PEOPLE_MODELS.Voter)` gives a
-service `this.model` / `this.client` plus passthrough methods (`findMany`,
-`findFirst`, `findFirstOrThrow`, `findUnique`, `findUniqueOrThrow`, `count`).
-Those passthroughs are rebound on every `onModuleInit`, resolving `this.model`
-fresh each call rather than binding once — a one-time bind would leave a
-service pointed at a disconnected client after a URL swap.
-
-## `plan_cache_mode=force_custom_plan` — do not remove it
-
-`buildClient` appends `options=-c plan_cache_mode=force_custom_plan` to the
-connection URL. Postgres plans a prepared statement custom for its first few
-executions, then may switch to a generic plan built without knowing the bound
-values; for a selective predicate that generic plan can be catastrophically
-wrong, and it reads as intermittent because it depends on how many times a
-**pooled** connection has run that statement shape.
-
-Two traps when touching it:
-
-- **`psql` with inlined literals cannot reproduce the effect.** A literal
-  always gets a custom plan. Reproduce through Prisma (or `PREPARE`/`EXECUTE`
-  enough times to cross the threshold).
-- **Do not set it via `url.searchParams.set`.** `URLSearchParams` encodes the
-  space in `-c plan_cache_mode=...` as `+`, which libpq does not decode back to
-  a space; the option is then silently ignored with nothing to show it. It is
-  written by hand with `%20` for this reason, and `peopleDb.service.test.ts`
-  asserts the encoding.
-
 ## The two direction columns cannot hold a direction
 
 `Residence_Addresses_PrefixDirection` and `Residence_Addresses_SuffixDirection`
-are **INTEGER** in the mirror (`prisma-people/schema/Voter.prisma`), as are their
+are **INTEGER** in the mart (`voter.types.ts`), as are their
 `Mailing_` twins, while every other address component is TEXT. The L2 file spells
 them `N`/`S`/`E`/`W`; the data-platform loader `try_cast`s each to `int`
 (`dbt/project/models/marts/people_api/m_people_api__voter.sql`, and
@@ -322,16 +218,14 @@ scan. It exists to reject rather than truncate, not to make the query cheap.
 
 ## Testing
 
-All tests here are **mock-based** — there is no people-db test container in
-this project, and nothing here talks to a warehouse. `databricks*.util.test.ts`
-asserts the generated Spark string and its bound parameters; the `databricks/`
-services are tested against a stubbed `PeopleDbxStatementClient` (and a stubbed
-`fetch` for external-link chunks); the `services/` delegates are constructed
-directly with a stubbed Databricks service and a `measure`-passthrough read
-log. Prisma client construction is mocked for the density read (see
-`peopleDb.service.test.ts`'s `vi.mock('../generated/people-prisma', ...)`
-pattern). Keep new tests in this module to that pattern — don't reach for
-`useTestService()` here, it boots gp-api's own Postgres, not people-db.
+All tests here are **mock-based** — nothing in this module talks to a
+warehouse. `databricks*.util.test.ts` asserts the generated Spark string and
+its bound parameters; the `databricks/` services are tested against a stubbed
+`PeopleDbxStatementClient` (and a stubbed `fetch` for external-link chunks);
+the `services/` delegates are constructed directly with a stubbed Databricks
+service and a `measure`-passthrough read log. Keep new tests in this module to
+that pattern — don't reach for `useTestService()` here, it boots gp-api's own
+Postgres, which holds no voter data.
 
 Route-level coverage lives with the routes (`src/contacts/tests/`,
 `src/voters/`, `src/doorKnocking/`), where tests spy on the `services/` methods
@@ -349,10 +243,8 @@ signatures rather than callers reaching into `databricks/` directly.
 | `databricks/databricksVoter.service.ts`         | List/person/aggregates/stats/sample/precincts + door-knocking rows  |
 | `databricks/databricksVoterDownload.service.ts` | Streaming CSV export over external links                            |
 | `databricks/databricksVoterPack.service.ts`     | Voter pack built from CSV chunks (never the inline path)            |
-| `peopleDbUrl.provider.ts`                       | SSM-backed connection-string resolution + change notification       |
-| `peopleDb.service.ts`                           | Owns the live Prisma client; hot-swap on URL change                 |
-| `peopleDbBase.util.ts`                          | `createPeopleDbBase` — PrismaBase equivalent for this client        |
-| `peopleQuery.module.ts`                         | Nest module: provides/exports all people-db query services          |
+| `peopleQuery.module.ts`                         | Nest module: provides/exports all voter query services              |
+| `voter.types.ts`                                | Hand-maintained `Voter` row shape + `USState`                       |
 | `voter.select.ts`                               | Column shapes, incl. `DOWNLOAD_COLUMNS` (curated CSV export)        |
 | `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts              |
 | `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                            |
@@ -360,8 +252,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/electionApiDistrict.service.ts`       | District resolution/scoping, from election-api                      |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                           |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                       |
-| `services/voterDensity.service.ts`              | Voter-density heat-map cells (read-only, precomputed H3 centroids)  |
-| `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                      |
+| `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                     |
 | `schemas/filters.schema.ts`                     | Zod filter input schema                                             |
 | `utils/valueMappers.util.ts`                    | Wire value → the value the voter file stores                        |
 | `utils/packEncoder.utils.ts`                    | Pack encoding; inverts `VALUE_MAPPERS` into pack bytes              |

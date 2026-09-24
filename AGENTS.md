@@ -5,9 +5,7 @@ web app, the API monolith, a data microservice, the admin console, the candidate
 sites, and the shared SDK/contracts. One repo means agents and humans share one
 context, deploys are unified, and shared code is de-duplicated.
 
-Voter/people data is read from Databricks by `gp-api` (`src/peopleDb/`). The
-former `people-api` microservice has no package here; its ECS service and
-Aurora cluster remain deployed but frozen, pending teardown — see
+Voter/people data is read from Databricks by `gp-api` (`src/peopleDb/`) — see
 `packages/gp-api/src/peopleDb/AGENTS.md`.
 
 **This repo is built to be worked through coding agents.** Almost every change here
@@ -135,9 +133,7 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   PR, not an access request. Nothing here needs a prod secret value in hand. Read
   `docs/secrets.md` before touching one.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
-  (gp-api, election-api). gp-api's `src/peopleDb/` mirrors this with
-  `createPeopleDbBase(PEOPLE_MODELS.ModelName)` against a second, read-only
-  Prisma client for people-db, which backs the voter-density heat map.
+  (gp-api, election-api).
 - **Contracts are the cross-service source of truth.** Any shape that crosses a
   service boundary (S2S payloads, SQS messages, webhook bodies) lives in
   `@goodparty_org/contracts`. Change the contract in the _same_ PR as the
@@ -158,10 +154,7 @@ promotes the same commit to prod. A burst of merges coalesces to the latest
 commit. Prod is reached only by that train, never by a direct push. There is no
 manual promotion and no `qa`/`master` branch.
 Backends deploy via Docker/ECR/Pulumi to ECS Fargate; frontends deploy via Vercel
-with deterministic PR-preview aliases. Detail in `docs/deployment.md`. The
-deployed people-api service (`dev`/`prod` only) no longer has a
-repo package or CI pipeline here — it stays up as a frozen, manually
-decommissioned service until it's torn down.
+with deterministic PR-preview aliases. Detail in `docs/deployment.md`.
 
 ## Worktrees
 
@@ -185,7 +178,7 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
 - **Grafana MCP** for logs (Loki), metrics (Prometheus), and traces (Tempo).
   Datasource UIDs: Loki `grafanacloud-logs`, Tempo `grafanacloud-traces`,
   Prometheus `grafanacloud-prom`. Narrow logs with labels `service_name`
-  (`gp-api` | `election-api` | `people-api`) and `deployment_environment_name`
+  (`gp-api` | `election-api`) and `deployment_environment_name`
   (`dev` | `prod`), e.g.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
 - **Sentry MCP** for frontend errors. Org slug `goodparty`, region

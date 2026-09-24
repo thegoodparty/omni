@@ -540,7 +540,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'A door-knocking voter-map build failed after gp-api had already started the response, in the last 10 minutes.',
       'The candidate saw the map fail to load. Because the response was already committed as a 200, the per-route error alert cannot see this — the log line is the only signal.',
-      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Code: 57014` there is the 25s people-db statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. A missing `districtId` means the eligibility resolve failed before any scan started.',
+      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Databricks statement exceeded` there is the 60s statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. A missing `districtId` means the eligibility resolve failed before any scan started.',
     ].join('\n\n'),
     notify: 'win-bugs',
     // The statement timeout is the case this whole registry was built for: the
@@ -552,7 +552,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       {
         id: 'people-db-statement-timeout',
         summary:
-          "A district large enough that one of the pack's people-db batches exceeds the 25s statement timeout. The query plan does not scale to districts this size yet, so it is a known capacity limit rather than a regression, and it recurs for the same district until that district is reassigned or the plan is changed.",
+          "A district large enough that one of the pack's batches exceeds the 60s Databricks statement timeout. The query plan does not scale to districts this size yet, so it is a known capacity limit rather than a regression, and it recurs for the same district until that district is reassigned or the plan is changed.",
         // Narrow: the same line filter the alert uses, plus the JSON parse, so
         // this reads the handful of event lines rather than the window.
         evidence: [
@@ -562,7 +562,7 @@ export const GLOBAL_ALERTS: Alert[] = [
           '| event = "DoorKnockingPackBuildFailed"',
         ].join(' '),
         confirmedBy:
-          'Every matched line carries `Code: 57014` in its error, names a `districtId`, and has `elapsedMs` at or above 25000. A single line missing any of the three means something other than a timed-out scan is mixed in, and the alert is not this cause. Report the districtId values so the thread names which districts are over the limit.',
+          'Every matched line carries `Databricks statement exceeded` in its error, names a `districtId`, and has `elapsedMs` at or above 60000. A single line missing any of the three means something other than a timed-out scan is mixed in, and the alert is not this cause. Report the districtId values so the thread names which districts are over the limit.',
         action: 'suppress',
       },
     ],
@@ -1098,29 +1098,8 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
       'These routes back the public candidate profiles on the marketing site. 404s are excluded because most requests here are meant to miss: the caller asks about every candidate, and a person who maps to no L2 district has no heat map to return.',
-      'Click *View in Grafana* to find the failing requests. Check which Prisma client raised the error before assuming the main database: the voter-density route reads people-db through a second client (see peopleDb/AGENTS.md), and its tables are populated by the data team rather than by a migration in this repo — so a table this repo has a migration for can still be absent in the database.',
+      'Click *View in Grafana* to find the failing requests. The voter-density route reads election-api over HTTP, so a failure there surfaces as a 502 rather than as a database error in this service.',
       'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout rather than the handler, and points at how long the query takes rather than at what it returned.',
     ].join('\n\n'),
-    knownCauses: [
-      {
-        id: 'people-db-table-missing',
-        summary:
-          'The people-db table the voter-density route reads does not exist. gp-api has a migration for it, but the data team creates and populates it (dbt/Databricks), so shipping the reader before that lands breaks the route completely until it does.',
-        // Not scoped to a status code or endpoint: the P2021 is what confirms
-        // the cause, and it is raised before any response is written. Matching
-        // only the failing route's completions would hide the case where the
-        // same missing table is breaking something else too, which is the
-        // evidence that this is a data-side outage rather than one route's bug.
-        evidence: [
-          '{service_name="gp-api", deployment_environment_name="$ENV"}',
-          '|= "does not exist in the current database"',
-          '| json',
-          '| exception_type = "P2021"',
-        ].join(' '),
-        confirmedBy:
-          "Matched lines name the missing table in `exception.message`, and their `exception.stacktrace` runs through generated/people-prisma. No matched lines means the failures are something else and this is NOT the cause. This does not lower the urgency: while it holds, the route returns nothing to anyone, and the fix is on the data team's side rather than in a deploy of this repo.",
-        action: 'annotate',
-      },
-    ],
   },
 ]

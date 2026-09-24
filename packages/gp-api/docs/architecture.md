@@ -49,7 +49,7 @@ The consumer file is large (~1100 lines). A future refactor will split per-`Queu
 ## Cross-service edges
 
 - `gp-webapp` -> `gp-api`: JWT cookie
-- `gp-api` -> `people-db`: direct Prisma access (`src/peopleDb/`); the legacy `people-api` HTTP fallback is gone
+- `gp-api` -> Databricks: voter reads over the Statement Execution API (`src/peopleDb/`)
 - `gp-api` -> `election-api`: HTTP, internal
 - `gp-api` -> `gp-ai`: HTTP
 

@@ -101,7 +101,7 @@ Per-pool autoscaling then falls out naturally — each target group is a separat
 
 ### 3. VPC endpoints are shared, scoped by egress
 
-The `pmf-vpce-sg` allows 443 ingress from VPC CIDR — any service in the shared VPC that resolves `ecr.us-west-2.amazonaws.com` (DNS answer points at the endpoint ENI via `private_dns_enabled = true`) can use them. Other VPC tenants (gp-api, people-api, election-api) transparently benefit.
+The `pmf-vpce-sg` allows 443 ingress from VPC CIDR — any service in the shared VPC that resolves `ecr.us-west-2.amazonaws.com` (DNS answer points at the endpoint ENI via `private_dns_enabled = true`) can use them. Other VPC tenants (gp-api, election-api) transparently benefit.
 
 PMF's quarantine is enforced by the **narrow egress side** on the agent SG (443 only to vpce-sg + S3 prefix list), not by the endpoint SG. Permissive endpoint ingress does not weaken PMF's containment.
 
