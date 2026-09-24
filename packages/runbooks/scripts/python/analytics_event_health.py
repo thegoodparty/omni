@@ -1141,6 +1141,7 @@ def run_monitor(
         records_by_type={r["event_type"]: r for r in result["records"]},
         series=series, code=code, watchlist_events=watchlist_events,
         latches=latches, today=today,
+        dismissed=aa.load_dismissals(watchlist_path),
     )
 
     # Walk `records`, not `flagged`: a latched break is by construction one whose

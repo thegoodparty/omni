@@ -116,6 +116,63 @@ def test_findings_sort_by_case_then_metric():
     assert [f["case"] for f in findings] == sorted(f["case"] for f in findings)
 
 
+def test_a_dismissed_successor_suppresses_the_case_2_finding():
+    code = {TRACKER.event: {"retired_date": "2026-09-01"}}
+    behaviors = [_b("b", M, (TRACKER.event, None), ("Campaign Plan - Tracker Opened", None))]
+    records = {TRACKER.event: _rec("retired"), "Campaign Plan - Tracker Opened": _rec()}
+    without = _align(behaviors, {M: [TRACKER]}, records_by_type=records, code=code)
+    assert [f["kind"] for f in without] == ["declared_leg_dead_with_live_successor"]
+    with_dismissal = _align(
+        behaviors, {M: [TRACKER]}, records_by_type=records, code=code,
+        dismissed=[{"event": "Campaign Plan - Tracker Opened", "metric": M, "reason": "r", "date": "2026-09-23"}],
+    )
+    assert with_dismissal == []
+
+
+def test_a_dismissed_surface_suppresses_the_case_3_finding_by_leg_key():
+    behaviors = [_b("b", M, ("Viewed", "/dashboard"), ("Viewed", "/polls"))]
+    series = {**_series(LIVE.key, 5), **_series("Viewed[path=/polls]", 5)}
+    without = _align(behaviors, {M: [LIVE]}, records_by_type={"Viewed": _rec()}, series=series)
+    assert [f["kind"] for f in without] == ["live_instrument_not_declared"]
+    with_dismissal = _align(
+        behaviors, {M: [LIVE]}, records_by_type={"Viewed": _rec()}, series=series,
+        dismissed=[{"event": "Viewed[path=/polls]", "metric": M, "reason": "r", "date": "2026-09-23"}],
+    )
+    assert with_dismissal == []
+
+
+def test_a_dismissal_for_another_metric_does_not_suppress():
+    behaviors = [_b("b", M, ("Viewed", "/dashboard"), ("Viewed", "/polls"))]
+    series = {**_series(LIVE.key, 5), **_series("Viewed[path=/polls]", 5)}
+    findings = _align(
+        behaviors, {M: [LIVE]}, records_by_type={"Viewed": _rec()}, series=series,
+        dismissed=[{"event": "Viewed[path=/polls]", "metric": "other_metric"}],
+    )
+    assert [f["kind"] for f in findings] == ["live_instrument_not_declared"]
+
+
+def test_case_1_findings_ignore_dismissals():
+    findings = _align(
+        [_b("b", M, (DEAD.event, None))], {M: [LIVE, DEAD]},
+        records_by_type={DEAD.event: _rec("retired")},
+        dismissed=[{"event": DEAD.event, "metric": M}],
+    )
+    assert any(f["kind"] == "surface_on_historical_leg" for f in findings)
+
+
+def test_load_dismissals_returns_only_rows_with_a_metric(tmp_path):
+    y = tmp_path / "w.yaml"
+    y.write_text(
+        "dismissed:\n"
+        '  - {event: "Queue B row", reason: "r", date: "2026-08-06"}\n'
+        '  - {event: "Viewed[path=/polls]", reason: "r", date: "2026-09-23", metric: win_active_candidates_30d}\n'
+    )
+    assert aa.load_dismissals(y) == [
+        {"event": "Viewed[path=/polls]", "reason": "r", "date": "2026-09-23", "metric": "win_active_candidates_30d"}
+    ]
+    assert aa.load_dismissals(tmp_path / "absent.yaml") == []
+
+
 def _f(case, headline="h"):
     return {"case": case, "kind": "k", "behavior_id": "b", "metric": "m", "surface_label": None,
             "event_key": "E", "suggested": "", "evidence": {}, "headline": headline}

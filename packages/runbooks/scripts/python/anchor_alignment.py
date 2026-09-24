@@ -9,13 +9,19 @@ Each finding carries a case that says who is behind:
   1  omni is behind the declaration        -> edit monitored_events.yaml
   2  the declaration is behind the product -> draft an anchored_on change for gp-data-platform
   3  the two disagree on scope             -> a human decides, then case 1 or 2
+
+A reviewer's dismissal, recorded in `dismissed:` with the metric name, silences the
+case 2 or case 3 finding it names; case 1 has no dismiss.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from behavior_registry import metric_list, surface_key
 
@@ -57,6 +63,19 @@ def _finding(case, kind, *, metric, headline, behavior_id=None, surface_label=No
     }
 
 
+def load_dismissals(path: Path) -> list[dict]:
+    """Queue C dismissals: the `dismissed:` rows that name a metric. Queue B rows have no
+    metric and are the proposal queue's business."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    doc = yaml.safe_load(path.read_text()) or {}
+    return [
+        row for row in (doc.get("dismissed") or [])
+        if isinstance(row, Mapping) and row.get("event") and row.get("metric")
+    ]
+
+
 def align(
     behaviors: Sequence[Mapping[str, Any]],
     anchors: Mapping[str, Sequence[Any]],
@@ -67,11 +86,13 @@ def align(
     watchlist_events: Iterable[str],
     latches: Mapping[str, Mapping[str, Any]],
     today: date,
+    dismissed: Iterable[Mapping[str, Any]] = (),
 ) -> list[dict]:
     if not anchors:
         # No declaration was read. Comparing against nothing would report every
         # behavior; run_monitor already reports the read failure in red.
         return []
+    dismissed_keys = {(str(r["metric"]), str(r["event"])) for r in dismissed}
     monitored = set(watchlist_events)
     for b in behaviors:
         for s in b.get("surfaces") or []:
@@ -110,6 +131,8 @@ def align(
                     continue
                 successor = live_undeclared[0]
                 consumed.add(surface_key(successor))
+                if (metric, surface_key(successor)) in dismissed_keys:
+                    continue
                 findings.append(_finding(
                     2, "declared_leg_dead_with_live_successor", metric=metric, behavior_id=bid,
                     surface_label=successor.get("label"), event_key=leg.key,
@@ -127,7 +150,8 @@ def align(
                         surface_label=s.get("label"), event_key=key, suggested=suggested,
                         headline=(f"{bid}.{s.get('label')} names {key}, which '{metric}' "
                                   f"marks historical. Point it at {suggested}.")))
-                elif s in live_undeclared and key not in consumed:
+                elif (s in live_undeclared and key not in consumed
+                      and (metric, key) not in dismissed_keys):
                     findings.append(_finding(
                         3, "live_instrument_not_declared", metric=metric, behavior_id=bid,
                         surface_label=s.get("label"), event_key=key,

@@ -2025,6 +2025,31 @@ def test_run_monitor_reports_alignment_findings(tmp_path):
     assert "### Registry vs semantic layer" in digest
 
 
+def test_run_monitor_passes_queue_c_dismissals_to_align(tmp_path):
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8),
+               _cat("Campaign Plan - Tracker Opened", "win_dashboard", "New.", cnt30=8)]
+    watchlist = (
+        "behaviors:\n"
+        "  - id: b\n"
+        "    metric: win_active_candidates_30d\n"
+        "    product: win\n"
+        "    surfaces:\n"
+        f'      - {{path: a.tsx, label: old, instrumented_by: "{_TRACKER}"}}\n'
+        '      - {path: b.tsx, label: new, instrumented_by: "Campaign Plan - Tracker Opened"}\n'
+        "dismissed:\n"
+        '  - {event: "Campaign Plan - Tracker Opened", reason: "not a view", date: "2026-09-23", metric: win_active_candidates_30d}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3, "retired_date": "2026-09-01"},
+                   {"event_type": "Campaign Plan - Tracker Opened", "call_site_count": 1}],
+        latches={}, watchlist=watchlist)
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+    assert not [f for f in result["anchor_alignment"] if f["case"] == 2]
+
+
 def test_alignment_case_2_reaches_slack_as_yellow_and_case_1_does_not(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     result = _render_result(
