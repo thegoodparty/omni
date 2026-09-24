@@ -58,6 +58,7 @@ import type {
   BallotStatus,
   ManualOfficeForm,
   NonEmptyArray,
+  OfficePickerGiveUpContext,
   OnboardingStepConfig,
   OnboardingAnswers,
   OnboardingStepId,
@@ -251,7 +252,7 @@ interface StepBodyProps {
   activeStep: OnboardingStepConfig
   answers: OnboardingAnswers
   updateAnswers: (answers: Partial<OnboardingAnswers>) => void
-  onCantFindOffice: () => void
+  onCantFindOffice: (context: OfficePickerGiveUpContext) => void
   onOfficeHydratingChange: (isHydrating: boolean) => void
   liveCampaign: Campaign | null
   onP2vLoadingChange: (loading: boolean) => void
@@ -588,8 +589,11 @@ export default function OnboardingFlow({
 
   // V2 step-funnel `Viewed` events: fire once per step, the first time it is
   // entered. The seen-set ref dedupes so neither a re-render nor back-and-forth
-  // navigation re-fires. manual-office-entry has no V2 event.
+  // navigation re-fires.
   const viewedStepsFiredRef = useRef<Set<OnboardingStepId>>(new Set())
+  const giveUpContextRef = useRef<OfficePickerGiveUpContext | undefined>(
+    undefined,
+  )
   useEffect(() => {
     // Wait for the user, then attach email directly. SegmentIdentify sets the
     // shared email global, but it mounts after the page content (PageWrapper),
@@ -600,6 +604,7 @@ export default function OnboardingFlow({
       'ballot-status': EVENTS.OnboardingV2.BallotStatusViewed,
       'party-affiliation': EVENTS.OnboardingV2.PartyDesignationViewed,
       'office-selection': EVENTS.OnboardingV2.OfficeViewed,
+      'manual-office-entry': EVENTS.OnboardingV2.ManualOfficeViewed,
       'path-to-victory': EVENTS.OnboardingV2.VotesNeededViewed,
       // Per-step story funnel `Viewed` events (one per story screen), fired
       // once each on first entry like every other step here.
@@ -612,9 +617,30 @@ export default function OnboardingFlow({
     const viewedEvent = viewedEventByStep[activeStepId]
     if (viewedEvent && !viewedStepsFiredRef.current.has(activeStepId)) {
       viewedStepsFiredRef.current.add(activeStepId)
+      // The manual step is only ever reached by giving up on the picker, so it
+      // carries what the picker had on screen at that moment. Undefined when a
+      // resumed session lands straight on the step, which is itself the signal
+      // that this view is a resume rather than a fresh give-up.
+      const giveUp =
+        activeStepId === 'manual-office-entry'
+          ? giveUpContextRef.current
+          : undefined
+      // Listed out rather than spread: the property set an analytics event
+      // carries should be readable at the fire site, and spreading whatever
+      // the caller handed over is how a stray object ends up in Amplitude.
       trackEvent(viewedEvent, {
         campaignId: campaign?.id,
         email: user.email,
+        ...(giveUp
+          ? {
+              officeZip: giveUp.officeZip,
+              searchQuery: giveUp.searchQuery,
+              categoryFilter: giveUp.categoryFilter,
+              totalOffices: giveUp.totalOffices,
+              filteredCount: giveUp.filteredCount,
+              searchErrored: giveUp.searchErrored,
+            }
+          : {}),
       })
     }
     // campaign?.id intentionally omitted from deps: the seen-set guards the
@@ -796,6 +822,7 @@ export default function OnboardingFlow({
         campaignId: campaign.id,
         officeName: office.positionName,
         officeLevel: office.level,
+        officePath: 'structured',
         officeState: office.state,
         electionDate: office.electionDay,
       })
@@ -830,6 +857,7 @@ export default function OnboardingFlow({
       campaignId: newCampaign.id,
       officeName: office.positionName,
       officeLevel: office.level,
+      officePath: 'structured',
       officeState: office.state,
       electionDate: office.electionDay,
     })
@@ -895,10 +923,15 @@ export default function OnboardingFlow({
         ...trackingProperties,
         officeType: 'manual',
       })
+      // officeLevel carries the BallotReady level the candidate picked on the
+      // form, never the string 'manual'. How they got here is officePath's job;
+      // overloading the level field put a bogus fifth value into every
+      // group-by and threw away the level we do know (DATA-2525).
       trackEvent(EVENTS.OnboardingV2.OfficeCompleted, {
         campaignId: campaign.id,
         officeName: form.office,
-        officeLevel: 'manual',
+        officeLevel: form.level,
+        officePath: 'manual',
         officeState: form.state,
         electionDate: form.electionDate,
       })
@@ -927,7 +960,8 @@ export default function OnboardingFlow({
     trackEvent(EVENTS.OnboardingV2.OfficeCompleted, {
       campaignId: newCampaign.id,
       officeName: form.office,
-      officeLevel: 'manual',
+      officeLevel: form.level,
+      officePath: 'manual',
       officeState: form.state,
       electionDate: form.electionDate,
     })
@@ -1041,6 +1075,7 @@ export default function OnboardingFlow({
         // inside persist*Office below. Intentional: this is a click signal.
         trackEvent(EVENTS.OnboardingV2.OfficeNextClicked, {
           campaignId: liveCampaign?.id ?? campaign?.id,
+          officePath: 'structured',
         })
         const ok = await persistStructuredOffice(answers.structuredOffice)
         if (!ok) return
@@ -1058,8 +1093,11 @@ export default function OnboardingFlow({
       try {
         // campaignId is undefined for new users — the campaign is created
         // inside persist*Office below. Intentional: this is a click signal.
+        // Both branches fire the same next-click event, so without officePath
+        // the two are indistinguishable once they reach Amplitude.
         trackEvent(EVENTS.OnboardingV2.OfficeNextClicked, {
           campaignId: liveCampaign?.id ?? campaign?.id,
+          officePath: 'manual',
         })
         const ok = await persistManualOffice(answers.manualOfficeForm)
         if (!ok) return
@@ -1282,7 +1320,11 @@ export default function OnboardingFlow({
   const handleStoryContinue = (): Promise<void> => advanceStory(false)
   const handleStorySkip = (): Promise<void> => advanceStory(true)
 
-  const handleCantFindOffice = () => {
+  const handleCantFindOffice = (context: OfficePickerGiveUpContext) => {
+    // Stashed rather than put on `answers`: `answers` is persisted to
+    // data.onboarding, and this is analytics-only. The step advance below
+    // re-runs the viewed-event effect, which reads the ref on the way through.
+    giveUpContextRef.current = context
     setAnswers((current) => ({
       ...current,
       officePath: 'manual',

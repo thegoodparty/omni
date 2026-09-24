@@ -7,12 +7,24 @@ import type { Campaign } from 'helpers/types'
 import { EVENTS } from 'helpers/analyticsHelper'
 import * as landscapeModule from '../success/hooks/useStrategicLandscape'
 import OnboardingFlow from './OnboardingFlow'
+import type { OfficePickerGiveUpContext } from './onboardingTypes'
 import { ONBOARDING_STEPS } from './onboardingConfig'
 import {
   getNextOnboardingStep,
   getPreviousOnboardingStep,
   getVisibleOnboardingSteps,
 } from './onboardingHelpers'
+
+// What the office picker had on screen when the candidate gave up on it, which
+// only the "Manual Office Viewed" event ever records (DATA-2525).
+const GIVE_UP_CONTEXT: OfficePickerGiveUpContext = {
+  officeZip: '78701',
+  searchQuery: 'school board',
+  categoryFilter: 'Local',
+  totalOffices: 12,
+  filteredCount: 0,
+  searchErrored: false,
+}
 
 // PathToVictoryStep reads the org's resolved district so it can skip a stats fetch
 // that could only 400 (and skip the Sentry report for that expected state).
@@ -101,9 +113,11 @@ vi.mock('./OfficeSelectionStep', () => ({
   OfficeSelectionStep: ({
     onCantFindOffice,
   }: {
-    onCantFindOffice: () => void
+    onCantFindOffice: (context: OfficePickerGiveUpContext) => void
   }) => (
-    <button type="button" onClick={onCantFindOffice}>
+    // Hands over a context object like the real picker does. Wiring
+    // onCantFindOffice straight to onClick would pass the React event instead.
+    <button type="button" onClick={() => onCantFindOffice(GIVE_UP_CONTEXT)}>
       mock cant find office
     </button>
   ),
