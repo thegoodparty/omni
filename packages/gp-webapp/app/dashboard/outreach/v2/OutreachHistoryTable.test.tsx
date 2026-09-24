@@ -421,7 +421,7 @@ describe('OutreachHistoryTable — unified history', () => {
         audienceRequest: null,
         script: null,
         message: null,
-        date: '2026-09-30T16:00:00Z',
+        date: new Date('2026-09-30T16:00:00Z'),
         imageUrl: null,
         voterFileFilterId: 6,
         doorKnockingRouteId: null,
