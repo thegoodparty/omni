@@ -86,8 +86,15 @@ const SocialPlatformsMetric = ({
 }
 
 // Prototype unit: "people called" for the phone channels, "people" elsewhere.
-const peopleUnit = (type: HistoryRow['outreachType']): string =>
-  type === OUTREACH_TYPES.robocall || type === OUTREACH_TYPES.phoneBanking
+// "called" is a past tense: a call campaign that is still scheduled reaches
+// people, the same way a scheduled text does, and only reads as called once
+// it has run. Texting never changes tense (its count is people, not sends).
+const peopleUnit = (
+  type: HistoryRow['outreachType'],
+  status: HistoryRow['status'],
+): string =>
+  (type === OUTREACH_TYPES.robocall || type === OUTREACH_TYPES.phoneBanking) &&
+  status === 'completed'
     ? 'people called'
     : 'people'
 
@@ -179,15 +186,15 @@ const DoorKnockingLoggedMetric = ({
 // so like phone banking it comes off the detail fetch. A draft has not been
 // priced yet and reads n/a until it is.
 const RobocallPeopleMetric = ({
-  id,
+  row,
   compact,
   detailFetcher,
 }: {
-  id: number
+  row: HistoryRow
   compact?: boolean
   detailFetcher: OutreachDetailFetcher
 }) => {
-  const { data } = useOutreachDetail(id, true, detailFetcher)
+  const { data } = useOutreachDetail(row.id, true, detailFetcher)
   const count = data?.robocall?.billableCount
   if (count === undefined) {
     return <span className="text-muted-foreground">—</span>
@@ -195,13 +202,18 @@ const RobocallPeopleMetric = ({
   if (count === null) {
     return <span className="text-muted-foreground">n/a</span>
   }
+  const unit = peopleUnit(row.outreachType, row.status)
   if (compact) {
-    return <>{count.toLocaleString()} people called</>
+    return (
+      <>
+        {count.toLocaleString()} {unit}
+      </>
+    )
   }
   return (
     <>
       <span className="text-sm">{count.toLocaleString()}</span>{' '}
-      <span className="text-xs">people called</span>
+      <span className="text-xs">{unit}</span>
     </>
   )
 }
@@ -237,7 +249,7 @@ const RowMetric = ({
   if (row.outreachType === OUTREACH_TYPES.robocall) {
     return (
       <RobocallPeopleMetric
-        id={row.id}
+        row={row}
         compact={compact}
         detailFetcher={detailFetcher}
       />
@@ -248,14 +260,16 @@ const RowMetric = ({
     if (compact) {
       return (
         <>
-          {sent.toLocaleString()} {peopleUnit(row.outreachType)}
+          {sent.toLocaleString()} {peopleUnit(row.outreachType, row.status)}
         </>
       )
     }
     return (
       <>
         <span className="text-sm">{sent.toLocaleString()}</span>{' '}
-        <span className="text-xs">{peopleUnit(row.outreachType)}</span>
+        <span className="text-xs">
+          {peopleUnit(row.outreachType, row.status)}
+        </span>
       </>
     )
   }

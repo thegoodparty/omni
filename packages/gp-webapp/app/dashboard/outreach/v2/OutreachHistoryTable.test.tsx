@@ -457,6 +457,66 @@ describe('OutreachHistoryTable — unified history', () => {
     render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
 
     expect(await within(desktopTable()).findByText('3,634')).toBeInTheDocument()
+    // Still scheduled: it reaches people, the way a scheduled text does;
+    // "called" is for a call that has run.
+    expect(within(desktopTable()).getByText('people')).toBeInTheDocument()
+    expect(
+      within(desktopTable()).queryByText('people called'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reads people called once the robocall has run', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: 31,
+        createdAt: new Date('2026-09-01T00:00:00Z'),
+        updatedAt: new Date('2026-09-01T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'robocall',
+        projectId: null,
+        name: 'Done robocall',
+        status: 'completed',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: new Date('2026-09-02T16:00:00Z'),
+        imageUrl: null,
+        voterFileFilterId: 6,
+        doorKnockingRouteId: null,
+        phoneBankingListId: null,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+        robocall: {
+          audioKey: 'robocall/audio.mp3',
+          callbackNumber: '13032250691',
+          billableCount: 120,
+        },
+      },
+    })
+    const rows: HistoryRow[] = [
+      {
+        id: 31,
+        createdAt: '2026-09-01T00:00:00Z',
+        date: '2026-09-02T16:00:00Z',
+        outreachType: 'robocall',
+        name: 'Done robocall',
+        status: 'completed',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(await within(desktopTable()).findByText('120')).toBeInTheDocument()
     expect(
       within(desktopTable()).getByText('people called'),
     ).toBeInTheDocument()
