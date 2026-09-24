@@ -56,6 +56,9 @@ const caveatsFor = (e: EventRecord) =>
         (q.caveats.includes(e.display_name) ||
           q.caveats.includes(e.event_type)),
     )
+    // Two questions can carry the same caveat prose; the dedup was lost when this
+    // started returning the headline alongside it, and the standalone kept its own.
+    .filter((q, i, all) => all.findIndex((x) => x.caveats === q.caveats) === i)
     .map((q) => ({ headline: q.headline, caveats: q.caveats }))
 
 /**
