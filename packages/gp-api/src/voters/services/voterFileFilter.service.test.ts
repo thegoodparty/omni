@@ -49,6 +49,8 @@ describe('voterFileFilterToAudience', () => {
         ethnicityAsian: true,
         ethnicityHispanic: true,
         ethnicityAfricanAmerican: true,
+        ethnicityOther: true,
+        ethnicityUnknown: true,
       }),
     )
 
@@ -59,7 +61,25 @@ describe('voterFileFilterToAudience', () => {
       ethnicity_asian: true,
       ethnicity_hispanic: true,
       ethnicity_african_american: true,
+      ethnicity_other: true,
+      ethnicity_unknown: true,
     })
+  })
+
+  // The regression this pair exists for: these two columns were added after
+  // the underscore vocabulary was written, so a list cut on Other or Unknown
+  // used to emit nothing for them and the export silently widened to every
+  // ethnicity. Asserted one at a time, because the combined case above passes
+  // on the other four alone.
+  it.each([
+    ['ethnicityOther', 'ethnicity_other'],
+    ['ethnicityUnknown', 'ethnicity_unknown'],
+  ])('maps %s to the %s filter', async (column, key) => {
+    const audience = await service.voterFileFilterToAudience(
+      filter({ [column]: true }),
+    )
+
+    expect(audience).toEqual({ [key]: true })
   })
 })
 
