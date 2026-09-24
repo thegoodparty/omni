@@ -753,6 +753,13 @@ export const EVENTS = {
     PartyDesignationCompleted: 'Onboarding V2 - Party Designation Completed',
     PartyDesignationBlocked: 'Onboarding V2 - Party Designation Blocked',
     OfficeViewed: 'Onboarding V2 - Office Viewed',
+    // The candidate gave up on the office picker and was sent to the manual
+    // form. Carries the picker state at the moment they gave up (zip, search
+    // text, how many offices were on screen) — none of which reaches the
+    // campaign record, so this event is the only record of it. Its pair is
+    // OfficeCompleted with officePath: 'manual'; a Viewed without that
+    // Completed is an abandoned manual form (DATA-2525).
+    ManualOfficeViewed: 'Onboarding V2 - Manual Office Viewed',
     OfficeCompleted: 'Onboarding V2 - Office Completed',
     VotesNeededViewed: 'Onboarding V2 - Votes Needed Viewed',
     VotesNeededCompleted: 'Onboarding V2 - Votes Needed Completed',

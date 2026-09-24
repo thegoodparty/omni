@@ -6,6 +6,7 @@ import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import type { Campaign } from 'helpers/types'
 import { EVENTS } from 'helpers/analyticsHelper'
 import OnboardingFlow from './OnboardingFlow'
+import type { OfficePickerGiveUpContext } from './onboardingTypes'
 
 // PathToVictoryStep reads the org's resolved district so it can skip a stats
 // fetch that could only 400. useOrganization throws outside its provider, and
@@ -69,9 +70,23 @@ vi.mock('./OfficeSelectionStep', () => ({
   OfficeSelectionStep: ({
     onCantFindOffice,
   }: {
-    onCantFindOffice: () => void
+    onCantFindOffice: (context: OfficePickerGiveUpContext) => void
   }) => (
-    <button type="button" onClick={onCantFindOffice}>
+    // Passes a context object like the real picker; wiring the handler
+    // straight to onClick would hand the flow a React synthetic event.
+    <button
+      type="button"
+      onClick={() =>
+        onCantFindOffice({
+          officeZip: '78701',
+          searchQuery: '',
+          categoryFilter: '',
+          totalOffices: 0,
+          filteredCount: 0,
+          searchErrored: false,
+        })
+      }
+    >
       mock cant find office
     </button>
   ),

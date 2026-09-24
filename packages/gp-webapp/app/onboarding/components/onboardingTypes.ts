@@ -18,6 +18,21 @@ export type FollowOnIntent = 'same-office' | 'new-office'
 
 export type OnboardingOfficePath = 'structured' | 'manual'
 
+/*
+    What the office picker had on screen when the candidate gave up on it. None of
+    this reaches the campaign record, so the "Manual Office Viewed" event is the
+    only place it is ever written down. It is what separates "BallotReady has no
+    race here" from "we had the race and our search buried it" (DATA-2525).
+*/
+export interface OfficePickerGiveUpContext {
+  officeZip: string | undefined
+  searchQuery: string
+  categoryFilter: string
+  totalOffices: number
+  filteredCount: number
+  searchErrored: boolean
+}
+
 export type BallotStatus =
   | 'on-ballot'
   | 'qualified-not-filed'
