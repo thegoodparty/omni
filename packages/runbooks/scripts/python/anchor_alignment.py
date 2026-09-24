@@ -103,10 +103,12 @@ def align(
     monitored = set(watchlist_events)
     for b in behaviors:
         for s in b.get("surfaces") or []:
+            # The leg key alone. A path surface watches one slice, so adding the bare
+            # event too would let a '/dashboard' surface silence an unwatched declared
+            # 'Viewed' or 'Viewed[path=/home]'.
             key = surface_key(s)
             if key:
                 monitored.add(key)
-                monitored.add(s["instrumented_by"])
 
     findings: list[dict] = []
     for b in behaviors:
@@ -138,7 +140,9 @@ def align(
                 evidence = _dead_leg_evidence(leg, records_by_type, code, latches)
                 if evidence is None or not live_undeclared:
                     continue
-                successor = live_undeclared[0]
+                # Pop, so a second dead leg pairs with the next unmatched surface rather
+                # than telling the reader to replace both legs with the same event.
+                successor = live_undeclared.pop(0)
                 consumed.add(surface_key(successor))
                 if (metric, surface_key(successor)) in dismissed_keys:
                     continue

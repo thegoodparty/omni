@@ -114,6 +114,50 @@ def test_dead_declared_leg_with_a_live_successor_is_case_2():
     assert not [x for x in findings if x["kind"] == "live_instrument_not_declared"]
 
 
+def test_two_dead_legs_pair_with_distinct_successors():
+    # Each dead leg consumes the successor it pairs with. Re-reading the first one would
+    # tell the reader to replace both legs with the same event.
+    code = {"A": {"retired_date": "2026-09-01"}, "B": {"retired_date": "2026-09-01"}}
+    findings = _align(
+        [_b("b", M, ("A", None), ("B", None), ("NewA", None), ("NewB", None))],
+        {M: [Leg("A"), Leg("B")]},
+        records_by_type={"A": _rec("retired"), "B": _rec("retired"),
+                         "NewA": _rec(), "NewB": _rec()},
+        code=code)
+    case2 = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    assert [f["event_key"] for f in case2] == ["A", "B"]
+    assert [f["suggested"] for f in case2] == ["NewA", "NewB"]
+    assert not [x for x in findings if x["kind"] == "live_instrument_not_declared"]
+
+
+def test_a_second_dead_leg_with_no_successor_left_emits_nothing():
+    code = {"A": {"retired_date": "2026-09-01"}, "B": {"retired_date": "2026-09-01"}}
+    findings = _align(
+        [_b("b", M, ("A", None), ("B", None), ("NewA", None))],
+        {M: [Leg("A"), Leg("B")]},
+        records_by_type={"A": _rec("retired"), "B": _rec("retired"), "NewA": _rec()},
+        code=code)
+    case2 = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    assert [(f["event_key"], f["suggested"]) for f in case2] == [("A", "NewA")]
+
+
+def test_a_path_surface_does_not_count_as_monitoring_the_bare_event():
+    # A '/dashboard' surface watches one slice of Viewed. The declared site-wide leg is
+    # a different series, and nothing is checking it.
+    findings = _align([_b("b", M, ("Viewed", "/dashboard"))], {M: [Leg("Viewed")]},
+                      records_by_type={"Viewed": _rec()}, series=_series(LIVE.key, 5))
+    [f] = [x for x in findings if x["kind"] == "declared_leg_unmonitored"]
+    assert f["event_key"] == "Viewed" and f["case"] == 1
+
+
+def test_a_path_surface_does_not_cover_a_different_path_leg():
+    home = Leg("Viewed", "/home", None)
+    findings = _align([_b("b", M, ("Viewed", "/dashboard"))], {M: [LIVE, home]},
+                      records_by_type={"Viewed": _rec()}, series=_series(LIVE.key, 5))
+    [f] = [x for x in findings if x["kind"] == "declared_leg_unmonitored"]
+    assert f["event_key"] == home.key and f["case"] == 1
+
+
 def test_latched_declared_leg_counts_as_dead():
     findings = _align([_b("b", M, (TRACKER.event, None), ("New", None))], {M: [TRACKER]},
                       records_by_type={TRACKER.event: _rec("active"), "New": _rec()},
