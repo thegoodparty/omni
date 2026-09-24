@@ -119,5 +119,12 @@ lineage.ts` parses it. 11 of 22 resolve; DATA-2507 is the fix.
   it. Sending someone the file is the whole point of that copy.
 - **Browser or server is derived from the code path**, the only signal we hold, so the
   266 events with a path say which and the other 326 say nothing at all.
+- **An event is filed by its `surface:` tag when it has one, and by the nav-label prefix
+  of its display name otherwise** (DATA-2532). The prefix files an event by what it is
+  called, so renaming one re-files it as a side effect — which is how two DATA-2525
+  events moved from Onboarding into Profile without anyone deciding that. The tag makes
+  the filing a declaration instead. The prefix stays as the fallback because it groups
+  449 of 592 events with no tagging work; 99 events have no prefix at all and sit in
+  "Uncategorised" until something tags them.
 - **`ANSWERS` and `USED_BY` in the snapshot builder are hand-kept.** They retire when
   the Analytics Questions list gets an "Answer link" field (DATA-2509).

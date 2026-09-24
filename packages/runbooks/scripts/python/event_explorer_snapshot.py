@@ -20,6 +20,7 @@ import argparse
 import collections
 import json
 import sys
+from collections.abc import Sequence
 from datetime import date, datetime
 from pathlib import Path
 
@@ -104,9 +105,29 @@ def assembled() -> tuple[list[dict], dict]:
     return rows, result["meta"]
 
 
-def area_of(display_name: str) -> str:
-    """Product area = the nav-label prefix of the display name. A naming convention,
-    not a field, so it will drift; good enough to group 449/592 events today."""
+SURFACE_TAG = "surface:"
+
+
+def _label(slug: str) -> str:
+    """`campaign-details` -> `Campaign Details`, matching the prefix-derived areas.
+    Capitalises rather than title-cases so `10dlc` is not mangled into `10Dlc`."""
+    return " ".join(w[:1].upper() + w[1:] for w in slug.replace("-", " ").split())
+
+
+def area_of(display_name: str, tags: Sequence[str] = ()) -> str:
+    """Product area: a declared `surface:` tag when there is one, the nav-label prefix
+    of the display name otherwise.
+
+    The prefix files an event by what it is called, so renaming an event silently
+    re-files it — and five events renamed in DATA-2525 needed exactly that separated
+    (DATA-2532). A `surface:` tag says where the event fires independently of its name;
+    `product:` already says which product owns it. The prefix stays as the fallback
+    because it groups 449 of 592 events correctly with no tagging work at all."""
+    for tag in tags:
+        if tag.startswith(SURFACE_TAG):
+            declared = _label(tag[len(SURFACE_TAG):].strip())
+            if declared:
+                return declared
     return display_name.split(" - ")[0].strip() if " - " in display_name else "Uncategorised"
 
 
@@ -121,10 +142,11 @@ def build_events(rows: list[dict], anchors: dict, series: dict) -> list[dict]:
         name = r["event"]
         # Anchors are keyed on the display name in the queue file.
         a = anchors.get(name) or anchors.get(r["event_type"]) or {}
+        tags = [t for t in r["tags"].split(", ") if t]
         out.append({
             "event_type": r["event_type"],
             "display_name": name,
-            "area": area_of(name),
+            "area": area_of(name, tags),
             "description": r["description"],
             "status": r["status"],
             "fires_on": r["where_it_fires"] or a.get("fires_on", ""),
@@ -141,7 +163,7 @@ def build_events(rows: list[dict], anchors: dict, series: dict) -> list[dict]:
             "last_seen": r["last_seen_date"],
             "first_seen": r["first_seen_date"],
             "series": series.get(r["event_type"], []),
-            "tags": [t for t in r["tags"].split(", ") if t],
+            "tags": tags,
             "okr": r["okr"],
             "supersession": r["supersession"],
             "declared_intent": r["declared_intent"],
