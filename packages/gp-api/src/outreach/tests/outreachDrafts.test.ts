@@ -699,6 +699,12 @@ describe('resuming a draft', () => {
       billableCount: 400,
       amountInCents: calcRobocallTotalInCents(400),
       numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
+      // A conversion prices the draft for the first time: no code yet, so
+      // the whole estimate is due.
+      promoCode: null,
+      promoDiscountInCents: 0,
+      amountDueInCents: calcRobocallTotalInCents(400),
+      coversTotal: false,
     })
 
     expect(await service.prisma.outreach.count()).toBe(1)
