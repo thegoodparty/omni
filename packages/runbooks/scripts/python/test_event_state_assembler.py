@@ -584,3 +584,30 @@ def test_assemble_marks_okr_from_the_semantic_layer(monkeypatch, tmp_path):
     )
     [row] = out["rows"]
     assert row["okr"] == "win_activated_users"
+
+
+def test_assemble_reports_sem_read_problems_to_stderr(monkeypatch, tmp_path, capsys):
+    # A failed live anchor read blanks the okr column for every row. Silence there reads
+    # exactly like "no metric is anchored", so the sheet step's log has to say otherwise.
+    wl = tmp_path / "w.yaml"
+    wl.write_text('events:\n  - {event: "E", product: win, family: f}\n')
+    monkeypatch.setattr(esa.aeh, "WATCHLIST", wl)
+    monkeypatch.setattr(esa.sem_anchors, "load_anchors", lambda: ({}, ["token missing"]))
+
+    code_csv = tmp_path / "code.csv"
+    code_csv.write_text("event_type\n")
+
+    def fake_query(sql):
+        return pd.DataFrame([
+            {"event_type": "E", "govern_display_name": "E",
+             "family": "f", "first_seen_date": "2024-01-01",
+             "last_seen_date": "2026-08-01", "event_count": 100, "event_count_30d": 5,
+             "govern_description": "", "govern_tags": None},
+        ])
+
+    out = esa.assemble(date(2026, 9, 23), run_query=fake_query, code_csv=code_csv)
+
+    err = capsys.readouterr().err
+    assert "event_state_assembler: token missing" in err
+    [row] = out["rows"]
+    assert row["okr"] == ""

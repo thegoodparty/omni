@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -242,7 +243,11 @@ def assemble(
     catalog = _apply_overrides(catalog, overrides)
     code_map = aeh.load_code_axis(code_csv) if code_csv else aeh.load_code_axis()
     if anchors is None:
-        anchors, _ = sem_anchors.load_anchors()
+        anchors, problems = sem_anchors.load_anchors()
+        # A blank okr column looks identical whether nothing is anchored or the read
+        # failed, so say which one happened where the sheet step's log will show it.
+        for problem in problems:
+            print(f"event_state_assembler: {problem}", file=sys.stderr)
     okr_by_event = {
         leg.key: metric for metric, legs in anchors.items() for leg in legs if leg.watched
     }
