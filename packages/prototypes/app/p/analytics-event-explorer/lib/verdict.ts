@@ -66,7 +66,7 @@ export const verdictFor = (e: EventRecord): Verdict => {
         tone: 'critical',
         label: 'Never seen',
         sentence:
-          'This exists in the code but Amplitude has never received it. The instrumentation is probably broken.',
+          'Recorded as being in the code, but Amplitude has never received it. Either the instrumentation is broken or the code axis is wrong.',
       }
     case 'code_unknown':
       return {

@@ -1022,7 +1022,9 @@
             'Retired',
             'Removed ' +
               shortDate(p.retired_date) +
-              (e.supersession ? '.' : ' and quiet since. Nothing replaced it.'),
+              (e.supersession
+                ? ' and replaced by ' + e.supersession + '.'
+                : ' and quiet since. Nothing replaced it.'),
           ]
         case 'instrumented_never_observed':
           return [
@@ -1034,7 +1036,7 @@
           return [
             'mute',
             'Unknown',
-            'We cannot tell whether this is still in the code.',
+            'We cannot tell whether this is still in the code. Usually auto-tracked, or too new to have a provenance record.',
           ]
         case 'system':
           return [
@@ -1065,7 +1067,7 @@
       orphaned: [
         'crit',
         'Not answerable',
-        'Nothing here works, but events are still arriving. Any number you see is produced by something we no longer understand.',
+        'Nothing here works, but events are still arriving. Any number you see is being produced by something we no longer understand.',
       ],
     }
 
