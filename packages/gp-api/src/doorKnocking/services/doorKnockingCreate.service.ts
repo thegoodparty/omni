@@ -371,6 +371,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
         // route is bought here exactly as it always was. Omitted, the turf
         // is saved unrouted and `buildRouteForTurf` buys it at first knock,
         // which is the only moment walk-or-drive has an honest answer.
+        //
+        // The contract refuses one without the other, so testing both is
+        // narrowing rather than a third branch: there is no body that
+        // reaches here with a mode and no loop.
         const route =
           input.mode !== undefined && input.loop !== undefined
             ? await this.buildRoute(tx, organization.slug, turf.id, stops, {

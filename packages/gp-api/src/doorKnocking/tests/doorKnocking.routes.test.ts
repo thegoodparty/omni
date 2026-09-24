@@ -2612,6 +2612,23 @@ describe('door-knocking routes', () => {
       }
     })
 
+    // Half a travel decision is not a decision. Independently optional, this
+    // body validated and saved the turf unrouted, silently discarding the
+    // mode the caller asked to be routed by.
+    it('refuses a create carrying one walk setting without the other', async () => {
+      const spy = stubVendors()
+      spy.mockClear()
+
+      const modeOnly = await postTurf({ loop: undefined })
+      expect(modeOnly.status).toBe(400)
+
+      const loopOnly = await postTurf({ mode: undefined })
+      expect(loopOnly.status).toBe(400)
+
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+      expect(routeplannerCalls(spy)).toHaveLength(0)
+    })
+
     // The reason the audience is frozen at creation rather than resolved at
     // purchase. The cap is checked when the turf is DRAWN, so a roster that
     // has grown past it since would make the turf permanently unbuyable —

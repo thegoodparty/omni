@@ -62,6 +62,11 @@ export type GeoJsonPolygon = z.infer<typeof GeoJsonPolygonSchema>
 //
 // What is NOT optional either way is the audience: a create always resolves
 // and freezes the doors, whether or not it buys a route for them.
+//
+// The two are optional TOGETHER, enforced below. Independently optional, a
+// body carrying `mode` and no `loop` validated, saved the turf unrouted and
+// dropped the travel mode on the floor — a client asking to be routed got a
+// 201 and no route, with nothing anywhere saying why.
 export const CreateDoorKnockingTurfSchema = z
   .object({
     voterFileFilterId: z.number().int().positive(),
@@ -120,6 +125,16 @@ export const CreateDoorKnockingTurfSchema = z
     campaignName: z.string().min(1).max(120).optional(),
   })
   .strict()
+  // Both walk settings or neither. They are one decision — how this turf
+  // gets travelled — and the server reads them as a pair, so half of one is
+  // a request nothing can honour.
+  .refine(
+    (input) => (input.mode === undefined) === (input.loop === undefined),
+    {
+      message: 'mode and loop must be sent together, or neither',
+      path: ['loop'],
+    },
+  )
 
 export type CreateDoorKnockingTurf = z.infer<
   typeof CreateDoorKnockingTurfSchema
