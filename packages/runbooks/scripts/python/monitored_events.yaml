@@ -440,16 +440,19 @@ behaviors:
     metric: win_active_candidates_30d
     asked_by: bryan@goodparty.org
     caveats: >-
-      A WAU number is already circulating and is already wrong. The Active Candidates OKR anchors on
-      `Dashboard - Candidate Dashboard Viewed`, retired in PR #732 and absent from the codebase, so
-      the metric reads residual traffic. Re-anchoring is a PAIRED change across omni's okr: tag and
-      gp-data-platform's semantic layer; nothing links or enforces the pairing, so the omni side is
-      deliberately not edited alone (DATA-2173, DATA-2421, DATA-2432). Defining "active" is separate
-      and downstream of that.
+      The Active Candidates OKR counts the dashboard-view union `win_active_candidates_30d`
+      declares: the site-wide page event at path `/dashboard` plus `Campaign Plan - Campaign
+      Tracker Viewed`. Its two historical legs, `Dashboard - Candidate Dashboard Viewed` and
+      `Dashboard - Campaign Plan Viewed`, are gone from the codebase and no longer counted, so a
+      WAU number taken off the retired dashboard event was reading residual traffic and has to be
+      requoted. The 30 day window is evaluated against current_date() in the mart, so this metric
+      is as-of-run-time and cannot be sliced historically. Defining what "active" should mean
+      beyond a dashboard view is a separate question and still open.
     surfaces:
       - path: packages/gp-webapp/app/dashboard/page.tsx
         label: dashboard_visit
-        instrumented_by: "Dashboard - Candidate Dashboard Viewed"
+        instrumented_by: Viewed
+        page_path: /dashboard
       - path: packages/gp-webapp/app/shared/layouts/navigation
         label: breadth_of_navigation
         instrumented_by: null
