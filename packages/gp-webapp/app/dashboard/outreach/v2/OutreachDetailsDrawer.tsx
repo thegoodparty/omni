@@ -398,7 +398,12 @@ export const OutreachDetailsDrawer = ({
   // campaign was sent to a saved list (social has no audience at all, and
   // phone banking's "all voters" source saves no filter).
   const audienceName = voterFileFilter?.name?.trim() || null
-  const sent = row?.textCount ?? row?.billableTextCount
+  // A robocall's people figure is the landline count its purchase priced,
+  // on the satellite; texting's is the spine's text counts.
+  const sent =
+    row?.outreachType === OUTREACH_TYPES.robocall
+      ? detailQuery.data?.robocall?.billableCount
+      : (row?.textCount ?? row?.billableTextCount)
 
   // Prototype byline verbs ("Scheduled for {date}" / "Sent {date}"); our
   // extra legacy statuses (Draft, In review, …) have no prototype verb and

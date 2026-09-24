@@ -175,6 +175,37 @@ const DoorKnockingLoggedMetric = ({
   return <>{count.toLocaleString()} logged</>
 }
 
+// A robocall's count lives on its satellite, not the spine's text counts,
+// so like phone banking it comes off the detail fetch. A draft has not been
+// priced yet and reads n/a until it is.
+const RobocallPeopleMetric = ({
+  id,
+  compact,
+  detailFetcher,
+}: {
+  id: number
+  compact?: boolean
+  detailFetcher: OutreachDetailFetcher
+}) => {
+  const { data } = useOutreachDetail(id, true, detailFetcher)
+  const count = data?.robocall?.billableCount
+  if (count === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  if (count === null) {
+    return <span className="text-muted-foreground">n/a</span>
+  }
+  if (compact) {
+    return <>{count.toLocaleString()} people called</>
+  }
+  return (
+    <>
+      <span className="text-sm">{count.toLocaleString()}</span>{' '}
+      <span className="text-xs">people called</span>
+    </>
+  )
+}
+
 // compact = the mobile card's flat text-xs line; the table cell splits the
 // number (text-sm) from the unit (text-xs) per the prototype.
 const RowMetric = ({
@@ -197,6 +228,15 @@ const RowMetric = ({
   if (row.outreachType === OUTREACH_TYPES.nativeDoorKnocking) {
     return (
       <DoorKnockingPeopleMetric
+        id={row.id}
+        compact={compact}
+        detailFetcher={detailFetcher}
+      />
+    )
+  }
+  if (row.outreachType === OUTREACH_TYPES.robocall) {
+    return (
+      <RobocallPeopleMetric
         id={row.id}
         compact={compact}
         detailFetcher={detailFetcher}

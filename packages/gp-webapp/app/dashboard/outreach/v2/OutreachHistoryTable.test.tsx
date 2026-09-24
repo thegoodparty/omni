@@ -405,6 +405,116 @@ describe('OutreachHistoryTable — unified history', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows the priced landline count for a robocall row from the detail fetch', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: 29,
+        createdAt: new Date('2026-09-23T00:00:00Z'),
+        updatedAt: new Date('2026-09-23T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'robocall',
+        projectId: null,
+        name: 'Meet voters robocall',
+        status: 'pending',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: '2026-09-30T16:00:00Z',
+        imageUrl: null,
+        voterFileFilterId: 6,
+        doorKnockingRouteId: null,
+        phoneBankingListId: null,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+        robocall: {
+          audioKey: 'robocall/audio.mp3',
+          callbackNumber: '13032250691',
+          billableCount: 3634,
+        },
+      },
+    })
+    const rows: HistoryRow[] = [
+      {
+        id: 29,
+        createdAt: '2026-09-23T00:00:00Z',
+        date: '2026-09-30T16:00:00Z',
+        outreachType: 'robocall',
+        name: 'Meet voters robocall',
+        status: 'pending',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(await within(desktopTable()).findByText('3,634')).toBeInTheDocument()
+    expect(
+      within(desktopTable()).getByText('people called'),
+    ).toBeInTheDocument()
+  })
+
+  it('reads n/a for a robocall draft, which has not been priced', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: 30,
+        createdAt: new Date('2026-09-23T00:00:00Z'),
+        updatedAt: new Date('2026-09-23T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'robocall',
+        projectId: null,
+        name: 'Draft robocall',
+        status: 'draft',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: null,
+        imageUrl: null,
+        voterFileFilterId: 6,
+        doorKnockingRouteId: null,
+        phoneBankingListId: null,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+        robocall: {
+          audioKey: 'robocall/audio.mp3',
+          callbackNumber: '13032250691',
+          billableCount: null,
+        },
+      },
+    })
+    const rows: HistoryRow[] = [
+      {
+        id: 30,
+        createdAt: '2026-09-23T00:00:00Z',
+        outreachType: 'robocall',
+        name: 'Draft robocall',
+        status: 'draft',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(await within(desktopTable()).findByText('n/a')).toBeInTheDocument()
+  })
+
   it('singularizes the supporter count when exactly one supporter is logged', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,

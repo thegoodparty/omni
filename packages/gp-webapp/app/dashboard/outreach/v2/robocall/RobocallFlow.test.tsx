@@ -2105,6 +2105,7 @@ describe('RobocallFlow', () => {
       robocall: {
         audioKey: 'robocall/42/clip.webm',
         callbackNumber: '+12025550147',
+        billableCount: null,
       },
       ...overrides,
     })
@@ -2286,6 +2287,7 @@ describe('RobocallFlow', () => {
           voterFileFilterId: 1,
           audioKey: 'robocall/42/clip.webm',
           callbackNumber: '+12025550147',
+          billableCount: null,
         }),
       ])
     })
@@ -2464,6 +2466,7 @@ describe('RobocallFlow', () => {
             draftOutreachId: 88,
             audioKey: 'robocall/42/clip.webm',
             callbackNumber: '+12025550147',
+            billableCount: null,
             voterFileFilterId: 1,
             script: DRAFT_SCRIPT,
           }),

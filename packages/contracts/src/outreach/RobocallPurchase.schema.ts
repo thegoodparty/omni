@@ -47,13 +47,16 @@ export type RobocallDraftCreateRequest = z.infer<
   typeof RobocallDraftCreateRequestSchema
 >
 
-// The robocall satellite as `GET /v1/outreach/:id` reads it back. Only the
-// two fields a resume cannot re-derive: the recording it was saved with and
-// the number the candidate already read aloud, both of which the resume's
-// own create has to send again.
+// The robocall satellite as `GET /v1/outreach/:id` reads it back: the two
+// fields a resume cannot re-derive (the recording it was saved with and the
+// number the candidate already read aloud, both of which the resume's own
+// create has to send again), plus the landline count the purchase priced,
+// which is the history's People figure for a call. Null on a draft, which
+// has not been priced yet.
 export const OutreachRobocallDetailSchema = z.object({
   audioKey: z.string(),
   callbackNumber: z.string(),
+  billableCount: z.number().int().nullable(),
 })
 export type OutreachRobocallDetail = z.infer<
   typeof OutreachRobocallDetailSchema

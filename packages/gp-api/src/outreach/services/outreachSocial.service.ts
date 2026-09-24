@@ -59,12 +59,14 @@ const toOutreachDetail = (
     : undefined,
   phoneBanking,
   doorKnocking,
-  // Only the two fields a resume cannot re-derive; the rest of the satellite
-  // is billing and settlement state no client reads.
+  // The two fields a resume cannot re-derive plus the priced landline count
+  // (the history's People figure); the rest of the satellite is billing and
+  // settlement state no client reads.
   robocall: outreach.robocall
     ? {
         audioKey: outreach.robocall.audioKey,
         callbackNumber: outreach.robocall.callbackNumber,
+        billableCount: outreach.robocall.billableCount,
       }
     : undefined,
 })
