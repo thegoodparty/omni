@@ -2470,7 +2470,18 @@
         saving = false,
         again = false,
         dead = false,
+        fails = 0,
         lastQ = ''
+      // db codes where the contract says retrying cannot succeed.
+      var TERMINAL = [
+        'quota_exceeded',
+        'invalid_argument',
+        'revoked',
+        'not_granted',
+        'capability_disabled',
+        'capability_removed',
+        'transform_error',
+      ]
 
       function newId() {
         return (
@@ -2499,6 +2510,7 @@
         ref.set(doc).then(
           function () {
             saving = false
+            fails = 0
             if (again) {
               again = false
               schedule()
@@ -2506,8 +2518,14 @@
           },
           function (e) {
             saving = false
-            // quota_exceeded means the store is full: stop writing rather than retry.
-            if (e && e.code !== 'unavailable') dead = true
+            // Only the codes the contract calls terminal stop this visit recording.
+            // Everything else — `unavailable` above all, the one documented as
+            // retryable — gets another attempt, bounded so a persistent refusal
+            // cannot spin. Killing tracking on any error meant one permission refusal
+            // on the first write lost the whole visit.
+            if (TERMINAL.indexOf((e && e.code) || '') >= 0) dead = true
+            else if (++fails >= 3) dead = true
+            else schedule()
           },
         )
       }

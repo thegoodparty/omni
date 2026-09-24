@@ -167,10 +167,24 @@ jobs:
       # (DATA-2506).
       - name: Event explorer snapshot
         working-directory: packages/runbooks/scripts/python
+        # Non-fatal, like the gap sweep above and for the same reason: this step runs
+        # before the commit, so failing the job here would throw away the provenance
+        # walk, the monitor and the intake that already ran. The builder exits non-zero
+        # rather than write a sparkline-less file, and the commit step's own
+        # `git status` check then simply finds no snapshot change — the live page keeps
+        # its last good copy and the rest of the state still lands.
+        continue-on-error: true
         run: |
           set -euo pipefail
-          uv run event_explorer_snapshot.py --series \
-            -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json
+          # Non-fatal must not mean invisible: a failure here stops the shared page
+          # refreshing at all, so annotate the run the way the sheet step does.
+          if ! uv run event_explorer_snapshot.py --series \
+            -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json; then
+            msg="Explorer snapshot NOT rebuilt: the shared page keeps its previous data until the next run."
+            echo "::warning::$msg"
+            echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Commit state and keep the auto-merge PR fresh
         env:
