@@ -17,7 +17,7 @@ from analytics_event_health import WATCHLIST, load_watchlist
 
 BEHAVIOR_FIELDS = frozenset({
     "id", "question", "question_ref", "answers", "product", "metric", "surfaces",
-    "superseded", "caveats", "asked_by", "review",
+    "superseded", "headline", "caveats", "asked_by", "review",
 })
 SURFACE_FIELDS = frozenset({"path", "label", "instrumented_by", "page_path"})
 PRODUCTS = frozenset({"win", "serve", "both"})
