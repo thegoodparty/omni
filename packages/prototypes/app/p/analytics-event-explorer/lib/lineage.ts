@@ -87,6 +87,8 @@ export type Lineage = {
   reason: string
   /** Events this one replaced. */
   replaces: EventRecord[]
+  /** Recorded supersession prose the parser could not resolve to an event or an area. */
+  unparsed: string
   /** Removed, and nothing anywhere claims to have replaced it. */
   deadEnd: boolean
 }
@@ -197,7 +199,11 @@ export const lineageOf = (e: EventRecord): Lineage => {
     replacedByName: f && !f.target && !f.area ? f.name : null,
     reason: f?.reason ?? '',
     replaces: replacesIndex.get(e.event_type) ?? [],
-    deadEnd: REMOVED.has(e.status) && !f,
+    // Supersession is prose (DATA-2507) and half of it does not parse. An unparsed
+    // note is still a recorded replacement, so show it verbatim rather than claim
+    // nothing replaced this — the one reading that sends someone to reinstrument.
+    unparsed: !f && e.supersession.trim() ? e.supersession.trim() : '',
+    deadEnd: REMOVED.has(e.status) && !f && !e.supersession.trim(),
   }
 }
 

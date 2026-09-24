@@ -141,9 +141,11 @@ export const EventTable = ({ events }: { events: EventRecord[] }) => {
               ? `→ ${l.replacedBy.display_name}`
               : l.replacedByArea
                 ? `→ ${l.replacedByArea} family`
-                : l.deadEnd
-                  ? 'no replacement'
-                  : ''
+                : l.unparsed
+                  ? 'replacement recorded in prose'
+                  : l.deadEnd
+                    ? 'no replacement'
+                    : ''
             return (
               <Fragment key={e.event_type}>
                 <tr

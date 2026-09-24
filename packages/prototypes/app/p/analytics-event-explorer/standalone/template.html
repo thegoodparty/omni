@@ -1127,7 +1127,13 @@
         replacedByName: f && !f.target && !f.area ? f.name : null,
         reason: f ? f.reason : '',
         replaces: replacesOf[e.event_type] || [],
-        deadEnd: (e.status === 'retired' || e.status === 'deprecating') && !f,
+        // Prose that did not parse is still a recorded replacement (DATA-2507).
+        unparsed:
+          !f && (e.supersession || '').trim() ? e.supersession.trim() : '',
+        deadEnd:
+          (e.status === 'retired' || e.status === 'deprecating') &&
+          !f &&
+          !(e.supersession || '').trim(),
       }
     }
 
@@ -1583,6 +1589,7 @@
         l.replacedByArea ||
         l.replacedByName ||
         l.replaces.length ||
+        l.unparsed ||
         l.deadEnd
       ) {
         var inner = ''
@@ -1605,6 +1612,11 @@
             '<div><span class="muted">Recorded as replaced by</span> <b>' +
             esc(l.replacedByName) +
             '</b><span class="muted">, which is not an event we can find.</span></div>'
+        if (l.unparsed)
+          inner +=
+            '<div><span class="muted">Recorded as:</span> ' +
+            esc(l.unparsed) +
+            '</div>'
         if (l.deadEnd)
           inner +=
             '<div class="muted">Removed, and nothing is recorded as replacing it. If you need this measured, it needs new instrumentation.</div>'
@@ -1859,9 +1871,11 @@
             ? '→ ' + l.replacedBy.display_name
             : l.replacedByArea
               ? '→ ' + l.replacedByArea + ' family'
-              : l.deadEnd
-                ? 'no replacement'
-                : ''
+              : l.unparsed
+                ? 'replacement recorded in prose'
+                : l.deadEnd
+                  ? 'no replacement'
+                  : ''
           return (
             '<tr class="row" data-ev="' +
             esc(e.event_type) +

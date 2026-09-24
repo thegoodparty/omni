@@ -10,11 +10,15 @@ export type Verdict = {
 
 const fmt = (n: number) => n.toLocaleString('en-US')
 
+// The dates are date-only strings, which parse as UTC midnight. Formatting them in
+// the reader's zone renders the previous day everywhere west of Greenwich, so every
+// "most recently" and "removed on" in the US was a day early.
 const date = (iso: string) =>
   iso
     ? new Date(iso).toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
+        timeZone: 'UTC',
       })
     : 'an unknown date'
 

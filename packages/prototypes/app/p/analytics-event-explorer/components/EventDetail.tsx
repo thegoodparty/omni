@@ -71,6 +71,7 @@ const Lineage = ({ event }: { event: EventRecord }) => {
     !l.replacedByArea &&
     !l.replacedByName &&
     !l.replaces.length &&
+    !l.unparsed &&
     !l.deadEnd
   ) {
     return null
@@ -89,6 +90,13 @@ const Lineage = ({ event }: { event: EventRecord }) => {
           <Badge className={TONE_CLASS[verdictFor(l.replacedBy).tone]}>
             {verdictFor(l.replacedBy).label}
           </Badge>
+        </div>
+      )}
+
+      {l.unparsed && (
+        <div className="mt-1">
+          <span className="text-muted-foreground">Recorded as: </span>
+          <span>{l.unparsed}</span>
         </div>
       )}
 

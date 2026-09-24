@@ -231,8 +231,14 @@ def main() -> int:
         try:
             weeks, series = fetch_series()
             print(f"  series for {len(series)} events", flush=True)
-        except Exception as exc:                      # noqa: BLE001 - prototype, degrade loudly
-            print(f"  SERIES FAILED, continuing without sparklines: {exc}", flush=True)
+        except Exception as exc:                      # noqa: BLE001 - see below
+            # Fail the run rather than write a sparkline-less file. The workflow commits
+            # whatever this writes and the republish puts it on the live page, so
+            # degrading here would silently replace every working sparkline with "no
+            # data" until the next good run. A failed step keeps the last good page and
+            # notifies Slack, which is the better trade for a transient query error.
+            print(f"  SERIES FAILED: {exc}", file=sys.stderr, flush=True)
+            return 1
 
     events = build_events(rows, anchors, series)
     by_type = {e["event_type"]: {"status": e["status"]} for e in events}
