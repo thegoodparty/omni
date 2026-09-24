@@ -160,6 +160,18 @@ jobs:
           fi
           uv run question_intake.py
 
+      # The shared explorer page renders this one file, so it is rebuilt on the same
+      # cadence as the sheet and committed beside the state it is derived from. It reads
+      # the assembler directly, so it needs no Google identity and does not wait on the
+      # sheet step. A scheduled republish turns the committed file into the live page
+      # (DATA-2506).
+      - name: Event explorer snapshot
+        working-directory: packages/runbooks/scripts/python
+        run: |
+          set -euo pipefail
+          uv run event_explorer_snapshot.py --series \
+            -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json
+
       - name: Commit state and keep the auto-merge PR fresh
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -167,7 +179,8 @@ jobs:
         run: |
           set -euo pipefail
           state_dir=packages/runbooks/scripts/python/instrumentation_data
-          if [ -z "$(git status --porcelain -- "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml)" ]; then
+          snapshot=packages/prototypes/app/p/analytics-event-explorer/data/event-explorer.json
+          if [ -z "$(git status --porcelain -- "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml "$snapshot")" ]; then
             echo "No state changes this run."
             exit 0
           fi
@@ -175,7 +188,7 @@ jobs:
           git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
           branch=bot/analytics-governance-state
           git checkout -B "$branch"
-          git add "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml
+          git add "$state_dir" packages/runbooks/scripts/python/monitored_events.yaml "$snapshot"
           git commit -m "chore(analytics): scheduled governance state refresh"
           git push -f origin "$branch"
           pr=$(gh pr list --head "$branch" --base main --state open --json number --jq '.[0].number // empty')
@@ -183,7 +196,7 @@ jobs:
             gh pr create --base main --head "$branch" \
               --title "chore(analytics): scheduled governance state refresh" \
               --body "$(cat <<'EOF'
-          Automated state write-back from the analytics-governance scheduled run: the provenance CSV/watermark and the health log/state, per the DATA-2068 state story (the scheduled run is the authoritative writer; per-PR provisional rows are hints it verifies).
+          Automated state write-back from the analytics-governance scheduled run: the provenance CSV/watermark and the health log/state, per the DATA-2068 state story (the scheduled run is the authoritative writer; per-PR provisional rows are hints it verifies). The analytics-event explorer's snapshot rides along, because the shared page renders that file and nothing else; it carries its own refresh time, so this PR now opens on every run rather than only on a state change.
 
           Auto-merges once delegate approves and checks pass. If a newer run fires before this merges, it force-updates this same branch, so the PR always carries the latest state.
           EOF

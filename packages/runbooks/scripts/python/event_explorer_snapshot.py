@@ -1,14 +1,17 @@
-"""Build the analytics-event-explorer prototype data file from live sources.
+"""Build the analytics-event explorer's data file: everything the page renders, in one JSON.
 
-Throwaway. Joins what Thursday's cron run will produce, but now:
-  - events tab of the Google Sheet (status, volume, provenance, description)
-  - accepted rows of event_anchors.json on main (where_it_fires / url)
-  - monitored_events.yaml behaviors + derived coverage (questions)
+Joins, all in one pass:
+  - event_state_assembler.assemble() — the same rows the event-state sheet gets, so the
+    page and the sheet cannot disagree, and no Google credential is involved
+  - accepted rows of event_anchors.json (where_it_fires / url, where Govern has none)
+  - monitored_events.yaml behaviors + derived coverage (the questions layer)
   - area rollup derived from the event display-name prefix
   - optional 9-week series per event from Databricks (--series)
 
-Usage:  uv run event_explorer_snapshot.py --series \
-          -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json
+Runs in the analytics-governance workflow, which commits the result, and by hand:
+
+  uv run event_explorer_snapshot.py --series \
+    -o ../../../prototypes/app/p/analytics-event-explorer/data/event-explorer.json
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ import argparse
 import collections
 import json
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 PY = Path(__file__).resolve().parent
@@ -26,9 +29,8 @@ sys.path.insert(0, str(PY))
 import analytics_event_health as aeh          # noqa: E402
 import behavior_coverage as bcov              # noqa: E402
 import behavior_registry as brg               # noqa: E402
-import event_state_gsheet as esg              # noqa: E402
+import event_state_assembler as esa           # noqa: E402
 
-SHEET_ID = "1xrgz582epECl28eM4QbCHtCFUYLBFHwo8mA1iE3JNYk"
 ANCHORS = PY / "instrumentation_data" / "event_anchors.json"
 
 PROVENANCE_COLS = (
@@ -83,11 +85,23 @@ USED_BY: dict[str, list[dict]] = {name: [_WIN_REPORT] for name in REPORT_CONSUME
 REQUEST_FORM_URL = "https://goodparty.clickup.com/90132012119/v/fm/2ky4jq2q-134133"
 
 
-def read_tab(tab: str) -> list[dict]:
-    v = esg.get_sheets_service().spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, range=f"{tab}!A1:ZZ").execute().get("values", [])
-    hdr = v[0]
-    return [dict(zip(hdr, r + [""] * (len(hdr) - len(r)))) for r in v[1:]]
+def _cell(value):
+    """The sheet stringified everything on the way out; the assembler hands back real
+    dates and Nones. The page's fields are strings or numbers, so flatten here."""
+    if value is None:
+        return ""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def assembled() -> tuple[list[dict], dict]:
+    """The sheet's own rows, from the assembler rather than from the sheet. Reading the
+    published tab would make this wait on the sheet step, need Google credentials, and
+    leave the page one run behind whenever that step skips."""
+    result = esa.assemble(date.today())
+    rows = [{k: _cell(v) for k, v in row.items()} for row in result["rows"]]
+    return rows, result["meta"]
 
 
 def area_of(display_name: str) -> str:
@@ -206,9 +220,8 @@ def main() -> int:
     ap.add_argument("-o", "--out", default="event-explorer.json")
     args = ap.parse_args()
 
-    print("reading sheet...", flush=True)
-    rows = read_tab("events")
-    meta = {r["key"]: r["value"] for r in read_tab("meta")}
+    print("assembling event state...", flush=True)
+    rows, meta = assembled()
     anchors = load_accepted_anchors()
     print(f"  {len(rows)} events, {len(anchors)} accepted anchors", flush=True)
 
@@ -227,9 +240,9 @@ def main() -> int:
     areas = build_areas(events)
 
     doc = {
-        "refreshed_at": meta.get("last_refreshed", ""),
+        "refreshed_at": meta.get("refreshed_at", ""),
         "generated_at": date.today().isoformat(),
-        "source": "prototype snapshot: sheet + accepted anchors + registry",
+        "source": "assembled event state + accepted anchors + question registry",
         "series_weeks": weeks,
         "request_form_url": REQUEST_FORM_URL,
         "events": events,

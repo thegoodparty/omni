@@ -229,6 +229,8 @@
   .partial { border: 1px dashed var(--line-2); border-radius: 8px; padding: 8px 12px; font-size: 13px; color: var(--ink-3); }
   .note { font-size: 12px; color: var(--ink-3); margin-top: 8px; }
   .qintro { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; max-width: 64ch; }
+  #usage { margin-top: 30px; }
+  .usagegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
   .try { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--ink-3); margin-top: 12px; }
   /* multi-select dropdown */
   details.dd { position: relative; }
@@ -291,6 +293,8 @@
   <div id="results"></div>
 
   <section class="next" id="whatsnext"></section>
+
+  <section id="usage" hidden></section>
 </div>
 
 <script id="snapshot" type="application/json">__DATA__</script>
@@ -761,11 +765,18 @@
       ['Something look wrong?', 'A number that cannot be right, an event firing twice, a description that is out of date.', SLACK, 'Open #product-analytics'],
       ['Dig into an area', 'See every event, gap and question for one product area in one place.', '', 'Coming soon']
     ];
+    if (USAGE.canComment()) {
+      acts.splice(2, 0, ['Tell me what is missing',
+        'What you came for and could not find, or a number you would not trust yet. It comes straight to me.',
+        'comment', 'Leave a comment']);
+    }
     document.getElementById('whatsnext').innerHTML =
       '<div class="sechead" style="margin-bottom:2px"><span class="sectoggle" style="cursor:default">What\u2019s next</span></div>' +
       '<div class="nextgrid">' + acts.map(function (a) {
         return '<div class="nextcard"><div class="h">' + esc(a[0]) + '</div><p>' + esc(a[1]) + '</p>' +
-          (a[2] ? '<a class="btn' + (a[0] === 'Something look wrong?' ? '' : ' primary') + '" href="' + esc(a[2]) + '" target="_blank" rel="noreferrer">' + esc(a[3]) + '</a>'
+          (a[2] === 'comment'
+            ? '<button class="btn primary" data-feedback="next">' + esc(a[3]) + '</button>'
+            : a[2] ? '<a class="btn' + (a[0] === 'Something look wrong?' ? '' : ' primary') + '" href="' + esc(a[2]) + '" target="_blank" rel="noreferrer">' + esc(a[3]) + '</a>'
                 : '<button class="btn" disabled>Coming soon</button>') + '</div>';
       }).join('') + '</div>';
   }
@@ -793,6 +804,7 @@
       out += '<div class="empty"><b>Nothing matches &ldquo;' + esc(state.q) + '&rdquo;.</b>' +
         '<p class="note">That may mean we do not measure it yet.</p><div class="links">' +
         (FORM ? '<a class="btn primary" href="' + esc(FORM) + '" target="_blank" rel="noreferrer">Ask for it to be measured</a>' : '') +
+        (USAGE.canComment() ? '<button class="btn" data-feedback="empty">Tell me what you were looking for</button>' : '') +
         '<a class="btn" href="' + SLACK + '" target="_blank" rel="noreferrer">Ask in #product-analytics</a></div></div>';
     }
     if (searching && res.partial) {
@@ -875,7 +887,201 @@
     return d.toISOString();
   }
 
+  // ---- usage and feedback (DATA-2506) ---------------------------------------------
+  // This page is the trial's only instrument. It has no server of its own, so what
+  // people do here goes to the artifact's own store, one document per visit, and is
+  // read back later. Rows carry the viewer's opaque id and never a name: names differ
+  // per viewer and go stale, so they are resolved at render time instead.
+  var USAGE = (function () {
+    var udb = null, uuser = null, ucomments = null;
+    var me = null, owner = false, ref = null, doc = null;
+    var timer = null, saving = false, again = false, dead = false, lastQ = '';
+
+    function newId() {
+      return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) +
+        '-' + Math.random().toString(36).slice(2, 8);
+    }
+
+    function schedule() {
+      if (dead || !ref) return;
+      clearTimeout(timer);
+      timer = setTimeout(flush, 1500);
+    }
+
+    // One write at a time per document. Memory is the source of truth and the document
+    // is its projection, so a full set() never has to read-modify-write a counter.
+    function flush() {
+      if (dead || !ref) return;
+      if (saving) { again = true; return; }
+      saving = true;
+      doc.last_at = new Date().toISOString();
+      ref.set(doc).then(function () {
+        saving = false;
+        if (again) { again = false; schedule(); }
+      }, function (e) {
+        saving = false;
+        // quota_exceeded means the store is full: stop writing rather than retry.
+        if (e && e.code !== 'unavailable') dead = true;
+      });
+    }
+
+    function capped(arr, n, v) { if (arr.length < n) arr.push(v); }
+
+    function init() {
+      if (!window.claude || !claude.use) return;
+      Promise.all([claude.use('user'), claude.use('db'), claude.use('comments')])
+        .then(function (caps) {
+          uuser = caps[0]; udb = caps[1]; ucomments = caps[2];
+          if (ucomments) { renderNext(); render(); }
+          var who = uuser
+            ? Promise.all([uuser.id(), uuser.isOwner()])
+            : Promise.resolve([null, false]);
+          return who.then(function (r) {
+            me = r[0]; owner = r[1];
+            if (udb) {
+              ref = udb.collection('sessions').doc(newId());
+              doc = {
+                viewer: me || '', started_at: new Date().toISOString(),
+                last_at: new Date().toISOString(), snapshot: DATA.refreshed_at || '',
+                searches: [], events: [], questions: [], clicks: {}, feedback: 0
+              };
+              flush();  // a visit with no interaction is still a visit
+            }
+            if (owner && udb) panel();
+          });
+        }, function () { /* no viewer answered; the page is unchanged */ });
+    }
+
+    // ---- what gets recorded ----
+    function search(q, total, question, partial) {
+      q = (q || '').trim();
+      if (!doc || q.length < 2 || q === lastQ) return;
+      lastQ = q;
+      capped(doc.searches, 150, { q: q, total: total, question: !!question, partial: !!partial });
+      schedule();
+    }
+    function opened(name) {
+      if (!doc || doc.events.indexOf(name) >= 0) return;
+      capped(doc.events, 200, name);
+      schedule();
+    }
+    function picked(qid) {
+      if (!doc || doc.questions.indexOf(qid) >= 0) return;
+      capped(doc.questions, 60, qid);
+      schedule();
+    }
+    // Classify by destination rather than by tagging every builder: a link added later
+    // is counted without anyone remembering to mark it.
+    function kindOf(href) {
+      if (href.indexOf('amplitude.com') >= 0) return 'amplitude';
+      if (href.indexOf('github.com') >= 0) return 'github';
+      if (href.indexOf('/v/fm/') >= 0) return 'form';
+      if (href.indexOf('clickup.com') >= 0) return 'ticket';
+      if (href.indexOf('slack.com') >= 0) return 'slack';
+      if (href.indexOf('claude.ai') >= 0) return 'answer';
+      if (href.indexOf('goodparty.org') >= 0) return 'product';
+      return 'other';
+    }
+    function clicked(href) {
+      if (!doc) return;
+      var k = kindOf(href);
+      doc.clicks[k] = (doc.clicks[k] || 0) + 1;
+      schedule();
+    }
+
+    // ---- feedback: the shell's own composer, so nothing is posted by the page ----
+    function feedback(el) {
+      if (!ucomments) return;
+      if (doc) { doc.feedback = (doc.feedback || 0) + 1; schedule(); }
+      ucomments.openComposer({ element: el }).then(function (r) {
+        if (!r || r.opened) return;
+        el.setAttribute('data-note', 'finish the comment you already started');
+      }, function () {
+        ucomments = null;
+        renderNext(); render();
+      });
+    }
+
+    // ---- owner-only read-out ----
+    function panel() {
+      var host = document.getElementById('usage');
+      if (!host) return;
+      host.hidden = false;
+      host.innerHTML = '<div class="sechead"><span class="sectoggle">Usage</span>' +
+        '<span class="note" style="margin:0">only you see this panel</span></div><p class="note">reading…</p>';
+      udb.collection('sessions').orderBy('started_at', 'desc').limit(300).get().then(function (snap) {
+        var rows = snap.docs.map(function (d) { return d.data(); });
+        var people = {}, queries = {}, clicks = {}, feedback = 0;
+        rows.forEach(function (r) {
+          var v = r.viewer || 'unknown';
+          var p = people[v] || (people[v] = { visits: 0, searches: 0, events: 0, last: '' });
+          p.visits++;
+          p.searches += (r.searches || []).length;
+          p.events += (r.events || []).length;
+          if ((r.last_at || '') > p.last) p.last = r.last_at || '';
+          feedback += r.feedback || 0;
+          Object.keys(r.clicks || {}).forEach(function (k) { clicks[k] = (clicks[k] || 0) + (r.clicks[k] || 0); });
+          (r.searches || []).forEach(function (s) {
+            var key = (s.q || '').toLowerCase();
+            var q = queries[key] || (queries[key] = { q: s.q, n: 0, empty: 0, partial: 0 });
+            q.n++;
+            if (!s.total) q.empty++;
+            if (s.partial) q.partial++;
+          });
+        });
+        var ids = Object.keys(people).filter(function (v) { return v !== 'unknown'; });
+        var profs = uuser ? uuser.profiles(ids) : Promise.resolve({});
+        return profs.then(function (ps) {
+          var order = Object.keys(people).sort(function (a, b) { return people[b].visits - people[a].visits; });
+          var who = order.map(function (v) {
+            var pr = ps[v] || {}, p = people[v];
+            var label = pr.name || (v === 'unknown' ? 'not signed in' : 'someone');
+            return '<tr><td>' + esc(label) + (pr.email ? ' <span class="muted mono">' + esc(pr.email) + '</span>' : '') +
+              '</td><td class="num">' + p.visits + '</td><td class="num">' + p.searches +
+              '</td><td class="num">' + p.events + '</td><td class="date">' + esc(shortDate(p.last)) + '</td></tr>';
+          }).join('');
+          var qs = Object.keys(queries).map(function (k) { return queries[k]; })
+            .sort(function (a, b) { return (b.empty - a.empty) || (b.n - a.n); })
+            .slice(0, 40)
+            .map(function (q) {
+              var flag = q.empty ? badge('crit', 'found nothing') : q.partial ? badge('warn', 'closest matches') : '';
+              return '<tr><td>' + esc(q.q) + '</td><td class="num">' + q.n + '</td><td>' + flag + '</td></tr>';
+            }).join('');
+          var ck = Object.keys(clicks).sort(function (a, b) { return clicks[b] - clicks[a]; })
+            .map(function (k) { return esc(k) + ' ' + clicks[k]; }).join(' · ') || 'none yet';
+          host.innerHTML = '<div class="sechead"><span class="sectoggle">Usage</span>' +
+            '<span class="note" style="margin:0">only you see this panel</span></div>' +
+            '<p class="note" style="margin-top:0">' + rows.length + ' visits · ' + order.length +
+            ' people · ' + feedback + ' feedback comments opened · links out: ' + ck + '</p>' +
+            '<div class="usagegrid">' +
+            '<div class="tablewrap"><table><thead><tr><th>Who</th><th>Visits</th><th>Searches</th><th>Events opened</th><th>Last seen</th></tr></thead><tbody>' +
+            (who || '<tr><td colspan="5" class="muted">nobody yet</td></tr>') + '</tbody></table></div>' +
+            '<div class="tablewrap"><table><thead><tr><th>What they searched</th><th>Times</th><th></th></tr></thead><tbody>' +
+            (qs || '<tr><td colspan="3" class="muted">no searches yet</td></tr>') + '</tbody></table></div>' +
+            '</div>' +
+            '<p class="note">Stored with the page, so anyone here who opens it could read these rows. ' +
+            'Names are resolved as you view them and are never written down.</p>';
+        });
+      }).then(null, function () {
+        host.innerHTML = '<div class="sechead"><span class="sectoggle">Usage</span></div>' +
+          '<p class="note">could not read the usage store</p>';
+      });
+    }
+
+    return {
+      init: init, search: search, opened: opened, picked: picked, clicked: clicked,
+      feedback: feedback, canComment: function () { return !!ucomments; }
+    };
+  })();
+
   // ---- events ----------------------------------------------------------------------
+  document.addEventListener('click', function (ev) {
+    var fb = ev.target.closest('[data-feedback]');
+    if (fb) { ev.preventDefault(); USAGE.feedback(fb); return; }
+    var a = ev.target.closest('a[href^="http"]');
+    if (a) USAGE.clicked(a.getAttribute('href'));
+  }, true);
+
   document.addEventListener('click', function (ev) {
     var sum = ev.target.closest('details.dd > summary');
     if (sum) {
@@ -894,8 +1100,14 @@
     else if (t.dataset.prod) toggleIn(state.products, t.dataset.prod);
     else if (t.dataset.fires) toggleIn(state.origins, t.dataset.fires);
     else if (t.dataset.status) toggleIn(state.statuses, t.dataset.status);
-    else if (t.dataset.qsel) state.question = state.question === t.dataset.qsel ? null : t.dataset.qsel;
-    else if (t.dataset.ev) state.open[t.dataset.ev] = !state.open[t.dataset.ev];
+    else if (t.dataset.qsel) {
+      state.question = state.question === t.dataset.qsel ? null : t.dataset.qsel;
+      if (state.question) USAGE.picked(state.question);
+    }
+    else if (t.dataset.ev) {
+      state.open[t.dataset.ev] = !state.open[t.dataset.ev];
+      if (state.open[t.dataset.ev]) USAGE.opened(t.dataset.ev);
+    }
     else if (t.dataset.clear) {
       if (t.dataset.clear === 'status') state.statuses = [];
       else if (t.dataset.clear === 'fires') state.origins = [];
@@ -913,10 +1125,17 @@
     else if (ev.target.id === 'addedafter') { state.addedAfter = ev.target.value; render(); }
     else if (ev.target.id === 'minvol') { state.minVolume = ev.target.value; render(); }
   });
-  var qEl = document.getElementById('q'), tmr;
+  var qEl = document.getElementById('q'), tmr, logTmr;
+  function logSearch() {
+    var r = search(state.q);
+    USAGE.search(state.q, r.total, r.questions.length, r.partial);
+  }
   qEl.addEventListener('input', function () {
     clearTimeout(tmr);
+    clearTimeout(logTmr);
     tmr = setTimeout(function () { state.q = qEl.value; state.question = null; render(); }, 120);
+    // What someone typed matters, what they typed on the way to it does not.
+    logTmr = setTimeout(logSearch, 1400);
   });
   document.getElementById('tryrow').innerHTML = 'Try: ' +
     ['voter file export', 'onboarding drop off', 'pro upgrade', 'campaign plan', 'text campaign']
@@ -925,9 +1144,11 @@
     var b = ev.target.closest('[data-try]');
     if (!b) return;
     qEl.value = b.dataset.try; state.q = b.dataset.try; state.question = null; render();
+    logSearch();
   });
 
   renderNext();
   render();
+  USAGE.init();
 })();
 </script>
