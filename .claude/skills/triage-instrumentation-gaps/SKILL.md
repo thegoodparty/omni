@@ -307,8 +307,13 @@ Each item carries `case`, `kind`, `behavior_id`, `metric`, `surface_label`, `eve
 `suggested`, `evidence`, `headline`.
 
 - **Empty** → say so and move to write-back.
-- **Otherwise**, walk them in order (the list is sorted case 1, 2, 3). Show `headline`,
-  `event_key`, `suggested`, and `evidence` for each. Before proposing any edit, read the
+- **Otherwise**, walk them in order (the list is sorted case 1, 2, 3). Apply a behavior's
+  findings as a set. A repoint that names a previously unmonitored leg also discharges
+  that leg's `declared_leg_unmonitored` finding; never add a second surface with the same
+  `instrumented_by` and `page_path`. Show `headline`, `event_key` and `suggested` for
+  each. `evidence` is populated only on case 2; for cases 1 and 3, read the event's row
+  in the report's `records` (`status`, `last_seen_date`, `event_count_30d`,
+  `call_site_count`) and show that instead. Before proposing any edit, read the
   declaration yourself so the reviewer sees the source, not the summary:
 
   ```bash
@@ -329,8 +334,12 @@ dumper.
   leg whose event fires from the surface's `path` file. A suggested key of the form
   `Viewed[path=/dashboard]` becomes two lines: `instrumented_by: Viewed` and
   `page_path: /dashboard`. Read the surface's `path` file to confirm that is where the
-  live event fires (a page event fires from `app/shared/utils/analytics.ts`, so the
-  surface path stays the page component). If the behavior's caveat mentions the old leg,
+  live event fires. Event names live behind `EVENTS.*` constants in
+  `packages/gp-webapp/helpers/analyticsHelper.ts` (client) or
+  `packages/gp-api/src/vendors/segment/segment.types.ts` (backend); resolve the constant,
+  then grep for it. For a path-qualified leg the page event fires from the route tracker,
+  not the page component, so confirm the route tracker covers that path and keep the
+  surface `path` on the page component. If the behavior's caveat mentions the old leg,
   rewrite it.
 - `declared_leg_unmonitored`: add a surface to the behavior that points at the metric, or
   an `events:` row if no behavior owns the question, in the exact row shape Queue B's
@@ -353,8 +362,11 @@ Case 1 has no dismiss. A stale pointer is always wrong.
 ```
 
 Show the reviewer the draft, the `evidence` block, and the call site: read the surface's
-`path` file and confirm the successor fires there at HEAD. `call_site_count` is blind for
-many events (DATA-2427), so read the site, do not trust the count.
+`path` file and confirm the successor fires there at HEAD. Event names live behind
+`EVENTS.*` constants in `packages/gp-webapp/helpers/analyticsHelper.ts` (client) or
+`packages/gp-api/src/vendors/segment/segment.types.ts` (backend); resolve the constant,
+then grep for it. `call_site_count` is blind for many events (DATA-2427), so read the
+site, do not trust the count.
 
 - **accept** → open the gp-data-platform PR:
   1. `cd` to a gp-data-platform checkout (ask where if unknown), `git fetch origin main`,
@@ -384,7 +396,10 @@ many events (DATA-2427), so read the site, do not trust the count.
   surface as outside the metric.
 - **defer** → leave it. If the reviewer is not the metric's owner they may defer it to
   the semantic-layer owners; then the output is a Data backlog ticket (`901326391561`,
-  same safe-payload discipline as Queue A) carrying the drafted addition.
+  same safe-payload discipline as Queue A) carrying the drafted addition. The drafted
+  addition has the case 2 shape without `era`: `- event: <event_key's event>` plus
+  `path:` when the key carries one. Write the draft into the omni PR body under a Queue C
+  heading; that is its home when no ticket is filed.
 
 Never decide a case 3 yourself.
 
@@ -480,7 +495,7 @@ ticket, or the reviewer's own follow-up message.
 
 Once all three queues are dispositioned:
 
-1. `git status` should show only `instrumentation_gaps.json` and (if Queue B had any
+1. `git status` should show at most `instrumentation_gaps.json` and (if Queue B had any
    accept/dismiss, or Queue C had any case 1 edit or dismissal) `monitored_events.yaml`
    under `packages/runbooks/scripts/python/instrumentation_data/` /
    `packages/runbooks/scripts/python/`.
