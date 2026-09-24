@@ -10,10 +10,10 @@ Design doc: `docs/superpowers/specs/2026-09-22-analytics-event-explorer-design.m
 
 ## Two copies of the same page
 
-| | Where | Why it exists |
-| --- | --- | --- |
-| Prototype | this folder, `http://localhost:4002/p/analytics-event-explorer` | the one we iterate on |
-| Standalone | `standalone/` | one file, published as an Artifact: the copy people actually use, and the only one that tracks usage or takes feedback |
+|            | Where                                                           | Why it exists                                                                                                          |
+| ---------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Prototype  | this folder, `http://localhost:4002/p/analytics-event-explorer` | the one we iterate on                                                                                                  |
+| Standalone | `standalone/`                                                   | one file, published as an Artifact: the copy people actually use, and the only one that tracks usage or takes feedback |
 
 Declaring `db` makes the published artifact organization-internal, so every viewer is
 a signed-in GoodParty account — which is what lets a visit be attributed at all.
@@ -106,7 +106,7 @@ actually typed at it.
   `CreateListWizard.tsx` fires a Win event and a Serve event from the same file. The
   path only fills gaps where no tag exists, never overrides one. 385 of 592 known.
 - **`supersession` is prose, not a reference**, and runs in both directions. `lib/
-  lineage.ts` parses it. 11 of 22 resolve; DATA-2507 is the fix.
+lineage.ts` parses it. 11 of 22 resolve; DATA-2507 is the fix.
 - **A caveat is shown on an event only when it names that event.** Attaching every
   caveat from every question an event serves buried one card under four warnings,
   three of them about unrelated subjects.

@@ -86,11 +86,13 @@ export type Snapshot = {
 // assignable to an index signature.
 export const data = snapshot as unknown as Snapshot
 
-// The governance cron runs Mondays and Thursdays at 11:00 UTC. The page states the
-// next run so "this looks stale" has an answer rather than only a complaint.
+// The governance cron runs Mondays and Thursdays at 11:00 UTC, but the page only
+// changes when the scheduled republish picks the commit up an hour later. State the
+// time this page moves, not the time the pipeline ran, so "this looks stale" has an
+// answer a reader can check against the clock.
 export const nextRun = (from = new Date()): Date => {
   const d = new Date(from)
-  d.setUTCHours(11, 0, 0, 0)
+  d.setUTCHours(12, 0, 0, 0)
   if (d <= from) d.setUTCDate(d.getUTCDate() + 1)
   while (![1, 4].includes(d.getUTCDay())) d.setUTCDate(d.getUTCDate() + 1)
   return d
