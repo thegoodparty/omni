@@ -55,9 +55,13 @@ export type GeoJsonPolygon = z.infer<typeof GeoJsonPolygonSchema>
 // route nobody re-buys.
 //
 // Sent: the route is bought with the turf, exactly as before. Omitted: the
-// turf is saved unrouted and `POST turfs/:id/route` buys it later. Both are
-// supported on purpose — a client that has not shipped the new flow keeps
-// working, and this is what lets creation stop buying without a flag day.
+// turf is saved with all of its doors but no walk order, and
+// `POST turfs/:id/route` buys that later. Both are supported on purpose — a
+// client that has not shipped the new flow keeps working, and this is what
+// lets creation stop buying without a flag day.
+//
+// What is NOT optional either way is the audience: a create always resolves
+// and freezes the doors, whether or not it buys a route for them.
 export const CreateDoorKnockingTurfSchema = z
   .object({
     voterFileFilterId: z.number().int().positive(),
@@ -143,11 +147,11 @@ export type UpdateDoorKnockingTurf = z.infer<
 // Whether a route exists is `routeSeconds === null`, which is one fact in one
 // place; a boolean beside it could only disagree with it.
 //
-// The counts stay non-nullable. They used to be null rather than 0 on an
-// unlocked list, on the reasoning that a zero would claim a walked list that
-// turned out empty — but the counts are read beside `routeSeconds` now, so
-// zero-and-unrouted is unambiguous, and null would force every reader to
-// handle a case the routed path never produces. Doors are
+// The counts stay non-nullable, and they are REAL from the moment the turf
+// is drawn rather than zero until it is walked: the doors are the turf's
+// audience, frozen at creation, and only the walk order waits on the route.
+// A details page can therefore report what a campaign covers before anybody
+// has started it. Doors are
 // addresses and people are knockable targets (do-not-knock and not-a-voter
 // residents dropped), the same two populations the walk surfaces report;
 // `loggedCount` is the subset of `peopleCount` whose derived knock status is
@@ -193,8 +197,11 @@ export const DoorKnockingTurfSchema = z.object({
   // route is bought at first knock rather than at create. It is the one field
   // that says so, deliberately, rather than a second `routed` boolean that
   // could disagree with it — a surface asking "is this routed" asks whether
-  // this is null. A routed turf whose travel happens to be 0 seconds is not a
-  // case the router can produce, since a route spans at least two stops.
+  // this is null. The COUNTS do not answer that question: they are non-zero
+  // from creation, because the doors are frozen with the turf and only their
+  // order is bought. A routed turf whose travel happens to be 0 seconds is
+  // not a case the router can produce, since a route spans at least two
+  // stops.
   routeSeconds: z.number().int().nullable(),
   // Both read off the turf's Outreach envelope, which since 3.0 is the one
   // place the lifecycle lives. They are shaped differently because the
@@ -233,10 +240,10 @@ export type DoorKnockingTurf = z.infer<typeof DoorKnockingTurfSchema>
 // name the turf, and so the footer can link into the walk.
 export const DoorKnockingOutreachDetailSchema = z.object({
   turfId: z.number().int(),
-  // NULL until the route is bought at first knock, which is also when the
-  // three counts below stop being zero. A campaign nobody has walked still
-  // has a row in outreach history and still has to open a drawer, so this is
-  // a state to render rather than a reason to withhold the block.
+  // NULL until the route is bought at first knock. The three counts below do
+  // NOT wait on it — the doors are frozen when the turf is drawn — so an
+  // unwalked campaign opens a drawer reporting what it covers, with this
+  // field as the one thing saying nobody has started.
   routeId: z.number().int().nullable(),
   // The turf's live name, not the envelope's `name` snapshot taken at knock
   // time: a list renamed since is one list, and two names for it across two
@@ -268,6 +275,10 @@ export type DoorKnockingOutreachDetail = z.infer<
 // `@unique`, so one route per turf is a database fact and a race cannot
 // produce two — what the server-side short-circuit adds is not paying the
 // vendor twice for the answer.
+//
+// It buys an ORDER, not an audience. The doors were frozen when the turf was
+// drawn, so this resolves no roster and cannot fail on one that has grown
+// past the 150-stop cap since.
 export const BuildDoorKnockingRouteSchema = z
   .object({
     mode: DoorKnockingModeSchema,

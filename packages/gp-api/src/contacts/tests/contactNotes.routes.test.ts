@@ -162,7 +162,7 @@ const createDoorKnockingReachablePerson = async (
   })
   const stop = await service.prisma.doorKnockingStop.create({
     data: {
-      doorKnockingRouteId: route.id,
+      doorKnockingTurfId: turf.id,
       seq: 1,
       lat: 0,
       lng: 0,

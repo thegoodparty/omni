@@ -896,9 +896,10 @@ remembered on the `hold_failed` row for the retry.
   It used to be keyed on `doorKnockingRouteId` and reach the turf through the
   route, which worked exactly as long as every turf had one — a campaign
   nobody has walked yet would have dropped out of its own drawer. Such a row
-  gets the block with `routeId: null` and zero counts, which is the state,
-  not a tombstone (a tombstoned turf still yields no block at all). Its three
-  counts come from
+  gets the block with `routeId: null` and its REAL doors and people — those
+  are frozen when the turf is DRAWN, not when it is walked — which is the
+  state, not a tombstone (a tombstoned turf still yields no block at all).
+  Its three counts come from
   `DoorKnockingTurfCountsService` — the SAME aggregate the door-knocking rail
   reads — and must keep coming from there: a second derivation is the
   two-denominator failure ADR 0010 forbids. `OutreachModule` imports

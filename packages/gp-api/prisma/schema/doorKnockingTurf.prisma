@@ -56,6 +56,11 @@ model DoorKnockingTurf {
   // The route is bought at first knock, so a turf has none between the
   // campaign being created and somebody walking it.
   route             DoorKnockingRoute?
+  // The turf's doors, frozen when it is drawn. They are the audience, and
+  // the audience is what the 150-stop cap bounds — resolving it again at
+  // purchase would let a turf grow past the cap between being drawn and
+  // being walked, and fail at the first door.
+  stops             DoorKnockingStop[]
   // The envelope hangs off the turf now, not off the route, so it survives
   // the window before a route is bought. Optional only because the FK lives
   // on the child; a nativeDoorKnocking envelope is required to have one.
@@ -71,13 +76,13 @@ model DoorKnockingTurf {
   // exactly one home for it again.
 
   // Soft delete, and the only delete there is — including for a turf nobody
-  // has walked. Deleting the row cascades turf -> route -> stops -> targets
-  // AND the Outreach envelope, which on a routed turf throws away the frozen
-  // addresses, the name snapshots kept for privacy deletion, and a Geoapify
-  // route that was billed once and is documented as never re-bought. On an
-  // unrouted one it still throws away the envelope, which is the campaign's
-  // whole presence in outreach history. Knock history survives either way: it
-  // hangs off the organization, not this chain.
+  // has walked. Deleting the row cascades turf -> stops -> targets AND the
+  // Outreach envelope, throwing away the frozen addresses, the name
+  // snapshots kept for privacy deletion, and the campaign's whole presence
+  // in outreach history. None of that waits on a route; a routed turf loses
+  // a Geoapify route on top, billed once and documented as never re-bought.
+  // Knock history survives either way: it hangs off the organization, not
+  // this chain.
   deletedAt DateTime? @map("deleted_at")
 
   @@index([voterFileFilterId])

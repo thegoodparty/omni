@@ -197,25 +197,22 @@ export class OutreachSocialService extends createPrismaBase(
     })
     if (!turf) return undefined
 
-    const routeId = turf.route?.id ?? null
-    const counts = await this.doorKnockingCounts.forRoutes(
-      organizationSlug,
-      routeId === null ? [] : [routeId],
-    )
-    // `forRoutes` keys on the route id and seeds every requested id, so a route
-    // with no targets comes back as zeroes rather than absent — but the map
-    // lookup is still narrowed rather than asserted. An unrouted turf asks for
-    // nothing and takes the zeroes below.
-    const routeCounts = routeId === null ? null : counts.get(routeId)
-    if (routeCounts === undefined) return undefined
+    const counts = await this.doorKnockingCounts.forTurfs(organizationSlug, [
+      turf.id,
+    ])
+    // `forTurfs` seeds every requested id, so a turf with no targets comes
+    // back as zeroes rather than absent — but the map lookup is still
+    // narrowed rather than asserted.
+    const turfCounts = counts.get(turf.id)
+    if (!turfCounts) return undefined
 
     return {
       turfId: turf.id,
-      routeId,
+      routeId: turf.route?.id ?? null,
       turfName: turf.name,
-      doorCount: routeCounts?.doorCount ?? 0,
-      peopleCount: routeCounts?.peopleCount ?? 0,
-      loggedCount: routeCounts?.loggedCount ?? 0,
+      doorCount: turfCounts.doorCount,
+      peopleCount: turfCounts.peopleCount,
+      loggedCount: turfCounts.loggedCount,
       completed: envelope.status === OutreachStatus.completed,
       archivedAt: envelope.archivedAt,
     }

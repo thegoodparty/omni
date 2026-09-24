@@ -58,6 +58,8 @@ describe('DoorKnockingStatsService', () => {
     completed = false,
     deleted = false,
   } = {}) => {
+    // The doors hang off the TURF, frozen when it is drawn; the route only
+    // carries the order they are walked in.
     const turf = await service.prisma.doorKnockingTurf.create({
       data: {
         voterFileFilterId,
@@ -65,16 +67,6 @@ describe('DoorKnockingStatsService', () => {
         color: '#22aa55',
         geoPoly: { type: 'Polygon', coordinates: [] },
         deletedAt: deleted ? new Date() : null,
-      },
-    })
-    const route = await service.prisma.doorKnockingRoute.create({
-      data: {
-        doorKnockingTurfId: turf.id,
-        mode: 'walk',
-        loop: false,
-        totalSeconds: 60,
-        totalMeters: 100,
-        credits: 1,
         stops: {
           create: doors.map((targets, index) => ({
             seq: index + 1,
@@ -86,6 +78,16 @@ describe('DoorKnockingStatsService', () => {
             targets: { create: targets },
           })),
         },
+      },
+    })
+    const route = await service.prisma.doorKnockingRoute.create({
+      data: {
+        doorKnockingTurfId: turf.id,
+        mode: 'walk',
+        loop: false,
+        totalSeconds: 60,
+        totalMeters: 100,
+        credits: 1,
       },
     })
     await service.prisma.outreach.create({

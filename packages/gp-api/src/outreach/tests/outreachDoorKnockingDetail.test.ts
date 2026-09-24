@@ -90,16 +90,6 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
         color: '#22aa55',
         geoPoly: GEO_POLY,
         deletedAt,
-      },
-    })
-    const route = await service.prisma.doorKnockingRoute.create({
-      data: {
-        doorKnockingTurfId: turf.id,
-        mode: 'walk',
-        loop: false,
-        totalSeconds: 900,
-        totalMeters: 1200,
-        credits: 30,
         stops: {
           create: [
             {
@@ -139,6 +129,16 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
             },
           ],
         },
+      },
+    })
+    const route = await service.prisma.doorKnockingRoute.create({
+      data: {
+        doorKnockingTurfId: turf.id,
+        mode: 'walk',
+        loop: false,
+        totalSeconds: 900,
+        totalMeters: 1200,
+        credits: 30,
       },
     })
     const outreach = await service.prisma.outreach.create({
@@ -270,13 +270,40 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
   // to make: the list IS there, nobody has walked it. Withholding the block
   // would render as "saved list is no longer available" for a campaign the
   // candidate created an hour ago.
-  it('carries the block for an unrouted turf, with a null route and zero counts', async () => {
+  it('carries the block for an unrouted turf, with its doors and a null route', async () => {
     const turf = await service.prisma.doorKnockingTurf.create({
       data: {
         voterFileFilterId: filter.id,
         name: 'Unwalked turf',
         color: '#22aa55',
         geoPoly: GEO_POLY,
+        // Doors but no walk order: the turf has been drawn, nobody has
+        // bought its route.
+        stops: {
+          create: [
+            {
+              lat: 41.9,
+              lng: -87.65,
+              displayAddress: '1200 W Elm St',
+              targets: {
+                create: [
+                  { personId: PERSON_A1, name: 'Liv', addressKey: KEY_A },
+                  { personId: PERSON_A2, name: 'Also', addressKey: KEY_A },
+                ],
+              },
+            },
+            {
+              lat: 41.901,
+              lng: -87.651,
+              displayAddress: '1204 W Elm St',
+              targets: {
+                create: [
+                  { personId: PERSON_B, name: 'Marisol', addressKey: KEY_B },
+                ],
+              },
+            },
+          ],
+        },
       },
     })
     const outreach = await service.prisma.outreach.create({
@@ -298,8 +325,11 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
       turfId: turf.id,
       routeId: null,
       turfName: 'Unwalked turf',
-      doorCount: 0,
-      peopleCount: 0,
+      // The doors are the turf's, frozen when it was drawn, so the drawer
+      // can report them before anybody walks anything. Only the route is
+      // missing, and `routeId: null` is what says so.
+      doorCount: 2,
+      peopleCount: 3,
       loggedCount: 0,
       completed: false,
       archivedAt: null,

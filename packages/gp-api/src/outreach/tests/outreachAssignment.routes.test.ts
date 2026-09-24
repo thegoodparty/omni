@@ -570,7 +570,7 @@ describe('GET /v1/outreach/:id/assignments', () => {
     })
     const stop = await service.prisma.doorKnockingStop.create({
       data: {
-        doorKnockingRouteId: route.id,
+        doorKnockingTurfId: route.doorKnockingTurfId,
         seq: 1,
         lat: 0,
         lng: 0,

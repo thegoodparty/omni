@@ -5,16 +5,15 @@ enum DoorKnockingMode {
 
 model DoorKnockingRoute {
   id                 Int                    @id @default(autoincrement())
-  // createdAt is the generation moment; the row never mutates after the
-  // create transaction commits (see docs/door-knocking.md). It used to double
-  // as the turf's "locked" flag and the knock's idempotency key; since 3.0
-  // buys the route at list creation there is no unlocked state to flag and no
-  // second purchase to guard against.
+  // createdAt is the moment the route was bought; the row never mutates after
+  // the transaction that writes it commits (see docs/door-knocking.md). Its
+  // EXISTENCE is what says a turf has been routed, since it is written at
+  // first knock rather than at turf creation.
   createdAt          DateTime               @default(now()) @map("created_at")
   updatedAt          DateTime               @updatedAt @map("updated_at")
-  // Unique: the route's only parent. Linear chain:
-  // voter_file_filter <- door_knocking_turf <- door_knocking_route <- outreach,
-  // the last three 1:1:1 and all three written in one transaction.
+  // Unique: the route's only parent, and one route per turf is a database
+  // fact rather than a convention — it is what makes a second buy of the same
+  // turf impossible rather than merely unlikely.
   turf               DoorKnockingTurf       @relation(fields: [doorKnockingTurfId], references: [id], onDelete: Cascade)
   doorKnockingTurfId Int                    @unique @map("door_knocking_turf_id")
   mode               DoorKnockingMode
@@ -32,7 +31,6 @@ model DoorKnockingRoute {
   /// and frozen (their terms permit storing results). Null when the routing
   /// call failed — consumers fall back to straight seq-order legs.
   pathGeometry       Json?                  @map("path_geometry")
-  stops              DoorKnockingStop[]
   outreach           Outreach?
 
   @@map("door_knocking_route")

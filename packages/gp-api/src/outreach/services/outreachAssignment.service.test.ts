@@ -408,13 +408,13 @@ describe('OutreachAssignmentService', () => {
     }
 
     const createStopTarget = async (
-      doorKnockingRouteId: number,
+      doorKnockingTurfId: number,
       seq: number,
       personId: string,
     ) => {
       const stop = await service.prisma.doorKnockingStop.create({
         data: {
-          doorKnockingRouteId,
+          doorKnockingTurfId,
           seq,
           lat: 0,
           lng: 0,

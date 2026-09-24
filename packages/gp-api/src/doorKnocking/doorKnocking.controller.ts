@@ -379,17 +379,21 @@ export class DoorKnockingController {
   // that already has one, so there is nothing to choose — same as
   // `turfs/:id/complete` and `turfs/:id/archive`.
   //
-  // No @AllowVolunteer(), deliberately, even though the GET below carries it.
-  // This would be the first spend a volunteer could trigger, and that is a
-  // decision to take on its own rather than inherit from the neighbouring
-  // decorator.
+  // @AllowVolunteer(), like the GET below and the complete press: a
+  // volunteer buys the route for the turf they were assigned, because they
+  // are the one standing at the door and the alternative is a canvasser who
+  // cannot start without a manager. It makes this the first spend a
+  // volunteer can trigger, which is why the assignment check is not
+  // optional — an unassigned volunteer 404s exactly as they do on the walk.
   @Post('turfs/:id/route')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(DoorKnockingTurfSchema)
   async buildTurfRoute(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
     @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
     @Body(new ZodValidationPipe(BuildDoorKnockingRouteSchema))
     input: BuildDoorKnockingRoute,
   ) {
@@ -399,6 +403,7 @@ export class DoorKnockingController {
       id,
       input,
       user.id,
+      role,
     )
   }
 

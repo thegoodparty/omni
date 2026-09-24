@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { Injectable } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
   BuildDoorKnockingRoute,
   CreateDoorKnockingTurf,
@@ -24,6 +25,7 @@ import {
   DoNotKnockStatus,
   NotAVoterStatus,
   Organization,
+  OrganizationRole,
   OutreachStatus,
   OutreachType,
   Prisma,
@@ -45,6 +47,7 @@ import {
   emptyTurfMessage,
 } from '../utils/emptyAudience.util'
 import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
+import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { lockTurf } from '../utils/turfLock.util'
 import { activeTurfScope } from '../utils/turfScope.util'
 import { assertCampaignQuota } from '../utils/campaignQuota.util'
@@ -82,7 +85,7 @@ const MAX_NAMED_UNROUTABLE = 3
 // distances at the ceiling, which is nothing beside the vendor round trip it
 // stands in front of. The approximation is the one metersBetween documents, and
 // a threshold this coarse has no use for a better one.
-const maxPairwiseMeters = (points: PlannedStop[]): number => {
+const maxPairwiseMeters = (points: RoutableStop[]): number => {
   let max = 0
   for (let i = 0; i < points.length; i += 1) {
     for (let j = i + 1; j < points.length; j += 1) {
@@ -110,6 +113,27 @@ const SINGLE_FACE_PLAN: RoutePlannerPlan = {
   pathGeometry: null,
 }
 
+// The vendor answers with positions: `orderedJobIds[position]` is the index
+// of the stop walked at that position, and the leg arrays are parallel to it.
+// Inverted here so a stop can be asked what its own place in the walk is,
+// which is the direction both writers need.
+const walkOrderByStopIndex = (
+  plan: RoutePlannerPlan | null,
+): Map<number, { seq: number; legSeconds: number; legMeters: number }> => {
+  const order = new Map<
+    number,
+    { seq: number; legSeconds: number; legMeters: number }
+  >()
+  plan?.orderedJobIds.forEach((jobId, position) => {
+    order.set(Number(jobId), {
+      seq: position + 1,
+      legSeconds: plan.legSeconds[position] ?? 0,
+      legMeters: plan.legMeters[position] ?? 0,
+    })
+  })
+  return order
+}
+
 type EvaluatedPerson = {
   id: string
   firstName: string | null
@@ -120,6 +144,20 @@ type EvaluatedPerson = {
   displayAddress: string
 }
 
+// What the vendor call and the block-face grouping need from a door: where
+// it is, what it is called, and the address keys behind it (the street line
+// is derived from those). Deliberately narrower than `PlannedStop` — the buy
+// reads its doors back from the frozen rows and has no `EvaluatedPerson` to
+// offer, only the keys those rows stored.
+type RoutableStop = {
+  lat: number
+  lng: number
+  displayAddress: string
+  people: Array<{ addressKey: string }>
+}
+
+// A door on its way INTO the database: the same thing with the full
+// residents, which is what the stop targets are written from.
 type PlannedStop = {
   lat: number
   lng: number
@@ -161,6 +199,9 @@ export class DoorKnockingCreateService extends createPrismaBase(
     private readonly contactStatus: ContactStatusService,
     private readonly turfs: DoorKnockingTurfService,
     private readonly stats: DoorKnockingStatsService,
+    // Lazy: the assignment check reaches OutreachModule, which imports this
+    // module back through the door-knocking detail block.
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -338,6 +379,12 @@ export class DoorKnockingCreateService extends createPrismaBase(
               })
             : null
 
+        // The audience, frozen here and never resolved again — with the walk
+        // order already on it when this create bought one. Written after the
+        // vendor call so a failure here still leaves the spend recorded, the
+        // ledger's whole reason for living on its own connection.
+        await this.freezeStops(tx, turf.id, stops, route?.plan ?? null)
+
         // First use of this filter locks it from edits, same as any other
         // outreach launch (first-write-wins, never rolled back).
         await tx.voterFileFilter.updateMany({
@@ -409,17 +456,31 @@ export class DoorKnockingCreateService extends createPrismaBase(
   // turf, who is the first person in the chain who actually knows whether
   // they are walking or driving it.
   //
-  // Manager+ only for now. The walk routes carry `@AllowVolunteer()`, so
-  // leaving this one open would make it the first spend a volunteer can
-  // trigger — a decision worth taking deliberately rather than by inheriting
-  // the neighbouring decorator.
+  // It resolves no audience. The doors were frozen when the turf was drawn
+  // (`freezeStops`), so all this buys is the ORDER to walk them in — which
+  // is why it cannot fail on a roster that has grown past the 150-stop cap
+  // in the meantime, and why it makes no people-db call at all.
+  //
+  // A volunteer may press it for a turf they are assigned to. That makes it
+  // the first spend a volunteer can trigger, which is deliberate: they are
+  // the ones at the door, and the alternative is a canvasser who cannot
+  // start without a manager. The assignment check is the same one the walk
+  // and the complete press already run.
   async buildRouteForTurf(
     organization: Organization,
     turfId: number,
     request: BuildDoorKnockingRoute,
     actorUserId: number,
+    role: OrganizationRole | undefined,
   ): Promise<DoorKnockingTurf> {
     const turf = await this.turfs.findForOrganization(turfId, organization.slug)
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      turf.outreach.id,
+      actorUserId,
+      'Turf not found',
+    )
 
     // Already bought, so hand back what exists rather than buying a second
     // answer to the same question. This is the ordinary case, not the
@@ -427,59 +488,8 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // route is documented as never re-bought. The genuine race is closed
     // under the lock below; this is what keeps the common repeat free.
     if (turf.route) {
-      return this.turfs.get(turfId, organization.slug, actorUserId, undefined)
+      return this.turfs.get(turfId, organization.slug, actorUserId, role)
     }
-
-    const isServe = organization.slug.startsWith('eo-')
-    const districtId =
-      await this.contacts.resolveEligibleDistrictId(organization)
-
-    const [doNotKnockIds, notAVoterIds] = await Promise.all([
-      this.contactStatus.personIdsByFieldValue(
-        organization.slug,
-        ContactStatusField.do_not_knock,
-        [DoNotKnockStatus.active],
-      ),
-      this.contactStatus.personIdsByFieldValue(
-        organization.slug,
-        ContactStatusField.not_a_voter,
-        [NotAVoterStatus.moved, NotAVoterStatus.deceased],
-      ),
-    ])
-    const excludePersonIds = [...new Set([...doNotKnockIds, ...notAVoterIds])]
-
-    // The roster is resolved NOW rather than frozen at create, so the walk
-    // reflects who has moved, died or asked not to be knocked in between —
-    // which is the other thing deferring the purchase buys. A turf drawn in
-    // March and walked in June is routed against June's audience.
-    const filter = await this.client.voterFileFilter.findFirst({
-      where: {
-        id: turf.voterFileFilterId,
-        organizationSlug: organization.slug,
-      },
-      include: { activityConditions: true },
-    })
-    if (!filter) {
-      throw new NotFoundException('Voter file filter not found')
-    }
-
-    const resolved = await this.contacts.resolveSavedFilterForQuery(
-      organization,
-      filter,
-    )
-    if (resolved.empty) {
-      throw new BadRequestException(emptyAudienceMessage(filter, isServe))
-    }
-
-    const { people } = await this.peopleApi.evaluate({
-      districtId,
-      bbox: polygonBbox(turf.geoPoly),
-      filters: resolved.filters,
-      idOverrides: resolved.idOverrides,
-      contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
-      excludePersonIds,
-    })
-    const stops = this.buildStops(people, turf.geoPoly, isServe)
 
     await this.client.$transaction(
       async (tx) => {
@@ -493,7 +503,20 @@ export class DoorKnockingCreateService extends createPrismaBase(
 
         const locked = await tx.doorKnockingTurf.findFirst({
           where: { id: turfId, ...activeTurfScope(organization.slug) },
-          select: { id: true, route: { select: { id: true } } },
+          select: {
+            id: true,
+            route: { select: { id: true } },
+            stops: {
+              orderBy: { id: Prisma.SortOrder.asc },
+              select: {
+                id: true,
+                lat: true,
+                lng: true,
+                displayAddress: true,
+                targets: { select: { addressKey: true } },
+              },
+            },
+          },
         })
         if (!locked) {
           throw new NotFoundException('Turf not found')
@@ -502,6 +525,21 @@ export class DoorKnockingCreateService extends createPrismaBase(
         // the route, and the honest answer is that route — the same one the
         // short-circuit above gives a press that arrived a second later.
         if (locked.route) return
+        // A turf with no doors cannot be produced by `create`, which refuses
+        // an empty polygon before it writes anything. Loud rather than a
+        // vendor call with no jobs in it.
+        if (locked.stops.length === 0) {
+          throw new BadRequestException(
+            'This turf has no doors to route. Delete it and draw a new one.',
+          )
+        }
+
+        const stops = locked.stops.map((stop) => ({
+          lat: stop.lat,
+          lng: stop.lng,
+          displayAddress: stop.displayAddress,
+          people: stop.targets,
+        }))
 
         const route = await this.buildRoute(
           tx,
@@ -509,6 +547,11 @@ export class DoorKnockingCreateService extends createPrismaBase(
           turfId,
           stops,
           request,
+        )
+        await this.applyWalkOrder(
+          tx,
+          route.plan,
+          locked.stops.map((stop) => stop.id),
         )
 
         await tx.outreach.update({
@@ -519,20 +562,85 @@ export class DoorKnockingCreateService extends createPrismaBase(
       { timeout: CREATE_TX_TIMEOUT_MS },
     )
 
-    return this.turfs.get(turfId, organization.slug, actorUserId, undefined)
+    return this.turfs.get(turfId, organization.slug, actorUserId, role)
   }
 
-  // The paid half of a create, from the vendor call to the route row. It is
-  // a method rather than lines inside `create` because the same purchase has
-  // two callers now: a create that was handed a travel mode, and the buy at
+  // Freezes the audience. One stop per door and one target per resident
+  // behind it, written the moment the turf is drawn and never resolved
+  // again.
+  //
+  // This is what the 150-stop cap actually bounds. Re-resolving the roster
+  // when the route is bought would let a turf drawn in March be walked in
+  // June against June's registrations — and the cap is checked at drawing
+  // time, so a turf that had grown past it in between would simply refuse to
+  // route, discovered by a canvasser standing at the first door with nothing
+  // to do about it.
+  private async freezeStops(
+    tx: Prisma.TransactionClient,
+    turfId: number,
+    stops: PlannedStop[],
+    plan: RoutePlannerPlan | null,
+  ): Promise<void> {
+    // A create that bought a route already knows the order, so it lands on
+    // the same insert rather than as an update a moment later. A create that
+    // did not leaves all three null, and `applyWalkOrder` fills them in when
+    // somebody buys.
+    const order = walkOrderByStopIndex(plan)
+
+    const rows = await tx.doorKnockingStop.createManyAndReturn({
+      data: stops.map((stop, index) => ({
+        doorKnockingTurfId: turfId,
+        lat: stop.lat,
+        lng: stop.lng,
+        displayAddress: stop.displayAddress,
+        seq: order.get(index)?.seq ?? null,
+        legSeconds: order.get(index)?.legSeconds ?? null,
+        legMeters: order.get(index)?.legMeters ?? null,
+      })),
+      select: { id: true, lat: true, lng: true },
+    })
+
+    // Matched back by COORDINATE rather than by array position. `buildStops`
+    // groups doors on a ~1m coordinate key, so every stop here has a
+    // distinct one and the match is provable; trusting the returned order
+    // would be a silent mis-assignment of people to doors if it ever changed.
+    const idByCoordinate = new Map(
+      rows.map((row) => [coordinateKey(row.lat, row.lng), row.id]),
+    )
+    const stopIds = stops.map(
+      (stop) => idByCoordinate.get(coordinateKey(stop.lat, stop.lng))!,
+    )
+
+    await tx.doorKnockingStopTarget.createMany({
+      data: stops.flatMap((stop, index) =>
+        stop.people.map((person) => ({
+          doorKnockingStopId: stopIds[index]!,
+          personId: person.id,
+          name:
+            [person.firstName, person.lastName].filter(Boolean).join(' ') ||
+            null,
+          addressKey: person.addressKey,
+        })),
+      ),
+    })
+  }
+
+  // The paid half: the vendor call, the ledger write and the route row. It
+  // is a method rather than lines inside `create` because the same purchase
+  // has two callers, a create that was handed a travel mode and the buy at
   // first knock above.
+  //
+  // It returns the plan as well as the route because the two callers write
+  // the walk order differently — a create has not inserted its stops yet and
+  // puts the order straight onto them, the buy has to update rows that
+  // already exist.
   private async buildRoute(
     tx: Prisma.TransactionClient,
     organizationSlug: string,
     turfId: number,
-    stops: PlannedStop[],
+    stops: RoutableStop[],
     request: BuildDoorKnockingRoute,
-  ): Promise<{ id: number }> {
+  ): Promise<{ id: number; plan: RoutePlannerPlan }> {
     const plan = await this.planStops(stops, request)
 
     // Priced off what the vendor was actually sent, not off stops.length:
@@ -552,7 +660,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // really happened and hands the same allowance out again.
     await this.recordSpend(organizationSlug, turfId, stops.length, credits)
 
-    return tx.doorKnockingRoute.create({
+    const route = await tx.doorKnockingRoute.create({
       data: {
         doorKnockingTurfId: turfId,
         mode: request.mode,
@@ -561,32 +669,46 @@ export class DoorKnockingCreateService extends createPrismaBase(
         totalMeters: plan.totalMeters,
         credits: credits.route_planner + credits.routing,
         pathGeometry: plan.pathGeometry ?? undefined,
-        stops: {
-          create: plan.orderedJobIds.map((jobId, index) => {
-            const stop = stops[Number(jobId)]!
-            return {
-              seq: index + 1,
-              lat: stop.lat,
-              lng: stop.lng,
-              displayAddress: stop.displayAddress,
-              legSeconds: plan.legSeconds[index] ?? 0,
-              legMeters: plan.legMeters[index] ?? 0,
-              targets: {
-                create: stop.people.map((person) => ({
-                  personId: person.id,
-                  name:
-                    [person.firstName, person.lastName]
-                      .filter(Boolean)
-                      .join(' ') || null,
-                  addressKey: person.addressKey,
-                })),
-              },
-            }
-          }),
-        },
       },
       select: { id: true },
     })
+
+    return { id: route.id, plan }
+  }
+
+  // The order, written onto doors that already exist — the buy's half of
+  // what `freezeStops` does at creation. One statement rather than one per
+  // stop, because there are up to 150 of them and this sits inside a
+  // transaction that has just made a vendor call.
+  //
+  // Safe against the `(turf, seq)` unique index only because every seq it
+  // touches is currently NULL: a route is bought once and never re-ordered,
+  // so this never has to renumber rows around each other.
+  private async applyWalkOrder(
+    tx: Prisma.TransactionClient,
+    plan: RoutePlannerPlan,
+    stopIds: number[],
+  ): Promise<void> {
+    const order = walkOrderByStopIndex(plan)
+    const entries = [...order.entries()]
+    const ids = entries.map(([stopIndex]) => stopIds[stopIndex]!)
+    const seqs = entries.map(([, leg]) => leg.seq)
+    const legSeconds = entries.map(([, leg]) => leg.legSeconds)
+    const legMeters = entries.map(([, leg]) => leg.legMeters)
+
+    await tx.$executeRaw`
+      UPDATE "door_knocking_stop" AS s
+      SET "seq" = v.seq,
+          "leg_seconds" = v.leg_seconds,
+          "leg_meters" = v.leg_meters
+      FROM unnest(
+        ${ids}::int[],
+        ${seqs}::smallint[],
+        ${legSeconds}::int[],
+        ${legMeters}::int[]
+      ) AS v(id, seq, leg_seconds, leg_meters)
+      WHERE s."id" = v.id
+    `
   }
 
   // A failed ledger write must not fail a purchase the vendor already billed,
@@ -697,7 +819,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
   // block face next — and leaves the part that is genuinely a routing problem
   // where the road network is. See utils/blockFace.util.ts.
   private async planStops(
-    stops: PlannedStop[],
+    stops: RoutableStop[],
     request: BuildDoorKnockingRoute,
   ): Promise<RoutePlannerPlan> {
     const faces = groupIntoBlockFaces(stops)
@@ -769,7 +891,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
   private unroutableTurfError(
     error: RoutePlanRejectedError,
     faces: BlockFace[],
-    stops: PlannedStop[],
+    stops: RoutableStop[],
     request: BuildDoorKnockingRoute,
   ): BadRequestException {
     const addresses = error.unroutableJobIds
@@ -812,7 +934,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
   // The billed call: which face to walk next, asked of the road network.
   private async orderFaces(
     faces: BlockFace[],
-    stops: PlannedStop[],
+    stops: RoutableStop[],
     request: BuildDoorKnockingRoute,
   ): Promise<RoutePlannerPlan> {
     const representatives = faces.map((face) => representativeOf(face, stops))
@@ -865,7 +987,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
         anchorStops.reduce((sum, stop) => sum + stop.lng, 0) /
         anchorStops.length
       const anchorIndex = anchorStops.reduce((best, stop, index) => {
-        const d = (s: PlannedStop) =>
+        const d = (s: RoutableStop) =>
           (s.lat - centroidLat) ** 2 + (s.lng - centroidLng) ** 2
         return d(stop) < d(anchorStops[best]!) ? index : best
       }, 0)

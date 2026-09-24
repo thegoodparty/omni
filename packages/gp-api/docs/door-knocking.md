@@ -18,23 +18,32 @@ puts it in the campaign's history; and **interactions** (the CRM epic's
 `contact_interaction_door_knock`) are the only mutable record — one row per
 knock on a person.
 
-### `outreach` → `turf` is 1:1; `turf` → `route` is 1:1 once bought
+### The turf owns the doors; the route owns the order
 
-The turf and its envelope are born together in one transaction and neither
-exists without the other. The route is the one that comes later: it is bought
-at first knock, so a turf has none between the campaign being created and
-somebody walking it.
+`outreach` → `turf` is 1:1 and both are born in one transaction. The turf's
+**stops and stop targets** are written in that same transaction: they are the
+audience, frozen the moment the turf is drawn. What comes later is the
+**route**, which is bought at first knock and whose only contribution is the
+order those doors are walked in (`seq`, `leg_seconds`, `leg_meters`, all
+nullable until then).
 
 - **Every turf has an envelope**, including a Serve org's, which is what let
   the list lifecycle move off the turf and onto it. It is also what keeps an
   unwalked campaign in outreach history — the envelope carries the name, the
   status and the shelf, and nothing else does.
+- **The audience is frozen at creation, not at purchase, and that is
+  load-bearing.** The 150-stop cap is checked when the turf is DRAWN. If the
+  roster were resolved again at purchase, a turf drawn in March and walked in
+  June would be routed against June's registrations — and one that had grown
+  past 150 in between would simply refuse to route, discovered by a canvasser
+  standing at the first door with nothing they could do about it. Freezing
+  also means the buy makes no people-db call at all.
 - **An unrouted turf is a state, not a failure.** `routeSeconds` is `null`
-  and the four counts are `0`, because doors and people are stops and stop
-  targets and those are written by the route buy. There is deliberately no
-  `routed` boolean beside it: one fact, one field. `locked` is not coming
-  back either — it gated update and delete, and neither is gated on the
-  route's existence.
+  and there is deliberately no `routed` boolean beside it: one fact, one
+  field. The COUNTS are not that signal — they are real from creation,
+  which is what lets a details page report a campaign before anybody starts
+  it. `locked` is not coming back either: it gated update and delete, and
+  neither is gated on the route's existence.
 - **A second purchase IS possible again**, so the per-turf advisory lock is
   back on the buy path (`buildRouteForTurf`). Nothing serializes two creates:
   they make different turfs, and the daily campaign gate was never serialized
@@ -251,12 +260,12 @@ and not about the second row: pressing Archive twice must not move
 **Delete is always a tombstone, including for an unrouted turf.** It used to
 branch on the lock, on the reasoning that an unrouted turf was a drawing
 nothing had paid for. That is true again and it is still not a reason to hard
-delete one: the cascade takes the `Outreach` envelope with it, which is the
-campaign's whole presence in outreach history. A routed turf loses more on top
-— turf → route → stops → targets, a Geoapify route that was billed once and is
-documented here as never re-bought, the frozen addresses, and the name
-snapshots privacy deletion redacts in place. `deletedAt` instead: unreachable
-from every read and write path, intact underneath.
+delete one: the cascade takes turf → stops → targets **and** the `Outreach`
+envelope, so it throws away the frozen addresses, the name snapshots privacy
+deletion redacts in place, and the campaign's whole presence in outreach
+history — none of which waits on a route. A routed turf loses its Geoapify
+route on top, billed once and documented here as never re-bought. `deletedAt`
+instead: unreachable from every read and write path, intact underneath.
 
 `assertNotLocked` is gone from `delete` and from `update` both. Update kept it
 because `geoPoly` was editable and the polygon is what the route was computed
@@ -560,7 +569,7 @@ The steps:
    no people-db round trip — and that 400 names the list's criteria, because
    it is raised before the polygon is read. See "Two ways of finding nobody"
    below.
-3. Evaluate the turf fresh via `src/peopleDb/` (resolved filters + the
+3. Evaluate the turf via `src/peopleDb/` (resolved filters + the
    `idOverrides`/`contactsMadeIdOverrides` clauses that travel beside them +
    bbox; exact point-in-polygon ray-cast in-process — see "Interim geo"
    below), dedupe to unique lat/lng stops, re-check the 150-stop cap. The
@@ -626,17 +635,23 @@ The steps:
    was introduced (`20260813170000_backfill_...`), so the table describes every
    route the vendor has ever billed us for rather than only those since it
    landed.
-7. Create route + stops + stop targets + the `Outreach` envelope. The envelope
-   is unconditional (`campaignId: null` for Serve), status `in_progress`,
-   never `pending` — payment flows gate on it, and it is written whether or
-   not a route was bought, since it is what puts the campaign in outreach
-   history. The scope is the caller's, chosen by which endpoint was hit and
-   never derived from what the org holds. The per-target activity event is
-   still deferred, as noted above.
+7. Create the route (when one was bought), then the stops and stop targets,
+   then the `Outreach` envelope. The stops are written whether or not a route
+   was bought — they are the turf — and carry the walk order already when one
+   was. They go AFTER the vendor call on purpose: a failure writing them must
+   still leave the spend recorded, which is what the ledger's separate
+   connection is for. The envelope is unconditional (`campaignId: null` for
+   Serve), status `in_progress`, never `pending` — payment flows gate on it,
+   and it is what puts the campaign in outreach history whether or not it has
+   been walked. The scope is the caller's, chosen by which endpoint was hit
+   and never derived from what the org holds. The per-target activity event
+   is still deferred, as noted above.
 
-Steps 5 through 7's route half run in `buildRoute`, which the buy-later path
-calls too, so there is one vendor call, one ledger write and one route row
-shape whichever door the request came in.
+Steps 5 and 6 plus the route row run in `buildRoute`, which the buy-later
+path calls too, so there is one vendor call, one ledger write and one route
+row shape whichever door the request came in. The two callers differ only in
+how they write the ORDER: a create puts it straight onto the stops it is
+about to insert, the buy updates rows that already exist (`applyWalkOrder`).
 
 A crash before commit leaves zero rows, and the flow that was submitting still
 holds the polygon, the filters, the name, the colour, the mode and the loop —
@@ -655,10 +670,12 @@ knows whether they are walking it; a manager cutting turfs three weeks
 earlier is guessing into a route nobody re-buys. It also means a turf nobody
 ever walks costs nothing.
 
-**The roster is resolved fresh**, not frozen at create: steps 2 and 3 above
-run again here, so a turf drawn in March and walked in June is routed against
-June's audience, minus anyone who has since moved, died or asked not to be
-knocked.
+**It resolves no audience.** The doors were frozen when the turf was drawn,
+so this reads them back and buys an ORDER for them. That is what makes it
+safe: re-resolving would route a turf drawn in March against June's roster,
+and a turf that had grown past the 150-stop cap since would refuse to route
+at the worst possible moment. It also means no people-db call and no filter
+resolution on this path at all.
 
 **It must not pay twice**, and there are three layers to that, in order:
 
@@ -676,10 +693,12 @@ knocked.
 The client's own guard is the button being disabled while the request is in
 flight, which is what keeps the common case from reaching any of these.
 
-**Manager+ only**, with no `@AllowVolunteer()` even though the `GET` on the
-same path carries one. This would be the first spend a volunteer can trigger;
-widening it is a decision to take deliberately rather than by inheriting the
-neighbouring decorator.
+**Volunteers may press it**, with `@AllowVolunteer()` like the `GET` on the
+same path and like `complete`. They are the ones at the door, and the
+alternative is a canvasser who cannot start without a manager. It does make
+this the first spend a volunteer can trigger, which is why the assignment
+check is not optional: an unassigned volunteer 404s exactly as they do on the
+walk.
 
 **The daily campaign gate is still on the create**, not here. It has to move
 to this press no later than the change that stops creation buying routes —

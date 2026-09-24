@@ -504,26 +504,21 @@ export class DoorKnockingTurfService extends createPrismaBase(
     return { ...locked, outreach: { ...locked.outreach, ...outreach } }
   }
 
-  // Counts are deliberately read OUTSIDE the lifecycle transaction. They come
-  // from the route rather than the turf, so a racing delete can't 404 them
-  // (a soft delete leaves the route in place), and folding the counts
-  // aggregate's six queries into the transaction would hold the turf's
-  // advisory lock across all of them — on the rail's hot path.
+  // Counts are deliberately read OUTSIDE the lifecycle transaction. They are
+  // aggregated over the stop rows rather than joined to the turf, so a racing
+  // soft delete can't 404 them, and folding the aggregate's six queries into
+  // the transaction would hold the turf's advisory lock across all of them —
+  // on the rail's hot path.
   //
-  // Doors and people are stops and stop targets, which the route buy creates,
-  // so a turf with no route has none of them yet. Zero is the honest answer
-  // and it costs no query at all: the aggregate is over routes, and there is
-  // no route to name.
+  // An unrouted turf answers the same way a routed one does: its doors and
+  // people are frozen when it is drawn, and only the walk order waits on the
+  // route.
   private async withCounts(
     turf: EnvelopedTurf,
     organizationSlug: string,
   ): Promise<DoorKnockingTurf> {
-    if (!turf.route) return toResponse(turf)
-
-    const counts = await this.counts.forRoutes(organizationSlug, [
-      turf.route.id,
-    ])
-    return toResponse(turf, counts.get(turf.route.id))
+    const counts = await this.counts.forTurfs(organizationSlug, [turf.id])
+    return toResponse(turf, counts.get(turf.id))
   }
 
   // The same read, batched: ONE aggregate across every sibling, whatever the
@@ -535,12 +530,10 @@ export class DoorKnockingTurfService extends createPrismaBase(
     turfs: EnvelopedTurf[],
     organizationSlug: string,
   ): Promise<DoorKnockingTurf[]> {
-    const counts = await this.counts.forRoutes(
+    const counts = await this.counts.forTurfs(
       organizationSlug,
-      turfs.flatMap((turf) => turf.route?.id ?? []),
+      turfs.map((turf) => turf.id),
     )
-    return turfs.map((turf) =>
-      toResponse(turf, turf.route ? counts.get(turf.route.id) : NO_COUNTS),
-    )
+    return turfs.map((turf) => toResponse(turf, counts.get(turf.id)))
   }
 }

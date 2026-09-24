@@ -263,11 +263,11 @@ export class OutreachAssignmentService extends createPrismaBase(
     }
     if (
       outreach.outreachType === OutreachType.nativeDoorKnocking &&
-      outreach.doorKnockingRouteId !== null &&
+      outreach.doorKnockingTurfId !== null &&
       outreach.organizationSlug !== null
     ) {
       return this.doorKnockingLoggedCounts(
-        outreach.doorKnockingRouteId,
+        outreach.doorKnockingTurfId,
         outreach.organizationSlug,
         assigneeUserIds,
       )
@@ -298,15 +298,15 @@ export class OutreachAssignmentService extends createPrismaBase(
   }
 
   private async doorKnockingLoggedCounts(
-    doorKnockingRouteId: number,
+    doorKnockingTurfId: number,
     organizationSlug: string,
     assigneeUserIds: number[],
   ): Promise<Map<number, number>> {
-    // Door-knock interactions carry no route id — only personId + sourceId
-    // (the phone's replay guid, never parsed). Reach the route's audience
+    // Door-knock interactions carry no turf id — only personId + sourceId
+    // (the phone's replay guid, never parsed). Reach the turf's audience
     // through its stops' targets instead.
     const targets = await this.client.doorKnockingStopTarget.findMany({
-      where: { stop: { doorKnockingRouteId } },
+      where: { stop: { doorKnockingTurfId } },
       select: { personId: true },
     })
     if (!targets.length) return new Map()
@@ -445,7 +445,7 @@ export class OutreachAssignmentService extends createPrismaBase(
               },
             },
             {
-              doorKnockingRoute: {
+              doorKnockingTurf: {
                 stops: { some: { targets: { some: { personId } } } },
               },
             },
