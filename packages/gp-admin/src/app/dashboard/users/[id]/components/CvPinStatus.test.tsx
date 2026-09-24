@@ -26,6 +26,7 @@ const mockGetCampaignComplianceState = vi.fn()
 const mockResendCvPin = vi.fn()
 const mockSetInternalTestingApproval = vi.fn()
 const mockUpdateCommitteeName = vi.fn()
+const mockOverrideCvValidationAndResubmit = vi.fn()
 
 vi.mock('@/app/dashboard/campaigns/actions', () => ({
   listCampaigns: (...args: unknown[]) => mockListCampaigns(...args),
@@ -35,6 +36,8 @@ vi.mock('@/app/dashboard/campaigns/actions', () => ({
   setInternalTestingApproval: (...args: unknown[]) =>
     mockSetInternalTestingApproval(...args),
   updateCommitteeName: (...args: unknown[]) => mockUpdateCommitteeName(...args),
+  overrideCvValidationAndResubmit: (...args: unknown[]) =>
+    mockOverrideCvValidationAndResubmit(...args),
 }))
 
 const mockUser: User = {
@@ -64,6 +67,9 @@ const awaitingPinState: ComplianceStateOutput = {
   internalTestingApprovedAt: null,
   hasComplianceRecord: true,
   committeeName: 'Friends of John Doe',
+  filingUrl: null,
+  cvValidationFailedAt: null,
+  cvValidationFailureReasons: [],
 }
 
 function renderWidget(user: User = mockUser) {
@@ -339,6 +345,191 @@ describe('CvPinStatus', () => {
       expect(
         screen.queryByRole('button', { name: 'Edit' })
       ).not.toBeInTheDocument()
+    })
+  })
+
+  describe('CV validation hold', () => {
+    const heldState: ComplianceStateOutput = {
+      ...awaitingPinState,
+      stage: 'filing_review_hold',
+      peerlyVerificationId: null,
+      peerlyCvStatus: null,
+      pinDelivery: null,
+      filingUrl: 'https://candidates.sos.mn.gov/filing-results',
+      cvValidationFailedAt: '2026-09-22T20:40:00Z',
+      cvValidationFailureReasons: [
+        "Candidate name 'Jake Solberg' does not appear on the page",
+      ],
+    }
+
+    beforeEach(() => {
+      mockGetCampaignComplianceState.mockResolvedValue(heldState)
+      mockOverrideCvValidationAndResubmit.mockResolvedValue({
+        retriedRunId: 'run-1',
+        retryError: null,
+      })
+    })
+
+    it('shows the failure reasons and links the filing page', async () => {
+      renderWidget()
+
+      expect(
+        await screen.findByText(
+          /Candidate name 'Jake Solberg' does not appear on the page/
+        )
+      ).toBeInTheDocument()
+      const link = screen.getByRole('link', { name: /open the filing page/i })
+      expect(link).toHaveAttribute(
+        'href',
+        'https://candidates.sos.mn.gov/filing-results'
+      )
+      expect(link).toHaveAttribute('target', '_blank')
+    })
+
+    it('keeps the override button disabled until the reviewer confirms', async () => {
+      const user = userEvent.setup()
+      renderWidget()
+
+      const button = await screen.findByRole('button', {
+        name: /override validation and resubmit/i,
+      })
+      expect(button).toBeDisabled()
+
+      await user.click(screen.getByRole('checkbox'))
+      expect(button).toBeEnabled()
+    })
+
+    it('overrides, resubmits, and refreshes the state on confirm', async () => {
+      mockGetCampaignComplianceState
+        .mockResolvedValueOnce(heldState)
+        .mockResolvedValueOnce({
+          ...heldState,
+          stage: 'ready_to_submit',
+          filingUrl: heldState.filingUrl,
+          cvValidationFailedAt: null,
+          cvValidationFailureReasons: [],
+        })
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(await screen.findByRole('checkbox'))
+      await user.click(
+        screen.getByRole('button', {
+          name: /override validation and resubmit/i,
+        })
+      )
+
+      await waitFor(() =>
+        expect(mockOverrideCvValidationAndResubmit).toHaveBeenCalledWith(7)
+      )
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Hold cleared — registration resubmitted'
+      )
+      expect(
+        await screen.findByText('10DLC: Not yet submitted')
+      ).toBeInTheDocument()
+    })
+
+    it('says the sweep will resubmit when no failed run exists', async () => {
+      mockOverrideCvValidationAndResubmit.mockResolvedValue({
+        retriedRunId: null,
+        retryError: null,
+      })
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(await screen.findByRole('checkbox'))
+      await user.click(
+        screen.getByRole('button', {
+          name: /override validation and resubmit/i,
+        })
+      )
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Hold cleared — the next sweep will resubmit'
+        )
+      )
+    })
+
+    it('reports a retry failure and still refreshes to the cleared state', async () => {
+      mockOverrideCvValidationAndResubmit.mockResolvedValue({
+        retriedRunId: null,
+        retryError: 'No dispatch queue configured',
+      })
+      mockGetCampaignComplianceState
+        .mockResolvedValueOnce(heldState)
+        .mockResolvedValueOnce({
+          ...heldState,
+          stage: 'ready_to_submit',
+          cvValidationFailedAt: null,
+          cvValidationFailureReasons: [],
+        })
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(await screen.findByRole('checkbox'))
+      await user.click(
+        screen.getByRole('button', {
+          name: /override validation and resubmit/i,
+        })
+      )
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Hold cleared, but resubmitting failed: No dispatch queue configured'
+        )
+      )
+      expect(
+        await screen.findByText('10DLC: Not yet submitted')
+      ).toBeInTheDocument()
+    })
+
+    it('surfaces an override failure via toast and keeps the hold view', async () => {
+      mockOverrideCvValidationAndResubmit.mockRejectedValue(
+        new Error('Missing write_campaigns permission')
+      )
+      const user = userEvent.setup()
+      renderWidget()
+
+      await user.click(await screen.findByRole('checkbox'))
+      await user.click(
+        screen.getByRole('button', {
+          name: /override validation and resubmit/i,
+        })
+      )
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Missing write_campaigns permission'
+        )
+      )
+      expect(
+        screen.getByRole('button', {
+          name: /override validation and resubmit/i,
+        })
+      ).toBeInTheDocument()
+    })
+
+    it('hides the override controls without write_campaigns permission', async () => {
+      mockHas.mockImplementation(
+        ({ permission }: { permission: string }) =>
+          permission !== 'org:admin_portal:write_campaigns'
+      )
+
+      renderWidget()
+
+      expect(
+        await screen.findByText(
+          /Candidate name 'Jake Solberg' does not appear on the page/
+        )
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', {
+          name: /override validation and resubmit/i,
+        })
+      ).not.toBeInTheDocument()
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
     })
   })
 
