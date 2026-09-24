@@ -4,25 +4,39 @@ import { search, type Results } from './search'
 const events = (r: Results) => r.events.map((h) => h.item.display_name)
 const questions = (r: Results) => r.questions.map((h) => h.item.id)
 
+/**
+ * Matched on a distinctive part of the name, never the whole of it. These run against
+ * the committed snapshot, which the governance cron rewrites twice a week, so pinning
+ * an exact `display_name` would turn any product-side rename into a CI failure that
+ * reads as a search regression — on the bot's own auto-merging state PR, which is how
+ * the refresh loop would stop. Question ids are pinned exactly on purpose: those are
+ * hand-authored in the registry, so a change there is a deliberate act worth failing on.
+ */
+const someEventMatching = (r: Results, fragment: string) =>
+  events(r).some((name) => name.includes(fragment))
+
 describe('search', () => {
   // Nate typed this verbatim and got an empty page, which on this page reads as
   // "we do not measure that" rather than "the box only matches literal substrings".
   it('finds an event when the query joins words the event splits', () => {
-    expect(events(search('Phonebanking Contacts'))).toContain(
-      'Outreach - Phone Banking: Call Logged',
-    )
+    const r = search('Phonebanking Contacts')
+    expect(someEventMatching(r, 'Phone Banking')).toBe(true)
+    // And not via the closest-matches fallback. Without this the assertion passes
+    // even with compound matching disabled, because "contacts" alone drags a phone
+    // banking event into the loose pass — found by mutating the squeeze away.
+    expect(r.partial).toBe(false)
   })
 
   it('finds an event when the query splits words the event joins', () => {
-    expect(events(search('click to call'))).toContain(
-      'Click to Call CTA Clicked',
-    )
+    const r = search('click to call')
+    expect(someEventMatching(r, 'Click to Call')).toBe(true)
+    expect(r.partial).toBe(false)
   })
 
   it('tolerates a plural the data writes in the singular', () => {
-    expect(events(search('phone banking contacts'))).toContain(
-      'Outreach - Phone Banking: Contact Viewed',
-    )
+    const r = search('phone banking contacts')
+    expect(someEventMatching(r, 'Contact Viewed')).toBe(true)
+    expect(r.partial).toBe(false)
   })
 
   it('still ranks the question above the events that answer it', () => {
