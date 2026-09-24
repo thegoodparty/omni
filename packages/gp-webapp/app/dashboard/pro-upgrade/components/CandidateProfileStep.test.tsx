@@ -65,9 +65,13 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseProUpgradeWizard.mockReturnValue({
     currentStep: 'candidate-profile',
+    purchaseOnly: false,
+    channel: null,
     goToStep: vi.fn(),
     goToNextStep,
     goToPreviousStep,
+    exit: vi.fn(),
+    complete: vi.fn(),
   })
   // Default: a complete profile on file, save succeeds.
   getUserWebsite.mockResolvedValue(websiteWith(validBio, 1))

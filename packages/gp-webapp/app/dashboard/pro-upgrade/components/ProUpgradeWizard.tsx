@@ -1,25 +1,27 @@
 'use client'
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-} from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
-import { Button, Stepper } from '@styleguide'
-import { noop } from '@shared/utils/noop'
+import { Button, Spinner, Stepper } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
+import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import {
   PRO_UPGRADE_BASE_PATH,
   PRO_UPGRADE_STEP,
-  PRO_UPGRADE_STEP_ORDER,
+  proUpgradeStepOrder,
   proUpgradeStepPath,
   type ProUpgradeStep,
 } from '../proUpgradeStep'
+import {
+  ProUpgradeWizardContext,
+  useProUpgradeWizard,
+  type ProUpgradeWizardContextValue,
+} from './proUpgradeWizardContext'
+
+export { useProUpgradeWizard }
 
 // The desktop vertical stepper covers the four collection steps (Figma
 // 7490:18728), but the payment step hides it (Figma 7563:3405) — "Payment"
@@ -33,32 +35,26 @@ const STEPPER_STEPS: { step: ProUpgradeStep; label: string }[] = [
   { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
 ]
 
+// Purchase-only (outreach-pro-gating-v2): campaign details and the candidate
+// profile move behind payment, so only two steps remain to announce.
+const STEPPER_STEPS_PURCHASE_ONLY: { step: ProUpgradeStep; label: string }[] = [
+  { step: PRO_UPGRADE_STEP.EIN, label: 'Campaign EIN' },
+  { step: PRO_UPGRADE_STEP.PAYMENT, label: 'Payment' },
+]
+
 const STEPPER_LABELS = STEPPER_STEPS.map(({ label }) => label)
 
-interface ProUpgradeWizardContextValue {
-  // null on the wizard index (before redirect) or on any non-step path.
-  currentStep: ProUpgradeStep | null
-  goToStep: (step: ProUpgradeStep) => void
-  goToNextStep: () => void
-  goToPreviousStep: () => void
-}
+const STEPPER_LABELS_PURCHASE_ONLY = STEPPER_STEPS_PURCHASE_ONLY.map(
+  ({ label }) => label,
+)
 
-const ProUpgradeWizardContext = createContext<ProUpgradeWizardContextValue>({
-  currentStep: null,
-  goToStep: noop,
-  goToNextStep: noop,
-  goToPreviousStep: noop,
-})
-
-// Per-step pages (tasks 06–14) read this to drive their own forward CTAs and
-// to know which step is active.
-export const useProUpgradeWizard = (): ProUpgradeWizardContextValue =>
-  useContext(ProUpgradeWizardContext)
-
-const stepFromPathname = (pathname: string | null): ProUpgradeStep | null => {
+const stepFromPathname = (
+  pathname: string | null,
+  stepOrder: ProUpgradeStep[],
+): ProUpgradeStep | null => {
   if (!pathname?.startsWith(PRO_UPGRADE_BASE_PATH)) return null
   const segment = pathname.slice(PRO_UPGRADE_BASE_PATH.length + 1).split('/')[0]
-  const match = PRO_UPGRADE_STEP_ORDER.find((step) => step === segment)
+  const match = stepOrder.find((step) => step === segment)
   // `filing-instructions` is a valid path but not in the linear order; surface
   // it as a step so the chrome can render Back without offering linear nav.
   if (match) return match
@@ -73,12 +69,14 @@ const stepFromPathname = (pathname: string | null): ProUpgradeStep | null => {
 // children bare at full width.
 interface WizardChromeProps {
   stepperStep: number
+  labels: string[]
   cardless?: boolean
   children: React.ReactNode
 }
 
 const WizardChrome = ({
   stepperStep,
+  labels,
   cardless = false,
   children,
 }: WizardChromeProps): React.JSX.Element => {
@@ -104,7 +102,7 @@ const WizardChrome = ({
           <Stepper
             variant="vertical"
             currentStep={stepperStep}
-            labels={STEPPER_LABELS}
+            labels={labels}
             className="w-72 shrink-0 max-lg:hidden"
           />
         )}
@@ -129,11 +127,16 @@ const ProUpgradeWizard = ({
 }: ProUpgradeWizardProps): React.JSX.Element => {
   const router = useRouter()
   const pathname = usePathname()
+  const { ready: flagReady, enabled } = useOutreachProGatingV2Flag(false)
+  // An unresolved flag reads off, so committing to the default order before it
+  // resolves would run a step's Continue against the wrong next step. Hold the
+  // step children (not the chrome) until the flag has an answer, the same way
+  // ProUpgradeEntry folds flagReady into its own `ready`.
+  const purchaseOnly = flagReady && enabled
 
-  const currentStep = stepFromPathname(pathname)
-  const orderIndex = currentStep
-    ? PRO_UPGRADE_STEP_ORDER.indexOf(currentStep)
-    : -1
+  const stepOrder = proUpgradeStepOrder(purchaseOnly)
+  const currentStep = stepFromPathname(pathname, stepOrder)
+  const orderIndex = currentStep ? stepOrder.indexOf(currentStep) : -1
 
   // Reset scroll to the top whenever the active step changes (dashboard convention).
   useEffect(() => {
@@ -146,42 +149,85 @@ const ProUpgradeWizard = ({
   )
 
   const goToNextStep = useCallback(() => {
-    if (orderIndex < 0 || orderIndex >= PRO_UPGRADE_STEP_ORDER.length - 1)
-      return
-    router.push(proUpgradeStepPath(PRO_UPGRADE_STEP_ORDER[orderIndex + 1]!))
-  }, [orderIndex, router])
+    if (orderIndex < 0 || orderIndex >= stepOrder.length - 1) return
+    router.push(proUpgradeStepPath(stepOrder[orderIndex + 1]!))
+  }, [orderIndex, stepOrder, router])
 
   const goToPreviousStep = useCallback(() => {
-    // The off-order routes (guidance, filing-instructions) are only ever
-    // entered from the filing-status step, so Back targets it explicitly:
-    // router.back() would leave the wizard entirely for a candidate who
-    // arrived via a direct URL (bookmark, emailed link).
+    // The off-order routes (filing-instructions, and guidance while the
+    // default order is in play) are only ever entered from the filing-status
+    // step, so Back targets it explicitly: router.back() would leave the
+    // wizard entirely for a candidate who arrived via a direct URL (bookmark,
+    // emailed link). In purchase-only mode guidance is the first ordered step,
+    // so it falls through to router.back() instead.
     if (
       currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS ||
-      currentStep === PRO_UPGRADE_STEP.GUIDANCE
+      (currentStep === PRO_UPGRADE_STEP.GUIDANCE && !purchaseOnly)
     ) {
       router.push(proUpgradeStepPath(PRO_UPGRADE_STEP.STATUS))
     } else if (orderIndex > 0) {
-      router.push(proUpgradeStepPath(PRO_UPGRADE_STEP_ORDER[orderIndex - 1]!))
+      router.push(proUpgradeStepPath(stepOrder[orderIndex - 1]!))
     } else {
       router.back()
     }
-  }, [currentStep, orderIndex, router])
+  }, [currentStep, orderIndex, purchaseOnly, stepOrder, router])
 
-  const contextValue = useMemo<ProUpgradeWizardContextValue>(
-    () => ({ currentStep, goToStep, goToNextStep, goToPreviousStep }),
-    [currentStep, goToStep, goToNextStep, goToPreviousStep],
+  const exit = useCallback(() => router.push('/dashboard'), [router])
+
+  // Purchase-only collects filing details after payment, so the success step
+  // hands off to campaign verification instead of the dashboard.
+  const complete = useCallback(
+    () => router.push(purchaseOnly ? CAMPAIGN_VERIFICATION_PATH : '/dashboard'),
+    [purchaseOnly, router],
   )
 
+  const contextValue = useMemo<ProUpgradeWizardContextValue>(
+    () => ({
+      currentStep,
+      purchaseOnly,
+      channel: null,
+      goToStep,
+      goToNextStep,
+      goToPreviousStep,
+      exit,
+      complete,
+    }),
+    [
+      currentStep,
+      purchaseOnly,
+      goToStep,
+      goToNextStep,
+      goToPreviousStep,
+      exit,
+      complete,
+    ],
+  )
+
+  const stepperSteps = purchaseOnly
+    ? STEPPER_STEPS_PURCHASE_ONLY
+    : STEPPER_STEPS
+  const stepperLabels = purchaseOnly
+    ? STEPPER_LABELS_PURCHASE_ONLY
+    : STEPPER_LABELS
   const isPayment = currentStep === PRO_UPGRADE_STEP.PAYMENT
   const stepperStep = isPayment
     ? 0
-    : STEPPER_STEPS.findIndex(({ step }) => step === currentStep) + 1
+    : stepperSteps.findIndex(({ step }) => step === currentStep) + 1
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
-      <WizardChrome stepperStep={stepperStep} cardless={isPayment}>
-        {children}
+      <WizardChrome
+        stepperStep={stepperStep}
+        labels={stepperLabels}
+        cardless={isPayment}
+      >
+        {flagReady ? (
+          children
+        ) : (
+          <div className="flex h-[60vh] items-center justify-center">
+            <Spinner />
+          </div>
+        )}
       </WizardChrome>
     </ProUpgradeWizardContext.Provider>
   )

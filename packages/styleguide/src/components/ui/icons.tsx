@@ -42,6 +42,7 @@ export {
   ThumbsDown as ThumbsDownIcon,
   ThumbsUp as ThumbsUpIcon,
   Copy as CopyIcon,
+  CreditCard as CreditCardIcon,
   Crop as CropIcon,
   DollarSign as DollarSignIcon,
   Download as DownloadIcon,

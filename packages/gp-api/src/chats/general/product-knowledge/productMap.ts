@@ -212,9 +212,25 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'Upgrade to Pro, which is what unlocks filtering the voter file and Know Your Opponent.',
     inside: [
-      'One flow: the Pro pitch, then EIN, filing details, and candidate profile for texting compliance, then payment',
-      'All of the compliance data is collected before paying',
+      'One flow, and which screens it asks for depends on the campaign: some candidates answer whether they have filed, give their campaign EIN, and pay, and nothing else',
+      'Other candidates are asked for their filing details and candidate profile before paying, in the same flow',
+      'When those are not asked for up front they are collected afterwards, under Campaign verification',
     ],
+  },
+  {
+    // No tab: candidates reach this from the membership status shown at the
+    // bottom of the left rail (or, on a phone, in the top bar), and from the
+    // end of the Pro upgrade flow.
+    navId: null,
+    name: 'Campaign verification',
+    path: '/dashboard/campaign-verification',
+    modes: ['win'],
+    does: 'Register a Pro campaign with the phone carriers, which is what makes texting possible.',
+    inside: [
+      'Campaign filing details: the committee name, the filing link, and where to send the PIN',
+      'Carrier review takes about 1 to 2 weeks, then a PIN arrives to finish it',
+    ],
+    gate: 'No tab, and not every candidate is offered it. Filing details can be submitted before paying, but carrier registration only starts once Pro is paid for.',
   },
   {
     navId: 'nav-dash-team',

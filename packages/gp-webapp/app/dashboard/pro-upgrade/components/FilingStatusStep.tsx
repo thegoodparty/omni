@@ -42,8 +42,27 @@ const OPTIONS: FilingStatusOption[] = [
   },
 ]
 
+// The purchase-only flow (outreach-pro-gating-v2) puts guidance ahead of this
+// question, so "yes" goes straight to the EIN step instead of doubling back.
+const PURCHASE_ONLY_OPTIONS: FilingStatusOption[] = [
+  {
+    hasFiled: true,
+    title: 'Yes',
+    description: 'I have filed with my election authority.',
+    event: EVENTS.ProUpgrade.Compliance.FilingStatusAlreadyFiled,
+    nextStep: PRO_UPGRADE_STEP.EIN,
+  },
+  {
+    hasFiled: false,
+    title: 'No',
+    description: 'I have not filed yet.',
+    event: EVENTS.ProUpgrade.Compliance.FilingStatusNotFiled,
+    nextStep: PRO_UPGRADE_STEP.FILING_INSTRUCTIONS,
+  },
+]
+
 const FilingStatusStep = (): React.JSX.Element => {
-  const { goToStep, goToPreviousStep } = useProUpgradeWizard()
+  const { purchaseOnly, goToStep, goToPreviousStep } = useProUpgradeWizard()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
   const [submitting, setSubmitting] = useState(false)
@@ -81,18 +100,23 @@ const FilingStatusStep = (): React.JSX.Element => {
     setSubmitting(false)
   }
 
+  const options = purchaseOnly ? PURCHASE_ONLY_OPTIONS : OPTIONS
+
   return (
     <div>
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        Have you already filed for your race?
+        {purchaseOnly
+          ? 'Are you officially filed?'
+          : 'Have you already filed for your race?'}
       </h1>
       <Body2 className="text-base-muted-foreground mb-6">
-        In order to get Pro you need to be officially filed as a candidate to
-        comply with voter data and texting regulations.
+        {purchaseOnly
+          ? 'This confirms you are running for office.'
+          : 'In order to get Pro you need to be officially filed as a candidate to comply with voter data and texting regulations.'}
       </Body2>
 
       <div className="flex flex-col gap-3">
-        {OPTIONS.map((option) => (
+        {options.map((option) => (
           <button
             key={option.title}
             type="button"
