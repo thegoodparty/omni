@@ -1,7 +1,16 @@
 import { expect, test } from '@playwright/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
+import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
+
+// The non-Pro tile behavior depends on `outreach-pro-gating-v2`: off, a
+// non-Pro click redirects to the Pro upgrade wizard; on, the flow opens and
+// an in-flow gate banner names what still stands between the candidate and a
+// send. Every non-Pro test below pins the flag one way or the other, so the
+// suite reads the same on the release train whatever the flag's live dev
+// rollout is (AGENTS.md: "force the flag, don't depend on Amplitude").
+const GATE_V2 = 'outreach-pro-gating-v2'
 
 // The Voter Outreach 2.0 hub is the unconditional outreach page: every
 // candidate lands on the hub and every channel tile opens its new flow.
@@ -57,9 +66,10 @@ test.describe('outreach hub — default-on channel tiles', () => {
     ).toHaveCount(0)
   })
 
-  test('phone-banking tile, non-Pro: redirects to pro-upgrade', async ({
+  test('phone-banking tile, non-Pro, gate v2 off: redirects to pro-upgrade', async ({
     page,
   }) => {
+    await setFlagOverrides(page, { [GATE_V2]: 'off' })
     await authenticateTestUser(page)
 
     await page.goto('/dashboard/outreach')
@@ -117,9 +127,10 @@ test.describe('outreach hub — sms tile upgrade-at-entry', () => {
     await blockSlowScripts(page)
   })
 
-  test('non-Pro: Text tile redirects straight to pro-upgrade', async ({
+  test('non-Pro, gate v2 off: Text tile redirects straight to pro-upgrade', async ({
     page,
   }) => {
+    await setFlagOverrides(page, { [GATE_V2]: 'off' })
     await authenticateTestUser(page)
 
     await page.goto('/dashboard/outreach')
@@ -133,5 +144,57 @@ test.describe('outreach hub — sms tile upgrade-at-entry', () => {
     await expect(
       page.getByRole('heading', { name: 'Level the playing field for less' }),
     ).toBeHidden()
+  })
+})
+
+// With the gate on, a non-Pro click opens the flow instead of leaving the
+// hub, and the shell's banner (GateBanner, copy from gateCopy.ts BANNER_COPY)
+// says what is still needed. The banner is a button because it opens the
+// explainer.
+test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () => {
+  test.beforeEach(async ({ page }) => {
+    await blockSlowScripts(page)
+    await setFlagOverrides(page, { [GATE_V2]: 'on' })
+  })
+
+  test('phone-banking tile, non-Pro: opens the flow with the Pro banner', async ({
+    page,
+  }) => {
+    await authenticateTestUser(page)
+
+    await page.goto('/dashboard/outreach')
+    await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
+      timeout: 30_000,
+    })
+
+    await page.getByRole('button', { name: /^Phone banking/ }).click()
+
+    await expect(
+      page.getByRole('button', {
+        name: /Pro is needed to see voter names and phone numbers/,
+      }),
+    ).toBeVisible({ timeout: 30_000 })
+    await expect(page).not.toHaveURL(/\/dashboard\/pro-upgrade/)
+  })
+
+  test('Text tile, non-Pro: opens the flow with the two-step banner', async ({
+    page,
+  }) => {
+    await authenticateTestUser(page)
+
+    await page.goto('/dashboard/outreach')
+    await expect(
+      page.getByRole('heading', { name: 'Create an outreach campaign' }),
+    ).toBeVisible({ timeout: 30_000 })
+
+    await page.getByRole('button', { name: /^SMS/ }).click()
+
+    // A fresh campaign is free and unverified, so texting needs both.
+    await expect(
+      page.getByRole('button', {
+        name: /Two things are needed before this text can send/,
+      }),
+    ).toBeVisible({ timeout: 30_000 })
+    await expect(page).not.toHaveURL(/\/dashboard\/pro-upgrade/)
   })
 })
