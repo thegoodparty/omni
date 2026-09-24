@@ -142,9 +142,11 @@ export class OutreachSocialService extends createPrismaBase(
     // official's post inside a Win number. Social has no audience to count,
     // so it carries platformCount where the paid channels carry
     // recipientCount.
+    // Awaited with the catch inside, like the sibling channels: a floating
+    // emit resolves after the caller returns and races its own test.
     if (scope.campaignId !== null) {
-      void this.analytics
-        .track(
+      try {
+        await this.analytics.track(
           scope.userId,
           EVENTS.Outreach.CampaignScheduled,
           {
@@ -155,7 +157,12 @@ export class OutreachSocialService extends createPrismaBase(
           undefined,
           `${outreach.id}:campaign_scheduled`,
         )
-        .catch(() => undefined)
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId: outreach.id },
+          'social campaign scheduled emit failed',
+        )
+      }
     }
 
     return toOutreachDetail(outreach)

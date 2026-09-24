@@ -568,25 +568,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       data: { projectId: jobId },
     })
 
-    // The send terminal for the SMS channel. Safe to emit once here because
-    // the pending_payment -> pending claim at the top of this method already
-    // returned for every replay: a Stripe webhook retry sees claimed.count 0
-    // and never reaches this line. Keyed on campaign.userId rather than the
-    // loaded `user` relation so a missing user record does not silently drop
-    // the OKR signal the way it skips the notifications below.
-    void this.analytics
-      .track(
-        campaign.userId,
-        EVENTS.Outreach.CampaignScheduled,
-        {
-          channel: 'sms',
-          outreachId,
-          recipientCount: outreach.textCount ?? undefined,
-        },
-        undefined,
-        `${outreachId}:campaign_scheduled`,
-      )
-      .catch(() => undefined)
+    await this.tryTrackCampaignScheduled(
+      campaign.userId,
+      outreachId,
+      outreach.textCount,
+    )
 
     const finalized = { ...outreach, projectId: jobId }
     // Materialization needs no user — a missing user record must not skip
@@ -760,6 +746,40 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // ContactInteraction<channel> rows and locks the filter. Best-effort like
   // tryNotifySuccess: the rows are the audit trail, but a materialization
   // failure must not fail the outreach that was already persisted.
+  // The send terminal for the SMS channel, emitted once per purchase: the
+  // pending_payment -> pending claim in finalizeOutreachPurchase already
+  // returned for every replay, so a Stripe webhook retry never reaches this.
+  // Keyed on campaign.userId rather than the loaded `user` relation, so a
+  // missing user record does not silently drop the OKR signal the way it
+  // skips the notifications. Awaited with the catch inside (the house pattern
+  // here and in the robocall services) rather than left floating: a floating
+  // emit resolves after the caller returns, which makes the event's own tests
+  // race the assertion. A Segment failure still cannot fail the request.
+  private async tryTrackCampaignScheduled(
+    userId: number,
+    outreachId: number,
+    textCount: number | null,
+  ) {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Outreach.CampaignScheduled,
+        {
+          channel: 'sms',
+          outreachId,
+          recipientCount: textCount ?? undefined,
+        },
+        undefined,
+        `${outreachId}:campaign_scheduled`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'Outreach campaign scheduled emit failed',
+      )
+    }
+  }
+
   private async tryMaterializeOutreach(
     campaign: Campaign,
     outreach: Awaited<ReturnType<OutreachService['createRecord']>>,

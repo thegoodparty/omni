@@ -655,8 +655,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // pending_payment -> pending transition as the CAS notice below, so a
     // re-authorize on an already-pending row never re-emits. Distinct from
     // 'Robocall - Scheduled', which fired earlier at draft-create while the
-    // row was still unpaid; this one means the money committed.
-    void this.emitCampaignScheduled(outreachId, user.id).catch(() => undefined)
+    // row was still unpaid; this one means the money committed. Awaited, with
+    // the catch inside, like the sibling emitMilestone.
+    await this.emitCampaignScheduled(outreachId, user.id)
     // Fire-and-forget: the CAS notice reads the audience + a HubSpot owner and
     // POSTs to Slack, and authorizeHold is a user-facing pay request. Only the
     // spine transition above is awaited (the client refetches history right
