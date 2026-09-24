@@ -229,6 +229,22 @@ def test_latched_declared_leg_counts_as_dead():
     assert findings[0]["evidence"]["latched"] is True
 
 
+def test_a_latched_path_leg_with_no_firing_week_carries_the_latch_date():
+    # Every row is zero, so there is no last firing week to report. The latch still
+    # knows when the slice went quiet, and the historical era needs a date.
+    findings = _align(
+        [_b("b", M, ("Viewed", "/dashboard"), ("Dashboard - Home Viewed", None))],
+        {M: [LIVE]},
+        records_by_type={"Viewed": _rec(), "Dashboard - Home Viewed": _rec()},
+        series=_series(LIVE.key, 0),
+        latches={LIVE.key: {"latched": True, "metric": M, "since": "2026-08-10"}})
+    [f] = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    assert f["case"] == 2
+    assert f["evidence"]["latched"] is True
+    assert f["evidence"]["last_seen_date"] is None
+    assert f["evidence"]["latched_since"] == "2026-08-10"
+
+
 def test_findings_sort_by_case_then_metric():
     findings = _align(
         [_b("b", M, ("Viewed", "/dashboard"), ("Viewed", "/polls")),
@@ -265,6 +281,35 @@ def test_a_dismissed_first_candidate_yields_to_the_next_successor():
     case2 = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
     assert [(f["event_key"], f["suggested"]) for f in case2] == [(TRACKER.key, "NewB")]
     assert not [x for x in findings if x["kind"] == "live_instrument_not_declared"]
+
+
+def test_a_dismissed_candidate_is_excluded_from_case_3_by_the_dismissal_not_by_consumption():
+    # The dismissal says NewA is not part of the metric, for either case. It is never
+    # chosen as a successor, so consumption is not what keeps it out of case 3.
+    code = {TRACKER.event: {"retired_date": "2026-09-01"}}
+    findings = _align(
+        [_b("b", M, (TRACKER.event, None), ("NewA", None))],
+        {M: [TRACKER]},
+        records_by_type={TRACKER.event: _rec("retired"), "NewA": _rec()},
+        code=code,
+        dismissed=[{"event": "NewA", "metric": M}],
+    )
+    assert findings == []
+
+
+def test_an_unchosen_undeclared_surface_still_reaches_case_3():
+    # Only the chosen successor is consumed. The surface the dead leg did not pair with
+    # is still an undeclared live instrument.
+    code = {TRACKER.event: {"retired_date": "2026-09-01"}}
+    findings = _align(
+        [_b("b", M, (TRACKER.event, None), ("NewA", None), ("NewB", None))],
+        {M: [TRACKER]},
+        records_by_type={TRACKER.event: _rec("retired"), "NewA": _rec(), "NewB": _rec()},
+        code=code)
+    case2 = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    case3 = [x for x in findings if x["kind"] == "live_instrument_not_declared"]
+    assert [f["suggested"] for f in case2] == ["NewA"]
+    assert [f["event_key"] for f in case3] == ["NewB"]
 
 
 def test_two_behaviors_on_one_metric_emit_one_unmonitored_finding():

@@ -57,6 +57,7 @@ def _dead_leg_evidence(leg, records_by_type, code, latches, series, today) -> di
         return {
             "retired_date": retired,
             "latched": latched,
+            "latched_since": (latches.get(leg.key) or {}).get("since"),
             "status": None,
             "last_seen_date": last_seen,
             "call_site_count": None,
@@ -67,6 +68,7 @@ def _dead_leg_evidence(leg, records_by_type, code, latches, series, today) -> di
     return {
         "retired_date": retired,
         "latched": latched,
+        "latched_since": (latches.get(leg.key) or {}).get("since"),
         "status": rec.get("status"),
         "last_seen_date": rec.get("last_seen_date"),
         "call_site_count": rec.get("call_site_count"),
@@ -153,6 +155,7 @@ def align(
                 if surface_key(s) not in live_keys and surface_key(s) not in hist_keys
                 and _live(surface_key(s), records_by_type, series, today)
             ]
+            undeclared_keys = {surface_key(s) for s in live_undeclared}
             consumed: set[str] = set()
 
             for leg in live_legs:
@@ -162,13 +165,17 @@ def align(
                     continue
                 # Pop, so a second dead leg pairs with the next unmatched surface rather
                 # than telling the reader to replace both legs with the same event. A
-                # dismissal rules out that one candidate, not the rest of the queue.
+                # dismissal rules out that one candidate, not the rest of the queue. A
+                # chosen successor is consumed so it is not also reported as a case 3; a
+                # dismissed candidate is kept out of case 3 by that same dismissal row,
+                # because one dismissal means the surface is not part of the metric for
+                # either case.
                 successor = None
                 while live_undeclared:
                     candidate = live_undeclared.pop(0)
-                    consumed.add(surface_key(candidate))
                     if (metric, surface_key(candidate)) not in dismissed_keys:
                         successor = candidate
+                        consumed.add(surface_key(candidate))
                         break
                 if successor is None:
                     continue
@@ -189,7 +196,7 @@ def align(
                         surface_label=s.get("label"), event_key=key, suggested=suggested,
                         headline=(f"{bid}.{s.get('label')} names {key}, which '{metric}' "
                                   f"marks historical. Point it at {suggested}.")))
-                elif (s in live_undeclared and key not in consumed
+                elif (key in undeclared_keys and key not in consumed
                       and (metric, key) not in dismissed_keys):
                     findings.append(_finding(
                         3, "live_instrument_not_declared", metric=metric, behavior_id=bid,

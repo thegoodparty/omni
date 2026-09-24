@@ -356,7 +356,7 @@ Case 1 has no dismiss. A stale pointer is always wrong.
 ```yaml
 # in <metric>'s config.meta.anchored_on
 - event: <event_key's event>
-  era: historical   # <evidence.retired_date, or evidence.last_seen_date if only latched>
+  era: historical   # <evidence.retired_date, else evidence.last_seen_date, else evidence.latched_since>
 - event: <suggested's event>
   path: <suggested's path, when the key carries one>
 ```
