@@ -6,7 +6,6 @@ import {
   CUSTOM_PURPOSES,
   VoterFileType,
 } from '../voterFile.types'
-import type { CustomFilter } from '../voterFile.types'
 import { CampaignTaskType } from 'src/campaigns/tasks/campaignTasks.types'
 import { parseJsonString } from 'src/shared/util/zod.util'
 import { OutreachType } from '../../../generated/prisma'
@@ -39,17 +38,7 @@ export class GetVoterFileSchema extends createZodDto(
         .object({
           channel: z.enum(CUSTOM_CHANNELS).optional(),
           purpose: z.enum(CUSTOM_PURPOSES).optional(),
-          // Unrecognized values are dropped, not rejected: archived Slack
-          // links carry `ethnicity_*` keys that buildVoterFileUrl serialized
-          // before the no-subsetting rule, and one widens back to the rest of
-          // its filter instead of 400ing (voterFileFilter.service.ts).
-          filters: z
-            .array(z.string())
-            .transform((values) =>
-              values.filter((value): value is CustomFilter =>
-                (CUSTOM_FILTERS as readonly string[]).includes(value),
-              ),
-            ),
+          filters: z.array(z.enum(CUSTOM_FILTERS)),
         })
         .optional(),
     ),

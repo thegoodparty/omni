@@ -46,6 +46,7 @@ const mockPersonPayload = (personId: string) => ({
   homeowner: null,
   businessOwner: null,
   levelOfEducation: null,
+  ethnicityGroup: null,
   language: 'English',
 })
 

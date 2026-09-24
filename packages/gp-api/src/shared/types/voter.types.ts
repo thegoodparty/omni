@@ -25,6 +25,10 @@ export const CUSTOM_FILTERS = [
   'gender_unknown',
   'has_cell_phone',
   'has_landline',
+  'ethnicity_european',
+  'ethnicity_asian',
+  'ethnicity_hispanic',
+  'ethnicity_african_american',
   'audience_request',
 ] as const
 

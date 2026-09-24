@@ -537,6 +537,15 @@ const PersonContent: React.FC<{
             value={getIncomeBucket(person.estimatedIncomeAmount)?.label ?? null}
           />
           <Field label="Language" value={person.language} />
+          {/* Win-only. gp-api already strips `ethnicityGroup` for an `eo-`
+              org, so rendering the row for Serve would print "Unknown" — a
+              claim that the value exists and we do not have it, where the
+              truth is that this product does not state ethnicity to an
+              elected official (#1933). Dropped rather than left to the
+              fallback, the same way the Political Party row above is. */}
+          {!isServe && (
+            <Field label="Ethnicity Group" value={person.ethnicityGroup} />
+          )}
         </InfoSection>
 
         {showActivityFeed ? (

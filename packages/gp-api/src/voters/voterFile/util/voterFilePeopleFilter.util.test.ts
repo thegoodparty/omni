@@ -13,6 +13,7 @@ describe('buildVoterFilePeopleFilter', () => {
           'party_other',
           'age_18_25',
           'gender_female',
+          'ethnicity_hispanic',
         ],
       },
     )
@@ -23,6 +24,7 @@ describe('buildVoterFilePeopleFilter', () => {
       partyOther: true,
       age18_25: true,
       genderFemale: true,
+      ethnicityHispanic: true,
     })
     expect(groupByHousehold).toBe(false)
   })

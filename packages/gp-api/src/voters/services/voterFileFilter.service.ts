@@ -356,6 +356,10 @@ export class VoterFileFilterService extends createPrismaBase(
       genderUnknown,
       hasCellPhone,
       hasLandline,
+      ethnicityEuropean,
+      ethnicityAsian,
+      ethnicityHispanic,
+      ethnicityAfricanAmerican,
     }: Partial<VoterFileFilter> =
       typeof idOrFilter === 'number'
         ? await this.model.findUniqueOrThrow({ where: { id: idOrFilter } })
@@ -394,9 +398,16 @@ export class VoterFileFilterService extends createPrismaBase(
       ...(genderUnknown === true ? { gender_unknown: genderUnknown } : {}),
       ...(hasCellPhone === true ? { has_cell_phone: hasCellPhone } : {}),
       ...(hasLandline === true ? { has_landline: hasLandline } : {}),
-      // The four ethnicity booleans on a row saved before the no-subsetting
-      // rule are deliberately not emitted: a legacy voter-file export built
-      // on one widens back to the rest of the filter instead of failing.
+      ...(ethnicityEuropean === true
+        ? { ethnicity_european: ethnicityEuropean }
+        : {}),
+      ...(ethnicityAsian === true ? { ethnicity_asian: ethnicityAsian } : {}),
+      ...(ethnicityHispanic === true
+        ? { ethnicity_hispanic: ethnicityHispanic }
+        : {}),
+      ...(ethnicityAfricanAmerican === true
+        ? { ethnicity_african_american: ethnicityAfricanAmerican }
+        : {}),
     }
   }
 

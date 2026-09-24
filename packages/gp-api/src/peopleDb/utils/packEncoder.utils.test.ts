@@ -27,6 +27,7 @@ const row = (overrides: Partial<PackRow>): PackRow => ({
   Education_Of_Person: null,
   Estimated_Income_Amount_Int: null,
   Language_Code: null,
+  EthnicGroups_EthnicGroup1Desc: null,
   registered: false,
   hasCellPhone: false,
   hasLandline: false,
