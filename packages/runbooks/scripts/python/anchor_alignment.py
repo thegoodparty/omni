@@ -39,12 +39,22 @@ def _live(key: str, records_by_type, series, today) -> bool:
     return (records_by_type.get(key) or {}).get("status") in _LIVE
 
 
-def _dead_leg_evidence(leg, records_by_type, code, latches) -> dict | None:
-    # Approximation: a path leg has no catalog record, so its bare event's record stands
-    # in. The latch line below is keyed on the leg itself and owns the slice's dormancy.
-    rec = records_by_type.get(leg.key) or records_by_type.get(leg.event) or {}
+def _dead_leg_evidence(leg, records_by_type, code, latches, series, today) -> dict | None:
+    # A path leg is judged from its own weekly rows: the site-wide event's record reads
+    # active whenever any other page still fires it, which would hide a dead slice.
     retired = (code.get(leg.event) or {}).get("retired_date") or None
     latched = bool((latches.get(leg.key) or {}).get("latched"))
+    if "[path=" in leg.key:
+        if not retired and not latched and _live(leg.key, records_by_type, series, today):
+            return None
+        return {
+            "retired_date": retired,
+            "latched": latched,
+            "status": None,
+            "last_seen_date": None,
+            "call_site_count": None,
+        }
+    rec = records_by_type.get(leg.event) or {}
     if not retired and not latched and rec.get("status") not in _DEAD:
         return None
     return {
@@ -137,7 +147,8 @@ def align(
             consumed: set[str] = set()
 
             for leg in live_legs:
-                evidence = _dead_leg_evidence(leg, records_by_type, code, latches)
+                evidence = _dead_leg_evidence(
+                    leg, records_by_type, code, latches, series, today)
                 if evidence is None or not live_undeclared:
                     continue
                 # Pop, so a second dead leg pairs with the next unmatched surface rather

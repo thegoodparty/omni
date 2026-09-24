@@ -114,6 +114,29 @@ def test_dead_declared_leg_with_a_live_successor_is_case_2():
     assert not [x for x in findings if x["kind"] == "live_instrument_not_declared"]
 
 
+def test_a_quiet_path_leg_is_dead_even_when_the_bare_event_is_active():
+    # The site-wide 'Viewed' record is active because other pages still fire it. The
+    # /dashboard slice is not, and the slice is what the declaration names.
+    findings = _align(
+        [_b("b", M, ("Viewed", "/dashboard"), ("Dashboard - Home Viewed", None))],
+        {M: [LIVE]},
+        records_by_type={"Viewed": _rec(), "Dashboard - Home Viewed": _rec()},
+        series={})
+    [f] = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    assert f["case"] == 2 and f["event_key"] == LIVE.key
+    assert f["suggested"] == "Dashboard - Home Viewed"
+    assert f["evidence"]["status"] is None
+
+
+def test_a_firing_path_leg_is_not_dead():
+    findings = _align(
+        [_b("b", M, ("Viewed", "/dashboard"), ("Dashboard - Home Viewed", None))],
+        {M: [LIVE]},
+        records_by_type={"Viewed": _rec(), "Dashboard - Home Viewed": _rec()},
+        series=_series(LIVE.key, 5))
+    assert not [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+
+
 def test_two_dead_legs_pair_with_distinct_successors():
     # Each dead leg consumes the successor it pairs with. Re-reading the first one would
     # tell the reader to replace both legs with the same event.
