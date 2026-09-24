@@ -188,6 +188,10 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    writer; the walk is the truth writer. Do not hand-edit the CSV — always go through `upsert`
    so the file's sort and quoting stay identical to a full walk.
 
+   If you upserted before the PR existed, re-run the same command with `--pr` once it is
+   open. `add` fills an empty `instrumented_pr` and never overwrites one already recorded,
+   so the second call is safe and does the right thing.
+
 8. **Verify.**
 
    **Frontend** (from the repo root):

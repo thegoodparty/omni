@@ -997,8 +997,10 @@ def upsert_provenance_row(
     leaves the exact merge commit SHA blank for the periodic git-walk to fill. Reuses
     read_provenance_rows / write_provenance so the file's sort order and CSV quoting are
     byte-identical whether a single upsert or a full walk produced it. ``add`` does not
-    clobber instrumentation already recorded (e.g. by a prior exact walk); ``retire`` always
-    stamps the retired_* fields, creating the row if the event predates the backfill.
+    clobber instrumentation already recorded (e.g. by a prior exact walk), but it does fill
+    an empty ``instrumented_pr``, so calling it again with ``--pr`` once the PR exists works;
+    ``retire`` always stamps the retired_* fields, creating the row if the event predates
+    the backfill.
     """
     if direction not in ("add", "retire"):
         raise ValueError(f"direction must be 'add' or 'retire', got {direction!r}")
@@ -1007,8 +1009,13 @@ def upsert_provenance_row(
     row["event_type"] = event_type
     row["event_type_slug"] = slugify_event(event_type)
     if direction == "add":
-        if not row.get("instrumented_date"):
+        # The PR is guarded on its own emptiness, not on the date. The skill's documented
+        # flow is to upsert without --pr (no PR exists yet), then re-run with the number
+        # once the PR is open; a single date-guard drops that second call silently and
+        # still reports success. An already-recorded PR is still never overwritten.
+        if pr and not row.get("instrumented_pr"):
             row["instrumented_pr"] = pr_url(pr)
+        if not row.get("instrumented_date"):
             row["instrumented_date"] = date
             row["instrumented_commit"] = None
         # A re-add un-retires the event: clear every "retired / no-longer-called" signal so it

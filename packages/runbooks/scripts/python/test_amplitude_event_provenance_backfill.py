@@ -1660,6 +1660,27 @@ def test_upsert_add_does_not_clobber_existing_instrumentation(tmp_path):
     assert row["instrumented_date"] == "2026-06-01"
 
 
+def test_upsert_add_fills_an_empty_pr_on_a_later_call(tmp_path):
+    # The skill's documented flow: upsert with no PR (none exists yet), then re-run with
+    # the number once the PR is open. A date-only guard dropped that second call silently.
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("E", "add", None, "2026-06-01", "2026-06-01T00:00:00", csv_path=csv)
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] is None
+
+    bf.upsert_provenance_row("E", "add", "2115", "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    row = bf.read_provenance_rows(csv)["E"]
+    assert row["instrumented_pr"] == f"{_PR}/2115"
+    # Filling the PR must not move the instrumentation date off the first sighting.
+    assert row["instrumented_date"] == "2026-06-01"
+
+
+def test_upsert_add_without_a_pr_leaves_a_recorded_pr_alone(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("E", "add", "1", "2026-06-01", "2026-06-01T00:00:00", csv_path=csv)
+    bf.upsert_provenance_row("E", "add", None, "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    assert bf.read_provenance_rows(csv)["E"]["instrumented_pr"] == f"{_PR}/1"
+
+
 def test_upsert_retire_does_not_clobber_existing_retirement(tmp_path):
     # Symmetric with the add guard: a double-fire must not replace the first retirement record.
     csv = str(tmp_path / "p.csv")
