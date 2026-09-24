@@ -1603,7 +1603,7 @@ describe('ContactsService', () => {
         })
 
         const result = await service.getFilterDetail(
-          { voterStatus: ['Super'] },
+          { independentAffinity: true },
           org,
         )
 
