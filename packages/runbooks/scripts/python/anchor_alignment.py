@@ -206,7 +206,7 @@ def align(
                                   "the behavior overclaims.")))
 
             for leg in live_legs:
-                if leg.key not in monitored and leg.event not in monitored:
+                if leg.key not in monitored:
                     if (metric, leg.key) in seen_unmonitored:
                         continue
                     seen_unmonitored.add((metric, leg.key))

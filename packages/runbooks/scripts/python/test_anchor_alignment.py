@@ -84,6 +84,22 @@ def test_declared_leg_named_on_an_events_row_counts_as_monitored():
     assert not [x for x in findings if x["kind"] == "declared_leg_unmonitored"]
 
 
+def test_a_bare_event_surface_does_not_monitor_a_path_leg():
+    findings = _align(
+        [_b("b", M, ("Viewed", None), (TRACKER.event, None))], {M: [LIVE, TRACKER]},
+        records_by_type={"Viewed": _rec(), TRACKER.event: _rec()})
+    [f] = [x for x in findings if x["kind"] == "declared_leg_unmonitored"]
+    assert f["event_key"] == LIVE.key
+
+
+def test_a_bare_watchlist_row_does_not_monitor_a_path_leg():
+    findings = _align(
+        [_b("b", M, (TRACKER.event, None))], {M: [LIVE, TRACKER]},
+        records_by_type={TRACKER.event: _rec()}, watchlist_events=["Viewed"])
+    [f] = [x for x in findings if x["kind"] == "declared_leg_unmonitored"]
+    assert f["event_key"] == LIVE.key
+
+
 def test_live_instrument_the_declaration_lacks_is_case_3_with_the_leg_key():
     findings = _align([_b("b", M, ("Viewed", "/dashboard"), ("Viewed", "/polls"))], {M: [LIVE]},
                       records_by_type={"Viewed": _rec()},
