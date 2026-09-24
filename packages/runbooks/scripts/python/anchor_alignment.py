@@ -45,10 +45,11 @@ def _dead_leg_evidence(leg, records_by_type, code, latches, series, today) -> di
     retired = (code.get(leg.event) or {}).get("retired_date") or None
     latched = bool((latches.get(leg.key) or {}).get("latched"))
     if "[path=" in leg.key:
-        # No rows at all means the leg has not been observed yet, not that it died; a
-        # dead slice has rows that went to zero.
+        # A path slice is judged from its own rows, not the bare event's catalog record:
+        # a retired_date on the bare event does not make a still-firing slice dead. Only
+        # a latch, or rows that are missing or gone quiet, can.
         rows = series.get(leg.key, ())
-        if not retired and not latched and (
+        if not latched and (
                 not rows or _live(leg.key, records_by_type, series, today)):
             return None
         return {

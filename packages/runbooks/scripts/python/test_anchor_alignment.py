@@ -128,6 +128,22 @@ def test_a_quiet_path_leg_is_dead_even_when_the_bare_event_is_active():
     assert f["evidence"]["status"] is None
 
 
+def test_a_firing_path_leg_is_not_dead_even_if_the_bare_event_is_retired():
+    # A retired_date on the bare 'Viewed' provenance row is not evidence for the
+    # /dashboard slice: the slice's own rows are still firing, so it is not dead, and
+    # the undeclared 'Dashboard - Home Viewed' surface still surfaces as a case 3.
+    code = {"Viewed": {"retired_date": "2026-09-01"}}
+    findings = _align(
+        [_b("b", M, ("Viewed", "/dashboard"), ("Dashboard - Home Viewed", None))],
+        {M: [LIVE]},
+        records_by_type={"Viewed": _rec("retired"), "Dashboard - Home Viewed": _rec()},
+        code=code,
+        series=_series(LIVE.key, 5))
+    assert not [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    [f] = [x for x in findings if x["kind"] == "live_instrument_not_declared"]
+    assert f["case"] == 3 and f["event_key"] == "Dashboard - Home Viewed"
+
+
 def test_a_never_observed_path_leg_is_not_dead():
     # No rows at all is the first run after a leg is declared, or a pipeline delay. A
     # leg that has never been observed has not died.
