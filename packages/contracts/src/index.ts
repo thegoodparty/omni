@@ -938,6 +938,10 @@ export {
   type RobocallDraftCreateRequest,
   RobocallDraftCreateResponseSchema,
   type RobocallDraftCreateResponse,
+  RobocallPromoApplyRequestSchema,
+  type RobocallPromoApplyRequest,
+  RobocallPromoStateResponseSchema,
+  type RobocallPromoStateResponse,
 } from './outreach/RobocallPurchase.schema'
 export {
   RobocallAuthorizeRequestSchema,

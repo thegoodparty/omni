@@ -65,6 +65,7 @@ import { OutreachServeSmsCreateService } from './services/outreachServeSmsCreate
 import { OutreachServeSmsPurchaseHandlerService } from './services/outreachServeSmsPurchase.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
+import { OutreachRobocallPromoService } from './services/outreachRobocallPromo.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
 import { OutreachRobocallHoldRecoveryService } from './services/outreachRobocallHoldRecovery.service'
 import { RobocallOrphanedCampaignService } from './services/robocallOrphanedCampaign.service'
@@ -199,6 +200,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachRobocallGenerationService,
     OutreachRobocallService,
     OutreachRobocallHoldService,
+    OutreachRobocallPromoService,
     OutreachRobocallHoldRecoveryService,
     RobocallOrphanedCampaignService,
     OutreachRobocallCallhubCleanupService,

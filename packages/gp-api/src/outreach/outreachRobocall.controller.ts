@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Delete,
   Body,
   Controller,
   Param,
@@ -12,6 +13,10 @@ import {
   RobocallAuthorizeRequestSchema,
   RobocallAuthorizeResponse,
   RobocallAuthorizeResponseSchema,
+  RobocallPromoApplyRequestSchema,
+  type RobocallPromoApplyRequest,
+  RobocallPromoStateResponseSchema,
+  type RobocallPromoStateResponse,
   RobocallComplianceRequest,
   RobocallComplianceRequestSchema,
   RobocallComplianceVerdict,
@@ -47,6 +52,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
+import { OutreachRobocallPromoService } from './services/outreachRobocallPromo.service'
 import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
 import { RobocallComplianceService } from './services/robocallCompliance.service'
 import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
@@ -71,6 +77,7 @@ export class OutreachRobocallController {
     private readonly generationService: OutreachRobocallGenerationService,
     private readonly robocallService: OutreachRobocallService,
     private readonly holdService: OutreachRobocallHoldService,
+    private readonly promos: OutreachRobocallPromoService,
     private readonly compliance: RobocallComplianceService,
     private readonly complianceResults: RobocallComplianceResultService,
     private readonly composeContext: OutreachComposeContextService,
@@ -237,6 +244,34 @@ export class OutreachRobocallController {
       outreachId,
       input.paymentMethodId,
     )
+  }
+
+  // Remembers a reward promotion code on the pending draft and returns the
+  // server-priced discount. Nothing is consumed here: the hold service spends
+  // the code when money commits, so a candidate who applies a code and leaves
+  // keeps it. Pro-gated and campaign-scoped like the siblings.
+  @Post('robocall/:outreachId/promo')
+  @ResponseSchema(RobocallPromoStateResponseSchema)
+  async applyPromo(
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+    @Body(new ZodValidationPipe(RobocallPromoApplyRequestSchema))
+    input: RobocallPromoApplyRequest,
+  ): Promise<RobocallPromoStateResponse> {
+    await this.contacts.assertProAccess(organization)
+    return this.promos.apply(campaign, outreachId, input.code)
+  }
+
+  @Delete('robocall/:outreachId/promo')
+  @ResponseSchema(RobocallPromoStateResponseSchema)
+  async removePromo(
+    @ReqCampaign() campaign: Campaign,
+    @ReqOrganization() organization: Organization,
+    @Param('outreachId', ParseIntPipe) outreachId: number,
+  ): Promise<RobocallPromoStateResponse> {
+    await this.contacts.assertProAccess(organization)
+    return this.promos.remove(campaign, outreachId)
   }
 
   // Fail-closed compliance gate for the recorded audio: transcribe and verify

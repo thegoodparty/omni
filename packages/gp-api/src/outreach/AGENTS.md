@@ -705,6 +705,50 @@ and the `HoldPlaced`/`HoldFailed` milestones, so a Stripe redelivery is idempote
 failures are isolated. RESERVES REAL MONEY off-session. Ops: the Stripe webhook
 endpoint must subscribe to `payment_method.attached`.
 
+**Promo codes (reward codes on the pay step).** CAS mints single-use,
+amount-off promotion codes in Stripe (a fixed number of calls at a fixed rate)
+and hands them to candidates. Stripe only APPLIES a code to a Checkout Session
+or invoice, never to the manual-capture hold above, so
+`OutreachRobocallPromoService` does what Checkout would: `POST
+/outreach/robocall/:id/promo` looks the code up (`StripeService.
+findActivePromotionCode`, coupon expanded), prices the discount off the WHOLE
+estimate — calls + number fee (product decision 2026-09-23) — and only
+REMEMBERS it on the `pending_payment | hold_failed` draft (`promotionCodeId`,
+`promoCode`, `promoDiscountInCents`); nothing is consumed, so a candidate who
+applies a code and leaves keeps it (`DELETE` forgets it). The code is SPENT
+where money commits: `authorizeHold` re-validates it against the live estimate
+(a code spent elsewhere since apply 400s before any hold), holds `estimate −
+discount`, and on the success commit stamps `promoRedeemedAt` + deactivates the
+code in Stripe (`setPromotionCodeActive(false)`, best-effort; the stamp is the
+second guard, and `assertUnredeemed` refuses a code any other row has stamped).
+That pre-check is a read, so two authorizes on different drafts can both pass
+it; the atomic guard is a partial unique index on `promotion_code_id WHERE
+promo_redeemed_at IS NOT NULL` (hand-added to the migration — Prisma cannot
+declare it, and `migrate diff` ignores partial indexes so it is not drift). The
+loser's commit raises P2002: the hold path voids the just-placed hold, records
+it in `RobocallOrphanedHold` (`lost_commit`) and reverts the claim, the covered
+path touches nothing, and both 400 "already been used". Apply prices the
+discount off the RECOMPUTED estimate (`calcRobocallTotalInCents(billableCount)`,
+never the stored `amountInCents`, which is fee-less on pre-fee drafts) so the
+pay step's `coversTotal` agrees with what authorize will decide.
+Stripe never counts these redemptions itself. A code that covers the whole
+estimate — or leaves under `ROBOCALL_MIN_HOLD_CENTS` (50), which Stripe would
+refuse to hold — takes `scheduleCoveredRun`: the SAME claim shape as placement
+(`pending_payment | hold_failed`, no intent) straight to `authorized` with
+`authorizedAmountInCents: 0`, NO intent, NO card required (`paymentMethodId`
+is optional on the authorize contract for exactly this), and
+`promoCoversTotal: true`. Downstream that flag is what a covered run's
+`authorizationIntentId IS NULL` means: the send gate skips the live-hold
+re-read (the redeemed code is the payment), the completion sweep selects it
+alongside hold-model runs, and capture records it `captured` at $0 with no
+Stripe call. A pre-dial unwind hands the reward back
+(`OutreachRobocallPromoService.restore`: clear `promoRedeemedAt` +
+`promoCoversTotal`, reactivate in Stripe, keep the code fields for audit) from
+`failSend` and the `payment_method.detached` cancel; a deferred draft that
+expires never redeemed anything. The deferred sweep applies a remembered code
+the same way when it places the hold. A partial code on a declined card stays
+remembered on the `hold_failed` row for the retry.
+
 ## Gotchas / invariants
 
 - **A new `PurchaseType` needs THREE registrations, and the third one is the
