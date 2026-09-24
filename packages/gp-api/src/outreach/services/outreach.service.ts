@@ -26,6 +26,8 @@ import {
   type SmsStandardsRule,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { EmailService } from 'src/email/email.service'
 import { ASSET_DOMAIN, WEBAPP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
@@ -108,6 +110,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly s3: S3Service,
     private readonly stripeService: StripeService,
     private readonly emailService: EmailService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -564,6 +567,26 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       where: { id: outreachId },
       data: { projectId: jobId },
     })
+
+    // The send terminal for the SMS channel. Safe to emit once here because
+    // the pending_payment -> pending claim at the top of this method already
+    // returned for every replay: a Stripe webhook retry sees claimed.count 0
+    // and never reaches this line. Keyed on campaign.userId rather than the
+    // loaded `user` relation so a missing user record does not silently drop
+    // the OKR signal the way it skips the notifications below.
+    void this.analytics
+      .track(
+        campaign.userId,
+        EVENTS.Outreach.CampaignScheduled,
+        {
+          channel: 'sms',
+          outreachId,
+          recipientCount: outreach.textCount ?? undefined,
+        },
+        undefined,
+        `${outreachId}:campaign_scheduled`,
+      )
+      .catch(() => undefined)
 
     const finalized = { ...outreach, projectId: jobId }
     // Materialization needs no user — a missing user record must not skip

@@ -296,7 +296,7 @@ Org Switcher - Organization Switched,org_switcher_organization_switched,7d6668ba
 Org Switcher - Run For Office Clicked,org_switcher_run_for_office_clicked,7d6668ba391fe68eb744fd6f98f4fdcf4377a295,https://github.com/thegoodparty/omni/pull/151,2026-06-15,admin@velocinator.com,,,,,2026-06-15,1,,2026-06-30T20:12:33
 Outreach - Action Clicked,outreach_action_clicked,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,2026-09-01,2026-06-30T20:12:33
 Outreach - Click Create,outreach_click_create,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,3,,2026-06-30T20:12:33
-Outreach - Door Knocking: Complete,outreach_door_knocking_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,,2026-06-30T20:12:33
+Outreach - Door Knocking: Complete,outreach_door_knocking_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,2026-09-24,,2026-09-24,0,,2026-09-24T22:56:32
 Outreach - Draft Deleted,outreach_draft_deleted,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
 Outreach - Draft Resumed,outreach_draft_resumed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
 Outreach - Draft Saved,outreach_draft_saved,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:38
@@ -304,9 +304,9 @@ Outreach - Gate Banner Viewed,outreach_gate_banner_viewed,,,2026-09-18,,,,,,2026
 Outreach - Gate Explainer Viewed,outreach_gate_explainer_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
 Outreach - Gate Explainer: Click CTA,outreach_gate_explainer_click_cta,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
 Outreach - Phone Banking: Call Logged,outreach_phone_banking_call_logged,8010d59657909238fcc211512a1c0783870a8f06,,2026-08-21,tomer@goodparty.org,,,,,2026-08-21,1,,2026-09-07T11:07:27
-Outreach - Phone Banking: Complete,outreach_phone_banking_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,,2026-06-30T20:12:33
+Outreach - Phone Banking: Complete,outreach_phone_banking_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,2026-09-24,,2026-09-24,0,,2026-09-24T22:56:32
 Outreach - Phone Banking: Contact Viewed,outreach_phone_banking_contact_viewed,8010d59657909238fcc211512a1c0783870a8f06,,2026-08-21,tomer@goodparty.org,,,,,2026-08-21,1,,2026-08-31T11:07:29
-Outreach - Social Media: Complete,outreach_social_media_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,2026-09-08,2026-06-30T20:12:33
+Outreach - Social Media: Complete,outreach_social_media_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,2026-09-24,,2026-09-24,0,2026-09-08,2026-09-24T22:56:32
 Outreach - View Accessed,outreach_view_accessed,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,1,,2026-06-30T20:12:33
 P2P Upgrade - Modal: Click Button,p2p_upgrade_modal_click_button,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,1,,2026-06-30T20:12:33
 P2P Upgrade - Modal: Exit,p2p_upgrade_modal_exit,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,1,,2026-06-30T20:12:33
@@ -567,6 +567,7 @@ Voter Outreach - 10DLC Compliance Rejected,voter_outreach_10dlc_compliance_rejec
 Voter Outreach - 10DLC Compliance Started,voter_outreach_10dlc_compliance_started,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,2,,2026-06-30T20:12:33
 Voter Outreach - Campaign Approved,voter_outreach_campaign_approved,9b2cb146a5976588f9f50568757d2a27122e214a,https://github.com/thegoodparty/omni/pull/1642,2026-09-01,5633757+dealvz@users.noreply.github.com,,,,,2026-09-01,1,,2026-09-11T00:40:34
 Voter Outreach - Campaign Completed,voter_outreach_campaign_completed,703131cfff639170bd836b12c6d00c13e1fc1432,https://github.com/thegoodparty/omni/pull/708,2025-06-18,145415012+oakinh@users.noreply.github.com,,,,,2025-06-18,2,,2026-06-30T20:12:33
+Voter Outreach - Campaign Scheduled,voter_outreach_campaign_scheduled,,,2026-09-24,,,,,,2026-09-24,,,2026-09-24T22:56:27
 Voter Outreach - Free Texts Offer Redeemed,voter_outreach_free_texts_offer_redeemed,aa90af3d789823511f82e9d81dee84417a82b0c2,https://github.com/thegoodparty/omni/pull/520,2025-09-08,israel@goodparty.org,,,,,2025-09-08,1,,2026-06-30T20:12:33
 Voter Outreach - Payment Started,voter_outreach_payment_started,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,0,2026-09-08,2026-06-30T20:12:33
 Voter Outreach - Phone Banking Call List Created,voter_outreach_phone_banking_call_list_created,2915068831a10ad2c73c93caa72d863905b7d8f9,,2026-08-20,tomer@goodparty.org,,,,,2026-08-20,1,,2026-08-31T11:07:29

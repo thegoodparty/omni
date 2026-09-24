@@ -11,6 +11,8 @@ import {
   SocialSaveRequest,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { DoorKnockingTurfCountsService } from '@/doorKnocking/services/doorKnockingTurfCounts.service'
 import { activeTurfScope } from '@/doorKnocking/utils/turfScope.util'
 import {
@@ -32,8 +34,10 @@ type OutreachWithSocial = Prisma.OutreachGetPayload<{
 // A Win save/detail carries the paying campaign (and its org slug); a Serve
 // save/detail carries only the org slug, with campaignId null — the
 // Win/Serve isolation boundary documented in AGENTS.md (ENG-10976).
+// The Win branch also carries userId, the subject of the Campaign Scheduled
+// analytics event; the Serve branch does not emit it (see saveSocialOutreach).
 export type OutreachSocialSaveScope =
-  | { campaignId: number; organizationSlug: string | null }
+  | { campaignId: number; organizationSlug: string | null; userId: number }
   | { campaignId: null; organizationSlug: string }
 
 export type OutreachSocialDetailScope =
@@ -78,6 +82,7 @@ export class OutreachSocialService extends createPrismaBase(
 ) {
   constructor(
     private readonly doorKnockingCounts: DoorKnockingTurfCountsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -129,6 +134,29 @@ export class OutreachSocialService extends createPrismaBase(
         include: { social: { include: { assets: true } }, robocall: true },
       })
     })
+
+    // The send terminal for the social channel: the save IS the send, so the
+    // committed transaction above is the exactly-once point. Win only — the
+    // `Voter Outreach -` prefix classifies to the win_voter_outreach family
+    // downstream, so emitting on the Serve route would file an elected
+    // official's post inside a Win number. Social has no audience to count,
+    // so it carries platformCount where the paid channels carry
+    // recipientCount.
+    if (scope.campaignId !== null) {
+      void this.analytics
+        .track(
+          scope.userId,
+          EVENTS.Outreach.CampaignScheduled,
+          {
+            channel: 'social',
+            outreachId: outreach.id,
+            platformCount: input.assets.length,
+          },
+          undefined,
+          `${outreach.id}:campaign_scheduled`,
+        )
+        .catch(() => undefined)
+    }
 
     return toOutreachDetail(outreach)
   }

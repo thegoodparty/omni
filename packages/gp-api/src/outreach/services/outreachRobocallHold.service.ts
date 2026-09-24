@@ -650,12 +650,50 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   ): Promise<void> {
     const scheduled = await this.markSpineScheduled(outreachId)
     if (!scheduled) return
+
+    // The send terminal for the robocall channel, gated on the same
+    // pending_payment -> pending transition as the CAS notice below, so a
+    // re-authorize on an already-pending row never re-emits. Distinct from
+    // 'Robocall - Scheduled', which fired earlier at draft-create while the
+    // row was still unpaid; this one means the money committed.
+    void this.emitCampaignScheduled(outreachId, user.id).catch(() => undefined)
     // Fire-and-forget: the CAS notice reads the audience + a HubSpot owner and
     // POSTs to Slack, and authorizeHold is a user-facing pay request. Only the
     // spine transition above is awaited (the client refetches history right
     // after); the notice must not add its latency to the response. Internally
     // catch-isolated, so the floating promise never rejects.
     void this.sendScheduledNotice(outreachId, user, campaign)
+  }
+
+  // billableCount is the priced landline count — the robocall channel's
+  // recipient figure, read here because it is not in scope at all three
+  // scheduleSpineAndNotify callers.
+  private async emitCampaignScheduled(
+    outreachId: number,
+    userId: number,
+  ): Promise<void> {
+    try {
+      const draft = await this.model.findFirst({
+        where: { outreachId },
+        select: { billableCount: true },
+      })
+      await this.analytics.track(
+        userId,
+        EVENTS.Outreach.CampaignScheduled,
+        {
+          channel: 'robocall',
+          outreachId,
+          recipientCount: draft?.billableCount ?? undefined,
+        },
+        undefined,
+        `${outreachId}:campaign_scheduled`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall campaign scheduled emit failed',
+      )
+    }
   }
 
   private async sendScheduledNotice(
