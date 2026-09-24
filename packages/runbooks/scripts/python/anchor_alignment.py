@@ -52,11 +52,13 @@ def _dead_leg_evidence(leg, records_by_type, code, latches, series, today) -> di
         if not latched and (
                 not rows or _live(leg.key, records_by_type, series, today)):
             return None
+        # The last week the slice fired is the date the historical era should carry.
+        last_seen = max((week_start for week_start, n in rows if n > 0), default=None)
         return {
             "retired_date": retired,
             "latched": latched,
             "status": None,
-            "last_seen_date": None,
+            "last_seen_date": last_seen,
             "call_site_count": None,
         }
     rec = records_by_type.get(leg.event) or {}

@@ -128,6 +128,19 @@ def test_a_quiet_path_leg_is_dead_even_when_the_bare_event_is_active():
     assert f["evidence"]["status"] is None
 
 
+def test_a_quiet_path_leg_reports_the_last_week_it_fired():
+    # The rows already hold the answer: the last week the slice fired is the date
+    # the triage skill's historical-era comment should carry.
+    findings = _align(
+        [_b("b", M, ("Viewed", "/dashboard"), ("Dashboard - Home Viewed", None))],
+        {M: [LIVE]},
+        records_by_type={"Viewed": _rec(), "Dashboard - Home Viewed": _rec()},
+        series={LIVE.key: [(TODAY - timedelta(days=7 * i), 5 if i >= 6 else 0)
+                            for i in range(1, 9)]})
+    [f] = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    assert f["evidence"]["last_seen_date"] == TODAY - timedelta(days=42)
+
+
 def test_a_firing_path_leg_is_not_dead_even_if_the_bare_event_is_retired():
     # A retired_date on the bare 'Viewed' provenance row is not evidence for the
     # /dashboard slice: the slice's own rows are still firing, so it is not dead, and
