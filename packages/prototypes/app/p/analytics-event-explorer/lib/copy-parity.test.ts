@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { COVERAGE_COPY, verdictFor } from './verdict'
+import { lineageOf } from './lineage'
+import { data, nextRun } from './data'
 import type { EventRecord } from './data'
 
 /**
@@ -55,10 +57,60 @@ describe('the two copies of the page say the same things', () => {
     })
   }
 
+  // The registry's real shape, not a clean name: a fixture of "Voter Data - X" passes
+  // whether or not the prose is parsed, so it proved nothing about the broken path.
+  const PROSE =
+    'superseded by Voter Data - List Exported (the CRM lists flow replaced it)'
+
   it('a superseded event names its successor in both', () => {
-    const sentence = verdictFor(fixture('retired', 'Voter Data - X')).sentence
-    expect(sentence).toContain('replaced by')
     expect(template).toContain('and replaced by ')
+  })
+
+  it('never reads "replaced by superseded by"', () => {
+    const sentence = verdictFor(fixture('retired', PROSE)).sentence
+    expect(sentence).not.toContain('replaced by superseded by')
+    expect(sentence).not.toContain('(')
+  })
+
+  // A fixture is not in the snapshot, so its prose can never resolve and the assertion
+  // above passes even if resolution is broken. This one takes a real retired event and
+  // asserts the successor's name reaches the sentence.
+  it('names the successor of a real retired event', () => {
+    const real = data.events.find(
+      (e) => e.status === 'retired' && lineageOf(e).replacedBy,
+    )
+    expect(
+      real,
+      'no retired event resolves a successor in the snapshot',
+    ).toBeTruthy()
+    const sentence = verdictFor(real as EventRecord).sentence
+    expect(sentence).toContain(
+      (lineageOf(real as EventRecord).replacedBy as EventRecord).display_name,
+    )
+    expect(sentence).not.toContain('superseded by')
+  })
+})
+
+describe('nextRun states when the page actually moves', () => {
+  // Noon UTC, Mondays and Thursdays: the republish, an hour after the pipeline. A
+  // one-character slip in the `<=` or in the [1, 4] literal shows a wrong time in the
+  // header, which is the one thing the page promises about its own freshness.
+  const at = (iso: string) => nextRun(new Date(iso)).toISOString()
+
+  it('before noon on a run day, later the same day', () => {
+    expect(at('2026-09-28T09:00:00Z')).toBe('2026-09-28T12:00:00.000Z')
+  })
+
+  it('exactly at noon, the next run day', () => {
+    expect(at('2026-09-28T12:00:00Z')).toBe('2026-10-01T12:00:00.000Z')
+  })
+
+  it('after noon on Thursday, the following Monday', () => {
+    expect(at('2026-10-01T15:00:00Z')).toBe('2026-10-05T12:00:00.000Z')
+  })
+
+  it('on a day between runs, the next run day', () => {
+    expect(at('2026-09-30T08:00:00Z')).toBe('2026-10-01T12:00:00.000Z')
   })
 
   for (const [key, copy] of Object.entries(COVERAGE_COPY)) {

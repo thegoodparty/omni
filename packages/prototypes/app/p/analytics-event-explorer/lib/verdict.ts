@@ -1,4 +1,5 @@
 import type { EventRecord } from './data'
+import { lineageOf } from './lineage'
 
 export type Tone = 'good' | 'warning' | 'critical' | 'neutral'
 
@@ -53,14 +54,27 @@ export const verdictFor = (e: EventRecord): Verdict => {
         label: 'Do not trust this',
         sentence: `The code was removed ${date(e.provenance.retired_date)} but events are still arriving. Something is firing that we no longer control.`,
       }
-    case 'retired':
+    case 'retired': {
+      // `supersession` is prose ("superseded by X (why)"), not a name: 22 events carry
+      // that shape, so interpolating it raw reads "replaced by superseded by X (why)".
+      // lineageOf already resolves it; where it cannot, the Lineage block shows the
+      // note verbatim and this sentence stays quiet rather than guessing.
+      const l = lineageOf(e)
+      const successor =
+        l.replacedBy?.display_name ??
+        l.replacedByName ??
+        (l.replacedByArea ? `the ${l.replacedByArea} family` : '')
+      const removed = `Removed ${date(e.provenance.retired_date)}`
       return {
         tone: 'neutral',
         label: 'Retired',
-        sentence: e.supersession
-          ? `Removed ${date(e.provenance.retired_date)} and replaced by ${e.supersession}.`
-          : `Removed ${date(e.provenance.retired_date)} and quiet since. Nothing replaced it.`,
+        sentence: successor
+          ? `${removed} and replaced by ${successor}.`
+          : l.unparsed
+            ? `${removed}.`
+            : `${removed} and quiet since. Nothing replaced it.`,
       }
+    }
     case 'instrumented_never_observed':
       return {
         tone: 'critical',

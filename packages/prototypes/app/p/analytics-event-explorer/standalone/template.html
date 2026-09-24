@@ -1017,14 +1017,26 @@
               ' but events are still arriving. Something is firing that we no longer control.',
           ]
         case 'retired':
+          // supersession is prose, not a name: resolve it or say nothing (the Lineage
+          // block shows the raw note). Dumping it reads "replaced by superseded by X".
+          var rl = lineage(e)
+          var successor = rl.replacedBy
+            ? rl.replacedBy.display_name
+            : rl.replacedByName
+              ? rl.replacedByName
+              : rl.replacedByArea
+                ? 'the ' + rl.replacedByArea + ' family'
+                : ''
           return [
             'mute',
             'Retired',
             'Removed ' +
               shortDate(p.retired_date) +
-              (e.supersession
-                ? ' and replaced by ' + e.supersession + '.'
-                : ' and quiet since. Nothing replaced it.'),
+              (successor
+                ? ' and replaced by ' + successor + '.'
+                : rl.unparsed
+                  ? '.'
+                  : ' and quiet since. Nothing replaced it.'),
           ]
         case 'instrumented_never_observed':
           return [
