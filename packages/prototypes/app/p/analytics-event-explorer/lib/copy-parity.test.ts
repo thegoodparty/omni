@@ -113,6 +113,24 @@ describe('nextRun states when the page actually moves', () => {
     expect(at('2026-09-30T08:00:00Z')).toBe('2026-10-01T12:00:00.000Z')
   })
 
+  // These cases exercise data.ts; the standalone has its own copy of the function that
+  // no test here can call. Assert the shape that matters instead: one instant, taken
+  // once, or the comparison can straddle the boundary it is testing for.
+  it('the standalone compares against a single captured instant', () => {
+    const start = template.indexOf('function nextRun()')
+    // to the function's own closing brace, not a fixed window: a loose slice reaches
+    // into the next function and counts its clocks too
+    // comments stripped: the first version of this assertion was defeated by a comment
+    // that mentioned the very call it was counting
+    const fn = template
+      .slice(start, template.indexOf('\n    }', start))
+      .replace(/\/\/.*$/gm, '')
+    expect(fn).toContain('d <= now')
+    expect(fn.match(/new Date\(\)/g) ?? []).toHaveLength(1)
+    expect(fn).toContain('setUTCHours(12, 0, 0, 0)')
+    expect(fn).toContain('[1, 4]')
+  })
+
   for (const [key, copy] of Object.entries(COVERAGE_COPY)) {
     it(`the ${key} coverage blurb matches`, () => {
       expect(template).toContain(copy.blurb)
