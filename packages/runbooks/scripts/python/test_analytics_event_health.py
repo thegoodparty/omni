@@ -859,6 +859,20 @@ def test_load_watchlist_reads_dismissed(tmp_path):
     assert dismissed == ["Noise Event"]
 
 
+def test_load_watchlist_ignores_queue_c_dismissals(tmp_path):
+    p = tmp_path / "mon.yaml"
+    p.write_text(
+        "watched_families: [win_onboarding]\n"
+        "events: []\n"
+        "dismissed:\n"
+        '  - {event: "B Row", reason: "r", date: "2026-08-06"}\n'
+        '  - {event: "Viewed[path=/polls]", reason: "r", date: "2026-09-23", '
+        "metric: win_active_candidates_30d}\n"
+    )
+    _, _, dismissed = eh.load_watchlist(p)
+    assert dismissed == ["B Row"]
+
+
 def test_load_watchlist_ignores_any_okr_key(tmp_path):
     y = tmp_path / "w.yaml"
     y.write_text(

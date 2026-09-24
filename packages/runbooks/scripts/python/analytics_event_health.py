@@ -880,16 +880,22 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 
 def load_watchlist(path: Path = WATCHLIST) -> tuple[list[str], list[str], list[str]]:
     """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names,
-    dismissed_event_names)``. ``dismissed`` are proposals a human rejected (DATA-2152);
-    the proposal queue skips them permanently. OKR status is not read from this file:
-    run_monitor derives it from the semantic layer's anchored_on."""
+    dismissed_event_names)``. ``dismissed`` are proposal-queue rejections (DATA-2152),
+    not Queue C alignment dismissals; the proposal queue skips them permanently. OKR
+    status is not read from this file: run_monitor derives it from the semantic
+    layer's anchored_on."""
     if not path.exists():
         return [], [], []
     doc = yaml.safe_load(path.read_text()) or {}
     families = doc.get("watched_families", []) or []
     rows = [row for row in (doc.get("events", []) or []) if row.get("event")]
     events = [row["event"] for row in rows]
-    dismissed = [row["event"] for row in (doc.get("dismissed", []) or []) if row.get("event")]
+    # Rows carrying a metric are Queue C alignment dismissals and belong to
+    # anchor_alignment.load_dismissals, not the proposal queue.
+    dismissed = [
+        row["event"] for row in (doc.get("dismissed", []) or [])
+        if row.get("event") and not row.get("metric")
+    ]
     return families, events, dismissed
 
 
