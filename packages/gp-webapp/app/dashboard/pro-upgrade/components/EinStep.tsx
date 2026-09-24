@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button } from '@styleguide'
+import { Button, Input, Label } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -11,6 +11,10 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { StyledAlert } from '@shared/alerts/StyledAlert'
 import { EinCheckInput } from 'app/dashboard/shared/EinCheckInput'
+import {
+  EIN_PATTERN_FULL,
+  EIN_PATTERN_PARTIAL,
+} from '@shared/inputs/IsValidEIN'
 import {
   checkEinSanity,
   einIndicatorState,
@@ -23,6 +27,13 @@ import { useProUpgradeWizard } from './ProUpgradeWizard'
 // Reuses the exact validation the committee-check page uses so the client and
 // server sanity layers can't drift: `einIndicatorState` drives the field icon
 // and `checkEinSanity` gates submit.
+// The dash lands after the prefix on its own, and anything that is not an
+// EIN shape is dropped — the same rule EinCheckInput applies.
+const nextEinValue = (current: string, next: string): string => {
+  const withDash = next.length === 2 && current.length === 1 ? `${next}-` : next
+  return next !== '' && !EIN_PATTERN_PARTIAL.test(next) ? current : withDash
+}
+
 const EinStep = (): React.JSX.Element => {
   const { purchaseOnly, goToNextStep, goToPreviousStep } = useProUpgradeWizard()
   const [campaign] = useCampaign()
@@ -161,33 +172,48 @@ const EinStep = (): React.JSX.Element => {
         </StyledAlert>
       )}
 
-      <EinCheckInput
-        name="ein-number"
-        value={einInputValue}
-        validated={validatedEin}
-        setValidated={setValidatedEin}
-        error={showEinError}
-        onChange={onEinChange}
-        onTooltipOpen={() =>
-          trackEvent(EVENTS.ProUpgrade.Compliance.EinHoverHelp)
-        }
-        helperText={
-          // Purchase-only puts the IRS how-to in the collapsible below, so
-          // its helper points at where an existing EIN is looked up instead
-          // (design: the EIN step's caption).
-          purchaseOnly ? (
-            <>
-              Find this on your IRS determination letter or through the{' '}
-              <a
-                href="https://apps.irs.gov/app/eos/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-              >
-                IRS Tax Exempt Organization Search
-              </a>
-            </>
-          ) : (
+      {purchaseOnly ? (
+        // Design: a plain field with the format as its placeholder and the
+        // IRS lookup in the caption; the how-to lives in the card below, so
+        // there is no tooltip here.
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="campaign-ein">Campaign EIN</Label>
+          <Input
+            id="campaign-ein"
+            name="ein-number"
+            value={einInputValue}
+            onChange={(e) =>
+              onEinChange(nextEinValue(einInputValue, e.target.value))
+            }
+            placeholder="12-3456789"
+            maxLength={10}
+            inputMode="numeric"
+            aria-invalid={showEinError}
+          />
+          <p className="text-sm text-base-muted-foreground">
+            Find this on your IRS determination letter or through the{' '}
+            <a
+              href="https://apps.irs.gov/app/eos/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline"
+            >
+              IRS Tax Exempt Organization Search
+            </a>
+          </p>
+        </div>
+      ) : (
+        <EinCheckInput
+          name="ein-number"
+          value={einInputValue}
+          validated={validatedEin}
+          setValidated={setValidatedEin}
+          error={showEinError}
+          onChange={onEinChange}
+          onTooltipOpen={() =>
+            trackEvent(EVENTS.ProUpgrade.Compliance.EinHoverHelp)
+          }
+          helperText={
             <a
               href="https://sa.www4.irs.gov/applyein/legalStructure"
               target="_blank"
@@ -196,9 +222,9 @@ const EinStep = (): React.JSX.Element => {
             >
               Get a free EIN in 3-5 minutes (irs.gov)
             </a>
-          )
-        }
-      />
+          }
+        />
+      )}
 
       {purchaseOnly && (
         <>
@@ -226,7 +252,12 @@ const EinStep = (): React.JSX.Element => {
           size="large"
           className="w-full sm:w-auto sm:min-w-[360px]"
           onClick={() => void handleNextClick()}
-          disabled={submitting}
+          // Design holds Continue until the nine digits are in; the sanity
+          // check on press still catches a complete-but-bad EIN.
+          disabled={
+            submitting ||
+            (purchaseOnly && !EIN_PATTERN_FULL.test(einInputValue))
+          }
         >
           Continue
         </Button>

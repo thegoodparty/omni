@@ -8,10 +8,10 @@ import {
   CollapsibleTrigger,
 } from '@styleguide'
 import {
+  ChevronDownIcon,
+  ChevronUpIcon,
   ExternalLinkIcon,
   MailIcon,
-  MinusIcon,
-  PlusIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -62,13 +62,13 @@ export const EinHowToCollapsible = (): React.JSX.Element => {
           <span className="text-base-muted-foreground">(3 to 5 min)</span>
         </span>
         {open ? (
-          <MinusIcon
-            className="size-[18px] shrink-0 text-base-muted-foreground"
+          <ChevronUpIcon
+            className="size-5 shrink-0 text-base-muted-foreground"
             aria-hidden
           />
         ) : (
-          <PlusIcon
-            className="size-[18px] shrink-0 text-base-muted-foreground"
+          <ChevronDownIcon
+            className="size-5 shrink-0 text-base-muted-foreground"
             aria-hidden
           />
         )}

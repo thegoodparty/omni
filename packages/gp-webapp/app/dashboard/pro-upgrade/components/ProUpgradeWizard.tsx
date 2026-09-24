@@ -122,6 +122,58 @@ const WizardChrome = ({
   )
 }
 
+// Purchase-only (outreach-pro-gating-v2), design: renderSgModal — the same
+// chrome the outreach sheet draws around the embedded flow: the "Upgrade to
+// Pro" overline with Exit, the bar stepper over the five ordered steps, and a
+// 608px column the step stretches into so its footer pins to the bottom. The
+// filing-instructions dead end reads as the status step it branches from,
+// and the success screen draws no header at all.
+const PURCHASE_ONLY_ORDER = proUpgradeStepOrder(true)
+
+const purchaseOnlyPosition = (
+  step: ProUpgradeStep | null,
+): { currentStep: number; totalSteps: number } | null => {
+  if (step === null || step === PRO_UPGRADE_STEP.SUCCESS) return null
+  const anchor =
+    step === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS
+      ? PRO_UPGRADE_STEP.STATUS
+      : step
+  const index = PURCHASE_ONLY_ORDER.indexOf(anchor)
+  if (index < 0) return null
+  return { currentStep: index + 1, totalSteps: PURCHASE_ONLY_ORDER.length }
+}
+
+const PurchaseOnlyChrome = ({
+  position,
+  onExit,
+  children,
+}: {
+  position: { currentStep: number; totalSteps: number } | null
+  onExit: () => void
+  children: React.ReactNode
+}): React.JSX.Element => (
+  <div className="flex h-dvh flex-col bg-white">
+    {position && (
+      <div className="shrink-0 px-6 pt-6 pb-4">
+        <div className="mx-auto w-full max-w-[608px]">
+          <Stepper
+            variant="bar"
+            overline="Upgrade to Pro"
+            currentStep={position.currentStep}
+            totalSteps={position.totalSteps}
+            onExit={onExit}
+          />
+        </div>
+      </div>
+    )}
+    <div className="flex flex-1 flex-col overflow-y-auto px-6 py-5">
+      <div className="mx-auto flex w-full max-w-[608px] flex-1 flex-col">
+        {children}
+      </div>
+    </div>
+  </div>
+)
+
 interface ProUpgradeWizardProps {
   children: React.ReactNode
 }
@@ -177,6 +229,10 @@ const ProUpgradeWizard = ({
   }, [currentStep, orderIndex, purchaseOnly, stepOrder, router])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
+  const handleChromeExit = useCallback(() => {
+    trackEvent(EVENTS.ProUpgrade.ClickExit, { pathname })
+    router.push('/dashboard')
+  }, [pathname, router])
 
   // Purchase-only collects filing details after payment, so the success step
   // hands off to campaign verification instead of the dashboard.
@@ -220,19 +276,28 @@ const ProUpgradeWizard = ({
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
-      <WizardChrome
-        stepperStep={stepperStep}
-        labels={stepperLabels}
-        cardless={isPayment}
-      >
-        {flagReady ? (
-          children
-        ) : (
-          <div className="flex h-[60vh] items-center justify-center">
-            <Spinner />
-          </div>
-        )}
-      </WizardChrome>
+      {purchaseOnly ? (
+        <PurchaseOnlyChrome
+          position={purchaseOnlyPosition(currentStep)}
+          onExit={handleChromeExit}
+        >
+          {children}
+        </PurchaseOnlyChrome>
+      ) : (
+        <WizardChrome
+          stepperStep={stepperStep}
+          labels={stepperLabels}
+          cardless={isPayment}
+        >
+          {flagReady ? (
+            children
+          ) : (
+            <div className="flex h-[60vh] items-center justify-center">
+              <Spinner />
+            </div>
+          )}
+        </WizardChrome>
+      )}
     </ProUpgradeWizardContext.Provider>
   )
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button } from '@styleguide'
+import { Button, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
@@ -66,6 +66,9 @@ const FilingStatusStep = (): React.JSX.Element => {
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
   const [submitting, setSubmitting] = useState(false)
+  // Purchase-only picks a card and confirms with Continue (design: the
+  // ballot step); the default order still advances on the card itself.
+  const [selected, setSelected] = useState<FilingStatusOption | null>(null)
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.FilingStatusViewed)
@@ -102,17 +105,77 @@ const FilingStatusStep = (): React.JSX.Element => {
 
   const options = purchaseOnly ? PURCHASE_ONLY_OPTIONS : OPTIONS
 
+  if (purchaseOnly) {
+    return (
+      <div className="flex min-h-full flex-1 flex-col">
+        <h1 className="mb-2 text-xl font-semibold">
+          Are you officially filed?
+        </h1>
+        <p className="mb-6 text-base text-base-muted-foreground">
+          This confirms you are running for office.
+        </p>
+
+        <div className="flex flex-col gap-3">
+          {options.map((option) => {
+            const isSelected = selected?.hasFiled === option.hasFiled
+            return (
+              <button
+                key={option.title}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => setSelected(option)}
+                disabled={submitting}
+                className={cn(
+                  'flex w-full flex-col items-start gap-0.5 rounded-xl border bg-card p-4 text-left transition-colors hover:border-primary disabled:pointer-events-none disabled:opacity-60',
+                  isSelected
+                    ? 'border-primary bg-primary-light/40'
+                    : 'border-base-border',
+                )}
+              >
+                <span className="text-[15px] font-semibold">
+                  {option.title}
+                </span>
+                <span className="text-[13px] text-base-muted-foreground">
+                  {option.description}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="mt-auto flex flex-col-reverse gap-3 pt-8 sm:flex-row sm:justify-between">
+          <Button
+            variant="ghost"
+            size="large"
+            className="w-full sm:w-auto"
+            onClick={goToPreviousStep}
+          >
+            Back
+          </Button>
+          <Button
+            size="large"
+            className="w-full sm:w-auto sm:min-w-[360px]"
+            disabled={selected === null}
+            loading={submitting}
+            onClick={() => {
+              if (selected) void handleSelect(selected)
+            }}
+          >
+            Continue
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-full flex-1 flex-col">
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
-        {purchaseOnly
-          ? 'Are you officially filed?'
-          : 'Have you already filed for your race?'}
+        Have you already filed for your race?
       </h1>
       <Body2 className="text-base-muted-foreground mb-6">
-        {purchaseOnly
-          ? 'This confirms you are running for office.'
-          : 'In order to get Pro you need to be officially filed as a candidate to comply with voter data and texting regulations.'}
+        In order to get Pro you need to be officially filed as a candidate to
+        comply with voter data and texting regulations.
       </Body2>
 
       <div className="flex flex-col gap-3">

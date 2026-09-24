@@ -184,6 +184,44 @@ describe('ProUpgradeWizard', () => {
     expect(router.back).not.toHaveBeenCalled()
   })
 
+  // Design (renderSgModal): the standalone route draws the same chrome the
+  // outreach sheet does around the embedded flow — overline, bar stepper over
+  // the five ordered steps, an Exit button — instead of the card and the
+  // vertical stepper.
+  it('draws the full-screen chrome with the bar stepper in purchase-only mode', () => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
+
+    render(
+      <ProUpgradeWizard>
+        <div>step-content</div>
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument()
+    const bar = screen.getByRole('progressbar')
+    expect(bar).toHaveAttribute('aria-valuenow', '3')
+    expect(bar).toHaveAttribute('aria-valuemax', '5')
+    expect(screen.queryByText('Campaign EIN')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /exit/i }))
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('hides the header on the success screen in purchase-only mode', () => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
+
+    render(
+      <ProUpgradeWizard>
+        <div>step-content</div>
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.queryByText('Upgrade to Pro')).not.toBeInTheDocument()
+  })
+
   it('hands off to campaign verification on complete in purchase-only mode', () => {
     mockUseFlag.mockReturnValue({ ready: true, enabled: true })
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/success')
