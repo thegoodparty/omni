@@ -11,6 +11,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { isSerializationError } from '@/prisma/util/prismaErrors.util'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { serializeError } from 'serialize-error'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
 import {
   Campaign,
@@ -183,6 +184,9 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
   // property: an S3 failure after a successful guarded delete now orphans
   // bytes instead. That's the safer direction — a live row's assets must
   // never be destroyed, and an orphaned object is a lesser, recoverable harm.
+  // For the same reason a cleanup failure is logged, not thrown: the row is
+  // already gone, so surfacing it made the route 500 and the drawer say the
+  // draft could not be deleted while the list no longer showed it.
   async deleteDraftRow(row: DraftRowWithRobocall): Promise<void> {
     const { count } = await this.model.deleteMany({
       where: { id: row.id, status: OutreachStatus.draft },
@@ -194,6 +198,17 @@ export class OutreachDraftService extends createPrismaBase(MODELS.Outreach) {
       )
       return
     }
+    try {
+      await this.tearDownDraftAssets(row)
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), outreachId: row.id },
+        'draft deleted but its assets were not; leaving them orphaned',
+      )
+    }
+  }
+
+  private async tearDownDraftAssets(row: DraftRowWithRobocall): Promise<void> {
     if (row.imageUrl) {
       const imageKey = keyFromAssetUrl(row.imageUrl)
       if (imageKey) {

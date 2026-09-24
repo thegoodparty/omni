@@ -214,4 +214,30 @@ describe('OutreachDraftService.deleteDraftRow — draft guard', () => {
       }),
     ).not.toBeNull()
   })
+
+  it('resolves when the asset cleanup fails after the row is gone', async () => {
+    const draft = await createDraft(subDays(new Date(), 1))
+    await service.prisma.outreach.update({
+      where: { id: draft.id },
+      data: { imageUrl: `https://${ASSET_DOMAIN}/some/draft/image.png` },
+    })
+    const drafts = service.app.get(OutreachDraftService)
+    const s3 = service.app.get(S3Service)
+    vi.spyOn(s3, 'deleteObject').mockRejectedValue(
+      new Error('Token is expired'),
+    )
+
+    // The row delete is the only irreversible step and it succeeded; an
+    // orphaned object is the lesser harm and must not read as a failed delete.
+    await expect(
+      drafts.deleteDraftRow({
+        ...draft,
+        imageUrl: `https://${ASSET_DOMAIN}/some/draft/image.png`,
+        robocall: null,
+      }),
+    ).resolves.toBeUndefined()
+    expect(
+      await service.prisma.outreach.findUnique({ where: { id: draft.id } }),
+    ).toBeNull()
+  })
 })
