@@ -4,8 +4,9 @@ import TextField from '@shared/inputs/TextField'
 import Body1 from '@shared/typography/Body1'
 import H1 from '@shared/typography/H1'
 import H3 from '@shared/typography/H3'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { usePositionName } from '@shared/hooks/usePositionName'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 type FieldKey = 'responsibility' | 'achievements' | 'skills'
 
@@ -58,6 +59,10 @@ export default function PastExperience({
     skills: value?.skills || '',
   })
 
+  useEffect(() => {
+    trackEvent(EVENTS.Questions.PastExperienceViewed)
+  }, [])
+
   const onChangeField = (key: FieldKey, value: string) => {
     setState({
       ...state,
@@ -66,6 +71,7 @@ export default function PastExperience({
   }
   const handleSave = () => {
     if (!canSave()) return
+    trackEvent(EVENTS.Questions.PastExperienceCompleted)
     saveCallback([`details.${campaignKey}`], [state])
   }
 

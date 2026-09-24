@@ -7,6 +7,7 @@ import { Button, Input, Textarea } from '@styleguide'
 import { XMarkIcon } from '@styleguide/components/ui/icons'
 import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import { createOrdinance } from '../data/ordinances-api'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 const INTRO =
   'Before we kick off the guided flow, tell me a bit about what you have in' +
@@ -98,8 +99,10 @@ export default function NewOrdinanceForm(): React.JSX.Element {
         goalText: goal,
         ...(link && { sourceLink: link }),
       })
+      trackEvent(EVENTS.Ordinances.NewOrdinanceCreated)
       router.push(`/dashboard/ordinances/solve/${ordinance.slug}/clarify`)
     } catch {
+      trackEvent(EVENTS.Ordinances.NewOrdinanceErrored)
       setError(
         'Could not create the ordinance. Check your input and try again.',
       )
