@@ -510,6 +510,13 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // The hold committed, so this is a real scheduled send: make it visible in
     // the history list.
     await this.scheduleSpineAndNotify(outreachId, user, campaign)
+    // The send terminal, emitted at the COMMIT rather than inside
+    // scheduleSpineAndNotify: the deferred card-save path advances the spine
+    // before any hold exists, so a gate on that transition would both fire
+    // here for an unpaid row and then find the spine already `pending` when
+    // the deferred sweep really does commit, dropping the event entirely.
+    // The placement CAS above elects one committer, so this is exactly-once.
+    await this.emitCampaignScheduled(outreachId, user.id)
     if (promo) {
       await this.promos.consume(promo.promotionCodeId)
     }
@@ -602,6 +609,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       return this.currentStateResult(outreachId, fallback)
     }
     await this.scheduleSpineAndNotify(outreachId, user, campaign)
+    // A covered run commits at $0 with no hold — the redeemed code IS the
+    // payment — so it is a send terminal like the authorized commit above.
+    await this.emitCampaignScheduled(outreachId, user.id)
     await this.promos.consume(promo.promotionCodeId)
     return {
       status: 'authorized',
@@ -651,13 +661,6 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     const scheduled = await this.markSpineScheduled(outreachId)
     if (!scheduled) return
 
-    // The send terminal for the robocall channel, gated on the same
-    // pending_payment -> pending transition as the CAS notice below, so a
-    // re-authorize on an already-pending row never re-emits. Distinct from
-    // 'Robocall - Scheduled', which fired earlier at draft-create while the
-    // row was still unpaid; this one means the money committed. Awaited, with
-    // the catch inside, like the sibling emitMilestone.
-    await this.emitCampaignScheduled(outreachId, user.id)
     // Fire-and-forget: the CAS notice reads the audience + a HubSpot owner and
     // POSTs to Slack, and authorizeHold is a user-facing pay request. Only the
     // spine transition above is awaited (the client refetches history right

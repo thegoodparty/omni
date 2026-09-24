@@ -682,6 +682,18 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // Card saved and committed, so it shows in the history even before the hold.
     const spine = await readSpine(outreachId)
     expect(spine.status).toBe('pending')
+    // But NO send terminal yet: no hold exists, and the card can still decline
+    // when the sweep runs. Emitting here would count a candidate who never
+    // paid, and — because this advances the spine — would also make the real
+    // commit find the row already `pending` and emit nothing at all.
+    const deferredCalls = trackSpy.mock.calls as Parameters<
+      AnalyticsService['track']
+    >[]
+    expect(
+      deferredCalls.filter(
+        (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
+      ),
+    ).toHaveLength(0)
   })
 
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {

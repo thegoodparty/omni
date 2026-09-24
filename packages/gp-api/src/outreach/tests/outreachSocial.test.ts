@@ -5,6 +5,8 @@ import { Person } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   Campaign,
   OutreachStatus,
@@ -17,6 +19,7 @@ import {
 const service = useTestService()
 
 const jsonCompletion = vi.fn()
+let trackSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
@@ -24,6 +27,9 @@ let orgSlug: string
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
+  trackSpy = vi
+    .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
 
   const campaignId = 999
   orgSlug = `campaign-${campaignId}`
@@ -648,6 +654,24 @@ describe('POST /v1/outreach/social', () => {
     expect(spine.status).toBe(OutreachStatus.completed)
     expect(spine.social?.purpose).toBe('introduce_myself')
     expect(spine.social?.assets).toHaveLength(2)
+
+    // The send terminal (DATA-2526). For social the save IS the send, so the
+    // committed transaction above is the emit point. platformCount, not
+    // recipientCount — a post has no audience to count.
+    const trackCalls = trackSpy.mock.calls as Parameters<
+      AnalyticsService['track']
+    >[]
+    const scheduled = trackCalls.filter(
+      (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
+    )
+    expect(scheduled).toHaveLength(1)
+    expect(scheduled[0]).toEqual([
+      service.user.id,
+      EVENTS.Outreach.CampaignScheduled,
+      { channel: 'social', outreachId: res.data.id, platformCount: 2 },
+      undefined,
+      `${res.data.id}:campaign_scheduled`,
+    ])
   })
 
   // ENG-10989: save is the persistence path even without a preceding
@@ -762,6 +786,16 @@ describe('POST /v1/outreach/social', () => {
       social: 0,
       assets: 0,
     })
+    // Nothing persisted, so nothing scheduled: the emit sits after the
+    // transaction, not beside it.
+    const trackCalls = trackSpy.mock.calls as Parameters<
+      AnalyticsService['track']
+    >[]
+    expect(
+      trackCalls.filter(
+        (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
+      ),
+    ).toHaveLength(0)
   })
 
   it('rejects an asset for an unknown platform', async () => {
