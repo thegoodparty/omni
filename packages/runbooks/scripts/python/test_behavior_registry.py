@@ -111,6 +111,12 @@ def test_surface_key_appends_page_path():
     assert br.surface_key({"instrumented_by": None, "page_path": "/x"}) is None
 
 
+def test_surface_key_matches_leg_key():
+    import sem_anchors as sa
+    assert br.surface_key({"instrumented_by": "Viewed", "page_path": "/dashboard"}) == sa.Leg("Viewed", "/dashboard").key
+    assert br.surface_key({"instrumented_by": "Viewed"}) == sa.Leg("Viewed", None).key
+
+
 def test_page_path_is_a_known_surface_field_and_needs_a_leading_slash():
     good = {"path": "x.tsx", "label": "l", "instrumented_by": "Voter Data - List Exported", "page_path": "/dashboard"}
     assert _errs(VALID | {"surfaces": [good]}) == []
