@@ -263,8 +263,28 @@ describe('GET /v1/payments/purchase/pro-receipt', () => {
     expect(read).not.toHaveBeenCalled()
   })
 
+  it('returns 404 for a lapsed subscription without reading Stripe', async () => {
+    const campaign = await seedCampaign({
+      isPro: false,
+      details: {
+        electionDate: futureElectionDate(),
+        subscriptionId: 'sub_receipt_lapsed',
+      },
+    })
+    const stripe = service.app.get(StripeService)
+    const read = vi.spyOn(stripe, 'retrieveLatestPaidInvoice')
+
+    const res = await service.client.get(PRO_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(404)
+    expect(read).not.toHaveBeenCalled()
+  })
+
   it('returns the latest paid invoice as a receipt', async () => {
     const campaign = await seedCampaign({
+      isPro: true,
       details: {
         electionDate: futureElectionDate(),
         subscriptionId: 'sub_receipt_test',
@@ -307,6 +327,7 @@ describe('GET /v1/payments/purchase/pro-receipt', () => {
 
   it('returns 502 when Stripe cannot be read', async () => {
     const campaign = await seedCampaign({
+      isPro: true,
       details: {
         electionDate: futureElectionDate(),
         subscriptionId: 'sub_receipt_test',

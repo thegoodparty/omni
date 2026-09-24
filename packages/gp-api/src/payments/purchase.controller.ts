@@ -154,13 +154,15 @@ export class PurchaseController {
   // latest paid invoice, read live from Stripe. The completion webhook is
   // what stores the subscription on the campaign, so until it lands there is
   // nothing to read and the client shows no receipt rather than a made-up
-  // one.
+  // one. isPro is checked too: a lapsed subscription keeps its id on the
+  // campaign, and a lapsed org's team should not be able to read the
+  // owner's card from it.
   @Get('pro-receipt')
   @UseCampaign()
   @ResponseSchema(ProReceiptSchema)
   async getProReceipt(@ReqCampaign() campaign: Campaign): Promise<ProReceipt> {
     const subscriptionId = campaign.details?.subscriptionId
-    if (!subscriptionId) {
+    if (!campaign.isPro || !subscriptionId) {
       throw new NotFoundException('No Pro subscription on record')
     }
     let receipt: Awaited<ReturnType<StripeService['retrieveLatestPaidInvoice']>>
