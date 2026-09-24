@@ -42,6 +42,21 @@ def test_metric_nobody_declares_is_case_1():
     assert (f["case"], f["kind"], f["metric"]) == (1, "metric_undeclared", "pro_conversions")
 
 
+def test_partial_read_suppresses_metric_undeclared_only():
+    # One sem file failed to read, so "no sem file declares this metric" is unknowable
+    # and would accuse a correct pointer. Every other comparison still holds.
+    findings = _align(
+        [_b("undeclared", "pro_conversions", ("X", None)),
+         _b("historical", M, (DEAD.event, None))],
+        {M: [LIVE, DEAD, TRACKER]},
+        records_by_type={"X": _rec(), DEAD.event: _rec("retired")},
+        partial_read=True,
+    )
+    assert not [f for f in findings if f["kind"] == "metric_undeclared"]
+    [f] = [x for x in findings if x["kind"] == "surface_on_historical_leg"]
+    assert f["case"] == 1 and f["behavior_id"] == "historical"
+
+
 def test_surface_on_a_historical_leg_is_case_1_and_names_the_live_legs():
     findings = _align([_b("b", M, (DEAD.event, None))], {M: [LIVE, DEAD, TRACKER]},
                       records_by_type={DEAD.event: _rec("retired")})

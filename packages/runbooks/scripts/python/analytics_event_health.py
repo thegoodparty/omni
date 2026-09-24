@@ -1142,6 +1142,7 @@ def run_monitor(
         series=series, code=code, watchlist_events=watchlist_events,
         latches=latches, today=today,
         dismissed=aa.load_dismissals(watchlist_path),
+        partial_read=bool(read_problems),
     )
 
     # Walk `records`, not `flagged`: a latched break is by construction one whose

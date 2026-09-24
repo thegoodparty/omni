@@ -2025,6 +2025,38 @@ def test_run_monitor_reports_alignment_findings(tmp_path):
     assert "### Registry vs semantic layer" in digest
 
 
+def test_a_partial_sem_read_does_not_accuse_a_correct_metric_pointer(tmp_path, monkeypatch):
+    # One sem file read, the other failed. A behavior pointing into the file that failed
+    # still has a correct pointer, and the read failure is already reported red in
+    # anchor_problems, so case 1 must not tell a reviewer to go and fix the pointer.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    watchlist = (
+        "behaviors:\n"
+        "  - id: weekly_active_candidates\n"
+        "    metric: win_active_candidates_30d\n"
+        "    product: win\n"
+        "    surfaces:\n"
+        f'      - {{path: b.tsx, label: tracker, instrumented_by: "{_TRACKER}"}}\n'
+        "  - id: serve_behavior\n"
+        "    metric: serve_missing_metric\n"
+        "    product: serve\n"
+        "    surfaces:\n"
+        f'      - {{path: c.tsx, label: tracker_serve, instrumented_by: "{_TRACKER}"}}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={}, watchlist=watchlist)
+    monkeypatch.setattr(sa, "load_anchors", lambda: (
+        {_METRIC: [sa.Leg(_TRACKER, None, None)]}, ["the serve sem file could not be read"]))
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path)
+
+    assert not [f for f in result["anchor_alignment"] if f["kind"] == "metric_undeclared"]
+    assert result["anchor_problems"]
+
+
 def test_run_monitor_passes_queue_c_dismissals_to_align(tmp_path):
     catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8),
                _cat("Campaign Plan - Tracker Opened", "win_dashboard", "New.", cnt30=8)]

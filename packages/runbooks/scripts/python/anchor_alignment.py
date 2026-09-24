@@ -87,7 +87,12 @@ def align(
     latches: Mapping[str, Mapping[str, Any]],
     today: date,
     dismissed: Iterable[Mapping[str, Any]] = (),
+    partial_read: bool = False,
 ) -> list[dict]:
+    """``partial_read`` says some sem file failed to read, so ``anchors`` is incomplete.
+    "No sem file declares this metric" is then unknowable, and case 1 would accuse a
+    correct pointer, so that one check is skipped. The read failure itself is already
+    reported red through anchor_problems."""
     if not anchors:
         # No declaration was read. Comparing against nothing would report every
         # behavior; run_monitor already reports the read failure in red.
@@ -107,10 +112,12 @@ def align(
         for metric in metric_list(b):
             legs = anchors.get(metric)
             if legs is None:
-                findings.append(_finding(
-                    1, "metric_undeclared", metric=metric, behavior_id=bid,
-                    headline=(f"{bid} points at metric '{metric}', which no sem file "
-                              "declares. Fix the pointer, or the metric is not governed yet.")))
+                if not partial_read:
+                    findings.append(_finding(
+                        1, "metric_undeclared", metric=metric, behavior_id=bid,
+                        headline=(f"{bid} points at metric '{metric}', which no sem file "
+                                  "declares. Fix the pointer, or the metric is not "
+                                  "governed yet.")))
                 continue
             live_legs = [leg for leg in legs if leg.watched]
             if not live_legs:
