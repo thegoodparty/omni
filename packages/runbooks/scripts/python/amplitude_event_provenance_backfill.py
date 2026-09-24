@@ -1031,10 +1031,15 @@ def upsert_provenance_row(
         row["call_site_count"] = None
         row["call_site_retired_date"] = None
     else:
-        # Symmetric with the add guard: preserve the first retirement attribution so a
-        # double-fire (retry, reprocessing) does not replace the PR/date that first removed it.
-        if not row.get("retired_date"):
+        # Symmetric with the add guard, including its PR carve-out (DATA-2525): preserve the
+        # first retirement attribution so a double-fire (retry, reprocessing) does not replace
+        # the PR/date that first removed it, but let an EMPTY PR be filled by a later call —
+        # the skill's documented flow retires before the PR exists, then re-runs with the
+        # number. A date-only guard dropped that second call silently, leaving a retired row
+        # with no link to the PR that retired it.
+        if pr and not row.get("retired_pr"):
             row["retired_pr"] = pr_url(pr)
+        if not row.get("retired_date"):
             row["retired_date"] = date
             row["retired_commit"] = None
     row["last_code_change_date"] = date
