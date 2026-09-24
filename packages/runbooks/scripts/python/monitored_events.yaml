@@ -106,6 +106,17 @@ events:
   - {event: "Onboarding V2 - Ballot Status Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Briefing Viewed", product: serve, family: serve, floor: null, owner: TBD}
   - {event: "Briefing Assistant - Agenda Created", product: serve, family: serve, floor: null, owner: TBD}
+  # ---- Promoted from the proposal queue, /triage-instrumentation-gaps 2026-09-24 ----
+  - {event: "Onboarding V2 - Signup Goal Viewed", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Onboarding V2 - Signup Goal Completed", product: win, family: win_onboarding, floor: null, owner: TBD}
+  - {event: "Voter Outreach - Campaign Approved", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Voter Outreach - Recommended List Accepted", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Voter Outreach - Phone Banking Call Sheet Downloaded", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Voter Data - Contact Status Changed", product: win, family: win_voter_data, floor: null, owner: TBD}
+  - {event: "Voter Data - Note Added", product: win, family: win_voter_data, floor: null, owner: TBD}
+  - {event: "Voter Data - Contact Viewed", product: win, family: win_voter_data, floor: null, owner: TBD}
+  - {event: "Voter Data - Contact Searched", product: win, family: win_voter_data, floor: null, owner: TBD}
+  - {event: "Community Issues - Initial Issues Generated", product: serve, family: serve, floor: null, owner: TBD}
 
 # Behaviors (DATA-2316): what we are trying to measure, and which events instrument it.
 # Absorbs the events: key above over time — a watchlist row is the degenerate case of a

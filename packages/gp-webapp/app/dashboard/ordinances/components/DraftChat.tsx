@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { Ordinance } from '@goodparty_org/contracts'
 import {
   AssistantRow,
@@ -41,6 +42,11 @@ export default function DraftChat({
 }): React.JSX.Element {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState(seedText)
+
+  // The drawer host remounts this component on each open, so a mount is an open.
+  useEffect(() => {
+    trackEvent(EVENTS.Ordinances.DraftChatOpened)
+  }, [])
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -183,6 +189,7 @@ export default function DraftChat({
           if (!conversationId) return
           const text = composer
           setComposer('')
+          trackEvent(EVENTS.Ordinances.DraftChatMessageSent)
           // send resolves when the turn (and its tail drain) finishes; only
           // then is any apply_draft_edit write settled server-side.
           void send(conversationId, text).then(() => onTurnComplete?.())

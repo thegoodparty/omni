@@ -182,8 +182,9 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx#form_submit": {
+    "actioned_at": "2026-09-24",
     "dashboard_question": "How many users who open the ordinance draft chat actually send a message (open-to-send drop-off)?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-09-10",
     "id": "packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx#form_submit",
     "judge_reason": "This is an AI chat message-send action, which per rubric exception must be tracked alongside chat-opened to see open-to-send drop-off; no evidence of existing tracking here.",
@@ -195,8 +196,9 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit": {
+    "actioned_at": "2026-09-24",
     "dashboard_question": "How many users submit the New Ordinance form to create a new ordinance draft?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-08-31",
     "id": "packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit",
     "judge_reason": "Form submit is the primary CTA/outcome for this screen (creating a new ordinance) and shows no existing instrumentation.",
@@ -208,8 +210,9 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceBugReportSheet.tsx#form_submit": {
+    "actioned_at": "2026-09-24",
     "dashboard_question": "How many users successfully submit a bug report via the ordinance bug report sheet, and how often does it fail?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-09-24",
     "id": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceBugReportSheet.tsx#form_submit",
     "judge_reason": "Submit is the primary action of this sheet and includes an error path (blocker); no tracking evident for success or the caught error state.",
@@ -390,8 +393,9 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/questions/components/FunFact.tsx#form_submit": {
+    "actioned_at": "2026-09-24",
     "dashboard_question": "At which onboarding/profile question step (Fun Fact) do users complete vs. drop off?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-09-14",
     "id": "packages/gp-webapp/app/dashboard/questions/components/FunFact.tsx#form_submit",
     "judge_reason": "This is a step in a multi-step questions flow; saving/advancing should fire a stage-completed event to measure drop-off across steps.",
@@ -403,8 +407,9 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/questions/components/Occupation.tsx#form_submit": {
+    "actioned_at": "2026-09-24",
     "dashboard_question": "At which onboarding/profile question step (Occupation) do users complete vs. drop off?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-09-14",
     "id": "packages/gp-webapp/app/dashboard/questions/components/Occupation.tsx#form_submit",
     "judge_reason": "This is a step in a multi-step questions flow; saving/advancing should fire a stage-completed event to measure drop-off across steps.",
@@ -416,8 +421,9 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/questions/components/PastExperience.tsx#form_submit": {
+    "actioned_at": "2026-09-24",
     "dashboard_question": "At which onboarding/profile question step (Past Experience) do users complete vs. drop off?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-09-24",
     "id": "packages/gp-webapp/app/dashboard/questions/components/PastExperience.tsx#form_submit",
     "judge_reason": "This is a step in a multi-step questions flow; saving/advancing should fire a stage-completed event to measure drop-off across steps.",

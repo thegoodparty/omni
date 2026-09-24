@@ -444,6 +444,12 @@ export const EVENTS = {
   // moving it into the registry stays a no-op for Amplitude and HubSpot.
   Questions: {
     Completed: 'question_complete',
+    OccupationViewed: 'Questions - Occupation Viewed',
+    OccupationCompleted: 'Questions - Occupation Completed',
+    FunFactViewed: 'Questions - Fun Fact Viewed',
+    FunFactCompleted: 'Questions - Fun Fact Completed',
+    PastExperienceViewed: 'Questions - Past Experience Viewed',
+    PastExperienceCompleted: 'Questions - Past Experience Completed',
   },
   // Peer-to-peer texting upsell modal, a sibling of ProUpgrade.Modal above with
   // its own event family. Every event carries `variant` (P2PModalVariant) so the
@@ -820,6 +826,12 @@ export const EVENTS = {
     DraftDetailsDownloaded: 'Ordinances - Draft Details Downloaded',
     DraftDetailsStatusUpdated: 'Ordinances - Draft Details Status Updated',
     DraftDetailsDeleted: 'Ordinances - Draft Details Deleted',
+    BugReportSubmitted: 'Ordinances - Bug Report Submitted',
+    BugReportErrored: 'Ordinances - Bug Report Errored',
+    NewOrdinanceCreated: 'Ordinances - New Ordinance Created',
+    NewOrdinanceErrored: 'Ordinances - New Ordinance Errored',
+    DraftChatOpened: 'Ordinances - Draft Chat Opened',
+    DraftChatMessageSent: 'Ordinances - Draft Chat Message Sent',
   },
   // ENG-10626: the native door-knocking surface (voter map, turf cutting,
   // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,
