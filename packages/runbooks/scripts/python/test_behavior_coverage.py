@@ -68,17 +68,33 @@ def test_behavior_with_no_surfaces_is_uncovered_not_covered():
     assert bc.behavior_state({"id": "b", "surfaces": []}, {})["coverage"] == "uncovered"
 
 
-def test_page_path_surface_reads_its_leg_record_first():
-    b = {"id": "b", "surfaces": [
-        {"path": "p.tsx", "label": "dash", "instrumented_by": "Viewed", "page_path": "/dashboard"}]}
-    by_type = {"Viewed": _rec("Viewed"),
-               "Viewed[path=/dashboard]": _rec("Viewed[path=/dashboard]", "dormant")}
-    [s] = bc.surface_states(b, by_type)
+def _page_path_behavior(page_path="/dashboard"):
+    return {"id": "b", "surfaces": [
+        {"path": "p.tsx", "label": "dash", "instrumented_by": "Viewed", "page_path": page_path}]}
+
+
+def test_a_latched_page_path_surface_is_dead_even_when_the_bare_event_is_active():
+    # Site-wide Viewed stays busy while one page stops being visited, so the bare event is
+    # no evidence about the slice. The latch is the only verdict that saw the slice itself.
+    latches = {"Viewed[path=/dashboard]": {
+        "latched": True, "metric": "m", "since": "2026-08-10"}}
+    [s] = bc.surface_states(_page_path_behavior(), {"Viewed": _rec("Viewed")}, latches=latches)
     assert s["key"] == "Viewed[path=/dashboard]" and s["state"] == "dead"
 
 
 def test_page_path_surface_falls_back_to_the_bare_event():
-    b = {"id": "b", "surfaces": [
-        {"path": "p.tsx", "label": "dash", "instrumented_by": "Viewed", "page_path": "/dashboard"}]}
-    [s] = bc.surface_states(b, {"Viewed": _rec("Viewed")})
+    [s] = bc.surface_states(_page_path_behavior(), {"Viewed": _rec("Viewed")})
     assert s["state"] == "live"
+
+
+def test_an_unlatched_page_path_surface_ignores_a_latch_on_another_slice():
+    latches = {"Viewed[path=/polls]": {"latched": True, "metric": "m", "since": "2026-08-10"}}
+    [s] = bc.surface_states(_page_path_behavior(), {"Viewed": _rec("Viewed")}, latches=latches)
+    assert s["state"] == "live"
+
+
+def test_behavior_state_threads_the_latch_through_to_its_surfaces():
+    latches = {"Viewed[path=/dashboard]": {
+        "latched": True, "metric": "m", "since": "2026-08-10"}}
+    state = bc.behavior_state(_page_path_behavior(), {"Viewed": _rec("Viewed")}, latches=latches)
+    assert state["coverage"] == "uncovered"
