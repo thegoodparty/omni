@@ -20,14 +20,17 @@ import { apiRoutes } from 'gpApi/routes'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import type { Race } from '../[slug]/[step]/components/ballotOffices/types'
-import type { SelectedOffice } from './onboardingTypes'
+import type {
+  OfficePickerGiveUpContext,
+  SelectedOffice,
+} from './onboardingTypes'
 
 interface OfficeSelectionStepProps {
   zip: string | undefined
   selected: SelectedOffice | undefined
   onZipChange: (zip: string) => void
   onSelect: (office: SelectedOffice | undefined) => void
-  onCantFindOffice: () => void
+  onCantFindOffice: (context: OfficePickerGiveUpContext) => void
   onHydratingChange?: (isHydrating: boolean) => void
 }
 
@@ -587,7 +590,16 @@ export const OfficeSelectionStep = ({
               type="button"
               variant="link"
               size="small"
-              onClick={onCantFindOffice}
+              onClick={() =>
+                onCantFindOffice({
+                  officeZip: submittedZip,
+                  searchQuery: nameFilter.trim(),
+                  categoryFilter: activeFilter,
+                  totalOffices,
+                  filteredCount,
+                  searchErrored: query.isError,
+                })
+              }
             >
               I don&apos;t see my office
             </Button>

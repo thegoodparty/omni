@@ -700,10 +700,22 @@ this the first spend a volunteer can trigger, which is why the assignment
 check is not optional: an unassigned volunteer 404s exactly as they do on the
 walk.
 
-**The daily campaign gate is still on the create**, not here. It has to move
-to this press no later than the change that stops creation buying routes —
-between those two it would be guarding a press that no longer spends while
-the press that does spend has none.
+**The daily campaign gate is still on the create, and is not moving here —
+it is being removed.** The cap exists because creating a turf bought a route
+(`campaignQuota.util.ts` says so in its own first paragraph), and that is the
+premise this change removes. Relocating it would also mean measuring the
+wrong thing: it counts TURFS CREATED in a rolling 24 hours, so on this press
+it would refuse a canvasser opening a turf drawn weeks ago because a
+teammate drew five this morning, while letting a backlog of aged-out turfs
+be bought all at once. Removal is approved and is its own change.
+
+Until that lands the buy has no ceiling, and the exposure is bounded by there
+being no way to reach it: an unrouted turf only exists if a client omits
+`mode`/`loop`, and the wizard always sends both, so every turf the product
+creates is routed at creation and this press short-circuits on it. What
+bounds the spend after the cap goes is the account-wide tiered alerting over
+the ledger (§ Spend visibility), which is the only thing that ever bounded
+the shared credit pool.
 
 **Two of the four failure modes cannot reach the paid press.** The draw step
 runs `DoorKnockingPreviewService`, which is this evaluation minus the vendor
@@ -2244,7 +2256,12 @@ and still isn't, on either the nav or the page.
 ## The Pro gate (ENG-10888)
 
 **Every route in `src/doorKnocking/` is Pro-gated except the two suppression
-writes.** The gate is `ContactsService.assertProAccess(organization)`, called at
+writes and the four reads the create flow needs before its one paid write.**
+The reads (`GET /turfs`, `GET /pack`, `GET /quota`, `POST /audience-check`)
+opened with outreach-pro-gating-v2: a free campaign can list, draw and shape
+a list behind the create flow's in-flow gate, and `POST /turfs`, the Geoapify
+spend, is where it is refused. `POST /address-preview` stays gated because it
+returns addresses (ADR 0010). The gate is `ContactsService.assertProAccess(organization)`, called at
 the top of each controller method — the CRM's own predicate, reused rather than
 reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
 `isPro` and an `eo-` (Serve) org stays license-equivalent to Pro here exactly as
@@ -2260,17 +2277,17 @@ either status would stay quiet and the convention rests on the semantics.
 | ----------------------- | ------ |
 | `POST /turfs`           | yes    |
 | `POST /serve/turfs`     | yes    |
-| `GET /turfs`            | yes    |
+| `GET /turfs`            | **no** |
 | `GET /serve/turfs`      | yes    |
 | `GET /turfs/:id`        | yes    |
 | `PUT /turfs/:id`        | yes    |
 | `DELETE /turfs/:id`     | yes    |
 | `GET /turfs/:id/route`  | yes    |
 | `POST /turfs/:id/route` | yes    |
-| `GET /pack`             | yes    |
-| `GET /quota`            | yes    |
+| `GET /pack`             | **no** |
+| `GET /quota`            | **no** |
 | `POST /address-preview` | yes    |
-| `POST /audience-check`  | yes    |
+| `POST /audience-check`  | **no** |
 | `POST /interactions`    | yes    |
 | `POST /do-not-knock`    | **no** |
 | `POST /not-a-voter`     | **no** |

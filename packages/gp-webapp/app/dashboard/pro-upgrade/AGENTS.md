@@ -14,7 +14,7 @@ post-payment "Texting Compliance" card. Only ~0.86% of Pro candidates ever finis
 all compliance data is collected before the candidate pays.** Front-loading the data
 collection into the purchase flow is the lever for fixing that funnel.
 
-## Flag status — none. This is the default.
+## Flags: wizard entry is unflagged, the step set is not
 
 The flow originally shipped behind the `pro-upgrade3` Amplitude flag (superseding the
 older `pro-upgrade1` data-card and the unflagged `pro-sign-up` payment flow). **Both
@@ -22,7 +22,27 @@ flags were retired in ENG-10474 (PR #258)** — the wizard is now the default fo
 everyone. `proUpgradeFlag.ts` was deleted; `proUpgrade3Flag.ts` was trimmed to just
 `PRO_UPGRADE_ENTRY_PATH`. The legacy `/dashboard/pro-sign-up` and
 `/dashboard/upgrade-to-pro` route trees and the `TextingComplianceAgentic` / legacy
-`TextingCompliance` cards are gone. Do not reintroduce a flag gate here.
+`TextingCompliance` cards are gone. Do not reintroduce a flag gate on wizard _entry_.
+
+One flag does choose which **step set** the wizard runs: `outreach-pro-gating-v2`
+(`app/shared/experiments/outreachProGatingV2Flag.ts`,
+`useOutreachProGatingV2Flag(trackExposure)`). On, the wizard is **purchase-only** and
+runs `PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY` (`GUIDANCE → STATUS → EIN → PAYMENT →
+SUCCESS`): filing details and the candidate profile are no longer collected before
+payment, they are collected after it at `/dashboard/campaign-verification`
+(`app/dashboard/campaign-verification/`, same flag via `FeatureFlagGuard`; intro →
+the shared `ElectionFilingForm` in its `verification` variant → its own submitted
+screen). Off, the default order below is exactly as it was.
+
+Read the flag once, in a shell, and pass it down as `purchaseOnly` on the wizard
+context. Everything else goes through `proUpgradeStepOrder(purchaseOnly)` and
+`deriveProUpgradeStep(inputs, { purchaseOnly })` instead of re-reading the flag.
+Exposure belongs to `app/dashboard/shared/membership/` — both `MembershipBanner`
+and `MembershipChip` fire it, and only once the surface is actually visible (a
+Serve org or a cleared Pro campaign renders neither, so neither is exposed). Every
+caller, the banner and chip included, reads the flag with `useOutreachProGatingV2Flag(false)`, and
+`/dashboard/campaign-verification` passes `trackExposure={false}` to its
+`FeatureFlagGuard` for the same reason.
 
 ## The big idea: no server-side session, step derived from canonical state
 
@@ -41,32 +61,96 @@ wins; already-Pro short-circuits to the post-payment `SUCCESS` surface.
 | File                                             | Role                                                                                                                                                                                               |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `page.tsx` → `components/ProUpgradeEntry.tsx`    | Wizard **index**. Reads the canonical-state queries, calls `deriveProUpgradeStep`, `router.replace`s to the resume step. Shows a recoverable error (not a mis-route) if any query fails.           |
-| `layout.tsx` → `components/ProUpgradeWizard.tsx` | Wizard **shell**. Renders the chrome (Exit link, desktop vertical `Stepper`, the 640px card), provides `useProUpgradeWizard()` (`currentStep` / `goToStep` / `goToNextStep` / `goToPreviousStep`). |
-| `proUpgradeStep.ts`                              | Pure step-derivation router + `PRO_UPGRADE_STEP`, `PRO_UPGRADE_STEP_ORDER`, `filingStatusFromDetails`. Single source for step identity and linear order.                                           |
-| `<step>/page.tsx`                                | One route per step; each renders its component from `components/`.                                                                                                                                 |
-| `components/*Step.tsx`                           | The screen for each step.                                                                                                                                                                          |
+| `layout.tsx` → `components/ProUpgradeWizard.tsx` | Wizard **shell** for the route tree. Reads `outreach-pro-gating-v2` and provides the shared context. Off the flag it renders the original chrome (Exit link, desktop vertical `Stepper` labelled `Campaign EIN` / `Campaign details` / `Candidate profile` / `Payment`, the 640px card). Purchase-only renders the design's full-screen chrome instead (`renderSgModal`), the same one the outreach sheet draws around the embedded flow: an "Upgrade to Pro" overline with an Exit button, the bar `Stepper` over the five ordered steps (filing-instructions reads as the status step it branches from; success draws no header), a 608px column that scrolls on its own, and a footer bar below it that each step's `StepFooter` portals its buttons into. |
+| `components/proUpgradeWizardContext.tsx`         | The context both shells provide and every step consumes: `currentStep`, `purchaseOnly`, `channel`, `goToStep`, `goToNextStep`, `goToPreviousStep`, `exit`, `complete`. `exit` leaves the flow, `complete` is where a finished upgrade hands off (on the route shell, `exit` goes to `/dashboard` and `complete` goes to campaign verification in purchase-only mode, `/dashboard` otherwise).                                        |
+| `components/ProUpgradeFlow.tsx`                  | State-driven twin of the shell, for mounting the same steps inside another surface. Its one caller is `app/dashboard/outreach/v2/gate/OutreachGate.tsx`, which mounts it on `PRO_UPGRADE_STEP.INTERSTITIAL` right after a draft is saved (and on `PRO_UPGRADE_STEP.GUIDANCE` every other way into the gate) in place of a paused channel flow's step body, passing that channel and handing the flow back on `onComplete`. Holds the step in `useState` instead of the URL, takes `initialStep` / `channel` / `onExit` / `onComplete`, and is **always** purchase-only. **Its `onComplete` may fire on a screen whose requirement has already cleared** — the outreach gate latches its screen for exactly that reason (see `app/dashboard/outreach/AGENTS.md`'s Gate section); do not add an auto-complete here.                                                                                |
+| `components/proUpgradeStepComponents.tsx`        | `PRO_UPGRADE_STEP_COMPONENTS`: step id → step component. The route pages import their step directly; `ProUpgradeFlow` renders by id, so both shells show one set of screens.                                                                                                                                                        |
+| `proUpgradeStep.ts`                              | Pure step-derivation router + `PRO_UPGRADE_STEP`, `PRO_UPGRADE_STEP_ORDER`, `PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY`, `proUpgradeStepOrder(purchaseOnly)`, `filingStatusFromDetails`. Single source for step identity and both linear orders.                                                                                          |
+| `<step>/page.tsx`                                | One route per step; each renders its component from `components/`.                                                                                                                                                                                                                                                                  |
+| `components/*Step.tsx`                           | The screen for each step. A step that differs under the flag branches on the context's `purchaseOnly`, in one component, not a second file.                                                                                                                                                                                          |
 
 ### Steps, routes, and runtime order
 
 Linear order: **value-prop → status → (filing-instructions dead-end | guidance) → ein
 → filing-details → candidate-profile → payment → success**.
 
+Purchase-only order (`outreach-pro-gating-v2` on): **guidance → status →
+(filing-instructions dead-end) → ein → payment → success**. The value prop moves to
+the Pro pitch dialog, filing details and the candidate profile move to campaign
+verification, and `guidance` becomes the first ordered step.
+
 | Step                  | Route                 | Component                | Notes                                                                                                                          |
 | --------------------- | --------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Value prop / paywall  | `value-prop`          | `ValuePropStep`          | "76% of candidates who use Pro win", Free-vs-Pro, "Get Pro".                                                                   |
-| Filing status branch  | `status`              | `FilingStatusStep`       | "Have you already filed?" Writes `campaign.details.hasFiledForRace` (tri-state).                                               |
-| Filing instructions   | `filing-instructions` | `FilingInstructionsStep` | **Dead-end** for not-yet-filed candidates (window/fee/requirements/office + "email this to me"). Only "Continue to dashboard". |
-| Guidance interstitial | `guidance`            | `GuidanceStep`           | "what we'll gather" list. Presentational.                                                                                      |
-| EIN                   | `ein`                 | `EinStep`                | Front-end EIN collection + sanity check only (no IRS/backend verification — Peerly is the backstop).                           |
-| Filing details        | `filing-details`      | `FilingDetailsStep`      | Committee name, filing link, PIN contact methods. **Submits to the agentic endpoint** (see below).                             |
-| Candidate profile     | `candidate-profile`   | `CandidateProfileStep`   | Bio + policy priorities via `PUT /websites/mine`.                                                                              |
-| Payment               | `payment`             | `PaymentStep`            | Embedded Stripe Custom Checkout (`ui_mode: 'custom'`) + order summary. No redirect.                                            |
-| Success               | `success`             | `SuccessStep`            | Stripe `return_url` landing. Polls until `isPro` flips (see seam below).                                                       |
+| Value prop / paywall  | `value-prop`          | `ValuePropStep`          | "76% of candidates who use Pro win", Free-vs-Pro, "Get Pro". Not in the purchase-only order (the pitch dialog carries this).                                                                                                                                                             |
+| Filing status branch  | `status`              | `FilingStatusStep`       | "Have you already filed?" Writes `campaign.details.hasFiledForRace` (tri-state). Purchase-only asks "Are you officially filed?", makes the cards a selection confirmed by a Continue held until one is picked (design), and sends Yes to the EIN step.                                                                                                                           |
+| Filing instructions   | `filing-instructions` | `FilingInstructionsStep` | **Dead-end** for not-yet-filed candidates (window/fee/requirements/office + "email this to me"). Only "Continue to dashboard", or "Finish later" in purchase-only mode.                                                                                                                  |
+| Guidance interstitial | `guidance`            | `GuidanceStep`           | "what we'll gather" list. Presentational. Purchase-only makes it the **first ordered step**: "Let's gather a few things to unlock Pro" over EIN + Payment rows, Continue → `status`, Back → `exit()`.                                                                                     |
+| EIN                   | `ein`                 | `EinStep`                | Front-end EIN collection + sanity check only (no IRS/backend verification — Peerly is the backstop). Purchase-only renders a plain styleguide `Input` (placeholder `12-3456789`, no tooltip) with the IRS Tax Exempt Organization Search caption, holds Continue until all nine digits are in, then an OR divider and `EinHowToCollapsible` (chevron toggle, the six IRS steps, "Email me these steps" via `POST /v1/campaigns/mine/ein-instructions/email`, "Open IRS.gov").                                                                      |
+| Filing details        | `filing-details`      | `FilingDetailsStep`      | Committee name, filing link, PIN contact methods. **Submits to the agentic endpoint** (see below). Not in the purchase-only order; campaign verification collects it.                                                                                                                    |
+| Candidate profile     | `candidate-profile`   | `CandidateProfileStep`   | Bio + policy priorities via `PUT /websites/mine`. Not in the purchase-only order; campaign verification collects it.                                                                                                                                                                     |
+| Payment               | `payment`             | `PaymentStep`            | Embedded Stripe Custom Checkout (`ui_mode: 'custom'`) + order summary. No redirect.                                                                                                                                                                                                      |
+| Success               | `success`             | `SuccessStep`            | Stripe `return_url` landing. Polls until `isPro` flips (see seam below). Purchase-only shows "Welcome to Pro" + an "Unlocked now" card, adds a "Still to do: verification" row and a "Start verification" CTA when `channel === 'sms'` or there is no channel (the standalone page, where `complete()` routes to campaign verification), a "Still to do: {next step}" row and a Continue CTA for the other channels, holds the CTA until Pro lands, then `complete()`. Below the card, `ProReceiptCard` (design: receiptCard) reads `GET /v1/payments/purchase/pro-receipt` once `isPro` is true and draws the collapsed "Your receipt" row (date, plan line, card, charge, Download receipt); it draws nothing until Stripe answers, never a made-up receipt. |
+| Interstitial (milestone 2) | none — `initialStep` only | `InterstitialStep`  | "Join Pro to send this campaign" pause screen for a candidate gated out of an outreach channel mid-draft. Reads `channel` off the wizard context and renders a Pro badge, the title and `ProPitchPanel` — the same channel value card + (for `sms`) collapsible verification card the gate explainer shows. "Join Pro" → `goToNextStep` (always lands on `GUIDANCE`); "Maybe later" → `exit`. Copy is `PRO_COPY` / `PITCH_PANEL_COPY` / `INTERSTITIAL_COPY` from `app/dashboard/outreach/v2/gate/gateCopy.ts`, shared with the outreach gate surfaces (`GateBanner` / `GateExplainerModal` / `OutreachGate`). |
 
 **Two steps are intentionally NOT in `PRO_UPGRADE_STEP_ORDER`** (`filing-instructions`,
 `guidance`): they are off-order branches reached only by explicit nav from `status`,
 never derived by the router. The shell's Back button targets `status` explicitly for
-them (router.back would leave the wizard for a direct-URL arrival).
+them (router.back would leave the wizard for a direct-URL arrival). In the
+purchase-only order `guidance` **is** ordered (first), so it drops out of that Back
+special case and only `filing-instructions` stays off-order.
+
+`interstitial` is a third kind of off-order step, stricter than either: it has
+**no route at all** (no `<step>/page.tsx`), so `deriveProUpgradeStep` never derives
+it, neither linear order contains it, and `ProUpgradeWizard`'s `stepFromPathname`
+explicitly refuses to resolve it from a URL. The only way in is `ProUpgradeFlow`'s
+`initialStep` prop — an outreach flow gating a candidate mid-draft starts the
+embeddable flow there directly. From it, `goToNextStep` always lands on `GUIDANCE`
+and `goToPreviousStep` always calls `onExit`, both hardcoded in `ProUpgradeFlow`
+(index-based resolution would no-op, since it isn't in `proUpgradeStepOrder(true)`).
+The reverse is hardcoded too: with a `channel` set (only the embedded flow
+sets one), Back off `GUIDANCE` returns to the interstitial rather than exiting,
+so a candidate who pressed Join Pro can read the pitch again and "Maybe later"
+is the one way out. Which screen the embedded flow OPENS on is the gate's
+`showInterstitial`: the pitch after a save or a tile/deep-link resume, the
+wizard directly from the explainer's Join Pro or the draft drawer's own CTA.
+
+## Embeddable verification steps (milestone 2)
+
+`app/dashboard/campaign-verification/components/CampaignVerificationSteps.tsx` is the
+`intro | form | submitted` state machine extracted from `CampaignVerificationFlow`
+(the standalone page), so the outreach gate can mount the same three screens inside
+a channel flow's own sheet instead of navigating there (`OutreachGate`'s `'verify'`
+screen). It renders no chrome of its
+own (no `min-h-screen`, no nav, no `Stepper`) and takes `{ initialStep, onStepChange,
+onExit, onComplete, completeLabel? }` — `onStepChange` fires
+on mount and on every transition so a caller-owned Stepper/URL can track the active
+step without this component reaching outside its props. Each screen pins its own
+footer to the bottom of the caller's column (the intro's Back / Continue, the form's
+Back / "Submit for verification", which enables once every field has a value so the
+click can list what is invalid, the submitted screen's centered Done). Every one of
+those footers is a `StepFooter` (`app/dashboard/shared/StepFooter.tsx`): inside
+`FullScreenStepChrome` or `OutreachSheet` it portals the buttons into the host's
+footer bar below the scroll area, so they never scroll with the body; without a slot
+it renders inline. The wizard's purchase-only steps use the same component. The
+positions are intro 1 / form 2 of 3 with no header on the submitted screen, the same
+in `OutreachGate`'s `reportVerifyStep` and the standalone flow. `CampaignVerificationFlow`
+is now just `FullScreenStepChrome` (`app/dashboard/shared/`, the design's renderSgModal
+chrome the purchase-only wizard shell also uses) around this component, mapping
+`?step=submitted` to `initialStep` and `router.replace`-ing it back on `onStepChange`
+(that URL sync is page-wrapper behavior, deliberately not inside the embeddable
+component). It also passes the design's filing-details/contact-information headings
+into `ElectionFilingForm` (`title`/`caption`/`contactTitle`/`contactCaption`, new
+optional props on both `ElectionFilingForm` and `TextingComplianceRegistrationForm`)
+— the legacy standalone election-filing page omits them and keeps its current
+heading-less look.
+
+`InterstitialStep` and this component share their channel/copy vocabulary via
+`app/dashboard/outreach/v2/gate/gateCopy.ts` (`GateChannel` = the same union as
+`ProUpgradeLaunchChannel`, `GATE_NOUN` / `PRO_COPY` /
+`PITCH_PANEL_COPY` / `INTERSTITIAL_COPY` / `RESUME_COPY` / `BANNER_COPY` /
+`EXPLAINER_COPY`) — the same file
+the outreach flows' own gate surfaces read. Treat that file's strings as
+verbatim design copy, not something to rewrite in passing.
 
 ## Reuse, don't rebuild (the anti-drift rule)
 
@@ -196,6 +280,23 @@ rerouting** are in `app/dashboard/components/campaignManager/` and the shared
   gp-api now 409s that (`ALREADY_PRO` / `CHECKOUT_ALREADY_COMPLETED` /
   `CHECKOUT_IN_PROGRESS`), so the backstop is server-side, but don't add more
   POST-on-mount paths that trust the cached campaign.
+- **Purchase-only derivation has to know it is purchase-only.** `ProUpgradeEntry`
+  reads the flag and passes `{ purchaseOnly }` into `deriveProUpgradeStep`. Without
+  it the index derives `FILING_DETAILS` or `CANDIDATE_PROFILE`, which the
+  purchase-only order does not contain, and the candidate lands on a step the shell
+  will not advance from. In purchase-only mode the derivation is deliberately flat:
+  an already-Pro campaign lands on `SUCCESS`, everyone else on `GUIDANCE` (design:
+  the wizard always opens on its overview, the same way the embedded flow does), and
+  the steps prefill from the saved filing answer and EIN rather than being skipped —
+  a candidate dropped onto Payment by a resume they could not see the reason for is
+  what that replaced. For the same reason the entry **disables** the website and
+  TCR queries in purchase-only mode (nothing derives from them) and must not wait on
+  them: a disabled TanStack query reports `isPending: true` forever.
+- **Never hand `ProUpgradeFlow.goToStep` an off-order step.** It resolves next/back
+  by index in `proUpgradeStepOrder(true)`, so a step outside that order (`value-prop`,
+  `filing-details`, `candidate-profile`) renders with a dead Next.
+  `filing-instructions` is the one exception, and only because `goToPreviousStep`
+  special-cases it back to `status`.
 - **"Not filed" is a branch point, not progress** (ENG-10372/10355). A persisted
   `not-filed` answer must NOT count as progress and the router must NOT derive
   `filing-instructions` — otherwise a returning not-filed candidate is stranded on the
@@ -283,6 +384,9 @@ permanently-red main gate (PR #1009):
 
 - `proUpgradeStep.test.ts` + each `*Step.test.tsx` — integration-style tests; mock only the SDK/endpoint boundary, exercise the real shared form/validator.
 - `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md` — the backend agentic flow this wizard feeds.
-- `app/dashboard/profile/texting-compliance/` — the shared form components + the post-payment compliance card.
+- `app/dashboard/profile/texting-compliance/` — the shared form components + the post-payment compliance card. `election-filing/components/ElectionFilingForm.tsx` is the form itself (takes `onSubmitted`), shared with campaign verification; `ElectionFiling.tsx` is the standalone page's chrome around it.
+- `app/dashboard/campaign-verification/`: where the purchase-only order collects filing details and the candidate profile, after payment. `components/CampaignVerificationSteps.tsx` is the embeddable `intro | form | submitted` state machine (see above); `CampaignVerificationFlow.tsx` is the standalone page wrapper around it.
+- `app/dashboard/outreach/v2/gate/`: the outreach flows' in-flow gate — `gateCopy.ts` is the shared Pro-and-verification copy `InterstitialStep` also reads, and `OutreachGate.tsx` is what mounts `ProUpgradeFlow` and `CampaignVerificationSteps` inside a channel flow.
+- `app/dashboard/shared/membership/`: the flagged membership banner and chip, the Pro pitch dialog, and the PIN dialog. Under `outreach-pro-gating-v2` these are how a candidate reaches this wizard and campaign verification.
 - `app/dashboard/campaign-story/CLAUDE.md` (Pro-upgrade sync section): the candidate-profile bio + policy priorities are the SAME `Website.content.about` fields the Campaign Story reads and writes, so they pre-fill bidirectionally with no backfill/sync work; only the story's `background` field is not shared (Pro has no counterpart).
 - Epic plan (local): `~/.claude/plans/86ah2ezny-plan.md` — full task-by-task history and design decisions.

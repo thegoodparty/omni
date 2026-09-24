@@ -8,22 +8,33 @@ import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
 
 interface DownloadStepProps {
-  response: PhoneBankingCreateResponse
+  // The created list. Absent while the candidate cannot have one yet: the
+  // gated flow shows this screen as a preview off `pending`, and the download
+  // opens the gate instead of a file (design: the download step before Pro).
+  response?: PhoneBankingCreateResponse
+  pending?: { personCount: number; sheetCount: number }
   audienceLabel: string
+  onDownloadGated?: () => void
 }
 
 // The "ready" screen (step 5): replaces the old naming-only download step and
-// the separate SuccessScreen. Rendered only once the create call has already
-// succeeded, so there's nothing left to input here — just the summary and the
-// download/next-step actions.
+// the separate SuccessScreen. Nothing left to input here — just the summary
+// and the download/next-step actions.
 export const DownloadStep = ({
   response,
+  pending,
   audienceLabel,
+  onDownloadGated,
 }: DownloadStepProps) => {
-  const isZip = response.sheetCount > 1
-  const href = `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
+  const sheetCount = response?.sheetCount ?? pending?.sheetCount ?? 1
+  const personCount = response?.personCount ?? pending?.personCount ?? 0
+  const isZip = sheetCount > 1
+  const href = response
+    ? `/dashboard/outreach/phone-banking/print/${response.id}/pdf`
+    : null
 
   const handleDownloadClick = () => {
+    if (!response) return
     trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
       listId: response.id,
       contactCount: response.personCount,
@@ -46,7 +57,7 @@ export const DownloadStep = ({
           prior batches, so any "frozen from M" comparison lies on a
           continuation batch (same reasoning as SheetCountStep's
           over-capacity copy). */}
-      {response.hasMore && (
+      {response?.hasMore && (
         <Alert variant="destructive">
           <AlertDescription>
             More reachable contacts remain in this list. Create another phone
@@ -64,12 +75,12 @@ export const DownloadStep = ({
           <div className="min-w-0">
             <p className="font-medium text-foreground">
               {isZip
-                ? `${response.sheetCount} phone banking call sheets`
+                ? `${sheetCount} phone banking call sheets`
                 : 'Phone banking call sheet'}
             </p>
             <p className="text-sm text-muted-foreground">
-              {audienceLabel} · {response.personCount.toLocaleString()} contacts
-              {isZip ? ` split across ${response.sheetCount} sheets` : ''}
+              {audienceLabel} · {personCount.toLocaleString()} contacts
+              {isZip ? ` split across ${sheetCount} sheets` : ''}
             </p>
           </div>
         </div>
@@ -87,21 +98,35 @@ export const DownloadStep = ({
         </div>
       </Card>
 
-      <Button
-        asChild
-        variant="outline"
-        className="w-full"
-        onClick={handleDownloadClick}
-      >
-        {/* The PDF/ZIP is built by a route handler (ENG-10918) — a plain
-            anchor, same precedent as door-knocking's print link. */}
-        <a href={href} target="_blank" rel="noreferrer">
+      {href ? (
+        <Button
+          asChild
+          variant="outline"
+          className="w-full"
+          onClick={handleDownloadClick}
+        >
+          {/* The PDF/ZIP is built by a route handler (ENG-10918) — a plain
+              anchor, same precedent as door-knocking's print link. */}
+          <a href={href} target="_blank" rel="noreferrer">
+            <DownloadIcon className="size-4" />
+            {isZip
+              ? `Download ${sheetCount} call sheets (ZIP)`
+              : 'Download call sheet (PDF)'}
+          </a>
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={onDownloadGated}
+        >
           <DownloadIcon className="size-4" />
           {isZip
-            ? `Download ${response.sheetCount} call sheets (ZIP)`
+            ? `Download ${sheetCount} call sheets (ZIP)`
             : 'Download call sheet (PDF)'}
-        </a>
-      </Button>
+        </Button>
+      )}
     </div>
   )
 }

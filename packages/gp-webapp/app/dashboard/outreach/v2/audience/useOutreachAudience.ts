@@ -186,6 +186,15 @@ export const useOutreachAudience = ({
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
   const [selectedRecommendation, setSelectedRecommendation] =
     useState<RecommendedList | null>(null)
+  // The count of the recommendation the selected saved list came from, kept
+  // against that list's id. Both accept branches record it — the card that
+  // resolved to a list the candidate already had, and the card saved for the
+  // first time — because it is the only reach figure available when the
+  // Pro-gated list-detail read is off.
+  const [recommendationSnapshot, setRecommendationSnapshot] = useState<{
+    listId: number
+    count: number
+  } | null>(null)
   const [createRecommendedListPending, setCreateRecommendedListPending] =
     useState(false)
   const [createRecommendedListError, setCreateRecommendedListError] = useState<
@@ -311,6 +320,13 @@ export const useOutreachAudience = ({
   })
   const lists = useMemo(() => listsQuery.data ?? [], [listsQuery.data])
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null
+  // Read by `reset` through refs so a lists refetch (staleTime 0, window
+  // focus) never changes reset's identity: the flows key their open-time
+  // reset effect on it, and a new identity would wipe the flow mid-edit.
+  const listsRef = useRef(lists)
+  listsRef.current = lists
+  const preselectedListIdRef = useRef(preselectedListId)
+  preselectedListIdRef.current = preselectedListId
 
   // Apply the caller's preselected list once its row arrives. Spent on
   // application rather than bound to the prop: the candidate must be able to
@@ -368,9 +384,15 @@ export const useOutreachAudience = ({
   })
   // A selected recommendation was already counted for this channel by the
   // endpoint, so its count is the reach — there is no saved list to ask.
+  // A recommendation that resolved to a list the candidate already has is
+  // selected AS that list, so its own count is the only one on hand when
+  // list-detail is off (second visit, free build path).
   const reachableCount = selectedRecommendation
     ? selectedRecommendation.count
-    : (reachabilityQuery.data?.reachable ?? null)
+    : (reachabilityQuery.data?.reachable ??
+      (recommendationSnapshot?.listId === selectedListId
+        ? recommendationSnapshot.count
+        : null))
   const selectedListTotal = reachabilityQuery.data?.total ?? null
 
   // Filters the user built, translated for the backend. The saved list is
@@ -459,11 +481,24 @@ export const useOutreachAudience = ({
   }, [resetCreateMutation])
 
   const reset = useCallback(() => {
+    // A preselected list whose row is already here survives the reset: the
+    // hook's own preselect effect runs BEFORE the flow's open effect calls
+    // this (hooks' effects fire first), so with the saved lists already
+    // cached it had applied the resumed draft's list, and clearing it here
+    // left nothing to re-apply — the effect's deps had not changed. That
+    // read as "The voter list for this call is no longer available" on
+    // every resume after the first. A list not loaded yet stays with the
+    // effect, which applies it when the rows arrive.
+    const preselect = preselectedListIdRef.current
+    const preselectReady =
+      preselect !== undefined &&
+      listsRef.current.some((l) => l.id === preselect)
     setMode('picker')
-    setSelectedListId(null)
+    setSelectedListId(preselectReady ? preselect : null)
     setSelectedRecommendation(null)
+    setRecommendationSnapshot(null)
     setCreateRecommendedListError(null)
-    appliedPreselectRef.current = undefined
+    appliedPreselectRef.current = preselectReady ? preselect : undefined
     setAppliedPreselectedVariant(null)
     setBuilderFilters({})
     setBuilderSupportStatus([])
@@ -532,6 +567,12 @@ export const useOutreachAudience = ({
   // the two kinds of accept separable in the funnel rather than conflated.
   const trackRecommendationReused = useCallback(
     (recommendation: RecommendedList) => {
+      if (recommendation.existingFilterId !== null) {
+        setRecommendationSnapshot({
+          listId: recommendation.existingFilterId,
+          count: recommendation.count,
+        })
+      }
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,
@@ -615,6 +656,13 @@ export const useOutreachAudience = ({
       })
       invalidateRecommendations()
       setSelectedListId(data.id)
+      // The card's own count is the reach figure for the list it just
+      // became: selecting it drops `selectedRecommendation`, and with the
+      // Pro-gated list-detail read off nothing else can supply one.
+      setRecommendationSnapshot({
+        listId: data.id,
+        count: recommendation.count,
+      })
       setSelectedRecommendation(null)
       resetBuilder()
       return data

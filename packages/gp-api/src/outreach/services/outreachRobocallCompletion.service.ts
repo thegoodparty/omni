@@ -99,6 +99,15 @@ export class OutreachRobocallCompletionService extends createPrismaBase(
 
     for (const { outreachId, callhubCampaignPkStr, billableCount } of ready) {
       if (!callhubCampaignPkStr) continue
+      // Null billing belongs to the `draft` state alone, which the sweep's
+      // settleState scope can never select.
+      if (billableCount === null) {
+        this.logger.error(
+          { outreachId },
+          'robocall completion: billing missing on a non-draft row; skipping',
+        )
+        continue
+      }
       try {
         await this.settle(outreachId, callhubCampaignPkStr, billableCount)
       } catch (err) {

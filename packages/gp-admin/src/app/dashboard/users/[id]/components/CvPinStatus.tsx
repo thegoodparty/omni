@@ -18,6 +18,7 @@ import {
   setInternalTestingApproval,
 } from '@/app/dashboard/campaigns/actions'
 import { useUser } from '../context/UserContext'
+import { CvValidationHold } from './CvValidationHold'
 import { EditCommitteeNameAction } from './EditCommitteeNameAction'
 
 // Mirrors gp-api's INTERNAL_EMAIL_SUFFIXES (users.util.ts) — the grant
@@ -202,12 +203,25 @@ function CvPinStatusContent() {
 
   if (!pinAwaitingEntry) {
     return (
-      <Flex gap="3" align="center" wrap="wrap">
-        <Badge color={STAGE_BADGE_COLORS[state.stage]} size="2">
-          10DLC: {STAGE_LABELS[state.stage]}
-        </Badge>
-        {committeeNameRow}
-        {internalTestingToggle}
+      <Flex direction="column" gap="2">
+        <Flex gap="3" align="center" wrap="wrap">
+          <Badge color={STAGE_BADGE_COLORS[state.stage]} size="2">
+            10DLC: {STAGE_LABELS[state.stage]}
+          </Badge>
+          {committeeNameRow}
+          {internalTestingToggle}
+        </Flex>
+        {state.stage === ComplianceStage.filing_review_hold && (
+          <CvValidationHold
+            campaignId={campaignId}
+            filingUrl={state.filingUrl}
+            failureReasons={state.cvValidationFailureReasons}
+            onResolved={async () => {
+              const refreshed = await getCampaignComplianceState(campaignId)
+              setInfo({ campaignId, state: refreshed })
+            }}
+          />
+        )}
       </Flex>
     )
   }

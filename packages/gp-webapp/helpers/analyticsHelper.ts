@@ -411,12 +411,32 @@ export const EVENTS = {
       EinViewed: 'Pro Upgrade - EIN Viewed',
       EinContinue: 'Pro Upgrade - EIN: Click continue',
       EinHoverHelp: 'Pro Upgrade - EIN: Hover help',
+      EinInstructionsEmail: 'Pro Upgrade - EIN: Click email me these steps',
       CandidateProfileViewed: 'Pro Upgrade - Candidate Profile Viewed',
       FilingDetailsViewed: 'Pro Upgrade - Filing Details Viewed',
       PaymentViewed: 'Pro Upgrade - Payment Viewed',
       SuccessViewed: 'Pro Upgrade - Success Viewed',
       SuccessContinue: 'Pro Upgrade - Success: Click continue',
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
+    },
+    // outreach-pro-gating-v2 membership surfaces (Pro upgrade and campaign
+    // verification 2.0). Banner/chip carry `tier` and `texting`; clicks carry
+    // `action`.
+    Membership: {
+      BannerViewed: 'Pro Upgrade - Membership Banner Viewed',
+      BannerClicked: 'Pro Upgrade - Membership Banner: Click',
+      ChipViewed: 'Pro Upgrade - Membership Chip Viewed',
+      ChipClicked: 'Pro Upgrade - Membership Chip: Click',
+      PitchViewed: 'Pro Upgrade - Pitch Viewed',
+      PitchJoin: 'Pro Upgrade - Pitch: Click join',
+      PitchDismiss: 'Pro Upgrade - Pitch: Click continue without Pro',
+    },
+    // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
+    // campaign verification 2.0).
+    Verification: {
+      IntroViewed: 'Pro Upgrade - Verification Intro Viewed',
+      IntroContinue: 'Pro Upgrade - Verification Intro: Click continue',
+      SubmittedViewed: 'Pro Upgrade - Verification Submitted Viewed',
     },
   },
   // Candidate questions flow. The event string is snake_case, predating the
@@ -648,6 +668,22 @@ export const EVENTS = {
     RecommendedList: {
       Accepted: 'Voter Outreach - Recommended List Accepted',
     },
+    // outreach-pro-gating-v2: the saved draft a gated candidate keeps.
+    // Every event carries `channel` (the gate's `GateChannel`); `Resumed`
+    // also carries the `source` the resume was pressed from.
+    Draft: {
+      Saved: 'Outreach - Draft Saved',
+      Resumed: 'Outreach - Draft Resumed',
+      Deleted: 'Outreach - Draft Deleted',
+    },
+    // outreach-pro-gating-v2: the in-flow gate's own surfaces. Both carry
+    // `channel` and `requirement`; `ExplainerCta` adds which button
+    // (`cta`) was pressed, dismiss included.
+    Gate: {
+      BannerViewed: 'Outreach - Gate Banner Viewed',
+      ExplainerViewed: 'Outreach - Gate Explainer Viewed',
+      ExplainerCta: 'Outreach - Gate Explainer: Click CTA',
+    },
     ActionClicked: 'Outreach - Action Clicked',
   },
   CandidateWebsite: {
@@ -717,6 +753,13 @@ export const EVENTS = {
     PartyDesignationCompleted: 'Onboarding V2 - Party Designation Completed',
     PartyDesignationBlocked: 'Onboarding V2 - Party Designation Blocked',
     OfficeViewed: 'Onboarding V2 - Office Viewed',
+    // The candidate gave up on the office picker and was sent to the manual
+    // form. Carries the picker state at the moment they gave up (zip, search
+    // text, how many offices were on screen) — none of which reaches the
+    // campaign record, so this event is the only record of it. Its pair is
+    // OfficeCompleted with officePath: 'manual'; a Viewed without that
+    // Completed is an abandoned manual form (DATA-2525).
+    ManualOfficeViewed: 'Onboarding V2 - Manual Office Viewed',
     OfficeCompleted: 'Onboarding V2 - Office Completed',
     VotesNeededViewed: 'Onboarding V2 - Votes Needed Viewed',
     VotesNeededCompleted: 'Onboarding V2 - Votes Needed Completed',

@@ -56,7 +56,8 @@ write-back pushes each question's answer state and last-checked date back onto i
 
 Declaring an event as a behavior's `instrumented_by` also puts it under the health monitor
 (DATA-2290): `analytics_event_health.load_monitored_events` unions `events:` with every
-behavior instrument, and a behavior's `okr:` anchors each of its instruments. `load_watchlist`
+behavior instrument, and a behavior's `metric:` points at the sem metric it answers; OKR status
+is derived from that metric's `anchored_on`. `load_watchlist`
 stays the literal reader of `events:` because validation rule 8 compares against it.
 
 The accept gate is the list's `stage` dropdown (`proposed` / `accepted` / `retired`), not the

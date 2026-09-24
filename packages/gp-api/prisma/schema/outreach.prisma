@@ -27,6 +27,9 @@ enum OutreachStatus {
   // failure). The history list shows "Couldn't send"; the satellite
   // OutreachRobocall.settleState (send_failed) is what drives it.
   failed
+  // Built by a candidate who cannot send yet (not Pro, or texting not
+  // cleared). No date, no phone list, no payment. Visible in history.
+  draft
 }
 
 model Outreach {

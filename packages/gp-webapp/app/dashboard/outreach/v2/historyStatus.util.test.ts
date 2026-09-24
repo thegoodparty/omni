@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
 
 const p2pRow = (overrides: Partial<HistoryRow>): HistoryRow =>
@@ -9,6 +10,16 @@ const p2pRow = (overrides: Partial<HistoryRow>): HistoryRow =>
     ...overrides,
   }) as HistoryRow
 
+const membership = (
+  overrides: Partial<MembershipState> = {},
+): MembershipState => ({
+  tier: 'pro',
+  texting: 'needs_verification',
+  pinDelivery: null,
+  isElectedOffice: false,
+  ...overrides,
+})
+
 describe('getHistoryStatusLabel', () => {
   it('labels a canceled p2p row even though its vendor job was deleted', () => {
     expect(getHistoryStatusLabel(p2pRow({ status: 'canceled' }))).toBe(
@@ -18,6 +29,71 @@ describe('getHistoryStatusLabel', () => {
 
   it('still returns null for a non-canceled p2p row with no vendor job', () => {
     expect(getHistoryStatusLabel(p2pRow({ status: 'pending' }))).toBeNull()
+  })
+})
+
+describe('getHistoryStatusLabel — draft rows read the next step from membership', () => {
+  const draftP2pRow = p2pRow({ status: 'draft', phoneListId: null })
+
+  it("labels a free candidate's draft Pro needed", () => {
+    expect(
+      getHistoryStatusLabel(draftP2pRow, membership({ tier: 'free' })),
+    ).toBe('Pro needed')
+  })
+
+  it('labels a Pro texting draft Verification needed before TCR is submitted', () => {
+    expect(
+      getHistoryStatusLabel(
+        draftP2pRow,
+        membership({ tier: 'pro', texting: 'needs_verification' }),
+      ),
+    ).toBe('Verification needed')
+  })
+
+  it('labels a Pro texting draft Verification in review once TCR is pending', () => {
+    expect(
+      getHistoryStatusLabel(
+        draftP2pRow,
+        membership({ tier: 'pro', texting: 'in_review' }),
+      ),
+    ).toBe('Verification in review')
+  })
+
+  it('labels a Pro texting draft PIN needed while the CV is awaiting a PIN', () => {
+    expect(
+      getHistoryStatusLabel(
+        draftP2pRow,
+        membership({ tier: 'pro', texting: 'awaiting_pin' }),
+      ),
+    ).toBe('PIN needed')
+  })
+
+  it('labels a Pro texting draft Ready to schedule once texting is cleared', () => {
+    expect(
+      getHistoryStatusLabel(
+        draftP2pRow,
+        membership({ tier: 'pro', texting: 'cleared' }),
+      ),
+    ).toBe('Ready to schedule')
+  })
+
+  it('labels a Pro robocall draft Ready to schedule regardless of texting state', () => {
+    const draftRobocallRow = {
+      id: 2,
+      outreachType: 'robocall',
+      status: 'draft',
+    } as HistoryRow
+    expect(
+      getHistoryStatusLabel(
+        draftRobocallRow,
+        membership({ tier: 'pro', texting: 'needs_verification' }),
+      ),
+    ).toBe('Ready to schedule')
+  })
+
+  it('does not assume Pro needed when no membership is passed', () => {
+    expect(getHistoryStatusLabel(draftP2pRow, null)).toBeNull()
+    expect(getHistoryStatusLabel(draftP2pRow)).toBeNull()
   })
 })
 
@@ -162,7 +238,7 @@ describe('getHistoryStatusLabel — Serve SMS', () => {
     // Political Assistant meaning and would tell an official a human is
     // looking at their request, which nobody is.
     expect(
-      getHistoryStatusLabel(serveSmsRow({ status: 'pending' }), true),
+      getHistoryStatusLabel(serveSmsRow({ status: 'pending' }), null, true),
     ).toBe('Scheduled')
   })
 
@@ -171,19 +247,23 @@ describe('getHistoryStatusLabel — Serve SMS', () => {
     // the row: the send is out and responses are coming back, which is the
     // opposite of what "Scheduled" says.
     expect(
-      getHistoryStatusLabel(serveSmsRow({ status: 'in_progress' }), true),
+      getHistoryStatusLabel(serveSmsRow({ status: 'in_progress' }), null, true),
     ).toBe('In progress')
   })
 
   it('reads Scheduled → In progress → Done across the lifecycle', () => {
     expect(
-      getHistoryStatusLabel(serveSmsRow({ status: 'completed' }), true),
+      getHistoryStatusLabel(serveSmsRow({ status: 'completed' }), null, true),
     ).toBe('Done')
     expect(
-      getHistoryStatusLabel(serveSmsRow({ status: 'pending_payment' }), true),
+      getHistoryStatusLabel(
+        serveSmsRow({ status: 'pending_payment' }),
+        null,
+        true,
+      ),
     ).toBe('Pending payment')
     expect(
-      getHistoryStatusLabel(serveSmsRow({ status: 'canceled' }), true),
+      getHistoryStatusLabel(serveSmsRow({ status: 'canceled' }), null, true),
     ).toBe('Canceled')
   })
 
@@ -230,6 +310,7 @@ describe('getHistoryStatusLabel — Serve SMS', () => {
           phoneListId: null,
           status: 'pending',
         } as HistoryRow,
+        null,
         true,
       ),
     ).toBe('In review')
@@ -246,6 +327,7 @@ describe('getHistoryStatusLabel — Serve SMS', () => {
           phoneListId: 9,
           status: 'canceled',
         } as HistoryRow,
+        null,
         true,
       ),
     ).toBe('Canceled')

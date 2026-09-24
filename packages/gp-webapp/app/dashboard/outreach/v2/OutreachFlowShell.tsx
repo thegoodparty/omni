@@ -56,6 +56,10 @@ interface OutreachFlowShellProps {
   // purpose step, where selecting a card advances the flow). Back on its
   // own also renders the footer, so a step with only a Back stays reachable.
   cta: FlowShellCta | null
+  // The gate banner (milestone 2), rendered above the CTA row inside the
+  // footer. A banner with no cta and no onBack still renders the footer —
+  // it is the only thing in it.
+  banner?: ReactNode
   // Any user input diverging from the initial state: closing asks "Discard
   // changes?"; a pristine (or completed) flow closes silently.
   dirty: boolean
@@ -79,6 +83,7 @@ export const OutreachFlowShell = ({
   totalSteps,
   onBack,
   cta,
+  banner,
   dirty,
   instant = false,
   children,
@@ -107,7 +112,12 @@ export const OutreachFlowShell = ({
     onClose()
   }
 
-  const showFooter = cta !== null || Boolean(onBack)
+  // A React element is truthy even when it renders null, so `Boolean(banner)`
+  // can't distinguish a gated GateBanner from an ungated one on its own —
+  // the caller must pass `banner={state.requirement ? <GateBanner ... /> :
+  // undefined}` (see GateBanner.tsx) rather than relying on this to hide an
+  // empty footer for them.
+  const showFooter = cta !== null || Boolean(onBack) || Boolean(banner)
 
   return (
     <>
@@ -138,51 +148,56 @@ export const OutreachFlowShell = ({
         }
         footer={
           showFooter ? (
-            // Prototype footer: row-reverse with the primary on the right
-            // and Back on the left. Both stay on one row at every width;
-            // do not stack on mobile.
-            <div
-              className={`flex w-full flex-row-reverse items-center gap-3 ${
-                onBack ? 'justify-between' : ''
-              }`}
-            >
-              {cta && (
-                <Button
-                  type="button"
-                  size="large"
-                  className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
-                  onClick={cta.onClick}
-                  disabled={cta.disabled}
-                  loading={cta.loading}
+            <>
+              {banner}
+              {(cta || onBack) && (
+                // Prototype footer: row-reverse with the primary on the
+                // right and Back on the left. Both stay on one row at every
+                // width; do not stack on mobile.
+                <div
+                  className={`flex w-full flex-row-reverse items-center gap-3 ${
+                    onBack ? 'justify-between' : ''
+                  }`}
                 >
-                  {cta.label}
-                </Button>
+                  {cta && (
+                    <Button
+                      type="button"
+                      size="large"
+                      className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
+                      onClick={cta.onClick}
+                      disabled={cta.disabled}
+                      loading={cta.loading}
+                    >
+                      {cta.label}
+                    </Button>
+                  )}
+                  {cta?.secondary && (
+                    <Button
+                      type="button"
+                      size="large"
+                      variant={cta.secondary.variant ?? 'ghost'}
+                      className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
+                      disabled={cta.secondary.disabled}
+                      onClick={cta.secondary.onClick}
+                    >
+                      {cta.secondary.label}
+                    </Button>
+                  )}
+                  {onBack && (
+                    <Button
+                      type="button"
+                      size="large"
+                      variant="ghost"
+                      aria-label="Back"
+                      className="shrink-0 lg:min-w-[140px]"
+                      onClick={onBack}
+                    >
+                      Back
+                    </Button>
+                  )}
+                </div>
               )}
-              {cta?.secondary && (
-                <Button
-                  type="button"
-                  size="large"
-                  variant={cta.secondary.variant ?? 'ghost'}
-                  className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
-                  disabled={cta.secondary.disabled}
-                  onClick={cta.secondary.onClick}
-                >
-                  {cta.secondary.label}
-                </Button>
-              )}
-              {onBack && (
-                <Button
-                  type="button"
-                  size="large"
-                  variant="ghost"
-                  aria-label="Back"
-                  className="shrink-0 lg:min-w-[140px]"
-                  onClick={onBack}
-                >
-                  Back
-                </Button>
-              )}
-            </div>
+            </>
           ) : undefined
         }
       >

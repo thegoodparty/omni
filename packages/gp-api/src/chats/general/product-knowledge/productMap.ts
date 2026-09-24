@@ -155,6 +155,10 @@ const WIN_AREAS: ProductArea[] = [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
       'Each channel starts by asking who to reach, which reads from your saved lists',
+      'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
+      'A saved one waits in the outreach history, labeled with what it still needs — Pro needed, Verification needed, Verification in review, PIN needed, or Ready to schedule',
+      'Click that row to reopen the flow and pick up where you left off, or delete it from there',
+      'One saved text and one saved robocall at a time, kept for 90 days',
       'SMS and Robocall take a promo code on their payment step, in a Promo Code box above the card details. A code that covers the whole cost schedules the send with no card',
     ],
   },
@@ -212,9 +216,27 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'Upgrade to Pro, which is what unlocks filtering the voter file and Know Your Opponent.',
     inside: [
-      'One flow: the Pro pitch, then EIN, filing details, and candidate profile for texting compliance, then payment',
-      'All of the compliance data is collected before paying',
+      'One flow, and which screens it asks for depends on the campaign: some candidates answer whether they have filed, give their campaign EIN, and pay, and nothing else',
+      'Other candidates are asked for their filing details and candidate profile before paying, in the same flow',
+      'When those are not asked for up front they are collected afterwards, under Campaign verification',
+      'The same flow can open inside a text or robocall you are building, so upgrading does not lose the work',
+      'The Welcome to Pro screen shows the receipt for the $10 monthly charge, with the card used and a download',
     ],
+  },
+  {
+    // No tab: candidates reach this from the membership status shown at the
+    // bottom of the left rail (or, on a phone, in the top bar), and from the
+    // end of the Pro upgrade flow.
+    navId: null,
+    name: 'Campaign verification',
+    path: '/dashboard/campaign-verification',
+    modes: ['win'],
+    does: 'Register a Pro campaign with the phone carriers, which is what makes texting possible.',
+    inside: [
+      'Campaign filing details: the committee name, the filing link, and where to send the PIN',
+      'Carrier review takes about 1 to 2 weeks, then a PIN arrives to finish it',
+    ],
+    gate: 'No tab, and not every candidate is offered it. Filing details can be submitted before paying, but carrier registration only starts once Pro is paid for.',
   },
   {
     navId: 'nav-dash-team',

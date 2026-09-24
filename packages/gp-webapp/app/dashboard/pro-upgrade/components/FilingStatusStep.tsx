@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button } from '@styleguide'
+import { Button, cn } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
@@ -42,11 +43,33 @@ const OPTIONS: FilingStatusOption[] = [
   },
 ]
 
+// The purchase-only flow (outreach-pro-gating-v2) puts guidance ahead of this
+// question, so "yes" goes straight to the EIN step instead of doubling back.
+const PURCHASE_ONLY_OPTIONS: FilingStatusOption[] = [
+  {
+    hasFiled: true,
+    title: 'Yes',
+    description: 'I have filed with my election authority.',
+    event: EVENTS.ProUpgrade.Compliance.FilingStatusAlreadyFiled,
+    nextStep: PRO_UPGRADE_STEP.EIN,
+  },
+  {
+    hasFiled: false,
+    title: 'No',
+    description: 'I have not filed yet.',
+    event: EVENTS.ProUpgrade.Compliance.FilingStatusNotFiled,
+    nextStep: PRO_UPGRADE_STEP.FILING_INSTRUCTIONS,
+  },
+]
+
 const FilingStatusStep = (): React.JSX.Element => {
-  const { goToStep, goToPreviousStep } = useProUpgradeWizard()
+  const { purchaseOnly, goToStep, goToPreviousStep } = useProUpgradeWizard()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
   const [submitting, setSubmitting] = useState(false)
+  // Purchase-only picks a card and confirms with Continue (design: the
+  // ballot step); the default order still advances on the card itself.
+  const [selected, setSelected] = useState<FilingStatusOption | null>(null)
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.FilingStatusViewed)
@@ -81,8 +104,73 @@ const FilingStatusStep = (): React.JSX.Element => {
     setSubmitting(false)
   }
 
+  const options = purchaseOnly ? PURCHASE_ONLY_OPTIONS : OPTIONS
+
+  if (purchaseOnly) {
+    return (
+      <div className="flex min-h-full flex-1 flex-col">
+        <h1 className="mb-2 text-xl font-semibold">
+          Are you officially filed?
+        </h1>
+        <p className="mb-6 text-base text-base-muted-foreground">
+          This confirms you are running for office.
+        </p>
+
+        <div className="flex flex-col gap-3">
+          {options.map((option) => {
+            const isSelected = selected?.hasFiled === option.hasFiled
+            return (
+              <button
+                key={option.title}
+                type="button"
+                aria-pressed={isSelected}
+                onClick={() => setSelected(option)}
+                disabled={submitting}
+                className={cn(
+                  'flex w-full flex-col items-start gap-0.5 rounded-xl border bg-card p-4 text-left transition-colors hover:border-primary disabled:pointer-events-none disabled:opacity-60',
+                  isSelected
+                    ? 'border-primary bg-primary-light/40'
+                    : 'border-base-border',
+                )}
+              >
+                <span className="text-[15px] font-semibold">
+                  {option.title}
+                </span>
+                <span className="text-[13px] text-base-muted-foreground">
+                  {option.description}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <StepFooter>
+          <Button
+            variant="ghost"
+            size="large"
+            className="w-full sm:w-auto"
+            onClick={goToPreviousStep}
+          >
+            Back
+          </Button>
+          <Button
+            size="large"
+            className="w-full sm:w-auto sm:min-w-[360px]"
+            disabled={selected === null}
+            loading={submitting}
+            onClick={() => {
+              if (selected) void handleSelect(selected)
+            }}
+          >
+            Continue
+          </Button>
+        </StepFooter>
+      </div>
+    )
+  }
+
   return (
-    <div>
+    <div className="flex min-h-full flex-1 flex-col">
       <h1 className="text-[32px] leading-[44px] font-semibold mb-1.5">
         Have you already filed for your race?
       </h1>
@@ -92,7 +180,7 @@ const FilingStatusStep = (): React.JSX.Element => {
       </Body2>
 
       <div className="flex flex-col gap-3">
-        {OPTIONS.map((option) => (
+        {options.map((option) => (
           <button
             key={option.title}
             type="button"
@@ -111,11 +199,11 @@ const FilingStatusStep = (): React.JSX.Element => {
         ))}
       </div>
 
-      <div className="mt-8">
-        <Button variant="outline" size="large" onClick={goToPreviousStep}>
+      <StepFooter align="start">
+        <Button variant="ghost" size="large" onClick={goToPreviousStep}>
           Back
         </Button>
-      </div>
+      </StepFooter>
     </div>
   )
 }

@@ -406,6 +406,176 @@ describe('OutreachHistoryTable — unified history', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows the priced landline count for a robocall row from the detail fetch', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: 29,
+        createdAt: new Date('2026-09-23T00:00:00Z'),
+        updatedAt: new Date('2026-09-23T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'robocall',
+        projectId: null,
+        name: 'Meet voters robocall',
+        status: 'pending',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: new Date('2026-09-30T16:00:00Z'),
+        imageUrl: null,
+        voterFileFilterId: 6,
+        doorKnockingRouteId: null,
+        phoneBankingListId: null,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+        robocall: {
+          audioKey: 'robocall/audio.mp3',
+          callbackNumber: '13032250691',
+          billableCount: 3634,
+        },
+      },
+    })
+    const rows: HistoryRow[] = [
+      {
+        id: 29,
+        createdAt: '2026-09-23T00:00:00Z',
+        date: '2026-09-30T16:00:00Z',
+        outreachType: 'robocall',
+        name: 'Meet voters robocall',
+        status: 'pending',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(await within(desktopTable()).findByText('3,634')).toBeInTheDocument()
+    // Still scheduled: it reaches people, the way a scheduled text does;
+    // "called" is for a call that has run.
+    expect(within(desktopTable()).getByText('people')).toBeInTheDocument()
+    expect(
+      within(desktopTable()).queryByText('people called'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reads people called once the robocall has run', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: 31,
+        createdAt: new Date('2026-09-01T00:00:00Z'),
+        updatedAt: new Date('2026-09-01T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'robocall',
+        projectId: null,
+        name: 'Done robocall',
+        status: 'completed',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: new Date('2026-09-02T16:00:00Z'),
+        imageUrl: null,
+        voterFileFilterId: 6,
+        doorKnockingRouteId: null,
+        phoneBankingListId: null,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+        robocall: {
+          audioKey: 'robocall/audio.mp3',
+          callbackNumber: '13032250691',
+          billableCount: 120,
+        },
+      },
+    })
+    const rows: HistoryRow[] = [
+      {
+        id: 31,
+        createdAt: '2026-09-01T00:00:00Z',
+        date: '2026-09-02T16:00:00Z',
+        outreachType: 'robocall',
+        name: 'Done robocall',
+        status: 'completed',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(await within(desktopTable()).findByText('120')).toBeInTheDocument()
+    expect(
+      within(desktopTable()).getByText('people called'),
+    ).toBeInTheDocument()
+  })
+
+  it('reads n/a for a robocall draft, which has not been priced', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        id: 30,
+        createdAt: new Date('2026-09-23T00:00:00Z'),
+        updatedAt: new Date('2026-09-23T00:00:00Z'),
+        campaignId: 1,
+        outreachType: 'robocall',
+        projectId: null,
+        name: 'Draft robocall',
+        status: 'draft',
+        error: null,
+        audienceRequest: null,
+        script: null,
+        message: null,
+        date: null,
+        imageUrl: null,
+        voterFileFilterId: 6,
+        doorKnockingRouteId: null,
+        phoneBankingListId: null,
+        phoneListId: null,
+        identityId: null,
+        didState: null,
+        didNpaSubset: [],
+        title: null,
+        textCount: null,
+        billableTextCount: null,
+        campaignPlanDueDate: null,
+        organizationSlug: null,
+        archivedAt: null,
+        robocall: {
+          audioKey: 'robocall/audio.mp3',
+          callbackNumber: '13032250691',
+          billableCount: null,
+        },
+      },
+    })
+    const rows: HistoryRow[] = [
+      {
+        id: 30,
+        createdAt: '2026-09-23T00:00:00Z',
+        outreachType: 'robocall',
+        name: 'Draft robocall',
+        status: 'draft',
+      },
+    ]
+
+    render(<OutreachHistoryTable rows={rows} onRowClick={vi.fn()} />)
+
+    expect(await within(desktopTable()).findByText('n/a')).toBeInTheDocument()
+  })
+
   it('singularizes the supporter count when exactly one supporter is logged', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -616,5 +786,125 @@ describe('OutreachHistoryTable — unified history', () => {
     expect(
       screen.queryByText('No campaigns match your filters.'),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('OutreachHistoryTable — draft rows', () => {
+  const draftRow: HistoryRow = {
+    id: 40,
+    date: '2026-08-01',
+    outreachType: 'p2p',
+    name: 'Draft blast',
+    status: 'draft',
+    phoneListId: null,
+  }
+
+  it('labels a draft Pro needed for a free candidate, in both the desktop row and the mobile card', () => {
+    render(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={{
+          tier: 'free',
+          texting: 'needs_verification',
+          pinDelivery: null,
+          isElectedOffice: false,
+        }}
+      />,
+    )
+
+    // One in the desktop table, one in the mobile card — both in the DOM,
+    // the mobile one hidden via CSS (same convention as desktopTable()).
+    expect(screen.getAllByText('Pro needed')).toHaveLength(2)
+  })
+
+  // The hub passes no membership with the flag off, and with it off no draft
+  // row reaches this table at all — so the five labels naming a draft's next
+  // step have nothing to filter and must not be offered.
+  it('offers the draft statuses only when membership is passed', async () => {
+    const { unmount } = render(
+      <OutreachHistoryTable rows={[draftRow]} onRowClick={vi.fn()} />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    expect(screen.queryByLabelText('Pro needed')).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText('Verification needed'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText('Verification in review'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('PIN needed')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Ready to schedule')).not.toBeInTheDocument()
+    unmount()
+
+    render(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={{
+          tier: 'free',
+          texting: 'needs_verification',
+          pinDelivery: null,
+          isElectedOffice: false,
+        }}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    expect(screen.getByLabelText('Pro needed')).toBeInTheDocument()
+    expect(screen.getByLabelText('Ready to schedule')).toBeInTheDocument()
+  })
+
+  // `useMembershipState` derives a fresh object on every call, so the hub
+  // hands this table a new-but-equal `membership` on every re-render (a rows
+  // refetch, a window focus, a sheet opening). Re-seeding the filter set off
+  // that identity restored every box the candidate had just unchecked.
+  it('keeps unchecked filters through a re-render with a new membership object', async () => {
+    const membership = () =>
+      ({
+        tier: 'free',
+        texting: 'needs_verification',
+        pinDelivery: null,
+        isElectedOffice: false,
+      }) as const
+
+    const { rerender } = render(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={membership()}
+      />,
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Filters' }))
+    await userEvent.click(screen.getByLabelText('Pro needed'))
+    expect(screen.getByLabelText('Pro needed')).not.toBeChecked()
+    expect(screen.getByRole('button', { name: /Filters/ })).toHaveTextContent(
+      '1',
+    )
+
+    rerender(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={membership()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Pro needed')).not.toBeChecked()
+    expect(screen.getByRole('button', { name: /Filters/ })).toHaveTextContent(
+      '1',
+    )
+  })
+
+  it('reads no label for a draft when no membership is passed', () => {
+    render(<OutreachHistoryTable rows={[draftRow]} onRowClick={vi.fn()} />)
+
+    // Status cell falls back to "n/a" (HistoryStatusText's null-label case);
+    // the People metric cell renders the same fallback text (no textCount on
+    // this row), so both occurrences are expected rather than one.
+    expect(within(desktopTable()).getAllByText('n/a')).toHaveLength(2)
+    expect(screen.queryByText('Pro needed')).not.toBeInTheDocument()
   })
 })

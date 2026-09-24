@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addDays } from 'date-fns'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type OutreachDetail,
   type RecommendedListVariant,
   type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
@@ -11,6 +12,7 @@ import {
   type SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { createRobocallDraft } from 'helpers/createOutreachDraft'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
@@ -28,6 +30,11 @@ import {
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
+import { GateBanner } from '../gate/GateBanner'
+import { GateExplainerModal } from '../gate/GateExplainerModal'
+import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
+import { useOutreachGate } from '../gate/useOutreachGate'
+import { useDraftGate } from '../gate/useDraftGate'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
@@ -54,6 +61,12 @@ const STEP_ORDER: StepId[] = [
   'review',
   'pay',
 ]
+
+// Build mode (the candidate is not Pro yet): there is nothing to schedule or
+// pay for, so the draft is written off the saved recording and the flow hands
+// to the Pro gate from compose (design: flowContinue opens the gate on the
+// robocall "what" step).
+const BUILD_STEP_ORDER: StepId[] = ['purpose', 'audience', 'compose']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -108,10 +121,21 @@ interface RobocallFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // A saved draft the candidate is picking back up (milestone 2). The flow
+  // opens on it instead of asking the questions it already answered.
+  resumeDraft?: OutreachDetail | null
+  // Fired once a draft is written or discarded, so the hub's history reflects
+  // it; the same refetch a settled payment does.
+  onDraftSaved?: () => Promise<void>
+  // The drawer's "Upgrade to Pro" already made the pitch, so that resume
+  // opens the wizard on its first step; a tile or deep-link resume shows the
+  // pause screen first.
+  resumeStartsOnWizard?: boolean
 }
 
-// Flow state is flat client state owned here (phase 1 TDD pattern): no server
-// drafts, reopening starts fresh. Mirrors SocialFlow.
+// Flow state is flat client state owned here (phase 1 TDD pattern): reopening
+// starts fresh. The one exception is a gated robocall (milestone 2), which
+// saves a real `draft` row the candidate comes back to.
 export const RobocallFlow = ({
   open,
   onClose,
@@ -119,7 +143,11 @@ export const RobocallFlow = ({
   campaignPlanDueDate,
   preselectedListId,
   preselectedRecommendedVariant,
+  resumeDraft = null,
+  onDraftSaved,
+  resumeStartsOnWizard = false,
 }: RobocallFlowProps) => {
+  const gate = useOutreachGate('robocall')
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
   const [campaignName, setCampaignName] = useState('')
@@ -136,9 +164,42 @@ export const RobocallFlow = ({
   const [campaign] = useCampaign()
   const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
+  // Every saved-draft and gate concern — the row, the resume switch, the
+  // gate/explainer visibility, and the origin that says what finishing the
+  // gate means — lives in the shared hook SmsFlow uses too. Only the payload
+  // and the step ids below are this channel's.
+  const draftGate = useDraftGate({
+    channel: 'robocall',
+    gate,
+    open,
+    resumeDraft,
+    createDraft: () => createDraftRow(),
+    goToResumeStep: () => setStepId('schedule'),
+    onDraftSaved: () => handleDraftSaved(),
+    onClose,
+  })
+  const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
+  // While a gate screen is up the sheet header is the gate's (design:
+  // renderSgModal's "Upgrade to Pro" overline and its own stepper), not the
+  // flow's channel badge and step count.
+  const [gateChrome, setGateChrome] = useState<GateChrome | null>(null)
+  const showGateChrome = gateOpen && gateChrome !== null
+
+  // Everything new here hangs off one of these two: with no requirement and
+  // no resumed row the flow is byte-identical to the pre-gate one.
+  const buildMode = gate.requirement !== null && !resumed
+  const stepOrder = buildMode ? BUILD_STEP_ORDER : STEP_ORDER
+
   const recommendedListIntent = purpose
     ? intentForOutreachPurpose(purpose)
     : null
+
+  // A resumed row already names its audience; the picker selects it the same
+  // way a deep link's does, which is also what gives the resume its reach
+  // count and the landline pricing the pay step re-derives.
+  const resumedListId = resumed
+    ? (savedDraft?.voterFileFilterId ?? undefined)
+    : undefined
 
   const audience = useOutreachAudience({
     open,
@@ -146,7 +207,7 @@ export const RobocallFlow = ({
     reachabilityKey: 'robocall',
     countOverlay: ROBOCALL_COUNT_OVERLAY,
     recommendedListIntent,
-    preselectedListId,
+    preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
   })
   const { reset: resetAudience } = audience
@@ -287,16 +348,23 @@ export const RobocallFlow = ({
     const carriedPurpose = preselectedRecommendedVariant
       ? purposeForRecommendedVariant(preselectedRecommendedVariant)
       : null
-    setStepId(carriedPurpose ? 'audience' : 'purpose')
-    setPurpose(carriedPurpose)
-    setCampaignName('')
+    // A resumed draft answered purpose, audience and compose when it was
+    // built, so it opens on the one thing still missing.
+    setStepId(
+      resumeDraft ? 'schedule' : carriedPurpose ? 'audience' : 'purpose',
+    )
+    // `custom` is the purpose that never AI-drafts, so the saved script is
+    // what stands rather than something a draft immediately overwrites — a
+    // robocall row does not persist which purpose wrote it.
+    setPurpose(resumeDraft ? 'custom' : carriedPurpose)
+    setCampaignName(resumeDraft?.name ?? '')
     lastAutoName.current = ''
     setScheduledDay(undefined)
     setTime('')
     setNow(new Date())
     setTone('warm')
-    setScript('')
-    setCallbackNumber(null)
+    setScript(resumeDraft?.script ?? '')
+    setCallbackNumber(resumeDraft?.robocall?.callbackNumber ?? null)
     setPayOutcome(null)
     resetRent()
     resetCompliance()
@@ -312,6 +380,7 @@ export const RobocallFlow = ({
     resetRent,
     resetCompliance,
     preselectedRecommendedVariant,
+    resumeDraft,
   ])
 
   // Run the compliance check once a recording is saved (uploaded). Keyed on the
@@ -346,7 +415,38 @@ export const RobocallFlow = ({
     scheduledAt !== null && scheduledAt.getTime() > maxScheduledAt.getTime()
   const isScheduleValid = scheduledAt !== null && !isInPast && !isTooFarOut
 
-  const stepIndex = STEP_ORDER.indexOf(stepId)
+  const stepIndex = stepOrder.indexOf(stepId)
+
+  // A resumed row's recording lives on the server, so there is no local
+  // upload to read the key from.
+  const audioKey = resumed
+    ? (savedDraft?.robocall?.audioKey ?? null)
+    : audioUpload.key
+
+  const handleDraftSaved = async () => {
+    if (onDraftSaved) {
+      await onDraftSaved()
+      return
+    }
+    onScheduled?.()
+  }
+
+  // Build mode's one write, assembled here because only this flow knows the
+  // typed JSON payload and what has to be in hand before there is anything
+  // to save. The 201/409 branching is the shared hook's.
+  const createDraftRow = async () => {
+    if (!audience.selectedListId || !audioUpload.key || !callbackNumber) {
+      return null
+    }
+    return createRobocallDraft({
+      outreachType: 'robocall',
+      name: campaignName.trim(),
+      voterFileFilterId: audience.selectedListId,
+      audioKey: audioUpload.key,
+      callbackNumber,
+      ...(script.trim() ? { script } : {}),
+    })
+  }
 
   // Any change to the script the candidate must read aloud (purpose, tone,
   // regenerate) or backing out of compose invalidates a recording made against
@@ -400,7 +500,7 @@ export const RobocallFlow = ({
       audience.resetBuilder()
       return
     }
-    const previous = STEP_ORDER[stepIndex - 1]
+    const previous = stepOrder[stepIndex - 1]
     if (!previous) return
     // Backing OFF the audience step discards the picked list so a re-entry
     // starts from an empty picker instead of resuming a selection the user
@@ -414,15 +514,11 @@ export const RobocallFlow = ({
     setStepId(previous)
   }
 
-  const goToSchedule = () => {
-    // Re-pin `now` on entry so the earliest-send instant is measured from when
-    // the user actually reaches this step, not from flow-open (they may have
-    // spent a while on earlier steps).
-    setNow(new Date())
-    // Auto-fill the campaign name from the chosen list (the design auto-fills
-    // it). Refresh it when the list changes as long as the user hasn't edited
-    // it (tracked via lastAutoName), so the name can't silently mismatch the
-    // selected list; a hand-typed name is never clobbered.
+  // Auto-fill the campaign name from the chosen list (the design auto-fills
+  // it). Refresh it when the list changes as long as the user hasn't edited
+  // it (tracked via lastAutoName), so the name can't silently mismatch the
+  // selected list; a hand-typed name is never clobbered.
+  const applyAutoName = () => {
     const listName = audience.selectedList?.name
     // Clamp to the name field's own maxLength (60): setCampaignName bypasses the
     // input's limit, so a long list name would otherwise auto-fill over-length.
@@ -433,6 +529,21 @@ export const RobocallFlow = ({
       setCampaignName(auto)
       lastAutoName.current = auto
     }
+  }
+
+  const goToSchedule = () => {
+    applyAutoName()
+    // Build mode has no schedule step at all — the draft carries no date — so
+    // the audience advance lands on compose, and the name the draft is saved
+    // under is the auto-filled one.
+    if (buildMode) {
+      goToCompose()
+      return
+    }
+    // Re-pin `now` on entry so the earliest-send instant is measured from when
+    // the user actually reaches this step, not from flow-open (they may have
+    // spent a while on earlier steps).
+    setNow(new Date())
     setStepId('schedule')
   }
 
@@ -441,9 +552,11 @@ export const RobocallFlow = ({
     // compose/review. Re-pin `now` and, if the send time has already passed,
     // bounce back to schedule (which then shows the past-time alert) rather than
     // advancing to a pay step whose createDraft would 400 on the stale time.
+    // A null date bounces the same way: a resumed row starts without one, so
+    // this is the guard that keeps review from reaching pay with no send time.
     const freshNow = new Date()
     setNow(freshNow)
-    if (scheduledAt !== null && scheduledAt.getTime() <= freshNow.getTime()) {
+    if (scheduledAt === null || scheduledAt.getTime() <= freshNow.getTime()) {
       setStepId('schedule')
       return
     }
@@ -528,7 +641,12 @@ export const RobocallFlow = ({
     audience.builderPrecincts,
   )
 
-  const dirty = purpose !== null
+  // A saved draft is the opposite of unsaved work: closing loses nothing.
+  const dirty = purpose !== null && savedDraft === null
+
+  // Payment has landed (authorized/deferred/noop): the pay step shows its own
+  // success screen, so nothing gated belongs on top of it.
+  const settled = payOutcome !== null && payOutcome.status !== 'hold_failed'
 
   const audienceCta: FlowShellCta =
     audience.mode === 'filters'
@@ -573,53 +691,130 @@ export const RobocallFlow = ({
             loading: audience.createRecommendedListPending,
           }
 
-  const cta: FlowShellCta | null =
-    stepId === 'audience'
+  const cta: FlowShellCta | null = gateOpen
+    ? // The gate screens carry their own buttons.
+      null
+    : stepId === 'audience'
       ? audienceCta
       : stepId === 'schedule'
         ? {
             label: 'Continue',
-            onClick: goToCompose,
-            disabled: campaignName.trim().length === 0 || !isScheduleValid,
+            onClick: () => {
+              // A resume never re-enters compose: the recording and the
+              // script were settled when the draft was saved.
+              if (resumed) {
+                setStepId('review')
+                return
+              }
+              goToCompose()
+            },
+            disabled:
+              campaignName.trim().length === 0 ||
+              !isScheduleValid ||
+              // The resume prices and dials off this list: nothing to press
+              // until it resolves, and nothing at all if it has been deleted
+              // since the draft was saved.
+              (resumed && !audience.selectedList),
           }
         : stepId === 'compose'
           ? {
               label: 'Continue',
-              onClick: () => setStepId('review'),
+              // Build mode has nothing to schedule or pay for, so this is
+              // where the draft is written and the flow hands to the gate.
+              onClick: () => {
+                if (buildMode) {
+                  void draftGate.saveDraft()
+                  return
+                }
+                setStepId('review')
+              },
               // Advancing requires a saved recording that also passed the
               // compliance check — the audio is the deliverable, and it must
               // carry the spoken disclosures.
               disabled:
                 recorder.status !== 'saved' ||
-                complianceMutation.data?.passed !== true,
+                complianceMutation.data?.passed !== true ||
+                (buildMode &&
+                  (!audience.selectedListId ||
+                    !audioUpload.key ||
+                    !callbackNumber)),
+              loading: buildMode && draftGate.savingDraft,
             }
           : stepId === 'review'
             ? {
                 label: 'Continue to payment',
                 onClick: goToPay,
               }
-            : payOutcome && payOutcome.status !== 'hold_failed'
+            : settled
               ? // Settled (authorized/deferred/noop): the success screen is
                 // shown, so the shell offers Done to close the flow.
                 { label: 'Done', onClick: onClose }
-              : // Before settling, the pay step owns its own submit button (the
-                // Stripe confirm must run inside the Elements context), so the
-                // shell shows no CTA.
+              : // Before settling, the pay step owns its own submit button
+                // (the Stripe confirm must run inside the Elements
+                // context), so the shell shows no CTA.
                 null
 
   return (
     <OutreachFlowShell
       open={open}
       onClose={onClose}
-      title={STEP_TITLES[stepId]}
-      headerBadge={<ChannelBadge type={OUTREACH_TYPES.robocall} />}
-      currentStep={stepIndex + 1}
-      totalSteps={STEP_ORDER.length}
-      onBack={stepIndex > 0 ? handleBack : undefined}
+      title={showGateChrome ? gateChrome.overline : STEP_TITLES[stepId]}
+      headerBadge={
+        showGateChrome ? (
+          gateChrome.overline
+        ) : (
+          <ChannelBadge
+            type={OUTREACH_TYPES.robocall}
+            locked={gate.requirement !== null && !settled && !gateOpen}
+          />
+        )
+      }
+      currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
+      totalSteps={showGateChrome ? gateChrome.totalSteps : stepOrder.length}
+      onBack={
+        // A resume has no reachable step behind it at all: purpose, audience
+        // and compose were settled when the draft was saved, and compose
+        // could never advance again (its Continue needs a local recording
+        // the saved row cannot supply).
+        !gateOpen && !resumed && stepIndex > 0 ? handleBack : undefined
+      }
       cta={cta}
+      // A React element is truthy even when it renders null, so the caller
+      // gates the JSX (see GateBanner).
+      banner={
+        gate.requirement !== null && !settled && !gateOpen ? (
+          <GateBanner
+            channel="robocall"
+            state={gate}
+            onOpenExplainer={() => draftGate.setExplainerOpen(true)}
+          />
+        ) : undefined
+      }
       dirty={dirty}
     >
-      {stepId === 'purpose' ? (
+      <GateExplainerModal
+        channel="robocall"
+        state={gate}
+        open={explainerOpen}
+        onOpenChange={draftGate.setExplainerOpen}
+        onUpgrade={draftGate.openGateFromExplainer}
+        onVerify={draftGate.openGateFromExplainer}
+        onPin={draftGate.openGateFromExplainer}
+      />
+      {gateOpen ? (
+        <OutreachGate
+          channel="robocall"
+          state={gate}
+          open
+          showInterstitial={
+            draftGate.gateOrigin === 'save' ||
+            (draftGate.gateOrigin === 'resume' && !resumeStartsOnWizard)
+          }
+          onExit={draftGate.handleGateExit}
+          onComplete={draftGate.handleGateComplete}
+          onChromeChange={setGateChrome}
+        />
+      ) : stepId === 'purpose' ? (
         <RobocallPurposeStep
           selected={purpose}
           onSelect={handleSelectPurpose}
@@ -683,44 +878,60 @@ export const RobocallFlow = ({
           )}
         </>
       ) : stepId === 'schedule' ? (
-        <RobocallScheduleStep
-          campaignName={campaignName}
-          onCampaignNameChange={setCampaignName}
-          scheduledDay={scheduledDay}
-          onScheduledDayChange={setScheduledDay}
-          time={time}
-          onTimeChange={setTime}
-          timeZone={timeZone}
-          earliest={earliest}
-          maxScheduledDay={maxScheduledAt}
-          violates={isInPast || isTooFarOut}
-          isTooFarOut={isTooFarOut}
-        />
+        <>
+          <RobocallScheduleStep
+            campaignName={campaignName}
+            onCampaignNameChange={setCampaignName}
+            scheduledDay={scheduledDay}
+            onScheduledDayChange={setScheduledDay}
+            time={time}
+            onTimeChange={setTime}
+            timeZone={timeZone}
+            earliest={earliest}
+            maxScheduledDay={maxScheduledAt}
+            violates={isInPast || isTooFarOut}
+            isTooFarOut={isTooFarOut}
+          />
+          {/* The resume prices off this list, so its loss reads here — the
+              audience step is behind the candidate. */}
+          {resumed && !audience.listsLoading && !audience.selectedList && (
+            <p className="mt-4 text-sm text-destructive">
+              The voter list for this call is no longer available.
+            </p>
+          )}
+        </>
       ) : stepId === 'compose' ? (
-        <RobocallComposeStep
-          tone={tone}
-          onToneChange={handleToneChange}
-          isCustomPurpose={isCustomPurpose}
-          draft={script}
-          onDraftChange={setScript}
-          onRegenerate={handleRegenerate}
-          isDrafting={draftMutation.isPending}
-          isDraftError={draftMutation.isError}
-          audienceName={audience.selectedList?.name ?? 'your list'}
-          callbackNumber={callbackNumber}
-          isRentingNumber={rentMutation.isPending}
-          rentError={rentMutation.isError}
-          onRetryNumber={rentCallbackNumber}
-          recorder={recorder}
-          maxSeconds={MAX_RECORDING_SECONDS}
-          onSaveRecording={handleSaveRecording}
-          isUploading={audioUpload.isUploading}
-          uploadError={audioUpload.error}
-          complianceChecking={complianceMutation.isPending}
-          complianceVerdict={complianceMutation.data ?? null}
-          complianceError={complianceMutation.isError}
-          onRetryCompliance={retryCompliance}
-        />
+        <>
+          <RobocallComposeStep
+            tone={tone}
+            onToneChange={handleToneChange}
+            isCustomPurpose={isCustomPurpose}
+            draft={script}
+            onDraftChange={setScript}
+            onRegenerate={handleRegenerate}
+            isDrafting={draftMutation.isPending}
+            isDraftError={draftMutation.isError}
+            audienceName={audience.selectedList?.name ?? 'your list'}
+            callbackNumber={callbackNumber}
+            isRentingNumber={rentMutation.isPending}
+            rentError={rentMutation.isError}
+            onRetryNumber={rentCallbackNumber}
+            recorder={recorder}
+            maxSeconds={MAX_RECORDING_SECONDS}
+            onSaveRecording={handleSaveRecording}
+            isUploading={audioUpload.isUploading}
+            uploadError={audioUpload.error}
+            complianceChecking={complianceMutation.isPending}
+            complianceVerdict={complianceMutation.data ?? null}
+            complianceError={complianceMutation.isError}
+            onRetryCompliance={retryCompliance}
+          />
+          {buildMode && draftGate.draftSaveError && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t save this draft. Try again.
+            </p>
+          )}
+        </>
       ) : stepId === 'review' ? (
         <RobocallReviewStep
           campaignName={campaignName}
@@ -736,7 +947,8 @@ export const RobocallFlow = ({
       ) : (
         <RobocallPayStep
           voterFileFilterId={audience.selectedListId}
-          audioKey={audioUpload.key}
+          audioKey={audioKey}
+          draftOutreachId={resumed ? savedDraft?.id : undefined}
           callbackNumber={callbackNumber}
           scheduledAt={scheduledAt}
           timeZone={timeZone}

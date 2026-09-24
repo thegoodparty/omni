@@ -35,10 +35,12 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   CancelOutreachResponse,
+  CreateOutreachDraftRequest,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  ProReceipt,
   SmsOutreachReplies,
   SmsOutreachResults,
   SocialDraftRequest,
@@ -319,6 +321,23 @@ export type APIEndpoints = {
   'GET /v1/outreach/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Save an outreach as a DRAFT (milestone 2). JSON, which is what a
+  // robocall draft posts — a texting draft carries its image, so it goes
+  // multipart through gpApi/outreachDraft.api.ts instead. 409 carries
+  // `{ existingId }`: the campaign already holds a draft of that type.
+  'POST /v1/outreach/drafts': {
+    Request: CreateOutreachDraftRequest
+    Response: OutreachDetail
+  }
+
+  // Discard a saved DRAFT (milestone 2): 404 when the row isn't this
+  // campaign's, 409 once it is no longer a draft. Never reaches a scheduled
+  // or sent campaign — those cancel or archive instead.
+  'DELETE /v1/outreach/:id': {
+    Request: {}
+    Response: undefined
   }
 
   // Archive/restore for the v2 history drawer footer. Org-scoped (not
@@ -833,6 +852,15 @@ export type APIEndpoints = {
   // requirements, office contact). No body: gp-api scopes the send to the
   // authenticated user's campaign + email via @UseCampaign()/@ReqUser().
   'POST /v1/campaigns/mine/filing-instructions/email': {
+    Request: {}
+    Response: {
+      success: boolean
+    }
+  }
+
+  // The EIN step's "Email me these steps": the six IRS how-to steps, sent
+  // to the authenticated user's own email. No body, same scoping as above.
+  'POST /v1/campaigns/mine/ein-instructions/email': {
     Request: {}
     Response: {
       success: boolean
@@ -1752,6 +1780,15 @@ export type APIEndpoints = {
       clientSecret?: string
       redirectUrl?: string
     }
+  }
+
+  // The purchase-only success screen's "Your receipt": the Pro subscription's
+  // latest paid invoice, read live from Stripe. Amount is in DOLLARS. 404
+  // until the completion webhook has stored the subscription on the campaign;
+  // 502 when Stripe is unreachable.
+  'GET /v1/payments/purchase/pro-receipt': {
+    Request: {}
+    Response: ProReceipt
   }
 
   'GET /v1/community-issues': {

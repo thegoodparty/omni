@@ -80,9 +80,13 @@ describe('PaymentStep', () => {
     confirmMock.mockResolvedValue({ type: 'success' })
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'payment',
+      purchaseOnly: false,
+      channel: null,
       goToStep,
       goToNextStep: vi.fn(),
       goToPreviousStep,
+      exit: vi.fn(),
+      complete: vi.fn(),
     })
   })
 
@@ -117,7 +121,7 @@ describe('PaymentStep', () => {
     expect(requestBody?.returnUrl).toMatch(/\/dashboard\/pro-upgrade\/success$/)
 
     // Order summary reads the live amount from the session, not a hardcode.
-    expect(screen.getByText('Pro Plan')).toBeInTheDocument()
+    expect(screen.getByText('Pro subscription')).toBeInTheDocument()
     expect(screen.getByText('$10.00/mo')).toBeInTheDocument()
 
     expect(trackEventMock).toHaveBeenCalledWith(

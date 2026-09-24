@@ -3,6 +3,12 @@
 import { useEffect } from 'react'
 import { format, isValid, parseISO } from 'date-fns'
 import { Button } from '@styleguide'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
+import {
+  CreditCardIcon,
+  FileBadgeIcon,
+  FileTextIcon,
+} from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -20,6 +26,37 @@ const GATHER_STEPS = [
   'Your campaign filing details',
   'Your candidate profile',
   'Payment',
+]
+
+// The purchase-only flow (outreach-pro-gating-v2), design: sgBody's
+// overview. Texting is the two-step channel, so its list also names the
+// filing details campaign verification gathers right after payment; every
+// other launch only sets up the two things collected before checkout.
+const PAYMENT_ROW = {
+  icon: CreditCardIcon,
+  title: 'Payment',
+  body: 'Add your payment details to activate Pro at $10 per month. You can cancel any time.',
+}
+const PURCHASE_ONLY_ROWS = [
+  {
+    icon: FileBadgeIcon,
+    title: 'Your campaign EIN',
+    body: 'Your campaign EIN confirms your campaign is a real tax entity.',
+  },
+  PAYMENT_ROW,
+]
+const TWO_STEP_ROWS = [
+  {
+    icon: FileBadgeIcon,
+    title: 'Your campaign EIN',
+    body: 'Your campaign EIN helps verify your candidacy and comply with texting regulations.',
+  },
+  {
+    icon: FileTextIcon,
+    title: 'Your campaign filing details',
+    body: 'Your election authority can provide these details to help verify your campaign.',
+  },
+  PAYMENT_ROW,
 ]
 
 // Mirrors gp-api's buildFilingInstructionsContent / formatFilingWindow
@@ -46,7 +83,9 @@ const formatFilingWindow = (
 }
 
 const GuidanceStep = (): React.JSX.Element => {
-  const { goToStep, goToPreviousStep } = useProUpgradeWizard()
+  const { purchaseOnly, channel, goToStep, goToPreviousStep, exit } =
+    useProUpgradeWizard()
+  const twoStep = channel === 'sms'
   const [campaign] = useCampaign()
 
   const filingWindow = formatFilingWindow(
@@ -62,8 +101,73 @@ const GuidanceStep = (): React.JSX.Element => {
     trackEvent(EVENTS.ProUpgrade.Compliance.GuidanceContinue)
     // GUIDANCE is off the linear step order (the router can't derive an
     // interstitial with no persisted "seen" state), so advance explicitly to
-    // the EIN step rather than via goToNextStep.
-    goToStep(PRO_UPGRADE_STEP.EIN)
+    // the EIN step rather than via goToNextStep. In the purchase-only order
+    // guidance leads the flow, so the filing-status question comes next.
+    goToStep(purchaseOnly ? PRO_UPGRADE_STEP.STATUS : PRO_UPGRADE_STEP.EIN)
+  }
+
+  if (purchaseOnly) {
+    return (
+      // min-h-full + flex-col: inside the outreach sheet the footer row pins
+      // to the bottom (design: renderSgModal's footerRow); in the route
+      // shell's card the parent has no height to fill and this is inert.
+      <div className="flex min-h-full flex-1 flex-col">
+        <h1 className="mb-2 text-xl font-semibold">
+          Let&apos;s gather a few things to unlock Pro
+        </h1>
+        <p className="mb-6 text-base text-base-muted-foreground">
+          {twoStep
+            ? 'Have this information available to verify your campaign.'
+            : 'Have this information available to activate Pro.'}
+        </p>
+
+        <ul className="rounded-xl border border-base-border">
+          {(twoStep ? TWO_STEP_ROWS : PURCHASE_ONLY_ROWS).map(
+            ({ icon: Icon, title, body }) => (
+              <li
+                key={title}
+                className="flex min-h-16 items-start gap-3 border-t border-base-border px-4 py-3.5 first:border-t-0"
+              >
+                <Icon
+                  className="mt-0.5 size-[18px] shrink-0 text-primary"
+                  aria-hidden
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{title}</span>
+                  <span className="mt-0.5 block text-[13px] text-base-muted-foreground">
+                    {body}
+                  </span>
+                </span>
+              </li>
+            ),
+          )}
+        </ul>
+
+        <p className="mt-5 text-sm text-base-muted-foreground">
+          Ready when you are.
+        </p>
+
+        <StepFooter>
+          <Button
+            variant="ghost"
+            size="large"
+            className="w-full sm:w-auto"
+            // Launched from an outreach flow the pitch is behind this step;
+            // on the standalone page there is nothing behind it but the exit.
+            onClick={channel ? goToPreviousStep : exit}
+          >
+            Back
+          </Button>
+          <Button
+            size="large"
+            className="w-full sm:w-auto sm:min-w-[360px]"
+            onClick={handleContinue}
+          >
+            Continue
+          </Button>
+        </StepFooter>
+      </div>
+    )
   }
 
   return (

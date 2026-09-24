@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -197,6 +197,13 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // spent when the run was scheduled, so settle it as captured at $0 and let
     // the spine complete like any other delivered run. No Stripe call.
     if (draft.promoCoversTotal) {
+      // Null billing belongs to the saved `draft` state alone, which never
+      // reaches capture; a null here is a broken row, not a zero.
+      if (draft.billableCount === null) {
+        throw new InternalServerErrorException(
+          'robocall billing missing on a captured row',
+        )
+      }
       await this.commitCaptured(
         outreachId,
         0,
@@ -463,6 +470,11 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
         },
       })
       if (!row) return
+      // Null billing belongs to the `draft` state alone, which the capture
+      // sweep's settleState scope can never reach.
+      if (row.billableCount === null) {
+        throw new Error('robocall billing missing on a non-draft row')
+      }
       await this.notification.notifyRobocallCompleted(
         row.outreach.campaign?.slug ?? 'unknown',
         outreachId,

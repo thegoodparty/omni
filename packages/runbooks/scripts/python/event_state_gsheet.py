@@ -307,7 +307,12 @@ def question_rows_for_refresh() -> list[dict]:
 
     result = esa.assemble(date.today())
     by_type = {r["event_type"]: r for r in result["rows"]}
-    return bqs.question_rows(brg.load_validated_behaviors(aeh.WATCHLIST), by_type)
+    # by_type only ever holds bare catalog events, so a page_path surface's dormancy is
+    # invisible here without the monitor's latches from the health state file.
+    latches = aeh.load_prior_latches(aeh.DEFAULT_STATE)
+    return bqs.question_rows(
+        brg.load_validated_behaviors(aeh.WATCHLIST), by_type, latches=latches
+    )
 
 
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:

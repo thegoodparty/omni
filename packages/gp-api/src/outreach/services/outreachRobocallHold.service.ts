@@ -676,7 +676,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
           user,
           campaign,
           outreach,
-          outreach.robocall?.billableCount,
+          // Null billing belongs to the `draft` state alone, which never
+          // reaches the scheduled notice; it reads as a missing count.
+          outreach.robocall?.billableCount ?? undefined,
         )
       }
     } catch (err) {

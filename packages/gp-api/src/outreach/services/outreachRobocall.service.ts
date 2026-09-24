@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common'
 import { addDays, isAfter, isFuture, parseISO } from 'date-fns'
 import {
@@ -25,6 +27,10 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { RobocallComplianceResultService } from './robocallComplianceResult.service'
+import {
+  BoundComplianceVerdict,
+  requireBoundPassingCompliance,
+} from '../util/robocallComplianceGate.util'
 import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 import {
   Campaign,
@@ -35,6 +41,12 @@ import {
 } from '../../generated/prisma'
 
 export type RobocallDraftResult = RobocallDraftCreateResponse
+
+interface RobocallScheduleGates {
+  compliance: BoundComplianceVerdict
+  billableCount: number
+  amountInCents: number
+}
 
 // The robocall spine + satellite persistence and the server-side billable-count
 // derivation the estimate prices off. Payment is a hold + capture-actual model:
@@ -115,6 +127,18 @@ export class OutreachRobocallService extends createPrismaBase(
     organization: Organization,
     input: RobocallDraftCreateRequest,
   ): Promise<RobocallDraftResult> {
+    // A resume converts the saved draft rather than inserting: the draft row
+    // holds the unique audioKey, so a second insert for the same recording
+    // could never commit anyway.
+    if (input.draftOutreachId) {
+      return await this.convertDraft(
+        campaign,
+        organization,
+        input,
+        input.draftOutreachId,
+      )
+    }
+
     // Idempotent on a double-click / retry: a repeat POST with the same audio
     // returns the existing pending_payment draft rather than minting a second
     // billable anchor the hold/settlement slices could charge twice. Runs
@@ -125,63 +149,8 @@ export class OutreachRobocallService extends createPrismaBase(
     const existing = await this.findExistingDraft(campaign.id, input.audioKey)
     if (existing) return existing
 
-    // COMPLIANCE GATE (money/legal): a paid draft can only be created for audio
-    // that passed the server-side compliance check. The client UI runs the check
-    // first, but a crafted request must not skip it, so require a persisted
-    // PASSING verdict for this audioKey. The passing timestamp is mirrored onto
-    // the satellite below so the dial step has a durable per-draft fact.
-    const compliance = await this.complianceResults.findPassing(input.audioKey)
-    if (!compliance) {
-      throw new BadRequestException('Robocall audio has not passed compliance')
-    }
-
-    // ETAG BIND (legal): the passing verdict is bound to the exact bytes it
-    // checked. A presigned POST can overwrite the key with different bytes inside
-    // its expiry window, so re-read the object's current ETag and refuse a
-    // mismatch — a re-upload after the pass can't ride the old verdict. A verdict
-    // with no bound ETag (capture failed at check time) is not trusted: force a
-    // re-check. The matched ETag is FROZEN onto the draft below so the dial path
-    // re-verifies against what was approved here, not the mutable verdict.
-    if (!compliance.audioEtag) {
-      throw new BadRequestException(
-        'Robocall audio compliance is stale; re-run the compliance check',
-      )
-    }
-    const head = await this.s3.headObject(this.audioBucket, input.audioKey)
-    if (!head || head.etag !== compliance.audioEtag) {
-      throw new BadRequestException(
-        'Robocall audio changed since compliance; re-run the compliance check',
-      )
-    }
-
-    // A past send time can never dial at CallHub, so a paid draft on it would
-    // be money taken for a robocall that never sends. Reject before the
-    // people-db round trip.
-    if (!isFuture(parseISO(input.scheduledAt))) {
-      throw new BadRequestException(
-        'The scheduled send time must be in the future',
-      )
-    }
-
-    // Candidates can't schedule arbitrarily far out — a stale draft sitting for
-    // months would drift out of sync with pricing, compliance, and the
-    // audience it was built against.
-    const maxScheduledAt = addDays(new Date(), ROBOCALL_MAX_SCHEDULE_DAYS)
-    if (isAfter(parseISO(input.scheduledAt), maxScheduledAt)) {
-      throw new BadRequestException(
-        `The scheduled send time must be within ` +
-          `${ROBOCALL_MAX_SCHEDULE_DAYS} days`,
-      )
-    }
-
-    const billableCount = await this.deriveBillableCount(
-      organization,
-      input.voterFileFilterId,
-    )
-    this.assertReachableCount(billableCount)
-    // Total = per-call cost + the flat number-rental fee. This is what the hold
-    // authorizes and the capture collects, so the fee is priced in up front.
-    const amountInCents = calcRobocallTotalInCents(billableCount)
+    const { compliance, billableCount, amountInCents } =
+      await this.resolveScheduleGates(organization, input)
 
     try {
       const outreachId = await this.client.$transaction(async (tx) => {
@@ -259,6 +228,157 @@ export class OutreachRobocallService extends createPrismaBase(
     }
   }
 
+  // The gates every schedule-a-robocall path shares, in order: the compliance
+  // + ETag bind on the audio, the send-time guards, then the server-derived
+  // billing. Shared with the resume path so a conversion can never be priced
+  // or scheduled under weaker rules than a fresh create.
+  private async resolveScheduleGates(
+    organization: Organization,
+    input: RobocallDraftCreateRequest,
+  ): Promise<RobocallScheduleGates> {
+    const compliance = await requireBoundPassingCompliance(input.audioKey, {
+      s3: this.s3,
+      complianceResults: this.complianceResults,
+      audioBucket: this.audioBucket,
+    })
+
+    // A past send time can never dial at CallHub, so a paid draft on it would
+    // be money taken for a robocall that never sends. Reject before the
+    // people-db round trip.
+    if (!isFuture(parseISO(input.scheduledAt))) {
+      throw new BadRequestException(
+        'The scheduled send time must be in the future',
+      )
+    }
+
+    // Candidates can't schedule arbitrarily far out — a stale draft sitting for
+    // months would drift out of sync with pricing, compliance, and the
+    // audience it was built against.
+    const maxScheduledAt = addDays(new Date(), ROBOCALL_MAX_SCHEDULE_DAYS)
+    if (isAfter(parseISO(input.scheduledAt), maxScheduledAt)) {
+      throw new BadRequestException(
+        `The scheduled send time must be within ` +
+          `${ROBOCALL_MAX_SCHEDULE_DAYS} days`,
+      )
+    }
+
+    const billableCount = await this.deriveBillableCount(
+      organization,
+      input.voterFileFilterId,
+    )
+    this.assertReachableCount(billableCount)
+    // Total = per-call cost + the flat number-rental fee. This is what the hold
+    // authorizes and the capture collects, so the fee is priced in up front.
+    const amountInCents = calcRobocallTotalInCents(billableCount)
+
+    return { compliance, billableCount, amountInCents }
+  }
+
+  // Resume: the candidate saved this robocall while they could not send and is
+  // Pro now, so the SAME spine + satellite become the payable draft. The
+  // satellite already holds the unique audioKey, so inserting instead would
+  // trip that constraint and abandon the recording the candidate approved.
+  private async convertDraft(
+    campaign: Campaign,
+    organization: Organization,
+    input: RobocallDraftCreateRequest,
+    draftOutreachId: number,
+  ): Promise<RobocallDraftResult> {
+    const draft = await this.findFirst({
+      where: {
+        outreachId: draftOutreachId,
+        outreach: {
+          campaignId: campaign.id,
+          outreachType: OutreachType.robocall,
+        },
+      },
+      include: { outreach: { select: { status: true } } },
+    })
+    if (!draft) {
+      throw new NotFoundException('Robocall draft not found')
+    }
+    if (draft.outreach.status !== OutreachStatus.draft) {
+      throw new ConflictException('This robocall is no longer a draft')
+    }
+
+    const { compliance, billableCount, amountInCents } =
+      await this.resolveScheduleGates(organization, input)
+
+    try {
+      await this.client.$transaction(async (tx) => {
+        // The status transition is the claim: two resume submits both clear
+        // the read above, so a zero count here aborts the transaction before
+        // the satellite is repriced, rather than letting the last write win.
+        const claimed = await tx.outreach.updateMany({
+          where: { id: draftOutreachId, status: OutreachStatus.draft },
+          data: {
+            status: OutreachStatus.pending_payment,
+            name: input.name,
+            script: input.script,
+            date: parseISO(input.scheduledAt),
+            // The user's local calendar day, for the same reason the create
+            // path stores it: `date` is a UTC instant.
+            scheduledLocalDate: input.scheduledAt.slice(0, 10),
+            // The audience the amount above was priced from — staging loads
+            // the phonebook off this column, so a resume that changed lists
+            // must not dial one list and bill another.
+            voterFileFilterId: input.voterFileFilterId,
+            campaignPlanDueDate: input.campaignPlanDueDate,
+          },
+        })
+        if (claimed.count === 0) {
+          throw new ConflictException('This draft was already scheduled')
+        }
+        await tx.outreachRobocall.update({
+          where: { outreachId: draftOutreachId },
+          data: {
+            // A resume can carry a re-recorded clip, and the compliance bind
+            // above was run against THIS key, so the row must point at it.
+            audioKey: input.audioKey,
+            callbackNumber: input.callbackNumber,
+            billableCount,
+            amountInCents,
+            compliancePassedAt: compliance.checkedAt,
+            complianceAudioEtag: compliance.audioEtag,
+            settleState: RobocallSettleState.pending_payment,
+          },
+        })
+      })
+    } catch (err) {
+      // The recording already belongs to another robocall (unique audio_key).
+      // Surfaced explicitly for the same dual-Prisma-runtime reason as the
+      // create path's catch.
+      if (isUniqueConstraintError(err)) {
+        throw new ConflictException(
+          'This recording has already been used for a robocall',
+        )
+      }
+      throw err
+    }
+
+    // The draft never emitted this — it had no schedule — so the conversion is
+    // where the candidate's Scheduled milestone fires, as a create does.
+    await this.emitScheduled(
+      campaign.userId,
+      draftOutreachId,
+      input.scheduledAt,
+      amountInCents,
+    )
+
+    return {
+      outreachId: draftOutreachId,
+      billableCount,
+      amountInCents,
+      numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
+      // A conversion prices the saved draft for the first time, so no code
+      // has been applied to it yet; the pay step's promo route adds one.
+      ...robocallPromoState(
+        { promoCode: null, promoDiscountInCents: null },
+        amountInCents,
+      ),
+    }
+  }
+
   // Emits the Scheduled milestone with a deterministic Segment messageId so a
   // replay dedups to one email. Best-effort: the draft already committed, so a
   // transient Segment failure must not fail the create.
@@ -297,10 +417,11 @@ export class OutreachRobocallService extends createPrismaBase(
     )
   }
 
-  // Scoped to pending_payment: once a later slice advances the status, a repeat
-  // POST with the same audioKey misses this read and trips the unique index
-  // (409, still money-safe — the INSERT fails atomically), rather than
-  // returning a draft. Per-recording keys make that path unlikely.
+  // Scoped to the two statuses whose row still holds this recording before it
+  // is paid for: once a later slice advances the status, a repeat POST with the
+  // same audioKey misses this read and trips the unique index (409, still
+  // money-safe — the INSERT fails atomically). Per-recording keys make that
+  // path unlikely.
   private async findExistingDraft(
     campaignId: number,
     audioKey: string,
@@ -310,12 +431,30 @@ export class OutreachRobocallService extends createPrismaBase(
         audioKey,
         outreach: {
           campaignId,
-          status: OutreachStatus.pending_payment,
+          status: {
+            in: [OutreachStatus.draft, OutreachStatus.pending_payment],
+          },
           outreachType: OutreachType.robocall,
         },
       },
+      include: { outreach: { select: { status: true } } },
     })
     if (!existing) return null
+    // A saved draft already owns this recording. Scheduling it must go through
+    // the resume path (draftOutreachId) — converting it off a bare create would
+    // schedule and bill a row the caller never named.
+    if (existing.outreach.status === OutreachStatus.draft) {
+      throw new ConflictException({
+        message: 'This recording already belongs to a saved draft',
+        existingId: existing.outreachId,
+      })
+    }
+    // Null billing belongs to the `draft` state alone, handled above.
+    if (existing.billableCount === null) {
+      throw new InternalServerErrorException(
+        'robocall billing missing on a non-draft row',
+      )
+    }
     // Recompute rather than trust the stored column: a draft created before
     // the number fee shipped has a stale, fee-less amountInCents, and returning
     // it would understate the total by the fee.

@@ -182,6 +182,11 @@ export class OutreachRobocallPromoService extends createPrismaBase(
     // Recompute rather than trust the stored column, as findExistingDraft does:
     // a draft created before the number fee shipped has a stale, fee-less
     // amountInCents, and the authorize path prices against the live estimate.
+    // A saved draft (status `draft`) has not been priced yet: the resume's
+    // conversion writes its count before the pay step can offer a code.
+    if (draft.billableCount === null) {
+      throw new BadRequestException('This robocall has not been priced yet')
+    }
     return {
       ...draft,
       amountInCents: calcRobocallTotalInCents(draft.billableCount),

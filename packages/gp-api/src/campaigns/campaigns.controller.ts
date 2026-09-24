@@ -194,6 +194,17 @@ export class CampaignsController {
     return { success: true }
   }
 
+  // The EIN step's "Email me these steps". Same scoping and the same reason
+  // for no isPro guard as the filing-instructions email: it is a pre-payment
+  // step, and the body is public IRS guidance.
+  @Post('mine/ein-instructions/email')
+  @UseCampaign()
+  @HttpCode(HttpStatus.OK)
+  async emailEinInstructions(@ReqUser() user: User) {
+    await this.filingInstructions.emailEinInstructionsToCandidate(user)
+    return { success: true }
+  }
+
   // Test-only: flip the caller's own campaign to Pro without going through the
   // Stripe upgrade webhook. isPro is otherwise set only by that webhook, which
   // can't reach an ephemeral per-PR preview — so E2E specs that need a Pro Win

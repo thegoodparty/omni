@@ -260,7 +260,7 @@ with a per-outreach message group, so two deliveries serialize.
   `P2pPhoneListUploadService.buildPhoneList`
   (`gp-api/src/vendors/peerly/services/p2pPhoneListUpload.service.ts:178`),
   which already forces `hasCellPhone`, pages with `skipCount`, dedupes by phone
-  across pages, skips rows people-api cannot give a phone for, and caps
+  across pages, skips rows with no usable phone, and caps
   recipients. Lift it into the delivery service; the Peerly caller keeps its own
   CSV shape.
 * *Random sample* (polls). `ContactsService.sampleContacts`, which is

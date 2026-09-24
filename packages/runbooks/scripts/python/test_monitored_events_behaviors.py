@@ -4,8 +4,27 @@ run time would take the weekly digest down; failing here fails the PR instead.""
 from datetime import date
 from pathlib import Path
 
+import yaml
+
 import analytics_event_health as aeh
 import behavior_registry as br
+import sem_anchors as sa
+
+
+def test_no_behavior_or_row_carries_the_retired_okr_key():
+    doc = yaml.safe_load(aeh.WATCHLIST.read_text())
+    rows = [r["event"] for r in doc.get("events") or [] if "okr" in r]
+    behaviors = [b["id"] for b in doc.get("behaviors") or [] if "okr" in b]
+    assert rows == [] and behaviors == []
+
+
+def test_every_metric_pointer_names_a_declared_metric():
+    fixtures = Path(aeh.__file__).parent / "fixtures"
+    declared: dict = {}
+    for name in ("sem_analytics__users_win.yml", "sem_analytics__users_serve.yml"):
+        declared.update(sa.parse_anchors((fixtures / name).read_text()))
+    pointed = {m for b in br.load_behaviors(aeh.WATCHLIST) for m in br.metric_list(b)}
+    assert pointed <= set(declared), pointed - set(declared)
 
 
 def test_committed_behaviors_are_structurally_valid():
@@ -20,7 +39,7 @@ def test_committed_behaviors_are_structurally_valid():
 
 
 def test_no_instrument_is_also_a_watchlist_row():
-    _, watchlist_events, _, _ = aeh.load_watchlist(aeh.WATCHLIST)
+    _, watchlist_events, _ = aeh.load_watchlist(aeh.WATCHLIST)
     behaviors = br.load_behaviors(aeh.WATCHLIST)
     named = {n for b in behaviors for n in br.instrumenting_events(b)}
     assert named & set(watchlist_events) == set()
@@ -42,3 +61,21 @@ def test_the_composite_funnel_question_spans_three_behaviors():
     composite = [b for b in behaviors
                  if any("outreach on our platform" in a for a in b.get("answers") or [])]
     assert len(composite) == 3
+
+
+def test_a_caveat_carries_a_plain_headline():
+    """The caveat is what stops someone reporting a wrong number, so it is the one field
+    a non-engineer has to be able to read. The first reader outside the team quoted it
+    back as jargon, which is how it was caught."""
+    missing, jargon = [], []
+    for b in br.load_behaviors(aeh.WATCHLIST):
+        if not b.get("caveats"):
+            continue
+        headline = (b.get("headline") or "").strip()
+        if not headline:
+            missing.append(b["id"])
+            continue
+        if any(m in headline for m in ("`", ".ts", ".py", "DATA-", "ENG-", "PR #")):
+            jargon.append(b["id"])
+    assert missing == [], f"caveats with no plain headline: {missing}"
+    assert jargon == [], f"headlines written for engineers: {jargon}"

@@ -30,7 +30,6 @@ import { OutreachModule } from '@/outreach/outreach.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { OnboardingModule } from '@/onboarding/onboarding.module'
 import { PaymentsModule } from '@/payments/payments.module'
-import { PeopleDbModule } from '@/peopleDb/peopleDb.module'
 import { MeetingsModule } from '@/meetings/meetings.module'
 import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { AnnotationsModule } from '@/annotations/annotations.module'
@@ -91,7 +90,6 @@ import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
     ContentModule,
     HealthModule,
     PrismaModule,
-    PeopleDbModule,
     ContentfulModule,
     CampaignsModule,
     ElectionsModule,

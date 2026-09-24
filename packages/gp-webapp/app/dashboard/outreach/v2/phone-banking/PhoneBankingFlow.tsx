@@ -26,6 +26,10 @@ import {
 } from 'app/dashboard/outreach/constants'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { GateBanner } from '../gate/GateBanner'
+import { GateExplainerModal } from '../gate/GateExplainerModal'
+import { OutreachGate } from '../gate/OutreachGate'
+import { useOutreachGate } from '../gate/useOutreachGate'
 import { PurposeStep } from '../PurposeStep'
 // Intro is a channel-generic v2 component that currently lives under
 // social/; reused read-only here (same precedent as RobocallPurposeStep).
@@ -247,6 +251,19 @@ export const PhoneBankingFlow = ({
   preselectedRecommendedVariant,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
+  // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
+  // the deliverable and nothing exists until create — so the gate stands in
+  // front of the one write instead of behind a saved row.
+  const gate = useOutreachGate('phone-bank')
+  const [gateOpen, setGateOpen] = useState(false)
+  // WHICH gesture opened the gate. The banner rides every step, so its
+  // explainer can open the gate long before the candidate has reached the
+  // one write this flow makes — finishing there must not buy a list they
+  // never asked for.
+  const [gateOrigin, setGateOrigin] = useState<'create' | 'explainer' | null>(
+    null,
+  )
+  const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
 
@@ -365,6 +382,9 @@ export const PhoneBankingFlow = ({
     setNameEdited(false)
     setSaved(false)
     setCreateResponse(null)
+    setGateOpen(false)
+    setGateOrigin(null)
+    setExplainerOpen(false)
     resetDraftMutation()
     resetCreateMutation()
     resetAudience()
@@ -654,51 +674,123 @@ export const PhoneBankingFlow = ({
               audience.createRecommendedListPending,
           }
 
-  const cta: FlowShellCta | null = saved
-    ? {
-        label: 'Go to call list',
-        onClick: () => {
-          if (!createResponse) return
-          // The caller page is shared across surfaces by design: it is
-          // auth-only (no campaign required) and fetches org-scoped, so
-          // serve lists open here too (ENG-10970) — not a per-surface path.
-          router.push(`/dashboard/outreach/phone-banking/${createResponse.id}`)
-          onClose()
-        },
-      }
-    : stepId === 'who'
-      ? audienceCta
-      : stepId === 'script'
-        ? {
-            label: 'Continue',
-            onClick: () => setStepId('sheets'),
-            disabled:
-              script.trim().length === 0 ||
-              draftMutation.isPending ||
-              name.trim().length === 0,
-          }
-        : stepId === 'sheets'
+  const openGateFromExplainer = (): void => {
+    setGateOrigin('explainer')
+    setGateOpen(true)
+  }
+
+  const cta: FlowShellCta | null = gateOpen
+    ? // The gate screens carry their own buttons.
+      null
+    : saved
+      ? {
+          label: 'Go to call list',
+          onClick: () => {
+            if (!createResponse) return
+            // The caller page is shared across surfaces by design: it is
+            // auth-only (no campaign required) and fetches org-scoped, so
+            // serve lists open here too (ENG-10970) — not a per-surface path.
+            router.push(
+              `/dashboard/outreach/phone-banking/${createResponse.id}`,
+            )
+            onClose()
+          },
+        }
+      : stepId === 'who'
+        ? audienceCta
+        : stepId === 'script'
           ? {
               label: 'Continue',
-              onClick: () => createMutation.mutate(),
-              disabled: createMutation.isPending,
-              loading: createMutation.isPending,
+              onClick: () => setStepId('sheets'),
+              disabled:
+                script.trim().length === 0 ||
+                draftMutation.isPending ||
+                name.trim().length === 0,
             }
-          : null
+          : stepId === 'sheets'
+            ? {
+                label: 'Continue',
+                onClick: () => {
+                  // Nothing is written until the candidate can have the list:
+                  // a gated Continue shows the ready screen as a preview, and
+                  // the gate opens from there (design: the download step's
+                  // download and Continue both open it).
+                  if (gate.requirement !== null) {
+                    setStepId('download')
+                    return
+                  }
+                  createMutation.mutate()
+                },
+                disabled: createMutation.isPending,
+                loading: createMutation.isPending,
+              }
+            : stepId === 'download'
+              ? {
+                  label: 'Continue',
+                  onClick: () => {
+                    setGateOrigin('create')
+                    setGateOpen(true)
+                  },
+                }
+              : null
 
   return (
     <OutreachFlowShell
       open={open}
       onClose={onClose}
       title={STEP_TITLES[stepId]}
-      headerBadge={<ChannelBadge type={OUTREACH_TYPES.nativePhoneBanking} />}
+      headerBadge={
+        <ChannelBadge
+          type={OUTREACH_TYPES.nativePhoneBanking}
+          locked={gate.requirement !== null && !saved && !gateOpen}
+        />
+      }
       currentStep={stepIndex + 1}
       totalSteps={STEP_ORDER.length}
-      onBack={stepIndex > 0 && !saved ? handleBack : undefined}
+      onBack={stepIndex > 0 && !saved && !gateOpen ? handleBack : undefined}
       cta={cta}
+      // A React element is truthy even when it renders null, so the caller
+      // gates the JSX (see GateBanner).
+      banner={
+        gate.requirement !== null && !saved && !gateOpen ? (
+          <GateBanner
+            channel="phone-bank"
+            state={gate}
+            onOpenExplainer={() => setExplainerOpen(true)}
+          />
+        ) : undefined
+      }
       dirty={dirty}
     >
-      {stepId === 'purpose' ? (
+      <GateExplainerModal
+        channel="phone-bank"
+        state={gate}
+        open={explainerOpen}
+        onOpenChange={setExplainerOpen}
+        onUpgrade={openGateFromExplainer}
+        onVerify={openGateFromExplainer}
+        onPin={openGateFromExplainer}
+      />
+      {gateOpen ? (
+        <OutreachGate
+          channel="phone-bank"
+          state={gate}
+          open
+          showInterstitial={false}
+          onExit={() => {
+            setGateOpen(false)
+            setGateOrigin(null)
+          }}
+          onComplete={() => {
+            setGateOpen(false)
+            const origin = gateOrigin
+            setGateOrigin(null)
+            // Only the paid Continue's own gate buys the list; from the
+            // banner the candidate keeps building where they were.
+            if (origin === 'create') createMutation.mutate()
+          }}
+        />
+      ) : stepId === 'purpose' ? (
         <div className="space-y-6">
           <Intro
             channel="phoneBanking"
@@ -803,6 +895,23 @@ export const PhoneBankingFlow = ({
         />
       ) : saved && createResponse ? (
         <DownloadStep response={createResponse} audienceLabel={audienceLabel} />
+      ) : stepId === 'download' ? (
+        // The gated preview: what the list will be, priced off the picked
+        // audience, with nothing written yet.
+        <DownloadStep
+          pending={{
+            personCount: Math.min(
+              audience.reachableCount ?? 0,
+              sheetCount * PHONE_BANKING_SHEET_SIZE,
+            ),
+            sheetCount,
+          }}
+          audienceLabel={audienceLabel}
+          onDownloadGated={() => {
+            setGateOrigin('create')
+            setGateOpen(true)
+          }}
+        />
       ) : null}
     </OutreachFlowShell>
   )

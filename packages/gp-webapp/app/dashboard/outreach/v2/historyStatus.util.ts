@@ -1,4 +1,5 @@
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
+import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 
 // The two legacy status vocabularies the unified history has to keep
 // rendering. One DELIBERATE divergence from the legacy table's vocabulary:
@@ -21,6 +22,7 @@ type StatusKey =
   | 'pending_payment'
   | 'canceled'
   | 'failed'
+  | 'draft'
 
 // P2P rows (phoneListId != null): `pending` only ever reaches the map for
 // rows without a vendor job (getP2pStatusLabel remaps pending-with-a-job to
@@ -35,6 +37,9 @@ const p2pStatusLabels: { [K in StatusKey]: string } = {
   pending_payment: 'Pending payment',
   canceled: 'Canceled',
   failed: "Couldn't send",
+  // Unreachable: getHistoryStatusLabel intercepts `draft` before either map.
+  // Kept so the record stays total over StatusKey.
+  draft: 'Pro needed',
 }
 
 // Rows without a phone list (robocall, legacy text, social): `pending` means
@@ -52,10 +57,47 @@ const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   // A robocall the send chain could not deliver (CallHub failure). The candidate
   // was not charged; see OutreachRobocall.settleState (send_failed).
   failed: "Couldn't send",
+  // Unreachable, same as the p2p map's entry above: kept for totality.
+  draft: 'Pro needed',
 }
 
 const isStatusKey = (key: string | null | undefined): key is StatusKey =>
   key !== null && key !== undefined && key in nonP2pStatusLabels
+
+// A draft's label is never the spine's own vocabulary — it names the next
+// step the candidate must clear before they can send, off the membership
+// state the hub reads once per page. Without a membership read (the drawer's
+// own getHistoryStatusLabel call passes none) there is no next step to name,
+// so this returns null rather than assuming the worst case ('Pro needed').
+export const DRAFT_LABELS = {
+  pro: 'Pro needed',
+  verification: 'Verification needed',
+  inReview: 'Verification in review',
+  pin: 'PIN needed',
+  ready: 'Ready to schedule',
+} as const
+
+export const draftLabelFor = (
+  row: HistoryRow,
+  membership: MembershipState | null,
+): string | null => {
+  if (!membership) return null
+  if (membership.tier === 'free') return DRAFT_LABELS.pro
+  // Only the texting channels gate on TCR/CV verification — a robocall or
+  // other Pro-only draft has nothing left to clear but the send itself.
+  const texting = row.outreachType === 'p2p' || row.outreachType === 'text'
+  if (!texting) return DRAFT_LABELS.ready
+  switch (membership.texting) {
+    case 'needs_verification':
+      return DRAFT_LABELS.verification
+    case 'in_review':
+      return DRAFT_LABELS.inReview
+    case 'awaiting_pin':
+      return DRAFT_LABELS.pin
+    case 'cleared':
+      return DRAFT_LABELS.ready
+  }
+}
 
 // A Serve SMS row: an elected official's text to constituents, which shares
 // `outreachType: 'text'` with two other things it is not.
@@ -124,13 +166,17 @@ const getP2pStatusLabel = (row: HistoryRow): string | null => {
   return p2pStatusLabels[displayStatus]
 }
 
-// `isServe` defaults to false so every Win caller — and every existing Win
-// test — behaves exactly as it did. Only a caller that knows it is rendering
-// the Serve surface opts in.
+// `membership` (Win, milestone 2) names the next step for a `draft` row;
+// `isServe` (Serve) picks the Serve SMS vocabulary. Both default off so every
+// existing caller and test behaves exactly as it did.
 export const getHistoryStatusLabel = (
   row: HistoryRow,
+  membership: MembershipState | null = null,
   isServe = false,
 ): string | null => {
+  if (row.status === 'draft') {
+    return draftLabelFor(row, membership)
+  }
   // phoneListId marks a row created via the P2P flow, even when its type is
   // normalized to 'text' — its status merges the Peerly job state.
   if (row.phoneListId != null) {

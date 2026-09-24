@@ -37,9 +37,13 @@ describe('FilingStatusStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'status',
+      purchaseOnly: false,
+      channel: null,
       goToStep,
       goToNextStep: vi.fn(),
       goToPreviousStep,
+      exit: vi.fn(),
+      complete: vi.fn(),
     })
     // Default: persistence succeeds and returns the updated campaign.
     mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)
@@ -124,5 +128,75 @@ describe('FilingStatusStep', () => {
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.FilingStatusAlreadyFiled,
     )
+  })
+
+  describe('purchase-only', () => {
+    beforeEach(() => {
+      mockUseProUpgradeWizard.mockReturnValue({
+        currentStep: 'status',
+        purchaseOnly: true,
+        channel: null,
+        goToStep,
+        goToNextStep: vi.fn(),
+        goToPreviousStep,
+        exit: vi.fn(),
+        complete: vi.fn(),
+      })
+    })
+
+    it('asks the shortened question with its own two options', () => {
+      render(<FilingStatusStep />)
+
+      expect(
+        screen.getByRole('heading', { name: 'Are you officially filed?' }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('This confirms you are running for office.'),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('I have filed with my election authority.'),
+      ).toBeInTheDocument()
+      expect(screen.getByText('I have not filed yet.')).toBeInTheDocument()
+    })
+
+    // Design: the card is a selection and Continue confirms it.
+    it('holds Continue until a card is picked', () => {
+      render(<FilingStatusStep />)
+
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+      fireEvent.click(screen.getByText('Yes'))
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+      expect(mockUpdateCampaign).not.toHaveBeenCalled()
+    })
+
+    it('skips guidance and goes straight to the EIN step on "Yes"', async () => {
+      render(<FilingStatusStep />)
+
+      fireEvent.click(screen.getByText('Yes'))
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      // Guidance leads the purchase-only order, so "yes" must not double back.
+      await waitFor(() => expect(goToStep).toHaveBeenCalledWith('ein'))
+      expect(mockUpdateCampaign).toHaveBeenCalledWith([
+        { key: 'details.hasFiledForRace', value: true },
+      ])
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.FilingStatusAlreadyFiled,
+      )
+    })
+
+    it('still routes to the filing-instructions dead-end on "No"', async () => {
+      render(<FilingStatusStep />)
+
+      fireEvent.click(screen.getByText('No'))
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() =>
+        expect(goToStep).toHaveBeenCalledWith('filing-instructions'),
+      )
+      expect(mockUpdateCampaign).toHaveBeenCalledWith([
+        { key: 'details.hasFiledForRace', value: false },
+      ])
+    })
   })
 })

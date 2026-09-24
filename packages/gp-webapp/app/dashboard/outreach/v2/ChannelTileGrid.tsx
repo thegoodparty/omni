@@ -12,6 +12,7 @@ import {
 } from 'app/dashboard/outreach/constants'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
@@ -79,6 +80,11 @@ export const ChannelTileGrid = ({
   const { isPro } = campaign || {}
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
+  // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
+  // phone-banking flows: the tile stops refusing the click and opens the
+  // flow, which pauses itself once there is something to save. Read without
+  // exposure — pressing a tile is not the treatment surface.
+  const { enabled: gatedFlows } = useOutreachProGatingV2Flag(false)
   // Read only to decide whether the district download below is worth starting.
   // The door-knocking page gate is the treatment surface, so no exposure here.
   const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
@@ -146,6 +152,10 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.text) {
+      if (gatedFlows) {
+        onCreateSms(spendPreselect())
+        return
+      }
       // Upgrade-at-entry (2026-08-28): a non-Pro click goes straight to the
       // Pro upgrade wizard instead of the legacy marketing modal, the same
       // pattern the phone-banking tile set. Pro candidates with an
@@ -166,7 +176,7 @@ export const ChannelTileGrid = ({
     if (type === OUTREACH_TYPES.phoneBanking) {
       // A pending elected-office query is not a refusal — wait for it to
       // settle rather than redirecting a Serve org that will resolve true.
-      if (!canUseProFeatures && !electedOfficePending) {
+      if (!gatedFlows && !canUseProFeatures && !electedOfficePending) {
         trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
         router.push('/dashboard/pro-upgrade')
         return
@@ -182,15 +192,25 @@ export const ChannelTileGrid = ({
       return
     }
 
-    if (requiresPro && !isPro) {
+    if (type === OUTREACH_TYPES.robocall) {
+      if (!gatedFlows && requiresPro && !isPro) {
+        trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
+          source: 'outreach_page',
+        })
+        setShowProUpgradeModal(true)
+        return
+      }
+      onCreateRobocall(spendPreselect())
+      return
+    }
+    // Behind the flag door knocking is a door like the other three: its page
+    // admits a free campaign (the map's reads are open to one) and its create
+    // flow gates Build route, the one paid write.
+    if (!gatedFlows && requiresPro && !isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
         source: 'outreach_page',
       })
       setShowProUpgradeModal(true)
-      return
-    }
-    if (type === OUTREACH_TYPES.robocall) {
-      onCreateRobocall(spendPreselect())
       return
     }
     if (type === OUTREACH_TYPES.doorKnocking) {
@@ -270,18 +290,29 @@ export const ChannelTileGrid = ({
         {TILE_ORDER.map((type) => {
           const option = OUTREACH_OPTIONS.find((o) => o.type === type)
           const meta = CHANNEL_META[type]
+          // The four channels whose flows carry their own gate: the tile is
+          // a door now, not a lock.
+          const gatedInFlow =
+            gatedFlows &&
+            (type === OUTREACH_TYPES.text ||
+              type === OUTREACH_TYPES.robocall ||
+              type === OUTREACH_TYPES.phoneBanking ||
+              type === OUTREACH_TYPES.doorKnocking)
           return (
             <ChannelCard
               key={type}
               icon={meta.icon}
               iconClassName={meta.iconTint}
               label={meta.label}
-              locked={Boolean(
-                option?.requiresPro &&
-                (type === OUTREACH_TYPES.phoneBanking
-                  ? !canUseProFeatures && !electedOfficePending
-                  : !isPro),
-              )}
+              locked={
+                !gatedInFlow &&
+                Boolean(
+                  option?.requiresPro &&
+                  (type === OUTREACH_TYPES.phoneBanking
+                    ? !canUseProFeatures && !electedOfficePending
+                    : !isPro),
+                )
+              }
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
           )

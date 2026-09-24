@@ -2,6 +2,7 @@ import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { HttpAdapterHost } from '@nestjs/core'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { CronModule } from '@/cron/cron.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
@@ -32,6 +33,7 @@ import { OutreachResultsAdminService } from './services/outreachResultsAdmin.ser
 import { registerResultsUploadBodyLimit } from './util/outreachResultsBodyLimit.util'
 import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
 import { OutreachSmsController } from './outreachSms.controller'
+import { OutreachDraftController } from './outreachDraft.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachServeSmsController } from './outreachServeSms.controller'
@@ -47,6 +49,8 @@ import { OutreachInboundSweepService } from './services/outreachInboundSweep.ser
 import { OutreachMaterializationService } from './services/outreachMaterialization.service'
 import { OutreachAssignmentService } from './services/outreachAssignment.service'
 import { OutreachService } from './services/outreach.service'
+import { OutreachDraftService } from './services/outreachDraft.service'
+import { OutreachDraftExpiryService } from './services/outreachDraftExpiry.service'
 import { OutreachTextDeliveryService } from './services/outreachTextDelivery.service'
 import {
   TEXT_DELIVERY_HANDOFF_PORT,
@@ -123,6 +127,8 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     // For HubspotSingleSendService, the robocall payment/receipt single-send
     // cutover (ENG-11035).
     CrmModule,
+    // For CronLockService, guarding the draft expiry job below.
+    CronModule,
     // For QueueProducerService, which OutreachServeSmsPurchaseHandlerService
     // uses to enqueue `outreachTextSend` from its post-purchase step. The
     // producer module imports nothing, so this edge adds no cycle.
@@ -134,6 +140,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
   ],
   controllers: [
     OutreachController,
+    OutreachDraftController,
     OutreachAssignmentController,
     OutreachSocialController,
     OutreachServeSocialController,
@@ -155,6 +162,8 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
   ],
   providers: [
     OutreachService,
+    OutreachDraftService,
+    OutreachDraftExpiryService,
     // The two delivery-layer entry points. Registered here in the contract
     // lock even though nothing injects them yet: the point of this slice is
     // that the parallel slices can inject them on day one, and an
@@ -233,6 +242,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
   ],
   exports: [
     OutreachService,
+    OutreachDraftService,
     OutreachPurchaseHandlerService,
     OutreachAssignmentService,
     // The queue consumer's `outreachTextSend` case calls `requestSend` on

@@ -936,6 +936,8 @@ export {
 export {
   RobocallDraftCreateRequestSchema,
   type RobocallDraftCreateRequest,
+  OutreachRobocallDetailSchema,
+  type OutreachRobocallDetail,
   RobocallDraftCreateResponseSchema,
   type RobocallDraftCreateResponse,
   RobocallPromoApplyRequestSchema,
@@ -958,6 +960,13 @@ export {
   type OutreachArchiveResponse,
 } from './outreach/OutreachArchive.schema'
 export {
+  OUTREACH_DRAFT_TYPES,
+  CreateOutreachDraftRequestSchema,
+  type CreateOutreachDraftRequest,
+  OutreachDraftConflictSchema,
+  type OutreachDraftConflict,
+} from './outreach/OutreachDraft.schema'
+export {
   CancelOutreachResponseSchema,
   type CancelOutreachResponse,
 } from './outreach/OutreachCancel.schema'
@@ -965,6 +974,7 @@ export {
   OutreachReceiptSchema,
   type OutreachReceipt,
 } from './outreach/OutreachReceipt.schema'
+export { ProReceiptSchema, type ProReceipt } from './payments/ProReceipt.schema'
 export {
   SmsOutreachResultsSchema,
   type SmsOutreachResults,

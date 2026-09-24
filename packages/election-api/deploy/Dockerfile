@@ -62,7 +62,7 @@ ARG STAGE
 # DATABASE_URL is intentionally NOT a build arg: passing the real secret at
 # build time bakes it into the image/build history and cache (the audit
 # finding). `prisma generate` reads the datasource url but never connects, so a
-# non-secret placeholder is sufficient here — mirroring people-api. The running
+# non-secret placeholder is sufficient here. The running
 # service resolves the real DATABASE_URL from Secrets Manager at runtime (see
 # deploy/index.ts secrets wiring).
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"

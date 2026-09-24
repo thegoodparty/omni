@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import type { Campaign } from 'helpers/types'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import ProUpgradeEntry from './ProUpgradeEntry'
 
 // Mock only useQuery so we control pending vs resolved; keep the real
@@ -15,7 +16,12 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
   return { ...actual, useQuery: vi.fn() }
 })
 
+vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
+  useOutreachProGatingV2Flag: vi.fn(() => ({ ready: true, enabled: false })),
+}))
+
 const mockUseQuery = vi.mocked(useQuery)
+const mockUseFlag = vi.mocked(useOutreachProGatingV2Flag)
 
 const queryResult = (
   overrides: { data?: unknown; isPending?: boolean; isError?: boolean } = {},
@@ -49,6 +55,7 @@ const setQueries = (
 describe('ProUpgradeEntry', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUseFlag.mockReturnValue({ ready: true, enabled: false })
   })
 
   it('renders a spinner and does not redirect while the queries are pending', () => {
@@ -197,6 +204,47 @@ describe('ProUpgradeEntry', () => {
     expect(
       screen.getByRole('link', { name: /back to dashboard/i }),
     ).toHaveAttribute('href', '/dashboard')
+    expect(router.replace).not.toHaveBeenCalled()
+  })
+
+  it('derives the purchase-only step without waiting on the website/TCR reads when the flag is on', () => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    setQueries(
+      queryResult({
+        data: {
+          isPro: false,
+          details: { hasFiledForRace: true, einNumber: '12-3456780' },
+        } as Campaign,
+      }),
+      queryResult({ isPending: true }),
+      queryResult({ data: { hasActiveCampaign: true } }),
+    )
+
+    render(<ProUpgradeEntry />)
+
+    // Purchase-only always opens on the overview; the saved answer and EIN
+    // prefill their steps instead of skipping them.
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/guidance',
+    )
+  })
+
+  it('still waits on the website/TCR reads when the flag is off, even with the same purchase progress', () => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: false })
+    setQueries(
+      queryResult({
+        data: {
+          isPro: false,
+          details: { hasFiledForRace: true, einNumber: '12-3456780' },
+        } as Campaign,
+      }),
+      queryResult({ isPending: true }),
+      queryResult({ data: { hasActiveCampaign: true } }),
+    )
+
+    render(<ProUpgradeEntry />)
+
+    expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument()
     expect(router.replace).not.toHaveBeenCalled()
   })
 

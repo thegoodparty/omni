@@ -48,7 +48,7 @@ data "aws_vpc" "selected" {
 # Endpoint Security Group
 # ---------------------------------------------------------------------------
 # Ingress 443 from the entire VPC CIDR so any service in the VPC (PMF runner,
-# PMF broker, gp-api, people-api, election-api, etc.) can reach endpoints
+# PMF broker, gp-api, election-api, etc.) can reach endpoints
 # without cutting anyone off. Runner's egress side is still narrowly scoped
 # (agent-sg egress 443 → vpce-sg), so permissive endpoint ingress does NOT
 # weaken PMF's quarantine.

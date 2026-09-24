@@ -232,6 +232,7 @@ Onboarding V2 - Campaign Story Viewed,onboarding_v2_campaign_story_viewed,f696b5
 Onboarding V2 - Community Events Displayed,onboarding_v2_community_events_displayed,7168448e9bf8ec252d9ad7ed5068bfff62d6769a,https://github.com/thegoodparty/omni/pull/2002,2026-06-08,6290668+feliksalbright@users.noreply.github.com,,,,,2026-06-08,0,2026-09-01,2026-06-30T20:12:33
 Onboarding V2 - Community Events Requested,onboarding_v2_community_events_requested,7168448e9bf8ec252d9ad7ed5068bfff62d6769a,https://github.com/thegoodparty/omni/pull/2002,2026-06-08,6290668+feliksalbright@users.noreply.github.com,,,,,2026-06-08,0,2026-09-01,2026-06-30T20:12:33
 Onboarding V2 - Community Events Results Received,onboarding_v2_community_events_results_received,7168448e9bf8ec252d9ad7ed5068bfff62d6769a,https://github.com/thegoodparty/omni/pull/2002,2026-06-08,6290668+feliksalbright@users.noreply.github.com,,,,,2026-06-08,0,2026-09-01,2026-06-30T20:12:33
+Onboarding V2 - Manual Office Viewed,onboarding_v2_manual_office_viewed,,https://github.com/thegoodparty/omni/pull/2115,2026-09-24,,,,,,2026-09-24,,,2026-09-24T21:01:27
 Onboarding V2 - Media Displayed,onboarding_v2_media_displayed,7168448e9bf8ec252d9ad7ed5068bfff62d6769a,https://github.com/thegoodparty/omni/pull/2002,2026-06-08,6290668+feliksalbright@users.noreply.github.com,,,,,2026-06-08,0,2026-09-01,2026-06-30T20:12:33
 Onboarding V2 - Media Requested,onboarding_v2_media_requested,7168448e9bf8ec252d9ad7ed5068bfff62d6769a,https://github.com/thegoodparty/omni/pull/2002,2026-06-08,6290668+feliksalbright@users.noreply.github.com,,,,,2026-06-08,0,2026-09-01,2026-06-30T20:12:33
 Onboarding V2 - Media Results Received,onboarding_v2_media_results_received,7168448e9bf8ec252d9ad7ed5068bfff62d6769a,https://github.com/thegoodparty/omni/pull/2002,2026-06-08,6290668+feliksalbright@users.noreply.github.com,,,,,2026-06-08,0,2026-09-01,2026-06-30T20:12:33
@@ -290,6 +291,12 @@ Org Switcher - Run For Office Clicked,org_switcher_run_for_office_clicked,7d6668
 Outreach - Action Clicked,outreach_action_clicked,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,2026-09-01,2026-06-30T20:12:33
 Outreach - Click Create,outreach_click_create,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,3,,2026-06-30T20:12:33
 Outreach - Door Knocking: Complete,outreach_door_knocking_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,,2026-06-30T20:12:33
+Outreach - Draft Deleted,outreach_draft_deleted,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
+Outreach - Draft Resumed,outreach_draft_resumed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
+Outreach - Draft Saved,outreach_draft_saved,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:38
+Outreach - Gate Banner Viewed,outreach_gate_banner_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
+Outreach - Gate Explainer Viewed,outreach_gate_explainer_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
+Outreach - Gate Explainer: Click CTA,outreach_gate_explainer_click_cta,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
 Outreach - Phone Banking: Call Logged,outreach_phone_banking_call_logged,8010d59657909238fcc211512a1c0783870a8f06,,2026-08-21,tomer@goodparty.org,,,,,2026-08-21,1,,2026-09-07T11:07:27
 Outreach - Phone Banking: Complete,outreach_phone_banking_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,,2026-06-30T20:12:33
 Outreach - Phone Banking: Contact Viewed,outreach_phone_banking_contact_viewed,8010d59657909238fcc211512a1c0783870a8f06,,2026-08-21,tomer@goodparty.org,,,,,2026-08-21,1,,2026-08-31T11:07:29
@@ -344,6 +351,7 @@ Pro Upgrade - Committee Check Page: Hover “Upload” help,pro_upgrade_committe
 Pro Upgrade - Committee Check Page: Toggle EIN requirement,pro_upgrade_committee_check_page_toggle_ein_requirement,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,58821b65733bc3b6da57c261c7602ee7e8f1c6e5,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
 Pro Upgrade - EIN Viewed,pro_upgrade_ein_viewed,c1183769c51e92e8e7177d09c9604c083f3b8454,https://github.com/thegoodparty/omni/pull/1987,2026-06-07,tomer@goodparty.org,,,,,2026-06-07,1,,2026-06-30T20:12:33
 Pro Upgrade - EIN: Click continue,pro_upgrade_ein_click_continue,c1183769c51e92e8e7177d09c9604c083f3b8454,https://github.com/thegoodparty/omni/pull/1987,2026-06-07,tomer@goodparty.org,,,,,2026-06-07,1,,2026-06-30T20:12:33
+Pro Upgrade - EIN: Click email me these steps,pro_upgrade_ein_click_email_me_these_steps,,https://github.com/thegoodparty/omni/pull/1962,2026-09-24,,,,,,2026-09-24,,,2026-09-24T19:12:16
 Pro Upgrade - EIN: Hover help,pro_upgrade_ein_hover_help,0b66488415b7ecbcf217d96901a9a5c15ad50b0c,https://github.com/thegoodparty/omni/pull/1987,2026-06-07,tomer@goodparty.org,,,,,2026-06-07,1,,2026-06-30T20:12:33
 Pro Upgrade - Filing Details Submit Error,pro_upgrade_filing_details_submit_error,3ca192ba46e2cb82bcf8e84ee0ebce7fe856793a,https://github.com/thegoodparty/omni/pull/171,2026-06-16,tristan@goodparty.org,,,,,2026-06-16,3,,2026-07-20T11:56:25
 Pro Upgrade - Filing Details Submitted,pro_upgrade_filing_details_submitted,fd74078f7caa3d32df9f6d362ab5d18d10340452,https://github.com/thegoodparty/omni/pull/1970,2026-06-05,tomer@goodparty.org,,,,,2026-06-05,3,,2026-06-30T20:12:33
@@ -359,6 +367,7 @@ Pro Upgrade - Guidance: Click let's go,pro_upgrade_guidance_click_lets_go,7f6db6
 Pro Upgrade - Locked Item: Click,pro_upgrade_locked_item_click,54770c93280dd2e2b0febcaa23ac3d73028287f7,https://github.com/thegoodparty/omni/pull/2001,2026-06-08,tomer@goodparty.org,,,,,2026-06-08,4,,2026-06-30T20:12:33
 Pro Upgrade - Membership Banner Viewed,pro_upgrade_membership_banner_viewed,,,,,,,,,,,,2026-09-21T11:07:29
 Pro Upgrade - Membership Banner: Click,pro_upgrade_membership_banner_click,,,,,,,,,,,,2026-09-21T11:07:29
+Pro Upgrade - Membership Chip Viewed,pro_upgrade_membership_chip_viewed,,https://github.com/thegoodparty/omni/pull/1962,2026-09-24,,,,,,2026-09-24,,,2026-09-24T19:12:16
 Pro Upgrade - Membership Chip: Click,pro_upgrade_membership_chip_click,,,,,,,,,,,,2026-09-21T11:07:29
 Pro Upgrade - Modal: Click Button,pro_upgrade_modal_click_button,8b0426df16c5949c469f122beaaf70b859ba0d1f,,2025-03-10,snayak00@gmail.com,,,,,2025-03-10,1,,2026-06-30T20:12:33
 Pro Upgrade - Modal: Exit,pro_upgrade_modal_exit,8b0426df16c5949c469f122beaaf70b859ba0d1f,,2025-03-10,snayak00@gmail.com,,,,,2025-03-10,1,,2026-06-30T20:12:33

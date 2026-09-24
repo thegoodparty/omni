@@ -983,10 +983,11 @@ export class ContactsService {
     filterInput: CountContactsDTO,
     organization: Organization,
   ): Promise<{ count: number }> {
-    if (!(await this.isProAccess(organization))) {
-      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
-    }
-
+    // No Pro gate here, on overlapCount, getListDetail or getFilterDetail:
+    // a count is a number about the district, not a voter record, and the
+    // outreach build path (outreach-pro-gating-v2) prices a saved or unsaved
+    // list for a free campaign before it upgrades. Every read that returns a
+    // person stays gated.
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
       filterInput,
@@ -1319,10 +1320,6 @@ export class ContactsService {
     filterInput: CountContactsDTO,
     organization: Organization,
   ): Promise<{ count: number }> {
-    if (!(await this.isProAccess(organization))) {
-      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
-    }
-
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
       filterInput,
@@ -1588,10 +1585,6 @@ export class ContactsService {
     { segment }: ListDetailContactsDTO,
     organization: Organization,
   ): Promise<ListDetailContactsResponse> {
-    if (!(await this.isProAccess(organization))) {
-      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
-    }
-
     // No segment = the universe row's detail (ENG-10778): the whole
     // unfiltered district. No VoterFileFilter backs it, so there's no id to
     // key outreach history on — the webapp hides that section for this mode.
@@ -1658,10 +1651,6 @@ export class ContactsService {
     filterInput: CountContactsDTO,
     organization: Organization,
   ): Promise<ListDetailContactsResponse> {
-    if (!(await this.isProAccess(organization))) {
-      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
-    }
-
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
       organization,
       filterInput,
