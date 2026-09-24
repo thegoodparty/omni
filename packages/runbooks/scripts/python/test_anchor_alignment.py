@@ -116,16 +116,27 @@ def test_dead_declared_leg_with_a_live_successor_is_case_2():
 
 def test_a_quiet_path_leg_is_dead_even_when_the_bare_event_is_active():
     # The site-wide 'Viewed' record is active because other pages still fire it. The
-    # /dashboard slice is not, and the slice is what the declaration names.
+    # /dashboard slice fired and stopped, and the slice is what the declaration names.
+    findings = _align(
+        [_b("b", M, ("Viewed", "/dashboard"), ("Dashboard - Home Viewed", None))],
+        {M: [LIVE]},
+        records_by_type={"Viewed": _rec(), "Dashboard - Home Viewed": _rec()},
+        series={LIVE.key: [(TODAY - timedelta(days=7 * i), 5) for i in range(5, 9)]})
+    [f] = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    assert f["case"] == 2 and f["event_key"] == LIVE.key
+    assert f["suggested"] == "Dashboard - Home Viewed"
+    assert f["evidence"]["status"] is None
+
+
+def test_a_never_observed_path_leg_is_not_dead():
+    # No rows at all is the first run after a leg is declared, or a pipeline delay. A
+    # leg that has never been observed has not died.
     findings = _align(
         [_b("b", M, ("Viewed", "/dashboard"), ("Dashboard - Home Viewed", None))],
         {M: [LIVE]},
         records_by_type={"Viewed": _rec(), "Dashboard - Home Viewed": _rec()},
         series={})
-    [f] = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
-    assert f["case"] == 2 and f["event_key"] == LIVE.key
-    assert f["suggested"] == "Dashboard - Home Viewed"
-    assert f["evidence"]["status"] is None
+    assert not [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
 
 
 def test_a_firing_path_leg_is_not_dead():
@@ -209,6 +220,32 @@ def test_a_dismissed_successor_suppresses_the_case_2_finding():
         dismissed=[{"event": "Campaign Plan - Tracker Opened", "metric": M, "reason": "r", "date": "2026-09-23"}],
     )
     assert with_dismissal == []
+
+
+def test_a_dismissed_first_candidate_yields_to_the_next_successor():
+    # A dismissal says "not this one", not "stop looking". The next live undeclared
+    # surface is still a candidate for the dead leg.
+    code = {TRACKER.event: {"retired_date": "2026-09-01"}}
+    findings = _align(
+        [_b("b", M, (TRACKER.event, None), ("NewA", None), ("NewB", None))],
+        {M: [TRACKER]},
+        records_by_type={TRACKER.event: _rec("retired"), "NewA": _rec(), "NewB": _rec()},
+        code=code,
+        dismissed=[{"event": "NewA", "metric": M}],
+    )
+    case2 = [x for x in findings if x["kind"] == "declared_leg_dead_with_live_successor"]
+    assert [(f["event_key"], f["suggested"]) for f in case2] == [(TRACKER.key, "NewB")]
+    assert not [x for x in findings if x["kind"] == "live_instrument_not_declared"]
+
+
+def test_two_behaviors_on_one_metric_emit_one_unmonitored_finding():
+    # The leg is unmonitored once, not once per behavior that points at the metric.
+    findings = _align(
+        [_b("a", M, ("Viewed", "/dashboard")), _b("b", M, ("Viewed", "/dashboard"))],
+        {M: [LIVE, TRACKER]},
+        records_by_type={"Viewed": _rec()}, series=_series(LIVE.key, 5))
+    unmonitored = [x for x in findings if x["kind"] == "declared_leg_unmonitored"]
+    assert [f["event_key"] for f in unmonitored] == [TRACKER.key]
 
 
 def test_a_dismissed_surface_suppresses_the_case_3_finding_by_leg_key():

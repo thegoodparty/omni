@@ -45,7 +45,11 @@ def _dead_leg_evidence(leg, records_by_type, code, latches, series, today) -> di
     retired = (code.get(leg.event) or {}).get("retired_date") or None
     latched = bool((latches.get(leg.key) or {}).get("latched"))
     if "[path=" in leg.key:
-        if not retired and not latched and _live(leg.key, records_by_type, series, today):
+        # No rows at all means the leg has not been observed yet, not that it died; a
+        # dead slice has rows that went to zero.
+        rows = series.get(leg.key, ())
+        if not retired and not latched and (
+                not rows or _live(leg.key, records_by_type, series, today)):
             return None
         return {
             "retired_date": retired,
@@ -121,6 +125,8 @@ def align(
                 monitored.add(key)
 
     findings: list[dict] = []
+    # A leg is unmonitored once per metric, however many behaviors point at that metric.
+    seen_unmonitored: set[tuple[str, str]] = set()
     for b in behaviors:
         bid = b.get("id")
         for metric in metric_list(b):
@@ -152,10 +158,16 @@ def align(
                 if evidence is None or not live_undeclared:
                     continue
                 # Pop, so a second dead leg pairs with the next unmatched surface rather
-                # than telling the reader to replace both legs with the same event.
-                successor = live_undeclared.pop(0)
-                consumed.add(surface_key(successor))
-                if (metric, surface_key(successor)) in dismissed_keys:
+                # than telling the reader to replace both legs with the same event. A
+                # dismissal rules out that one candidate, not the rest of the queue.
+                successor = None
+                while live_undeclared:
+                    candidate = live_undeclared.pop(0)
+                    consumed.add(surface_key(candidate))
+                    if (metric, surface_key(candidate)) not in dismissed_keys:
+                        successor = candidate
+                        break
+                if successor is None:
                     continue
                 findings.append(_finding(
                     2, "declared_leg_dead_with_live_successor", metric=metric, behavior_id=bid,
@@ -185,6 +197,9 @@ def align(
 
             for leg in live_legs:
                 if leg.key not in monitored and leg.event not in monitored:
+                    if (metric, leg.key) in seen_unmonitored:
+                        continue
+                    seen_unmonitored.add((metric, leg.key))
                     findings.append(_finding(
                         1, "declared_leg_unmonitored", metric=metric, behavior_id=bid,
                         event_key=leg.key, suggested=leg.key,
