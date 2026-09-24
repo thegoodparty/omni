@@ -105,7 +105,7 @@ export const FilterGroup = ({
         <Badge
           key={`${label}-${index}`}
           shape="pill"
-          className="border-border bg-transparent px-3 py-1.5 text-sm font-medium text-foreground"
+          className="h-[34px] border-border bg-transparent px-3 text-sm font-medium text-foreground"
         >
           {label}
         </Badge>

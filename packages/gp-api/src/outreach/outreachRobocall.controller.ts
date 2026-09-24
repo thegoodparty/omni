@@ -44,6 +44,7 @@ import { UseOrganization } from '@/organizations/decorators/UseOrganization.deco
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { CallhubNumbersService } from '@/vendors/callhub/services/callhubNumbers.service'
@@ -82,6 +83,7 @@ export class OutreachRobocallController {
     private readonly complianceResults: RobocallComplianceResultService,
     private readonly composeContext: OutreachComposeContextService,
     private readonly organizations: OrganizationsService,
+    private readonly campaigns: CampaignsService,
     private readonly contacts: ContactsService,
     private readonly callhubNumbers: CallhubNumbersService,
     private readonly areaCodeFromZipService: AreaCodeFromZipService,
@@ -127,9 +129,22 @@ export class OutreachRobocallController {
   @ResponseSchema(RobocallNumberResponseSchema)
   async rentNumber(
     @ReqCampaign() campaign: Campaign,
-    @ReqOrganization() organization: Organization,
   ): Promise<RobocallNumberResponse> {
-    await this.contacts.assertProAccess(organization)
+    // Not Pro-gated (outreach-pro-gating-v2): a free candidate can build a
+    // robocall draft, including renting the number, before upgrading. Only
+    // the paid create/authorize/send routes still require Pro. A rental is a
+    // recurring vendor charge, so the free path is idempotent: the campaign
+    // holds one number on its details and gets it back on every rent while
+    // CallHub still lists it. A second real rental needs Pro.
+    const held = campaign.isPro
+      ? null
+      : (campaign.details.robocallCallbackNumber ?? null)
+    if (held) {
+      const live = (await this.callhubNumbers.listRentedNumbers()).find(
+        (n) => n.phone_number === held && n.is_active !== false,
+      )
+      if (live) return { phoneNumber: live.phone_number, region: live.region }
+    }
 
     const areaCodePrefix = await resolveRobocallAreaCode(campaign.details, {
       areaCodeFromZipService: this.areaCodeFromZipService,
@@ -155,6 +170,12 @@ export class OutreachRobocallController {
       )
     }
 
+    if (!campaign.isPro) {
+      await this.campaigns.patchCampaignDetails(campaign.id, {
+        robocallCallbackNumber: rented.phone_number,
+      })
+    }
+
     return { phoneNumber: rented.phone_number, region: rented.region }
   }
 
@@ -174,17 +195,18 @@ export class OutreachRobocallController {
     return { clientSecret, customerId }
   }
 
+  // Not Pro-gated (outreach-pro-gating-v2), mirroring the sms script draft: a
+  // free candidate builds the whole robocall before upgrading, and this route
+  // only calls an LLM — it reads no voter data. Only the paid
+  // create/authorize/send routes still require Pro.
   @Post('robocall/draft')
   @ResponseSchema(RobocallScriptDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
     @ReqCampaign() campaign: CampaignWith<'user'>,
-    @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(RobocallScriptDraftRequestSchema))
     input: RobocallScriptDraftRequest,
   ): Promise<RobocallScriptDraftResponse> {
-    await this.contacts.assertProAccess(organization)
-
     return {
       draft: await this.generationService.generateDraft(
         input,
@@ -283,12 +305,12 @@ export class OutreachRobocallController {
   async checkCompliance(
     @ReqUser() user: User,
     @ReqCampaign() campaign: CampaignWith<'user'>,
-    @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(RobocallComplianceRequestSchema))
     input: RobocallComplianceRequest,
   ): Promise<RobocallComplianceVerdict> {
-    await this.contacts.assertProAccess(organization)
-
+    // Not Pro-gated (outreach-pro-gating-v2): a free candidate can build a
+    // robocall draft, including checking the recording, before upgrading.
+    // Only the paid create/authorize/send routes still require Pro.
     if (!input.audioKey.startsWith(`robocall/${campaign.id}/`)) {
       throw new BadRequestException('Audio does not belong to this campaign')
     }

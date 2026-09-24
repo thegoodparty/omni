@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
@@ -10,12 +10,77 @@ import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { TurfDraft } from '../turfDrafts'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
+import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
+import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
+import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+// Milestone 2's in-flow gate, driven directly the way PhoneBankingFlow's own
+// gate suite drives it: the flag/membership plumbing behind the hook has its
+// own tests, and the requirement clearing mid-upgrade is a behavior this file
+// has to be able to stage. Ungated by default, so every other case here is
+// the Pro candidate this flow shipped for.
+vi.mock('app/dashboard/outreach/v2/gate/useOutreachGate', async () => {
+  const { useMockOutreachGate } =
+    await import('app/dashboard/outreach/v2/gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
+})
+
+// Mounts real Stripe surfaces; the flow only owns whether the gate is on
+// screen and what its completion runs, so the stand-in exposes both as
+// buttons.
+vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
+  default: ({
+    onComplete,
+    onExit,
+  }: {
+    onComplete: () => void
+    onExit: () => void
+  }) => (
+    <div data-testid="pro-upgrade-flow">
+      <button type="button" onClick={onComplete}>
+        Finish upgrade
+      </button>
+      <button type="button" onClick={onExit}>
+        Finish later
+      </button>
+    </div>
+  ),
+}))
+
+const FREE_GATE: OutreachGateState = {
+  enabled: true,
+  requirement: 'pro',
+  twoStep: false,
+  membership: {
+    tier: 'free',
+    texting: 'needs_verification',
+    pinDelivery: null,
+    isElectedOffice: false,
+  },
+  tcrCompliance: null,
+}
+
+const PRO_GATE: OutreachGateState = {
+  enabled: true,
+  requirement: null,
+  twoStep: false,
+  membership: {
+    tier: 'pro',
+    texting: 'cleared',
+    pinDelivery: null,
+    isElectedOffice: false,
+  },
+  tcrCompliance: null,
+}
+
+const GATE_LINE =
+  'Pro is needed to see voter names and addresses on this route.'
 
 // mapbox-gl-draw hands back an open ring; save must close it before POSTing.
 const OPEN_RING: PolygonRing = [
@@ -214,6 +279,10 @@ beforeEach(() => {
     status: 200,
     data: [],
   })
+})
+
+beforeEach(() => {
+  gateRef.set(PRO_GATE)
 })
 
 describe('CreateListFlow', () => {
@@ -1979,9 +2048,133 @@ describe('CreateListFlow on the Serve surface', () => {
   // view).
 })
 
+// Milestone 2. The page used to refuse a free candidate outright; now the
+// whole flow is theirs and the gate stands in front of the one paid write —
+// Build route, which buys the Geoapify route and is the only call here
+// gp-api refuses without Pro.
+describe('CreateListFlow — the Pro gate', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+    gateRef.set(FREE_GATE)
+  })
+
+  const mockCreate = () => {
+    const turfPosts: CreateDoorKnockingTurf[] = []
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 44 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfPosts.push(body)
+      return { status: 200, data: { ...savedTurf, id: 12 } }
+    })
+    return turfPosts
+  }
+
+  it('shows the gate banner on the route step for a free candidate', () => {
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
+
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+
+    expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
+  })
+
+  // The draw stage is the one step with nothing under the footer to spare:
+  // the map is the content and the shape is being cut against it, so the
+  // banner would sit over the only thing the candidate is looking at.
+  it('does not show the gate banner on the draw stage', () => {
+    render(<CreateListFlow {...baseProps} step="draw" />)
+
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+  })
+
+  it('free candidate: Build route opens the gate instead of buying the route', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
+  it('free candidate: completing the gate builds the route once', async () => {
+    const turfPosts = mockCreate()
+    const onListCreated = vi.fn()
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        onListCreated={onListCreated}
+        step="name"
+      />,
+    )
+    advanceToRoute(rerender, { onListCreated }, 'Tuesday evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    await screen.findByTestId('pro-upgrade-flow')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish upgrade' }))
+
+    await waitFor(() => expect(turfPosts).toHaveLength(1))
+    expect(onListCreated).toHaveBeenCalledTimes(1)
+  })
+
+  it('free candidate: leaving the gate lands back on the route step', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    await screen.findByTestId('pro-upgrade-flow')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish later' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Build route' }),
+    ).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
+  // The banner rides every step but the draw, so its explainer can open the
+  // gate long before Build route. Finishing there must hand the candidate
+  // back the step they were on, not buy the route behind their back.
+  it('free candidate: upgrading from the banner buys nothing and keeps the step', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+
+    fireEvent.click(screen.getByText(GATE_LINE))
+    fireEvent.click(await screen.findByRole('button', { name: 'Join Pro' }))
+    await screen.findByTestId('pro-upgrade-flow')
+
+    act(() => gateRef.set(PRO_GATE))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish upgrade' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Build route' }),
+    ).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
+  it('Pro candidate: Build route buys the route with no gate and no banner', async () => {
+    gateRef.set(PRO_GATE)
+    const turfPosts = mockCreate()
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(turfPosts).toHaveLength(1))
+    expect(screen.queryByTestId('pro-upgrade-flow')).toBeNull()
+  })
+})
+
 // One campaign, many turfs, one press. The anchor has to exist before
 // anything can point at it, so the batch is not a flat `Promise.all` — and
 // the failure modes below are the reason it is not a `Promise.all` at all.
+
 describe('CreateListFlow multi-turf save', () => {
   beforeEach(() => {
     testQueryClient.clear()

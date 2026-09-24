@@ -14,6 +14,8 @@
 // from you — is the true answer for those, and `edit` lands where it is real:
 // a saved door-knocking list that has not been knocked yet, which has both a
 // PUT and a DELETE behind it.
+import { DRAFT_LABELS } from '../historyStatus.util'
+
 export type ListDetailsLifecycle = 'scheduled' | 'in_progress' | 'done'
 
 export type ListDetailsFooterMode =
@@ -56,6 +58,37 @@ export const continueLabel = (
   progressCount: number,
 ): string =>
   progressCount === 0 ? ZERO_PROGRESS_LABELS[channel] : CONTINUE_LABELS[channel]
+
+// The canvas's `verify` footer, for a milestone-2 `draft` row: Delete (the one
+// destructive act a draft has) beside the step that still stands between it
+// and sending, keyed on the row's DRAFT_LABELS status. A draft with nothing
+// left in the way takes the channel's own resume CTA instead, which is why
+// `draftFooterAction` is handed it rather than importing gateCopy here.
+export const DRAFT_FOOTER_LABELS = {
+  pro: 'Upgrade to Pro',
+  verification: 'Start verification',
+  inReview: 'Verification in progress',
+  pin: 'Enter your PIN',
+} as const
+
+export const draftFooterAction = (
+  label: string,
+  resumeCta: string,
+): { label: string; disabled: boolean } => {
+  if (label === DRAFT_LABELS.inReview) {
+    return { label: DRAFT_FOOTER_LABELS.inReview, disabled: true }
+  }
+  if (label === DRAFT_LABELS.pro) {
+    return { label: DRAFT_FOOTER_LABELS.pro, disabled: false }
+  }
+  if (label === DRAFT_LABELS.verification) {
+    return { label: DRAFT_FOOTER_LABELS.verification, disabled: false }
+  }
+  if (label === DRAFT_LABELS.pin) {
+    return { label: DRAFT_FOOTER_LABELS.pin, disabled: false }
+  }
+  return { label: resumeCta, disabled: false }
+}
 
 export const AUTOMATIC_NOTE =
   'This campaign is sending automatically. No action needed.'

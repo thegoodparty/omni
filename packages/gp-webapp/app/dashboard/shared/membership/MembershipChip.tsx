@@ -22,10 +22,9 @@ import {
 } from './MembershipBanner'
 
 const CHIP_CLASS_NAME =
-  'inline-flex h-7 items-center gap-1.5 rounded-full bg-primary-light px-2.5 text-xs font-semibold text-primary'
+  'inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full bg-info-50 px-2.5 text-xs font-semibold text-primary'
 
-const chipCopy = (state: MembershipState): string => {
-  if (state.tier === 'free') return MEMBERSHIP_COPY.chip.free
+const verificationLabel = (state: MembershipState): string => {
   if (state.texting === 'awaiting_pin') return MEMBERSHIP_COPY.chip.awaitingPin
   if (state.texting === 'in_review') return MEMBERSHIP_COPY.chip.inReview
   return MEMBERSHIP_COPY.chip.needsVerification
@@ -72,16 +71,19 @@ export const MembershipChip = (): React.JSX.Element | null => {
     else if (action === 'pin') setPinOpen(true)
   }
 
-  const body = (
-    <>
-      {state.tier === 'free' ? (
+  const body =
+    state.tier === 'free' ? (
+      <>
+        <span>{MEMBERSHIP_COPY.chip.joinLead}</span>
         <ProBadge size="small" />
-      ) : (
+        <span>{MEMBERSHIP_COPY.chip.joinTail}</span>
+      </>
+    ) : (
+      <>
         <ShieldCheckIcon className="size-3.5" aria-hidden />
-      )}
-      {chipCopy(state)}
-    </>
-  )
+        {verificationLabel(state)}
+      </>
+    )
 
   return (
     <>

@@ -159,10 +159,21 @@ describe('FilingStatusStep', () => {
       expect(screen.getByText('I have not filed yet.')).toBeInTheDocument()
     })
 
+    // Design: the card is a selection and Continue confirms it.
+    it('holds Continue until a card is picked', () => {
+      render(<FilingStatusStep />)
+
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+      fireEvent.click(screen.getByText('Yes'))
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+      expect(mockUpdateCampaign).not.toHaveBeenCalled()
+    })
+
     it('skips guidance and goes straight to the EIN step on "Yes"', async () => {
       render(<FilingStatusStep />)
 
       fireEvent.click(screen.getByText('Yes'))
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
       // Guidance leads the purchase-only order, so "yes" must not double back.
       await waitFor(() => expect(goToStep).toHaveBeenCalledWith('ein'))
@@ -178,6 +189,7 @@ describe('FilingStatusStep', () => {
       render(<FilingStatusStep />)
 
       fireEvent.click(screen.getByText('No'))
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
       await waitFor(() =>
         expect(goToStep).toHaveBeenCalledWith('filing-instructions'),

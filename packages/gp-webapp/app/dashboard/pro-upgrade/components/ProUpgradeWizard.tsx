@@ -9,6 +9,10 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { CAMPAIGN_VERIFICATION_PATH } from 'app/dashboard/campaign-verification/campaignVerificationPath'
 import {
+  FullScreenStepChrome,
+  type StepPosition,
+} from 'app/dashboard/shared/FullScreenStepChrome'
+import {
   PRO_UPGRADE_BASE_PATH,
   PRO_UPGRADE_STEP,
   proUpgradeStepOrder,
@@ -58,6 +62,10 @@ const stepFromPathname = (
   // `filing-instructions` is a valid path but not in the linear order; surface
   // it as a step so the chrome can render Back without offering linear nav.
   if (match) return match
+  // `interstitial` has no route of its own — it's only ever entered via
+  // ProUpgradeFlow's `initialStep` — so a stray `/pro-upgrade/interstitial`
+  // URL must not resolve to a step this route-based shell renders.
+  if (segment === PRO_UPGRADE_STEP.INTERSTITIAL) return null
   return segment ? (segment as ProUpgradeStep) : null
 }
 
@@ -118,6 +126,26 @@ const WizardChrome = ({
   )
 }
 
+// Purchase-only (outreach-pro-gating-v2), design: renderSgModal — the same
+// chrome the outreach sheet draws around the embedded flow
+// (FullScreenStepChrome), with the bar stepper over the five ordered steps.
+// The filing-instructions dead end reads as the status step it branches
+// from, and the success screen draws no header at all.
+const PURCHASE_ONLY_ORDER = proUpgradeStepOrder(true)
+
+const purchaseOnlyPosition = (
+  step: ProUpgradeStep | null,
+): StepPosition | null => {
+  if (step === null || step === PRO_UPGRADE_STEP.SUCCESS) return null
+  const anchor =
+    step === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS
+      ? PRO_UPGRADE_STEP.STATUS
+      : step
+  const index = PURCHASE_ONLY_ORDER.indexOf(anchor)
+  if (index < 0) return null
+  return { currentStep: index + 1, totalSteps: PURCHASE_ONLY_ORDER.length }
+}
+
 interface ProUpgradeWizardProps {
   children: React.ReactNode
 }
@@ -173,6 +201,10 @@ const ProUpgradeWizard = ({
   }, [currentStep, orderIndex, purchaseOnly, stepOrder, router])
 
   const exit = useCallback(() => router.push('/dashboard'), [router])
+  const handleChromeExit = useCallback(() => {
+    trackEvent(EVENTS.ProUpgrade.ClickExit, { pathname })
+    router.push('/dashboard')
+  }, [pathname, router])
 
   // Purchase-only collects filing details after payment, so the success step
   // hands off to campaign verification instead of the dashboard.
@@ -216,19 +248,29 @@ const ProUpgradeWizard = ({
 
   return (
     <ProUpgradeWizardContext.Provider value={contextValue}>
-      <WizardChrome
-        stepperStep={stepperStep}
-        labels={stepperLabels}
-        cardless={isPayment}
-      >
-        {flagReady ? (
-          children
-        ) : (
-          <div className="flex h-[60vh] items-center justify-center">
-            <Spinner />
-          </div>
-        )}
-      </WizardChrome>
+      {purchaseOnly ? (
+        <FullScreenStepChrome
+          overline="Upgrade to Pro"
+          position={purchaseOnlyPosition(currentStep)}
+          onExit={handleChromeExit}
+        >
+          {children}
+        </FullScreenStepChrome>
+      ) : (
+        <WizardChrome
+          stepperStep={stepperStep}
+          labels={stepperLabels}
+          cardless={isPayment}
+        >
+          {flagReady ? (
+            children
+          ) : (
+            <div className="flex h-[60vh] items-center justify-center">
+              <Spinner />
+            </div>
+          )}
+        </WizardChrome>
+      )}
     </ProUpgradeWizardContext.Provider>
   )
 }

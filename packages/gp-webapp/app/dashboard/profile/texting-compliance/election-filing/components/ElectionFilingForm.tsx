@@ -22,6 +22,7 @@ import { useCandidateProfileForm } from 'app/dashboard/profile/texting-complianc
 import CandidateProfileFields from 'app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfileFields'
 import TextingComplianceRegistrationForm, {
   validateRegistrationForm,
+  type FormVariant,
 } from 'app/dashboard/profile/texting-compliance/register/components/TextingComplianceRegistrationForm'
 
 const validateAgenticForm = (data: FormDataState) =>
@@ -29,10 +30,29 @@ const validateAgenticForm = (data: FormDataState) =>
 
 interface ElectionFilingFormProps {
   onSubmitted: () => void
+  // Forwarded to TextingComplianceRegistrationForm's section headings. Only
+  // the embeddable campaign-verification steps pass these; the legacy
+  // standalone election-filing page omits them and keeps its current
+  // (heading-less) look.
+  title?: string
+  caption?: string
+  contactTitle?: string
+  contactCaption?: string
+  // Forwarded too: the campaign-verification steps render the design's
+  // 'verification' look with an inline Back; the legacy page keeps the
+  // default.
+  variant?: FormVariant
+  onBack?: () => void
 }
 
 export default function ElectionFilingForm({
   onSubmitted,
+  title,
+  caption,
+  contactTitle,
+  contactCaption,
+  variant,
+  onBack,
 }: ElectionFilingFormProps): React.JSX.Element {
   const queryClient = useQueryClient()
   const [user, , userLoading] = useUser()
@@ -149,6 +169,12 @@ export default function ElectionFilingForm({
         loading={loading}
         hasSubmissionError={hasSubmissionError}
         requireWebsite={false}
+        title={title}
+        caption={caption}
+        contactTitle={contactTitle}
+        contactCaption={contactCaption}
+        variant={variant}
+        onBack={onBack}
         // The profile section rides inside the form so the combined
         // validation alert stays at the very top of the page, above
         // it. Its errors join that alert via extraErrors (the

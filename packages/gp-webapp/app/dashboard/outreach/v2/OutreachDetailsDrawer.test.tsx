@@ -21,6 +21,7 @@ beforeEach(() => {
 import { useSnackbar } from 'helpers/useSnackbar'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import type { HistoryRow } from './historyStatus.util'
+import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
@@ -555,6 +556,114 @@ describe('OutreachDetailsDrawer — phone banking', () => {
 
     expect(deleteCalled).toBe(true)
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+// Milestone 2's saved drafts: the drawer is where a draft is discarded, and
+// its footer CTA is the way back into the flow (design: the `verify` footer).
+describe('OutreachDetailsDrawer — draft rows', () => {
+  const draftRow: HistoryRow = {
+    id: 40,
+    createdAt: '2026-09-01T00:00:00Z',
+    outreachType: 'p2p',
+    name: 'Draft blast',
+    status: 'draft',
+    phoneListId: null,
+  }
+  const membership = (
+    overrides: Partial<MembershipState>,
+  ): MembershipState => ({
+    tier: 'free',
+    texting: 'needs_verification',
+    pinDelivery: null,
+    isElectedOffice: false,
+    ...overrides,
+  })
+  beforeEach(() => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 40,
+        outreachType: 'p2p',
+        name: 'Draft blast',
+        status: 'draft',
+        script: 'Hi there',
+      },
+    })
+  })
+
+  it('offers Delete and Upgrade to Pro for a free tier draft, resuming through the CTA', async () => {
+    const onOpenChange = vi.fn()
+    const onResumeDraft = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={draftRow}
+        onOpenChange={onOpenChange}
+        membership={membership({})}
+        onResumeDraft={onResumeDraft}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Delete' }),
+    ).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Upgrade to Pro' }),
+    )
+
+    expect(onResumeDraft).toHaveBeenCalledWith(draftRow)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('holds the CTA disabled while verification is in review', async () => {
+    render(
+      <OutreachDetailsDrawer
+        row={draftRow}
+        onOpenChange={vi.fn()}
+        membership={membership({ tier: 'pro', texting: 'in_review' })}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: /Verification in progress/ }),
+    ).toBeDisabled()
+  })
+
+  it('confirms before deleting a draft and calls the outreach delete endpoint', async () => {
+    const deleted: string[] = []
+    api.mock('DELETE /v1/outreach/:id', ({ params }) => {
+      deleted.push(params.id)
+      return { status: 200, data: undefined }
+    })
+    const onOpenChange = vi.fn()
+    const onDraftDeleted = vi.fn().mockResolvedValue(undefined)
+    render(
+      <OutreachDetailsDrawer
+        row={draftRow}
+        onOpenChange={onOpenChange}
+        membership={membership({})}
+        onDraftDeleted={onDraftDeleted}
+      />,
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    )
+
+    await waitFor(() => expect(deleted).toEqual(['40']))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    await waitFor(() => expect(onDraftDeleted).toHaveBeenCalledTimes(1))
+  })
+
+  it('renders no footer for a draft when no membership is passed', async () => {
+    render(<OutreachDetailsDrawer row={draftRow} onOpenChange={vi.fn()} />)
+
+    await screen.findByRole('heading', { name: 'Draft blast' })
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Upgrade to Pro' })).toBeNull()
   })
 })
 
@@ -1409,6 +1518,33 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
     expect(screen.queryByText(/sending automatically/)).not.toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: /Continue|Walk|Call/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  // A saved outreach draft (server status `draft`, milestone 2) draws its own
+  // footer (`draftFooterAction`) or, with no membership read, nothing: the
+  // shared footer, and with it the archive shelf the In review rows below
+  // get, never stands in for it.
+  it('leaves a saved outreach draft with no footer either', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...baseDetail, outreachType: 'p2p' as const, status: 'draft' },
+    })
+
+    const savedDraft: HistoryRow = {
+      id: 30,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'p2p',
+      name: 'Untitled',
+      status: 'draft',
+      phoneListId: null,
+    }
+    render(<OutreachDetailsDrawer row={savedDraft} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.queryByText(/sending automatically/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Move to archive' }),
     ).not.toBeInTheDocument()
   })
 

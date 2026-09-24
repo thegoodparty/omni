@@ -317,6 +317,27 @@ describe('EinStep', () => {
       })
     })
 
+    // Design: the field shows its format as the placeholder, points at the
+    // IRS lookup, and Continue waits for all nine digits.
+    it('holds Continue until the EIN is complete and links to the IRS search', () => {
+      render(<EinStep />)
+
+      const input = screen.getByLabelText('Campaign EIN')
+      expect(input).toHaveAttribute('placeholder', '12-3456789')
+      expect(
+        screen.getByRole('link', {
+          name: 'IRS Tax Exempt Organization Search',
+        }),
+      ).toHaveAttribute('href', expect.stringContaining('irs.gov'))
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+      fireEvent.change(input, { target: { value: '12-34567' } })
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+      fireEvent.change(input, { target: { value: '12-3456789' } })
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
+    })
+
     it('offers the how-to-get-an-EIN steps behind a collapsible', () => {
       render(<EinStep />)
 

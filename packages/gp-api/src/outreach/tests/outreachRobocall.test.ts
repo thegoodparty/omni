@@ -12,6 +12,7 @@ const service = useTestService()
 
 const jsonCompletion = vi.fn()
 const rentNumber = vi.fn()
+const listRentedNumbers = vi.fn()
 const checkRecording = vi.fn()
 const getAreaCodeFromZip = vi.fn()
 
@@ -24,6 +25,8 @@ beforeEach(async () => {
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
   const callhub = service.app.get(CallhubNumbersService)
   vi.spyOn(callhub, 'rentNumber').mockImplementation(rentNumber)
+  listRentedNumbers.mockResolvedValue([])
+  vi.spyOn(callhub, 'listRentedNumbers').mockImplementation(listRentedNumbers)
   const areaCodeFromZip = service.app.get(AreaCodeFromZipService)
   vi.spyOn(areaCodeFromZip, 'getAreaCodeFromZip').mockImplementation(
     getAreaCodeFromZip,
@@ -292,16 +295,21 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
-  it('rejects a non-Pro campaign with a 403', async () => {
+  // Not Pro-gated (outreach-pro-gating-v2): the free build path drafts a
+  // script before upgrading, exactly as the sms script draft already does.
+  it('allows a non-Pro campaign to draft a script', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { isPro: false },
     })
+    mockDraft('Hi, this is Jane Doe, and I am running for City Council.')
 
     const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
 
-    expect(res.status).toBe(HttpStatus.FORBIDDEN)
-    expect(jsonCompletion).not.toHaveBeenCalled()
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      draft: 'Hi, this is Jane Doe, and I am running for City Council.',
+    })
   })
 })
 
@@ -382,16 +390,94 @@ describe('POST /v1/outreach/robocall/number', () => {
     expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
   })
 
-  it('rejects a non-Pro campaign without renting', async () => {
+  it('allows a non-Pro campaign to rent a number, and holds it', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { isPro: false },
     })
+    getAreaCodeFromZip.mockResolvedValue(['512', '737'])
+    rentNumber.mockResolvedValue({
+      phone_number: '+15125550143',
+      region: 'TX',
+      is_active: true,
+    })
 
     const res = await postNumber()
 
-    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(rentNumber).toHaveBeenCalledTimes(1)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.details.robocallCallbackNumber).toBe('+15125550143')
+  })
+
+  // A rental is a recurring CallHub charge and this route is not Pro-gated,
+  // so a free campaign must not be able to rent on every call.
+  it('returns the number a non-Pro campaign already holds instead of renting again', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        isPro: false,
+        details: { zip: '78634', robocallCallbackNumber: '+15125550143' },
+      },
+    })
+    listRentedNumbers.mockResolvedValue([
+      { phone_number: '+15125550143', region: 'TX', is_active: true },
+    ])
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+15125550143', region: 'TX' })
     expect(rentNumber).not.toHaveBeenCalled()
+  })
+
+  it('rents again for a non-Pro campaign once its held number left CallHub', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        isPro: false,
+        details: { zip: '78634', robocallCallbackNumber: '+15125550143' },
+      },
+    })
+    listRentedNumbers.mockResolvedValue([])
+    getAreaCodeFromZip.mockResolvedValue(['512'])
+    rentNumber.mockResolvedValue({
+      phone_number: '+15125550199',
+      region: 'TX',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+15125550199', region: 'TX' })
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.details.robocallCallbackNumber).toBe('+15125550199')
+  })
+
+  it('rents per robocall for a Pro campaign even with a held number', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        details: { zip: '78634', robocallCallbackNumber: '+15125550143' },
+      },
+    })
+    getAreaCodeFromZip.mockResolvedValue(['512'])
+    rentNumber.mockResolvedValue({
+      phone_number: '+15125550177',
+      region: 'TX',
+      is_active: true,
+    })
+
+    const res = await postNumber()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ phoneNumber: '+15125550177', region: 'TX' })
+    expect(listRentedNumbers).not.toHaveBeenCalled()
   })
 
   it('propagates a CallHub rental failure as a 502', async () => {
@@ -546,16 +632,26 @@ describe('POST /v1/outreach/robocall/compliance', () => {
     expect(checkRecording).not.toHaveBeenCalled()
   })
 
-  it('rejects a non-Pro campaign without checking', async () => {
+  it('allows a non-Pro campaign to check the recording', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { isPro: false },
     })
+    checkRecording.mockResolvedValue({
+      passed: true,
+      checks: {
+        hasSelfIdentification: true,
+        hasOrganization: true,
+        hasCallbackNumber: true,
+      },
+      transcript: 'Hi, this is Jane Doe...',
+      issues: [],
+    })
 
     const res = await postCompliance(validCompliancePayload)
 
-    expect(res.status).toBe(HttpStatus.FORBIDDEN)
-    expect(checkRecording).not.toHaveBeenCalled()
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(checkRecording).toHaveBeenCalled()
   })
 
   it('rejects a nameless candidate with an actionable 400, not a check', async () => {

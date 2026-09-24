@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -251,6 +252,76 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     )
   }
 
+  // Resume: the candidate built this row while they could not send and is Pro
+  // (and texting-cleared) now, so the SAME row becomes the payable draft —
+  // inserting a second one would leave the saved image and script behind and
+  // let the expiry job delete the audience the candidate is paying for.
+  private async convertP2pDraft(
+    campaign: Campaign,
+    createOutreachDto: CreateOutreachSchema,
+    draftOutreachId: number,
+    script: string,
+  ) {
+    const draft = await this.model.findFirst({
+      where: {
+        id: draftOutreachId,
+        campaignId: campaign.id,
+        outreachType: OutreachType.p2p,
+      },
+    })
+    if (!draft) {
+      throw new NotFoundException('Outreach draft not found')
+    }
+    if (draft.status !== OutreachStatus.draft) {
+      throw new ConflictException('This outreach is no longer a draft')
+    }
+
+    const {
+      peerlyIdentityId,
+      name,
+      resolvedScriptText,
+      didState,
+      didNpaSubset,
+    } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
+
+    // The status transition is the claim: two resume submits both clear the
+    // read above, so the `draft` guard here is what makes exactly one of them
+    // the scheduling write instead of letting the last one win silently.
+    const claimed = await this.model.updateMany({
+      where: { id: draft.id, status: OutreachStatus.draft },
+      data: {
+        status: OutreachStatus.pending_payment,
+        phoneListId: createOutreachDto.phoneListId,
+        // The audience the resume was priced and scheduled against; left
+        // untouched when the client sends none.
+        voterFileFilterId: createOutreachDto.voterFileFilterId,
+        date: createOutreachDto.date,
+        // The payload's offset-annotated datetime starts with the user's
+        // local calendar day; the DateTime column loses that offset, and
+        // finalize needs the local day for Peerly's start/end dates.
+        scheduledLocalDate: createOutreachDto.date?.slice(0, 10),
+        scheduledLocalTime: createOutreachDto.scheduledLocalTime,
+        textCount: createOutreachDto.textCount,
+        billableTextCount: createOutreachDto.billableTextCount,
+        campaignPlanDueDate: createOutreachDto.campaignPlanDueDate,
+        script: resolvedScriptText,
+        message: resolvedScriptText,
+        name,
+        didState,
+        didNpaSubset,
+        identityId: peerlyIdentityId,
+      },
+    })
+    if (claimed.count === 0) {
+      throw new ConflictException('This draft was already scheduled')
+    }
+
+    return await this.model.findUniqueOrThrow({
+      where: { id: draft.id },
+      include: { voterFileFilter: true },
+    })
+  }
+
   private async createP2pOutreach(
     campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
@@ -336,6 +407,21 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
 
     const isP2p = createOutreachDto.outreachType === OutreachType.p2p
+
+    // A resume carries no image and no Peerly job of its own: the draft row
+    // already holds the image, and the job is created at finalize like any
+    // other pending_payment draft. So this branches before the create guards.
+    if (isP2p && createOutreachDto.draftOutreachId) {
+      if (!createOutreachDto.script) {
+        throw new BadRequestException('Script is required for P2P outreach')
+      }
+      return await this.convertP2pDraft(
+        campaign,
+        createOutreachDto,
+        createOutreachDto.draftOutreachId,
+        createOutreachDto.script,
+      )
+    }
 
     if (isP2p) {
       if (!imageUrl) {
@@ -711,6 +797,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // draft is a flow selector, not an Outreach column.
     const outreachData = { ...createOutreachDto }
     delete outreachData.draft
+    // draftOutreachId likewise: the resume path consumes it, and Prisma would
+    // reject it as an unknown column.
+    delete outreachData.draftOutreachId
     return await this.model.create({
       data: {
         ...outreachData,

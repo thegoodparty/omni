@@ -4,6 +4,7 @@ import ValuePropStep from './ValuePropStep'
 import FilingStatusStep from './FilingStatusStep'
 import FilingInstructionsStep from './FilingInstructionsStep'
 import GuidanceStep from './GuidanceStep'
+import InterstitialStep from './InterstitialStep'
 import EinStep from './EinStep'
 import FilingDetailsStep from './FilingDetailsStep'
 import CandidateProfileStep from './CandidateProfileStep'
@@ -25,4 +26,5 @@ export const PRO_UPGRADE_STEP_COMPONENTS: Record<
   [PRO_UPGRADE_STEP.CANDIDATE_PROFILE]: CandidateProfileStep,
   [PRO_UPGRADE_STEP.PAYMENT]: PaymentStep,
   [PRO_UPGRADE_STEP.SUCCESS]: SuccessStep,
+  [PRO_UPGRADE_STEP.INTERSTITIAL]: InterstitialStep,
 }

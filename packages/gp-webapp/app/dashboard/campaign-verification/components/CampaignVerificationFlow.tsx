@@ -1,21 +1,23 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
+import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Button, Stepper } from '@styleguide'
-import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import ElectionFilingForm from 'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm'
-import VerificationSubmittedContent from 'app/dashboard/profile/texting-compliance/verification-submitted/components/VerificationSubmittedContent'
-import { VerificationIntro } from './VerificationIntro'
+import {
+  FullScreenStepChrome,
+  type StepPosition,
+} from 'app/dashboard/shared/FullScreenStepChrome'
+import { GATE_CHROME_COPY } from 'app/dashboard/outreach/v2/gate/gateCopy'
+import CampaignVerificationSteps, {
+  type VerificationStep,
+} from './CampaignVerificationSteps'
 
-type VerificationStep = 'intro' | 'form' | 'submitted'
-
-const STEP_INDEX: Record<VerificationStep, number> = {
-  intro: 1,
-  form: 2,
-  submitted: 3,
+// The same positions OutreachGate reports for the embedded steps: the intro
+// and the form count, and the submitted screen draws no header at all
+// (design: the pending screen).
+const STEP_POSITION: Record<VerificationStep, StepPosition | null> = {
+  intro: { currentStep: 1, totalSteps: 3 },
+  form: { currentStep: 2, totalSteps: 3 },
+  submitted: null,
 }
 
 const CampaignVerificationFlow = (): React.JSX.Element => {
@@ -23,94 +25,36 @@ const CampaignVerificationFlow = (): React.JSX.Element => {
   const searchParams = useSearchParams()
   // Only 'submitted' is trusted from the URL — a refresh mid-form should
   // land back on the intro, not reopen an empty ElectionFilingForm.
-  const [step, setStep] = useState<VerificationStep>(
-    searchParams?.get('step') === 'submitted' ? 'submitted' : 'intro',
-  )
+  const initialStep: VerificationStep =
+    searchParams?.get('step') === 'submitted' ? 'submitted' : 'intro'
+  // Mirrors the steps' own state, for the bar above — the steps component
+  // owns the state machine (and the URL sync belongs here, not inside the
+  // embeddable component, so a caller mounting it in a sheet doesn't get a
+  // surprise navigation).
+  const [step, setStep] = useState<VerificationStep>(initialStep)
 
-  // Reset scroll to the top whenever the active step changes (dashboard
-  // convention) — the filing form is long enough that the confirmation would
-  // otherwise render mid-page.
-  useEffect(() => {
-    window.scrollTo(0, 0)
-  }, [step])
+  const handleStepChange = (next: VerificationStep) => {
+    setStep(next)
+    if (next === 'submitted') {
+      router.replace('/dashboard/campaign-verification?step=submitted')
+    }
+  }
 
-  // One intro view per visit to the flow. The intro is unmounted by the form
-  // step and remounted by Back, so the event is fired from here, where the
-  // ref survives that, rather than from the intro's own mount.
-  const introViewedRef = useRef(false)
-  useEffect(() => {
-    if (step !== 'intro' || introViewedRef.current) return
-    introViewedRef.current = true
-    trackEvent(EVENTS.ProUpgrade.Verification.IntroViewed)
-  }, [step])
-
-  // Same guard for the submitted screen: a refresh of the submitted URL
-  // mounts straight onto it, and the effect must not count that twice.
-  const submittedViewedRef = useRef(false)
-  useEffect(() => {
-    if (step !== 'submitted' || submittedViewedRef.current) return
-    submittedViewedRef.current = true
-    trackEvent(EVENTS.ProUpgrade.Verification.SubmittedViewed)
-  }, [step])
+  const exit = () => router.push('/dashboard')
 
   return (
-    <div className="min-h-screen bg-white px-6">
-      <nav className="py-3">
-        <Button
-          asChild
-          variant="ghost"
-          size="small"
-          className="text-base-muted-foreground"
-        >
-          <Link href="/dashboard">
-            <ArrowLeftIcon /> Exit
-          </Link>
-        </Button>
-      </nav>
-      <main className="mx-auto max-w-screen-sm pt-6 pb-20">
-        {step !== 'submitted' && (
-          <Stepper
-            variant="bar"
-            overline="Campaign verification"
-            currentStep={STEP_INDEX[step]}
-            totalSteps={2}
-            className="mb-6"
-          />
-        )}
-        <div className="rounded-2xl border border-base-border bg-white p-6 md:px-12 md:py-8">
-          {step === 'intro' && (
-            <VerificationIntro
-              onBack={() => router.push('/dashboard')}
-              onContinue={() => {
-                trackEvent(EVENTS.ProUpgrade.Verification.IntroContinue)
-                setStep('form')
-              }}
-            />
-          )}
-          {step === 'form' && (
-            <>
-              <Button
-                variant="ghost"
-                size="small"
-                className="mb-4 text-base-muted-foreground"
-                onClick={() => setStep('intro')}
-              >
-                <ArrowLeftIcon /> Back
-              </Button>
-              <ElectionFilingForm
-                onSubmitted={() => {
-                  setStep('submitted')
-                  router.replace(
-                    '/dashboard/campaign-verification?step=submitted',
-                  )
-                }}
-              />
-            </>
-          )}
-          {step === 'submitted' && <VerificationSubmittedContent />}
-        </div>
-      </main>
-    </div>
+    <FullScreenStepChrome
+      overline={GATE_CHROME_COPY.verification}
+      position={STEP_POSITION[step]}
+      onExit={exit}
+    >
+      <CampaignVerificationSteps
+        initialStep={initialStep}
+        onStepChange={handleStepChange}
+        onExit={exit}
+        onComplete={exit}
+      />
+    </FullScreenStepChrome>
   )
 }
 

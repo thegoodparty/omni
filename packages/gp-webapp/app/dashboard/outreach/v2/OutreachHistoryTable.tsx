@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Button,
@@ -31,6 +31,7 @@ import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { ChannelBadge, HistoryStatusText } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import {
   fetchOutreachDetail,
   useOutreachDetail,
@@ -56,6 +57,11 @@ interface OutreachHistoryTableProps {
   // org-scoped sibling the same bound-function way SocialFlow's `surface`
   // does, so this table never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // The candidate's membership state, read once by the hub — threaded down
+  // only so a draft row's status can name the next step (draftLabelFor).
+  // Omitted callers (constituent-outreach: no draft rows exist there) get
+  // the same null default getHistoryStatusLabel already carries.
+  membership?: MembershipState | null
   // "Campaign" is fine on both surfaces here — these ARE outreach campaigns,
   // not a run for office. An election CYCLE is not: an elected official
   // archives outreach across a term, so Serve names the shelf, not the cycle.
@@ -85,8 +91,15 @@ const SocialPlatformsMetric = ({
 }
 
 // Prototype unit: "people called" for the phone channels, "people" elsewhere.
-const peopleUnit = (type: HistoryRow['outreachType']): string =>
-  type === OUTREACH_TYPES.robocall || type === OUTREACH_TYPES.phoneBanking
+// "called" is a past tense: a call campaign that is still scheduled reaches
+// people, the same way a scheduled text does, and only reads as called once
+// it has run. Texting never changes tense (its count is people, not sends).
+const peopleUnit = (
+  type: HistoryRow['outreachType'],
+  status: HistoryRow['status'],
+): string =>
+  (type === OUTREACH_TYPES.robocall || type === OUTREACH_TYPES.phoneBanking) &&
+  status === 'completed'
     ? 'people called'
     : 'people'
 
@@ -174,6 +187,42 @@ const DoorKnockingLoggedMetric = ({
   return <>{count.toLocaleString()} logged</>
 }
 
+// A robocall's count lives on its satellite, not the spine's text counts,
+// so like phone banking it comes off the detail fetch. A draft has not been
+// priced yet and reads n/a until it is.
+const RobocallPeopleMetric = ({
+  row,
+  compact,
+  detailFetcher,
+}: {
+  row: HistoryRow
+  compact?: boolean
+  detailFetcher: OutreachDetailFetcher
+}) => {
+  const { data } = useOutreachDetail(row.id, true, detailFetcher)
+  const count = data?.robocall?.billableCount
+  if (count === undefined) {
+    return <span className="text-muted-foreground">—</span>
+  }
+  if (count === null) {
+    return <span className="text-muted-foreground">n/a</span>
+  }
+  const unit = peopleUnit(row.outreachType, row.status)
+  if (compact) {
+    return (
+      <>
+        {count.toLocaleString()} {unit}
+      </>
+    )
+  }
+  return (
+    <>
+      <span className="text-sm">{count.toLocaleString()}</span>{' '}
+      <span className="text-xs">{unit}</span>
+    </>
+  )
+}
+
 // compact = the mobile card's flat text-xs line; the table cell splits the
 // number (text-sm) from the unit (text-xs) per the prototype.
 const RowMetric = ({
@@ -210,19 +259,30 @@ const RowMetric = ({
       />
     )
   }
+  if (row.outreachType === OUTREACH_TYPES.robocall) {
+    return (
+      <RobocallPeopleMetric
+        row={row}
+        compact={compact}
+        detailFetcher={detailFetcher}
+      />
+    )
+  }
   const sent = row.textCount ?? row.billableTextCount
   if (typeof sent === 'number') {
     if (compact) {
       return (
         <>
-          {sent.toLocaleString()} {peopleUnit(row.outreachType)}
+          {sent.toLocaleString()} {peopleUnit(row.outreachType, row.status)}
         </>
       )
     }
     return (
       <>
         <span className="text-sm">{sent.toLocaleString()}</span>{' '}
-        <span className="text-xs">{peopleUnit(row.outreachType)}</span>
+        <span className="text-xs">
+          {peopleUnit(row.outreachType, row.status)}
+        </span>
       </>
     )
   }
@@ -323,7 +383,7 @@ const channelFilterKey = (
   )?.key ?? null
 
 // The unified label vocabulary across both legacy status maps.
-const STATUS_FILTERS = [
+const BASE_STATUS_FILTERS = [
   'Draft',
   'In review',
   'Denied',
@@ -334,6 +394,22 @@ const STATUS_FILTERS = [
   'Pending payment',
   'Canceled',
 ] as const
+
+// The five names a saved draft's status can take (historyStatus.util.ts's
+// DRAFT_LABELS). They are offered only when the caller passes a membership:
+// with the flag off the hub passes none AND filters every draft row out, so
+// these would be five checkboxes matching nothing.
+const DRAFT_STATUS_FILTERS = [
+  'Pro needed',
+  'Verification needed',
+  'Verification in review',
+  'PIN needed',
+  'Ready to schedule',
+] as const
+
+type StatusFilterKey =
+  | (typeof BASE_STATUS_FILTERS)[number]
+  | (typeof DRAFT_STATUS_FILTERS)[number]
 
 // Representative timestamp for newest-first sorting: the row's own date,
 // falling back to createdAt (social rows never set the spine date).
@@ -354,6 +430,7 @@ export const OutreachHistoryTable = ({
   onRowClick,
   rowClickable = () => true,
   detailFetcher = fetchOutreachDetail,
+  membership = null,
   isServe = false,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
@@ -361,9 +438,30 @@ export const OutreachHistoryTable = ({
   const [channelFilter, setChannelFilter] = useState<Set<ChannelFilterKey>>(
     () => new Set(CHANNEL_FILTERS.map((c) => c.key)),
   )
-  const [statusFilter, setStatusFilter] = useState<
-    Set<(typeof STATUS_FILTERS)[number]>
-  >(() => new Set(STATUS_FILTERS))
+  // Keyed on WHETHER there is a membership, never on the object: the hub
+  // re-renders often (rows refetch, window focus, a sheet opening) and a
+  // membership identity in the dependency list re-seeded the filter set on
+  // every one of them, restoring every box the candidate had unchecked.
+  const hasMembership = membership !== null
+  const statusFilters: readonly StatusFilterKey[] = useMemo(
+    () =>
+      hasMembership
+        ? [...BASE_STATUS_FILTERS, ...DRAFT_STATUS_FILTERS]
+        : BASE_STATUS_FILTERS,
+    [hasMembership],
+  )
+  const [statusFilter, setStatusFilter] = useState<Set<StatusFilterKey>>(
+    () => new Set(statusFilters),
+  )
+  // Membership arrives after the flag read settles, so the five draft names
+  // can join the set mid-mount; they start checked like every other filter.
+  // Once only — a second widening would undo the candidate's own unchecking.
+  const draftFiltersWidenedRef = useRef(hasMembership)
+  useEffect(() => {
+    if (!hasMembership || draftFiltersWidenedRef.current) return
+    draftFiltersWidenedRef.current = true
+    setStatusFilter((prev) => new Set([...prev, ...DRAFT_STATUS_FILTERS]))
+  }, [hasMembership])
 
   const displayStatusLabel = (row: HistoryRow): string | null => {
     // An archived row reads "Archived" no matter what state it was shelved
@@ -372,7 +470,7 @@ export const OutreachHistoryTable = ({
     if (row.archivedAt) {
       return 'Archived'
     }
-    return getHistoryStatusLabel(row, isServe)
+    return getHistoryStatusLabel(row, membership, isServe)
   }
 
   const visible = useMemo(
@@ -387,18 +485,18 @@ export const OutreachHistoryTable = ({
           const status = displayStatusLabel(row)
           return (
             status === null ||
-            !(STATUS_FILTERS as readonly string[]).includes(status) ||
-            statusFilter.has(status as (typeof STATUS_FILTERS)[number])
+            !(statusFilters as readonly string[]).includes(status) ||
+            statusFilter.has(status as StatusFilterKey)
           )
         })
         .sort((a, b) => rowTime(b) - rowTime(a)),
-    [rows, showArchive, channelFilter, statusFilter],
+    [rows, showArchive, channelFilter, statusFilter, statusFilters],
   )
 
   const activeFilterCount =
     CHANNEL_FILTERS.length -
     channelFilter.size +
-    (STATUS_FILTERS.length - statusFilter.size)
+    (statusFilters.length - statusFilter.size)
 
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
   const currentPage = Math.min(page, pageCount)
@@ -424,7 +522,7 @@ export const OutreachHistoryTable = ({
       return next
     })
 
-  const toggleStatus = (key: (typeof STATUS_FILTERS)[number], on: boolean) =>
+  const toggleStatus = (key: StatusFilterKey, on: boolean) =>
     setStatusFilter((prev) => {
       const next = new Set(prev)
       if (on) next.add(key)
@@ -434,7 +532,7 @@ export const OutreachHistoryTable = ({
 
   const clearFilters = () => {
     setChannelFilter(new Set(CHANNEL_FILTERS.map((c) => c.key)))
-    setStatusFilter(new Set(STATUS_FILTERS))
+    setStatusFilter(new Set(statusFilters))
   }
 
   const activeRowCount = rows.filter((row) => !row.archivedAt).length
@@ -497,7 +595,7 @@ export const OutreachHistoryTable = ({
                 <p className="text-xs font-medium text-muted-foreground">
                   Status
                 </p>
-                {STATUS_FILTERS.map((s) => (
+                {statusFilters.map((s) => (
                   <CheckboxLabel
                     key={s}
                     id={`status-${s}`}

@@ -411,6 +411,7 @@ export const EVENTS = {
       EinViewed: 'Pro Upgrade - EIN Viewed',
       EinContinue: 'Pro Upgrade - EIN: Click continue',
       EinHoverHelp: 'Pro Upgrade - EIN: Hover help',
+      EinInstructionsEmail: 'Pro Upgrade - EIN: Click email me these steps',
       CandidateProfileViewed: 'Pro Upgrade - Candidate Profile Viewed',
       FilingDetailsViewed: 'Pro Upgrade - Filing Details Viewed',
       PaymentViewed: 'Pro Upgrade - Payment Viewed',
@@ -666,6 +667,22 @@ export const EVENTS = {
     // point (useOutreachAudience.ts).
     RecommendedList: {
       Accepted: 'Voter Outreach - Recommended List Accepted',
+    },
+    // outreach-pro-gating-v2: the saved draft a gated candidate keeps.
+    // Every event carries `channel` (the gate's `GateChannel`); `Resumed`
+    // also carries the `source` the resume was pressed from.
+    Draft: {
+      Saved: 'Outreach - Draft Saved',
+      Resumed: 'Outreach - Draft Resumed',
+      Deleted: 'Outreach - Draft Deleted',
+    },
+    // outreach-pro-gating-v2: the in-flow gate's own surfaces. Both carry
+    // `channel` and `requirement`; `ExplainerCta` adds which button
+    // (`cta`) was pressed, dismiss included.
+    Gate: {
+      BannerViewed: 'Outreach - Gate Banner Viewed',
+      ExplainerViewed: 'Outreach - Gate Explainer Viewed',
+      ExplainerCta: 'Outreach - Gate Explainer: Click CTA',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },

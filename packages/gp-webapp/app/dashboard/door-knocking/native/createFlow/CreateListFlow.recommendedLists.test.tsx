@@ -9,6 +9,19 @@ import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { TurfDraft } from '../turfDrafts'
 
+// The create flow mounts milestone 2's in-flow gate, whose membership read
+// reaches for the organization provider this file does not stand up. Ungated
+// here; the gate's own behavior is covered in CreateListFlow.test.tsx.
+vi.mock('app/dashboard/outreach/v2/gate/useOutreachGate', () => ({
+  useOutreachGate: () => ({
+    enabled: false,
+    requirement: null,
+    twoStep: false,
+    membership: null,
+    tcrCompliance: null,
+  }),
+}))
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),

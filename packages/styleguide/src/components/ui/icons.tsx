@@ -47,6 +47,7 @@ export {
   DollarSign as DollarSignIcon,
   Download as DownloadIcon,
   ExternalLink as ExternalLinkIcon,
+  FileBadge as FileBadgeIcon,
   FileText as FileTextIcon,
   Filter as FilterIcon,
   FolderOpen as FolderOpenIcon,

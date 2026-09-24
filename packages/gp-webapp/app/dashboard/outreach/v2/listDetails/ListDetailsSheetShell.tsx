@@ -4,7 +4,6 @@ import {
   DrawerBody,
   DrawerClose,
   DrawerContent,
-  DrawerHandle,
   DrawerHeader,
   DrawerTitle,
   XMarkIcon,
@@ -54,7 +53,6 @@ export const ListDetailsSheetShell = ({
       closeClassName="hidden"
       onInteractOutside={onInteractOutside}
     >
-      <DrawerHandle />
       {/* asChild, so the drawer's accessible name is a span rather than the
         `h2` Radix renders by default: `header` below already carries the
         visible heading with the same words, and two headings reading "Elm St

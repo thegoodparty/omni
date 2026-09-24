@@ -21,20 +21,23 @@ vi.mock('next/navigation', () => ({
 vi.mock(
   'app/dashboard/profile/texting-compliance/election-filing/components/ElectionFilingForm',
   () => ({
-    default: ({ onSubmitted }: { onSubmitted: () => void }) => (
-      <button onClick={onSubmitted}>mock-submit</button>
+    default: ({
+      onSubmitted,
+      onBack,
+    }: {
+      onSubmitted: () => void
+      onBack?: () => void
+    }) => (
+      <div>
+        <button onClick={onBack}>Back</button>
+        <button onClick={onSubmitted}>mock-submit</button>
+      </div>
     ),
   }),
 )
 
-vi.mock(
-  'app/dashboard/profile/texting-compliance/verification-submitted/components/VerificationSubmittedContent',
-  () => ({
-    default: () => <div>mock-submitted</div>,
-  }),
-)
-
 const INTRO_TITLE = 'Verify your campaign to text voters'
+const SUBMITTED_TITLE = 'Submitted for verification'
 
 // jsdom does not implement scrollTo; the flow resets scroll on every step
 // change.
@@ -46,13 +49,24 @@ beforeEach(() => {
 })
 
 describe('CampaignVerificationFlow', () => {
-  it('opens on the intro with what the candidate needs', () => {
+  it('opens on the intro with what the candidate needs, under the verification chrome', () => {
     render(<CampaignVerificationFlow />)
 
     expect(screen.getByText(INTRO_TITLE)).toBeInTheDocument()
     expect(screen.getByText('Your filing details')).toBeInTheDocument()
     expect(screen.getByText('Contact details')).toBeInTheDocument()
     expect(screen.getByText('About 1 to 2 weeks')).toBeInTheDocument()
+    expect(screen.getByText('Campaign verification')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar')).toBeInTheDocument()
+  })
+
+  it('leaves for the dashboard from the chrome Exit', async () => {
+    const user = userEvent.setup()
+    render(<CampaignVerificationFlow />)
+
+    await user.click(screen.getByRole('button', { name: /Exit/ }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard')
   })
 
   it('shows the filing form after Continue', async () => {
@@ -72,9 +86,8 @@ describe('CampaignVerificationFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByText('mock-submit'))
 
-    expect(screen.getByText('mock-submitted')).toBeInTheDocument()
-    // The stepper only counts the two steps the candidate acts on, so it
-    // disappears on the confirmation.
+    expect(screen.getByText(SUBMITTED_TITLE)).toBeInTheDocument()
+    // The submitted screen draws no header (design: the pending screen).
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
   })
 
@@ -104,7 +117,7 @@ describe('CampaignVerificationFlow', () => {
 
     render(<CampaignVerificationFlow />)
 
-    expect(screen.getByText('mock-submitted')).toBeInTheDocument()
+    expect(screen.getByText(SUBMITTED_TITLE)).toBeInTheDocument()
   })
 
   it('replaces the URL with step=submitted once the form reports a submit', async () => {

@@ -1,17 +1,67 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import type { SmsDraftRequest } from '@goodparty_org/contracts'
+import type { OutreachDetail, SmsDraftRequest } from '@goodparty_org/contracts'
 import { createOutreach } from 'helpers/createOutreach'
+import { createOutreachDraft } from 'helpers/createOutreachDraft'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
+import type { OutreachGateState } from '../gate/useOutreachGate'
+import { gateRef } from '../gate/testing/mockReactiveGate'
 import {
   SERVE_SMS_GREETING_PREVIEW,
   SERVE_SMS_SAMPLE_FIRST_NAME,
   SMS_GREETING,
 } from './smsCompose.util'
 import type { TcrCompliance } from 'helpers/types'
+
+// The gate's own flag/membership plumbing has its own tests; here the flow's
+// wiring is what's under test, so the hook is driven directly through the
+// shared reactive stand-in (see mockReactiveGate for why it is a module
+// singleton rather than a hoisted ref).
+vi.mock('../gate/useOutreachGate', async () => {
+  const { useMockOutreachGate } =
+    await import('../gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
+})
+
+// Both mount real Stripe / filing surfaces; the flow only owns whether they
+// are on screen.
+vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
+  // The completion is the candidate's Continue on the upgrade's success
+  // screen — the one press the gate's own latch exists to keep reachable —
+  // so the stand-in exposes it as a button. `onExit` is the wizard's own way
+  // out, which is also what Back on its FIRST step calls.
+  default: ({
+    onComplete,
+    onExit,
+  }: {
+    onComplete: () => void
+    onExit: () => void
+  }) => (
+    <div data-testid="pro-upgrade-flow">
+      <button type="button" onClick={onComplete}>
+        Finish upgrade
+      </button>
+      <button type="button" onClick={onExit}>
+        Finish later
+      </button>
+    </div>
+  ),
+}))
+vi.mock(
+  'app/dashboard/campaign-verification/components/CampaignVerificationSteps',
+  () => ({ default: () => <div data-testid="campaign-verification" /> }),
+)
+
+vi.mock('helpers/createOutreachDraft', () => ({
+  createOutreachDraft: vi.fn(async () => ({
+    draft: { id: 77 } as OutreachDetail,
+    conflictId: null,
+  })),
+}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -195,6 +245,17 @@ describe('SmsFlow', () => {
     campaignState.campaign = campaignState.base()
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
+    gateRef.set({
+      enabled: false,
+      requirement: null,
+      twoStep: true,
+      membership: null,
+      tcrCompliance: null,
+    })
+    vi.mocked(createOutreachDraft).mockResolvedValue({
+      draft: { id: 77 } as OutreachDetail,
+      conflictId: null,
+    })
     mockLists()
     mockListDetail()
     // useOutreachAudience's useElectedOffice fires on mount; 404 => not an
@@ -552,6 +613,594 @@ describe('SmsFlow', () => {
       (await screen.findAllByText('Who do you want to reach?')).length,
     ).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  describe('pro gate and drafts', () => {
+    const GATE_LINE = 'Two things are needed before this text can send.'
+
+    // The free build path's only audience. Both Pro-gated voter-file reads
+    // (the builder's count and a saved list's reach count) 403 for this
+    // candidate, so the recommendation card — which carries its own count —
+    // is what the step offers and what the summary prices off.
+    const RECOMMENDATION = {
+      variant: 'persuadeAffinity' as const,
+      intent: 'persuade' as const,
+      filter: { independentAffinity: true },
+      count: 900,
+      copy: {
+        title: 'Persuadable independents',
+        criteriaSummary: 'Moderate to high propensity voters',
+      },
+      existingFilterId: 41,
+    }
+
+    // The same card before it has ever been saved: the candidate names it,
+    // the flow creates the list, and the count has to survive that.
+    const NEW_RECOMMENDATION = {
+      ...RECOMMENDATION,
+      variant: 'persuadeUndecided' as const,
+      copy: {
+        title: 'Undecided persuadables',
+        criteriaSummary: 'Undecided voters',
+      },
+      existingFilterId: null,
+    }
+
+    // The count reads are open to a free campaign now, so the picker prices
+    // a saved list the same way it does for Pro.
+    const mockFreeAudience = () => {
+      let listDetailCalls = 0
+      api.mock('GET /v1/contacts/list-detail', () => {
+        listDetailCalls += 1
+        return {
+          status: 200,
+          data: {
+            demographics: { people: 1500, avgAge: null, avgIncome: null },
+            reachability: {
+              sms: 900,
+              robocall: null,
+              phoneBanking: null,
+              doorKnocking: null,
+              polls: null,
+            },
+            outreachHistory: [],
+          },
+        }
+      })
+      api.mock('GET /v1/campaigns/mine/recommended-lists', {
+        status: 200,
+        data: [RECOMMENDATION],
+      })
+      return () => listDetailCalls
+    }
+
+    const FREE_GATE: OutreachGateState = {
+      enabled: true,
+      requirement: 'pro',
+      twoStep: true,
+      membership: {
+        tier: 'free',
+        texting: 'needs_verification',
+        pinDelivery: null,
+        isElectedOffice: false,
+      },
+      tcrCompliance: null,
+    }
+
+    const CLEARED_GATE: OutreachGateState = {
+      enabled: true,
+      requirement: null,
+      twoStep: true,
+      membership: {
+        tier: 'pro',
+        texting: 'cleared',
+        pinDelivery: null,
+        isElectedOffice: false,
+      },
+      tcrCompliance: null,
+    }
+
+    const DRAFT_SCRIPT =
+      'Hello, this is Jane, candidate for City Council. Vote Tuesday.\n\n' +
+      'Paid for by Friends of Jane.\nReply STOP to opt out.'
+
+    const draftDetail = (
+      overrides: Partial<OutreachDetail> = {},
+    ): OutreachDetail => ({
+      id: 88,
+      createdAt: new Date('2026-08-20T12:00:00Z'),
+      updatedAt: new Date('2026-08-20T12:00:00Z'),
+      campaignId: 9,
+      outreachType: 'p2p',
+      projectId: null,
+      name: 'Likely voters — SMS',
+      status: 'draft',
+      error: null,
+      audienceRequest: null,
+      script: DRAFT_SCRIPT,
+      message: null,
+      date: null,
+      imageUrl: 'https://assets.example.org/draft.png',
+      voterFileFilterId: 41,
+      doorKnockingRouteId: null,
+      phoneListId: null,
+      identityId: null,
+      didState: null,
+      didNpaSubset: [],
+      title: null,
+      textCount: null,
+      billableTextCount: null,
+      campaignPlanDueDate: null,
+      organizationSlug: 'campaign-9',
+      archivedAt: null,
+      ...overrides,
+    })
+
+    // A free build has no date to pick and nothing to review: purpose →
+    // audience → compose → the campaign name, which is where the draft is
+    // written (design: the locked "when" step).
+    const buildToName = async () => {
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Persuadable independents'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(900\)/ }),
+      )
+      expect(
+        await screen.findByText(/AI body \(warm\) for introduce_myself/),
+      ).toBeInTheDocument()
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'What do you want to call this campaign?',
+        }),
+      ).toBeInTheDocument()
+    }
+
+    // The name step's Continue is the draft save for a free tier: the Pro
+    // gate opens off it (design: flowContinue on the locked "when" step).
+    const saveDraft = () =>
+      userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The whole free build path, with every Pro-gated read answering the way
+    // gp-api really answers it: nothing asks list-detail for a count, and
+    // the name step only asks for the name.
+    it('reaches the name step with the audience priced', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      openFlow()
+
+      await buildToName()
+
+      expect(screen.getByLabelText('Campaign name')).toHaveValue(
+        'Likely voters — SMS',
+      )
+      expect(screen.queryByText('Send date')).not.toBeInTheDocument()
+      expect(screen.queryByText('Review and verify')).not.toBeInTheDocument()
+    })
+
+    // The FIRST time a recommendation is taken there is no saved list yet, so
+    // it goes through createRecommendedList rather than the reuse branch,
+    // and the build has to land on the name step off that list.
+    it('saves a recommendation taken for the first time and reaches the name step', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      api.mock('GET /v1/campaigns/mine/recommended-lists', {
+        status: 200,
+        data: [NEW_RECOMMENDATION],
+      })
+      api.mock('POST /v1/voters/voter-file/filter', {
+        status: 200,
+        data: { id: 71, name: 'Undecided persuadables' },
+      })
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      // A card with no saved list behind it opens the naming drawer, and its
+      // Continue is what creates the list.
+      await userEvent.click(await screen.findByText('Undecided persuadables'))
+      expect(await screen.findByLabelText('List name')).toHaveValue(
+        'Undecided persuadables',
+      )
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Continue' }),
+      )
+      expect(
+        await screen.findByText(/AI body \(warm\) for introduce_myself/),
+      ).toBeInTheDocument()
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'What do you want to call this campaign?',
+        }),
+      ).toBeInTheDocument()
+      // The saved-lists mock never returns the row the create just made, so
+      // the auto-name falls back to the channel; the field being filled is
+      // what matters here.
+      expect(
+        (screen.getByLabelText('Campaign name') as HTMLInputElement).value,
+      ).toMatch(/ — SMS$/)
+    })
+
+    // The banner's gate opens the wizard on its first step, whose Back is the
+    // wizard's own exit. Wired straight to onClose it shut the sheet on a
+    // candidate who had only wanted to read what Pro was.
+    it('keeps the build when Back is pressed on the banner-opened gate', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      const { onClose } = openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Persuadable independents'))
+
+      await userEvent.click(screen.getByText(GATE_LINE))
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Join Pro' }),
+      )
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish later' }),
+      )
+
+      expect(
+        await screen.findByText('Persuadable independents'),
+      ).toBeInTheDocument()
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    // The other half of the rule: with a row saved, Finish later still means
+    // what it always did — the draft is safe in history, so the sheet closes.
+    it('closes the sheet on Finish later once a draft is saved', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      const { onClose } = openFlow()
+
+      await buildToName()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish later' }),
+      )
+
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('saves the text as a draft and opens the Pro interstitial', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      const { onScheduled } = openFlow()
+
+      expect(await screen.findByText(GATE_LINE)).toBeInTheDocument()
+      await buildToName()
+      await saveDraft()
+
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outreachType: 'p2p',
+          name: 'Likely voters — SMS',
+          voterFileFilterId: 41,
+          script: expect.stringContaining('Paid for by Friends of Jane.'),
+        }),
+        expect.any(File),
+      )
+      expect(onScheduled).toHaveBeenCalledTimes(1)
+    })
+
+    it('switches into resume mode when a draft already exists', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      vi.mocked(createOutreachDraft).mockResolvedValue({
+        draft: null,
+        conflictId: 55,
+      })
+      const detailRequests: string[] = []
+      api.mock('GET /v1/outreach/:id', ({ params }) => {
+        detailRequests.push(params.id)
+        return { status: 200, data: draftDetail({ id: 55 }) }
+      })
+      openFlow()
+
+      await buildToName()
+      await saveDraft()
+
+      await waitFor(() => expect(detailRequests).toEqual(['55']))
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      // The flow is now working the existing row, not the one it tried to
+      // write.
+      expect(screen.queryByText('Review and verify')).not.toBeInTheDocument()
+    })
+
+    // The requirement clears while the upgrade's own success screen is
+    // still up. The gate must stay put until the candidate presses Continue
+    // there, and then land them on the schedule step: a resumed row has no
+    // send date, and review is the checkout step.
+    it('lands the 409 resume on the schedule step once the upgrade completes', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      vi.mocked(createOutreachDraft).mockResolvedValue({
+        draft: null,
+        conflictId: 55,
+      })
+      api.mock('GET /v1/outreach/:id', {
+        status: 200,
+        data: draftDetail({ id: 55 }),
+      })
+      openFlow()
+
+      await buildToName()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+      vi.mocked(createOutreach).mockClear()
+
+      act(() => gateRef.set(CLEARED_GATE))
+
+      // Still on the upgrade's success screen, not dumped back into the flow.
+      expect(screen.getByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish upgrade' }),
+      )
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      // Review is the checkout step: reaching it with no date would create
+      // the pending_payment draft off a row that has none.
+      expect(vi.mocked(createOutreach)).not.toHaveBeenCalled()
+    })
+
+    // The flow stays mounted between opens, so the gate has to re-open on
+    // every open of a resumed draft — the second tile click used to land on
+    // the schedule step of a text the candidate cannot send.
+    it('re-opens the gate every time a resumed draft is opened', async () => {
+      gateRef.set(FREE_GATE)
+      mockFreeAudience()
+      const props = {
+        onClose: vi.fn(),
+        onScheduled: vi.fn().mockResolvedValue(undefined),
+        tcrCompliance: TCR_FIXTURE,
+        resumeDraft: draftDetail(),
+      }
+      const { rerender } = render(<SmsFlow open {...props} />)
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      rerender(<SmsFlow open={false} {...props} />)
+      rerender(<SmsFlow open {...props} />)
+
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      expect(
+        screen.queryByText('When do you want to send it?'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('opens a cleared draft at the schedule step and converts it', async () => {
+      gateRef.set(CLEARED_GATE)
+      render(
+        <SmsFlow
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={draftDetail()}
+        />,
+      )
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+      // Purpose, audience and compose are settled; compose could never
+      // advance again, so there is nowhere to go back to.
+      expect(
+        screen.queryByRole('button', { name: 'Back' }),
+      ).not.toBeInTheDocument()
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() =>
+        expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
+          expect.objectContaining({
+            draftOutreachId: 88,
+            script: DRAFT_SCRIPT,
+            voterFileFilterId: 41,
+            phoneListId: 77,
+          }),
+          null,
+        ),
+      )
+      expect(
+        screen.queryByRole('button', { name: 'Back' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('blocks the resume when the draft list is gone', async () => {
+      gateRef.set(CLEARED_GATE)
+      api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+      render(
+        <SmsFlow
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={draftDetail()}
+        />,
+      )
+
+      expect(
+        await screen.findByText(
+          'The voter list for this text is no longer available.',
+        ),
+      ).toBeInTheDocument()
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    })
+
+    // The row is already gone once DELETE returns, so a history refetch that
+    // fails afterwards must still close the sheet instead of leaving the
+    // candidate on a spinner over a draft that no longer exists.
+    // A 201 means the draft exists; the hub refetch that follows is a
+    // courtesy, so its failure must neither surface as a save error nor keep
+    // the gate from opening.
+    it('opens the gate after a save even when the history refetch fails', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      const { onScheduled } = openFlow()
+      onScheduled.mockRejectedValueOnce(new Error('refetch failed'))
+
+      await buildToName()
+      await saveDraft()
+
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      expect(onScheduled).toHaveBeenCalledTimes(1)
+      expect(
+        screen.queryByText("We couldn't save this draft. Try again."),
+      ).not.toBeInTheDocument()
+    })
+
+    it('keeps the builder for an ungated elected official', async () => {
+      gateRef.set({
+        enabled: true,
+        requirement: null,
+        twoStep: true,
+        membership: {
+          tier: 'free',
+          texting: 'cleared',
+          pinDelivery: null,
+          isElectedOffice: true,
+        },
+        tcrCompliance: null,
+      })
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+
+      expect(await screen.findByText('Create a new list')).toBeInTheDocument()
+    })
+
+    it('reports the saved draft', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      openFlow()
+
+      await buildToName()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+        EVENTS.Outreach.Draft.Saved,
+        { channel: 'sms' },
+      )
+    })
+
+    // A 409 wrote nothing — the campaign already had the row — so it is not
+    // a save.
+    it('reports no save when the draft already existed', async () => {
+      vi.mocked(trackEvent).mockClear()
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      vi.mocked(createOutreachDraft).mockResolvedValue({
+        draft: null,
+        conflictId: 55,
+      })
+      api.mock('GET /v1/outreach/:id', {
+        status: 200,
+        data: draftDetail({ id: 55 }),
+      })
+      openFlow()
+
+      await buildToName()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      expect(vi.mocked(trackEvent)).not.toHaveBeenCalledWith(
+        EVENTS.Outreach.Draft.Saved,
+        expect.anything(),
+      )
+    })
+
+    // The banner rides every build-mode step, so its explainer can open the
+    // gate long before there is a draft. Finishing there must hand the
+    // candidate back the step they were on — landing them on schedule would
+    // throw away purpose, audience and message the moment they paid.
+    it('keeps the build intact when the upgrade starts from the banner', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      mockFreeAudience()
+      vi.mocked(createOutreachDraft).mockClear()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Persuadable independents'))
+
+      await userEvent.click(screen.getByText(GATE_LINE))
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Join Pro' }),
+      )
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      act(() => gateRef.set(CLEARED_GATE))
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish upgrade' }),
+      )
+
+      // Back on the audience step with the audience still picked, not dropped
+      // on schedule against a draft that was never written.
+      expect(
+        await screen.findByText('Persuadable independents'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('When do you want to send it?'),
+      ).not.toBeInTheDocument()
+      expect(vi.mocked(createOutreachDraft)).not.toHaveBeenCalled()
+    })
+
+    it('renders no banner and keeps the schedule step with the flag off', async () => {
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+    })
   })
 })
 

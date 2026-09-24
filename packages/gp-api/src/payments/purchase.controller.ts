@@ -2,12 +2,17 @@ import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import {
+  BadGatewayException,
   BadRequestException,
   Body,
   ConflictException,
   Controller,
+  Get,
+  NotFoundException,
   Post,
 } from '@nestjs/common'
+import { ProReceipt, ProReceiptSchema } from '@goodparty_org/contracts'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { Campaign, Organization, Prisma, User } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { serializeError } from 'serialize-error'
@@ -143,6 +148,48 @@ export class PurchaseController {
       message: 'Another checkout session is already in progress',
       errorCode: 'CHECKOUT_IN_PROGRESS',
     })
+  }
+
+  // The purchase-only success screen's "Your receipt": the subscription's
+  // latest paid invoice, read live from Stripe. The completion webhook is
+  // what stores the subscription on the campaign, so until it lands there is
+  // nothing to read and the client shows no receipt rather than a made-up
+  // one. isPro is checked too: a lapsed subscription keeps its id on the
+  // campaign, and a lapsed org's team should not be able to read the
+  // owner's card from it.
+  @Get('pro-receipt')
+  @UseCampaign()
+  @ResponseSchema(ProReceiptSchema)
+  async getProReceipt(@ReqCampaign() campaign: Campaign): Promise<ProReceipt> {
+    const subscriptionId = campaign.details?.subscriptionId
+    if (!campaign.isPro || !subscriptionId) {
+      throw new NotFoundException('No Pro subscription on record')
+    }
+    let receipt: Awaited<ReturnType<StripeService['retrieveLatestPaidInvoice']>>
+    try {
+      receipt =
+        await this.stripeService.retrieveLatestPaidInvoice(subscriptionId)
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), subscriptionId },
+        'Pro receipt read failed',
+      )
+      throw new BadGatewayException('Could not load the receipt from Stripe')
+    }
+    if (!receipt) {
+      throw new NotFoundException('No paid invoice for this subscription')
+    }
+    const { invoice, charge } = receipt
+    const card = charge?.payment_method_details?.card
+    const paidAt = invoice.status_transitions?.paid_at ?? invoice.created
+    return {
+      // DOLLARS, matching the checkout-session endpoint convention.
+      amount: invoice.amount_paid / 100,
+      cardBrand: card?.brand ?? null,
+      cardLast4: card?.last4 ?? null,
+      receiptUrl: invoice.invoice_pdf ?? charge?.receipt_url ?? null,
+      paidAt: new Date(paidAt * 1000).toISOString(),
+    }
   }
 
   @Post('portal-session')

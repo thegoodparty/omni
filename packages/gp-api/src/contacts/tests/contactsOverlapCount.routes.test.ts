@@ -165,7 +165,10 @@ describe('POST /v1/contacts/overlap-count', () => {
     })
   })
 
-  it('403s for a non-pro organization without querying people-db', async () => {
+  // outreach-pro-gating-v2: the build path prices a list before the upgrade,
+  // so the overlap strip is served to a free organization too. With no saved
+  // lists there is nothing to overlap with, so people-db is still not asked.
+  it('serves a free organization, answering zero without querying people-db when it has no saved lists', async () => {
     const slug = `campaign-overlap-nonpro-${Date.now()}`
     await service.prisma.organization.create({
       data: { slug, ownerId: service.user.id },
@@ -178,7 +181,8 @@ describe('POST /v1/contacts/overlap-count', () => {
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    expect(response.status).toBe(403)
+    expect(response.status).toBe(201)
+    expect(response.data).toEqual({ count: 0 })
     expect(overlapSpy).not.toHaveBeenCalled()
   })
 

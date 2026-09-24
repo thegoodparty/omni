@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -64,6 +65,12 @@ describe('SuccessStep', () => {
     // isPro; default the fetch to the not-yet-Pro state so individual tests can
     // override it.
     api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(false) })
+    // No subscription on record until the webhook lands; the receipt card
+    // draws nothing on a 404.
+    api.mock('GET /v1/payments/purchase/pro-receipt', {
+      status: 404,
+      data: {},
+    })
   })
 
   it('renders the Welcome-to-Pro messaging and fires the viewed event', () => {
@@ -236,6 +243,53 @@ describe('SuccessStep', () => {
           screen.getByRole('button', { name: 'Start verification' }),
         ).toBeEnabled(),
       )
+    })
+
+    it('shows the receipt once Pro lands, with the charge and card behind a toggle', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+      api.mock('GET /v1/payments/purchase/pro-receipt', {
+        status: 200,
+        data: {
+          amount: 10,
+          cardBrand: 'visa',
+          cardLast4: '4242',
+          receiptUrl: 'https://stripe.test/invoice.pdf',
+          paidAt: new Date().toISOString(),
+        },
+      })
+      const user = userEvent.setup()
+
+      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+      const toggle = await screen.findByRole('button', {
+        name: /Your receipt/,
+      })
+      expect(toggle).toHaveTextContent('$10.00')
+      expect(screen.queryByText('Charged today')).not.toBeInTheDocument()
+
+      await user.click(toggle)
+
+      expect(screen.getByText('Charged today')).toBeInTheDocument()
+      expect(
+        screen.getByText('Pro subscription, recurring monthly'),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Visa •••• 4242')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Download receipt' }),
+      ).toBeInTheDocument()
+    })
+
+    it('draws no receipt while the subscription is not on record yet', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+
+      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Start verification' }),
+        ).toBeEnabled(),
+      )
+      expect(screen.queryByText('Your receipt')).not.toBeInTheDocument()
     })
 
     it('holds the hand-off CTA until the webhook flips isPro', async () => {

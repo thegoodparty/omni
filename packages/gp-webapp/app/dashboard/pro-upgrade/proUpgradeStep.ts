@@ -17,6 +17,12 @@ export const PRO_UPGRADE_STEP = {
   CANDIDATE_PROFILE: 'candidate-profile',
   PAYMENT: 'payment',
   SUCCESS: 'success',
+  // Milestone 2: the "your first {noun} has been made" pause screen an
+  // outreach flow lands on before this wizard. It has no route and no
+  // persisted "seen" state, so — unlike GUIDANCE — it is never derived and
+  // never added to either linear order; a caller can only reach it by
+  // passing it as ProUpgradeFlow's `initialStep`.
+  INTERSTITIAL: 'interstitial',
 } as const
 
 export type ProUpgradeStep =
@@ -119,17 +125,12 @@ export const deriveProUpgradeStep = (
   // to a pre-payment step. (Post-payment sub-states are refined in task 15.)
   if (isPro) return PRO_UPGRADE_STEP.SUCCESS
 
-  if (purchaseOnly) {
-    // A "not filed" answer is never progress here either — even with an EIN
-    // persisted from a prior session, it re-asks the filing-status question
-    // instead of reaching payment.
-    const hasPurchaseProgress = filingStatus === 'has-filed' || hasEin
-    if (!hasPurchaseProgress) return PRO_UPGRADE_STEP.GUIDANCE
-    if (filingStatus === 'unanswered' || filingStatus === 'not-filed')
-      return PRO_UPGRADE_STEP.STATUS
-    if (!hasEin) return PRO_UPGRADE_STEP.EIN
-    return PRO_UPGRADE_STEP.PAYMENT
-  }
+  // Purchase-only always opens on its first step (design: sgOpen starts at
+  // the overview), the same way the outreach sheet's embedded flow does. The
+  // steps prefill from what is saved — the filing answer, the EIN — so a
+  // returning candidate walks two prefilled screens rather than being dropped
+  // onto Payment by a resume they cannot see the reason for.
+  if (purchaseOnly) return PRO_UPGRADE_STEP.GUIDANCE
 
   // Brand-new candidate with nothing collected yet lands on the value-prop
   // intro. A "not filed" answer is NOT progress: on its own it must restart a

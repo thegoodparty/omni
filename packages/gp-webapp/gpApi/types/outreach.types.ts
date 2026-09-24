@@ -20,6 +20,7 @@ export type OutreachStatus =
   | 'pending_payment'
   | 'canceled'
   | 'failed'
+  | 'draft'
 
 /** Payload for POST /outreach (create) */
 export interface CreateOutreachPayload {
@@ -46,6 +47,7 @@ export interface CreateOutreachPayload {
    * until payment completes and the server finalizes it.
    */
   draft?: boolean
+  draftOutreachId?: number
 }
 
 /** VoterFileFilter as returned when included on Outreach (scalars only, from Prisma) */

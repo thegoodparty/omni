@@ -39,6 +39,7 @@ vi.mock('./proUpgradeStepComponents', () => {
       'candidate-profile': () => <Probe label="step:candidate-profile" />,
       payment: () => <Probe label="step:payment" />,
       success: () => <Probe label="step:success" />,
+      interstitial: () => <Probe label="step:interstitial" />,
     },
   }
 })
@@ -93,5 +94,38 @@ describe('ProUpgradeFlow', () => {
     expect(onExit).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByText('complete'))
     expect(onComplete).toHaveBeenCalledTimes(1)
+  })
+
+  it('continues from the interstitial into guidance, never by index', () => {
+    render(
+      <ProUpgradeFlow
+        initialStep={PRO_UPGRADE_STEP.INTERSTITIAL}
+        channel="sms"
+        onExit={vi.fn()}
+        onComplete={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('step:interstitial')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('next'))
+
+    expect(screen.getByText('step:guidance')).toBeInTheDocument()
+  })
+
+  it('exits from the interstitial on back, since it is off the purchase-only order', () => {
+    const onExit = vi.fn()
+    render(
+      <ProUpgradeFlow
+        initialStep={PRO_UPGRADE_STEP.INTERSTITIAL}
+        channel="sms"
+        onExit={onExit}
+        onComplete={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('back'))
+
+    expect(onExit).toHaveBeenCalledTimes(1)
   })
 })

@@ -407,6 +407,20 @@ import { dirname, join, relative } from 'node:path'
 // routes into the wizard, so it cannot render on the server.
 // 2026-09-18: 576 -> 578 for the membership banner and chip. Both read the
 // membership hook and the flag, own dialog open state, and route on click.
+// 2026-09-18: 578 -> 580 for InterstitialStep (reads the wizard context and
+// routes on click) and CampaignVerificationSteps (the state machine
+// extracted from CampaignVerificationFlow so it can be mounted elsewhere;
+// CampaignVerificationFlow keeps its own 'use client' as the page wrapper).
+// 2026-09-18: 580 -> 584 for the outreach gate: useOutreachGate (reads the
+// flag and membership hooks), GateBanner and GateExplainerModal (both own
+// click/dialog interaction), and OutreachGate (mounts the interactive
+// upgrade/verification/PIN screens). None can be a server component.
+// 2026-09-19: 584 -> 585 for useDraftGate, the saved-draft/gate state the
+// texting and robocall flows both run on. It owns React state and effects,
+// so it can only run in the browser.
+// 2026-09-21: 585 -> 586 for ProPitchPanel, the Pro pitch the gate explainer
+// and the wizard's interstitial now share. Its verification card is a
+// collapsible the candidate opens and closes, so it holds React state.
 // 2026-09-18: 567 -> 569 for the Serve list-boundary surfaces. BoundaryStep
 // owns the wizard's drawn ring and reads the polygon-preview count, and
 // ListBoundaryOverlay owns the in-progress ring for the full-bleed drawing
@@ -471,7 +485,11 @@ import { dirname, join, relative } from 'node:path'
 // the merged tree, not derived: this branch counted up to 586 from a base
 // main has since moved off (main sits at 567 after its own removals), and
 // neither number is reachable by arithmetic from the other.
-const BASELINE = 578
+// 2026-09-24: 586 on merging feat/pro-upgrade-v2 (itself just merged with main)
+// into feat/pro-upgrade-drafts. Measured against the merged tree: this branch
+// counted up to 586 from a base main has since moved off, and main sits at
+// 567 after its own removals, so neither number is reachable by arithmetic.
+const BASELINE = 586
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

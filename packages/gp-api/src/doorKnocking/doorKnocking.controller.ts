@@ -73,9 +73,12 @@ import {
 
 // Every route here is Pro-gated through ContactsService.assertProAccess — the
 // CRM's own predicate, so an `eo-` (Serve) org keeps access without isPro —
-// EXCEPT the two suppression writes below. Reads are gated alongside the
-// writes: a map you can open but cannot route is a worse answer than an
-// upgrade prompt, and creating a list spends real Geoapify routing credits.
+// EXCEPT the two suppression writes below and the four reads the create flow
+// needs before its one paid write (GET turfs, GET pack, GET quota, POST
+// audience-check). Those are open so a free campaign can draw and shape a
+// list behind outreach-pro-gating-v2's in-flow gate; POST turfs, which spends
+// real Geoapify routing credits, and every read that returns a person's
+// address stay gated.
 //
 // Six routes additionally carry @AllowVolunteer() (ENG-11051): a volunteer's
 // walk — turf get, route serve, complete, interactions, do-not-knock,
@@ -178,7 +181,6 @@ export class DoorKnockingController {
     @ReqOrganization() organization: Organization,
     @ReqCampaign() campaign: Campaign | null,
   ) {
-    await this.contacts.assertProAccess(organization)
     return this.turfService.list(organization.slug, {
       campaignId: campaign?.id ?? null,
     })
@@ -388,7 +390,6 @@ export class DoorKnockingController {
   @UseOrganization()
   @Header('Content-Type', 'application/octet-stream')
   async pack(@ReqOrganization() organization: Organization) {
-    await this.contacts.assertProAccess(organization)
     return new StreamableFile(this.packService.stream(organization))
   }
 
@@ -430,7 +431,6 @@ export class DoorKnockingController {
     @Body(new ZodValidationPipe(DoorKnockingAudienceCheckSchema))
     input: DoorKnockingAudienceCheck,
   ) {
-    await this.contacts.assertProAccess(organization)
     return this.audienceCheckService.check(organization, input)
   }
 
@@ -449,7 +449,6 @@ export class DoorKnockingController {
   @UseOrganization()
   @ResponseSchema(DoorKnockingQuotaResponseSchema)
   async quota(@ReqOrganization() organization: Organization) {
-    await this.contacts.assertProAccess(organization)
     return this.quotaService.read(organization)
   }
 

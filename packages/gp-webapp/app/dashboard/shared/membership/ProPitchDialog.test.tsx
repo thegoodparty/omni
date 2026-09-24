@@ -17,13 +17,35 @@ beforeEach(() => {
 })
 
 describe('ProPitchDialog', () => {
-  it('renders the title and all six tile titles when open', () => {
+  it('renders the title, the price pill and every tile title when open', () => {
     render(<ProPitchDialog open onOpenChange={vi.fn()} />)
 
     expect(screen.getByText(MEMBERSHIP_COPY.pitch.title)).toBeInTheDocument()
-    MEMBERSHIP_COPY.pitch.tiles.forEach(({ title }) => {
+    expect(screen.getByText(MEMBERSHIP_COPY.pitch.pill)).toBeInTheDocument()
+    MEMBERSHIP_COPY.pitch.tiles.forEach(({ title, body }) => {
       expect(screen.getByText(title)).toBeInTheDocument()
+      expect(screen.getByText(body)).toBeInTheDocument()
     })
+  })
+
+  // DialogHeader's own classes end in `sm:text-left`, so without the sm:
+  // breakpoint restated the desktop dialog left-aligns every wrapped line.
+  // The footer also has to sit OUTSIDE the scrolling body, or a short
+  // viewport scrolls the Join button off the bottom of the dialog.
+  it('centers the header and pins the footer outside the scrolling body', () => {
+    render(<ProPitchDialog open onOpenChange={vi.fn()} />)
+
+    const content = document.querySelector('[data-slot="dialog-content"]')
+    const footer = document.querySelector('[data-slot="dialog-footer"]')
+
+    expect(document.querySelector('[data-slot="dialog-header"]')).toHaveClass(
+      'sm:text-center',
+    )
+    expect(footer).toHaveClass('shrink-0')
+    expect(content).toHaveClass('flex-col')
+    expect(content?.querySelector('.overflow-y-auto')).not.toContainElement(
+      footer as HTMLElement,
+    )
   })
 
   it('fires PitchViewed when the dialog opens', () => {
@@ -57,14 +79,12 @@ describe('ProPitchDialog', () => {
     expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade')
   })
 
-  it('closes without navigating when Continue without Pro is clicked', async () => {
+  it('closes without navigating when the dialog is dismissed', async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()
     render(<ProPitchDialog open onOpenChange={onOpenChange} />)
 
-    await user.click(
-      screen.getByRole('button', { name: MEMBERSHIP_COPY.pitch.dismiss }),
-    )
+    await user.click(screen.getByRole('button', { name: 'Close' }))
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Membership.PitchDismiss,
