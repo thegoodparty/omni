@@ -44,28 +44,28 @@ export class OutreachDraftExpiryService {
   async expireDrafts(): Promise<void> {
     const now = new Date()
     if (!(await this.cronLock.tryClaimDailyRun(EXPIRY_JOB, now))) return
-    try {
-      const cutoff = subDays(now, DRAFT_RETENTION_DAYS)
-      const rows = await this.prisma.outreach.findMany({
-        where: { status: OutreachStatus.draft, createdAt: { lt: cutoff } },
-        include: { robocall: true },
-      })
-      for (const row of rows) {
-        try {
-          await this.drafts.deleteDraftRow(row)
-          this.logger.info(
-            { outreachId: row.id, outreachType: row.outreachType },
-            'outreach draft expired',
-          )
-        } catch (err) {
-          this.logger.error(
-            { err, outreachId: row.id },
-            'draft expiry failed; continuing',
-          )
-        }
+    const cutoff = subDays(now, DRAFT_RETENTION_DAYS)
+    const rows = await this.prisma.outreach.findMany({
+      where: { status: OutreachStatus.draft, createdAt: { lt: cutoff } },
+      include: { robocall: true },
+    })
+    for (const row of rows) {
+      try {
+        await this.drafts.deleteDraftRow(row)
+        this.logger.info(
+          { outreachId: row.id, outreachType: row.outreachType },
+          'outreach draft expired',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId: row.id },
+          'draft expiry failed; continuing',
+        )
       }
-    } finally {
-      await this.cronLock.markCompleted(EXPIRY_JOB, now)
     }
+    // Sealed only after the scan ran: a scan that throws leaves the claim
+    // incomplete so the lock's stale takeover can retry the day's sweep,
+    // where a `finally` would have sealed the lease and lost it.
+    await this.cronLock.markCompleted(EXPIRY_JOB, now)
   }
 }

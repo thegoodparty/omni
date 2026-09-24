@@ -164,7 +164,9 @@ describe('OutreachDraftExpiryService.expireDrafts', () => {
     expect(completeSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('marks the run completed even when the scan itself throws', async () => {
+  it('does not seal the lease when the scan itself throws', async () => {
+    // Sealing on a scan failure would defeat the stale-claim takeover the
+    // lock provides, losing the whole day's sweep.
     vi.spyOn(service.prisma.outreach, 'findMany').mockRejectedValue(
       new Error('connection reset'),
     )
@@ -174,7 +176,7 @@ describe('OutreachDraftExpiryService.expireDrafts', () => {
       'connection reset',
     )
 
-    expect(completeSpy).toHaveBeenCalledTimes(1)
+    expect(completeSpy).not.toHaveBeenCalled()
   })
 })
 
