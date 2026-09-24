@@ -738,7 +738,28 @@ export const OutreachDetailsDrawer = ({
                     Mark campaign done
                   </Button>
                 ) : (
-                  footerMode === 'done' &&
+                  // `none` alongside `done`, which is the one state this slot
+                  // had no answer for. A row whose displayed label is not one
+                  // of the four `lifecycleOf` knows (Draft, In review, Denied)
+                  // gets mode `none`, and the drawer used to pass nothing at
+                  // all — so a legacy request submitted before VO 2.0 and
+                  // never fulfilled sat in history forever with no control on
+                  // any surface able to move it.
+                  //
+                  // This does NOT invent a fifth mode, which is what the
+                  // closed set exists to prevent: `ListDetailsFooter` renders
+                  // whatever secondary it is given and only returns null when
+                  // there is no action and no note, so nothing in
+                  // `footerMode.ts` changes. Archive is ours rather than the
+                  // canvas's, which is why it can answer for a state the
+                  // canvas has no position for while the primary slot still
+                  // cannot.
+                  //
+                  // Door knocking never reaches `none` (its envelope only
+                  // carries in_progress/completed), and an ARCHIVED row keeps
+                  // its underlying lifecycle here, which is what already keeps
+                  // Restore reachable — so neither is affected.
+                  (footerMode === 'done' || footerMode === 'none') &&
                   (!isDoorKnocking || campaignTurfs.length > 0) && (
                     <Button
                       variant="outline"
