@@ -26,13 +26,18 @@ moves into gp-admin (DATA-2506 phase 3) and the standalone copy is retired.
 ## How it stays current (nothing here is manual)
 
 ```
-analytics-governance.yml, Mon + Thu 11:00 UTC
+analytics-governance.yml, Mon + Thu 11:00 UTC        run ends ~11:19, state PR merges ~11:40
   └─ event_explorer_snapshot.py  ->  data/event-explorer.json, committed in the state PR
-        └─ routine "Republish the analytics events explorer", Mon + Thu 15:00 UTC
+        └─ routine "Republish the analytics events explorer", Mon + Thu 12:00 and 13:00 UTC
               └─ standalone/build.py  ->  publish to the same artifact URL
 ```
 
-The routine (`trig_01E8wipVnESi9uqoEBWZXFKY`) republishes only when the committed
+It fires twice because the merge is reliable but not guaranteed: across the eight runs
+measured, the state PR was created 11:12-11:19 and merged 19-26 minutes later. When the
+12:00 pass published, the 13:00 pass finds nothing newer and stops, which is the guard
+working rather than a fault.
+
+The routine (`trig_01E8wipVnESi9uqoEBWZXFKY`) publishes only when the committed
 snapshot is newer than the live page, so a run that fires before the pipeline has
 committed cannot replace a newer page with an older one. It must **never** pass
 `capabilities` on the publish: the page's stored declaration survives only when that
