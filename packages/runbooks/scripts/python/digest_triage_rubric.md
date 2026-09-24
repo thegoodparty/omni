@@ -9,7 +9,8 @@ OKR-anchored break.
 ## Tiers
 
 ### 🔴 red — needs action now
-An OKR-anchored event (watchlist row carrying `okr:`) showing a breaking
+An OKR-anchored event (an event the semantic layer's `anchored_on` declares,
+carried as the item's `okr` field) showing a breaking
 signal: anomaly drop, newly or persistently dormant, orphaned_firing, call
 site removed while the name constant remains, counter blind spot, or
 instrumented-never-observed. A broken anchor means the OKR metric built on
