@@ -274,25 +274,17 @@ describe('GET /v1/payments/purchase/pro-receipt', () => {
     const read = vi
       .spyOn(stripe, 'retrieveLatestPaidInvoice')
       .mockResolvedValue({
-        amount_paid: 1000,
-        created: 1_700_000_000,
-        status_transitions: { paid_at: 1_700_000_100 },
-        invoice_pdf: 'https://stripe.test/invoice.pdf',
-        payments: {
-          data: [
-            {
-              payment: {
-                payment_intent: {
-                  latest_charge: {
-                    receipt_url: 'https://stripe.test/receipt',
-                    payment_method_details: {
-                      card: { brand: 'visa', last4: '4242' },
-                    },
-                  },
-                },
-              },
-            },
-          ],
+        invoice: {
+          amount_paid: 1000,
+          created: 1_700_000_000,
+          status_transitions: { paid_at: 1_700_000_100 },
+          invoice_pdf: 'https://stripe.test/invoice.pdf',
+        },
+        charge: {
+          receipt_url: 'https://stripe.test/receipt',
+          payment_method_details: {
+            card: { brand: 'visa', last4: '4242' },
+          },
         },
       } as unknown as Awaited<
         ReturnType<StripeService['retrieveLatestPaidInvoice']>

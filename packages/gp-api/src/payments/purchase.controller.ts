@@ -163,9 +163,9 @@ export class PurchaseController {
     if (!subscriptionId) {
       throw new NotFoundException('No Pro subscription on record')
     }
-    let invoice: Awaited<ReturnType<StripeService['retrieveLatestPaidInvoice']>>
+    let receipt: Awaited<ReturnType<StripeService['retrieveLatestPaidInvoice']>>
     try {
-      invoice =
+      receipt =
         await this.stripeService.retrieveLatestPaidInvoice(subscriptionId)
     } catch (error) {
       this.logger.error(
@@ -174,18 +174,10 @@ export class PurchaseController {
       )
       throw new BadGatewayException('Could not load the receipt from Stripe')
     }
-    if (!invoice) {
+    if (!receipt) {
       throw new NotFoundException('No paid invoice for this subscription')
     }
-    const payment = invoice.payments?.data[0]?.payment
-    const paymentIntent =
-      payment && typeof payment.payment_intent === 'object'
-        ? payment.payment_intent
-        : null
-    const charge =
-      paymentIntent && typeof paymentIntent.latest_charge === 'object'
-        ? paymentIntent.latest_charge
-        : null
+    const { invoice, charge } = receipt
     const card = charge?.payment_method_details?.card
     const paidAt = invoice.status_transitions?.paid_at ?? invoice.created
     return {
