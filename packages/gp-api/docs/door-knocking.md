@@ -18,27 +18,34 @@ puts it in the campaign's history; and **interactions** (the CRM epic's
 `contact_interaction_door_knock`) are the only mutable record — one row per
 knock on a person.
 
-### `outreach` → `turf` → `route` is 1:1:1
+### `outreach` → `turf` is 1:1; `turf` → `route` is 1:1 once bought
 
-The three rows are born together in one transaction and there is no state in
-which any of them exists without the others. This is the invariant everything
-below leans on, and it replaces a two-step flow where a turf was saved first
-and a **Knock** button bought its route later. Three things fell out of it:
+The turf and its envelope are born together in one transaction and neither
+exists without the other. The route is the one that comes later: it is bought
+at first knock, so a turf has none between the campaign being created and
+somebody walking it.
 
-- **No unrouted turf, so no `locked`.** `locked` was `route !== null`, and it
-  gated update, delete and the rail's counts. It is always true, so it is gone
-  from the response entirely.
-- **No second purchase to guard against**, so the knock endpoint's idempotency
-  probe and its per-turf advisory lock retire with it. Nothing serializes two
-  creates: they make different turfs, and the daily campaign gate was never
-  serialized across turfs anyway (see below).
 - **Every turf has an envelope**, including a Serve org's, which is what let
-  the list lifecycle move off the turf and onto it.
+  the list lifecycle move off the turf and onto it. It is also what keeps an
+  unwalked campaign in outreach history — the envelope carries the name, the
+  status and the shelf, and nothing else does.
+- **An unrouted turf is a state, not a failure.** `routeSeconds` is `null`
+  and the four counts are `0`, because doors and people are stops and stop
+  targets and those are written by the route buy. There is deliberately no
+  `routed` boolean beside it: one fact, one field. `locked` is not coming
+  back either — it gated update and delete, and neither is gated on the
+  route's existence.
+- **A second purchase IS possible again**, so the per-turf advisory lock is
+  back on the buy path (`buildRouteForTurf`). Nothing serializes two creates:
+  they make different turfs, and the daily campaign gate was never serialized
+  across turfs anyway (see below).
 
-The chain is a `CHECK` rather than a convention:
-`outreach_type <> 'nativeDoorKnocking' OR door_knocking_route_id IS NOT NULL`.
-Route → turf is the route's `@unique doorKnockingTurfId`, so no column was
-added in either direction.
+The envelope's link is a `CHECK` rather than a convention:
+`outreach_type <> 'nativeDoorKnocking' OR door_knocking_turf_id IS NOT NULL`.
+It used to name `door_knocking_route_id`, which stopped being something every
+envelope has. The route column stays and stays `@unique` — once a route
+exists it is still how the walk is reached. Route → turf is the route's
+`@unique doorKnockingTurfId`, so no column was added in either direction.
 
 The turf response carries its envelope's id as `outreachId`. It is the only
 way a client can learn it — the chain's FKs all point the other way, so there
@@ -134,9 +141,10 @@ unique, feed branch) rather than the shape this doc previously sketched.
 
 Shared-table touches: `OutreachType.nativeDoorKnocking` (new value — legacy
 `doorKnocking` rows are the old CSV/eCanvasser drafts, 1,076 eternally
-`pending` in prod; never mix them) and `Outreach.doorKnockingRouteId`
-(nullable unique pointer — the per-channel pointer idiom, like
-`phoneListId`).
+`pending` in prod; never mix them) and two nullable unique pointers on
+`Outreach` — the per-channel pointer idiom, like `phoneListId`.
+`doorKnockingTurfId` is the authoritative one and the one the `CHECK`
+requires; `doorKnockingRouteId` is filled in when the route is bought.
 
 ## The list lifecycle
 
@@ -240,12 +248,12 @@ The idempotence guards themselves stay, because they are about the timestamp
 and not about the second row: pressing Archive twice must not move
 "archived since", and `complete` must not restamp a finished list.
 
-**Delete is always a tombstone.** It used to branch on the lock, because the
-two cases destroyed very different amounts: an unrouted turf was a drawing that
-nothing had paid for and was hard-deleted, while a routed one was tombstoned.
-Every turf is routed from creation now, so only the second case survives.
-Hard-deleting one would cascade turf → route → stops → targets **and** the
-`Outreach` envelope, throwing away a Geoapify route that was billed once and is
+**Delete is always a tombstone, including for an unrouted turf.** It used to
+branch on the lock, on the reasoning that an unrouted turf was a drawing
+nothing had paid for. That is true again and it is still not a reason to hard
+delete one: the cascade takes the `Outreach` envelope with it, which is the
+campaign's whole presence in outreach history. A routed turf loses more on top
+— turf → route → stops → targets, a Geoapify route that was billed once and is
 documented here as never re-bought, the frozen addresses, and the name
 snapshots privacy deletion redacts in place. `deletedAt` instead: unreachable
 from every read and write path, intact underneath.
@@ -280,13 +288,14 @@ anything that records against one already handed out.
 
 **The rail also scopes by surface, and only the rail does.**
 `railTurfScope()` is `activeTurfScope` plus
-`route: { outreach: { campaignId } }` — non-null for Win, `null` for Serve.
+`outreach: { campaignId }` — non-null for Win, `null` for Serve.
 Door knocking could not express this before 3.0: a turf carries no campaign,
 only an org through its filter, so an org holding both a `Campaign` and an
 `ElectedOffice` saw one shared rail on both surfaces, which is the ENG-10976
 leak `OutreachService.findByScope` exists to prevent everywhere else. The
-invariant is what fixed it — every turf has an envelope, and the envelope
-carries the scope.
+envelope is what fixed it — every turf has one, and it carries the scope. The
+join goes through the turf's own envelope and not through its route, which is
+what keeps a campaign nobody has walked on the rail at all.
 
 Every other turf route is reached by id and needs the org scope only: an id the
 caller already holds cannot be made to cross a surface by asking for it on the
@@ -322,13 +331,11 @@ turf's `completedAt` / `archivedAt` on purpose, so the drawer showed the source
 rather than a mirror that might not have followed; there is one row now, so the
 block and the row it decorates cannot disagree.
 
-**The reverse edge needed no column.** The envelope stores
-`doorKnockingRouteId`; `door_knocking_route` already carries a `@unique`
-`doorKnockingTurfId` back to the list it was frozen for. So turf → route →
-envelope resolved all along and route → turf is one hop the other way — the
-join was there, nothing had queried it. **No migration.** Notes elsewhere in
-this repo describing the turf as unreachable from the envelope are describing
-the read path, not the schema.
+**The reverse edge is now a column.** The envelope stores `doorKnockingTurfId`
+directly (`door_knocking_envelope_on_turf`), so turf → envelope is one hop in
+either direction and does not go through a route that may not exist yet. It
+used to resolve through `doorKnockingRouteId` and the route's own `@unique`
+`doorKnockingTurfId`, which worked exactly as long as every turf had a route.
 
 **The counts are the rail's, not a second set.** The block calls
 `DoorKnockingTurfCountsService.forRoutes`, the same aggregate
@@ -521,20 +528,19 @@ without it still boot), and the evaluation/residents contracts in
 ## The create transaction (the money path)
 
 `DoorKnockingCreateService.create(organization, scope, input)` behind
-`POST turfs` / `POST serve/turfs`. Creating a list is what buys its route, so
-this is the only paid call in the feature and the only write the create flow
+`POST turfs` / `POST serve/turfs`. It is the only write the create flow
 persists — everything before the last step of that flow is client state.
 
-It runs as ONE interactive transaction, and it is the knock transaction plus
-the turf insert. Two things it no longer has:
+**Whether it spends anything depends on the body.** `mode` and `loop` are
+optional: sent, the route is bought inside this same transaction (steps 5-7
+below); omitted, the turf and its envelope are written and nothing is bought.
+Both are supported so creation can stop buying without a flag day.
 
-- **No advisory lock.** The old one existed so two knocks of the SAME turf
-  could not both call the vendor. A create always makes a new turf, so there is
-  no shared row to serialize on. Two creates racing each other were never
-  serialized anyway — see the quota note at step 4, which is unchanged.
-- **No idempotency probe.** There is no saved-but-unrouted turf for a second
-  press to act on, so there is no second purchase to return `created: false`
-  for.
+It runs as ONE interactive transaction. There is no advisory lock here and
+none is needed: a create always makes a new turf, so there is no shared row
+to serialize on, and two creates racing each other were never serialized
+anyway — see the quota note at step 4. The buy-later path is where the lock
+lives now (§ The route buy).
 
 The steps:
 
@@ -622,14 +628,63 @@ The steps:
    landed.
 7. Create route + stops + stop targets + the `Outreach` envelope. The envelope
    is unconditional (`campaignId: null` for Serve), status `in_progress`,
-   never `pending` — payment flows gate on it. The scope is the caller's,
-   chosen by which endpoint was hit and never derived from what the org holds.
-   The per-target activity event is still deferred, as noted above.
+   never `pending` — payment flows gate on it, and it is written whether or
+   not a route was bought, since it is what puts the campaign in outreach
+   history. The scope is the caller's, chosen by which endpoint was hit and
+   never derived from what the org holds. The per-target activity event is
+   still deferred, as noted above.
+
+Steps 5 through 7's route half run in `buildRoute`, which the buy-later path
+calls too, so there is one vendor call, one ledger write and one route row
+shape whichever door the request came in.
 
 A crash before commit leaves zero rows, and the flow that was submitting still
 holds the polygon, the filters, the name, the colour, the mode and the loop —
 none of it was ever persisted, so a retry is a second press rather than a
 recovery. If Geoapify is down, this fails visibly — no fallback engine in v1.
+
+## The route buy (`POST turfs/:id/route`)
+
+`DoorKnockingCreateService.buildRouteForTurf(organization, turfId, request,
+actorUserId)`. Takes `{ mode, loop }` and buys the route for a turf that does
+not have one — the press a canvasser makes when they start walking a turf.
+
+**Why it is here and not at create.** `mode` and `loop` are what the route is
+optimized for and they freeze onto it. The person at the top of the street
+knows whether they are walking it; a manager cutting turfs three weeks
+earlier is guessing into a route nobody re-buys. It also means a turf nobody
+ever walks costs nothing.
+
+**The roster is resolved fresh**, not frozen at create: steps 2 and 3 above
+run again here, so a turf drawn in March and walked in June is routed against
+June's audience, minus anyone who has since moved, died or asked not to be
+knocked.
+
+**It must not pay twice**, and there are three layers to that, in order:
+
+1. An existing route short-circuits before anything is resolved — the turf is
+   returned with the route it already has. This is the ordinary repeat: two
+   people on a team opening the same turf.
+2. The per-turf advisory lock (`turfLock.util.ts`), re-reading under it, for
+   a genuine race. This is the lock the 1:1:1 chain retired and the reason it
+   is back — two presses of the SAME turf could both call the vendor again.
+   It also holds off a delete landing between the read and the write.
+3. `DoorKnockingRoute.doorKnockingTurfId` is `@unique`, so one route per turf
+   is a database fact and a violation surfaces as a 409 rather than a second
+   route.
+
+The client's own guard is the button being disabled while the request is in
+flight, which is what keeps the common case from reaching any of these.
+
+**Manager+ only**, with no `@AllowVolunteer()` even though the `GET` on the
+same path carries one. This would be the first spend a volunteer can trigger;
+widening it is a decision to take deliberately rather than by inheriting the
+neighbouring decorator.
+
+**The daily campaign gate is still on the create**, not here. It has to move
+to this press no later than the change that stops creation buying routes —
+between those two it would be guarding a press that no longer spends while
+the press that does spend has none.
 
 **Two of the four failure modes cannot reach the paid press.** The draw step
 runs `DoorKnockingPreviewService`, which is this evaluation minus the vendor
@@ -713,8 +768,9 @@ Three consequences:
   (`120-122 Main St`) is unaffected — both ends of a range share a parity.
 - **Only new lists benefit.** A route is bought once and never re-bought (see
   § The list lifecycle), so every list already in the field keeps its original
-  order. There is no re-route path and adding one would have to confront the
-  1:1:1 turf → route → outreach chain.
+  order. There is no re-route path; the route buy refuses a turf that already
+  has one rather than replacing it, and adding a genuine re-route would have
+  to answer what happens to the knocks recorded against the old stops.
 
 **`SequenceOddEven` and `SequenceZigZag` are checked and deliberately unused.**
 This used to read "worth checking before extending this… if they turn out to
@@ -2107,8 +2163,9 @@ aws ecs describe-task-definition --output text \
 ```
 
 Note that green CI is not evidence either way. The e2e suite deliberately never
-builds a route — `POST turfs` is the only call in the feature that reaches a
-billed vendor — so those specs pass whether or not a key exists.
+builds a route — `POST turfs` with a travel mode, and `POST turfs/:id/route`,
+are the only calls in the feature that reach a billed vendor — so those specs
+pass whether or not a key exists.
 
 ### Procurement, as of this writing
 
@@ -2190,6 +2247,7 @@ either status would stay quiet and the convention rests on the semantics.
 | `PUT /turfs/:id`        | yes    |
 | `DELETE /turfs/:id`     | yes    |
 | `GET /turfs/:id/route`  | yes    |
+| `POST /turfs/:id/route` | yes    |
 | `GET /pack`             | yes    |
 | `GET /quota`            | yes    |
 | `POST /address-preview` | yes    |

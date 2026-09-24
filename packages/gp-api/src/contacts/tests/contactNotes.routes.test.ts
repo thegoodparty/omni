@@ -156,6 +156,7 @@ const createDoorKnockingReachablePerson = async (
     data: {
       organizationSlug: orgSlug,
       outreachType: OutreachType.nativeDoorKnocking,
+      doorKnockingTurfId: turf.id,
       doorKnockingRouteId: route.id,
     },
   })

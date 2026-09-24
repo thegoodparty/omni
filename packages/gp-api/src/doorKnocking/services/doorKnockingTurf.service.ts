@@ -26,36 +26,32 @@ import {
 
 // `totalSeconds` rides the same row the id comes from, so the rail's duration
 // costs nothing beyond the column: it is the route's OWN travel time, already
-// frozen when the list was created, and not a second estimate computed here.
+// frozen when the route was bought, and not a second estimate computed here.
+// Null until then, which is a turf nobody has walked yet rather than an error.
 //
-// The envelope comes along on the same include because it is now where the
-// lifecycle lives. It is reached through the route rather than by a column on
-// the turf, which is the join that has always been there — the route's
-// `doorKnockingTurfId` is `@unique`, so the hop is one step in either
-// direction and no column was ever needed for it.
-const ROUTE_INCLUDE = {
-  route: {
-    select: {
-      id: true,
-      totalSeconds: true,
-      outreach: { select: { id: true, status: true, archivedAt: true } },
-    },
-  },
+// The envelope hangs off the turf, so it comes along on the same include
+// without a hop. It used to be reached through the route, back when a create
+// always bought one; a turf now outlives that assumption and the lifecycle
+// cannot live behind a row that may not exist.
+const TURF_INCLUDE = {
+  route: { select: { id: true, totalSeconds: true } },
+  outreach: { select: { id: true, status: true, archivedAt: true } },
 } as const satisfies Prisma.DoorKnockingTurfInclude
 
-type TurfWithRoute = Prisma.DoorKnockingTurfGetPayload<{
-  include: typeof ROUTE_INCLUDE
+type TurfWithEnvelope = Prisma.DoorKnockingTurfGetPayload<{
+  include: typeof TURF_INCLUDE
 }>
 
-// Every turf is created with its route and envelope in one transaction, so
-// both are present on every row this service can read. Prisma still types them
-// as nullable — the FKs point the other way, and it cannot know the two are
-// written together — so this narrows once, at the read boundary, rather than
-// leaving every caller to re-answer a question the model has already settled.
-type RoutedTurf = TurfWithRoute & {
-  route: NonNullable<TurfWithRoute['route']> & {
-    outreach: NonNullable<NonNullable<TurfWithRoute['route']>['outreach']>
-  }
+// Every turf is created with its envelope in one transaction, so it is present
+// on every row this service can read. Prisma still types it as nullable — the
+// FK points the other way — so this narrows once, at the read boundary, rather
+// than leaving every caller to re-answer a question the model has settled.
+//
+// The ROUTE stays nullable on purpose. It is bought at first knock, so between
+// creating a campaign and walking it there is genuinely no route, and that is
+// the state the rail draws rather than a violation to throw on.
+type EnvelopedTurf = TurfWithEnvelope & {
+  outreach: NonNullable<TurfWithEnvelope['outreach']>
 }
 
 // The campaign read, as one value rather than three call sites that happen to
@@ -65,7 +61,7 @@ type RoutedTurf = TurfWithRoute & {
 // shared rather than coincidental.
 const CAMPAIGN_READ = {
   orderBy: { createdAt: Prisma.SortOrder.asc },
-  include: ROUTE_INCLUDE,
+  include: TURF_INCLUDE,
 } as const satisfies Pick<
   Prisma.DoorKnockingTurfFindManyArgs,
   'orderBy' | 'include'
@@ -79,11 +75,11 @@ const NO_COUNTS: DoorKnockingTurfCounts = {
 }
 
 const toResponse = (
-  turf: RoutedTurf,
+  turf: EnvelopedTurf,
   counts: DoorKnockingTurfCounts = NO_COUNTS,
 ): DoorKnockingTurf => ({
   id: turf.id,
-  outreachId: turf.route.outreach.id,
+  outreachId: turf.outreach.id,
   voterFileFilterId: turf.voterFileFilterId,
   name: turf.name,
   color: turf.color,
@@ -92,27 +88,27 @@ const toResponse = (
   knockedDoorCount: counts.knockedDoorCount,
   peopleCount: counts.peopleCount,
   loggedCount: counts.loggedCount,
-  routeSeconds: turf.route.totalSeconds,
-  completed: turf.route.outreach.status === OutreachStatus.completed,
-  archivedAt: turf.route.outreach.archivedAt,
+  routeSeconds: turf.route?.totalSeconds ?? null,
+  completed: turf.outreach.status === OutreachStatus.completed,
+  archivedAt: turf.outreach.archivedAt,
   createdAt: turf.createdAt,
   updatedAt: turf.updatedAt,
 })
 
-// A turf whose route or envelope is missing cannot be produced by any code
-// path 3.0 has, and the migration removed the rows that predate it. Throwing
-// rather than degrading is the point: a silent fallback here would put a list
-// on the rail with no doors and no lifecycle, which reads as data loss and
-// hides the schema violation that caused it.
-const assertRouted = (turf: TurfWithRoute): RoutedTurf => {
-  const { route } = turf
-  if (!route?.outreach) {
+// A turf with no envelope cannot be produced by any code path we have, and a
+// CHECK constraint enforces the other direction. Throwing rather than
+// degrading is the point: a silent fallback here would put a list on the rail
+// with no lifecycle at all, which reads as data loss and hides the schema
+// violation that caused it. A missing ROUTE is not this — see `EnvelopedTurf`.
+const assertEnveloped = (turf: TurfWithEnvelope): EnvelopedTurf => {
+  const { outreach } = turf
+  if (!outreach) {
     throw new Error(
-      `Door-knocking turf ${turf.id} has no route or no outreach envelope; ` +
-        'every turf is created with both in one transaction',
+      `Door-knocking turf ${turf.id} has no outreach envelope; every turf ` +
+        'is created with one in the same transaction',
     )
   }
-  return { ...turf, route: { ...route, outreach: route.outreach } }
+  return { ...turf, outreach }
 }
 
 @Injectable()
@@ -147,14 +143,9 @@ export class DoorKnockingTurfService extends createPrismaBase(
     const rows = await this.model.findMany({
       where: railTurfScope(organizationSlug, scope),
       orderBy: { name: 'asc' },
-      include: ROUTE_INCLUDE,
+      include: TURF_INCLUDE,
     })
-    const turfs = rows.map(assertRouted)
-    const counts = await this.counts.forRoutes(
-      organizationSlug,
-      turfs.map((turf) => turf.route.id),
-    )
-    return turfs.map((turf) => toResponse(turf, counts.get(turf.route.id)))
+    return this.withCountsMany(rows.map(assertEnveloped), organizationSlug)
   }
 
   // The dual-pane drawer's sibling list: every turf whose Outreach envelope is
@@ -175,7 +166,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
       where: campaignTurfScope(anchorId, organizationSlug),
       ...CAMPAIGN_READ,
     })
-    return this.withCountsMany(rows.map(assertRouted), organizationSlug)
+    return this.withCountsMany(rows.map(assertEnveloped), organizationSlug)
   }
 
   // A soft-deleted turf is indistinguishable from one that never existed, so
@@ -183,19 +174,18 @@ export class DoorKnockingTurfService extends createPrismaBase(
   async findForOrganization(
     id: number,
     organizationSlug: string,
-  ): Promise<RoutedTurf> {
+  ): Promise<EnvelopedTurf> {
     const turf = await this.model.findFirst({
       where: { id, ...activeTurfScope(organizationSlug) },
-      include: ROUTE_INCLUDE,
+      include: TURF_INCLUDE,
     })
     if (!turf) {
       throw new NotFoundException('Turf not found')
     }
-    return assertRouted(turf)
+    return assertEnveloped(turf)
   }
 
-  // Same aggregate over one route. Every turf has one, so unlike the old
-  // version there is no branch here that can answer without counts.
+  // Same aggregate over one route, for a turf that has one.
   //
   // A volunteer's read is additionally scoped to their own assignment
   // (ENG-11051) — an unassigned volunteer 404s exactly like a cross-org id.
@@ -209,7 +199,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
     await assertVolunteerAssignedToOutreach(
       this.moduleRef,
       role,
-      turf.route.outreach.id,
+      turf.outreach.id,
       userId,
       'Turf not found',
     )
@@ -229,19 +219,19 @@ export class DoorKnockingTurfService extends createPrismaBase(
     const turf = await this.model.update({
       where: { id, voterFileFilter: { organizationSlug }, deletedAt: null },
       data: input,
-      include: ROUTE_INCLUDE,
+      include: TURF_INCLUDE,
     })
-    return this.withCounts(assertRouted(turf), organizationSlug)
+    return this.withCounts(assertEnveloped(turf), organizationSlug)
   }
 
-  // Always a tombstone. Every turf has a route someone was billed for, frozen
-  // addresses, and the name snapshots privacy deletion relies on; hard-deleting
-  // one would cascade all of that plus the Outreach envelope, silently removing
-  // the walk from outreach history. So the row is left intact underneath and
-  // dropped from every read path. The hard-delete branch that used to run for
-  // an unbought drawing has nothing left to match — 3.0 has no such turf, and
-  // the migration removed the ones that predate it. The knock interactions
-  // survive either way: they hang off the organization, not this chain.
+  // Always a tombstone, including for a turf nobody has walked. A hard delete
+  // would cascade the Outreach envelope with it, silently removing the campaign
+  // from outreach history — and that is true of an unrouted turf as much as a
+  // routed one, since the envelope is what history reads. A routed one also
+  // carries a route someone was billed for, frozen addresses and the name
+  // snapshots privacy deletion relies on. So the row is left intact underneath
+  // and dropped from every read path. The knock interactions survive either
+  // way: they hang off the organization, not this chain.
   async delete(
     id: number,
     organizationSlug: string,
@@ -287,16 +277,16 @@ export class DoorKnockingTurfService extends createPrismaBase(
       await assertVolunteerAssignedToOutreach(
         this.moduleRef,
         role,
-        locked.route.outreach.id,
+        locked.outreach.id,
         actorUserId,
         'Turf not found',
       )
-      if (locked.route.outreach.status === OutreachStatus.completed) {
+      if (locked.outreach.status === OutreachStatus.completed) {
         return locked
       }
 
       await tx.outreach.update({
-        where: { doorKnockingRouteId: locked.route.id },
+        where: { doorKnockingTurfId: locked.id },
         data: { status: OutreachStatus.completed },
       })
       completedNow = true
@@ -330,12 +320,12 @@ export class DoorKnockingTurfService extends createPrismaBase(
   ): Promise<DoorKnockingTurf> {
     const turf = await this.client.$transaction(async (tx) => {
       const locked = await this.lockAndFind(tx, id, organizationSlug)
-      const current = locked.route.outreach.archivedAt
+      const current = locked.outreach.archivedAt
       const archivedAt = archived ? (current ?? new Date()) : null
       if (archivedAt === current) return locked
 
       await tx.outreach.update({
-        where: { doorKnockingRouteId: locked.route.id },
+        where: { doorKnockingTurfId: locked.id },
         data: { archivedAt },
       })
       return this.restamp(locked, { archivedAt })
@@ -404,7 +394,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
           where: campaignTurfScope(anchorId, organizationSlug),
           ...CAMPAIGN_READ,
         })
-        return { turfs: rows.map(assertRouted), completedNow: count > 0 }
+        return { turfs: rows.map(assertEnveloped), completedNow: count > 0 }
       },
     )
 
@@ -457,7 +447,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
         where: campaignTurfScope(anchorId, organizationSlug),
         ...CAMPAIGN_READ,
       })
-      return rows.map(assertRouted)
+      return rows.map(assertEnveloped)
     })
     return this.withCountsMany(turfs, organizationSlug)
   }
@@ -480,24 +470,25 @@ export class DoorKnockingTurfService extends createPrismaBase(
     }
   }
 
-  // The advisory lock still serializes the three turf mutations against each
-  // other, so archive cannot land between delete's read and its write. What it
-  // no longer has to hold off is a knock freezing a route mid-transaction:
-  // routes are bought at creation, when nothing else can name the turf yet.
+  // The advisory lock serializes the three turf mutations against each other,
+  // so archive cannot land between delete's read and its write. It also holds
+  // off the route buy (`DoorKnockingCreateService.buildRouteForTurf` takes the
+  // same lock), which matters again now that a route is bought against a turf
+  // that already exists and can be deleted underneath it.
   private async lockAndFind(
     tx: Prisma.TransactionClient,
     id: number,
     organizationSlug: string,
-  ): Promise<RoutedTurf> {
+  ): Promise<EnvelopedTurf> {
     await lockTurf(tx, id)
     const turf = await tx.doorKnockingTurf.findFirst({
       where: { id, ...activeTurfScope(organizationSlug) },
-      include: ROUTE_INCLUDE,
+      include: TURF_INCLUDE,
     })
     if (!turf) {
       throw new NotFoundException('Turf not found')
     }
-    return assertRouted(turf)
+    return assertEnveloped(turf)
   }
 
   // Folds a lifecycle write back into the row that was read under the lock,
@@ -507,16 +498,10 @@ export class DoorKnockingTurfService extends createPrismaBase(
   // actually succeeded. Nothing can change the envelope while the lock is
   // held, so patching the two fields locally says the same thing as a query.
   private restamp(
-    locked: RoutedTurf,
-    outreach: Partial<RoutedTurf['route']['outreach']>,
-  ): RoutedTurf {
-    return {
-      ...locked,
-      route: {
-        ...locked.route,
-        outreach: { ...locked.route.outreach, ...outreach },
-      },
-    }
+    locked: EnvelopedTurf,
+    outreach: Partial<EnvelopedTurf['outreach']>,
+  ): EnvelopedTurf {
+    return { ...locked, outreach: { ...locked.outreach, ...outreach } }
   }
 
   // Counts are deliberately read OUTSIDE the lifecycle transaction. They come
@@ -524,10 +509,17 @@ export class DoorKnockingTurfService extends createPrismaBase(
   // (a soft delete leaves the route in place), and folding the counts
   // aggregate's six queries into the transaction would hold the turf's
   // advisory lock across all of them — on the rail's hot path.
+  //
+  // Doors and people are stops and stop targets, which the route buy creates,
+  // so a turf with no route has none of them yet. Zero is the honest answer
+  // and it costs no query at all: the aggregate is over routes, and there is
+  // no route to name.
   private async withCounts(
-    turf: RoutedTurf,
+    turf: EnvelopedTurf,
     organizationSlug: string,
   ): Promise<DoorKnockingTurf> {
+    if (!turf.route) return toResponse(turf)
+
     const counts = await this.counts.forRoutes(organizationSlug, [
       turf.route.id,
     ])
@@ -535,17 +527,20 @@ export class DoorKnockingTurfService extends createPrismaBase(
   }
 
   // The same read, batched: ONE aggregate across every sibling, whatever the
-  // campaign's size. Shared by the campaign read and the two campaign writes
-  // so a mutation's array is indistinguishable from the read's, which is what
-  // lets the drawer repaint from the response instead of refetching.
+  // campaign's size. Shared by the rail, the campaign read and the two
+  // campaign writes so a mutation's array is indistinguishable from the
+  // read's, which is what lets the drawer repaint from the response instead of
+  // refetching.
   private async withCountsMany(
-    turfs: RoutedTurf[],
+    turfs: EnvelopedTurf[],
     organizationSlug: string,
   ): Promise<DoorKnockingTurf[]> {
     const counts = await this.counts.forRoutes(
       organizationSlug,
-      turfs.map((turf) => turf.route.id),
+      turfs.flatMap((turf) => turf.route?.id ?? []),
     )
-    return turfs.map((turf) => toResponse(turf, counts.get(turf.route.id)))
+    return turfs.map((turf) =>
+      toResponse(turf, turf.route ? counts.get(turf.route.id) : NO_COUNTS),
+    )
   }
 }

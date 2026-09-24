@@ -60,11 +60,19 @@ model Outreach {
   voterFileFilter                   VoterFileFilter?                   @relation(fields: [voterFileFilterId], references: [id])
   voterFileFilterId                 Int?                               @map("voter_file_filter_id")
   // nativeDoorKnocking envelopes only: the list row carries its destination
-  // (the per-channel pointer idiom, like phoneListId/projectId). Nullable for
-  // every other outreachType, but NOT NULL for this one — a CHECK enforces it
-  // (see migration door_knocking_one_to_one), which is what makes
-  // outreach -> turf -> route a real 1:1:1 chain rather than a convention.
-  // The turf is one hop further on, through the route's unique turf id.
+  // (the per-channel pointer idiom, like phoneListId/projectId).
+  //
+  // The TURF is the authoritative link and the one a CHECK enforces (see
+  // migration door_knocking_envelope_on_turf). It used to be the route, back
+  // when creating a turf always bought one in the same transaction. The route
+  // is bought at first knock now, so a turf can exist without one — and an
+  // envelope hung off the route would have had nowhere to live in the window
+  // between creating a campaign and walking it, taking the whole campaign out
+  // of outreach history with it.
+  doorKnockingTurf                  DoorKnockingTurf?                  @relation(fields: [doorKnockingTurfId], references: [id], onDelete: Cascade)
+  doorKnockingTurfId                Int?                               @unique @map("door_knocking_turf_id")
+  // Still here, and still unique: once a route exists it is how the walk is
+  // reached, and turf -> route stays 1:1. Null until the route is bought.
   doorKnockingRoute                 DoorKnockingRoute?                 @relation(fields: [doorKnockingRouteId], references: [id], onDelete: Cascade)
   doorKnockingRouteId               Int?                               @unique @map("door_knocking_route_id")
   // nativePhoneBanking envelopes only: same per-channel pointer idiom as

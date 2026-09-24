@@ -594,6 +594,7 @@ describe('GET /v1/outreach/:id/assignments', () => {
       where: { id: outreach.id },
       data: {
         outreachType: 'nativeDoorKnocking',
+        doorKnockingTurfId: route.doorKnockingTurfId,
         doorKnockingRouteId: route.id,
       },
     })
@@ -884,6 +885,7 @@ describe('GET /v1/outreach/assignments/mine', () => {
         campaignId: campaign.id,
         organizationSlug: ORG_SLUG,
         outreachType: 'nativeDoorKnocking',
+        doorKnockingTurfId: route.doorKnockingTurfId,
         doorKnockingRouteId: route.id,
         name: 'Elm St walk',
         status: 'in_progress',

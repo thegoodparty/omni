@@ -151,6 +151,7 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
           : OutreachStatus.in_progress,
         name,
         voterFileFilterId: filter.id,
+        doorKnockingTurfId: route.doorKnockingTurfId,
         doorKnockingRouteId: route.id,
         date: new Date(),
         archivedAt,
@@ -263,6 +264,46 @@ describe('GET /v1/outreach/:id — doorKnocking block', () => {
 
     expect(data.doorKnocking).toBeUndefined()
     expect(data.doorKnockingRouteId).not.toBeNull()
+  })
+
+  // The opposite of the tombstone above, and the distinction the drawer has
+  // to make: the list IS there, nobody has walked it. Withholding the block
+  // would render as "saved list is no longer available" for a campaign the
+  // candidate created an hour ago.
+  it('carries the block for an unrouted turf, with a null route and zero counts', async () => {
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: filter.id,
+        name: 'Unwalked turf',
+        color: '#22aa55',
+        geoPoly: GEO_POLY,
+      },
+    })
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: orgSlug,
+        outreachType: OutreachType.nativeDoorKnocking,
+        status: OutreachStatus.in_progress,
+        name: 'Unwalked turf',
+        voterFileFilterId: filter.id,
+        doorKnockingTurfId: turf.id,
+        date: new Date(),
+      },
+    })
+
+    const data = await detail(outreach.id)
+
+    expect(data.doorKnocking).toMatchObject({
+      turfId: turf.id,
+      routeId: null,
+      turfName: 'Unwalked turf',
+      doorCount: 0,
+      peopleCount: 0,
+      loggedCount: 0,
+      completed: false,
+      archivedAt: null,
+    })
   })
 
   it('omits the block for a row that is not a native door-knocking walk', async () => {

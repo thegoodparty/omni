@@ -393,10 +393,10 @@ export class OutreachAssignmentService extends createPrismaBase(
     // header's, and a legacy null-org row simply carries no block.
     const doorKnocking =
       outreach.outreachType === OutreachType.nativeDoorKnocking &&
-      outreach.doorKnockingRouteId !== null &&
+      outreach.doorKnockingTurfId !== null &&
       outreach.organizationSlug !== null
         ? await this.outreachSocial.computeDoorKnockingDetail(
-            outreach.doorKnockingRouteId,
+            outreach.doorKnockingTurfId,
             outreach.organizationSlug,
             outreach,
           )

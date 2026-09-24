@@ -400,6 +400,7 @@ describe('OutreachAssignmentService', () => {
           campaignId: campaign.id,
           organizationSlug: organization.slug,
           outreachType: OutreachType.nativeDoorKnocking,
+          doorKnockingTurfId: route.doorKnockingTurfId,
           doorKnockingRouteId: route.id,
         },
       })

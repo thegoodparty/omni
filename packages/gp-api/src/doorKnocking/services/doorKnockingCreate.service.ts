@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { Injectable } from '@nestjs/common'
 import {
+  BuildDoorKnockingRoute,
   CreateDoorKnockingTurf,
   DoorKnockingTurf,
   GeoJsonPolygon,
@@ -25,6 +26,7 @@ import {
   Organization,
   OutreachStatus,
   OutreachType,
+  Prisma,
 } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { DoorKnockingStatsService } from './doorKnockingStats.service'
@@ -43,6 +45,8 @@ import {
   emptyTurfMessage,
 } from '../utils/emptyAudience.util'
 import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
+import { lockTurf } from '../utils/turfLock.util'
+import { activeTurfScope } from '../utils/turfScope.util'
 import { assertCampaignQuota } from '../utils/campaignQuota.util'
 import { recordWaypointSpend } from '../utils/waypointSpend.util'
 
@@ -123,11 +127,6 @@ type PlannedStop = {
   people: EvaluatedPerson[]
 }
 
-type RouteRequest = {
-  mode: CreateDoorKnockingTurf['mode']
-  loop: CreateDoorKnockingTurf['loop']
-}
-
 // The envelope's scope, chosen by the caller rather than derived from whether
 // the org happens to hold a Campaign. `campaignId: null` is what makes a row
 // a Serve one, and an org mid-transition holds both — deriving it here is
@@ -137,17 +136,20 @@ export type DoorKnockingOutreachScope = {
   organizationSlug: string
 }
 
-// Creating a door-knocking list buys its route. Turf, route, stops, stop
-// targets and the Outreach envelope are one transaction and one 1:1:1 chain —
-// there is no saved-but-unrouted turf for a later Knock button to act on,
-// which is what retired both the "locked" flag and the knock idempotency
-// probe that used to guard a second purchase of the same turf.
+// Two ways into the same purchase, and the difference is when it happens.
 //
-// The advisory lock that knocking held is gone with it. It existed so two
-// knocks of the SAME turf could not both call the vendor; a create always
-// makes a new turf, so there is no shared row to serialize on. Two creates
-// racing each other were never serialized anyway — see the quota note below,
-// which is unchanged.
+// `create` writes the turf and its Outreach envelope, and buys a route in the
+// same transaction IF it was handed a travel mode. `buildRouteForTurf` buys
+// one for a turf that already exists, which is what the knock press calls.
+// Both go through `buildRoute`, so there is one vendor call, one ledger write
+// and one route row shape whichever door the request came in.
+//
+// A saved-but-unrouted turf is therefore a real state again, which brings
+// back the thing the 1:1:1 chain retired: two presses of the same turf racing
+// to buy it. `buildRouteForTurf` takes the per-turf advisory lock for exactly
+// that, and `DoorKnockingRoute.doorKnockingTurfId` is `@unique` underneath it.
+// Two CREATES racing each other are still not serialized and do not need to
+// be — each makes its own turf — see the quota note below.
 @Injectable()
 export class DoorKnockingCreateService extends createPrismaBase(
   MODELS.DoorKnockingRoute,
@@ -324,64 +326,17 @@ export class DoorKnockingCreateService extends createPrismaBase(
         // as the authority: that read is advisory and this is the write.
         await assertCampaignQuota(tx, organization)
 
-        const plan = await this.planStops(stops, input)
-
-        // Priced off what the vendor was actually sent, not off stops.length:
-        // the anchors are billed locations, the Route Planner's rate is
-        // quadratic under ten of them, and the path-geometry fetch is a
-        // second billed call whose waypoint count includes those anchors.
-        // `routingWaypoints` is 0 when that call never completed, which is
-        // the only thing that makes it free.
-        const credits: RouteCredits = {
-          route_planner: routePlannerCredits(plan.locations),
-          routing: routingCredits(plan.routingWaypoints, plan.totalMeters),
-        }
-
-        // The vendor has been paid. Record it before anything below can fail,
-        // and on `this.client` rather than `tx` so the ledger row survives a
-        // rollback of the freeze — otherwise the budget forgets a call that
-        // really happened and hands the same allowance out again.
-        await this.recordSpend(
-          organization.slug,
-          turf.id,
-          stops.length,
-          credits,
-        )
-
-        const route = await tx.doorKnockingRoute.create({
-          data: {
-            doorKnockingTurfId: turf.id,
-            mode: input.mode,
-            loop: input.loop,
-            totalSeconds: plan.totalSeconds,
-            totalMeters: plan.totalMeters,
-            credits: credits.route_planner + credits.routing,
-            pathGeometry: plan.pathGeometry ?? undefined,
-            stops: {
-              create: plan.orderedJobIds.map((jobId, index) => {
-                const stop = stops[Number(jobId)]!
-                return {
-                  seq: index + 1,
-                  lat: stop.lat,
-                  lng: stop.lng,
-                  displayAddress: stop.displayAddress,
-                  legSeconds: plan.legSeconds[index] ?? 0,
-                  legMeters: plan.legMeters[index] ?? 0,
-                  targets: {
-                    create: stop.people.map((person) => ({
-                      personId: person.id,
-                      name:
-                        [person.firstName, person.lastName]
-                          .filter(Boolean)
-                          .join(' ') || null,
-                      addressKey: person.addressKey,
-                    })),
-                  },
-                }
-              }),
-            },
-          },
-        })
+        // A travel mode is what turns a create into a purchase. Sent, the
+        // route is bought here exactly as it always was. Omitted, the turf
+        // is saved unrouted and `buildRouteForTurf` buys it at first knock,
+        // which is the only moment walk-or-drive has an honest answer.
+        const route =
+          input.mode !== undefined && input.loop !== undefined
+            ? await this.buildRoute(tx, organization.slug, turf.id, stops, {
+                mode: input.mode,
+                loop: input.loop,
+              })
+            : null
 
         // First use of this filter locks it from edits, same as any other
         // outreach launch (first-write-wins, never rolled back).
@@ -409,7 +364,13 @@ export class DoorKnockingCreateService extends createPrismaBase(
             // single-turf flow, where the turf's name IS the campaign's.
             name: anchorCampaignName ?? input.campaignName ?? turf.name,
             voterFileFilterId: filter.id,
-            doorKnockingRouteId: route.id,
+            // The turf is the envelope's authoritative link and what the
+            // CHECK requires, and it is what keeps a campaign in outreach
+            // history before anybody walks it. The route is recorded when
+            // this create bought one; `buildRouteForTurf` fills it in later
+            // otherwise.
+            doorKnockingTurfId: turf.id,
+            doorKnockingRouteId: route?.id ?? null,
             date: new Date(),
             // The talking points, frozen with the walk on the same column
             // every other channel already stores its script in. Frozen for
@@ -441,6 +402,191 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // creator reading back their own just-created turf needs no assignment
     // gate — an undefined role is the guard's own "unrestricted" no-op.
     return this.turfs.get(turfId, organization.slug, actorUserId, undefined)
+  }
+
+  // The buy at first knock. Creating a campaign no longer spends anything, so
+  // this is where the money is: one press, by the person about to walk the
+  // turf, who is the first person in the chain who actually knows whether
+  // they are walking or driving it.
+  //
+  // Manager+ only for now. The walk routes carry `@AllowVolunteer()`, so
+  // leaving this one open would make it the first spend a volunteer can
+  // trigger — a decision worth taking deliberately rather than by inheriting
+  // the neighbouring decorator.
+  async buildRouteForTurf(
+    organization: Organization,
+    turfId: number,
+    request: BuildDoorKnockingRoute,
+    actorUserId: number,
+  ): Promise<DoorKnockingTurf> {
+    const turf = await this.turfs.findForOrganization(turfId, organization.slug)
+
+    // Already bought, so hand back what exists rather than buying a second
+    // answer to the same question. This is the ordinary case, not the
+    // exceptional one: two people on a team can open the same turf, and a
+    // route is documented as never re-bought. The genuine race is closed
+    // under the lock below; this is what keeps the common repeat free.
+    if (turf.route) {
+      return this.turfs.get(turfId, organization.slug, actorUserId, undefined)
+    }
+
+    const isServe = organization.slug.startsWith('eo-')
+    const districtId =
+      await this.contacts.resolveEligibleDistrictId(organization)
+
+    const [doNotKnockIds, notAVoterIds] = await Promise.all([
+      this.contactStatus.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.do_not_knock,
+        [DoNotKnockStatus.active],
+      ),
+      this.contactStatus.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.not_a_voter,
+        [NotAVoterStatus.moved, NotAVoterStatus.deceased],
+      ),
+    ])
+    const excludePersonIds = [...new Set([...doNotKnockIds, ...notAVoterIds])]
+
+    // The roster is resolved NOW rather than frozen at create, so the walk
+    // reflects who has moved, died or asked not to be knocked in between —
+    // which is the other thing deferring the purchase buys. A turf drawn in
+    // March and walked in June is routed against June's audience.
+    const filter = await this.client.voterFileFilter.findFirst({
+      where: {
+        id: turf.voterFileFilterId,
+        organizationSlug: organization.slug,
+      },
+      include: { activityConditions: true },
+    })
+    if (!filter) {
+      throw new NotFoundException('Voter file filter not found')
+    }
+
+    const resolved = await this.contacts.resolveSavedFilterForQuery(
+      organization,
+      filter,
+    )
+    if (resolved.empty) {
+      throw new BadRequestException(emptyAudienceMessage(filter, isServe))
+    }
+
+    const { people } = await this.peopleApi.evaluate({
+      districtId,
+      bbox: polygonBbox(turf.geoPoly),
+      filters: resolved.filters,
+      idOverrides: resolved.idOverrides,
+      contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+      excludePersonIds,
+    })
+    const stops = this.buildStops(people, turf.geoPoly, isServe)
+
+    await this.client.$transaction(
+      async (tx) => {
+        // The lock every other turf mutation takes, for the reason it was
+        // written: two presses of the SAME turf must not both call the
+        // vendor. That was impossible while routes were bought at create —
+        // nothing else could name the turf yet — and it is possible again.
+        // It also holds off a delete landing between the read above and the
+        // write below.
+        await lockTurf(tx, turfId)
+
+        const locked = await tx.doorKnockingTurf.findFirst({
+          where: { id: turfId, ...activeTurfScope(organization.slug) },
+          select: { id: true, route: { select: { id: true } } },
+        })
+        if (!locked) {
+          throw new NotFoundException('Turf not found')
+        }
+        // The loser of a real race. It waited on the lock, the winner bought
+        // the route, and the honest answer is that route — the same one the
+        // short-circuit above gives a press that arrived a second later.
+        if (locked.route) return
+
+        const route = await this.buildRoute(
+          tx,
+          organization.slug,
+          turfId,
+          stops,
+          request,
+        )
+
+        await tx.outreach.update({
+          where: { doorKnockingTurfId: turfId },
+          data: { doorKnockingRouteId: route.id },
+        })
+      },
+      { timeout: CREATE_TX_TIMEOUT_MS },
+    )
+
+    return this.turfs.get(turfId, organization.slug, actorUserId, undefined)
+  }
+
+  // The paid half of a create, from the vendor call to the route row. It is
+  // a method rather than lines inside `create` because the same purchase has
+  // two callers now: a create that was handed a travel mode, and the buy at
+  // first knock above.
+  private async buildRoute(
+    tx: Prisma.TransactionClient,
+    organizationSlug: string,
+    turfId: number,
+    stops: PlannedStop[],
+    request: BuildDoorKnockingRoute,
+  ): Promise<{ id: number }> {
+    const plan = await this.planStops(stops, request)
+
+    // Priced off what the vendor was actually sent, not off stops.length:
+    // the anchors are billed locations, the Route Planner's rate is
+    // quadratic under ten of them, and the path-geometry fetch is a second
+    // billed call whose waypoint count includes those anchors.
+    // `routingWaypoints` is 0 when that call never completed, which is the
+    // only thing that makes it free.
+    const credits: RouteCredits = {
+      route_planner: routePlannerCredits(plan.locations),
+      routing: routingCredits(plan.routingWaypoints, plan.totalMeters),
+    }
+
+    // The vendor has been paid. Record it before anything below can fail,
+    // and on `this.client` rather than `tx` so the ledger row survives a
+    // rollback of the freeze — otherwise the budget forgets a call that
+    // really happened and hands the same allowance out again.
+    await this.recordSpend(organizationSlug, turfId, stops.length, credits)
+
+    return tx.doorKnockingRoute.create({
+      data: {
+        doorKnockingTurfId: turfId,
+        mode: request.mode,
+        loop: request.loop,
+        totalSeconds: plan.totalSeconds,
+        totalMeters: plan.totalMeters,
+        credits: credits.route_planner + credits.routing,
+        pathGeometry: plan.pathGeometry ?? undefined,
+        stops: {
+          create: plan.orderedJobIds.map((jobId, index) => {
+            const stop = stops[Number(jobId)]!
+            return {
+              seq: index + 1,
+              lat: stop.lat,
+              lng: stop.lng,
+              displayAddress: stop.displayAddress,
+              legSeconds: plan.legSeconds[index] ?? 0,
+              legMeters: plan.legMeters[index] ?? 0,
+              targets: {
+                create: stop.people.map((person) => ({
+                  personId: person.id,
+                  name:
+                    [person.firstName, person.lastName]
+                      .filter(Boolean)
+                      .join(' ') || null,
+                  addressKey: person.addressKey,
+                })),
+              },
+            }
+          }),
+        },
+      },
+      select: { id: true },
+    })
   }
 
   // A failed ledger write must not fail a purchase the vendor already billed,
@@ -552,7 +698,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
   // where the road network is. See utils/blockFace.util.ts.
   private async planStops(
     stops: PlannedStop[],
-    request: RouteRequest,
+    request: BuildDoorKnockingRoute,
   ): Promise<RoutePlannerPlan> {
     const faces = groupIntoBlockFaces(stops)
 
@@ -624,7 +770,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     error: RoutePlanRejectedError,
     faces: BlockFace[],
     stops: PlannedStop[],
-    request: RouteRequest,
+    request: BuildDoorKnockingRoute,
   ): BadRequestException {
     const addresses = error.unroutableJobIds
       .map((jobId) => faces[Number(jobId)])
@@ -667,7 +813,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
   private async orderFaces(
     faces: BlockFace[],
     stops: PlannedStop[],
-    request: RouteRequest,
+    request: BuildDoorKnockingRoute,
   ): Promise<RoutePlannerPlan> {
     const representatives = faces.map((face) => representativeOf(face, stops))
     const jobs = representatives.map((stopIndex, faceIndex) => ({

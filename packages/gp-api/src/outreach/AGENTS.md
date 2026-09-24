@@ -892,9 +892,13 @@ remembered on the `hold_failed` row for the retry.
   calls them. See `docs/door-knocking.md`.
 - **`OutreachDetail.doorKnocking` is the door-knocking satellite block**, the
   sibling of `phoneBanking`, filled by `OutreachSocialService.findDetail` for a
-  `nativeDoorKnocking` row. It needed no column: the envelope's
-  `doorKnockingRouteId` reaches `door_knocking_route`, whose `doorKnockingTurfId`
-  is `@unique`, so route → turf is one hop. Its three counts come from
+  `nativeDoorKnocking` row, keyed on the envelope's own `doorKnockingTurfId`.
+  It used to be keyed on `doorKnockingRouteId` and reach the turf through the
+  route, which worked exactly as long as every turf had one — a campaign
+  nobody has walked yet would have dropped out of its own drawer. Such a row
+  gets the block with `routeId: null` and zero counts, which is the state,
+  not a tombstone (a tombstoned turf still yields no block at all). Its three
+  counts come from
   `DoorKnockingTurfCountsService` — the SAME aggregate the door-knocking rail
   reads — and must keep coming from there: a second derivation is the
   two-denominator failure ADR 0010 forbids. `OutreachModule` imports

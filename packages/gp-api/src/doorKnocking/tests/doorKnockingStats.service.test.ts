@@ -95,6 +95,10 @@ describe('DoorKnockingStatsService', () => {
         status: completed
           ? OutreachStatus.completed
           : OutreachStatus.in_progress,
+        // The envelope hangs off the TURF, which is what the
+        // outreach_native_door_knocking_turf_check requires. The route id is
+        // still recorded because this fixture builds one.
+        doorKnockingTurfId: turf.id,
         doorKnockingRouteId: route.id,
       },
     })

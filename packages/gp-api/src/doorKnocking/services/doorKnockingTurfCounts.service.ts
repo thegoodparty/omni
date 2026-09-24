@@ -45,8 +45,10 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
     super()
   }
 
-  // Keyed by route id, which is the turf's lock: an unlocked turf has no route
-  // and so is absent from the result rather than present with zeroes.
+  // Keyed by route id, so a turf with no route yet has nothing to ask for and
+  // is absent from the result rather than present with zeroes. Callers turn
+  // that absence into zeroes themselves — doors and people ARE stops and stop
+  // targets, and neither exists until the route is bought.
   async forRoutes(
     organizationSlug: string,
     routeIds: number[],

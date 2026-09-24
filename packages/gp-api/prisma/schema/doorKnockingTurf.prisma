@@ -52,10 +52,14 @@ model DoorKnockingTurf {
   purpose           DoorKnockingPurpose?
   /// [GeoJsonPolygon]
   geoPoly           Json              @map("geo_poly")
-  // Optional only because the FK lives on the child. Since 3.0 the route is
-  // bought in the same transaction that inserts this row, so a turf with no
-  // route cannot be created; the migration deleted the ones that predate it.
+  // Genuinely optional, not just an artifact of the FK living on the child.
+  // The route is bought at first knock, so a turf has none between the
+  // campaign being created and somebody walking it.
   route             DoorKnockingRoute?
+  // The envelope hangs off the turf now, not off the route, so it survives
+  // the window before a route is bought. Optional only because the FK lives
+  // on the child; a nativeDoorKnocking envelope is required to have one.
+  outreach          Outreach?
 
   // No completedAt/archivedAt here: the lifecycle lives on the Outreach
   // envelope (status + archivedAt), which since 3.0 every turf has. It used
@@ -66,13 +70,14 @@ model DoorKnockingTurf {
   // (campaignId null, the dual-scope idiom every channel uses), so there is
   // exactly one home for it again.
 
-  // Soft delete. Deleting the row cascades turf -> route -> stops -> targets
-  // AND the Outreach envelope, which throws away the frozen addresses, the
-  // name snapshots kept for privacy deletion, and a Geoapify route that was
-  // billed once and is documented as never re-bought. Every turf is billed
-  // from birth now, so this is the only delete there is — the hard-delete
-  // branch for an unbought drawing has nothing left to match. Knock history
-  // survives regardless: it hangs off the organization, not this chain.
+  // Soft delete, and the only delete there is — including for a turf nobody
+  // has walked. Deleting the row cascades turf -> route -> stops -> targets
+  // AND the Outreach envelope, which on a routed turf throws away the frozen
+  // addresses, the name snapshots kept for privacy deletion, and a Geoapify
+  // route that was billed once and is documented as never re-bought. On an
+  // unrouted one it still throws away the envelope, which is the campaign's
+  // whole presence in outreach history. Knock history survives either way: it
+  // hangs off the organization, not this chain.
   deletedAt DateTime? @map("deleted_at")
 
   @@index([voterFileFilterId])

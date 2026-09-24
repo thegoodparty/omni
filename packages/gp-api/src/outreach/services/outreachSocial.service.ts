@@ -146,10 +146,10 @@ export class OutreachSocialService extends createPrismaBase(
     // wrote, and the block is simply absent rather than counted org-wide.
     const doorKnocking =
       outreach.outreachType === OutreachType.nativeDoorKnocking &&
-      outreach.doorKnockingRouteId !== null &&
+      outreach.doorKnockingTurfId !== null &&
       outreach.organizationSlug !== null
         ? await this.computeDoorKnockingDetail(
-            outreach.doorKnockingRouteId,
+            outreach.doorKnockingTurfId,
             outreach.organizationSlug,
             outreach,
           )
@@ -157,11 +157,10 @@ export class OutreachSocialService extends createPrismaBase(
     return toOutreachDetail(outreach, phoneBanking, doorKnocking)
   }
 
-  // The reverse edge the drawer was missing, and it needed no column: the
-  // envelope stores `doorKnockingRouteId`, and `door_knocking_route` already
-  // carries a `@unique doorKnockingTurfId` back to the list it was frozen for.
-  // So turf → route → envelope resolved all along, and route → turf is one hop
-  // the other way. No migration.
+  // Keyed on the TURF, which the envelope names directly. It used to be
+  // keyed on the route and reach the turf through it, which worked exactly
+  // as long as every turf had a route — a campaign nobody has walked yet
+  // would have dropped out of its own drawer.
   //
   // The counts come from `DoorKnockingTurfCountsService`, which is the same
   // aggregate the door-knocking rail and its details drawer read — deliberately
@@ -175,6 +174,9 @@ export class OutreachSocialService extends createPrismaBase(
   // block at all. That is the honest answer: a soft-deleted turf is gone from
   // every door-knocking read path, and a drawer offering an Archive button
   // pointed at an endpoint that 404s would be worse than one that offers none.
+  // An UNROUTED turf is the opposite case and does get a block: the list is
+  // there, nobody has walked it, and `routeId: null` plus zero counts is what
+  // says so. Withholding it would read as the tombstoned case.
   //
   // The lifecycle comes from the envelope the caller already holds rather than
   // from a second read, because since 3.0 the envelope IS where it lives. This
@@ -185,35 +187,35 @@ export class OutreachSocialService extends createPrismaBase(
   // hydrate a volunteer's assignment cards (ENG-11048) — same reasoning as
   // the ADR 0010 note above, one more caller.
   async computeDoorKnockingDetail(
-    routeId: number,
+    turfId: number,
     organizationSlug: string,
     envelope: Pick<Outreach, 'status' | 'archivedAt'>,
   ): Promise<DoorKnockingOutreachDetail | undefined> {
-    const route = await this.client.doorKnockingRoute.findFirst({
-      where: { id: routeId, turf: activeTurfScope(organizationSlug) },
-      select: {
-        id: true,
-        turf: { select: { id: true, name: true } },
-      },
+    const turf = await this.client.doorKnockingTurf.findFirst({
+      where: { id: turfId, ...activeTurfScope(organizationSlug) },
+      select: { id: true, name: true, route: { select: { id: true } } },
     })
-    if (!route) return undefined
+    if (!turf) return undefined
 
-    const counts = await this.doorKnockingCounts.forRoutes(organizationSlug, [
-      route.id,
-    ])
+    const routeId = turf.route?.id ?? null
+    const counts = await this.doorKnockingCounts.forRoutes(
+      organizationSlug,
+      routeId === null ? [] : [routeId],
+    )
     // `forRoutes` keys on the route id and seeds every requested id, so a route
     // with no targets comes back as zeroes rather than absent — but the map
-    // lookup is still narrowed rather than asserted.
-    const routeCounts = counts.get(route.id)
-    if (!routeCounts) return undefined
+    // lookup is still narrowed rather than asserted. An unrouted turf asks for
+    // nothing and takes the zeroes below.
+    const routeCounts = routeId === null ? null : counts.get(routeId)
+    if (routeCounts === undefined) return undefined
 
     return {
-      turfId: route.turf.id,
-      routeId: route.id,
-      turfName: route.turf.name,
-      doorCount: routeCounts.doorCount,
-      peopleCount: routeCounts.peopleCount,
-      loggedCount: routeCounts.loggedCount,
+      turfId: turf.id,
+      routeId,
+      turfName: turf.name,
+      doorCount: routeCounts?.doorCount ?? 0,
+      peopleCount: routeCounts?.peopleCount ?? 0,
+      loggedCount: routeCounts?.loggedCount ?? 0,
       completed: envelope.status === OutreachStatus.completed,
       archivedAt: envelope.archivedAt,
     }

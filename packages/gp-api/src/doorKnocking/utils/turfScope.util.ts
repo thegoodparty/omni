@@ -44,23 +44,25 @@ export const activeTurfScope = (
  * — only an org, through its filter — so an org that holds both a Campaign and
  * an ElectedOffice (the post-election transition) saw one shared rail on both
  * surfaces, which is the ENG-10976 leak `OutreachService.findByScope` exists
- * to prevent for every other channel. The 1:1:1 invariant is what makes it
- * expressible: every turf now has an envelope, and the envelope carries the
- * scope, so the rail filters on `campaignId` through the route exactly the way
- * the outreach history does directly.
+ * to prevent for every other channel. The envelope is what makes it
+ * expressible: every turf has one from creation, and the envelope carries the
+ * scope, so the rail filters on `campaignId` the way the outreach history
+ * does.
  *
  * `campaignId: null` IS the Serve scope, not a missing value — the same
- * dual-scope idiom every other channel uses. Note the join is required in both
- * directions: Prisma's `route: { outreach: { campaignId } }` is an inner join
- * through two relations, so a turf whose chain is broken appears on neither
- * rail rather than on both. `assertRouted` then turns that into a loud error.
+ * dual-scope idiom every other channel uses. The join is required, so a turf
+ * whose envelope is missing appears on neither rail rather than on both, and
+ * `assertEnveloped` turns that into a loud error. It hangs off the TURF and
+ * not off the route: a turf bought no route until someone walks it, and
+ * joining through one would empty the rail of every campaign nobody has
+ * started yet.
  */
 export const railTurfScope = (
   organizationSlug: string,
   scope: { campaignId: number | null },
 ): Prisma.DoorKnockingTurfWhereInput => ({
   ...activeTurfScope(organizationSlug),
-  route: { outreach: { campaignId: scope.campaignId } },
+  outreach: { campaignId: scope.campaignId },
 })
 
 /**
@@ -83,7 +85,7 @@ export const campaignTurfScope = (
   organizationSlug: string,
 ): Prisma.DoorKnockingTurfWhereInput => ({
   ...activeTurfScope(organizationSlug),
-  route: { outreach: campaignMembership(anchorId) },
+  outreach: campaignMembership(anchorId),
 })
 
 /**
@@ -110,5 +112,5 @@ export const campaignEnvelopeScope = (
   organizationSlug: string,
 ): Prisma.OutreachWhereInput => ({
   ...campaignMembership(anchorId),
-  doorKnockingRoute: { turf: { voterFileFilter: { organizationSlug } } },
+  doorKnockingTurf: { voterFileFilter: { organizationSlug } },
 })
