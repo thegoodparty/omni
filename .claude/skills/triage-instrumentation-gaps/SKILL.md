@@ -1,26 +1,29 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over two queues — instrumentation gaps (instrumentation_gaps.py) and watchlist proposals (analytics_event_health.py) — entered from the Slack governance digest, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, or flatlined event from the digest.
+description: Run the weekly instrumentation-governance review over three queues — instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), and registry-vs-semantic-layer alignment findings (anchor_alignment.py) — entered from the Slack governance digest, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest.
 ---
 
 # Triage instrumentation gaps
 
-Weekly governance review over **two re-nagging queues** that share one reviewer, one
+Weekly governance review over **three re-nagging queues** that share one reviewer, one
 session, and one PR:
 
 - **Queue A — instrumentation gaps** (`instrumentation_gaps.py`): candidate product
   surfaces the weekly sweep thinks are missing an analytics event.
 - **Queue B — watchlist proposals** (`analytics_event_health.py`): catalog events in a
   watched family that aren't yet on the curated watchlist.
+- **Queue C — registry vs semantic layer** (`anchor_alignment.py`): a behavior in
+  `monitored_events.yaml` and the governed metric it points at disagree about which
+  events count.
 
-This skill orchestrates existing Python modules and two other skills. It never
+This skill orchestrates existing Python modules and three other skills. It never
 re-implements enumeration, judgment, or proposal detection, and it never edits product
 code directly — accepted gaps either get a ClickUp ticket or get handed to
 `instrument-analytics-event`.
 
 Background: DATA-2151 built the sweep, the state file, the sheet tab, and the Slack
 digest; this skill (DATA-2152) is the missing disposition surface — the only way to act
-on either queue used to be hand-editing raw JSON/YAML on GitHub.
+on any queue used to be hand-editing raw JSON/YAML on GitHub.
 
 ## When to use
 
@@ -90,7 +93,7 @@ The reviewer never has to pre-load anything — this skill finds the run itself.
 Never post to Slack during this self-load — it's read-only (`slack_read_channel` /
 `slack_read_thread` / `slack_search_public`), never `slack_send_message`.
 
-With `run_date` in hand, load both queues scoped to that run.
+With `run_date` in hand, load all three queues scoped to that run.
 
 ## Queue A — instrumentation gaps
 
@@ -281,6 +284,125 @@ section banners get stripped):
   its 90-day window. That's the point — "defer" means "ask me again," "dismiss" means
   "stop asking."
 
+## Queue C — registry vs semantic layer
+
+**The rule, stated once.** The semantic layer defines every metric: which raw events count
+is whatever gp-data-platform's `sem_*.yml` says under `config.meta.anchored_on`. omni never
+writes a metric definition. omni's `behaviors:` are the code map: where in the product a
+question is answered and what fires there. When the two disagree, ask which side has the
+newer information about the product, and fix that side only:
+
+| Case | Who is behind | What you do |
+| --- | --- | --- |
+| 1 | omni | Edit `monitored_events.yaml`. Mechanical. |
+| 2 | the semantic layer | Draft the `anchored_on` change and, on accept, open a gp-data-platform PR. Never an omni edit that hides it. |
+| 3 | unknown, they disagree on scope | Ask the reviewer which side is wrong. Then follow that case's row. |
+
+An old caveat in the yaml saying re-anchoring is "deliberately not done" or waits for
+DATA-2421 is history, not an instruction. DATA-2421 shipped. Rewrite the caveat as part of
+the edit.
+
+**Get the findings** from the same report JSON Queue B resolved, key `anchor_alignment`.
+Each item carries `case`, `kind`, `behavior_id`, `metric`, `surface_label`, `event_key`,
+`suggested`, `evidence`, `headline`.
+
+- **Empty** → say so and move to write-back.
+- **Otherwise**, walk them in order (the list is sorted case 1, 2, 3). Apply a behavior's
+  findings as a set. A repoint that names a previously unmonitored leg also discharges
+  that leg's `declared_leg_unmonitored` finding; never add a second surface with the same
+  `instrumented_by` and `page_path`. Show `headline`, `event_key` and `suggested` for
+  each. `evidence` is populated only on case 2; for cases 1 and 3, read the event's row
+  in the report's `records` (`status`, `last_seen_date`, `event_count_30d`,
+  `call_site_count`) and show that instead. Before proposing any edit, read the
+  declaration yourself so the reviewer sees the source, not the summary:
+
+  ```bash
+  gh api -H 'Accept: application/vnd.github.raw+json' \
+    repos/thegoodparty/gp-data-platform/contents/dbt/project/models/marts/analytics/sem_analytics__users_win.yml \
+    | grep -n -A12 "name: <metric>"
+  ```
+
+  (`sem_analytics__users_serve.yml` for serve metrics.) If `gh` cannot read the private
+  repo, read the same file from a local gp-data-platform checkout instead.
+
+**Case 1 kinds and the exact edit.** Edit the yaml as text. Never round-trip it through a
+dumper.
+
+- `surface_on_historical_leg`: on the named behavior's surface, replace `instrumented_by`
+  with one of the `suggested` legs. `suggested` is a list of leg keys joined by `, `, and
+  event names carry their own spaces and hyphens, so split on the comma-space and pick the
+  leg whose event fires from the surface's `path` file. A suggested key of the form
+  `Viewed[path=/dashboard]` becomes two lines: `instrumented_by: Viewed` and
+  `page_path: /dashboard`. Read the surface's `path` file to confirm that is where the
+  live event fires. Event names live behind `EVENTS.*` constants in
+  `packages/gp-webapp/helpers/analyticsHelper.ts` (client) or
+  `packages/gp-api/src/vendors/segment/segment.types.ts` (backend); resolve the constant,
+  then grep for it. For a path-qualified leg the page event fires from the route tracker,
+  not the page component, so confirm the route tracker covers that path and keep the
+  surface `path` on the page component. If the behavior's caveat mentions the old leg,
+  rewrite it.
+- `declared_leg_unmonitored`: add a surface to the behavior that points at the metric, or
+  an `events:` row if no behavior owns the question, in the exact row shape Queue B's
+  accept uses. Same `page_path` rule.
+- `metric_undeclared`: either the pointer is misspelled (fix it against the sem file's
+  `name:` values) or the metric is not governed yet. In the second case remove the
+  pointer and tell the reviewer the metric is not an OKR until it is declared. Do not
+  file a ticket for that; it is the semantic-layer owners' call.
+
+Case 1 has no dismiss. A stale pointer is always wrong.
+
+**Case 2, `declared_leg_dead_with_live_successor`.** Draft the change before asking:
+
+```yaml
+# in <metric>'s config.meta.anchored_on
+- event: <event_key's event>
+  era: historical   # <evidence.retired_date, else evidence.last_seen_date, else evidence.latched_since>
+- event: <suggested's event>
+  path: <suggested's path, when the key carries one>
+```
+
+Show the reviewer the draft, the `evidence` block, and the call site: read the surface's
+`path` file and confirm the successor fires there at HEAD. Event names live behind
+`EVENTS.*` constants in `packages/gp-webapp/helpers/analyticsHelper.ts` (client) or
+`packages/gp-api/src/vendors/segment/segment.types.ts` (backend); resolve the constant,
+then grep for it. `call_site_count` is blind for many events (DATA-2427), so read the
+site, do not trust the count.
+
+- **accept** → open the gp-data-platform PR:
+  1. `cd` to a gp-data-platform checkout (ask where if unknown), `git fetch origin main`,
+     branch `data-2513/<metric-slug>-anchor` from `origin/main`.
+  2. Apply the draft to the sem file. No ticket ids in the YAML; the `era: historical`
+     date comment is enough.
+  3. Invoke that repo's `pull-request` skill. Title `[DATA-2513] Re-anchor <metric> on
+     <successor>`. Body: the evidence block, the omni behavior that surfaced it, and a
+     link to this session's omni PR once it exists. CODEOWNERS routes it to both
+     semantic-layer teams; you do not merge it.
+  4. Record the PR URL for the omni write-back body.
+- **dismiss** → the reviewer says the successor is not part of the metric. Append to
+  `dismissed:` in `monitored_events.yaml`:
+  `- {event: "<suggested>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
+  and file nothing.
+- **defer** → leave everything; it re-nags next run.
+
+**Case 3, `live_instrument_not_declared`.** One question to the reviewer, verbatim:
+"Should `<metric>` count `<event_key>`?"
+
+- **yes** → it becomes a case 2 recommendation: draft an `anchored_on` addition (no
+  `era`, just the new leg) and follow the case 2 accept path.
+- **no** → the behavior answers a broader question than the metric. Append to
+  `dismissed:` in `monitored_events.yaml`, keyed on the finding's `event_key`:
+  `- {event: "<event_key>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
+  so it stops re-nagging, and add one sentence to the behavior's caveat naming the
+  surface as outside the metric.
+- **defer** → leave it. If the reviewer is not the metric's owner they may defer it to
+  the semantic-layer owners; then the output is a Data backlog ticket (`901326391561`,
+  same safe-payload discipline as Queue A) carrying the drafted addition. The drafted
+  addition has the case 2 shape without `era`: `- event: <event_key's event>` plus
+  `path:` when the key carries one. Write the draft into the omni PR body under a Queue C
+  heading; that is its home when no ticket is filed.
+
+Never decide a case 3 yourself.
+
 ## Diagnose — red/yellow health items
 
 Runs when the digest has a 🔴/🟡 tier and the reviewer wants the story, not just the
@@ -371,21 +493,23 @@ ticket, or the reviewer's own follow-up message.
 
 ## Write back — one PR
 
-Once both queues are dispositioned:
+Once all three queues are dispositioned:
 
-1. `git status` should show only `instrumentation_gaps.json` and (if Queue B had any
-   accept/dismiss) `monitored_events.yaml` under
-   `packages/runbooks/scripts/python/instrumentation_data/` /
+1. `git status` should show at most `instrumentation_gaps.json` and (if Queue B had any
+   accept/dismiss, or Queue C had any case 1 edit or dismissal) `monitored_events.yaml`
+   under `packages/runbooks/scripts/python/instrumentation_data/` /
    `packages/runbooks/scripts/python/`.
 2. Stage exactly those files.
-3. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the
-   run, e.g. `chore(governance): triage <run_date> — gap + watchlist review`. In the
-   body, list:
+3. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the run,
+   e.g. `chore(governance): triage <run_date> — gap + watchlist + alignment review`. In
+   the body, list:
    - Queue A: which gap ids were ticketed (with ClickUp links), which were handed to
      `instrument-analytics-event` (with the resulting event name/PR if different from
      this one), which were dismissed (with reason), which were deferred.
    - Queue B: which events were added to the watchlist, which were dismissed (with
      reason), which were deferred.
+   - Queue C: which findings were edited in omni (behavior and surface), which produced a
+     gp-data-platform PR (link), which were dismissed (with reason), which were deferred.
 
 `ship-pr` handles branch creation, pre-flight, delegate convergence, and the check
 gate — this skill's job ends at "stage the right files and describe the run."
@@ -402,6 +526,11 @@ gate — this skill's job ends at "stage the right files and describe the run."
 - **Before appending any row to `monitored_events.yaml`**, check the target section
   (`events:` for accept, `dismissed:` for dismiss) doesn't already contain that
   `event` string. Appending blindly on a re-run would duplicate the row.
+- **Queue C writes to two repos.** The omni edit and the gp-data-platform PR are separate
+  PRs, and the omni PR body links the other. Never edit an omni pointer to make a case 2
+  finding disappear; the finding disappears when the declaration changes.
+- **Before appending a Queue C dismissal**, check `dismissed:` for the same `event` and
+  `metric`.
 - **Never edit product code directly** from this skill. Accepted gaps either get a
   ClickUp ticket or get handed to `instrument-analytics-event`, which owns naming,
   registration, and metadata.

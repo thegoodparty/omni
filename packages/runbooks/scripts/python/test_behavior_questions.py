@@ -100,3 +100,23 @@ def test_two_questions_on_the_same_behavior_set_are_reported_as_duplicates():
 def test_questions_on_different_behavior_sets_are_not_duplicates():
     behaviors = [_b("a", "Q1", "E"), _b("b", "Q2", "F")]
     assert bq.duplicate_behavior_sets(behaviors, {"E": _rec("E"), "F": _rec("F")}) == []
+
+
+def test_a_latched_path_surface_downgrades_its_question():
+    # The bare Viewed event is active, so without the latch this behaviour reads fully
+    # covered and the question looks answered while one page's slice is dormant.
+    behavior = {
+        "id": "a", "question": "Q1", "product": "win",
+        "surfaces": [
+            {"path": "a0.tsx", "label": "l0", "instrumented_by": "E"},
+            {"path": "a1.tsx", "label": "dash", "instrumented_by": "Viewed",
+             "page_path": "/dashboard"},
+        ],
+    }
+    by_type = {"E": _rec("E"), "Viewed": _rec("Viewed")}
+    assert bq.question_rows([behavior], by_type)[0]["state"] == "answerable"
+    latches = {"Viewed[path=/dashboard]": {
+        "latched": True, "metric": "m", "since": "2026-08-10"}}
+    rows = bq.question_rows([behavior], by_type, latches=latches)
+    assert rows[0]["state"] == "partially_answerable"
+    assert rows[0]["gaps"] == ["a1.tsx"]

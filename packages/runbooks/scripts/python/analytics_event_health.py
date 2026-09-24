@@ -801,13 +801,16 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
     for problem in result.get("anchor_problems") or []:
         lines.append("")
         lines.append(f"> **OKR dormancy checks degraded.** {problem}")
-    tag_problems = result.get("okr_tag_problems") or []
-    if tag_problems:
+    if result.get("okr_markers_unavailable"):
         lines.append("")
-        lines.append("### OKR tags the semantic layer does not back")
-        lines.append("")
-        for problem in tag_problems:
-            lines.append(f"- {problem}")
+        lines.append(
+            "> **OKR markers are unavailable this run.** Some or all OKR events below "
+            "are unmarked, because the semantic layer could not be read in full. "
+            "Red OKR items may render yellow."
+        )
+    import anchor_alignment as aa  # local: it imports behavior_registry, which imports this
+
+    lines.extend(aa.render_section(result.get("anchor_alignment") or []))
     lines.append("")
     lines.append("### Flagged (ranked)")
     lines.append("")
@@ -875,58 +878,47 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 # --- IO + CLI -----------------------------------------------------------------
 
 
-def _render_okr(okr: Any) -> str:
-    """List values render as one comma-joined display string."""
-    return ", ".join(str(v) for v in okr) if isinstance(okr, list) else str(okr)
-
-
-def load_watchlist(
-    path: Path = WATCHLIST,
-) -> tuple[list[str], list[str], list[str], dict[str, str]]:
+def load_watchlist(path: Path = WATCHLIST) -> tuple[list[str], list[str], list[str]]:
     """Read ``monitored_events.yaml`` -> ``(watched_families, watchlist_event_names,
-    dismissed_event_names, okr_by_event)``. ``dismissed`` are proposals a human rejected
-    (DATA-2152); the proposal queue skips them permanently. ``okr_by_event`` (DATA-2174)
-    maps watchlist events to the OKR metric(s) anchored on them — the digest's top-tier
-    signal; list values render as one comma-joined display string."""
+    dismissed_event_names)``. ``dismissed`` are proposal-queue rejections (DATA-2152),
+    not Queue C alignment dismissals; the proposal queue skips them permanently. OKR
+    status is not read from this file: run_monitor derives it from the semantic
+    layer's anchored_on."""
     if not path.exists():
-        return [], [], [], {}
+        return [], [], []
     doc = yaml.safe_load(path.read_text()) or {}
     families = doc.get("watched_families", []) or []
     rows = [row for row in (doc.get("events", []) or []) if row.get("event")]
     events = [row["event"] for row in rows]
-    dismissed = [row["event"] for row in (doc.get("dismissed", []) or []) if row.get("event")]
-    okr_by_event = {row["event"]: _render_okr(row["okr"]) for row in rows if row.get("okr")}
-    return families, events, dismissed, okr_by_event
+    # Rows carrying a metric are Queue C alignment dismissals and belong to
+    # anchor_alignment.load_dismissals, not the proposal queue.
+    dismissed = [
+        row["event"] for row in (doc.get("dismissed", []) or [])
+        if row.get("event") and not row.get("metric")
+    ]
+    return families, events, dismissed
 
 
-def load_monitored_events(
-    path: Path = WATCHLIST,
-) -> tuple[list[str], list[str], list[str], dict[str, str]]:
-    """The monitor's view of the file: ``load_watchlist`` widened with every event a
-    behavior declares as an instrument (DATA-2290).
+def load_monitored_events(path: Path = WATCHLIST) -> tuple[list[str], list[str], list[str]]:
+    """``load_watchlist`` widened with every event a behavior declares as an instrument
+    (DATA-2290). ``load_watchlist`` stays the literal reader because ``behavior_registry``
+    feeds it straight into rule 8; widening it in place would make rule 8 fire on every
+    behavior in the file."""
+    from behavior_registry import surface_key  # local: it imports this module
 
-    Behaviors are the successor surface (DATA-2316) and rule 8 forces an event off
-    ``events:`` the moment it migrates, so a monitor reading only ``events:`` goes blind to
-    exactly the events the registry cares most about. ``load_watchlist`` stays the literal
-    reader because ``behavior_registry`` feeds it straight into that rule; widening it in
-    place would make rule 8 fire on every behavior in the file. A behavior's ``okr:``
-    anchors each of its instruments; an authored ``events:`` row wins any collision.
-    """
-    families, events, dismissed, okr_by_event = load_watchlist(path)
+    families, events, dismissed = load_watchlist(path)
     if not path.exists():
-        return families, events, dismissed, okr_by_event
+        return families, events, dismissed
     doc = yaml.safe_load(path.read_text()) or {}
     for behavior in doc.get("behaviors", []) or []:
-        okr = _render_okr(behavior["okr"]) if behavior.get("okr") else None
         for surface in behavior.get("surfaces", []) or []:
-            name = surface.get("instrumented_by")
-            if not name:
-                continue  # explicit null = a declared gap, nothing to monitor yet
-            if name not in events:
+            # The leg key, not the bare event: a page_path surface names one slice, and
+            # enrolling the site-wide event would mark its catalog record watchlisted,
+            # and so elevated, on the strength of a surface that never claimed it.
+            name = surface_key(surface)
+            if name and name not in events:
                 events.append(name)
-            if okr:
-                okr_by_event.setdefault(name, okr)
-    return families, events, dismissed, okr_by_event
+    return families, events, dismissed
 
 
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
@@ -1039,70 +1031,6 @@ def _latched_leg_record(
     return record
 
 
-def validate_okr_tags(
-    okr_by_event: Mapping[str, str],
-    anchors: Mapping[str, Sequence[Any]],
-) -> list[str]:
-    """Report `okr:` tags in monitored_events.yaml that the semantic layer does not back.
-
-    The tag is a local convenience copy; the declaration is the kernel. Two problem
-    classes, both worth saying out loud every run:
-
-    1. Unknown — the tagged event appears in no metric's anchored_on at all. This is
-       how the era-2 break went unescalated for a month: a tag pointing at a retired
-       event name.
-    2. Stale-to-historical — the tagged event is not live anywhere, but is declared as
-       an ``era: historical`` leg on a metric that still has a live leg elsewhere. The
-       instrument moved; the tag did not follow it. Reported with a softer message that
-       names the live leg(s) to point the tag at instead.
-
-    A tag whose event is historical on one metric but live on another is backed by a
-    live declaration and is not reported. Nor is a tag on a historical leg of a metric
-    whose every leg is historical — that metric has nowhere for the tag to move to, and
-    run_monitor's own anchor_problems check already reports the metric itself; reporting
-    the tag too would be duplicate noise under a different heading.
-
-    An empty ``anchors`` means the cross-repo read did not happen (no token, GitHub
-    down). Validating against nothing would report every tag as broken, so return
-    nothing instead.
-    """
-    if not anchors:
-        return []
-
-    all_events = {leg.event for legs in anchors.values() for leg in legs}
-    live_events = {leg.event for legs in anchors.values() for leg in legs if leg.watched}
-
-    # event -> live leg keys of every metric where the event is a historical leg AND
-    # that metric still has a live leg for the tag to move to.
-    stale_targets: dict[str, list[str]] = {}
-    for legs in anchors.values():
-        live_keys = [leg.key for leg in legs if leg.watched]
-        if not live_keys:
-            continue
-        for leg in legs:
-            if not leg.watched:
-                stale_targets.setdefault(leg.event, []).extend(live_keys)
-
-    problems = []
-    for event, metric in sorted(okr_by_event.items()):
-        if event in live_events:
-            continue
-        if event not in all_events:
-            problems.append(
-                f"okr: tag on '{event}' ({metric}) — no governed metric declares this event in "
-                f"anchored_on. Either the instrument moved and the semantic layer needs "
-                f"updating, or the tag is stale."
-            )
-        elif event in stale_targets:
-            targets = ", ".join(sorted(set(stale_targets[event])))
-            problems.append(
-                f"okr: tag on '{event}' ({metric}) — the semantic layer has moved this "
-                f"instrument on; that event is now historical. Point the tag at "
-                f"{targets} instead."
-            )
-    return problems
-
-
 def run_monitor(
     run_query: Callable[[str], Any],
     *,
@@ -1148,26 +1076,33 @@ def run_monitor(
         if leg.watched
     }
 
-    catalog = fetch_catalog(run_query)
-    weekly = fetch_weekly(run_query) + fetch_path_weekly(run_query, watched_legs)
-    code = load_code_axis(csv_path)
-    watched_families, watchlist_events, dismissed_events, local_okr_tags = (
-        load_monitored_events(watchlist_path)
-    )
-    # A leg's metric name is authoritative over any hand-typed okr: tag for the same
-    # event, because the semantic layer is the kernel and the tag is a local copy.
-    okr_for_digest = {**local_okr_tags, **watched_by_key}
+    import behavior_registry as br  # local: it imports this module
 
+    behaviors = br.load_behaviors(watchlist_path)
+    # Query every path slice the registry names, not just the declared ones. A surface
+    # the declaration omits is the exact shape of a case 3 finding, and with no rows of
+    # its own it can never read live, so the check would be blind to the thing it exists
+    # to catch. Only the query widens: the latch and watched_by_key stay on declared legs.
+    path_legs = {leg.key: leg for leg in watched_legs if leg.path}
+    for behavior in behaviors:
+        for surface in behavior.get("surfaces") or []:
+            if surface.get("instrumented_by") and surface.get("page_path"):
+                leg = sem_anchors.Leg(surface["instrumented_by"], surface["page_path"])
+                path_legs.setdefault(leg.key, leg)
+
+    catalog = fetch_catalog(run_query)
+    weekly = fetch_weekly(run_query) + fetch_path_weekly(
+        run_query, list(path_legs.values()))
+    code = load_code_axis(csv_path)
+    watched_families, watchlist_events, dismissed_events = load_monitored_events(watchlist_path)
     result = reconcile(
         catalog, weekly, code, today, watchlist_events, watched_families,
-        dismissed_events=dismissed_events, okr_by_event=okr_for_digest,
+        dismissed_events=dismissed_events, okr_by_event=watched_by_key,
     )
-    # Against local_okr_tags, not okr_for_digest: the merged map also carries
-    # watched_by_key's entries, and those are keyed by LEG KEY, not event name — a path
-    # leg's key is a synthetic string like "Viewed[path=/dashboard]" that no leg's
-    # `.event` ever equals. Validating the merged map would spuriously fire Class 1
-    # ("unknown event") on that synthetic key.
-    result["okr_tag_problems"] = validate_okr_tags(local_okr_tags, anchors)
+    # A read problem leaves the metrics it covers unmarked, and a partial read leaves
+    # only the failed file's. Say so on any of them, or a red OKR item quietly reads
+    # yellow the week the token expires or one sem file breaks.
+    result["okr_markers_unavailable"] = bool(read_problems)
 
     current_monday = today - timedelta(days=today.weekday())
     # The WHOLE warehouse series, never a watched-only slice: update_latches tells a leg
@@ -1222,6 +1157,20 @@ def run_monitor(
     # Carried separately as well so the Slack build can tier it yellow; the digest reads
     # anchor_problems and needs no such distinction.
     result["warehouse_lag_problems"] = warehouse_lag_problems
+
+    # local: anchor_alignment imports behavior_registry, which imports this module
+    import anchor_alignment as aa
+
+    # After the latches are final, so a finding's evidence quotes the same latch record
+    # the digest prints two sections above it.
+    result["anchor_alignment"] = aa.align(
+        behaviors, anchors,
+        records_by_type={r["event_type"]: r for r in result["records"]},
+        series=series, code=code, watchlist_events=watchlist_events,
+        latches=latches, today=today,
+        dismissed=aa.load_dismissals(watchlist_path),
+        partial_read=bool(read_problems),
+    )
 
     # Walk `records`, not `flagged`: a latched break is by construction one whose
     # detect_anomaly has gone quiet, so its record already ranks 99 and has dropped out of
@@ -1319,9 +1268,19 @@ def build_slack_triage(
         for problem in result.get("anchor_problems") or []
         if problem not in lag_problems
     ]
-    # Yellow for the same reason the okr: tag items are: a lagging load is worth saying
-    # out loud, but it resolves itself when the pipeline catches up, and forcing a red
-    # post every week through a multi-day outage is the alert fatigue this digest avoids.
+    if result.get("okr_markers_unavailable"):
+        triage["items"].insert(0, {
+            "id": "(okr markers)",
+            "event_type": "(okr markers)",
+            "rank": 0, "okr": "run-level",
+            "rules_tier": "red", "tier": "red",
+            "headline": ("OKR markers are unavailable this run: the semantic layer "
+                         "could not be read in full."),
+            "action": "Restore the semantic-layer read before trusting any tier below.",
+        })
+    # Yellow rather than red: a lagging load is worth saying out loud, but it resolves
+    # itself when the pipeline catches up, and forcing a red post every week through a
+    # multi-day outage is the alert fatigue this digest avoids.
     triage["items"].extend([
         {
             "id": "(warehouse freshness)",
@@ -1334,25 +1293,12 @@ def build_slack_triage(
         }
         for problem in lag_problems
     ])
-    # Same reasoning, added after run_triage for the same reason: a stale okr: tag is
-    # slow-moving governance drift, not a broken pipe, so it goes in yellow (never red,
-    # and it must never flip red_open below) — forcing a post every week on a persistent
-    # tag mismatch is the alert-fatigue pattern this project's digest explicitly avoids.
-    # Appended rather than prepended: anchor_problems are run-level incidents that belong
-    # at the top, tag problems are secondary detail.
-    triage["items"].extend([
-        {
-            "id": "(okr tag check)",
-            "event_type": "(okr tag check)",
-            "rank": 5, "okr": "run-level",
-            "rules_tier": "yellow", "tier": "yellow",
-            "headline": problem,
-            "action": ("Point the okr: tag in monitored_events.yaml at the event(s) the "
-                       "semantic layer currently anchors, or remove it if the metric "
-                       "itself is retired."),
-        }
-        for problem in result.get("okr_tag_problems") or []
-    ])
+    import anchor_alignment as aa  # local: it imports behavior_registry, which imports this
+
+    # Yellow, and only case 2: a declaration behind the product is the one shape someone
+    # outside this loop has to hear about, and it rides along with a post rather than
+    # manufacturing one.
+    triage["items"].extend(aa.slack_items(result.get("anchor_alignment") or []))
     red_open = any(i.get("tier") == "red" for i in triage.get("items") or [])
     if not slk.should_post(result, changes, prior_anomalous, gap, red_open=red_open):
         return None

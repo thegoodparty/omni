@@ -823,7 +823,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     archived: boolean,
   ): Promise<{ id: number; archivedAt: Date | null }> {
     const claimed = await this.model.updateMany({
-      where: { id, organizationSlug },
+      // A LEGACY row carries a null `organizationSlug` and resolves its org
+      // through the campaign join instead — the schema says so on that column
+      // ("legacy rows resolve their org via the campaignId join; no
+      // backfill"), and `voterFileFilter.service.ts` already scopes this way.
+      //
+      // Scoping on the column alone matched zero rows for every one of them,
+      // so archive 404'd on exactly the population that needs it: a
+      // pre-VO-2.0 request submitted, never fulfilled, and now unremovable.
+      // Tenancy is unchanged — a null-slug row still has to hang off a
+      // campaign in the caller's own org.
+      where: {
+        id,
+        OR: [
+          { organizationSlug },
+          { organizationSlug: null, campaign: { organizationSlug } },
+        ],
+      },
       data: { archivedAt: archived ? new Date() : null },
     })
     if (claimed.count === 0) {

@@ -853,38 +853,39 @@ def test_load_watchlist_reads_dismissed(tmp_path):
         'events:\n  - {event: "Sign Up Clicked", product: win, family: win_onboarding}\n'
         'dismissed:\n  - {event: "Noise Event", reason: "UI micro-interaction", date: "2026-08-03"}\n'
     )
-    families, events, dismissed, okr = eh.load_watchlist(p)
+    families, events, dismissed = eh.load_watchlist(p)
     assert families == ["win_onboarding"]
     assert events == ["Sign Up Clicked"]
     assert dismissed == ["Noise Event"]
-    assert okr == {}
 
 
-def test_load_watchlist_returns_okr_map(tmp_path):
+def test_load_watchlist_ignores_queue_c_dismissals(tmp_path):
+    p = tmp_path / "mon.yaml"
+    p.write_text(
+        "watched_families: [win_onboarding]\n"
+        "events: []\n"
+        "dismissed:\n"
+        '  - {event: "B Row", reason: "r", date: "2026-08-06"}\n'
+        '  - {event: "Viewed[path=/polls]", reason: "r", date: "2026-09-23", '
+        "metric: win_active_candidates_30d}\n"
+    )
+    _, _, dismissed = eh.load_watchlist(p)
+    assert dismissed == ["B Row"]
+
+
+def test_load_watchlist_ignores_any_okr_key(tmp_path):
     y = tmp_path / "w.yaml"
     y.write_text(
         "watched_families: [win_dashboard]\n"
         "events:\n"
-        '  - {event: "Dashboard - Candidate Dashboard Viewed", product: win, '
-        'family: win_dashboard, floor: null, owner: TBD, okr: "Active Candidates"}\n'
-        '  - {event: "Sign Up Clicked", product: win, family: win_onboarding, '
-        "floor: null, owner: TBD}\n"
-        '  - {event: "Multi Metric Event", product: win, family: win_dashboard, '
-        'floor: null, owner: TBD, okr: ["Active Candidates", "Signups"]}\n'
+        '  - {event: "Sign Up Clicked", product: win, family: win_onboarding, okr: "Legacy"}\n'
         "dismissed: []\n"
     )
-    families, events, dismissed, okr = eh.load_watchlist(y)
-    assert events == [
-        "Dashboard - Candidate Dashboard Viewed", "Sign Up Clicked", "Multi Metric Event",
-    ]
-    assert okr == {
-        "Dashboard - Candidate Dashboard Viewed": "Active Candidates",
-        "Multi Metric Event": "Active Candidates, Signups",
-    }
+    assert eh.load_watchlist(y) == (["win_dashboard"], ["Sign Up Clicked"], [])
 
 
-def test_load_watchlist_missing_file_returns_empty_okr(tmp_path):
-    assert eh.load_watchlist(tmp_path / "absent.yaml") == ([], [], [], {})
+def test_load_watchlist_missing_file_returns_empty(tmp_path):
+    assert eh.load_watchlist(tmp_path / "absent.yaml") == ([], [], [])
 
 
 # --- load_monitored_events ---------------------------------------------------
@@ -901,7 +902,7 @@ BEHAVIOR_YAML = (
     "      - {path: b.tsx, label: wizard, instrumented_by: null}\n"
     "  - id: voter_outreach_scheduled\n"
     "    product: win\n"
-    '    okr: ["Activated Candidates", "Outreach Intensity"]\n'
+    '    metric: win_activated_users\n'
     "    surfaces:\n"
     '      - {path: c.tsx, label: campaign, '
     'instrumented_by: "Voter Outreach - Campaign Completed"}\n'
@@ -912,7 +913,7 @@ BEHAVIOR_YAML = (
 def test_load_monitored_events_adds_behavior_instruments(tmp_path):
     y = tmp_path / "w.yaml"
     y.write_text(BEHAVIOR_YAML)
-    _, events, _, _ = eh.load_monitored_events(y)
+    _, events, _ = eh.load_monitored_events(y)
     assert events == [
         "Sign Up Clicked",
         "Voter Data - List Exported",
@@ -921,28 +922,34 @@ def test_load_monitored_events_adds_behavior_instruments(tmp_path):
     ]
 
 
-def test_load_monitored_events_anchors_the_behavior_okr_on_every_instrument(tmp_path):
-    y = tmp_path / "w.yaml"
-    y.write_text(BEHAVIOR_YAML)
-    _, _, _, okr = eh.load_monitored_events(y)
-    assert okr == {
-        "Voter Outreach - Campaign Completed": "Activated Candidates, Outreach Intensity",
-        "Door Knocking - List Created": "Activated Candidates, Outreach Intensity",
-    }
-
-
 def test_load_watchlist_stays_blind_to_behaviors(tmp_path):
     """Rule 8 compares instrumented_by against this list, so widening it in place would
     turn every migrated behavior into a duplicate-anchor error."""
     y = tmp_path / "w.yaml"
     y.write_text(BEHAVIOR_YAML)
-    _, events, _, okr = eh.load_watchlist(y)
+    _, events, _ = eh.load_watchlist(y)
     assert events == ["Sign Up Clicked"]
-    assert okr == {}
+
+
+def test_load_monitored_events_enrolls_a_page_path_surface_by_leg_key(tmp_path):
+    """The surface means the '/dashboard' slice, not the site-wide event. Enrolling the
+    bare name would mark the catalog record watchlisted, and so elevated, forever."""
+    y = tmp_path / "w.yaml"
+    y.write_text(
+        "behaviors:\n"
+        "  - id: dashboard_viewed\n"
+        "    product: win\n"
+        "    surfaces:\n"
+        '      - {path: a.tsx, label: dash, instrumented_by: "Viewed", '
+        'page_path: "/dashboard"}\n'
+    )
+    _, events, _ = eh.load_monitored_events(y)
+    assert "Viewed[path=/dashboard]" in events
+    assert "Viewed" not in events
 
 
 def test_load_monitored_events_missing_file_returns_empty(tmp_path):
-    assert eh.load_monitored_events(tmp_path / "absent.yaml") == ([], [], [], {})
+    assert eh.load_monitored_events(tmp_path / "absent.yaml") == ([], [], [])
 
 
 def test_reconcile_stamps_okr_on_records():
@@ -954,10 +961,10 @@ def test_reconcile_stamps_okr_on_records():
         catalog, weekly_rows=[], code={}, today=date(2026, 8, 4),
         watchlist_events=["Dashboard - Candidate Dashboard Viewed"],
         watched_families=["win_dashboard"],
-        okr_by_event={"Dashboard - Candidate Dashboard Viewed": "Active Candidates"},
+        okr_by_event={"Dashboard - Candidate Dashboard Viewed": "win_active_candidates_30d"},
     )
     rec = result["records"][0]
-    assert rec["okr"] == "Active Candidates"
+    assert rec["okr"] == "win_active_candidates_30d"
     assert rec["on_watchlist"] is True
 
 
@@ -1477,21 +1484,22 @@ def test_run_monitor_passes_the_whole_warehouse_series_to_the_latch(tmp_path, mo
     assert record["okr"] == _METRIC
 
 
-def test_a_declared_leg_outranks_a_hand_typed_okr_tag_for_the_same_event(tmp_path):
-    # The semantic layer is the kernel; monitored_events.yaml's okr: is a local copy.
-    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+def test_run_monitor_marks_okr_only_from_the_declaration(tmp_path):
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8),
+               _cat("Unrelated", "win_dashboard", "x", cnt30=3)]
     csv_path, wl_path, state_path = _monitor_env(
         tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={},
-        watchlist=f'events:\n  - {{event: "{_TRACKER}", okr: "Active Candidates"}}\n',
+        watchlist=f'events:\n  - {{event: "{_TRACKER}"}}\n  - {{event: "Unrelated"}}\n',
     )
-
     result, _ = eh.run_monitor(
         _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
         watchlist_path=wl_path, state_path=state_path,
         anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
-
-    record = next(r for r in result["records"] if r["event_type"] == _TRACKER)
-    assert record["okr"] == _METRIC
+    by = {r["event_type"]: r for r in result["records"]}
+    assert by[_TRACKER]["okr"] == _METRIC
+    assert by["Unrelated"]["okr"] is None
+    assert "okr_tag_problems" not in result
+    assert result["okr_markers_unavailable"] is False
 
 
 def test_run_monitor_reports_anchor_problems_from_the_live_read(tmp_path, monkeypatch):
@@ -1505,6 +1513,37 @@ def test_run_monitor_reports_anchor_problems_from_the_live_read(tmp_path, monkey
 
     assert result["anchor_problems"] == ["token missing"]
     assert result["latches"] == {}
+
+
+def test_degraded_anchor_read_says_okr_markers_are_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(sa, "load_anchors", lambda: ({}, ["token missing"]))
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+    result, changes = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path)
+    assert result["okr_markers_unavailable"] is True
+    digest = eh.render_digest_section(result, changes)
+    assert "OKR markers are unavailable this run" in digest
+
+
+def test_a_partial_sem_read_marks_okr_markers_unavailable(tmp_path, monkeypatch):
+    # One sem file failed, the rest read fine. The metrics in the failed file go
+    # unmarked, so a red OKR item there would quietly render yellow.
+    monkeypatch.setattr(sa, "load_anchors", lambda: (
+        {_METRIC: [sa.Leg(_TRACKER, None, None)]}, ["could not read users_serve.yml"]))
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path)
+
+    assert result["okr_markers_unavailable"] is True
+    record = next(r for r in result["records"] if r["event_type"] == _TRACKER)
+    assert record["okr"] == _METRIC
 
 
 # --- latch state file ---------------------------------------------------------
@@ -1717,6 +1756,51 @@ def test_run_monitor_never_watches_a_historical_leg(tmp_path, monkeypatch):
     assert not any("/old" in sql for sql in seen_sql)  # watched_legs filter
 
 
+_POLLS_BEHAVIOR = (
+    "behaviors:\n"
+    "  - id: polls_viewed\n"
+    "    product: win\n"
+    f"    metric: {_METRIC}\n"
+    "    surfaces:\n"
+    '      - {path: a.tsx, label: polls, instrumented_by: "Viewed", page_path: "/polls"}\n'
+)
+
+
+def _run_with_an_undeclared_path_surface(tmp_path, seen_sql=None):
+    catalog = [_cat("Viewed", "amplitude_autotrack", "", cnt30=4_460_000)]
+    weekly = _weeks_before("Viewed", [100, 100, 100, 100, 100])
+    path_rows = (_weeks_before("Viewed", [3, 3], page_path="/dashboard")
+                 + _weeks_before("Viewed", [5, 5], page_path="/polls"))
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": "Viewed", "call_site_count": 1}], latches={},
+        watchlist=_POLLS_BEHAVIOR)
+    return eh.run_monitor(
+        _recording_query(catalog, weekly, path_rows, seen_sql=seen_sql), today=TODAY,
+        csv_path=csv_path, watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg("Viewed", "/dashboard", None)]})
+
+
+def test_run_monitor_queries_weekly_rows_for_registry_path_surfaces(tmp_path):
+    # Case 3 IS the undeclared surface, so querying only declared legs leaves the check
+    # permanently blind to the thing it exists to catch: no rows, never live, no finding.
+    seen_sql = []
+    result, _ = _run_with_an_undeclared_path_surface(tmp_path, seen_sql=seen_sql)
+
+    assert any("/polls" in sql for sql in seen_sql)
+    [f] = [x for x in result["anchor_alignment"]
+           if x["kind"] == "live_instrument_not_declared"]
+    assert f["event_key"] == "Viewed[path=/polls]" and f["case"] == 3
+
+
+def test_run_monitor_does_not_latch_an_undeclared_path_surface(tmp_path):
+    # Widening the query must not widen what the latch owns: only a declared leg is a
+    # governed instrument, and latching an undeclared one would post red for a slice no
+    # metric depends on.
+    result, _ = _run_with_an_undeclared_path_surface(tmp_path)
+
+    assert "Viewed[path=/polls]" not in result["latches"]
+
+
 def test_a_metric_whose_every_leg_is_historical_is_reported(tmp_path):
     # An anchored metric with no live leg left is this ticket's disease in its purest
     # form, and today it produces no signal at all.
@@ -1815,46 +1899,14 @@ def test_multiple_anchor_problems_reach_slack_in_order(monkeypatch):
                                                             "second problem"]
 
 
-def test_okr_tag_problem_reaches_slack_as_yellow_with_its_text_intact(monkeypatch):
-    # A stale okr: tag used to be reported only in the markdown log a bot commits — a
-    # surface nobody reads. Splice it into the triage like anchor_problems, but as
-    # yellow: slow-moving governance drift, not a broken pipe. There IS a real change
-    # this run (a new flagged event) so the quiet gate lets the post through and we can
-    # see the tag item survive run_triage (run_triage overwrites headline/action on every
-    # item it is handed, so the splice must happen after it, same as anchor_problems).
+def test_unavailable_okr_markers_reach_slack_as_red(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    tag_problem = ("okr: tag on 'Old Event' (win_active_candidates_30d) — no governed "
-                   "metric declares this event in anchored_on. Either the instrument "
-                   "moved and the semantic layer needs updating, or the tag is stale.")
-    result = _render_result(
-        okr_tag_problems=[tag_problem], proposals=[],
-        flagged=[{"event_type": "A", "status": "dormant", "rank": 8, "okr": None,
-                  "on_watchlist": False, "elevated": False, "anomaly": None,
-                  "event_count_30d": 0, "last_seen_date": None, "instrumented_pr": None,
-                  "divergence": None, "gpmeta": None}])
-    changes = {"new": ["A"], "escalated": [], "resolved": [], "still_open": []}
-
-    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
-
-    assert triage is not None
-    tag_item = next(i for i in triage["items"] if i["headline"] == tag_problem)
-    assert tag_item["tier"] == "yellow"
-    assert "Old Event" in tag_item["headline"]
-
-
-def test_okr_tag_problem_alone_does_not_force_a_post(monkeypatch):
-    # Mirrors test_build_slack_triage_quiet_run_returns_none_with_empty_items: a stale
-    # tag is slow governance drift, not an incident, so it must not turn into a forced
-    # weekly post the way a red anchor_problems item does.
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    result = _render_result(
-        okr_tag_problems=["okr: tag on 'Old Event' (m) — no governed metric declares "
-                          "this event in anchored_on."],
-        proposals=[])
-
+    result = _render_result(okr_markers_unavailable=True, anchor_problems=["token missing"],
+                            proposals=[])
     triage = eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None)
-
-    assert triage is None
+    assert triage is not None
+    item = next(i for i in triage["items"] if "OKR markers are unavailable" in i["headline"])
+    assert item["tier"] == "red"
 
 
 def test_main_state_write_survives_a_date_inside_a_latch_record(monkeypatch, tmp_path):
@@ -1897,118 +1949,6 @@ def test_a_malformed_sem_file_still_produces_a_digest(tmp_path, monkeypatch):
     assert "> **OKR dormancy checks degraded.**" in out
     assert "### Flagged (ranked)" in out  # the rest of the digest still renders
     assert result["total_events"] == 1  # and the other two axes still reconciled
-
-
-# --- validate_okr_tags (DATA-2421 Part B) -------------------------------------
-#
-# Widened per the ticket owner's decision: a tag that has gone historical (rather
-# than fully unknown) is ALSO reported, but only when there is somewhere for it to
-# move to — i.e. the metric it went historical on still has a live leg. A metric
-# whose every leg is historical is already reported by run_monitor's own
-# anchor_problems check, so re-reporting its tags here would be duplicate noise.
-
-
-def test_okr_tag_on_an_event_the_semantic_layer_no_longer_anchors_is_reported():
-    anchors = {_METRIC: [
-        sa.Leg("Viewed", "/dashboard", None),
-        sa.Leg(_TRACKER, None, None),
-    ]}
-    tags = {"Dashboard - Candidate Dashboard Viewed": "Active Candidates"}
-    problems = eh.validate_okr_tags(tags, anchors)
-    assert any("Dashboard - Candidate Dashboard Viewed" in p for p in problems)
-
-
-def test_a_tag_matching_a_declared_leg_is_not_reported():
-    anchors = {_METRIC: [sa.Leg("Viewed", "/dashboard", None)]}
-    assert eh.validate_okr_tags({"Viewed": "Active Candidates"}, anchors) == []
-
-
-def test_a_tag_stale_to_historical_is_reported_with_where_it_should_point():
-    # The live shape of the era-2 bug: the tag still names the retired surface event,
-    # which went historical on win_active_candidates_30d when the metric's live leg
-    # moved to the site-wide 'Viewed' event scoped to '/dashboard'.
-    anchors = {_METRIC: [
-        sa.Leg("Viewed", "/dashboard", None),
-        sa.Leg("Dashboard - Candidate Dashboard Viewed", None, "historical"),
-    ]}
-    tags = {"Dashboard - Candidate Dashboard Viewed": "Active Candidates"}
-
-    problems = eh.validate_okr_tags(tags, anchors)
-
-    assert problems == [
-        "okr: tag on 'Dashboard - Candidate Dashboard Viewed' (Active Candidates) — "
-        "the semantic layer has moved this instrument on; that event is now "
-        "historical. Point the tag at Viewed[path=/dashboard] instead."
-    ]
-
-
-def test_a_tag_on_an_all_historical_metrics_historical_leg_is_not_reported_here():
-    # run_monitor's own anchor_problems check already reports a metric with no live
-    # leg left at all; this check has nowhere to point the tag, so it stays silent
-    # rather than duplicating that finding under a different heading. A second,
-    # unrelated metric WITH a live leg sits alongside it so a bug that pools live legs
-    # across all metrics (rather than checking each metric's own legs) would wrongly
-    # find somewhere to point this tag and this test would catch it.
-    anchors = {
-        "win_dead_metric": [sa.Leg("Old Name", None, "historical")],
-        _METRIC: [sa.Leg("Viewed", "/dashboard", None)],
-    }
-    assert eh.validate_okr_tags({"Old Name": "win_dead_metric"}, anchors) == []
-
-
-def test_a_tag_on_an_event_historical_on_one_metric_but_live_on_another_is_not_reported():
-    # A live declaration backs the event somewhere, so the tag is not stale.
-    anchors = {
-        "win_dead_metric": [sa.Leg("Shared Event", None, "historical")],
-        _METRIC: [sa.Leg("Shared Event", None, None)],
-    }
-    assert eh.validate_okr_tags({"Shared Event": "m"}, anchors) == []
-
-
-def test_no_anchors_means_no_validation_rather_than_everything_failing():
-    # Token absent. Reporting every tag as unknown would be worse than silence.
-    assert eh.validate_okr_tags({"Anything": "m"}, {}) == []
-
-
-def test_run_monitor_validates_the_pre_merge_local_tags_not_the_merged_map(tmp_path):
-    # okr_for_digest is local_okr_tags merged with watched_by_key, and watched_by_key is
-    # keyed by LEG KEY, not event name — a path leg's key is a synthetic string like
-    # "Viewed[path=/dashboard]" that no leg's `.event` ever equals. Validating that
-    # merged map would spuriously fire Class 1 ("unknown event") on the synthetic key
-    # itself. This reproduces with an EMPTY watchlist: watched_by_key alone already
-    # carries that synthetic key regardless of any real okr: tag, so a wrong
-    # implementation reports a problem here with nothing on the watchlist at all.
-    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
-    csv_path, wl_path, state_path = _monitor_env(
-        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}], latches={})
-
-    result, _ = eh.run_monitor(
-        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
-        watchlist_path=wl_path, state_path=state_path,
-        anchors={_METRIC: [sa.Leg("Viewed", "/dashboard", None)]})
-
-    assert not any("Viewed[path=/dashboard]" in p for p in result["okr_tag_problems"])
-
-
-def test_digest_renders_the_okr_tag_problems_section_after_the_latch_table():
-    out = eh.render_digest_section(
-        _render_result(
-            latches={_PATH_KEY: _latch(reference=1234.5)},
-            okr_tag_problems=["okr: tag on 'Old Name' (m) — no governed metric declares "
-                              "this event in anchored_on."]),
-        _NO_CHANGES)
-
-    assert "### OKR tags the semantic layer does not back" in out
-    assert "- okr: tag on 'Old Name' (m)" in out
-    latch_idx = out.index("### OKR anchors dormant (latched)")
-    tag_idx = out.index("### OKR tags the semantic layer does not back")
-    flagged_idx = out.index("### Flagged (ranked)")
-    assert latch_idx < tag_idx < flagged_idx
-
-
-def test_digest_omits_the_okr_tag_problems_section_when_there_are_none():
-    out = eh.render_digest_section(_render_result(okr_tag_problems=[]), _NO_CHANGES)
-    assert "### OKR tags the semantic layer does not back" not in out
 
 
 # --- warehouse freshness (DATA-2421 Part B) -----------------------------------
@@ -2095,9 +2035,10 @@ def test_a_stale_warehouse_does_not_hold_the_latch_clear_open(tmp_path):
 
 
 def test_the_staleness_item_posts_yellow_and_never_flips_red(monkeypatch):
-    # Yellow, like the okr: tag items: a lagging load is an operational condition the
-    # digest should say out loud, not a broken guard. It must also appear exactly once,
-    # even though it is carried in anchor_problems, whose other entries splice as red.
+    # Yellow, unlike the other anchor-problem items: a lagging load is an operational
+    # condition the digest should say out loud, not a broken guard. It must also appear
+    # exactly once, even though it is carried in anchor_problems, whose other entries
+    # splice as red.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     lag = ("The warehouse has loaded no event rows past the week of 2026-06-08, but the "
            "most recent complete week is 2026-06-15.")
@@ -2120,8 +2061,9 @@ def test_the_staleness_item_posts_yellow_and_never_flips_red(monkeypatch):
 
 
 def test_a_stale_warehouse_alone_does_not_force_a_slack_post(monkeypatch):
-    # Mirrors the okr: tag gate. Yellow means it rides along with a post that was going
-    # to happen; it does not manufacture one on an otherwise quiet week.
+    # Mirrors the gate the other anchor-problem items pass through. Yellow means it rides
+    # along with a post that was going to happen; it does not manufacture one on an
+    # otherwise quiet week.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     lag = "The warehouse has loaded no event rows past the week of 2026-06-08."
     result = _render_result(anchor_problems=[lag], warehouse_lag_problems=[lag],
@@ -2145,3 +2087,123 @@ def test_a_real_anchor_problem_still_posts_red_alongside_a_stale_warehouse(monke
     tiers = {i["headline"]: i["tier"] for i in triage["items"]}
     assert tiers["GP_DATA_PLATFORM_READ_TOKEN is not set"] == "red"
     assert tiers[lag] == "yellow"
+
+
+# --- registry vs semantic layer wired into the run ----------------------------
+
+
+def test_run_monitor_reports_alignment_findings(tmp_path):
+    dead = "Dashboard - Candidate Dashboard Viewed"
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8),
+               _cat(dead, "win_dashboard", "Old.", cnt30=0)]
+    watchlist = (
+        "behaviors:\n"
+        "  - id: weekly_active_candidates\n"
+        "    metric: win_active_candidates_30d\n"
+        "    product: win\n"
+        "    surfaces:\n"
+        f'      - {{path: a.tsx, label: dashboard_visit, instrumented_by: "{dead}"}}\n'
+        f'      - {{path: b.tsx, label: tracker, instrumented_by: "{_TRACKER}"}}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3},
+                   {"event_type": dead, "retired_date": "2026-07-13"}],
+        latches={}, watchlist=watchlist)
+    result, changes = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg("Viewed", "/dashboard", None),
+                           sa.Leg(dead, None, "historical"), sa.Leg(_TRACKER, None, None)]})
+    kinds = {f["kind"] for f in result["anchor_alignment"]}
+    assert "surface_on_historical_leg" in kinds
+    assert "declared_leg_unmonitored" in kinds  # Viewed[path=/dashboard] is named nowhere
+    digest = eh.render_digest_section(result, changes)
+    assert "### Registry vs semantic layer" in digest
+
+
+def test_a_partial_sem_read_does_not_accuse_a_correct_metric_pointer(tmp_path, monkeypatch):
+    # One sem file read, the other failed. A behavior pointing into the file that failed
+    # still has a correct pointer, and the read failure is already reported red in
+    # anchor_problems, so case 1 must not tell a reviewer to go and fix the pointer.
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8)]
+    watchlist = (
+        "behaviors:\n"
+        "  - id: weekly_active_candidates\n"
+        "    metric: win_active_candidates_30d\n"
+        "    product: win\n"
+        "    surfaces:\n"
+        f'      - {{path: b.tsx, label: tracker, instrumented_by: "{_TRACKER}"}}\n'
+        "  - id: serve_behavior\n"
+        "    metric: serve_missing_metric\n"
+        "    product: serve\n"
+        "    surfaces:\n"
+        f'      - {{path: c.tsx, label: tracker_serve, instrumented_by: "{_TRACKER}"}}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3}],
+        latches={}, watchlist=watchlist)
+    monkeypatch.setattr(sa, "load_anchors", lambda: (
+        {_METRIC: [sa.Leg(_TRACKER, None, None)]}, ["the serve sem file could not be read"]))
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path)
+
+    assert not [f for f in result["anchor_alignment"] if f["kind"] == "metric_undeclared"]
+    assert result["anchor_problems"]
+
+
+def test_run_monitor_passes_queue_c_dismissals_to_align(tmp_path):
+    catalog = [_cat(_TRACKER, "win_dashboard", "Tracker.", cnt30=8),
+               _cat("Campaign Plan - Tracker Opened", "win_dashboard", "New.", cnt30=8)]
+    watchlist = (
+        "behaviors:\n"
+        "  - id: b\n"
+        "    metric: win_active_candidates_30d\n"
+        "    product: win\n"
+        "    surfaces:\n"
+        f'      - {{path: a.tsx, label: old, instrumented_by: "{_TRACKER}"}}\n'
+        '      - {path: b.tsx, label: new, instrumented_by: "Campaign Plan - Tracker Opened"}\n'
+        "dismissed:\n"
+        '  - {event: "Campaign Plan - Tracker Opened", reason: "not a view", date: "2026-09-23", metric: win_active_candidates_30d}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _TRACKER, "call_site_count": 3, "retired_date": "2026-09-01"},
+                   {"event_type": "Campaign Plan - Tracker Opened", "call_site_count": 1}],
+        latches={}, watchlist=watchlist)
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, []), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_METRIC: [sa.Leg(_TRACKER, None, None)]})
+    assert not [f for f in result["anchor_alignment"] if f["case"] == 2]
+
+
+def test_alignment_case_2_reaches_slack_as_yellow_and_case_1_does_not(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = _render_result(
+        proposals=[],
+        anchor_alignment=[
+            {"case": 1, "kind": "metric_undeclared", "behavior_id": "b", "metric": "m",
+             "surface_label": None, "event_key": "", "suggested": "", "evidence": {},
+             "headline": "case one"},
+            {"case": 2, "kind": "declared_leg_dead_with_live_successor", "behavior_id": "b",
+             "metric": "m", "surface_label": "s", "event_key": "Old", "suggested": "New",
+             "evidence": {}, "headline": "case two"},
+        ],
+        flagged=[{"event_type": "A", "status": "dormant", "rank": 8, "okr": None,
+                  "on_watchlist": False, "elevated": False, "anomaly": None,
+                  "event_count_30d": 0, "last_seen_date": None, "instrumented_pr": None,
+                  "divergence": None, "gpmeta": None}])
+    changes = {"new": ["A"], "escalated": [], "resolved": [], "still_open": []}
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+    heads = [i["headline"] for i in triage["items"]]
+    assert "case two" in heads and "case one" not in heads
+    assert next(i for i in triage["items"] if i["headline"] == "case two")["tier"] == "yellow"
+
+
+def test_alignment_alone_does_not_force_a_post(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = _render_result(proposals=[], anchor_alignment=[
+        {"case": 2, "kind": "k", "behavior_id": "b", "metric": "m", "surface_label": None,
+         "event_key": "Old", "suggested": "New", "evidence": {}, "headline": "case two"}])
+    assert eh.build_slack_triage(result, _NO_CHANGES, state_path=None, gap=None) is None

@@ -34,11 +34,14 @@ def _state_for(coverages: list[str]) -> str:
     return "partially_answerable"
 
 
-def question_rows(behaviors: list[dict], records_by_type: dict[str, dict]) -> list[dict]:
+def question_rows(
+    behaviors: list[dict], records_by_type: dict[str, dict],
+    latches: dict[str, dict] | None = None,
+) -> list[dict]:
     """One row per distinct question, worst state first so the surface opens on what is broken."""
     grouped: dict[str, dict] = {}
     for b in behaviors:
-        state = behavior_state(b, records_by_type)
+        state = behavior_state(b, records_by_type, latches)
         own = str(b["question"]) if b.get("question") else None
         for q in _questions_of(b):
             row = grouped.setdefault(q, {
@@ -69,14 +72,15 @@ def question_rows(behaviors: list[dict], records_by_type: dict[str, dict]) -> li
 
 
 def duplicate_behavior_sets(
-    behaviors: list[dict], records_by_type: dict[str, dict]
+    behaviors: list[dict], records_by_type: dict[str, dict],
+    latches: dict[str, dict] | None = None,
 ) -> list[tuple[str, str]]:
     """Questions resolving to an identical behavior set are the same question in different
     words, whatever their wording overlap. This is the durable duplicate check; the wording
     comparison at intake time is only a prefilter, because a brand-new question has no
     behaviors yet and so cannot be compared this way."""
     by_set: dict[tuple[str, ...], list[str]] = {}
-    for row in question_rows(behaviors, records_by_type):
+    for row in question_rows(behaviors, records_by_type, latches):
         key = tuple(sorted(row["behaviors"]))
         by_set.setdefault(key, []).append(row["question"])
     pairs: list[tuple[str, str]] = []

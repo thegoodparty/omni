@@ -1480,38 +1480,51 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
     ).not.toBeInTheDocument()
   })
 
-  // Draft and In review have no canvas position at all: nothing to continue,
-  // nothing to archive, and nothing automatic to promise. No phone list on
-  // purpose: a pending row WITH one is the cancel-before-send set, which
-  // carries the Cancel footer covered below.
-  it('leaves a draft with no footer', async () => {
+  // Draft, In review and Denied have no canvas position: nothing to
+  // continue, and nothing automatic to promise. They DO get the shelf — see
+  // below. No phone list on purpose: a pending row WITH one is the
+  // cancel-before-send set, which carries the Cancel footer covered below.
+  //
+  // A non-p2p row at `pending` renders "In review", which is what a legacy
+  // request submitted before VO 2.0 and never fulfilled still reads today.
+  const reviewRow: HistoryRow = {
+    id: 30,
+    createdAt: '2026-08-10T00:00:00Z',
+    outreachType: 'text',
+    name: 'Untitled',
+    status: 'pending',
+  }
+
+  const mockDetail = (status: string, archivedAt: Date | null = null) =>
     api.mock('GET /v1/outreach/:id', {
       status: 200,
-      data: { ...baseDetail, outreachType: 'text' as const, status: 'pending' },
+      data: {
+        ...baseDetail,
+        outreachType: 'text' as const,
+        status,
+        archivedAt,
+      } as never,
     })
 
-    const draft: HistoryRow = {
-      id: 30,
-      createdAt: '2026-08-10T00:00:00Z',
-      outreachType: 'text',
-      name: 'Untitled',
-      status: 'pending',
-    }
-    render(<OutreachDetailsDrawer row={draft} onOpenChange={vi.fn()} />)
+  it('offers the shelf on an In review row, and still no primary', async () => {
+    mockDetail('pending')
+    render(<OutreachDetailsDrawer row={reviewRow} onOpenChange={vi.fn()} />)
 
-    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+    // The closed set is intact: archive is ours, and no canvas CTA was
+    // invented for a state the canvas has no position for.
     expect(screen.queryByText(/sending automatically/)).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Move to archive' }),
+      screen.queryByRole('link', { name: /Continue|Walk|Call/ }),
     ).not.toBeInTheDocument()
   })
 
-  // A saved outreach draft (server status `draft`, milestone 2) reads no
-  // label at all here — this drawer never threads membership into
-  // getHistoryStatusLabel, so draftLabelFor has nothing to name the next
-  // step with — and unlabeled is still outside lifecycleOf's four named
-  // strings, so the footer stays none, same as the legacy pending draft
-  // above.
+  // A saved outreach draft (server status `draft`, milestone 2) draws its own
+  // footer (`draftFooterAction`) or, with no membership read, nothing: the
+  // shared footer, and with it the archive shelf the In review rows below
+  // get, never stands in for it.
   it('leaves a saved outreach draft with no footer either', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -1533,6 +1546,71 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
     expect(
       screen.queryByRole('button', { name: 'Move to archive' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('archives an In review row through the envelope endpoint', async () => {
+    mockDetail('pending')
+    let archiveParams: unknown
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ params, body }) => {
+      archiveParams = params
+      archiveBody = body
+      return {
+        status: 200,
+        data: { id: 30, archivedAt: new Date('2026-09-24T00:00:00Z') },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer row={reviewRow} onOpenChange={onOpenChange} />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    )
+
+    expect(archiveParams).toEqual({ id: '30' })
+    expect(archiveBody).toEqual({ archived: true })
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
+
+  it('offers the shelf on a Denied row too', async () => {
+    mockDetail('denied')
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...reviewRow, status: 'denied' }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+  })
+
+  // Restore has to work from the same slot, or archiving one of these would
+  // be the one-way trip the "history is never hard-deleted" rule exists to
+  // avoid.
+  it('restores an archived footerless row', async () => {
+    mockDetail('pending', new Date('2026-09-01T00:00:00Z'))
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ body }) => {
+      archiveBody = body
+      return { status: 200, data: { id: 30, archivedAt: null } }
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...reviewRow, archivedAt: '2026-09-01T00:00:00Z' }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Restore from archive' }),
+    )
+    expect(archiveBody).toEqual({ archived: false })
   })
 })
 
