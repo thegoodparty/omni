@@ -46,8 +46,12 @@ export const FullScreenStepChrome = ({
         )}
         {/* min-h-0: a flex child defaults to min-height:auto, so without it
             this column grows to its content and the window scrolls the header
-            away instead of this body scrolling under it. */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5">
+            away instead of this body scrolling under it. relative: Radix
+            Select keeps a hidden, absolutely positioned native <select> per
+            dropdown, and an overflow box only clips positioned descendants
+            it is the containing block for; without it those selects extend
+            the page below the footer and the window scrolls again. */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-5">
           <div className="mx-auto flex w-full max-w-[608px] flex-1 flex-col">
             {children}
           </div>
