@@ -57,6 +57,10 @@ describe('DoorKnockingStatsService', () => {
     doors = [] as Array<Array<{ personId: string; addressKey: string }>>,
     completed = false,
     deleted = false,
+    // A turf nobody has walked: doors and an envelope, no route. Every
+    // turf-derived total has to reach it, which is the whole reason they
+    // join the envelope to the TURF rather than through the route.
+    routed = true,
   } = {}) => {
     // The doors hang off the TURF, frozen when it is drawn; the route only
     // carries the order they are walked in.
@@ -80,16 +84,18 @@ describe('DoorKnockingStatsService', () => {
         },
       },
     })
-    const route = await service.prisma.doorKnockingRoute.create({
-      data: {
-        doorKnockingTurfId: turf.id,
-        mode: 'walk',
-        loop: false,
-        totalSeconds: 60,
-        totalMeters: 100,
-        credits: 1,
-      },
-    })
+    const route = routed
+      ? await service.prisma.doorKnockingRoute.create({
+          data: {
+            doorKnockingTurfId: turf.id,
+            mode: 'walk',
+            loop: false,
+            totalSeconds: 60,
+            totalMeters: 100,
+            credits: 1,
+          },
+        })
+      : null
     await service.prisma.outreach.create({
       data: {
         organizationSlug: slug,
@@ -99,12 +105,12 @@ describe('DoorKnockingStatsService', () => {
           : OutreachStatus.in_progress,
         // The envelope hangs off the TURF, which is what the
         // outreach_native_door_knocking_turf_check requires. The route id is
-        // still recorded because this fixture builds one.
+        // null until somebody buys one.
         doorKnockingTurfId: turf.id,
-        doorKnockingRouteId: route.id,
+        doorKnockingRouteId: route?.id ?? null,
       },
     })
-    return { turfId: turf.id, routeId: route.id }
+    return { turfId: turf.id, routeId: route?.id ?? null }
   }
 
   const knock = (
@@ -497,6 +503,20 @@ describe('DoorKnockingStatsService', () => {
       await seedTurf({ completed: true })
       await seedTurf()
       await seedTurf({ deleted: true })
+
+      const totals = await stats.canvassingTotals(orgSlug)
+
+      expect(totals.uniqueTurfsCreated).toBe(2)
+      expect(totals.uniqueTurfsCompleted).toBe(1)
+    })
+
+    // The join that makes this work reaches the envelope off the TURF. Via
+    // the route it would miss every turf nobody has walked — and an unwalked
+    // turf can be marked done, because Done means "stop walking this" and
+    // not "this list is exhausted".
+    it('counts an unwalked turf, and counts it completed when it is', async () => {
+      await seedTurf({ routed: false, completed: true })
+      await seedTurf({ routed: false })
 
       const totals = await stats.canvassingTotals(orgSlug)
 
