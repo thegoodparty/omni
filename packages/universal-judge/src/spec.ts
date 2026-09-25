@@ -18,7 +18,13 @@ import { AGENTS, catalogue, resolveAgent } from './registry.js'
 
 export const TRIGGER = /universal\s+judge/i
 
-export const DEFAULT_SAMPLES = 3
+/**
+ * Six, because that is the fewest cases whose verdict can clear the power floor in
+ * aggregate.ts. Three was cheaper and could never produce a result worth acting on.
+ * Expensive agents get trimmed below this by the spend ceiling, and are reported as
+ * underpowered rather than quietly treated as conclusive.
+ */
+export const DEFAULT_SAMPLES = 6
 export const MAX_SAMPLES_PER_AGENT = 10
 /**
  * Hard ceiling on estimated agent spend for one comment. Deliberately low enough

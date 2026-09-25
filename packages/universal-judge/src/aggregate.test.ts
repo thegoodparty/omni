@@ -67,7 +67,7 @@ describe('summarise', () => {
   it('signs the score negatively when the baseline wins', () => {
     const s = summarise(
       result(
-        Array.from({ length: 4 }, (_, i) =>
+        Array.from({ length: 6 }, (_, i) =>
           verdict(`c${i}`, 'baseline', 'much_better'),
         ),
       ),

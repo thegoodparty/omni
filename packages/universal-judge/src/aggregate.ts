@@ -22,6 +22,16 @@ export const MIN_DECISIVE_MEAN = 0.25
 /** Above this share of order-flips the judge is not measuring anything stable. */
 export const MAX_FLIP_RATE = 0.2
 
+/**
+ * Fewest non-tied cases that could ever reach p<0.05 on a two-sided sign test.
+ *
+ * The best a clean sweep of n cases can do is 2/2^n, which only crosses 0.05 at
+ * n=6. Below that the arithmetic cannot distinguish a real difference from a coin,
+ * however lopsided the tally looks — so no direction is reported, rather than one
+ * that a reader would reasonably act on.
+ */
+export const MIN_POWERED_CASES = 6
+
 export type Summary = {
   agent: string
   cases: number
@@ -168,6 +178,21 @@ const headline = (s: {
     return {
       verdict: 'no material change',
       explanation: `${tally} Too small to act on.`,
+    }
+  }
+
+  // Run-to-run variance alone can sweep a handful of cases. Below the power floor
+  // the tally is reported but no direction is claimed, because at this sample size
+  // even a clean sweep cannot be told apart from chance.
+  const decided = s.wins + s.losses
+  if (decided < MIN_POWERED_CASES) {
+    return {
+      verdict: 'not enough cases to call',
+      explanation:
+        `${tally} Only ${decided} case(s) separated the two sides, and at that sample ` +
+        `size even a clean sweep cannot reach p<0.05, so this is a direction to look ` +
+        `into rather than a result. Re-run with at least ${MIN_POWERED_CASES} cases ` +
+        `to get a verdict worth acting on.`,
     }
   }
 

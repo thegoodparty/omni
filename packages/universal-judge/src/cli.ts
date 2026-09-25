@@ -11,6 +11,7 @@ import { makeClient, DEFAULT_JUDGE_MODEL } from './pairwise.js'
 import { agentByName, catalogue, resolveAgent } from './registry.js'
 import { COMMENT_MARKER, renderComment } from './report.js'
 import { runAgent } from './run.js'
+import { loadReplay, runReplay } from './replay.js'
 import { estimateCost, isTriggered, parseSpec, type JobSpec } from './spec.js'
 import type { AgentResult, Variant } from './types.js'
 
@@ -34,6 +35,8 @@ Options:
   --out <path>              Write the rendered PR comment here.
   --plan-out <path>         Write the resolved plan as JSON and stop. Used by CI to decide
                             which packages it needs to install before running.
+  --replay <path>           Judge stored outputs from a replay file instead of running
+                            anything. No AWS, no agent spend. Use it to iterate on a rubric.
   --dry-run                 Resolve the job and print the plan and cost estimate, then stop.
   --requested-by <login>    Attribute the run in the comment.
 
@@ -75,6 +78,38 @@ export const main = async (argv = process.argv.slice(2)) => {
   const args = parseArgs(argv)
   if (args.help || args.h) {
     console.log(USAGE)
+    return 0
+  }
+
+  // Replay judges stored outputs and dispatches nothing, so it needs no AWS and
+  // no agent spend. Handled before anything else because it shares none of the
+  // variant/checkout plumbing below.
+  const replayPath = str(args, 'replay')
+  if (replayPath) {
+    const replay = loadReplay(replayPath)
+    const judgeModel = str(args, 'judge-model') ?? DEFAULT_JUDGE_MODEL
+    const result = await runReplay({
+      replay,
+      client: makeClient(),
+      judgeModel,
+      log: (message) => console.log(`  ${message}`),
+    })
+    const body = renderComment({
+      sections: [{ result, summary: summarise(result) }],
+      baseline: {
+        role: 'baseline',
+        ref: str(args, 'baseline-ref') ?? 'stored baseline',
+        tag: 'replay',
+      },
+      candidate: {
+        role: 'candidate',
+        ref: str(args, 'candidate-ref') ?? 'stored candidate',
+        tag: 'replay',
+      },
+      judgeModel,
+      requestedBy: str(args, 'requested-by'),
+    })
+    emit(body, str(args, 'out'))
     return 0
   }
 
