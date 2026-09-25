@@ -398,3 +398,52 @@ def test_render_section_is_empty_without_findings_and_lists_each_case():
 def test_slack_items_carry_only_case_2_as_yellow():
     items = aa.slack_items([_f(1, "a"), _f(2, "b"), _f(3, "c")])
     assert [i["headline"] for i in items] == ["b"] and items[0]["tier"] == "yellow"
+
+
+# --- excluding-qualified legs (DATA-2422) ------------------------------------
+
+ACTIVATED = "win_activated_users"
+OUTREACH = Leg("Voter Outreach - Campaign Completed", None, None, (("method", ("manual",)),))
+
+
+def test_a_quiet_excluding_leg_with_a_live_successor_is_case_2():
+    # The production scenario this generalization exists for. The bare event's
+    # catalog record reads active off the self-report path, so judging the leg
+    # from that record would see nothing; only the narrowed slice's own rows show
+    # the in-product send has stopped.
+    quiet = {OUTREACH.key: [(TODAY - timedelta(days=7 * i), 3) for i in range(6, 10)]}
+    [f] = _align(
+        [_b("outreach_sent", ACTIVATED, (OUTREACH.event, None), ("VO - Campaign Scheduled", None))],
+        {ACTIVATED: [OUTREACH]},
+        records_by_type={OUTREACH.event: _rec(), "VO - Campaign Scheduled": _rec()},
+        series={**quiet, **_series("VO - Campaign Scheduled", 40)},
+    )
+    assert (f["case"], f["kind"]) == (2, "declared_leg_dead_with_live_successor")
+    assert f["event_key"] == OUTREACH.key, "the finding names the slice, not the whole event"
+    assert f["suggested"] == "VO - Campaign Scheduled"
+
+
+def test_a_still_firing_excluding_leg_produces_no_dead_leg_finding():
+    # The other side of the same branch: rows inside the window mean the slice is
+    # alive, whatever the whole event's record says.
+    findings = _align(
+        [_b("outreach_sent", ACTIVATED, (OUTREACH.event, None))],
+        {ACTIVATED: [OUTREACH]},
+        records_by_type={OUTREACH.event: _rec()},
+        series=_series(OUTREACH.key, 40),
+    )
+    assert findings == []
+
+
+def test_a_latched_excluding_leg_is_dead_even_with_recent_rows():
+    # A latch is omni's own verdict that the slice broke, and it outranks the
+    # rows: a trickle above zero must not read as alive.
+    [f] = _align(
+        [_b("outreach_sent", ACTIVATED, (OUTREACH.event, None), ("VO - Campaign Scheduled", None))],
+        {ACTIVATED: [OUTREACH]},
+        records_by_type={OUTREACH.event: _rec(), "VO - Campaign Scheduled": _rec()},
+        series={**_series(OUTREACH.key, 2), **_series("VO - Campaign Scheduled", 40)},
+        latches={OUTREACH.key: {"latched": True, "since": "2026-09-08"}},
+    )
+    assert f["case"] == 2 and f["evidence"]["latched"] is True
+    assert f["evidence"]["latched_since"] == "2026-09-08"
