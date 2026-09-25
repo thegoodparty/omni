@@ -104,13 +104,26 @@ export const sameDrafts = (a: TurfDraft[], b: TurfDraft[]): boolean =>
 // would hand a second "Turf 1" to a candidate who arrived through "Add
 // another turf".
 //
-// A plain count rather than a scan for the highest existing number: renaming
-// is coming to this toolbar, and a campaign holding "Downtown" and "Turf 2"
-// should offer "Turf 3" rather than re-offering a name the candidate has
-// already used. Collisions are possible and harmless — the name is a label,
-// the `clientId` is the identity.
+// The fallback a turf is SAVED under when nobody named it, not a default
+// filled into the field. A pre-filled "Turf 1" is a name the candidate has
+// to select and delete before typing their own, which is why the input
+// starts empty and offers "Name this turf" instead.
+//
+// A name is still required server-side, and everything downstream needs one
+// — outreach history, the walk header, the printed sheet. So an unnamed
+// turf gets this on the way out rather than blocking the press.
+//
+// A plain count rather than a scan for the highest existing number: a
+// campaign holding "Downtown" and "Turf 2" should offer "Turf 3" rather
+// than re-offering a name the candidate has already used. Collisions are
+// possible and harmless — the name is a label, the `clientId` is the
+// identity.
 export const nextTurfName = (existingCount: number): string =>
   `Turf ${existingCount + 1}`
+
+// What an unnamed turf shows: in the input as its placeholder, and on a
+// closed row where there is no input to place anything in.
+export const UNNAMED_TURF_LABEL = 'Name this turf'
 
 // Renders a draft on the canvas by shape-adapting it to `DoorKnockingTurf`.
 // Only the fields the `saved-turfs` PolygonLayer actually reads are honest

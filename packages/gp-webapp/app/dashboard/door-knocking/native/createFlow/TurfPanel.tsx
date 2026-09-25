@@ -40,6 +40,9 @@ interface TurfPanelProps {
   onStartNewTurf: () => void
   onRemoveDraft: (clientId: string) => void
   onPickColor: (color: string) => void
+  // Renames the turf under the cursor. The card for the turf still being
+  // CUT reports through this too — the page holds its name as
+  // `pendingName` until a third corner commits a draft to stamp it onto.
   onRename: (name: string) => void
   onAssign: (assigneeId: number | null) => void
   // Keep what this drawing session did, and hand back to the step. Blocked
@@ -295,6 +298,7 @@ export const TurfPanel = ({
                   team={team}
                   onPickColor={onPickColor}
                   onAssign={onAssign}
+                  onRename={onRename}
                 />
               </li>
             )}

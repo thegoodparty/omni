@@ -20,6 +20,7 @@ import {
   turfColorLabel,
   turfColorTick,
 } from '../turfQueries'
+import { UNNAMED_TURF_LABEL } from '../turfDrafts'
 import type { TeamOption } from '../useTeamOptions'
 import { RemoveTurfDialog } from './removeTurfDialog'
 
@@ -52,7 +53,18 @@ interface TurfCardProps {
   // Rename in place, on the open card only. Absent means the name is not
   // editable here — the closed rows in the list are a place to compare
   // turfs, not to type into.
+  //
+  // Only the DRAWING SURFACE passes it. The draw step's cards and the
+  // success screen's rows are read-only for the same reason: a turf is
+  // named while it is being cut, on the surface that is cutting it, and a
+  // second place to rename would be a second place for the two to
+  // disagree about what a turf is called.
   onRename?: (name: string) => void
+  // Set when a press was refused because of this card — currently only a
+  // missing name. Turns the card red and prints the reason under it, so the
+  // refusal is attached to the turf it is about rather than announced
+  // somewhere else on the screen.
+  error?: string | null
 }
 
 // One turf in the panel's list, closed to a row or open onto its settings.
@@ -77,6 +89,7 @@ export const TurfCard = ({
   onPickColor,
   onAssign,
   onRename,
+  error = null,
 }: TurfCardProps) => {
   const member = team.find((option) => option.userId === assigneeId)
   // Only the open card. A closed row is for comparing turfs, and an input on
@@ -123,8 +136,9 @@ export const TurfCard = ({
             key={name}
             defaultValue={name}
             aria-label="Turf name"
+            placeholder={UNNAMED_TURF_LABEL}
             maxLength={MAX_TURF_NAME_LENGTH}
-            className="min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent p-0 text-sm font-medium outline-none focus:ring-2 focus:ring-primary-focus"
+            className="min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent p-0 text-sm font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground focus:ring-2 focus:ring-primary-focus"
             onClick={(event) => event.stopPropagation()}
             onBlur={(event) => commitRename(event.currentTarget.value)}
             onKeyDown={(event) => {
@@ -140,8 +154,15 @@ export const TurfCard = ({
             }}
           />
         ) : (
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {name}
+          // A closed row has no input to hold a placeholder, so the
+          // invitation is the label itself — muted, because it is a prompt
+          // rather than a name. Opening the card is what makes it typeable.
+          <span
+            className={`min-w-0 flex-1 truncate text-sm ${
+              name ? 'font-medium' : 'text-muted-foreground'
+            }`}
+          >
+            {name || UNNAMED_TURF_LABEL}
           </span>
         )}
         {/* The canvasser and the count are one group, right-aligned, so the
@@ -184,7 +205,7 @@ export const TurfCard = ({
       }}
       data-turf-card=""
       className={`flex flex-col overflow-clip rounded-lg border bg-background ${
-        selected ? '' : 'border-border'
+        error ? 'border-destructive' : selected ? '' : 'border-border'
       }`}
       // The open card is drawn in the turf's OWN colour rather than in the
       // brand's, so the card and the ring it is about are the same object
@@ -193,7 +214,7 @@ export const TurfCard = ({
       // dot and the swatches already are: a turf's colour is data the
       // candidate chose, not a decision this file can name a token for.
       // The two-digit suffixes are hex alpha on the palette's 6-digit hex.
-      style={selected ? { borderColor: color } : undefined}
+      style={selected && !error ? { borderColor: color } : undefined}
     >
       {/* The whole row opens the card, not just the name.
 

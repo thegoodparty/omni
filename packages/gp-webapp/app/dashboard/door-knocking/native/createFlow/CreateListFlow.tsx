@@ -1212,6 +1212,9 @@ export default function CreateListFlow({
       // because all of that was settled before the map was ever drawn on.
       const bodyFor = (draft: TurfDraft, anchorId: number | undefined) => ({
         voterFileFilterId: filterId,
+        // Guaranteed non-empty: an unnamed turf cannot reach this press —
+        // both Save on the drawing surface and Create campaign refuse it and
+        // mark the card.
         name: draft.name.trim(),
         color: draft.color,
         geoPoly: {
@@ -1790,7 +1793,6 @@ export default function CreateListFlow({
               onPickColor={(clientId, color) =>
                 onUpdateDraft(clientId, { color })
               }
-              onRename={(clientId, name) => onUpdateDraft(clientId, { name })}
               onAssign={(clientId, assigneeId) =>
                 onUpdateDraft(clientId, { assigneeId })
               }

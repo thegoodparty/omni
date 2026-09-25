@@ -34,7 +34,6 @@ import {
   draftAsTurfLike,
   draftTurfId,
   isDrawnTurf,
-  nextTurfName,
   patchChangesDraft,
   sameDrafts,
   type TurfDraft,
@@ -495,6 +494,7 @@ export default function NativeDoorKnockingPage({
       // drawing session has a second copy to clear.
       setRing(null)
       setPendingAssigneeId(null)
+      setPendingName('')
       // The freed colour goes back into the palette rather than the session
       // advancing past it, which `startNextTurf` deliberately does: removing
       // the only turf and drawing again should give back the blue Turf 1 was
@@ -520,15 +520,24 @@ export default function NativeDoorKnockingPage({
   const [pendingAssigneeId, setPendingAssigneeId] = useState<number | null>(
     null,
   )
+  // What the next turf will be called, typed before a single corner is
+  // down. The card for the turf being cut is open from the moment the
+  // surface is, so naming is the first thing that can be done rather than
+  // something to remember afterwards — and it is stamped onto the draft the
+  // instant one commits, so the name is never attached to a shape the
+  // candidate has stopped thinking about.
+  const [pendingName, setPendingName] = useState('')
   const newDraftDefaults = useRef({
     color: draw.drawColor,
     count: 0,
     assigneeId: null as number | null,
+    name: '',
   })
   newDraftDefaults.current = {
     color: draw.drawColor,
     count: campaignTurfCount,
     assigneeId: pendingAssigneeId,
+    name: pendingName,
   }
   const handlePolygonChange = useCallback(
     (next: PolygonRing | null) => {
@@ -550,16 +559,21 @@ export default function NativeDoorKnockingPage({
         updateDraft(active, { polygon: next })
         return
       }
-      const { color, count, assigneeId } = newDraftDefaults.current
+      const { color, assigneeId, name } = newDraftDefaults.current
       const clientId = commitDraft({
         polygon: next,
         color,
-        name: nextTurfName(count),
+        // Whatever was typed into the open card before the first corner
+        // landed, which is where the flow now asks for it. Empty if they
+        // skipped it — the card goes on inviting a name, and Save is what
+        // refuses to leave without one.
+        name,
         assigneeId,
       })
       activeDraftRef.current = clientId
       setActiveDraftId(clientId)
       setPendingAssigneeId(null)
+      setPendingName('')
     },
     [commitDraft, updateDraft],
   )
@@ -570,6 +584,7 @@ export default function NativeDoorKnockingPage({
     activeDraftRef.current = null
     setActiveDraftId(null)
     setPendingAssigneeId(null)
+    setPendingName('')
     setRing(null)
     draw.startNewTurf(seedColor)
   }, [draw, seedColor])
@@ -599,12 +614,19 @@ export default function NativeDoorKnockingPage({
     [draw, updateDraft],
   )
   // Renaming the turf under the cursor, from its open card. Same shape as
-  // the colour above: the panel's controls act on the active turf, which is
-  // the one the card belongs to.
+  // the colour above, with one addition: before a third corner lands there
+  // is no draft to write to, so the name is held as `pendingName` and
+  // stamped on at commit. That is what lets a turf be named BEFORE it is
+  // drawn, which is the order the card invites — it is open and asking from
+  // the moment the surface is.
   const renameActiveTurf = useCallback(
     (name: string) => {
       const active = activeDraftRef.current
-      if (active !== null) updateDraft(active, { name })
+      if (active === null) {
+        setPendingName(name)
+        return
+      }
+      updateDraft(active, { name })
     },
     [updateDraft],
   )
@@ -1445,7 +1467,7 @@ export default function NativeDoorKnockingPage({
               <TurfPanel
                 drafts={turfDrafts}
                 active={activeDraft}
-                pendingName={nextTurfName(campaignTurfCount)}
+                pendingName={pendingName}
                 drawColor={ringColor}
                 draftStats={draftStats}
                 team={teamOptions}

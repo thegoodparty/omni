@@ -408,6 +408,17 @@ const mapReady = () => screen.findByTestId('voter-map')
 const drawnTurfCard = (name: string) =>
   screen.findByRole('button', { name: new RegExp(`^${name}`) })
 
+// A turf is named before it is drawn now: the card for the one being cut is
+// open from the moment the drawing surface is, and its name is what the
+// draft is stamped with when a third corner lands. No turf is auto-named,
+// so a test that wants to find one by name has to give it one first.
+const nameThisTurf = (name: string) => {
+  fireEvent.change(screen.getByLabelText('Turf name'), {
+    target: { value: name },
+  })
+  fireEvent.blur(screen.getByLabelText('Turf name'))
+}
+
 // The who step's CTA carries the audience it is about to continue with, so it
 // is matched on the word rather than on the count — which is the fixture's
 // households and not what any of these tests are about.
@@ -449,11 +460,15 @@ const openFlowAndDraw = async () => {
 // step returns the draw step exactly as it was left. The drawing surface's
 // instructions AlertDialog opens on every mount and inerts the map behind it,
 // so it has to be dismissed before any tap can reach the canvas.
-const drawRingAndReview = async () => {
+const drawRingAndReview = async (turfName = 'Turf 1') => {
   fireEvent.click(
     screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
   )
   const tapMap = screen.getByRole('button', { name: 'tap the map' })
+  // Named before the first corner, which is the order the surface now asks
+  // in — and without it the turf has no name for anything downstream to
+  // find it by.
+  nameThisTurf(turfName)
   fireEvent.click(tapMap)
   fireEvent.click(tapMap)
   fireEvent.click(tapMap)
@@ -889,7 +904,7 @@ describe('NativeDoorKnockingPage create flow', () => {
   // re-runs the landing effect — so re-arming the guard when a list was
   // created reopened the flow at step one on top of the walk that had just
   // started, against a turf list that had not refetched yet.
-  it('does not reopen the flow when creating a list refetches the allowance', async () => {
+  it('does not reopen the flow when creating a campaign refetches the rail', async () => {
     api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
     api.mock('POST /v1/voters/voter-file/filter', {
@@ -901,8 +916,14 @@ describe('NativeDoorKnockingPage create flow', () => {
       data: {
         ...turf,
         id: 5,
+        outreachId: 77,
         voterFileFilterId: 9,
         name: 'Introduction walk',
+        color: '#2563eb',
+        doorCount: 12,
+        peopleCount: 20,
+        loggedCount: 0,
+        routeSeconds: null,
       },
     })
     api.mock('GET /v1/door-knocking/turfs/:id/route', {
@@ -917,6 +938,7 @@ describe('NativeDoorKnockingPage create flow', () => {
       screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
     )
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 1')
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
@@ -924,23 +946,27 @@ describe('NativeDoorKnockingPage create flow', () => {
     // campaign was already named by `openFlowAndDraw` — the name step sits
     // before the polygon now, because the campaign is the container the
     // turfs are cut into.
+    // Back to the draw step with one turf on it, then the press that writes
+    // the campaign. The campaign was already named by `openFlowAndDraw` —
+    // the name step sits before the polygon, because the campaign is the
+    // container the turfs are cut into.
     fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create campaign' }),
+    )
 
-    // The design hands straight over to the walk: the list was created to be
-    // knocked, and its route is already bought and frozen.
-    await screen.findByRole('button', { name: 'tap pin 11' })
-    expect(walkSurface().getByText('Introduction walk')).toBeInTheDocument()
+    // The flow ends on its own screen rather than handing over to a walk:
+    // nothing has bought a route, so there is nothing to walk yet.
+    expect(await screen.findByText('Your campaign is ready')).toBeInTheDocument()
 
-    // The rail refetching behind the walk, which is what the create's own
+    // The rail refetching behind it, which is what the create's own
     // invalidation does. It must not re-fire the landing opener and drop the
-    // candidate back into the flow they just finished.
+    // candidate back into step one of the flow they just finished.
     await act(async () => {
       await testQueryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })
     })
 
-    expect(walkSurface().getByText('Introduction walk')).toBeInTheDocument()
+    expect(screen.getByText('Your campaign is ready')).toBeInTheDocument()
     expect(screen.queryByText(/Introduce myself/)).toBeNull()
   })
 
@@ -1084,6 +1110,7 @@ describe('NativeDoorKnockingPage draw step', () => {
     )
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 1')
     const save = () => within(turfPanel()).getByRole('button', { name: 'Save' })
     // Nothing over the map before the first point: the instructions dialog
     // has just named the gesture and the panel names the turf. Save is live
@@ -1103,7 +1130,11 @@ describe('NativeDoorKnockingPage draw step', () => {
     // draft — so it is the moment the panel beside the map gains a row for
     // it.
     fireEvent.click(tapMap)
-    expect(await within(turfPanel()).findByText('Turf 1')).toBeInTheDocument()
+    // The open card's name is an input, so it is a VALUE and not text —
+    // `findByText` cannot see it.
+    expect(
+      await within(turfPanel()).findByDisplayValue('Turf 1'),
+    ).toBeInTheDocument()
 
     fireEvent.click(save())
 
@@ -1205,10 +1236,15 @@ describe('NativeDoorKnockingPage draw step', () => {
       within(turfPanel()).getByRole('button', { name: /Add turf/ }),
     )
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 2')
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
-    expect(await within(turfPanel()).findByText('Turf 2')).toBeInTheDocument()
+    // The open card's name is an input, so it is a VALUE and not text —
+    // `findByText` cannot see it.
+    expect(
+      await within(turfPanel()).findByDisplayValue('Turf 2'),
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     // Something would be lost, so it asks — the prompt this button carries
