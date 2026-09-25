@@ -573,6 +573,7 @@ Voter Outreach - Payment Started,voter_outreach_payment_started,2b9f22689ccc9e29
 Voter Outreach - Phone Banking Call List Created,voter_outreach_phone_banking_call_list_created,2915068831a10ad2c73c93caa72d863905b7d8f9,,2026-08-20,tomer@goodparty.org,,,,,2026-08-20,1,,2026-08-31T11:07:29
 Voter Outreach - Phone Banking Call Sheet Downloaded,voter_outreach_phone_banking_call_sheet_downloaded,e80544dc85ec5265451b78cd35973ea8937871ce,,2026-08-20,tomer@goodparty.org,,,,,2026-08-20,4,,2026-08-31T11:07:29
 Voter Outreach - Recommended List Accepted,voter_outreach_recommended_list_accepted,d7195be64b4ab0771d77ceb02ebd2d8c8db5b952,,2026-09-03,swain.molster@gmail.com,,,,,2026-09-03,5,,2026-09-07T11:07:27
+Voter Outreach - Recommended List Failed,voter_outreach_recommended_list_failed,,https://github.com/thegoodparty/omni/pull/2136,2026-09-25,,,,,,2026-09-25,,,2026-09-25T18:14:49
 Win - Opponent Activity Viewed,win_opponent_activity_viewed,,,2026-06-28,,,,,,2026-06-28,1,,2026-06-28T07:37:49
 Win - Opponent Profile Viewed,win_opponent_profile_viewed,,,2026-06-28,,,,,,2026-06-28,2,,2026-06-28T07:37:49
 Win - Opponent Research Started,win_opponent_research_started,,https://github.com/thegoodparty/omni/pull/557,2026-06-30,,,,,,2026-06-30,1,,2026-06-30T15:16:14
