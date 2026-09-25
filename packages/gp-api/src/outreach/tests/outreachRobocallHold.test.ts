@@ -224,11 +224,26 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     const spine = await readSpine(outreachId)
     expect(spine.status).toBe('pending')
 
-    expect(trackSpy).toHaveBeenCalledTimes(1)
-    const [userId, event, , , messageId] = trackSpy.mock.calls[0] ?? []
-    expect(userId).toBe(service.user.id)
-    expect(event).toBe(EVENTS.Robocall.HoldPlaced)
-    expect(messageId).toBe(`${outreachId}:hold_placed`)
+    // A committed authorize emits two distinct events: the cross-channel send
+    // terminal (DATA-2526, gated on the pending_payment -> pending transition
+    // above) and the robocall-specific HoldPlaced email milestone. Matched by
+    // event rather than by call index so neither is pinned to an emit order.
+    expect(trackSpy).toHaveBeenCalledTimes(2)
+    const trackCalls = trackSpy.mock.calls as Parameters<
+      AnalyticsService['track']
+    >[]
+    const holdPlaced = trackCalls.find(
+      (call) => call[1] === EVENTS.Robocall.HoldPlaced,
+    )
+    expect(holdPlaced?.[0]).toBe(service.user.id)
+    expect(holdPlaced?.[4]).toBe(`${outreachId}:hold_placed`)
+
+    const scheduled = trackCalls.find(
+      (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
+    )
+    expect(scheduled?.[0]).toBe(service.user.id)
+    expect(scheduled?.[2]).toMatchObject({ channel: 'robocall', outreachId })
+    expect(scheduled?.[4]).toBe(`${outreachId}:campaign_scheduled`)
 
     // HUBSPOT_ROBOCALL_HOLD_PLACED_EMAIL_ID is unset by default (ENG-11035) —
     // no single-send call, no behavior change from before the cutover.
@@ -667,6 +682,18 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // Card saved and committed, so it shows in the history even before the hold.
     const spine = await readSpine(outreachId)
     expect(spine.status).toBe('pending')
+    // But NO send terminal yet: no hold exists, and the card can still decline
+    // when the sweep runs. Emitting here would count a candidate who never
+    // paid, and — because this advances the spine — would also make the real
+    // commit find the row already `pending` and emit nothing at all.
+    const deferredCalls = trackSpy.mock.calls as Parameters<
+      AnalyticsService['track']
+    >[]
+    expect(
+      deferredCalls.filter(
+        (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
+      ),
+    ).toHaveLength(0)
   })
 
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {

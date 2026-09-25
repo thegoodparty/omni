@@ -77,6 +77,23 @@ export const EVENTS = {
     // admin console. Carries `channel` so SMS and robocall approvals share one
     // event.
     CampaignApproved: 'Voter Outreach - Campaign Approved',
+    // The candidate committed a campaign to send. One event across channels,
+    // keyed by `channel` (sms | robocall | social) — the same shape as
+    // CampaignApproved above, and the reason this is not three events.
+    //
+    // Emitted from the point on each channel where the commit is already
+    // exactly-once by construction, so a webhook or pay-step replay cannot
+    // double-count: the pending_payment -> pending claim in
+    // `finalizeOutreachPurchase` (sms), the same claim inside
+    // `scheduleSpineAndNotify` (robocall), and the save transaction in
+    // `saveSocialOutreach` (social, which takes no payment).
+    //
+    // Distinct from 'Robocall - Scheduled', which fires earlier, at
+    // draft-create on an UNPAID row — a robocall draft that is never paid for
+    // fires that one and not this one. Win only: the `Voter Outreach -` prefix
+    // classifies to the win_voter_outreach family downstream, so the Serve
+    // social route deliberately does not emit it.
+    CampaignScheduled: 'Voter Outreach - Campaign Scheduled',
   },
   AiContent: {
     GenerationStarted: 'Content Builder: Generation Started',

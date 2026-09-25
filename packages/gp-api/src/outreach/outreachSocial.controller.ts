@@ -167,7 +167,11 @@ export class OutreachSocialController {
       input.assets.map((asset) => asset.platform),
     )
     return this.socialService.saveSocialOutreach(
-      { campaignId: campaign.id, organizationSlug: campaign.organizationSlug },
+      {
+        campaignId: campaign.id,
+        organizationSlug: campaign.organizationSlug,
+        userId: campaign.userId,
+      },
       input,
     )
   }
