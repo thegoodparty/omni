@@ -269,7 +269,6 @@ export interface CreateListSurfaceProps {
   // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
   // suggestion. From the pack, which is the orchestrator's.
   drawnStops: Array<[number, number]> | null
-  onCampaignCreated: (anchorOutreachId: number) => void
   onStartKnocking: (turf: DoorKnockingTurf) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
@@ -346,7 +345,6 @@ export default function CreateListSurface({
   onDrawFullScreenChange,
   onRestartDrawing,
   drawnStops,
-  onCampaignCreated,
   onStartKnocking,
   isServeOrg,
   precincts,
@@ -547,7 +545,6 @@ export default function CreateListSurface({
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}
       drawnStops={drawnStops}
-      onCampaignCreated={onCampaignCreated}
       onStartKnocking={onStartKnocking}
       isServeOrg={isServeOrg}
       unpreviewableKeys={unpreviewableKeys}

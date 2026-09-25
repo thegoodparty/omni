@@ -223,6 +223,26 @@ const RobocallPeopleMetric = ({
   )
 }
 
+// Every door-knocking row carries one, a single turf included. The count is
+// what the row's name is hiding: a campaign is many turfs collapsed onto
+// their anchor, so without it "Elm St walk" reads as one list whatever it
+// holds. Shown at one turf too, because a badge that appears only sometimes
+// makes its absence look like missing data rather than a count of one.
+//
+// Door knocking only. `turfCount` is attached by
+// `collapseDoorKnockingCampaigns` and no other channel has one, so gating on
+// the type rather than on the number is what stops an SMS row reading
+// "1 turf".
+const TurfBadge = ({ row }: { row: HistoryRow }) => {
+  if (row.outreachType !== OUTREACH_TYPES.nativeDoorKnocking) return null
+  const count = row.turfCount ?? 1
+  return (
+    <Badge shape="pill" variant="secondary" className="shrink-0">
+      {count} {count === 1 ? 'turf' : 'turfs'}
+    </Badge>
+  )
+}
+
 // compact = the mobile card's flat text-xs line; the table cell splits the
 // number (text-sm) from the unit (text-xs) per the prototype.
 const RowMetric = ({
@@ -691,15 +711,7 @@ export const OutreachHistoryTable = ({
                         <span className="min-w-0 truncate">
                           {row.name || row.title || 'Untitled campaign'}
                         </span>
-                        {(row.turfCount ?? 1) > 1 && (
-                          <Badge
-                            shape="pill"
-                            variant="secondary"
-                            className="shrink-0"
-                          >
-                            {row.turfCount} turfs
-                          </Badge>
-                        )}
+                        <TurfBadge row={row} />
                       </span>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -761,15 +773,7 @@ export const OutreachHistoryTable = ({
                   <span className="min-w-0 truncate">
                     {row.name || row.title || 'Untitled campaign'}
                   </span>
-                  {(row.turfCount ?? 1) > 1 && (
-                    <Badge
-                      shape="pill"
-                      variant="secondary"
-                      className="shrink-0"
-                    >
-                      {row.turfCount} turfs
-                    </Badge>
-                  )}
+                  <TurfBadge row={row} />
                 </span>
                 <span className="text-xs text-muted-foreground">
                   <RowMetric row={row} compact detailFetcher={detailFetcher} />{' '}

@@ -246,11 +246,6 @@ interface CreateListFlowProps {
   onRestartDrawing: () => void
   // The whole chain committed: turf, route and outreach envelope all exist.
   // Carries the created row because the page opens the walk on it directly.
-  // The anchor Outreach id of the campaign just created — what the details
-  // drawer is addressed by. Replaces `onListCreated`, which handed a turf
-  // over to a walk unprompted: there is no route to walk until somebody
-  // buys one.
-  onCampaignCreated: (anchorOutreachId: number) => void
   // One turf's Start knocking, from the success screen. This is the press
   // that will buy the route once the walk-or-drive prompt exists.
   onStartKnocking: (turf: DoorKnockingTurf) => void
@@ -418,7 +413,6 @@ export default function CreateListFlow({
   drawPointCount,
   drawFullScreen,
   onDrawFullScreenChange,
-  onCampaignCreated,
   onStartKnocking,
   isServeOrg,
   unpreviewableKeys,
@@ -533,13 +527,11 @@ export default function CreateListFlow({
     null,
   )
   const [loop] = useState(true)
-  // What the create actually wrote, held for the success screen: the anchor
-  // the details drawer is addressed by, and the turfs themselves — the
-  // screen lists them with their own counts and a knock control each.
-  const [createdAnchor, setCreatedAnchor] = useState<{
-    outreachId: number
-    turfs: DoorKnockingTurf[]
-  } | null>(null)
+  // The turfs the create actually wrote, held for the success screen, which
+  // lists them with their own counts and a knock control each.
+  const [createdTurfs, setCreatedTurfs] = useState<DoorKnockingTurf[] | null>(
+    null,
+  )
 
   // The card the canvassers will read. Three of these four lines are the
   // model's; `cta` is composed from the campaign's own website below and is
@@ -1414,10 +1406,7 @@ export default function CreateListFlow({
       // The campaign exists. The flow's last screen names it and offers the
       // two things to do next; it does NOT hand over to a walk any more,
       // because there is no route to walk until somebody buys one.
-      setCreatedAnchor({
-        outreachId: first.turf.outreachId,
-        turfs: created.map((c) => c.turf),
-      })
+      setCreatedTurfs(created.map((c) => c.turf))
       goToStage('success')
     },
     onError: (error) => {
@@ -1876,14 +1865,11 @@ export default function CreateListFlow({
             </p>
           )}
 
-          {stage === 'success' && createdAnchor && (
+          {stage === 'success' && createdTurfs && (
             <CreateCampaignSuccess
               campaignName={name.trim()}
-              turfs={createdAnchor.turfs}
+              turfs={createdTurfs}
               onStartKnocking={onStartKnocking}
-              onViewCampaign={() =>
-                onCampaignCreated(createdAnchor.outreachId)
-              }
               onDone={onClose}
             />
           )}

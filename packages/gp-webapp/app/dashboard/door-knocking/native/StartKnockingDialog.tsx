@@ -54,11 +54,14 @@ export const StartKnockingDialog = ({
   const build = useMutation({
     mutationFn: async () => {
       if (!turf) throw new Error('No turf to route')
-      const res = await clientRequest('POST /v1/door-knocking/turfs/:id/route', {
-        id: String(turf.id),
-        mode,
-        loop,
-      })
+      const res = await clientRequest(
+        'POST /v1/door-knocking/turfs/:id/route',
+        {
+          id: String(turf.id),
+          mode,
+          loop,
+        },
+      )
       return res.data
     },
     onSuccess: (routed) => {

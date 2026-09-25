@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
-import { Button, Card, Progress } from '@styleguide'
+import { Button, Progress } from '@styleguide'
 import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
 import {
   turfStage,
@@ -15,6 +15,7 @@ import {
   MarkDoneDialog,
   type MarkDoneTarget,
 } from 'app/dashboard/door-knocking/native/MarkDoneDialog'
+import { TurfRowCard } from 'app/dashboard/door-knocking/native/TurfRowCard'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
 
 // The compact in-drawer sibling list for a door-knocking campaign anchor.
@@ -132,23 +133,11 @@ const TurfRow = ({
     onConfirmOpenChange?.(open)
   }
   return (
-    <Card className="gap-2 rounded-lg p-3">
-      <div className="flex items-center gap-3">
-        <span
-          aria-hidden="true"
-          className={`h-3 w-3 shrink-0 rounded-full ${
-            active ? '' : 'opacity-40'
-          }`}
-          style={{ backgroundColor: turf.color }}
-        />
-        <span
-          className={`min-w-0 flex-1 truncate text-sm font-medium ${
-            active ? 'text-foreground' : 'text-muted-foreground'
-          }`}
-        >
-          {turf.name}
-        </span>
-        {active ? (
+    <TurfRowCard
+      turf={turf}
+      muted={!active}
+      actions={
+        active ? (
           <>
             {/* The first manual `markDone` caller in the product. The row's
                 second control, which is inside the four the rail's budget
@@ -184,13 +173,12 @@ const TurfRow = ({
           <span className="shrink-0 text-sm font-medium text-muted-foreground">
             {turfStatusLabel(turf)}
           </span>
-        )}
-      </div>
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>
-          {turf.peopleCount.toLocaleString()} people (
-          {turf.doorCount.toLocaleString()} doors)
-        </span>
+        )
+      }
+    >
+      {/* The people/doors line is the shared row's own; this is the
+          progress half, which only the drawer shows. */}
+      <div className="flex items-center justify-end text-xs text-muted-foreground">
         <span>
           {turf.loggedCount.toLocaleString()} of{' '}
           {turf.peopleCount.toLocaleString()} logged (
@@ -214,6 +202,6 @@ const TurfRow = ({
           })
         }
       />
-    </Card>
+    </TurfRowCard>
   )
 }

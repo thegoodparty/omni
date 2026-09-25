@@ -1,5 +1,7 @@
-import { Button, Card, DoorOpenIcon } from '@styleguide'
+import { Button, DoorOpenIcon } from '@styleguide'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
+import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
+import { TurfRowCard } from '../TurfRowCard'
 
 // The flow's terminal screen. Its own component with plain props rather than
 // markup inside `CreateListFlow`, because the other three outreach flows each
@@ -11,15 +13,16 @@ import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 // rule 3 rules out explaining that the route gets bought at first knock. It
 // says what exists and offers the things to do about it.
 //
-// "Done" rather than "Close": every turf on screen offers Start knocking, so
-// the bottom secondary means "not right now", and Close is the system's word
-// for dismissing a dialog where Done is the candidate's for finishing the
-// job.
+// ONE button at the bottom, and it is Done. The turfs each carry their own
+// Start knocking, so a second bottom CTA competing with them is a third
+// choice on a screen whose job is to confirm and get out of the way.
+//
+// "Done" rather than "Close" because Close is the system's word for
+// dismissing a dialog and Done is the candidate's for finishing the job.
 type Props = {
   campaignName: string
   turfs: DoorKnockingTurf[]
   onStartKnocking: (turf: DoorKnockingTurf) => void
-  onViewCampaign: () => void
   onDone: () => void
 }
 
@@ -27,62 +30,57 @@ export const CreateCampaignSuccess = ({
   campaignName,
   turfs,
   onStartKnocking,
-  onViewCampaign,
   onDone,
 }: Props) => {
   const doorTotal = turfs.reduce((sum, turf) => sum + turf.doorCount, 0)
 
   return (
     <div className="flex flex-col gap-6 py-8">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <span className="flex size-14 items-center justify-center rounded-full bg-tertiary-dark">
-          <DoorOpenIcon className="size-7 text-tertiary-foreground" />
+      {/* `relative` so the confetti has something to be absolute against,
+          and the burst drops through the icon rather than the whole sheet —
+          the campaign is what was just finished, and the icon is what says
+          so. It runs once because the keyframes are `1 forwards` and this
+          stage mounts once; nothing re-triggers it. */}
+      <div className="relative flex flex-col items-center gap-3 text-center">
+        <ConfettiField />
+        {/* The house treatment for a step-completed mark: a tinted circle at
+            10% with the matching foreground, same as phone banking's own
+            ready screen. */}
+        <span className="relative flex size-12 shrink-0 items-center justify-center rounded-full bg-success/10 text-success [&_svg]:size-6">
+          <DoorOpenIcon />
         </span>
         <div>
           <h2 className="text-2xl font-semibold">Your campaign is ready</h2>
           <p className="mt-1 text-base font-medium">{campaignName}</p>
-          {/* The figures they just made, as one line. Per-turf doors are on
+          {/* The figures they just made, as one line. Per-turf counts are on
               each row below, so this is the total and nothing else. */}
           <p className="mt-1 text-sm text-muted-foreground">
             {turfs.length} {turfs.length === 1 ? 'turf' : 'turfs'} ·{' '}
-            {doorTotal} {doorTotal === 1 ? 'door' : 'doors'}
+            {doorTotal.toLocaleString()} {doorTotal === 1 ? 'door' : 'doors'}
           </p>
         </div>
       </div>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         {turfs.map((turf) => (
-          <Card key={turf.id} className="flex items-center gap-3 p-4">
-            <span
-              aria-hidden
-              className="size-3 shrink-0 rounded-full"
-              style={{ backgroundColor: turf.color }}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">{turf.name}</p>
-              <p className="text-sm text-muted-foreground">
-                {turf.doorCount} {turf.doorCount === 1 ? 'door' : 'doors'} ·{' '}
-                {turf.peopleCount}{' '}
-                {turf.peopleCount === 1 ? 'person' : 'people'}
-              </p>
-            </div>
-            <Button
-              size="small"
-              variant="outline"
-              onClick={() => onStartKnocking(turf)}
-            >
-              Start knocking
-            </Button>
-          </Card>
+          <TurfRowCard
+            key={turf.id}
+            turf={turf}
+            actions={
+              <Button
+                size="small"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => onStartKnocking(turf)}
+              >
+                Start knocking
+              </Button>
+            }
+          />
         ))}
       </div>
 
-      <div className="flex flex-col gap-3">
-        <Button onClick={onViewCampaign}>View campaign</Button>
-        <Button variant="outline" onClick={onDone}>
-          Done
-        </Button>
-      </div>
+      <Button onClick={onDone}>Done</Button>
     </div>
   )
 }
