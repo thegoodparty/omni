@@ -291,6 +291,7 @@ export const TurfPanel = ({
               and a live Save at once. */}
           {introducing && (
             <EmptyState
+              title="No turfs yet"
               message="Navigate to the location you want to draw your first turf."
               action={
                 <Button type="button" onClick={() => setStarted(true)}>
