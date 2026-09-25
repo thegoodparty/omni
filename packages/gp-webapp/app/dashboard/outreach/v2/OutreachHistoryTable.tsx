@@ -237,7 +237,7 @@ const TurfBadge = ({ row }: { row: HistoryRow }) => {
   if (row.outreachType !== OUTREACH_TYPES.nativeDoorKnocking) return null
   const count = row.turfCount ?? 1
   return (
-    <Badge shape="pill" variant="secondary" className="shrink-0">
+    <Badge shape="pill" variant="soft" className="shrink-0">
       {count} {count === 1 ? 'turf' : 'turfs'}
     </Badge>
   )

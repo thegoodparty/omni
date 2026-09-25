@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   OutreachReceipt,
@@ -489,7 +489,17 @@ export const OutreachDetailsDrawer = ({
   // A sibling row's confirm and its assignee menu are the child's, but their
   // clicks land outside this drawer exactly like the two below, so the
   // drawer has to know one is up.
+  //
+  // A REF beside the state, read by the close guard below. The state is what
+  // re-renders; the ref is what a handler firing inside the same pointer
+  // event can read without depending on which of the two updates React has
+  // flushed by then.
   const [turfOverlayOpen, setTurfOverlayOpen] = useState(false)
+  const turfOverlayRef = useRef(false)
+  const setTurfOverlay = (open: boolean) => {
+    turfOverlayRef.current = open
+    setTurfOverlayOpen(open)
+  }
   // A per-turf Done from the sibling list moves the campaign without going
   // through this drawer's own mutation, so the history row's snapshot goes
   // stale — and the footer reads that snapshot. Finishing the LAST unfinished
@@ -665,14 +675,31 @@ export const OutreachDetailsDrawer = ({
       <ListDetailsSheetShell
         open={row !== null}
         onOpenChange={onOpenChange}
+        // While a turf row's dropdown is open, the sheet is not dismissible
+        // at all: that press belongs to the menu. Cleared a tick after the
+        // menu closes, so the click that dismissed it cannot also reach the
+        // sheet and the next one can.
+        dismissible={!turfOverlayOpen}
         title={row?.name || row?.title || 'Outreach details'}
+        // Refusing the dismissal here rather than in `onOpenChange` is
+        // load-bearing: vaul starts its close animation on the outside
+        // interaction itself, so an ignored `onOpenChange` leaves a sheet
+        // that has visually gone while its `open` prop still says otherwise.
+        // Only `preventDefault` stops it before that starts.
+        //
+        // The turf overlay is read from a REF, not from the state beside it.
+        // A portaled dropdown dismissed by a click outside is ONE pointer
+        // event — Radix closes the menu, React flushes that discrete update
+        // synchronously, and this handler then runs against whatever the
+        // last render left in scope. The ref is the value now.
         onInteractOutside={(event) => {
           if (
             cancelConfirmOpen ||
             deleteConfirmOpen ||
             draftDeleteConfirmOpen ||
             markCampaignDoneOpen ||
-            turfOverlayOpen
+            turfOverlayOpen ||
+            turfOverlayRef.current
           ) {
             event.preventDefault()
           }
@@ -1208,7 +1235,7 @@ export const OutreachDetailsDrawer = ({
               <CampaignTurfList
                 anchorOutreachId={anchorOutreachId}
                 outreachId={row.id}
-                onOverlayOpenChange={setTurfOverlayOpen}
+                onOverlayOpenChange={setTurfOverlay}
                 onTurfCompleted={handleTurfCompleted}
               />
             )}

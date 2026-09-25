@@ -185,6 +185,26 @@ describe('CampaignTurfList', () => {
 
   // The drawer's `onInteractOutside` guard depends on this, and it is
   // invisible from inside this component.
+  it('names the knock press for whether the turf has a route', async () => {
+    // The route is bought at the first knock, so an unrouted press does
+    // something the others do not: it plans one, and asks walking or
+    // driving on the way. Once it exists the press is the same press
+    // whether or not a door has been logged.
+    mockTurfs([
+      turf({ id: 12, name: 'Unrouted', routeSeconds: null, loggedCount: 0 }),
+      turf({ id: 13, name: 'Routed', routeSeconds: 900, loggedCount: 0 }),
+      turf({ id: 14, name: 'Started', routeSeconds: 900, loggedCount: 4 }),
+    ])
+    renderList()
+
+    expect(
+      await screen.findByRole('link', { name: 'Start knocking' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('link', { name: 'Continue knocking' }),
+    ).toHaveLength(2)
+  })
+
   it('reports when an overlay opens and closes', async () => {
     // Both of a row's overlays portal out of the drawer, so a click that
     // dismisses either lands as an outside-interaction and would take the

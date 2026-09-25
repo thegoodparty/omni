@@ -18,6 +18,7 @@ import {
 import { turfCountsLabel } from 'app/dashboard/door-knocking/native/TurfRowCard'
 import { TurfAssigneeMenu } from './TurfAssigneeMenu'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
+import { CONTINUE_LABELS, UNROUTED_LABEL } from './listDetails/footerMode'
 
 // The compact in-drawer sibling list for a door-knocking campaign anchor.
 // One row per turf in the campaign. It carried an "Add another turf" link
@@ -135,8 +136,21 @@ const TurfRow = ({
     )
     onOverlayOpenChange?.(open)
   }
+  // Two labels, keyed on whether the turf has a route rather than on
+  // whether anybody has knocked yet. `routeSeconds` is the field that says
+  // which — null means no route, deliberately, rather than a second boolean
+  // that could disagree with it.
+  //
+  // An unrouted press does something the other does not: it plans the route
+  // and asks walking or driving on the way, so it reads as starting the
+  // work. Once the route exists the press is the same press whether or not
+  // a door has been logged, so it reads the same — which is a deliberate
+  // departure from the zero-progress rule the drawer's own footer follows
+  // (`ZERO_PROGRESS_LABELS`, "Walk this route"). On a card that already
+  // shows a progress bar and a percentage, a second way of saying "nothing
+  // yet" is the third thing on the card saying it.
   const knockLabel =
-    turf.loggedCount > 0 ? 'Continue knocking' : 'Start knocking'
+    turf.routeSeconds === null ? UNROUTED_LABEL : CONTINUE_LABELS.doorKnocking
   return (
     // The two-half card the drawing surface's own turf cards use: a header
     // and, under a full-bleed rule, a washed half.

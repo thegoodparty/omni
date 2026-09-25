@@ -53,6 +53,13 @@ export const ZERO_PROGRESS_LABELS = {
   doorKnocking: 'Walk this route',
 } as const
 
+// Door knocking's third state, which only exists now that the route is
+// bought at the first knock rather than at create: a turf with no route yet.
+// That press does something the other two do not — it plans the route, and
+// asks walking or driving on the way — so it reads as starting the work
+// rather than as walking a route that is already there.
+export const UNROUTED_LABEL = 'Start knocking'
+
 export const continueLabel = (
   channel: keyof typeof CONTINUE_LABELS,
   progressCount: number,
