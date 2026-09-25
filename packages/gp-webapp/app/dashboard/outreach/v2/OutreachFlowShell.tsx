@@ -72,6 +72,12 @@ interface OutreachFlowShellProps {
   // chrome but are not stages of the channel funnel, and tracking them here
   // would merge two funnels into one series.
   trackedStep?: string | null
+  // True once the flow has reached its terminal state (campaign scheduled,
+  // post saved, payment settled). Settling is the last stage completing: the
+  // caller drops `trackedStep` to null at the same moment, so without this the
+  // terminal step of every channel would record a Viewed and never a
+  // Completed — and that is the step that converts.
+  settled?: boolean
   // Any user input diverging from the initial state: closing asks "Discard
   // changes?"; a pristine (or completed) flow closes silently.
   dirty: boolean
@@ -98,6 +104,7 @@ export const OutreachFlowShell = ({
   banner,
   channel,
   trackedStep = null,
+  settled = false,
   dirty,
   instant = false,
   children,
@@ -121,8 +128,24 @@ export const OutreachFlowShell = ({
       lastStage.current = null
       return
     }
-    if (!channel || trackedStep === null) return
+    if (!channel) return
     const previous = lastStage.current
+
+    // Left the tracked stages. Having settled means the stage we were on is
+    // the one that completed; the gate sub-flow also parks trackedStep at null
+    // but has not settled, so it keeps its place and completes nothing.
+    // Clearing the ref here keeps a re-render while settled from firing twice.
+    if (trackedStep === null) {
+      if (settled && previous) {
+        trackEvent(EVENTS.Outreach.Flow.StepCompleted, {
+          channel,
+          step: previous.id,
+        })
+        lastStage.current = null
+      }
+      return
+    }
+
     if (previous && currentStep > previous.step) {
       trackEvent(EVENTS.Outreach.Flow.StepCompleted, {
         channel,
@@ -131,7 +154,7 @@ export const OutreachFlowShell = ({
     }
     lastStage.current = { step: currentStep, id: trackedStep }
     trackEvent(EVENTS.Outreach.Flow.StepViewed, { channel, step: trackedStep })
-  }, [open, channel, trackedStep, currentStep])
+  }, [open, channel, trackedStep, currentStep, settled])
 
   const requestClose = (nextOpen: boolean) => {
     if (nextOpen) return

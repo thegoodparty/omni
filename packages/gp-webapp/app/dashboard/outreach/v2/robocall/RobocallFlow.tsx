@@ -771,6 +771,7 @@ export const RobocallFlow = ({
       }
       channel="robocall"
       trackedStep={showGateChrome ? null : stepId}
+      settled={settled}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
       totalSteps={showGateChrome ? gateChrome.totalSteps : stepOrder.length}
       onBack={

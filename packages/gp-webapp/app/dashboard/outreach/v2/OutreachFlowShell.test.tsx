@@ -198,3 +198,106 @@ describe('OutreachFlowShell stage tracking', () => {
     )
   })
 })
+
+describe('OutreachFlowShell terminal stage and session reset', () => {
+  beforeEach(() => {
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  const shell = (props: {
+    step: string | null
+    current: number
+    settled?: boolean
+    open?: boolean
+  }) => (
+    <OutreachFlowShell
+      {...baseProps}
+      open={props.open ?? true}
+      channel="sms"
+      trackedStep={props.step}
+      settled={props.settled ?? false}
+      currentStep={props.current}
+      totalSteps={4}
+      cta={null}
+    >
+      Body
+    </OutreachFlowShell>
+  )
+
+  // The conversion step: the caller drops trackedStep to null at the same
+  // moment it settles, so without the settled branch this Completed is lost.
+  it('completes the final stage when the flow settles', () => {
+    const { rerender } = render(shell({ step: 'review', current: 4 }))
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(shell({ step: null, current: 4, settled: true }))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepCompleted,
+      { channel: 'sms', step: 'review' },
+    )
+  })
+
+  it('completes the final stage once, not on every later render', () => {
+    const { rerender } = render(shell({ step: 'review', current: 4 }))
+    rerender(shell({ step: null, current: 4, settled: true }))
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(shell({ step: null, current: 4, settled: true }))
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  // The gate borrows this chrome mid-flow: trackedStep goes null without
+  // settling, so nothing completes and the stage keeps its place.
+  it('completes nothing when the stages are left without settling', () => {
+    const { rerender } = render(shell({ step: 'audience', current: 2 }))
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(shell({ step: null, current: 2 }))
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('re-fires Viewed and completes nothing when the gate returns to the same stage', () => {
+    const { rerender } = render(shell({ step: 'audience', current: 2 }))
+    rerender(shell({ step: null, current: 2 }))
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(shell({ step: 'audience', current: 2 }))
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
+      channel: 'sms',
+      step: 'audience',
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepCompleted,
+      expect.anything(),
+    )
+  })
+
+  // Reopening is a fresh funnel. Without the reset, arriving at step 1 after a
+  // close from step 3 reads as a backward move on the old session, and a later
+  // advance would complete a stage from a run the user already abandoned.
+  it('starts a fresh funnel on reopen rather than continuing the closed one', () => {
+    const { rerender } = render(shell({ step: 'compose', current: 3 }))
+    rerender(shell({ step: 'compose', current: 3, open: false }))
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(shell({ step: 'purpose', current: 1 }))
+    rerender(shell({ step: 'audience', current: 2 }))
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
+      channel: 'sms',
+      step: 'purpose',
+    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepCompleted,
+      { channel: 'sms', step: 'purpose' },
+    )
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepCompleted,
+      { channel: 'sms', step: 'compose' },
+    )
+  })
+})
