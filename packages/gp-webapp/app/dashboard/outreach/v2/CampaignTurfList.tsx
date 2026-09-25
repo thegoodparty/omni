@@ -15,7 +15,10 @@ import {
   MarkDoneDialog,
   type MarkDoneTarget,
 } from 'app/dashboard/door-knocking/native/MarkDoneDialog'
-import { TurfRowCard } from 'app/dashboard/door-knocking/native/TurfRowCard'
+import {
+  TurfRowCard,
+  turfCountsLabel,
+} from 'app/dashboard/door-knocking/native/TurfRowCard'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
 
 // The compact in-drawer sibling list for a door-knocking campaign anchor.
@@ -136,6 +139,10 @@ const TurfRow = ({
     <TurfRowCard
       turf={turf}
       muted={!active}
+      // The figures come off the name row here and land on the line below,
+      // beside the progress they are the denominator of. Two lines of
+      // numbers under one name reads as two facts about different things.
+      hideCounts
       actions={
         active ? (
           <>
@@ -176,10 +183,11 @@ const TurfRow = ({
         )
       }
     >
-      {/* The people/doors line is the shared row's own; this is the
-          progress half, which only the drawer shows. */}
-      <div className="flex items-center justify-end text-xs text-muted-foreground">
-        <span>
+      {/* What the turf is worth on the left, how much of it is done on the
+          right, and the bar under both. */}
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span className="tabular-nums">{turfCountsLabel(turf)}</span>
+        <span className="shrink-0 tabular-nums">
           {turf.loggedCount.toLocaleString()} of{' '}
           {turf.peopleCount.toLocaleString()} logged (
           {percentLabel(turf.loggedCount, turf.peopleCount)})

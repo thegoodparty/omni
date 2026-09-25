@@ -3894,6 +3894,11 @@ describe('door-knocking routes', () => {
         ),
       )
       return {
+        // A stop is a COORDINATE with addresses behind it, so the payload's
+        // own length is the reference: `buildStops` groups by coordinate,
+        // and two addresses geocoded to one point are one stop and two
+        // doors. That divergence is the whole reason both are printed.
+        stopCount: stops.length,
         doorCount: doors,
         peopleCount: knockable.length,
         loggedCount: knockable.filter(
@@ -3911,6 +3916,7 @@ describe('door-knocking routes', () => {
       return res.data as Array<{
         id: number
         locked: boolean
+        stopCount: number | null
         doorCount: number | null
         peopleCount: number | null
         loggedCount: number | null
@@ -3988,6 +3994,7 @@ describe('door-knocking routes', () => {
       const [row] = await listTurfs()
 
       expect({
+        stopCount: row?.stopCount,
         doorCount: row?.doorCount,
         peopleCount: row?.peopleCount,
         loggedCount: row?.loggedCount,

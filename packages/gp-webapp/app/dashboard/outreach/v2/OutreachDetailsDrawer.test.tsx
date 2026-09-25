@@ -933,6 +933,7 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     turfId: 12,
     routeId: 7,
     turfName: 'Elm St & 5th',
+    stopCount: 3,
     doorCount: 4,
     peopleCount: 9,
     loggedCount: 6,
@@ -950,6 +951,7 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     name: 'Elm St & 5th',
     color: '#2563eb',
     geoPoly: { type: 'Polygon', coordinates: [] },
+    stopCount: 3,
     doorCount: 4,
     knockedDoorCount: 3,
     peopleCount: 9,
@@ -996,70 +998,39 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     status,
   })
 
-  // The phone-banking precedent, in door knocking's verb — and straight into
-  // the walk rather than onto the rail, which only became possible once every
-  // door-knocking row had exactly one routed list behind it. `outreachId` is
-  // the return leg: closing the walk reopens this drawer, so a candidate who
-  // left to knock comes back to the row they were reading.
-  it('links Continue knocking straight into the walk, with a way back', async () => {
+  // A campaign is several turfs, so the drawer has no walk of its own to
+  // offer: "Walk this route" would have to pick one of them for the
+  // candidate. Each turf row carries its own Continue instead, and the only
+  // bottom CTA left is the one act that is about the campaign.
+  it('offers no walk CTA of its own, only the campaign act', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('in_progress'),
     })
+    mockCampaignTurfs([campaignTurf({ id: 12 }), campaignTurf({ id: 13 })])
 
     render(
       <OutreachDetailsDrawer
-        row={doorKnockingRow('in_progress')}
+        row={{ ...doorKnockingRow('in_progress'), turfCount: 2 }}
         onOpenChange={vi.fn()}
       />,
     )
 
-    const cta = await screen.findByRole('link', { name: 'Continue knocking' })
-    expect(cta).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
-    )
     expect(
-      screen.queryByRole('link', { name: 'Continue calling' }),
-    ).not.toBeInTheDocument()
-  })
-
-  // ENG-11066's zero-progress rule, door knocking's verb: an unwalked list
-  // reads "Walk this route" rather than "Continue knocking".
-  it('reads "Walk this route" instead of "Continue knocking" when nobody has logged a door yet', async () => {
-    api.mock('GET /v1/outreach/:id', {
-      status: 200,
-      data: doorKnockingDetail('in_progress', {
-        ...doorKnockingBlock,
-        loggedCount: 0,
-      }),
-    })
-    // The zero is the CAMPAIGN's now, not the anchor's: any sibling with a
-    // logged door means somebody has started, so the label reads Continue.
-    mockCampaignTurfs([campaignTurf({ loggedCount: 0 })])
-
-    render(
-      <OutreachDetailsDrawer
-        row={doorKnockingRow('in_progress')}
-        onOpenChange={vi.fn()}
-      />,
-    )
-
-    const cta = await screen.findByRole('link', { name: 'Walk this route' })
-    expect(cta).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
-    )
+      await screen.findByRole('button', { name: 'Mark campaign done' }),
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: 'Continue knocking' }),
     ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Walk this route' }),
+    ).not.toBeInTheDocument()
   })
 
-  // The design's full-width outline button, and the one thing a candidate
-  // opens this row to take away. It is the same component the walk view
-  // renders, so the label, the icon, the path and the toast cannot drift
-  // between the two places they appear.
-  it('offers the walk sheet as a full-width export', async () => {
+  // The PDF is a walk-time artifact: it is the sheet a canvasser carries
+  // down the street, and it names one turf. It lives on the walk view,
+  // which is the surface that knows which turf that is.
+  it('leaves the walk sheet export to the walk view', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('in_progress'),
@@ -1072,13 +1043,10 @@ describe('OutreachDetailsDrawer — door knocking', () => {
       />,
     )
 
-    const link = await screen.findByRole('link', {
-      name: 'Export this list to PDF',
-    })
-    expect(link).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking/print/12/pdf',
-    )
+    await screen.findByText('Turfs in this campaign')
+    expect(
+      screen.queryByRole('link', { name: 'Export this list to PDF' }),
+    ).not.toBeInTheDocument()
   })
 
   it('renders doors, people and logged progress from the block', async () => {
@@ -1094,18 +1062,19 @@ describe('OutreachDetailsDrawer — door knocking', () => {
       />,
     )
 
-    // The Doors/People labels render while the detail is still in flight, so
-    // waiting on one of them would assert against the skeleton. The progress
-    // line only exists once the block has landed.
-    // "Logged", never "reached": three of the outcomes behind this number are
-    // doors where nobody spoke to anybody.
+    // "Logged", never "reached": three of the outcomes behind this number
+    // are doors where nobody spoke to anybody.
     expect(await screen.findByText('6 of 9 people logged')).toBeInTheDocument()
-    expect(screen.getByText('Doors')).toBeInTheDocument()
-    expect(screen.getByText('4')).toBeInTheDocument()
-    expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.getByText('67%')).toBeInTheDocument()
+    expect(screen.getByText('Logged')).toBeInTheDocument()
     expect(screen.getByText('Remaining')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
+    // And no Overview beside it. Its cells were Date, Name and Channel —
+    // all three in the header two inches above — with a Doors/People pair
+    // that was the ANCHOR turf's and so was withheld on every multi-turf
+    // campaign anyway.
+    expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+    expect(screen.queryByText('Doors')).not.toBeInTheDocument()
   })
 
   // A finished walk keeps its progress rather than swapping it for a Results
@@ -1237,31 +1206,6 @@ describe('OutreachDetailsDrawer — door knocking', () => {
   // A campaign reads `in_progress` until EVERY turf is done, so an anchor
   // finished ahead of its siblings still gets the `continue` footer. The
   // destination has to be a turf with something left in it.
-  it('continues into the first unfinished turf, not the finished anchor', async () => {
-    api.mock('GET /v1/outreach/:id', {
-      status: 200,
-      data: doorKnockingDetail('in_progress'),
-    })
-    mockCampaignTurfs([
-      campaignTurf({ id: 12, completed: true }),
-      campaignTurf({ id: 13 }),
-      campaignTurf({ id: 14 }),
-    ])
-
-    render(
-      <OutreachDetailsDrawer
-        row={{ ...doorKnockingRow('in_progress'), turfCount: 3 }}
-        onOpenChange={vi.fn()}
-      />,
-    )
-
-    const cta = await screen.findByRole('link', { name: 'Continue knocking' })
-    expect(cta).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking?walkTurfId=13&outreachId=30',
-    )
-  })
-
   it('counts the unfinished turfs and says the press cannot be undone', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,

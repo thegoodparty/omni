@@ -108,6 +108,7 @@ const savedTurf = {
     type: 'Polygon' as const,
     coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
   },
+  stopCount: 9,
   doorCount: 9,
   peopleCount: 22,
   loggedCount: 0,

@@ -57,7 +57,6 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { useOutreach } from 'app/dashboard/outreach/hooks/OutreachContext'
-import { ExportWalkSheetButton } from 'app/dashboard/door-knocking/native/ExportWalkSheetButton'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { campaignTurfsQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
 import {
@@ -565,49 +564,17 @@ export const OutreachDetailsDrawer = ({
   // their own footer below instead of the mode machine.
   const selfServe = isPhoneBanking || isDoorKnocking
   const footerMode = listDetailsFooterMode(lifecycleOf(statusLabel), selfServe)
-  // The campaign's next unfinished turf, falling back to the anchor's own on
-  // a solo campaign.
+  // Phone banking's alone. Door knocking used to build one here too, into
+  // the campaign's next unfinished turf — and picking a turf for the
+  // candidate is exactly what a campaign's drawer should not do now that
+  // every turf is listed above with its own Continue.
   //
-  // This is the fix for a bug the status rollup created: a campaign reads
-  // `in_progress` until EVERY sibling is done, so a campaign whose anchor
-  // turf is finished still gets the `continue` footer — and
-  // `doorKnocking.turfId` is the anchor's, so the button opened a route with
-  // nothing left to knock. Withholding it on `turfCount > 1` was the other
-  // option and is worse: it leaves a campaign's drawer with no primary action
-  // at all, where today it at least opens a turf in the campaign. The solo
-  // fallback keeps the common case at the latency it has now (the two ids can
-  // only agree there), and a campaign with nothing unfinished left withholds,
-  // which is the one case withholding is right for.
-  const nextWalkTurfId =
-    unfinished[0]?.id ??
-    ((row?.turfCount ?? 1) === 1 ? (doorKnocking?.turfId ?? null) : null)
-  // Zero-or-not, never printed. Per-turf `loggedCount` sums are not a
-  // campaign figure — turf polygons are not guaranteed disjoint, which is why
-  // the Overview cells still withhold — but "has anybody logged anything" is
-  // answered correctly by any positive term.
-  const knockingProgress =
-    campaignTurfs.length > 0
-      ? campaignTurfs.reduce((sum, turf) => sum + turf.loggedCount, 0)
-      : (doorKnocking?.loggedCount ?? 0)
-  const continueHref = isPhoneBanking
-    ? phoneBanking
+  // Null until the detail lands: the list id rides the detail, so a link
+  // built without it could only go to the bare rail. Holding the slot
+  // disabled for a moment beats a press that silently lands somewhere else.
+  const continueHref =
+    isPhoneBanking && phoneBanking
       ? `/dashboard/outreach/phone-banking/${phoneBanking.listId}`
-      : null
-    : // Straight into the walk, not onto the rail: every door-knocking row has
-      // a routed turf now, so "Continue knocking" has exactly one list it can
-      // mean. `outreachId` is the return leg — closing the walk reopens this
-      // drawer through the hub's own consume-once deep link, so a candidate
-      // who went to knock a list comes back to the row they were reading
-      // rather than to a map.
-      //
-      // Null until the detail lands, which is phone banking's rule for the
-      // same reason: the turf id rides the detail, so a link built without it
-      // could only go to the bare map. Holding the slot disabled for a moment
-      // beats a press that silently lands somewhere else — and a walk whose
-      // list has since been deleted keeps the slot disabled for good, which is
-      // the truth about a walk with nothing left to knock.
-      nextWalkTurfId
-      ? `/dashboard/door-knocking?walkTurfId=${nextWalkTurfId}&outreachId=${row?.id}`
       : null
 
   // The SMS lifecycle actions this branch added have no mode in the canvas's
@@ -760,17 +727,21 @@ export const OutreachDetailsDrawer = ({
                     )
                   }
                   primary={
-                    footerMode !== 'continue'
+                    // Door knocking has none. "Walk this route" was written
+                    // for a drawer about ONE turf; with the campaign's turfs
+                    // listed above, each carrying its own Continue, a single
+                    // bottom CTA has to pick one of them for the candidate.
+                    // Mark campaign done stays, in the secondary slot below:
+                    // it is the one act that is about the campaign.
+                    footerMode !== 'continue' || isDoorKnocking
                       ? null
                       : continueHref
                         ? {
                             kind: 'link',
-                            label: isDoorKnocking
-                              ? continueLabel('doorKnocking', knockingProgress)
-                              : continueLabel(
-                                  'phoneBanking',
-                                  phoneBanking?.peopleCalled ?? 0,
-                                ),
+                            label: continueLabel(
+                              'phoneBanking',
+                              phoneBanking?.peopleCalled ?? 0,
+                            ),
                             href: continueHref,
                             // Close the details drawer before navigating so the
                             // destination surface (door knocking's walk sheet
@@ -885,20 +856,21 @@ export const OutreachDetailsDrawer = ({
       >
         {row && (
           <>
-            {/* First in the body, where the design puts it: the walk sheet is
-                the one thing a candidate opens this row to take away, and
-                everything below it is a report on a walk that has already
-                happened. Gated on the detail having landed rather than on the
-                channel alone, because the turf id is what the print route
-                needs and it arrives with the detail. */}
-            {isDoorKnocking && doorKnocking && (
-              <ExportWalkSheetButton turfId={doorKnocking.turfId} />
-            )}
-
             {(audienceName || audienceLabels.length > 0) && (
-              <DetailsSection title="Applied filters">
+              // "Applied filters" describes what BUILT the audience, which is
+              // the right title for a send composed out of voter-file
+              // criteria. A walk is cut from a saved list and the list is the
+              // whole answer, so door knocking names the thing rather than
+              // the act — and with the section saying it, the group's own
+              // "Audience" label would say it twice.
+              <DetailsSection
+                title={isDoorKnocking ? 'Voter list used' : 'Applied filters'}
+              >
                 {audienceName && (
-                  <FilterGroup title="Audience" values={[audienceName]} />
+                  <FilterGroup
+                    title={isDoorKnocking ? undefined : 'Audience'}
+                    values={[audienceName]}
+                  />
                 )}
                 {audienceLabels.length > 0 && (
                   <FilterGroup title="Filters" values={audienceLabels} />
@@ -912,123 +884,133 @@ export const OutreachDetailsDrawer = ({
               </div>
             )}
 
-            <DetailsSection title="Overview">
-              <MetricGrid>
-                <Metric
-                  icon={<CalendarIcon />}
-                  label="Date"
-                  value={displayDate ? shortOutreachDate(displayDate) : '—'}
-                />
-                <Metric
-                  icon={<FileTextIcon />}
-                  label="Name"
-                  value={row.name || row.title || 'Untitled campaign'}
-                />
-                <Metric
-                  icon={<RadioIcon />}
-                  label="Channel"
-                  value={getChannelLabel(row.outreachType)}
-                />
-                {isSocial ? (
+            {/* Door knocking has no Overview. Its three cells were Date,
+                Name and Channel — all three already in the header two inches
+                above — and the Doors/People pair beside them was the anchor
+                turf's, so it was withheld on every multi-turf campaign
+                anyway. The per-turf figures are on the turfs. */}
+            {!isDoorKnocking && (
+              <DetailsSection title="Overview">
+                <MetricGrid>
+                  <Metric
+                    icon={<CalendarIcon />}
+                    label="Date"
+                    value={displayDate ? shortOutreachDate(displayDate) : '—'}
+                  />
                   <Metric
                     icon={<FileTextIcon />}
-                    label="Platforms"
-                    value={
-                      social
-                        ? `${social.assets.length} platform${social.assets.length === 1 ? '' : 's'}`
-                        : '—'
-                    }
+                    label="Name"
+                    value={row.name || row.title || 'Untitled campaign'}
                   />
-                ) : isPhoneBanking ? (
                   <Metric
-                    icon={<UsersRoundIcon />}
-                    label="People"
-                    value={
-                      phoneBanking
-                        ? phoneBanking.peopleTotal.toLocaleString()
-                        : '—'
-                    }
+                    icon={<RadioIcon />}
+                    label="Channel"
+                    value={getChannelLabel(row.outreachType)}
                   />
-                ) : isDoorKnocking ? (
-                  // Doors and people are two figures on a walk, not one: a
-                  // multi-unit building is one stop and many doors, and its
-                  // residents are more people again. Both are the frozen
-                  // route's, from the same aggregate the door-knocking rail
-                  // reads — printing a second derivation of either is the
-                  // two-denominator failure this feature has a rule against.
-                  //
-                  // Solo-campaign only. `OutreachDetail.doorKnocking` carries
-                  // the ANCHOR turf's figures — not the campaign aggregate
-                  // across siblings — so on a multi-turf campaign this pair
-                  // would print anchor-only numbers labelled as campaign
-                  // totals, which is exactly the two-denominator failure
-                  // above. For multi-turf campaigns the per-turf figures live
-                  // on the sibling section above; the drawer-level aggregate
-                  // will need a real backend rollup before it can come back.
-                  //
-                  // A walk whose list is gone renders neither cell rather than
-                  // two em-dashes, which is the rule this drawer already
-                  // followed when it had no block at all: the sentence below
-                  // says what happened, and a cell that can only say "—" adds
-                  // nothing to it.
-                  (row?.turfCount ?? 1) === 1 &&
-                  (doorKnocking || detailQuery.isLoading) && (
-                    <>
-                      <Metric
-                        icon={<DoorOpenIcon />}
-                        label="Doors"
-                        pending={detailQuery.isLoading}
-                        value={doorKnocking?.doorCount.toLocaleString() ?? '—'}
-                      />
-                      <Metric
-                        icon={<UsersRoundIcon />}
-                        label="People"
-                        pending={detailQuery.isLoading}
-                        value={
-                          doorKnocking?.peopleCount.toLocaleString() ?? '—'
-                        }
-                      />
-                    </>
-                  )
-                ) : (
-                  <Metric
-                    icon={<UsersRoundIcon />}
-                    label="People"
-                    value={
-                      typeof sent === 'number' ? sent.toLocaleString() : '—'
-                    }
-                  />
-                )}
-                {isSocial && social && (
-                  <Metric
-                    icon={<FileTextIcon />}
-                    label="Purpose"
-                    value={socialPurposeLabel(social.purpose)}
-                  />
-                )}
-                {isSms && (
-                  // No per-campaign opt-out feed exists yet (the results
-                  // sweep is a later slice), so this reads 0 — the same
-                  // value the design shows for a not-yet-sent row.
-                  <Metric
-                    icon={<UserMinusIcon />}
-                    label="Unsubscribes"
-                    value="0"
-                  />
-                )}
-              </MetricGrid>
-              {/* The detail resolves to no block when the saved list behind
-                  this walk has been deleted: the envelope and its paid route
-                  survive a tombstone, the list does not. So this is the old
-                  id-only rendering, kept for the one case that still has
-                  nothing to report — never for a walk whose list is intact. */}
-              {isDoorKnocking && !doorKnocking && !detailQuery.isLoading && (
-                <p className="text-sm text-muted-foreground">
-                  This walk&apos;s saved list is no longer available, so its
-                  doors and knocking progress can&apos;t be shown.
-                </p>
-              )}
-            </DetailsSection>
+                  {isSocial ? (
+                    <Metric
+                      icon={<FileTextIcon />}
+                      label="Platforms"
+                      value={
+                        social
+                          ? `${social.assets.length} platform${social.assets.length === 1 ? '' : 's'}`
+                          : '—'
+                      }
+                    />
+                  ) : isPhoneBanking ? (
+                    <Metric
+                      icon={<UsersRoundIcon />}
+                      label="People"
+                      value={
+                        phoneBanking
+                          ? phoneBanking.peopleTotal.toLocaleString()
+                          : '—'
+                      }
+                    />
+                  ) : isDoorKnocking ? (
+                    // Doors and people are two figures on a walk, not one: a
+                    // multi-unit building is one stop and many doors, and its
+                    // residents are more people again. Both are the frozen
+                    // route's, from the same aggregate the door-knocking rail
+                    // reads — printing a second derivation of either is the
+                    // two-denominator failure this feature has a rule against.
+                    //
+                    // Solo-campaign only. `OutreachDetail.doorKnocking` carries
+                    // the ANCHOR turf's figures — not the campaign aggregate
+                    // across siblings — so on a multi-turf campaign this pair
+                    // would print anchor-only numbers labelled as campaign
+                    // totals, which is exactly the two-denominator failure
+                    // above. For multi-turf campaigns the per-turf figures live
+                    // on the sibling section above; the drawer-level aggregate
+                    // will need a real backend rollup before it can come back.
+                    //
+                    // A walk whose list is gone renders neither cell rather than
+                    // two em-dashes, which is the rule this drawer already
+                    // followed when it had no block at all: the sentence below
+                    // says what happened, and a cell that can only say "—" adds
+                    // nothing to it.
+                    (row?.turfCount ?? 1) === 1 &&
+                    (doorKnocking || detailQuery.isLoading) && (
+                      <>
+                        <Metric
+                          icon={<DoorOpenIcon />}
+                          label="Doors"
+                          pending={detailQuery.isLoading}
+                          value={
+                            doorKnocking?.doorCount.toLocaleString() ?? '—'
+                          }
+                        />
+                        <Metric
+                          icon={<UsersRoundIcon />}
+                          label="People"
+                          pending={detailQuery.isLoading}
+                          value={
+                            doorKnocking?.peopleCount.toLocaleString() ?? '—'
+                          }
+                        />
+                      </>
+                    )
+                  ) : (
+                    <Metric
+                      icon={<UsersRoundIcon />}
+                      label="People"
+                      value={
+                        typeof sent === 'number' ? sent.toLocaleString() : '—'
+                      }
+                    />
+                  )}
+                  {isSocial && social && (
+                    <Metric
+                      icon={<FileTextIcon />}
+                      label="Purpose"
+                      value={socialPurposeLabel(social.purpose)}
+                    />
+                  )}
+                  {isSms && (
+                    // No per-campaign opt-out feed exists yet (the results
+                    // sweep is a later slice), so this reads 0 — the same
+                    // value the design shows for a not-yet-sent row.
+                    <Metric
+                      icon={<UserMinusIcon />}
+                      label="Unsubscribes"
+                      value="0"
+                    />
+                  )}
+                </MetricGrid>
+              </DetailsSection>
+            )}
+
+            {/* The detail resolves to no block when the saved list behind
+                this walk has been deleted: the envelope and its paid route
+                survive a tombstone, the list does not. It outlived the
+                Overview section it used to sit in, because it is the one
+                thing a walk with no list still has to say. */}
+            {isDoorKnocking && !doorKnocking && !detailQuery.isLoading && (
+              <p className="text-sm text-muted-foreground">
+                This walk&apos;s saved list is no longer available, so its doors
+                and knocking progress can&apos;t be shown.
+              </p>
+            )}
 
             {/* Manager assign/unassign for a self-run list (ENG-11056),
                 flag-gated inside the section itself so this renders nothing

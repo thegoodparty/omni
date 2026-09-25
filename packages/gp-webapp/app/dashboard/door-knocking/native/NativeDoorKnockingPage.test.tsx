@@ -343,6 +343,7 @@ const turf: DoorKnockingTurf = {
   // Every count is a real number from the moment a list exists: the create
   // transaction buys the route, so the frozen doors are counted before
   // anything sees the row.
+  stopCount: 2,
   doorCount: 2,
   peopleCount: 3,
   loggedCount: 0,
@@ -1209,6 +1210,7 @@ describe('NativeDoorKnockingPage create flow', () => {
         voterFileFilterId: 9,
         name: 'Introduction walk',
         color: '#2563eb',
+        stopCount: 12,
         doorCount: 12,
         peopleCount: 20,
         loggedCount: 0,

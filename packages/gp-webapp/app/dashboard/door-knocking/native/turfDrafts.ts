@@ -151,6 +151,7 @@ export const draftAsTurfLike = (draft: TurfDraft): DoorKnockingTurf => {
     name: draft.name,
     color: draft.color,
     geoPoly: { type: 'Polygon', coordinates: [draft.polygon] },
+    stopCount: 0,
     doorCount: 0,
     knockedDoorCount: 0,
     peopleCount: 0,

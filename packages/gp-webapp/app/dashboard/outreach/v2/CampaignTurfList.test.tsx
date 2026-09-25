@@ -32,6 +32,7 @@ describe('CampaignTurfList', () => {
     name: 'Elm St & 5th',
     color: '#2563eb',
     geoPoly: { type: 'Polygon', coordinates: [] },
+    stopCount: 3,
     doorCount: 4,
     knockedDoorCount: 3,
     peopleCount: 9,
@@ -61,7 +62,10 @@ describe('CampaignTurfList', () => {
 
     expect(await screen.findByText('Elm St & 5th')).toBeInTheDocument()
     expect(screen.getByText('Oak Ave')).toBeInTheDocument()
-    expect(screen.getAllByText(/9 people \(4 doors\)/)).toHaveLength(2)
+    // Stops and people, in that order: stops is the router's own unit and
+    // the one the 150 cap is stated in. Doors sit between the two and are
+    // deliberately not on the card.
+    expect(screen.getAllByText('3 stops, 9 people')).toHaveLength(2)
   })
 
   it('offers Continue and Mark done on an active turf', async () => {

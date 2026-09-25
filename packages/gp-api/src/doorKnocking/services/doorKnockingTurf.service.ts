@@ -68,6 +68,7 @@ const CAMPAIGN_READ = {
 >
 
 const NO_COUNTS: DoorKnockingTurfCounts = {
+  stopCount: 0,
   doorCount: 0,
   knockedDoorCount: 0,
   peopleCount: 0,
@@ -84,6 +85,7 @@ const toResponse = (
   name: turf.name,
   color: turf.color,
   geoPoly: turf.geoPoly,
+  stopCount: counts.stopCount,
   doorCount: counts.doorCount,
   knockedDoorCount: counts.knockedDoorCount,
   peopleCount: counts.peopleCount,

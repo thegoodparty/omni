@@ -91,6 +91,7 @@ const turf: DoorKnockingTurf = {
       ],
     ],
   },
+  stopCount: 2,
   doorCount: 2,
   peopleCount: 2,
   loggedCount: 0,

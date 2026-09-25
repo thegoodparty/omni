@@ -25,17 +25,37 @@ import { Card } from '@styleguide'
 // `flex` here stacks the row into a centered column. That is exactly what it
 // did before this was extracted.
 type Props = {
-  turf: Pick<DoorKnockingTurf, 'name' | 'color' | 'doorCount' | 'peopleCount'>
+  turf: Pick<DoorKnockingTurf, 'name' | 'color' | 'stopCount' | 'peopleCount'>
   // Dimmed for a turf that is done or archived, the same treatment the
   // rail's rings get: shelved is a state, not a deletion.
   muted?: boolean
+  // Leaves the figures off the name row, for a caller that has a second
+  // line of its own to put them on. The drawer does: its rows carry a
+  // progress bar, and two lines of numbers under one name is one too many.
+  hideCounts?: boolean
   actions?: ReactNode
   children?: ReactNode
 }
 
+// What a turf is worth, in the one wording every surface that lists turfs
+// uses. Stops first because it is the router's own unit and the one the 150
+// cap is stated in; people because it is who is behind them. Doors sit
+// between the two and are deliberately not here — a card carrying all three
+// asks a candidate comparing two turfs to hold three ratios in their head,
+// which is the rule `draftCounts.tsx` already records.
+export const turfCountsLabel = (
+  turf: Pick<DoorKnockingTurf, 'stopCount' | 'peopleCount'>,
+) =>
+  `${turf.stopCount.toLocaleString()} ${
+    turf.stopCount === 1 ? 'stop' : 'stops'
+  }, ${turf.peopleCount.toLocaleString()} ${
+    turf.peopleCount === 1 ? 'person' : 'people'
+  }`
+
 export const TurfRowCard = ({
   turf,
   muted = false,
+  hideCounts = false,
   actions,
   children,
 }: Props) => (
@@ -62,10 +82,11 @@ export const TurfRowCard = ({
         </span>
         {/* The group shrinks by truncating the NAME, never the number —
             which is what puts every row's figures in the same column. */}
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {turf.peopleCount.toLocaleString()} people (
-          {turf.doorCount.toLocaleString()} doors)
-        </span>
+        {!hideCounts && (
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {turfCountsLabel(turf)}
+          </span>
+        )}
       </span>
       {actions}
     </div>
