@@ -60,6 +60,20 @@ def test_a_declared_exclusion_may_be_one_value_or_a_list():
     assert leg.key == "E[excluding method=manual,native]"
 
 
+def test_excluding_values_normalise_to_a_stable_order():
+    # The values are a set. A reorder that means the same thing must not produce
+    # a second series key, or the monitor splits one instrument's history in two.
+    def leg(values):
+        declared = (
+            "metrics:\n  - name: m\n    config:\n      meta:\n        anchored_on:\n"
+            f"          - event: E\n            excluding:\n              method: {values}\n"
+        )
+        return sa.parse_anchors(declared)["m"][0]
+
+    assert leg("[native, manual]") == leg("[manual, native]")
+    assert leg("[native, manual]").key == "E[excluding method=manual,native]"
+
+
 def test_excluding_normalises_to_a_stable_order():
     # Two declarations that mean the same thing must seal and key the same, or a YAML
     # reorder would read as a new instrument.

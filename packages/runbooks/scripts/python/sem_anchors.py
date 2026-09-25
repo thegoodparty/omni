@@ -41,7 +41,10 @@ def _freeze_excluding(raw: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
     frozen = []
     for prop, value in sorted(dict(raw).items()):  # type: ignore[call-overload]
         values = value if isinstance(value, (list, tuple)) else [value]
-        frozen.append((str(prop), tuple(str(v) for v in values)))
+        # Values sorted too, not just the property names: the excluded values
+        # are a set, and a YAML reorder that means the same thing must not read
+        # as a different instrument with its own series and its own history.
+        frozen.append((str(prop), tuple(sorted(str(v) for v in values))))
     return tuple(frozen)
 
 
