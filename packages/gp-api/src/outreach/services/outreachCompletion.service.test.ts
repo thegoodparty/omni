@@ -1,4 +1,5 @@
 import { BadGatewayException } from '@nestjs/common'
+import { addHours, subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
@@ -9,7 +10,10 @@ import {
   OutreachStatus,
   OutreachType,
 } from '../../generated/prisma'
-import { OutreachCompletionService } from './outreachCompletion.service'
+import {
+  OUTREACH_COMPLETION_MAX_AGE_DAYS,
+  OutreachCompletionService,
+} from './outreachCompletion.service'
 
 const service = useTestService()
 
@@ -23,14 +27,16 @@ const DEFAULT_PROJECT_ID = 'peerly-job'
 // separately-sampled `new Date()` gets that wrong twice: a local `format`
 // puts "today" a day behind UTC for anyone west of Greenwich after 7pm, and
 // even in UTC the two samples straddle midnight for the last second of any
-// day. Pinning the clock removes both — `end_date` is a bare calendar date,
+// day. Pinning the clock removes both — `start_date` is a bare calendar date,
 // so the fixtures can just BE calendar dates.
 const NOW = new Date('2026-06-15T12:00:00Z')
-const PAST_END_DATE = '2026-06-14'
-const TODAY_END_DATE = '2026-06-15'
-const FUTURE_END_DATE = '2026-06-16'
-const PAST_START_DATE = '2026-06-12'
+const PAST_START_DATE = '2026-06-14'
+const TODAY_START_DATE = '2026-06-15'
 const FUTURE_START_DATE = '2026-06-29'
+// What Peerly's morning-after process writes: start + 15 days. A job in
+// flight on its send day can already carry it (a pre-extended window), and
+// nothing here may read it as "still sending".
+const EXTENDED_END_DATE = '2026-06-30'
 
 let campaign: Campaign
 let completionService: OutreachCompletionService
@@ -44,8 +50,8 @@ const buildJob = (
     id: DEFAULT_PROJECT_ID,
     status: PeerlyJobStatus.ACTIVE,
     leads_remaining: 10,
-    start_date: PAST_START_DATE,
-    end_date: FUTURE_END_DATE,
+    start_date: TODAY_START_DATE,
+    end_date: EXTENDED_END_DATE,
     ...overrides,
   }) as PeerlyJob
 
@@ -56,6 +62,7 @@ const createOutreach = (overrides: Partial<Outreach> = {}) =>
       outreachType: OutreachType.p2p,
       projectId: DEFAULT_PROJECT_ID,
       status: OutreachStatus.pending,
+      date: NOW,
       ...overrides,
     },
   })
@@ -95,7 +102,7 @@ afterEach(() => {
 })
 
 describe('OutreachCompletionService.sweepOutreachCompletions', () => {
-  it('moves a pending outreach to in_progress when the Peerly job is active', async () => {
+  it('moves a pending outreach to in_progress when the Peerly job is active on its send day', async () => {
     const outreach = await createOutreach({ status: OutreachStatus.pending })
     getJob.mockResolvedValue(
       buildJob({ status: PeerlyJobStatus.ACTIVE, leads_remaining: 5 }),
@@ -107,7 +114,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     expect(updated.status).toBe(OutreachStatus.in_progress)
   })
 
-  it('moves an in_progress outreach to completed once end_date is strictly in the past, regardless of leads_remaining', async () => {
+  it('moves an in_progress outreach to completed once start_date is strictly in the past, regardless of leads_remaining or end_date', async () => {
     const outreach = await createOutreach({
       status: OutreachStatus.in_progress,
     })
@@ -115,7 +122,8 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       buildJob({
         status: PeerlyJobStatus.ACTIVE,
         leads_remaining: 500,
-        end_date: PAST_END_DATE,
+        start_date: PAST_START_DATE,
+        end_date: EXTENDED_END_DATE,
       }),
     )
 
@@ -126,9 +134,9 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
   })
 
   // Peerly has no terminal-success status: finished jobs read PAUSED
-  // (ENG-10727). PAUSED past its window must complete, or every finished
+  // (ENG-10727). PAUSED past its day must complete, or every finished
   // send would sit in_progress forever.
-  it('moves a PAUSED job with a past end_date to completed', async () => {
+  it('moves a PAUSED job with a past start_date to completed', async () => {
     const outreach = await createOutreach({
       status: OutreachStatus.in_progress,
     })
@@ -136,7 +144,7 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       buildJob({
         status: PeerlyJobStatus.PAUSED,
         leads_remaining: 500,
-        end_date: PAST_END_DATE,
+        start_date: PAST_START_DATE,
       }),
     )
 
@@ -147,16 +155,18 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
   })
 
   it.each([
-    ['today', TODAY_END_DATE],
-    ['in the future', FUTURE_END_DATE],
+    ['already past', PAST_START_DATE],
+    ['today', TODAY_START_DATE],
+    ['extended two weeks out', EXTENDED_END_DATE],
   ])(
-    'does not complete a job whose end_date is %s, even with leads_remaining 0',
+    'does not complete a job on its send day whatever end_date reads (%s), even with leads_remaining 0',
     async (_label, endDate) => {
       const outreach = await createOutreach({ status: OutreachStatus.pending })
       getJob.mockResolvedValue(
         buildJob({
           status: PeerlyJobStatus.ACTIVE,
           leads_remaining: 0,
+          start_date: TODAY_START_DATE,
           end_date: endDate,
         }),
       )
@@ -189,13 +199,16 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     expect(updated.status).toBe(OutreachStatus.pending)
   })
 
-  it('does not ratchet a pending outreach to completed when the job is still pending, even past its end_date', async () => {
+  it('does not ratchet a pending outreach to completed when the job is still pending, even past its start_date', async () => {
     // Reproduces the pre-fix ratchet bug: a fresh job can be polled while
-    // still PENDING (not yet loaded by a Peerly agent) with an end_date the
+    // still PENDING (not yet loaded by a Peerly agent) with a start_date the
     // scheduler has already passed. The pending branch must win.
     const outreach = await createOutreach({ status: OutreachStatus.pending })
     getJob.mockResolvedValue(
-      buildJob({ status: PeerlyJobStatus.PENDING, end_date: PAST_END_DATE }),
+      buildJob({
+        status: PeerlyJobStatus.PENDING,
+        start_date: PAST_START_DATE,
+      }),
     )
 
     await completionService.sweepOutreachCompletions()
@@ -242,6 +255,55 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     expect(getJob).not.toHaveBeenCalled()
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(status)
+  })
+
+  it('stops polling a row whose send date is more than the max age behind', async () => {
+    // The rows that reach this age are the ones Peerly 502s on every hour
+    // (job gone upstream). Their status is left as-is — unverifiable, not
+    // guessed — and the vendor read is no longer spent on them.
+    const stale = await createOutreach({
+      projectId: 'job-stale',
+      status: OutreachStatus.in_progress,
+      date: subDays(NOW, OUTREACH_COMPLETION_MAX_AGE_DAYS + 1),
+    })
+    const recent = await createOutreach({
+      projectId: 'job-recent',
+      status: OutreachStatus.in_progress,
+      date: subDays(NOW, OUTREACH_COMPLETION_MAX_AGE_DAYS - 1),
+    })
+    const undated = await createOutreach({
+      projectId: 'job-undated',
+      status: OutreachStatus.pending,
+      date: null,
+    })
+    // A dateless row ages off its creation, or it would never leave the
+    // candidate set.
+    const undatedStale = await createOutreach({
+      projectId: 'job-undated-stale',
+      status: OutreachStatus.pending,
+      date: null,
+      createdAt: subDays(NOW, OUTREACH_COMPLETION_MAX_AGE_DAYS + 1),
+    })
+    getJob.mockResolvedValue(
+      buildJob({ status: PeerlyJobStatus.ACTIVE, start_date: PAST_START_DATE }),
+    )
+
+    await completionService.sweepOutreachCompletions()
+
+    const polled = getJob.mock.calls.map(([jobId]) => jobId).sort()
+    expect(polled).toEqual(['job-recent', 'job-undated'])
+    expect((await findOutreach(stale.id)).status).toBe(
+      OutreachStatus.in_progress,
+    )
+    expect((await findOutreach(undatedStale.id)).status).toBe(
+      OutreachStatus.pending,
+    )
+    expect((await findOutreach(recent.id)).status).toBe(
+      OutreachStatus.completed,
+    )
+    expect((await findOutreach(undated.id)).status).toBe(
+      OutreachStatus.completed,
+    )
   })
 
   it('leaves the outreach status untouched (and logs) when the Peerly job is deleted', async () => {
@@ -314,7 +376,17 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     expect(updatedHealthy.status).toBe(OutreachStatus.in_progress)
   })
 
-  it('is idempotent: a second run produces no additional writes', async () => {
+  it('runs once per UTC hour across replicas: a second claim in the same hour polls nothing', async () => {
+    await createOutreach({ status: OutreachStatus.pending })
+    getJob.mockResolvedValue(buildJob({ status: PeerlyJobStatus.ACTIVE }))
+
+    await completionService.sweepOutreachCompletions()
+    await completionService.sweepOutreachCompletions()
+
+    expect(getJob).toHaveBeenCalledTimes(1)
+  })
+
+  it('is idempotent: a second run an hour later produces no additional writes', async () => {
     const outreach = await createOutreach({ status: OutreachStatus.pending })
     getJob.mockResolvedValue(
       buildJob({ status: PeerlyJobStatus.ACTIVE, leads_remaining: 5 }),
@@ -324,9 +396,11 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     const afterFirst = await findOutreach(outreach.id)
     expect(afterFirst.status).toBe(OutreachStatus.in_progress)
 
+    vi.setSystemTime(addHours(NOW, 1))
     await completionService.sweepOutreachCompletions()
     const afterSecond = await findOutreach(outreach.id)
 
+    expect(getJob).toHaveBeenCalledTimes(2)
     expect(afterSecond.status).toBe(OutreachStatus.in_progress)
     // `updatedAt` unchanged proves the second sweep issued no write for this
     // row, not just that the value happened to match.

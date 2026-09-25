@@ -443,7 +443,7 @@ describe('PeerlyP2pJobService', () => {
     })
 
     // The outreach-completion sweep (OutreachCompletionService) drives a
-    // status write off `leads_remaining`; a malformed vendor payload must
+    // status write off `start_date`; a malformed vendor payload must
     // 502 rather than silently mis-driving that transition. This exercises
     // the real GetJobResponseDto parse — the file's other tests stub
     // validateResponse as a blind passthrough, which would hide a schema
@@ -459,9 +459,9 @@ describe('PeerlyP2pJobService', () => {
       await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
     })
 
-    // end_date is the completion predicate's sole input (ENG-10739): a job
-    // payload without it must 502 the poll, not parse to Invalid Date and
-    // pin the outreach in_progress forever.
+    // end_date is Peerly's reply window and drives no status any more, but
+    // the schema still parses the job narrowly: a payload missing a field
+    // Peerly always sends is a shape change worth a 502, not a silent pass.
     it('throws BadGatewayException when the job response lacks end_date', async () => {
       mockHttpService.get.mockResolvedValue({
         data: {
@@ -477,9 +477,9 @@ describe('PeerlyP2pJobService', () => {
       await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
     })
 
-    // start_date drives the completion sweep's not-started hold the same
-    // way end_date drives its completion predicate: a missing value must
-    // 502 the poll, never parse to Invalid Date and skip the pending guard.
+    // start_date drives both the completion sweep's not-started hold and
+    // its completion predicate (ENG-11157): a missing value must 502 the
+    // poll, never parse to Invalid Date and skip the pending guard.
     it('throws BadGatewayException when the job response lacks start_date', async () => {
       mockHttpService.get.mockResolvedValue({
         data: {

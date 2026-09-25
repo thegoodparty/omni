@@ -97,64 +97,115 @@ describe('getHistoryStatusLabel — draft rows read the next step from membershi
   })
 })
 
-describe('getHistoryStatusLabel — active jobs follow their send window', () => {
-  const day = 24 * 60 * 60 * 1000
+describe('getHistoryStatusLabel — a p2p send reads Scheduled → Sending → Done', () => {
+  const hour = 60 * 60 * 1000
+  const day = 24 * hour
   const isoDay = (offsetDays: number) =>
     new Date(Date.now() + offsetDays * day).toISOString().slice(0, 10)
+  const at = (offsetMs: number) => new Date(Date.now() + offsetMs).toISOString()
 
-  it('labels an active job Scheduled while its window is in the future', () => {
-    // The regression: CAS activates at approve, weeks before the send —
-    // an activated-but-unstarted job must never read Done (2026-09-16).
+  it('labels an active job Scheduled while the send time is in the future', () => {
+    // CAS activates at approve, weeks before the send — an activated but
+    // unstarted job must never read Done (2026-09-16).
     expect(
       getHistoryStatusLabel(
         p2pRow({
-          status: 'in_progress',
-          p2pJob: {
-            status: 'active',
-            start_date: isoDay(19),
-            end_date: isoDay(19),
-          },
+          status: 'pending',
+          date: at(19 * day),
+          p2pJob: { status: 'active', start_date: isoDay(19) },
         }),
       ),
     ).toBe('Scheduled')
   })
 
-  it('labels an active job Sending inside its window', () => {
+  it('labels the row Sending once the send time has passed and the row is not completed', () => {
     expect(
       getHistoryStatusLabel(
         p2pRow({
-          status: 'pending',
-          p2pJob: {
-            status: 'active',
-            start_date: isoDay(-1),
-            end_date: isoDay(1),
-          },
+          status: 'in_progress',
+          date: at(-2 * hour),
+          p2pJob: { status: 'active', start_date: isoDay(0) },
         }),
       ),
     ).toBe('Sending')
   })
 
-  it('labels an active job Done once its end day has fully passed', () => {
+  it('labels a completed row Done whatever the vendor job says', () => {
+    // Peerly extends end_date to start + 15 days the morning after a send
+    // and the job stays active; the spine's completion is the only Done.
     expect(
       getHistoryStatusLabel(
         p2pRow({
-          status: 'in_progress',
-          p2pJob: {
-            status: 'active',
-            start_date: isoDay(-3),
-            end_date: isoDay(-2),
-          },
+          status: 'completed',
+          date: at(-1 * day),
+          p2pJob: { status: 'active', start_date: isoDay(-1) },
+        }),
+      ),
+    ).toBe('Done')
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({
+          status: 'completed',
+          date: at(-1 * day),
+          p2pJob: { status: 'paused', start_date: isoDay(-1) },
         }),
       ),
     ).toBe('Done')
   })
 
-  it('falls back to Done for an active job with no window dates', () => {
+  it('reads the send time off the row, not the job day', () => {
+    // A 6pm send on a day that began at midnight UTC is still Scheduled at
+    // noon; the job's start_date alone would call it Sending.
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({
+          status: 'in_progress',
+          date: at(6 * hour),
+          p2pJob: { status: 'active', start_date: isoDay(0) },
+        }),
+      ),
+    ).toBe('Scheduled')
+  })
+
+  it('falls back to the job day for a row with no send timestamp', () => {
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({
+          status: 'in_progress',
+          date: null,
+          p2pJob: { status: 'active', start_date: isoDay(-1) },
+        }),
+      ),
+    ).toBe('Sending')
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({
+          status: 'pending',
+          date: null,
+          p2pJob: { status: 'paused', start_date: isoDay(3) },
+        }),
+      ),
+    ).toBe('Scheduled')
+  })
+
+  it('keeps a queued (pending) job Scheduled even past its send time', () => {
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({
+          status: 'in_progress',
+          date: at(-1 * day),
+          p2pJob: { status: 'pending', start_date: isoDay(-1) },
+        }),
+      ),
+    ).toBe('Scheduled')
+  })
+
+  it('reads the spine alone when the job carries no dates', () => {
     expect(
       getHistoryStatusLabel(
         p2pRow({ status: 'in_progress', p2pJob: { status: 'active' } }),
       ),
-    ).toBe('Done')
+    ).toBe('Sending')
   })
 })
 

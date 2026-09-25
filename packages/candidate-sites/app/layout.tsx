@@ -1,8 +1,16 @@
 import type { Metadata } from 'next'
-import { Outfit } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 
-const outfit = Outfit({ subsets: ['latin'], variable: '--outfit-font' })
+// Self-hosted for the same reason gp-webapp's are — see
+// packages/gp-webapp/app/fonts/index.ts.
+const outfit = localFont({
+  src: './fonts/outfit-latin-wght-normal.woff2',
+  weight: '100 900',
+  style: 'normal',
+  display: 'swap',
+  variable: '--outfit-font',
+})
 
 export const metadata: Metadata = {
   title: 'GoodParty.org Candidate Sites',

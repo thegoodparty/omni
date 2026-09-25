@@ -5,6 +5,9 @@ import {
   differenceInBusinessDays,
   differenceInCalendarDays,
   isBefore,
+  isValid,
+  parseISO,
+  startOfDay,
   subDays,
   subHours,
   subMinutes,
@@ -506,8 +509,18 @@ export class Nightly10DlcReportService extends createPrismaBase(
       }),
     ])
 
+    // A dark domain after the campaign's election is the expected lifecycle
+    // (renewals stop, the registrar drops it into redemption), not a registry
+    // hold — five expired post-election domains flooded the 2026-09-25
+    // report with false serverHold leads. Missing/invalid election dates
+    // stay in the sweep so the filter can't over-exclude.
+    const preElectionDomains = liveDomainCandidates.filter((domain) => {
+      const electionDate = domain.website.campaign.details.electionDate
+      if (!electionDate || !isValid(parseISO(electionDate))) return true
+      return !isBefore(parseISO(electionDate), startOfDay(now))
+    })
     const heldDomains =
-      await this.sweepDomainsWithoutDelegation(liveDomainCandidates)
+      await this.sweepDomainsWithoutDelegation(preElectionDomains)
 
     // Business-day floor applied in code (see comment above) — restricted to
     // the same in-flight population the queries above already scoped.
