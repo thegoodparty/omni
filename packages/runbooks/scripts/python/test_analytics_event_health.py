@@ -1433,6 +1433,31 @@ def test_latched_record_outranks_the_counter_blind_spot_canary():
     assert eh.rank_record(record) == 0
 
 
+def test_latched_record_with_zero_call_sites_takes_the_okr_cause_not_the_canary():
+    # The overlap is the dangerous shape: a latched OKR anchor can also satisfy the
+    # blind-spot predicate (active, no anomaly, zero counted call sites). Routed to
+    # counter_blind_spot it would leave the queue, leave Slack, and become dismissable
+    # — a number the company steers by going quiet, which is the failure the latch
+    # exists to prevent. Every guard that picks between the two is asserted here.
+    record = _flag("Campaign Plan - Campaign Tracker Viewed", 0, "active",
+                   elevated=True, call_site_count=0,
+                   okr="win_active_candidates_30d", latched=True)
+    assert eh.is_counter_blind_spot(record)  # the predicate really does fire
+    assert eh.rank_record(record) == 0
+    assert eh.cause_key(record) == "okr_anchor_dormant"
+    assert eh.cause_key(record) not in eh.UNDISMISSABLE_CAUSES - {"okr_anchor_dormant"}
+    assert eh.cause_key(record) in eh.UNDISMISSABLE_CAUSES
+
+    clusters = eh.cluster_flagged([record])
+    assert [c["cause"] for c in clusters] == ["okr_anchor_dormant"]
+
+    # And the digest keeps it in the queue rather than the tooling section.
+    out = _digest([record])
+    assert "### Counter blind spots" not in out
+    causes = out.split("### Flagged (by cause)")[1].split("<details>")[0]
+    assert "OKR anchor dormant" in causes
+
+
 def test_unlatched_records_rank_exactly_as_before():
     # Guard against the latch field changing behaviour for everything else.
     record = {"status": "dormant", "elevated": False, "anomaly": None, "divergence": None,
