@@ -37,7 +37,6 @@ import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from '../turfQueries'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
-import { suggestTravelMode } from '../travelMode'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import {
@@ -77,7 +76,6 @@ import { CreateCampaignSuccess } from './CreateCampaignSuccess'
 import type { SavedListOption } from './savedListOptions'
 import type {
   DoorKnockingAddressPreviewResponse,
-  DoorKnockingMode,
   DoorKnockingTurf,
   RecommendedList,
   RecommendedListFilter,
@@ -197,11 +195,6 @@ interface CreateListFlowProps {
   // The estimate: instant on every ring change, and a superset, since the pack
   // carries no addresses and cannot shade by every filter a list applies.
 
-  // The drawn shape's stops as [lng, lat], from the pack the page holds. The
-  // route step's walk-vs-drive suggestion is derived from how spread out they
-  // are, which is only answerable before the route is bought — and since the
-  // purchase now happens at the end of this flow, this is that moment.
-  drawnStops: Array<[number, number]> | null
   // gp-api's answer for the shape the candidate asked about — the addresses
   // themselves, and the exact counts that come with them. Non-null only while
   // it describes the ring currently on screen, and when it is non-null it is
@@ -402,7 +395,6 @@ export default function CreateListFlow({
   savedLists,
   allContactsHouseholds,
   ring,
-  drawnStops,
   drawPointCount,
   drawFullScreen,
   onDrawFullScreenChange,
@@ -513,10 +505,6 @@ export default function CreateListFlow({
   // pills, not to be shown the list picker again.
   const [buildingList, setBuildingList] = useState(false)
   const [listOpen, setListOpen] = useState(false)
-  // The route the last step buys. Overrides only — `mode` falls back to what
-  // the drawn shape's geometry suggests, which can resolve after this mounts.
-  const [modeOverride] = useState<DoorKnockingMode | null>(null)
-  const [loop] = useState(true)
   // The turfs the create actually wrote, held for the success screen, which
   // lists them with their own counts and a knock control each.
   const [createdTurfs, setCreatedTurfs] = useState<DoorKnockingTurf[] | null>(
@@ -716,11 +704,21 @@ export default function CreateListFlow({
   // same "picker mode, above the saved lists" placement Task 8 used for the
   // other channels' shared audience step.
   // Milestone 2's in-flow gate. Door knocking saves no draft — nothing is
-  // written until the paid create — so the gate stands in front of Build
-  // route rather than behind a saved row. Under outreach-pro-gating-v2 the
-  // page admits a free campaign (the four map reads it needs are open to
-  // one), and Build route, the Geoapify spend, is the one call gp-api still
-  // refuses without Pro.
+  // written until the create — so the gate stands in front of a press
+  // rather than behind a saved row. Under outreach-pro-gating-v2 the page
+  // admits a free campaign, because the four map reads it needs are open to
+  // one.
+  //
+  // **It now guards a press that spends nothing, and that is deliberate for
+  // this round.** The Geoapify spend moved to the first knock, which is a
+  // dialog — and a dialog is not a surface the gate's own full-sheet
+  // screens can mount in. Create campaign is the last press before the
+  // money and the only one with a sheet around it, so a free candidate
+  // meets Pro exactly where they always did rather than building a campaign
+  // that dead-ends at the door. gp-api refuses the buy without Pro either
+  // way (`assertProAccess` on `POST turfs/:id/route`), so this is about
+  // where the candidate is told, not about what is enforced. Moving it onto
+  // the knock press is the follow-up.
   const gate = useOutreachGate('door')
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step but the draw,
@@ -957,14 +955,6 @@ export default function CreateListFlow({
     appliedSuggestion.current = suggestion
     setName(suggestion)
   }, [step, purpose, purposeNameSuggestion, siblingTurfs])
-
-  // Derived rather than seeded into state: the pack decodes on its own
-  // schedule, so a suggestion that arrives after the route step is on screen
-  // still lands. `mode` is the override once there is one, the suggestion
-  // until then, and walking when there is nothing to suggest from.
-  const suggestedMode =
-    drawnStops && drawnStops.length > 0 ? suggestTravelMode(drawnStops) : null
-  const mode = modeOverride ?? suggestedMode ?? 'walk'
 
   // The card's two composed sections, previewed on the step so the candidate
   // reviews five sections rather than the four they can edit.
@@ -1341,25 +1331,6 @@ export default function CreateListFlow({
           // Without shipping which filters — the demographics themselves
           // stay out of the analytics payload.
           filterCount: activeFilterCount,
-          mode,
-          loop,
-          // Beside `mode`, the only read on whether the geometry-derived
-          // default is any good: equal means it was accepted, different
-          // means it was deliberately overruled, null means there was
-          // nothing to suggest from.
-          suggestedMode,
-        })
-      }
-      // A turf that did not build, reported the same way a whole failed
-      // press is. `onError` only fires when the ANCHOR throws, which is the
-      // one failure that buys nothing — every sibling that 502s resolves
-      // this mutation, so without this the activation metric's failure
-      // counterpart would miss every one of them.
-      for (const error of failures) {
-        trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
-          mode,
-          loop,
-          status: error instanceof FetchError ? error.status : undefined,
         })
       }
       // Dropped here rather than in the mutation body so a draft is only
@@ -1401,16 +1372,6 @@ export default function CreateListFlow({
       // because there is no route to walk until somebody buys one.
       setCreatedTurfs(created.map((c) => c.turf))
       goToStage('success')
-    },
-    onError: (error) => {
-      trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
-        mode,
-        loop,
-        // Separates the failures the candidate can act on (400 empty turf or
-        // over the stop cap, 429 daily routing budget) from the vendor being
-        // down (502) — different problems with very different fixes.
-        status: error instanceof FetchError ? error.status : undefined,
-      })
     },
   })
 

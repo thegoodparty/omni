@@ -186,7 +186,6 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     onDrawFullScreenChange={vi.fn()}
     onRestartDrawing={vi.fn()}
     drawPointCount={3}
-    drawnStops={null}
     onStartKnocking={onStartKnocking}
     isServeOrg={false}
     unpreviewableKeys={[]}

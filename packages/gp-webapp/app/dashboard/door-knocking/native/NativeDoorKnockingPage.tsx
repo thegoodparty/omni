@@ -48,7 +48,7 @@ import {
   filtersToDimSelections,
   unpreviewableFilterKeys,
 } from './createFlow/voterFilterPreview'
-import { stopPositionsInRing } from './travelMode'
+import { stopPositionsInRing, suggestTravelMode } from './travelMode'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
 import { TurfPanel } from './createFlow/TurfPanel'
 import { useTeamOptions } from './useTeamOptions'
@@ -871,16 +871,6 @@ export default function NativeDoorKnockingPage({
         : [],
     [packQuery.data, filters],
   )
-  // The route step suggests walk vs drive from how spread out the drawn shape's
-  // own stops are, and the pack is the only thing that knows where they are
-  // before the route is bought. Since the purchase moved to the end of the
-  // create flow, the shape being measured is the one on the canvas rather than
-  // a saved turf's — which is also the only moment the mode is still a choice.
-  const drawnStops = useMemo(() => {
-    const pack = packQuery.data
-    if (!pack || !ring || !selections) return null
-    return stopPositionsInRing(pack, selections, ring)
-  }, [packQuery.data, selections, ring])
   const turfStats = useMemo(
     () =>
       packQuery.data && ring && selections
@@ -1161,6 +1151,21 @@ export default function NativeDoorKnockingPage({
     turf: DoorKnockingTurf
     origin: WalkOrigin
   } | null>(null)
+
+  // The travel mode a saved turf's shape argues for, computed at the moment
+  // the knock prompt opens. Walking or driving is a question about the doors
+  // and how far apart they are, and the frozen stops are exactly that.
+  const knockSuggestion = useMemo(() => {
+    const pack = packQuery.data
+    const turf = knockPrompt?.turf
+    if (!pack || !turf || !selections) return null
+    const stops = stopPositionsInRing(
+      pack,
+      selections,
+      turf.geoPoly.coordinates[0] ?? [],
+    )
+    return stops.length > 0 ? suggestTravelMode(stops) : null
+  }, [packQuery.data, selections, knockPrompt])
 
   // Tears the create flow down so the walk can own the screen. A no-op when
   // the flow is not open, which is most of the ways into a walk.
@@ -1503,7 +1508,6 @@ export default function NativeDoorKnockingPage({
                   drawFullScreen={draw.fullScreen}
                   onDrawFullScreenChange={openDrawing}
                   onRestartDrawing={draw.startDrawing}
-                  drawnStops={drawnStops}
                   onStartKnocking={handleStartKnocking}
                   isServeOrg={isServeOrg}
                   unpreviewableKeys={unpreviewableKeys}
@@ -1605,6 +1609,12 @@ export default function NativeDoorKnockingPage({
         )}
         <StartKnockingDialog
           turf={knockPrompt?.turf ?? null}
+          // Suggested from the turf's OWN shape rather than from whatever
+          // is on the canvas: this dialog is opened for a saved turf, which
+          // may have been cut in another session entirely. Null when the
+          // pack has not decoded — the dialog then opens on walking, which
+          // is the right default for a turf nobody can measure yet.
+          suggested={knockSuggestion}
           onOpenChange={(open) => {
             if (!open) setKnockPrompt(null)
           }}

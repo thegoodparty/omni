@@ -1,5 +1,3 @@
-'use client'
-
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -16,6 +14,8 @@ import type {
   DoorKnockingTurf,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { FetchError } from 'ofetch'
+import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { RouteStep } from './createFlow/RouteStep'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 
@@ -63,6 +63,19 @@ export const StartKnockingDialog = ({
         },
       )
       return res.data
+    },
+    onError: (error) => {
+      // The funnel's one real failure lives here now. It used to fire from
+      // the create, because the route was bought inside that transaction;
+      // creating a campaign buys nothing any more, so a failed create is
+      // not a failed route build and this is the only press that can be
+      // one. Status separates what the candidate can act on (400 empty
+      // turf or over the cap) from the vendor being down (502).
+      trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
+        mode,
+        loop,
+        status: error instanceof FetchError ? error.status : undefined,
+      })
     },
     onSuccess: (routed) => {
       // The rail and the campaign read both carry `routeSeconds`, which just

@@ -210,14 +210,14 @@ const TurfRow = ({
       {/* Only while there is something to do. A done or archived turf keeps
           its figures and loses the bar, rather than offering a dead CTA. */}
       {active && (
-        <div className="flex flex-row items-center gap-3 border-t bg-primary/5 px-3 py-2.5">
+        <div className="flex flex-row items-center justify-between gap-3 border-t bg-primary/5 px-3 py-2.5">
           {/* The first manual `markDone` caller in the product, and the
               quieter of the two: it ends the turf, so it is a text button
               beside the filled one rather than competing with it. */}
           <Button
             type="button"
             variant="ghost"
-            className="shrink-0"
+            size="small"
             disabled={pending}
             onClick={() => {
               // Nothing to warn about on a fully logged turf.
@@ -231,10 +231,10 @@ const TurfRow = ({
           >
             Mark as done
           </Button>
-          {/* Hugs its label and keeps the right edge, so the two controls
-              read as "the quiet one and the one you came for" rather than
-              as a split bar. */}
-          <Button asChild className="ml-auto w-fit">
+          {/* Both at `size="small"` and neither restyled: the row is what
+              positions them (`justify-between`), so the quiet one keeps the
+              left edge and the one you came for keeps the right. */}
+          <Button asChild size="small">
             <Link href={walkHref}>{knockLabel}</Link>
           </Button>
         </div>

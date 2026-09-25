@@ -327,7 +327,7 @@ describe('CreateListFlow', () => {
     })
   })
 
-  it('creates the voter list from the filter draft, then buys the route', async () => {
+  it('creates the voter list from the filter draft, then the campaign', async () => {
     const calls: Array<{ kind: string; body: unknown }> = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       calls.push({ kind: 'filter', body })
@@ -373,11 +373,6 @@ describe('CreateListFlow', () => {
       // is what every history surface reads.
       name: 'Turf 1',
       campaignName: 'Lakeview blitz',
-      // The route options this step exists to collect, sent with the turf
-      // rather than to a second endpoint: they are what the vendor is paid to
-      // plan, so they cannot arrive after the purchase.
-      mode: 'walk',
-      loop: true,
       geoPoly: {
         type: 'Polygon',
         coordinates: [
@@ -390,15 +385,14 @@ describe('CreateListFlow', () => {
         ],
       },
     })
-    // One event per turf, because one turf is one route bought in one
-    // transaction — and the figures are that turf's own.
+    // One event per turf, because a campaign is cut into turfs and each is
+    // its own list — and the figures are that turf's own. No travel mode on
+    // it: nothing here chooses one any more, and a default reported as a
+    // choice is worse than a silence.
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
       stops: 14,
       people: 22,
       filterCount: 1,
-      mode: 'walk',
-      loop: true,
-      suggestedMode: null,
     })
   })
 
@@ -558,81 +552,11 @@ describe('CreateListFlow', () => {
     expect(
       screen.getByRole('button', { name: 'Create campaign' }),
     ).toBeEnabled()
-    expect(trackEvent).toHaveBeenCalledWith(
+    // And it reports no route build. Nothing here builds one — that event
+    // belongs to the press at the door now (`StartKnockingDialog`).
+    expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.DoorKnocking.RouteBuildFailed,
-      { mode: 'walk', loop: true, status: 400 },
-    )
-  })
-
-  // The route step is the only step that spends money, and these two controls
-  // are the whole of what it spends it on. The mode rides to the vendor as the
-  // travel profile; the loop decides whether the tour closes.
-  it('sends the travel mode and the loop the route step collected', async () => {
-    let turfBody: unknown = null
-    api.mock('POST /v1/voters/voter-file/filter', {
-      status: 200,
-      data: { id: 3 },
-    })
-    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
-      turfBody = body
-      return { status: 200, data: savedTurf }
-    })
-
-    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
-    advanceToDraw(rerender, {})
-
-    fireEvent.click(screen.getByRole('radio', { name: /Driving/ }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /End where I start/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
-
-    await waitFor(() =>
-      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
-    )
-    expect(turfBody).toMatchObject({ mode: 'drive', loop: false })
-  })
-
-  // Every stop within a five-minute walk of the next is what makes a list
-  // walkable, and the drawn shape is the only thing that knows. It only tags a
-  // radio — the selected mode stays the candidate's, so a suggestion that
-  // decodes late cannot move a choice already made.
-  it('suggests driving for a spread-out shape, without overruling a pick', async () => {
-    let turfBody: unknown = null
-    api.mock('POST /v1/voters/voter-file/filter', {
-      status: 200,
-      data: { id: 3 },
-    })
-    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
-      turfBody = body
-      return { status: 200, data: savedTurf }
-    })
-    // Two stops a couple of kilometres apart: nobody walks that between doors.
-    const props = {
-      drawnStops: [
-        [-87.65, 41.9],
-        [-87.62, 41.93],
-      ] as Array<[number, number]>,
-    }
-
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="name" />,
-    )
-    advanceToDraw(rerender, props)
-
-    expect(screen.getByRole('radio', { name: /Driving/ })).toBeChecked()
-    expect(screen.getByText(/more than a 5-minute walk/)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('radio', { name: /Walking/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
-
-    await waitFor(() =>
-      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
-    )
-    // Overruled, and the analytics record both halves so the suggestion's
-    // accuracy is readable rather than assumed.
-    expect(turfBody).toMatchObject({ mode: 'walk' })
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.ListCreated,
-      expect.objectContaining({ mode: 'walk', suggestedMode: 'drive' }),
+      expect.anything(),
     )
   })
 
@@ -889,7 +813,7 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to lists' }))
 
     expect(audiencePicker()).toBeInTheDocument()
-    expectStep(2, 6)
+    expectStep(2, 5)
   })
 
   // The canvas puts Top issue first in the shared filter pool. We hold no
@@ -1025,21 +949,10 @@ describe('CreateListFlow', () => {
     expect(posts).toBe(0)
   })
 
-  // Why the travel mode is being asked for at all is said under the title,
-  // since the answer is what shapes the route that gets built.
-  it('says why the travel mode matters on the route step', () => {
-    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
-    advanceToDraw(rerender, {}, 'Lakeview blitz')
-
-    expect(heading('Will you be walking or driving?')).toBeInTheDocument()
-    expect(
-      screen.getByText(/most efficient route for you based on how/),
-    ).toBeInTheDocument()
-  })
-
-  // The one press that spends money, so it says so while it is spending and
-  // cannot be pressed twice.
-  it('says Building route while the purchase is in flight', async () => {
+  // The press that writes the campaign says so while it is writing and
+  // cannot be pressed twice. It names what it creates rather than what it
+  // spends — nothing is bought here any more.
+  it('says Creating campaign while the write is in flight', async () => {
     let release: () => void
     const held = new Promise<void>((resolve) => {
       release = resolve
@@ -1057,10 +970,10 @@ describe('CreateListFlow', () => {
     advanceToDraw(rerender, {})
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
-    const building = await screen.findByRole('button', {
-      name: 'Building routes',
+    const creating = await screen.findByRole('button', {
+      name: 'Creating campaign',
     })
-    expect(building).toBeDisabled()
+    expect(creating).toBeDisabled()
 
     release!()
     await waitFor(() =>
@@ -1156,13 +1069,13 @@ describe('CreateListFlow steps', () => {
     // equivalent on a channel that sends a message.
     expect(screen.getByText('Encourage early voting')).toBeInTheDocument()
     expect(screen.getByText('Turn out my supporters')).toBeInTheDocument()
-    expectStep(1, 6)
+    expectStep(1, 5)
 
     fireEvent.click(
       screen.getByRole('button', { name: /Encourage early voting/ }),
     )
     expect(heading('Who do you want to reach?')).toBeInTheDocument()
-    expectStep(2, 6)
+    expectStep(2, 5)
   })
 
   // The reported defect, walked end to end at the step it was reported from:
@@ -1171,15 +1084,15 @@ describe('CreateListFlow steps', () => {
   // "Step 2 of 3", promising an ending that saved a list and stopped. Both
   // audiences are walked because the old branch keyed off exactly the
   // difference between them.
-  it('stays six steps long whether the audience is picked or cut by hand', async () => {
+  it('stays five steps long whether the audience is picked or cut by hand', async () => {
     const onStepChange = vi.fn()
     const props = { ...baseProps, savedLists, onStepChange }
 
     const { rerender } = await renderAtWho(props)
-    expectStep(2, 6)
+    expectStep(2, 5)
 
     await pickList(/Super voters/)
-    expectStep(2, 6)
+    expectStep(2, 5)
 
     // The other audience: pills cut against the whole contact universe, with
     // no saved list behind them to shorten anything.
@@ -1191,7 +1104,7 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expectStep(2, 6)
+    expectStep(2, 5)
 
     // And it really does continue through the flow rather than ending on
     // its own — the stepper's promise and the flow's behaviour are the same
@@ -1207,7 +1120,7 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expectStep(3, 6)
+    expectStep(3, 5)
   })
 
   // One name per pass through the flow, and it is the campaign's. A hand-cut
@@ -1230,20 +1143,20 @@ describe('CreateListFlow steps', () => {
     expect(screen.queryByLabelText('List name')).toBeNull()
   })
 
-  it('numbers the points, name, draw and route steps as the last four of six', () => {
+  // Drawing is the last counted step now: the route step it used to precede
+  // is gone, and the success screen sits outside the count with no stepper
+  // at all.
+  it('numbers the points, name and draw steps as the last three of five', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="points" filters={{}} />,
     )
-    expectStep(3, 6)
+    expectStep(3, 5)
 
     rerender(<CreateListFlow {...baseProps} step="name" filters={{}} />)
-    expectStep(4, 6)
+    expectStep(4, 5)
 
     rerender(<CreateListFlow {...baseProps} step="draw" filters={{}} />)
-    expectStep(5, 6)
-
-    rerender(<CreateListFlow {...baseProps} step="draw" filters={{}} />)
-    expectStep(6, 6)
+    expectStep(5, 5)
   })
 
   // The #1385 lesson: a card label doubling as a default title renamed live
@@ -1673,7 +1586,9 @@ describe('CreateListFlow steps', () => {
 
   // Back from the route step walks straight up the post-name chain: route
   // → draw → name. The campaign name is still editable on the way through.
-  it('returns from the route step to the draw step, and on to the name step', () => {
+  // Drawing is the last step, so Back off it is the end of the walkback
+  // rather than a rung in the middle of one.
+  it('returns from the draw step to the name step, with the name still on it', () => {
     const onStepChange = vi.fn()
     const props = { onStepChange }
 
@@ -1682,10 +1597,6 @@ describe('CreateListFlow steps', () => {
     )
     advanceToDraw(rerender, props, 'Lakeview blitz')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(onStepChange).toHaveBeenLastCalledWith('draw')
-
-    rerender(<CreateListFlow {...baseProps} {...props} step="draw" />)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onStepChange).toHaveBeenLastCalledWith('name')
 
@@ -1729,7 +1640,7 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
     // Arriving with the audience already chosen skips no step of the flow:
     // the boundary and the route are still ahead of it.
-    expectStep(2, 6)
+    expectStep(2, 5)
   })
 
   // The four ways a query param can be wrong that survive the parser — an id
@@ -1754,7 +1665,7 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).not.toHaveBeenCalled()
     // A missed preselection is the ordinary flow and nothing else — same
     // audience the flow opens on, same six steps in front of it.
-    expectStep(2, 6)
+    expectStep(2, 5)
   })
 
   it('leaves the flow untouched with no list carried in', async () => {
@@ -2048,12 +1959,11 @@ describe('CreateListFlow — the Pro gate', () => {
     return turfPosts
   }
 
-  it('shows the gate banner on the route step for a free candidate', () => {
+  it('shows the gate banner on the steps before the map for a free candidate', () => {
     const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
 
-    advanceToDraw(rerender, {}, 'Tuesday evening')
-
+    rerender(<CreateListFlow {...baseProps} step="points" />)
     expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
   })
 
@@ -2110,10 +2020,12 @@ describe('CreateListFlow — the Pro gate', () => {
   // The banner rides every step but the draw, so its explainer can open the
   // gate long before Build route. Finishing there must hand the candidate
   // back the step they were on, not buy the route behind their back.
-  it('free candidate: upgrading from the banner buys nothing and keeps the step', async () => {
+  it('free candidate: upgrading from the banner writes nothing and keeps the step', async () => {
     const turfPosts = mockCreate()
-    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
-    advanceToDraw(rerender, {}, 'Tuesday evening')
+    // From the name step, which is where the banner is: the draw step is
+    // the one stage that hides it, so the explainer cannot be opened from
+    // the press it guards.
+    render(<CreateListFlow {...baseProps} step="name" />)
 
     fireEvent.click(screen.getByText(GATE_LINE))
     fireEvent.click(await screen.findByRole('button', { name: 'Join Pro' }))
@@ -2122,9 +2034,10 @@ describe('CreateListFlow — the Pro gate', () => {
     act(() => gateRef.set(PRO_GATE))
     fireEvent.click(screen.getByRole('button', { name: 'Finish upgrade' }))
 
-    expect(
-      await screen.findByRole('button', { name: 'Create campaign' }),
-    ).toBeInTheDocument()
+    // Back on the step it was opened from, with nothing written: finishing
+    // the gate means whatever the gesture that opened it was about, and
+    // this one was about reading the explainer.
+    expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
     expect(turfPosts).toHaveLength(0)
   })
 
@@ -2305,19 +2218,13 @@ describe('CreateListFlow multi-turf save', () => {
       expect(onRemoveDraft).toHaveBeenCalledWith(DRAFT.clientId),
     )
     expect(onRemoveDraft).not.toHaveBeenCalledWith(SECOND.clientId)
-    // And the flow stays on the route step rather than handing over to a
-    // walk, which would strand the turf that still has to be bought.
+    // And the flow stays on the draw step rather than moving to the
+    // success screen, which would strand the turf that still has to be
+    // written.
     expect(baseProps.onStepChange).not.toHaveBeenCalledWith('success')
     expect(
-      await screen.findByText(/The turfs that did build are saved/),
+      await screen.findByText(/The turfs that were created are saved/),
     ).toBeInTheDocument()
-    // Reported like any other failed build. `onError` never fires for a
-    // sibling — the mutation resolves — so without this the failure metric
-    // would only ever count anchors.
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.RouteBuildFailed,
-      expect.objectContaining({ status: 502 }),
-    )
   })
 
   it('does not mint a second anchor when the retry runs', async () => {
