@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { subMinutes } from 'date-fns'
 import { useTestService } from '@/test-service'
 import { OfficeLevel } from '../../../generated/prisma'
-import { reportableCampaign } from './nightly10DlcReport.service'
+import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
+import {
+  notActivelyBillingBlocked,
+  reportableCampaign,
+} from './nightly10DlcReport.service'
 
 const service = useTestService()
 
@@ -80,5 +85,52 @@ describe('nightly 10DLC report — internal-account exclusion', () => {
     })
 
     expect(reportable.map((r) => r.id)).not.toContain(record.id)
+  })
+
+  // The escalation/alert queries must keep never-billing-blocked rows (the
+  // overwhelming majority: peerlyBillingBlockedAt NULL) while dropping only
+  // an active block. The old `NOT: { gte }` form compiled to SQL that
+  // excluded NULL rows, silently emptying all four queries — only real
+  // Postgres can catch that.
+  it('keeps never-blocked and stale-blocked records, drops an active block', async () => {
+    const now = new Date()
+    const neverBlocked = await seedRecord(
+      `candidate-${suffix}@example.com`,
+      'neverblocked',
+    )
+    const staleBlocked = await seedRecord(
+      `candidate2-${suffix}@example.com`,
+      'staleblocked',
+    )
+    await service.prisma.tcrCompliance.update({
+      where: { id: staleBlocked.id },
+      data: {
+        peerlyBillingBlockedAt: subMinutes(
+          now,
+          PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES + 60,
+        ),
+      },
+    })
+    const activelyBlocked = await seedRecord(
+      `candidate3-${suffix}@example.com`,
+      'activeblocked',
+    )
+    await service.prisma.tcrCompliance.update({
+      where: { id: activelyBlocked.id },
+      data: { peerlyBillingBlockedAt: now },
+    })
+
+    const matched = await service.prisma.tcrCompliance.findMany({
+      where: {
+        campaign: reportableCampaign,
+        AND: [notActivelyBillingBlocked(now)],
+        email: { contains: String(suffix) },
+      },
+      select: { id: true },
+    })
+
+    expect(matched.map((r) => r.id).sort()).toEqual(
+      [neverBlocked.id, staleBlocked.id].sort(),
+    )
   })
 })
