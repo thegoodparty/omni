@@ -1291,6 +1291,8 @@ export const SmsFlow = ({
           />
         )
       }
+      channel="sms"
+      trackedStep={scheduled || showGateChrome ? null : stepId}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
       totalSteps={
         scheduled

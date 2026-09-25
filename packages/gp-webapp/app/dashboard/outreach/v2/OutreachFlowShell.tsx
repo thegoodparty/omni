@@ -16,6 +16,7 @@ import {
   Stepper,
 } from '@styleguide'
 import { OutreachSheet } from './OutreachSheet'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 export interface FlowShellCta {
   label: string
@@ -60,6 +61,17 @@ interface OutreachFlowShellProps {
   // footer. A banner with no cta and no onBack still renders the footer —
   // it is the only thing in it.
   banner?: ReactNode
+  // Which channel wizard this is, carried as a property on the stage events
+  // so per-channel drop-off is a filter rather than three event families.
+  // Optional because door-knocking and phone banking borrow this chrome and
+  // are not instrumented here: omitting it fires nothing, so adopting stage
+  // tracking stays opt-in per flow.
+  channel?: 'sms' | 'robocall' | 'social'
+  // The current stage's stable id, or null to fire nothing. Callers pass null
+  // for the compliance-gate sub-flow and the success screen: both borrow this
+  // chrome but are not stages of the channel funnel, and tracking them here
+  // would merge two funnels into one series.
+  trackedStep?: string | null
   // Any user input diverging from the initial state: closing asks "Discard
   // changes?"; a pristine (or completed) flow closes silently.
   dirty: boolean
@@ -84,6 +96,8 @@ export const OutreachFlowShell = ({
   onBack,
   cta,
   banner,
+  channel,
+  trackedStep = null,
   dirty,
   instant = false,
   children,
@@ -97,6 +111,27 @@ export const OutreachFlowShell = ({
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0
   }, [currentStep])
+
+  // Stage drop-off. Held in a ref rather than state so recording the previous
+  // stage never costs a render, and reset on close so reopening the flow is a
+  // fresh funnel rather than a Back from wherever the last one stopped.
+  const lastStage = useRef<{ step: number; id: string } | null>(null)
+  useEffect(() => {
+    if (!open) {
+      lastStage.current = null
+      return
+    }
+    if (!channel || trackedStep === null) return
+    const previous = lastStage.current
+    if (previous && currentStep > previous.step) {
+      trackEvent(EVENTS.Outreach.Flow.StepCompleted, {
+        channel,
+        step: previous.id,
+      })
+    }
+    lastStage.current = { step: currentStep, id: trackedStep }
+    trackEvent(EVENTS.Outreach.Flow.StepViewed, { channel, step: trackedStep })
+  }, [open, channel, trackedStep, currentStep])
 
   const requestClose = (nextOpen: boolean) => {
     if (nextOpen) return

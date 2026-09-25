@@ -237,8 +237,9 @@
     "surface_type": "wizard_stage"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage": {
+    "actioned_at": "2026-09-25",
     "dashboard_question": "At which step of an outreach channel flow (robocall/sms/social) do users drop off, and do they re-enter a stage via Back?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-08-31",
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage",
     "judge_reason": "Generalized shell chrome for URL-stable multi-step outreach flows (stepper, back/next) with no evidence of per-stage Viewed/Completed instrumentation; each channel flow using this shell needs stage-level events.",
@@ -263,8 +264,9 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage": {
+    "actioned_at": "2026-09-25",
     "dashboard_question": "At which stage of the Robocall outreach wizard (purpose, audience, review, pay) do users drop off, including on Back re-entry?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-08-31",
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage",
     "judge_reason": "URL-stable multi-step wizard with stages (purpose, audience, review, pay) that needs explicit Viewed/Completed events per stage; RouteTracker won't capture these since the URL doesn't change.",
@@ -289,8 +291,9 @@
     "surface_type": "form_submit"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage": {
+    "actioned_at": "2026-09-25",
     "dashboard_question": "At which stage of the SMS outreach wizard (purpose, audience, review, pay/schedule) do users drop off, including on Back re-entry?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-08-31",
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage",
     "judge_reason": "URL-stable multi-step wizard with distinct stages that needs explicit per-stage Viewed/Completed events since RouteTracker cannot see stage changes.",
@@ -302,8 +305,9 @@
     "surface_type": "wizard_stage"
   },
   "packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage": {
+    "actioned_at": "2026-09-25",
     "dashboard_question": "At which stage of the Social outreach wizard (purpose, compose, share) do users drop off, including on Back re-entry?",
-    "disposition": "new",
+    "disposition": "accepted",
     "first_seen": "2026-08-31",
     "id": "packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage",
     "judge_reason": "URL-stable multi-step wizard with stages (purpose, compose, share) needing explicit Viewed/Completed events; the save action is an outcome distinct from stage completion.",

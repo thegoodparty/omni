@@ -683,6 +683,17 @@ export const EVENTS = {
       ExplainerViewed: 'Outreach - Gate Explainer Viewed',
       ExplainerCta: 'Outreach - Gate Explainer: Click CTA',
     },
+    // Per-stage drop-off across the v2 channel wizards, fired by
+    // OutreachFlowShell rather than by each flow: the stage is a property
+    // (`channel`, `step`), not a separate event, matching the shared
+    // 'Voter Outreach - Campaign Scheduled' terminal. StepViewed re-fires on
+    // Back re-entry; StepCompleted names the step the user just left, so it
+    // fires only on a forward move. The gate sub-flow and the success screen
+    // are deliberately untracked here — they are not stages of this funnel.
+    Flow: {
+      StepViewed: 'Voter Outreach - Flow Step Viewed',
+      StepCompleted: 'Voter Outreach - Flow Step Completed',
+    },
     ActionClicked: 'Outreach - Action Clicked',
   },
   CandidateWebsite: {

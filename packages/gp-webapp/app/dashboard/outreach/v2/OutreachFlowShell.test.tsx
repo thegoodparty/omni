@@ -1,7 +1,13 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachFlowShell } from './OutreachFlowShell'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 const baseProps = {
   open: true,
@@ -71,5 +77,124 @@ describe('OutreachFlowShell banner slot', () => {
     )
 
     expect(document.querySelector('[data-slot="drawer-footer"]')).toBeNull()
+  })
+})
+
+describe('OutreachFlowShell stage tracking', () => {
+  beforeEach(() => {
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  const renderAt = (
+    step: number,
+    id: string,
+    channel: 'sms' | 'social' = 'sms',
+  ) =>
+    render(
+      <OutreachFlowShell
+        {...baseProps}
+        channel={channel}
+        trackedStep={id}
+        currentStep={step}
+        totalSteps={4}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>,
+    )
+
+  it('fires a Viewed carrying the channel and step on entering a stage', () => {
+    renderAt(1, 'purpose')
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
+      channel: 'sms',
+      step: 'purpose',
+    })
+  })
+
+  it('fires nothing when the caller opts out with a null step', () => {
+    render(
+      <OutreachFlowShell
+        {...baseProps}
+        channel="sms"
+        trackedStep={null}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>,
+    )
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  // Door knocking and phone banking borrow this chrome without adopting stage
+  // tracking; omitting `channel` must stay silent rather than fire a partial event.
+  it('fires nothing when no channel is given', () => {
+    render(
+      <OutreachFlowShell {...baseProps} trackedStep="purpose" cta={null}>
+        Body
+      </OutreachFlowShell>,
+    )
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('names the step just left when advancing, not the one arrived at', () => {
+    const { rerender } = renderAt(1, 'purpose')
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(
+      <OutreachFlowShell
+        {...baseProps}
+        channel="sms"
+        trackedStep="audience"
+        currentStep={2}
+        totalSteps={4}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>,
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepCompleted,
+      {
+        channel: 'sms',
+        step: 'purpose',
+      },
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
+      channel: 'sms',
+      step: 'audience',
+    })
+  })
+
+  // Back re-entry is the case the rubric rule names explicitly: the stage is
+  // entered again, so Viewed must re-fire, and nothing was completed.
+  it('re-fires Viewed on Back without completing anything', () => {
+    const { rerender } = renderAt(2, 'audience')
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(
+      <OutreachFlowShell
+        {...baseProps}
+        channel="sms"
+        trackedStep="purpose"
+        currentStep={1}
+        totalSteps={4}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>,
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
+      channel: 'sms',
+      step: 'purpose',
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepCompleted,
+      expect.anything(),
+    )
   })
 })

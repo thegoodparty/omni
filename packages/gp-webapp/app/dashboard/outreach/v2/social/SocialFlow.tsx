@@ -515,6 +515,8 @@ export const SocialFlow = ({
       onClose={onClose}
       title={saved ? 'Done' : STEP_TITLES[stepId]}
       headerBadge={<ChannelBadge type={OUTREACH_TYPES.socialMedia} />}
+      channel="social"
+      trackedStep={saved ? null : stepId}
       currentStep={stepIndex + 1}
       totalSteps={saved ? 0 : STEP_ORDER.length}
       onBack={!saved && stepIndex > 0 ? handleBack : undefined}
