@@ -276,6 +276,14 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       status: OutreachStatus.pending,
       date: null,
     })
+    // A dateless row ages off its creation, or it would never leave the
+    // candidate set.
+    const undatedStale = await createOutreach({
+      projectId: 'job-undated-stale',
+      status: OutreachStatus.pending,
+      date: null,
+      createdAt: subDays(NOW, OUTREACH_COMPLETION_MAX_AGE_DAYS + 1),
+    })
     getJob.mockResolvedValue(
       buildJob({ status: PeerlyJobStatus.ACTIVE, start_date: PAST_START_DATE }),
     )
@@ -286,6 +294,9 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     expect(polled).toEqual(['job-recent', 'job-undated'])
     expect((await findOutreach(stale.id)).status).toBe(
       OutreachStatus.in_progress,
+    )
+    expect((await findOutreach(undatedStale.id)).status).toBe(
+      OutreachStatus.pending,
     )
     expect((await findOutreach(recent.id)).status).toBe(
       OutreachStatus.completed,

@@ -142,9 +142,20 @@ export class OutreachCompletionService extends createPrismaBase(
             },
             {
               OR: [
-                { date: null },
                 {
                   date: { gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS) },
+                },
+                // A dateless row (a resume can omit `date`) ages off its
+                // creation instead, or it would bypass the cutoff for good.
+                {
+                  AND: [
+                    { date: null },
+                    {
+                      createdAt: {
+                        gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS),
+                      },
+                    },
+                  ],
                 },
               ],
             },
