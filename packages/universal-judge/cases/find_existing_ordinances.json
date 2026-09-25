@@ -1,0 +1,36 @@
+{
+  "agent": "find_existing_ordinances",
+  "description": "Jurisdictions spanning code-host types (Municode, American Legal, ecode360, city-hosted PDF) and population sizes, so a variant that only works for well-indexed large cities is caught. organization_slug is injected per run.",
+  "cases": [
+    {
+      "id": "york_pa",
+      "label": "York, PA — city-hosted PDF code",
+      "params": { "state": "PA", "office": "York City Council" }
+    },
+    {
+      "id": "ramsey_mn",
+      "label": "Ramsey, MN — small city",
+      "params": { "state": "MN", "office": "Ramsey City Council" }
+    },
+    {
+      "id": "olathe_ks",
+      "label": "Olathe, KS — mid-size suburb",
+      "params": { "state": "KS", "office": "Olathe City Council" }
+    },
+    {
+      "id": "newton_ma",
+      "label": "Newton, MA — city with a named charter",
+      "params": { "state": "MA", "office": "Newton City Council" }
+    },
+    {
+      "id": "socorro_tx",
+      "label": "Socorro, TX — small city, ambiguous name across states",
+      "params": { "state": "TX", "office": "Socorro City Council" }
+    },
+    {
+      "id": "toledo_or",
+      "label": "Toledo, OR — tiny city sharing a name with a major city",
+      "params": { "state": "OR", "office": "Toledo City Council" }
+    }
+  ]
+}
