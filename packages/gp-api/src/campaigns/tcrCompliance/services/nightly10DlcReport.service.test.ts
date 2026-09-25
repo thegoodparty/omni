@@ -887,10 +887,18 @@ describe('Nightly10DlcReportService', () => {
       expect(where.status).toBe(TcrComplianceStatus.submitted)
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBeNull()
-      // Actively billing-blocked records list under their own section only.
-      expect(where.NOT).toEqual({
-        peerlyBillingBlockedAt: { gte: expect.any(Date) },
-      })
+      // Actively billing-blocked records list under their own section only —
+      // as an explicit null-or-stale branch, never `NOT: { gte }` (Prisma
+      // compiles that without an IS NULL branch, excluding never-blocked
+      // rows; real-Postgres semantics in nightly10DlcReportScope.test.ts).
+      expect(where.AND).toEqual([
+        {
+          OR: [
+            { peerlyBillingBlockedAt: null },
+            { peerlyBillingBlockedAt: { lt: expect.any(Date) } },
+          ],
+        },
+      ])
       expect(where.OR).toHaveLength(2)
       const [startedAtBranch] = where.OR as [
         { peerlySubmissionStartedAt: { lt: Date } },
@@ -1398,17 +1406,26 @@ describe('Nightly10DlcReportService', () => {
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.VERIFIED)
       // Excludes only records inside the active billing-block window; a
-      // stale block (past cooldown) must not hide a profile stall.
-      const notClause = where.NOT as {
-        peerlyBillingBlockedAt: { gte: Date }
-      }
+      // stale block (past cooldown) must not hide a profile stall, and a
+      // never-blocked (null) record must stay in — hence the explicit
+      // null-or-stale branch instead of `NOT: { gte }`.
+      const [billingScope] = where.AND as [
+        {
+          OR: [
+            { peerlyBillingBlockedAt: null },
+            { peerlyBillingBlockedAt: { lt: Date } },
+          ]
+        },
+      ]
+      expect(billingScope.OR[0]).toEqual({ peerlyBillingBlockedAt: null })
       const blockWindowMs = subMinutes(
         new Date(),
         PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES,
       ).getTime()
       expect(
         Math.abs(
-          notClause.peerlyBillingBlockedAt.gte.getTime() - blockWindowMs,
+          billingScope.OR[1].peerlyBillingBlockedAt.lt.getTime() -
+            blockWindowMs,
         ),
       ).toBeLessThan(5000)
       const thresholdMs = subHours(new Date(), 20).getTime()
