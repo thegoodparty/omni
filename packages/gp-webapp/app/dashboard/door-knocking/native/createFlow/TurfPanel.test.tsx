@@ -42,6 +42,7 @@ const baseProps = {
   team: TEAM,
   onSelectDraft: vi.fn(),
   onStartNewTurf: vi.fn(),
+  onRename: vi.fn(),
   onRemoveDraft: vi.fn(),
   onPickColor: vi.fn(),
   onAssign: vi.fn(),
@@ -67,7 +68,9 @@ describe('TurfPanel', () => {
       />,
     )
 
-    expect(screen.getByText('Turf 1')).toBeInTheDocument()
+    // Turf 1 is the open card, so its name is an input and therefore a
+    // VALUE; Turf 2 is closed and is text.
+    expect(screen.getByDisplayValue('Turf 1')).toBeInTheDocument()
     expect(screen.getByText('Turf 2')).toBeInTheDocument()
     // Stops, and only stops: the router's own unit, and the one the 150 cap
     // is stated in. `stats(people, households)` sets stops from households.
@@ -152,8 +155,13 @@ describe('TurfPanel', () => {
         onPickColor={onPickColor}
       />,
     )
+    // The pending card lives behind the empty state now.
+    const cta = screen.queryByRole('button', { name: /Draw first turf/ })
+    if (cta) fireEvent.click(cta)
 
-    expect(screen.getByText('Turf 2')).toBeInTheDocument()
+    // The card being cut is open, so its name is an input and therefore a
+    // VALUE rather than text.
+    expect(screen.getByDisplayValue('Turf 2')).toBeInTheDocument()
     expect(screen.getByText('Drawing')).toBeInTheDocument()
     expect(screen.getByText('Who walks this turf')).toBeInTheDocument()
 
@@ -173,6 +181,9 @@ describe('TurfPanel', () => {
         pendingAssigneeId={42}
       />,
     )
+    // The pending card lives behind the empty state now.
+    const cta = screen.queryByRole('button', { name: /Draw first turf/ })
+    if (cta) fireEvent.click(cta)
 
     expect(screen.getByRole('button', { name: 'Alex Rivera' })).toBeVisible()
   })
@@ -233,6 +244,9 @@ describe('TurfPanel', () => {
         onStartNewTurf={onStartNewTurf}
       />,
     )
+    // No drafts is the panel's empty state, which offers neither Add turf
+    // nor a card until the candidate says they are ready to draw.
+    fireEvent.click(screen.getByRole('button', { name: /Draw first turf/ }))
     expect(screen.getByRole('button', { name: /Add turf/ })).toBeDisabled()
 
     // Finished — the turf is a draft now, so the next one can start.
@@ -287,24 +301,30 @@ describe('TurfPanel', () => {
         active={null}
       />,
     )
+    // The pending card lives behind the empty state now.
+    const cta = screen.queryByRole('button', { name: /Draw first turf/ })
+    if (cta) fireEvent.click(cta)
 
     // The spacing is CSS, so the order is what the text content shows.
     const row = screen.getByRole('button', { name: /^Turf 1/ })
     expect(row).toHaveTextContent('Turf 1Alex Rivera·4 stops')
   })
 
-  it('gates Save only on a shape that will not route', () => {
-    // Deliberately NOT gated on having a turf. Two states would otherwise
-    // leave Cancel as the only live control on a surface somebody is
-    // standing on: a candidate who cut two turfs and pressed Add turf has an
-    // empty ring and two turfs to save, and one who removed every turf still
-    // has to be able to leave without answering a discard prompt. An empty
-    // campaign hands back to a step whose own Continue is already disabled,
-    // which says so once.
+  it('gates Save on the empty state and on a shape that will not route', () => {
+    // Dead on the empty state, which is a change from the old rule that
+    // Save was never blocked by having no turfs. That rule existed so
+    // Cancel could not become the only live control on a surface somebody
+    // is standing on — the empty state answers that instead, since it
+    // carries its own CTA and Cancel is beside it.
     const onSave = vi.fn()
     const { rerender } = render(
       <TurfPanel {...baseProps} drafts={[]} active={null} onSave={onSave} />,
     )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+
+    // Saying you are ready to draw brings it to life, along with the card
+    // and Add turf.
+    fireEvent.click(screen.getByRole('button', { name: /Draw first turf/ }))
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
 
     rerender(<TurfPanel {...baseProps} saveDisabled onSave={onSave} />)

@@ -9,6 +9,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  EmptyState,
   PlusIcon,
 } from '@styleguide'
 import { useSheetControlsOffset, useSheetSnap } from '../useSheetSnap'
@@ -140,6 +141,17 @@ export const TurfPanel = ({
   // typing a name or drawing the missing shape clears its card's error on
   // the next frame without anything having to remember to.
   const [attemptedSave, setAttemptedSave] = useState(false)
+  // Whether the candidate has said they are ready to draw. A session that
+  // opens straight onto a card and a live Save asks for a boundary before
+  // the map has been moved anywhere — so the panel opens on an empty state
+  // whose whole job is "find the place first", and the drawing controls
+  // arrive when that is answered.
+  //
+  // Only ever the FIRST turf. Reopening the surface on a campaign that
+  // already holds turfs has nothing to introduce, and `Add turf` is the
+  // gesture for every one after.
+  const [started, setStarted] = useState(drafts.length > 0)
+  const introducing = !started && drafts.length === 0
   // A turf needs both halves to be saved: something to call it and
   // somewhere to walk. Undo below three corners BLANKS a draft rather than
   // deleting it (see `isDrawnTurf`), so a turf with no shape is a real
@@ -234,65 +246,87 @@ export const TurfPanel = ({
             says "Drawing" against the turf in question, which is the
             reason, adjacent and readable — and a tooltip on a disabled
             control needs a wrapper to fire at all. */}
-        <Button
-          type="button"
-          size="small"
-          variant="outline"
-          disabled={active === null}
-          onClick={onStartNewTurf}
-        >
-          <PlusIcon className="size-4" />
-          Add turf
-        </Button>
+        {/* Absent rather than disabled before the first turf: there is
+            nothing to add one TO yet, and a dead control beside an empty
+            state is a second thing to explain. */}
+        {!introducing && (
+          <Button
+            type="button"
+            size="small"
+            variant="outline"
+            disabled={active === null}
+            onClick={onStartNewTurf}
+          >
+            <PlusIcon className="size-4" />
+            Add turf
+          </Button>
+        )}
       </div>
 
       {showBody && (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+          {/* Before the first turf there is no list and no card to open —
+              the one thing to do is move the map to the neighbourhood, and
+              the panel says so rather than sitting empty beside a live
+              Save. Pressing the CTA is what brings the card, `Add turf`
+              and a live Save at once. */}
+          {introducing && (
+            <EmptyState
+              message="Navigate to the location you want to draw your first turf."
+              action={
+                <Button type="button" onClick={() => setStarted(true)}>
+                  <PlusIcon className="size-4" />
+                  Draw first turf
+                </Button>
+              }
+            />
+          )}
           {/* Each turf is its own card, inset from the panel edge and
               rounded, so the list reads as a set of objects you can act on
               rather than a table of rows. What makes a card fill the width
               it is given is the `block` on its `li` below — without it they
               shrink to their text, which is a different problem wearing the
               same symptom. */}
-          <ul className="flex flex-col gap-2">
-            {drafts.map((draft) => {
-              const selected = draft.clientId === active?.clientId
-              // `block` on the `li` is not decoration. `app/globals.css`
-              // forces `display: flex` on every `li` under a `[data-slot]`
-              // ancestor, and this panel has one — which shrinks a single
-              // child to its content width and reads as a row stopping
-              // short of the panel. That file's own comment names this
-              // exact symptom and prescribes an explicit display utility;
-              // it lives in `@layer base` so the utility wins.
-              return (
-                <li key={draft.clientId} className="block">
-                  <TurfCard
-                    name={draft.name}
-                    color={draft.color}
-                    assigneeId={draft.assigneeId}
-                    selected={selected}
-                    cardRef={selected ? selectedCardRef : undefined}
-                    counts={
-                      isDrawnTurf(draft) ? (
-                        <DraftCounts
-                          stats={draftStats.get(draft.clientId) ?? null}
-                        />
-                      ) : (
-                        'Drawing'
-                      )
-                    }
-                    team={team}
-                    onSelect={() => onSelectDraft(draft.clientId)}
-                    onRemove={() => onRemoveDraft(draft.clientId)}
-                    onPickColor={onPickColor}
-                    onAssign={onAssign}
-                    onRename={onRename}
-                    error={attemptedSave ? problemWith(draft) : null}
-                  />
-                </li>
-              )
-            })}
-            {/* The turf being cut is not in `drafts` until its third corner
+          {!introducing && (
+            <ul className="flex flex-col gap-2">
+              {drafts.map((draft) => {
+                const selected = draft.clientId === active?.clientId
+                // `block` on the `li` is not decoration. `app/globals.css`
+                // forces `display: flex` on every `li` under a `[data-slot]`
+                // ancestor, and this panel has one — which shrinks a single
+                // child to its content width and reads as a row stopping
+                // short of the panel. That file's own comment names this
+                // exact symptom and prescribes an explicit display utility;
+                // it lives in `@layer base` so the utility wins.
+                return (
+                  <li key={draft.clientId} className="block">
+                    <TurfCard
+                      name={draft.name}
+                      color={draft.color}
+                      assigneeId={draft.assigneeId}
+                      selected={selected}
+                      cardRef={selected ? selectedCardRef : undefined}
+                      counts={
+                        isDrawnTurf(draft) ? (
+                          <DraftCounts
+                            stats={draftStats.get(draft.clientId) ?? null}
+                          />
+                        ) : (
+                          'Drawing'
+                        )
+                      }
+                      team={team}
+                      onSelect={() => onSelectDraft(draft.clientId)}
+                      onRemove={() => onRemoveDraft(draft.clientId)}
+                      onPickColor={onPickColor}
+                      onAssign={onAssign}
+                      onRename={onRename}
+                      error={attemptedSave ? problemWith(draft) : null}
+                    />
+                  </li>
+                )
+              })}
+              {/* The turf being cut is not in `drafts` until its third corner
               lands, so it gets a card of its own rather than the list being
               empty while somebody is visibly drawing into it.
 
@@ -303,23 +337,24 @@ export const TurfPanel = ({
               under the cursor at the moment they landed. This turf is the
               one being worked on by definition, which is what the open
               state means everywhere else in this list. */}
-            {active === null && (
-              <li className="block">
-                <TurfCard
-                  name={pendingName}
-                  color={drawColor}
-                  assigneeId={pendingAssigneeId}
-                  selected
-                  cardRef={selectedCardRef}
-                  counts="Drawing"
-                  team={team}
-                  onPickColor={onPickColor}
-                  onAssign={onAssign}
-                  onRename={onRename}
-                />
-              </li>
-            )}
-          </ul>
+              {active === null && (
+                <li className="block">
+                  <TurfCard
+                    name={pendingName}
+                    color={drawColor}
+                    assigneeId={pendingAssigneeId}
+                    selected
+                    cardRef={selectedCardRef}
+                    counts="Drawing"
+                    team={team}
+                    onPickColor={onPickColor}
+                    onAssign={onAssign}
+                    onRename={onRename}
+                  />
+                </li>
+              )}
+            </ul>
+          )}
         </div>
       )}
 
@@ -340,7 +375,7 @@ export const TurfPanel = ({
         <Button
           type="button"
           className="flex-1"
-          disabled={saveDisabled}
+          disabled={saveDisabled || introducing}
           onClick={() => {
             // Refused rather than disabled. A dead Save button says a turf
             // is wrong without saying which one or why, and the answer is

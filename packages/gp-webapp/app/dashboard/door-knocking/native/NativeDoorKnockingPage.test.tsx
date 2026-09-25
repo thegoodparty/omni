@@ -412,6 +412,15 @@ const drawnTurfCard = (name: string) =>
 // open from the moment the drawing surface is, and its name is what the
 // draft is stamped with when a third corner lands. No turf is auto-named,
 // so a test that wants to find one by name has to give it one first.
+// The panel opens on an empty state whose whole job is "find the place
+// first" — no card, no Add turf, Save disabled. Pressing this is what
+// brings the drawing controls, and only the FIRST turf of a session has
+// one to press.
+const drawFirstTurf = () => {
+  const cta = screen.queryByRole('button', { name: /Draw first turf/ })
+  if (cta) fireEvent.click(cta)
+}
+
 const nameThisTurf = (name: string) => {
   fireEvent.change(screen.getByLabelText('Turf name'), {
     target: { value: name },
@@ -468,6 +477,7 @@ const drawRingAndReview = async (turfName = 'Turf 1') => {
   // Named before the first corner, which is the order the surface now asks
   // in — and without it the turf has no name for anything downstream to
   // find it by.
+  drawFirstTurf()
   nameThisTurf(turfName)
   fireEvent.click(tapMap)
   fireEvent.click(tapMap)
@@ -904,6 +914,39 @@ describe('NativeDoorKnockingPage create flow', () => {
   // re-runs the landing effect — so re-arming the guard when a list was
   // created reopened the flow at step one on top of the walk that had just
   // started, against a turf list that had not refetched yet.
+  // The panel opens on an invitation to find the place, not on a card and a
+  // live Save: a boundary cannot be drawn before the map has been moved
+  // anywhere, and offering the controls first asks for one.
+  it('opens the drawing panel on an empty state, with no card and no live Save', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+
+    const panel = () => within(turfPanel())
+    expect(
+      await panel().findByText(/Navigate to the location/),
+    ).toBeInTheDocument()
+    expect(panel().getByRole('button', { name: 'Save' })).toBeDisabled()
+    // Absent rather than disabled: there is nothing to add a turf to yet.
+    expect(panel().queryByRole('button', { name: /Add turf/ })).toBeNull()
+    expect(panel().queryByLabelText('Turf name')).toBeNull()
+
+    fireEvent.click(panel().getByRole('button', { name: /Draw first turf/ }))
+
+    // The press brings all three at once.
+    expect(panel().getByLabelText('Turf name')).toBeInTheDocument()
+    expect(
+      panel().getByRole('button', { name: /Add turf/ }),
+    ).toBeInTheDocument()
+    expect(panel().getByRole('button', { name: 'Save' })).toBeEnabled()
+    expect(panel().queryByText(/Navigate to the location/)).toBeNull()
+  })
+
   // The reported bug: draw three points, undo them all, press Save. Undo
   // BLANKS a draft rather than deleting it, so what was left was a turf
   // with no name and no shape — and Save took it, because the only thing
@@ -971,6 +1014,7 @@ describe('NativeDoorKnockingPage create flow', () => {
       screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
     )
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
     nameThisTurf('Turf 1')
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
@@ -990,7 +1034,9 @@ describe('NativeDoorKnockingPage create flow', () => {
 
     // The flow ends on its own screen rather than handing over to a walk:
     // nothing has bought a route, so there is nothing to walk yet.
-    expect(await screen.findByText('Your campaign is ready')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Your campaign is ready'),
+    ).toBeInTheDocument()
 
     // The rail refetching behind it, which is what the create's own
     // invalidation does. It must not re-fire the landing opener and drop the
@@ -1143,6 +1189,7 @@ describe('NativeDoorKnockingPage draw step', () => {
     )
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
     nameThisTurf('Turf 1')
     const save = () => within(turfPanel()).getByRole('button', { name: 'Save' })
     // Nothing over the map before the first point: the instructions dialog
@@ -1269,6 +1316,7 @@ describe('NativeDoorKnockingPage draw step', () => {
       within(turfPanel()).getByRole('button', { name: /Add turf/ }),
     )
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
     nameThisTurf('Turf 2')
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
