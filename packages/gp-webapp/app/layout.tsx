@@ -1,4 +1,3 @@
-import { Open_Sans, Outfit } from 'next/font/google'
 import Script from 'next/script'
 import { Suspense } from 'react'
 import PageWrapper from './shared/layouts/PageWrapper'
@@ -9,22 +8,11 @@ import RouteTracker from '@shared/scripts/RouteTrackerScript'
 import AnalyticsSessionReplayMiddleware from '@shared/AnalyticsSessionReplayMiddleware'
 import { SerwistProvider } from '@serwist/next/react'
 import { SUPPORT_CHAT_SCRIPT_ID } from '@shared/utils/supportContact'
-
-const openSans = Open_Sans({
-  subsets: ['latin'],
-  variable: '--open-sans-font',
-  adjustFontFallback: false,
-})
-
-// Display font for the marketing design system (e.g. the sign-up page
-// headings and stat cards). Exposed as a CSS variable and applied only where
-// referenced. Weights: 500 (demographic labels), 600 (card titles/figures),
-// 700 (hero headings).
-const outfit = Outfit({
-  subsets: ['latin'],
-  weight: ['500', '600', '700'],
-  variable: '--outfit-font',
-})
+// Outfit is the display font for the marketing design system (e.g. the sign-up
+// page headings and stat cards), applied only where its variable is
+// referenced: 500 for demographic labels, 600 for card titles and figures, 700
+// for hero headings.
+import { openSans, outfit } from './fonts'
 
 // Production only (plus the env-var opt-in). The hs-scripts loader is also
 // HubSpot's tracking code, whose collected-forms feature scrapes any
