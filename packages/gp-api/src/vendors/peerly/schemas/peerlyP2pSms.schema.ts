@@ -30,13 +30,14 @@ const getJobResponseSchema = z.object({
   id: z.string(),
   status: z.nativeEnum(PeerlyJobStatus),
   leads_remaining: z.number(),
-  // The completion predicate (ENG-10739) is end_date-past; a missing or
-  // malformed end_date must 502 the poll, not silently parse to Invalid
-  // Date and pin the outreach in_progress forever.
+  // Peerly's end_date is the reply window (moved to start + 15 days the
+  // morning after a send), not the send window; nothing keys a status off
+  // it any more. Still parsed narrowly so a malformed vendor payload 502s.
   end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  // The not-started guard is start_date-future for the same reason: a
-  // missing start_date would parse to Invalid Date and silently skip the
-  // pending hold, ratcheting a future-scheduled job to in_progress.
+  // Both the not-started guard and the completion predicate read start_date
+  // (ENG-11157): a missing value must 502 the poll, never parse to Invalid
+  // Date and either skip the pending hold (ratcheting a future job to
+  // in_progress) or pin a sent job in_progress forever.
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 })
 

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { isBefore } from 'date-fns'
+import { isBefore, subDays } from 'date-fns'
+import { CronLockService } from 'src/cron/services/cronLock.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   getMidnightForDate,
@@ -13,19 +14,33 @@ import { PeerlyP2pJobService } from '../../vendors/peerly/services/peerlyP2pJob.
 // Activity conditions (task 04) and the wizard's campaign picker (task 09)
 // reference a completed outreach days later, not minutes — hourly is plenty.
 const OUTREACH_COMPLETION_SWEEP_CRON = '0 * * * *'
+const OUTREACH_COMPLETION_JOB = 'outreachCompletionSweep'
+
+// A row whose send day is this far behind is not going to change on its own:
+// the ones that reach this age are the ones whose Peerly read has failed
+// every hour for months (the job is gone upstream), and each poll of them is
+// Peerly budget spent for nothing. They stay pending/in_progress — a status we
+// cannot verify is left alone, not guessed — and need a manual reconcile.
+export const OUTREACH_COMPLETION_MAX_AGE_DAYS = 30
 
 // ENG-10739: the prior predicate (`leads_remaining === 0`) was disproven
 // against real dev jobs. `leads_remaining` is the Peerly agent work-queue
 // depth, not list progress — a never-sent job with a full unworked list can
 // already read 0 (nothing dispatched to the queue yet) and read completed on
-// its first sweep, while a fully-worked job can sit above 0 forever. `end_date`
-// (the job's scheduled end, `YYYY-MM-DD`) is the available terminal signal:
-// once its UTC calendar day is strictly in the past, Peerly is done running
-// the job regardless of queue depth. This is a time-based proxy, not a read of
-// Peerly's own delivery outcome — a CDR-based (call detail record) source of
-// truth is the follow-up refinement tracked in ENG-10740.
+// its first sweep, while a fully-worked job can sit above 0 forever.
+//
+// `end_date` was the next predicate and is wrong too (ENG-11157): Peerly's
+// end_date is a REPLY window, not a send window. An automated Peerly process
+// moves it to `start_date + 15 days` at ~08:01 UTC the morning after the send
+// so replies keep flowing to the candidate, and a job whose window was
+// pre-extended sat in_progress for two weeks after its texts went out.
+//
+// A Peerly job sends on its `start_date` day, so once that UTC calendar day is
+// strictly in the past the send is over. Still a time-based proxy, not a read
+// of Peerly's own delivery outcome — a CDR-based (call detail record) source
+// of truth is the follow-up refinement tracked in ENG-10740.
 export const isPeerlyJobComplete = (job: PeerlyJob, now: Date): boolean =>
-  isBefore(parseIsoDateAsUTC(job.end_date), getMidnightForDate(now))
+  isBefore(parseIsoDateAsUTC(job.start_date), getMidnightForDate(now))
 
 // One-way ratchet: a row only ever moves to a higher rank, so a stale or odd
 // Peerly read can never move it backward. `deleted`/`error` never appear here
@@ -46,8 +61,8 @@ const isForwardTransition = (
 // than letting a dead job become a pickable campaign.
 //
 // `PENDING` (queued, not yet loaded by a Peerly agent) is checked before
-// `isPeerlyJobComplete`: a job can be polled while still pending with an
-// `end_date` already in the past (e.g. a stale schedule that was never
+// `isPeerlyJobComplete`: a job can be polled while still pending with a
+// `start_date` already in the past (e.g. a stale schedule that was never
 // picked up), and that must read as pending/not-started, never ratcheted
 // straight to completed.
 //
@@ -55,8 +70,8 @@ const isForwardTransition = (
 // terminal-success status — genuinely finished jobs read PAUSED
 // (ENG-10727, verified against real dev jobs), so guarding PAUSED out of
 // completion would pin every finished send in_progress forever. The cost
-// is that a job paused before ever sending also completes once its window
-// closes; distinguishing the two needs delivery evidence, which is
+// is that a job paused before ever sending also completes once its day
+// passes; distinguishing the two needs delivery evidence, which is
 // ENG-10740's CDR-truth refinement.
 export const mapPeerlyJobToOutreachStatus = (
   job: PeerlyJob,
@@ -89,7 +104,10 @@ export const mapPeerlyJobToOutreachStatus = (
 export class OutreachCompletionService extends createPrismaBase(
   MODELS.Outreach,
 ) {
-  constructor(private readonly peerlyP2pJobService: PeerlyP2pJobService) {
+  constructor(
+    private readonly peerlyP2pJobService: PeerlyP2pJobService,
+    private readonly cronLock: CronLockService,
+  ) {
     super()
   }
 
@@ -97,36 +115,60 @@ export class OutreachCompletionService extends createPrismaBase(
   // `projectId` (today that's p2p). Robocall and other channels without a
   // Peerly job id are out of scope until their own completion lifecycle
   // exists — conditions naming them stay blocked, by design.
-  @Cron(OUTREACH_COMPLETION_SWEEP_CRON, { name: 'outreachCompletionSweep' })
+  //
+  // Hourly-locked: every replica fires the same @Cron, and each unlocked
+  // pass is one Peerly read per open row, so two replicas doubled the
+  // account's job-status traffic for no second answer (the retrieve_cv
+  // budget Peerly asked us to cut in August was the same shape).
+  @Cron(OUTREACH_COMPLETION_SWEEP_CRON, { name: OUTREACH_COMPLETION_JOB })
   async sweepOutreachCompletions(): Promise<void> {
-    const candidates = await this.model.findMany({
-      where: {
-        projectId: { not: null },
-        // `status` is nullable with a DB default of `pending`; treat NULL as
-        // `pending` here too.
-        OR: [
-          { status: null },
-          { status: OutreachStatus.pending },
-          { status: OutreachStatus.in_progress },
-        ],
-      },
-    })
-
     const now = new Date()
-    for (const outreach of candidates) {
-      if (!outreach.projectId) {
-        continue
+    if (!(await this.cronLock.tryClaimHourlyRun(OUTREACH_COMPLETION_JOB, now)))
+      return
+
+    try {
+      const candidates = await this.model.findMany({
+        where: {
+          projectId: { not: null },
+          AND: [
+            {
+              // `status` is nullable with a DB default of `pending`; treat
+              // NULL as `pending` here too.
+              OR: [
+                { status: null },
+                { status: OutreachStatus.pending },
+                { status: OutreachStatus.in_progress },
+              ],
+            },
+            {
+              OR: [
+                { date: null },
+                {
+                  date: { gte: subDays(now, OUTREACH_COMPLETION_MAX_AGE_DAYS) },
+                },
+              ],
+            },
+          ],
+        },
+      })
+
+      for (const outreach of candidates) {
+        if (!outreach.projectId) {
+          continue
+        }
+        try {
+          await this.syncOutreachStatus(outreach, outreach.projectId, now)
+        } catch (err) {
+          // A single job's Peerly failure (transient 4xx/5xx) must not abort
+          // the sweep for the rest, and must not page — this only logs.
+          this.logger.warn(
+            { err, outreachId: outreach.id, projectId: outreach.projectId },
+            '[Outreach Completion] Peerly job status check failed; will retry next sweep',
+          )
+        }
       }
-      try {
-        await this.syncOutreachStatus(outreach, outreach.projectId, now)
-      } catch (err) {
-        // A single job's Peerly failure (transient 4xx/5xx) must not abort
-        // the sweep for the rest, and must not page — this only logs.
-        this.logger.warn(
-          { err, outreachId: outreach.id, projectId: outreach.projectId },
-          '[Outreach Completion] Peerly job status check failed; will retry next sweep',
-        )
-      }
+    } finally {
+      await this.cronLock.markHourlyCompleted(OUTREACH_COMPLETION_JOB, now)
     }
   }
 
