@@ -61,20 +61,6 @@ export const campaignTurfsQueryOptions = (anchorOutreachId: number) =>
       }).then((res) => res.data),
   })
 
-// Both daily allowances, read before the create flow opens rather than at the
-// press that spends them. The campaign count is the one that has to be known
-// this early: it refuses the whole flow rather than one shape, so discovering
-// it at the paid press would mean throwing away a boundary and a name the
-// candidate had already committed to.
-//
-// Not scoped by Win/Serve — both allowances belong to the organization, and a
-// dual-role org shares one of each across its two rails.
-export const quotaQueryOptions = queryOptions({
-  queryKey: ['door-knocking-quota'],
-  queryFn: () =>
-    clientRequest('GET /v1/door-knocking/quota', {}).then((res) => res.data),
-})
-
 // Whether the list the who step is on keeps anybody at all.
 //
 // Keyed on the filters alone, because that is the whole input — no polygon is

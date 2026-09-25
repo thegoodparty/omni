@@ -31,10 +31,6 @@ export type FriendlyOrganization = {
   slug: string
   hasDistrictOverride: boolean
   customPositionName: string | null
-  // Carried through rather than derived to a boolean like hasDistrictOverride:
-  // the admin routes that surface it need the number itself, since "is there
-  // an override" and "what is it" are the same question for a spend limit.
-  overrideDoorKnockingCampaignLimit: number | null
   position: {
     id: string
     name: string
@@ -232,26 +228,11 @@ export class OrganizationsService extends createPrismaBase(
     return this.applyPatch(org, updates)
   }
 
-  // Reports the pre-patch campaign override alongside the updated row, because
-  // the controller's audit line is the only durable record that someone moved
-  // an organization's Geoapify spending limit and it has to name the value this
-  // patch actually replaced. Read here, off the very row `applyPatch` computes
-  // its write from, rather than by a second lookup in the controller: a
-  // concurrent admin PATCH landing between that lookup and this one would make
-  // the line name a previous value that was never overwritten, and — worse —
-  // when the two happened to agree it would suppress the line for a change that
-  // did happen.
   async adminPatchOrganization(
     slug: string,
     updates: AdminPatchOrganizationDto,
   ) {
-    const org = await this.adminGetOrganization(slug)
-    const previousLimit = org.overrideDoorKnockingCampaignLimit
-
-    return {
-      organization: await this.applyPatch(org, updates),
-      previousLimit,
-    }
+    return this.applyPatch(await this.adminGetOrganization(slug), updates)
   }
 
   private async applyPatch(
@@ -288,8 +269,6 @@ export class OrganizationsService extends createPrismaBase(
       data: {
         positionId: position?.id ?? null,
         overrideDistrictId: updates.overrideDistrictId,
-        overrideDoorKnockingCampaignLimit:
-          updates.overrideDoorKnockingCampaignLimit,
         customPositionName: clearsStaleCustomName
           ? null
           : updates.customPositionName,
@@ -782,7 +761,6 @@ export class OrganizationsService extends createPrismaBase(
       slug: org.slug,
       hasDistrictOverride: !!org.overrideDistrictId,
       customPositionName: org.customPositionName,
-      overrideDoorKnockingCampaignLimit: org.overrideDoorKnockingCampaignLimit,
       position: position
         ? {
             id: position.id,

@@ -1,12 +1,11 @@
 import { Prisma } from '../../generated/prisma'
 
-// The Geoapify spend ledger. This used to be half of a per-organization
-// budget: 500 stops a day, enforced per org, with an admin override to raise
-// a single one. That limit is gone — the only per-account ceiling now is five
-// lists a day (campaignQuota.util.ts) — and what survives is the recording.
+// The Geoapify spend ledger, and the only thing standing over door-knocking
+// spend now that the per-organization caps are gone — first a 500-stop daily
+// budget, then the five-lists-a-day allowance.
 //
-// Recording survives because it is the durable record of what door knocking
-// costs, and the total is now the only thing anyone bounds: the daily credit
+// Recording is what survives because it is the durable record of what door
+// knocking costs, and the total is the only thing anyone bounds: the daily credit
 // pool is shared across every organization, so the bill scales with how many
 // hold the feature and nothing in the code caps it. What the alerts watch is
 // the `DoorKnockingSpend` log line rather than these rows — Loki is where the

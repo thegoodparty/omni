@@ -979,8 +979,8 @@ describe('door-knocking routes', () => {
             where: { organizationSlug: orgSlug },
           })
         expect(spend.credits).toBe(0)
-        // The stop count is the quota's column and measures the route, not the
-        // bill, so it still counts every door that was frozen.
+        // Stops measure the route rather than the bill, so this still counts
+        // every door that was frozen.
         expect(spend.waypoints).toBe(3)
       })
     })
@@ -1535,9 +1535,8 @@ describe('door-knocking routes', () => {
           })
         expect(spend.credits).toBe(9)
         // Stops, not credits, and stops rather than the faces the vendor was
-        // billed for: this is the column the daily quota sums and it measures
-        // how big the route is, so it must not move when the pricing beside
-        // it does.
+        // billed for: this column says how big the route is, so it must not
+        // move when the pricing beside it does.
         expect(spend.waypoints).toBe(3)
       })
 
@@ -1572,221 +1571,6 @@ describe('door-knocking routes', () => {
           // and an anchor, squared, plus a credit per waypoint pair.
           18,
         )
-      })
-    })
-
-    // The second daily gate, and a different quantity from the first: the
-    // waypoint budget caps how many doors an organization routes in a rolling
-    // day, this caps how many separate turfs it cuts. Five two-stop turfs and
-    // one ten-stop turf spend the same stop allowance, and only one of them
-    // is a candidate carving the map into lists nobody has walked.
-    describe('daily campaign budget', () => {
-      const CAMPAIGN_LIMIT_MESSAGE =
-        "You've created 5 door knocking campaigns today. Go knock the doors " +
-        "you've already mapped, and build more lists tomorrow."
-
-      const readQuota = () =>
-        service.client.get('/v1/door-knocking/quota', orgHeaders())
-
-      const fillTheDay = async () => {
-        for (const name of ['One', 'Two', 'Three', 'Four', 'Five']) {
-          await createTurf(name)
-        }
-      }
-
-      it('reports the whole allowance before anything is built', async () => {
-        const res = await readQuota()
-
-        expect(res.status).toBe(200)
-        expect(res.data).toEqual({
-          campaignsRemaining: 5,
-          campaignLimit: 5,
-        })
-      })
-
-      it('counts each list built against the allowance', async () => {
-        await createTurf('First')
-        await createTurf('Second')
-
-        const res = await readQuota()
-
-        expect(res.status).toBe(200)
-        expect(res.data.campaignsRemaining).toBe(3)
-      })
-
-      // The limit is a ceiling the fifth list may reach, not one it has to
-      // stay under. Worth its own assertion because the create transaction
-      // inserts its turf before the gate runs — a gate written against the
-      // remaining count rather than the created count refuses here, and an
-      // organization silently gets four.
-      it('allows the fifth list of the window', async () => {
-        await createTurf('One')
-        await createTurf('Two')
-        await createTurf('Three')
-        await createTurf('Four')
-
-        const res = await postTurf({ name: 'Five' })
-
-        expect(res.status).toBe(201)
-        expect((await readQuota()).data.campaignsRemaining).toBe(0)
-      })
-
-      it('refuses the sixth, before calling the vendor', async () => {
-        await fillTheDay()
-        // Re-spying hands back the same mock with the five creates above
-        // still on it, so the count below has to start from a cleared one to
-        // be about the sixth press at all.
-        const spy = stubVendors()
-        spy.mockClear()
-
-        const res = await postTurf({ name: 'Six' })
-
-        expect(res.status).toBe(429)
-        expect(res.data.message).toBe(CAMPAIGN_LIMIT_MESSAGE)
-        expect(
-          spy.mock.calls.filter(([url]) =>
-            String(url).includes('routeplanner'),
-          ),
-        ).toHaveLength(0)
-        // The refused create's own turf rolled back with the transaction, so
-        // a rejected press does not spend the allowance it was refused for.
-        expect(await service.prisma.doorKnockingTurf.count()).toBe(5)
-      })
-
-      // Delete is a tombstone over a route that was billed once and is never
-      // re-bought, so the spend stands whether or not the list was shelved.
-      // Excluding tombstones would also make Delete the way to buy unlimited
-      // routes: create, delete, repeat.
-      it('counts a list the organization has deleted', async () => {
-        await fillTheDay()
-        const turfs = await service.prisma.doorKnockingTurf.findMany({
-          orderBy: { id: 'asc' },
-        })
-        const del = await service.client.delete(
-          `/v1/door-knocking/turfs/${turfs[0]!.id}`,
-          orgHeaders(),
-        )
-        expect(del.status).toBe(204)
-
-        expect((await readQuota()).data.campaignsRemaining).toBe(0)
-        const res = await postTurf({ name: 'Six' })
-        expect(res.status).toBe(429)
-        expect(res.data.message).toBe(CAMPAIGN_LIMIT_MESSAGE)
-      })
-
-      it('ignores lists that have aged out of the rolling window', async () => {
-        await fillTheDay()
-        await service.prisma.doorKnockingTurf.updateMany({
-          where: { voterFileFilter: { organizationSlug: orgSlug } },
-          data: { createdAt: new Date(Date.now() - 25 * 60 * 60 * 1000) },
-        })
-
-        expect((await readQuota()).data.campaignsRemaining).toBe(5)
-        expect((await postTurf({ name: 'Six' })).status).toBe(201)
-      })
-
-      it("ignores another organization's lists", async () => {
-        const other = await serveOrg('campaign-budget')
-        for (const name of ['One', 'Two', 'Three', 'Four', 'Five']) {
-          const res = await service.client.post(
-            '/v1/door-knocking/serve/turfs',
-            {
-              voterFileFilterId: other.filterId,
-              name,
-              color: '#3355ff',
-              geoPoly: GEO_POLY,
-              mode: 'walk',
-              loop: false,
-            },
-            { ...other.headers, validateStatus: () => true },
-          )
-          expect(res.status).toBe(201)
-        }
-
-        expect((await readQuota()).data.campaignsRemaining).toBe(5)
-        expect((await postTurf({ name: 'Mine' })).status).toBe(201)
-      })
-
-      // An admin can raise one organization above the default through
-      // `PATCH /v1/organizations/admin/:slug`. The number moves in three
-      // places at once — what the gate allows, what the refusal quotes, and
-      // what the create flow is told it has left — and they are asserted
-      // separately because a single resolution point is the only thing
-      // keeping them from drifting apart.
-      describe('an organization with a raised limit', () => {
-        const raiseCampaignLimit = (limit: number, slug = orgSlug) =>
-          service.prisma.organization.update({
-            where: { slug },
-            data: { overrideDoorKnockingCampaignLimit: limit },
-          })
-
-        it('allows a create the default would refuse', async () => {
-          await raiseCampaignLimit(8)
-          await fillTheDay()
-          stubVendors()
-
-          const res = await postTurf({ name: 'Six' })
-
-          expect(res.status).toBe(201)
-          expect(res.data.doorCount).toBe(3)
-        })
-
-        it('reports the raised allowance on the quota read', async () => {
-          await raiseCampaignLimit(8)
-          await fillTheDay()
-
-          expect((await readQuota()).data).toEqual({
-            campaignsRemaining: 3,
-            campaignLimit: 8,
-          })
-        })
-
-        it('quotes the raised limit in the refusal, not the default', async () => {
-          await raiseCampaignLimit(6)
-          await fillTheDay()
-          stubVendors()
-          expect((await postTurf({ name: 'Six' })).status).toBe(201)
-
-          const res = await postTurf({ name: 'Seven' })
-
-          expect(res.status).toBe(429)
-          expect(res.data.message).toBe(
-            "You've created 6 door knocking campaigns today. Go knock the " +
-              "doors you've already mapped, and build more lists tomorrow.",
-          )
-        })
-
-        // The override lives on one org row, so it can only ever move that
-        // org. Worth asserting rather than assuming: the allowance used to be
-        // a module constant, and a resolution that read it from anywhere
-        // shared would raise the ceiling for every organization at once.
-        it('leaves another organization on the default', async () => {
-          await raiseCampaignLimit(20)
-          const { slug, filterId, headers } = await serveOrg('quota')
-          stubVendors()
-          const postServeTurf = (name: string) =>
-            service.client.post(
-              '/v1/door-knocking/serve/turfs',
-              {
-                voterFileFilterId: filterId,
-                name,
-                color: '#3355ff',
-                geoPoly: GEO_POLY,
-                mode: 'walk',
-                loop: false,
-              },
-              { ...headers, validateStatus: () => true },
-            )
-          expect(slug).not.toBe(orgSlug)
-          for (const name of ['One', 'Two', 'Three', 'Four', 'Five']) {
-            expect((await postServeTurf(name)).status).toBe(201)
-          }
-
-          const res = await postServeTurf('Six')
-
-          expect(res.status).toBe(429)
-          expect(res.data.message).toBe(CAMPAIGN_LIMIT_MESSAGE)
-        })
       })
     })
 
@@ -6328,8 +6112,6 @@ describe('door-knocking routes', () => {
 
       const turfs = await service.client.get('/v1/door-knocking/turfs', opts())
       expect(turfs.status).toBe(200)
-      const quota = await service.client.get('/v1/door-knocking/quota', opts())
-      expect(quota.status).toBe(200)
       const check = await service.client.post(
         '/v1/door-knocking/audience-check',
         { filters: {} },
@@ -6655,7 +6437,6 @@ describe('door-knocking routes', () => {
           `/v1/door-knocking/campaigns/${anchorId}/archive`,
           { archived: true },
         ],
-        ['get', '/v1/door-knocking/quota', undefined],
         [
           'post',
           '/v1/door-knocking/address-preview',

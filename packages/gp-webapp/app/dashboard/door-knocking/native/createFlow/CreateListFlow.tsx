@@ -1389,11 +1389,6 @@ export default function CreateListFlow({
       void queryClient.invalidateQueries({
         queryKey: ['door-knocking-preselected-recommendation', orgSlug],
       })
-      // Both daily allowances just moved — this campaign spent one campaign
-      // and the stops of every turf in it — and the next press reads them to
-      // decide whether to open the flow at all.
-      void queryClient.invalidateQueries({ queryKey: ['door-knocking-quota'] })
-
       // A partial batch stays on the route step with its unsold turfs still
       // in the list, so the same Build route press finishes the job. Handing
       // over to a walk here would strand the turfs that failed on a screen

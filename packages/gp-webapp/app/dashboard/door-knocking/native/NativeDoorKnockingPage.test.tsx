@@ -7,7 +7,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { quotaQueryOptions, TURF_COLORS, TURFS_QUERY_KEY } from './turfQueries'
+import { TURF_COLORS, TURFS_QUERY_KEY } from './turfQueries'
 import NativeDoorKnockingPage from './NativeDoorKnockingPage'
 
 // The test renderer wraps only QueryClientProvider, and the page calls
@@ -581,13 +581,6 @@ beforeEach(() => {
   // unless it says otherwise, which is what `campaign={null}` already implied
   // before Serve could reach this page at all.
   organization.current = null
-  api.mock('GET /v1/door-knocking/quota', {
-    status: 200,
-    data: {
-      campaignsRemaining: 5,
-      campaignLimit: 5,
-    },
-  })
   // Fires as soon as the create flow opens. Answered so it never reaches the
   // network: left unhandled it passes through, fails, and retries on a ~1s
   // backoff, re-rendering the who step partway through a test. Precinct
@@ -732,9 +725,12 @@ describe('NativeDoorKnockingPage create flow while the pack loads', () => {
       await screen.findByRole('button', { name: /Introduce myself/ }),
     )
 
+    // Awaited rather than asserted outright: the flow opens on arrival now
+    // that nothing gates it on a quota read, so the sheet can be on screen
+    // before the pack query has finished failing.
     const sheet = screen.getByRole('dialog')
     expect(
-      within(sheet).getByText(
+      await within(sheet).findByText(
         'The voter map could not load. Refresh to try again.',
       ),
     ).toBeInTheDocument()
@@ -798,79 +794,6 @@ describe('NativeDoorKnockingPage create flow', () => {
 
     await waitFor(() => expect(router.push).toHaveBeenCalledWith(OUTREACH_HUB))
     expect(router.back).not.toHaveBeenCalled()
-  })
-
-  // The campaign allowance refuses the FLOW, not the press at the end of it,
-  // which is why it is checked here and not on the route step: a candidate
-  // told after drawing a boundary and naming a walk has lost work that no
-  // reload brings back. Nobody pressed anything to get here, so the refusal
-  // has to be the thing that opens instead.
-  it('refuses to open the flow when the day’s campaigns are spent', async () => {
-    api.mock('GET /v1/door-knocking/quota', {
-      status: 200,
-      data: {
-        campaignsRemaining: 0,
-        campaignLimit: 5,
-      },
-    })
-    renderPage()
-
-    expect(
-      await screen.findByRole('heading', { name: 'Daily limit reached' }),
-    ).toBeInTheDocument()
-    // The limit is quoted from the response rather than a constant this
-    // component keeps, so an org raised past five reads its own number.
-    expect(
-      screen.getByText(/You created 5 door knocking campaigns today/),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/Introduce myself/)).toBeNull()
-  })
-
-  // The race the opener's `isPending` guard exists for, held open rather than
-  // left to msw's own timing: the guard is spent on the first paint, so an
-  // opener that fired before the allowance answered would find the flow
-  // already open when the refusal landed and return early — and the candidate
-  // would walk straight past the limit.
-  it('holds the flow shut until the allowance has answered', async () => {
-    let release: () => void = () => undefined
-    const held = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    api.mock('GET /v1/door-knocking/quota', async () => {
-      await held
-      return {
-        status: 200 as const,
-        data: {
-          campaignsRemaining: 0,
-          campaignLimit: 5,
-        },
-      }
-    })
-    renderPage()
-    await mapReady()
-
-    expect(screen.queryByText(/Introduce myself/)).toBeNull()
-
-    await act(async () => {
-      release()
-    })
-
-    expect(
-      await screen.findByRole('heading', { name: 'Daily limit reached' }),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/Introduce myself/)).toBeNull()
-  })
-
-  // A quota read that has not answered, or that failed, opens the flow. The
-  // asserts inside the create transaction are the authority either way, and
-  // refusing on a number we do not have would lock door knocking for everyone
-  // whenever this one endpoint is down — only a read still in flight defers.
-  it('opens the flow anyway when the allowance cannot be read', async () => {
-    api.mock('GET /v1/door-knocking/quota', { status: 500, data: {} })
-    renderPage()
-
-    expect(await screen.findByText(/Introduce myself/)).toBeInTheDocument()
-    expect(screen.queryByText('Daily limit reached')).toBeNull()
   })
 
   // The far end of the outreach hub's door-knocking tile. The whole chain is
@@ -1010,12 +933,11 @@ describe('NativeDoorKnockingPage create flow', () => {
     await screen.findByRole('button', { name: 'tap pin 11' })
     expect(walkSurface().getByText('Introduction walk')).toBeInTheDocument()
 
-    // The allowance answering a second time, which is what the create
-    // transaction's own invalidation does and what used to re-fire the opener.
+    // The rail refetching behind the walk, which is what the create's own
+    // invalidation does. It must not re-fire the landing opener and drop the
+    // candidate back into the flow they just finished.
     await act(async () => {
-      await testQueryClient.invalidateQueries({
-        queryKey: quotaQueryOptions.queryKey,
-      })
+      await testQueryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })
     })
 
     expect(walkSurface().getByText('Introduction walk')).toBeInTheDocument()
