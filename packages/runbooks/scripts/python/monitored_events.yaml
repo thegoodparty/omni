@@ -235,9 +235,13 @@ behaviors:
     caveats: >-
       `Voter Outreach - Campaign Scheduled` (DATA-2526) is the send terminal for the three
       channels that have one, keyed by `channel` (sms | robocall | social). It is emitted
-      server-side from the point where the commit is already exactly-once — the
-      pending_payment -> pending claim for sms and robocall, the save transaction for
-      social — so a webhook or pay-step replay cannot double-count. Win only: the
+      server-side from the point where the payment commits — the pending_payment -> pending
+      claim for sms, the placement/covered-run CAS for robocall, the save transaction for
+      social — so a webhook or pay-step replay cannot double-count. COUNT DISTINCT
+      `outreachId`, not rows: the event is not exactly-once per outreach, because a robocall
+      whose hold lapses before dial can be re-authorized with a new card and commits a second
+      time under the same messageId, days apart and so past Segment's ~24h dedup window. That
+      is one send commitment retried, and it must count once. Win only: the
       `Voter Outreach -` prefix classifies to the win_voter_outreach family, so the Serve
       social route deliberately stays silent. Phone banking is excluded by definition, not
       by omission (see its surface below). `win_activated_users` still declares

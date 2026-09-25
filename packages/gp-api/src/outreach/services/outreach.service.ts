@@ -742,10 +742,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  // Materializes the outreach's resolved saved filter into per-recipient
-  // ContactInteraction<channel> rows and locks the filter. Best-effort like
-  // tryNotifySuccess: the rows are the audit trail, but a materialization
-  // failure must not fail the outreach that was already persisted.
   // The send terminal for the SMS channel, emitted once per purchase: the
   // pending_payment -> pending claim in finalizeOutreachPurchase already
   // returned for every replay, so a Stripe webhook retry never reaches this.
@@ -780,6 +776,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
+  // Materializes the outreach's resolved saved filter into per-recipient
+  // ContactInteraction<channel> rows and locks the filter. Best-effort like
+  // tryNotifySuccess: the rows are the audit trail, but a materialization
+  // failure must not fail the outreach that was already persisted.
   private async tryMaterializeOutreach(
     campaign: Campaign,
     outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
