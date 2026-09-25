@@ -1007,6 +1007,86 @@ describe('NativeDoorKnockingPage create flow', () => {
     expect(panel().queryByText('Drawing')).toBeNull()
   })
 
+  it('parks the unfinished turf as a card of its own when another is added', async () => {
+    // `Add turf` has to add one. On a turf that had not reached its third
+    // corner it did nothing a candidate could see: the card on the panel
+    // was the pending one, and the press replaced it with an identical
+    // pending one.
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    const panel = () => within(turfPanel())
+    fireEvent.click(panel().getByRole('button', { name: /Add turf/ }))
+
+    // The one left behind is a card, red, naming both halves it is short
+    // of — and it is no longer the one being drawn.
+    expect(await panel().findByRole('alert')).toHaveTextContent(
+      'Draw and name this turf',
+    )
+    expect(panel().getByText('Not drawn')).toBeInTheDocument()
+    // The new one is open and under the cursor.
+    expect(panel().getByText('Drawing')).toBeInTheDocument()
+
+    // And Save will not take a card that cannot become a turf.
+    fireEvent.click(panel().getByRole('button', { name: 'Save' }))
+    expect(panel().getByRole('alert')).toBeInTheDocument()
+    expect(screen.getByText('Turfs')).toBeInTheDocument()
+  })
+
+  it('hands the cursor back to the turf before the one deleted', async () => {
+    // Reported from the app: delete the second of two turfs and the turf
+    // and its name go, but an empty card is left behind. The turf being
+    // cut IS a card, so handing the canvas a fresh session on delete added
+    // one at the moment a turf was removed.
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+    )
+    nameThisTurf('Turf 2')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    expect(
+      await within(turfPanel()).findByDisplayValue('Turf 2'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: 'Delete Turf 2' }),
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    // Turf 1 is under the cursor again — open, so its name is a value —
+    // and nothing blank was left in its place.
+    expect(
+      await within(turfPanel()).findByDisplayValue('Turf 1'),
+    ).toBeInTheDocument()
+    expect(within(turfPanel()).queryByText('Drawing')).toBeNull()
+    expect(within(turfPanel()).queryByText('Not drawn')).toBeNull()
+  })
+
   // The reported bug: draw three points, undo them all, press Save. Undo
   // BLANKS a draft rather than deleting it, so what was left was a turf
   // with no name and no shape — and Save took it, because the only thing

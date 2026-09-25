@@ -182,13 +182,16 @@ export const TurfPanel = ({
     if (drafts.length === 0) setStarted(false)
     onDiscardPendingTurf()
   }
-  // A turf that EXISTS needs something to call it. A draft with no shape is
-  // not a turf at all — undo below three corners blanks a draft rather than
-  // deleting it (see `isDrawnTurf`), so what a candidate is left holding
-  // after taking their points back is an abandoned attempt. Saving drops
-  // those rather than arguing about them, which is also what stops one
-  // reaching the draw step as a card with nothing in it.
-  const abandoned = drafts.filter((draft) => !isDrawnTurf(draft))
+  // A turf needs BOTH halves: a boundary and something to call it. A card
+  // missing either is refused rather than silently dropped, and the caption
+  // names the half that is missing rather than the pair — a candidate who
+  // drew a shape and skipped the name is not told to draw it again.
+  //
+  // There are two ways to be holding a shapeless card. Undo below three
+  // corners blanks a draft rather than deleting it (see `isDrawnTurf`), and
+  // `Add turf` parks the turf being cut whether or not it ever reached a
+  // third corner. Both leave a turf the candidate started, so both are the
+  // candidate's to finish or to delete.
   // And two turfs in one campaign cannot be called the same thing. The name
   // is how a turf is told apart everywhere it is met afterwards — the
   // outreach history, the walk header, the printed sheet, the message that
@@ -212,8 +215,11 @@ export const TurfPanel = ({
     nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
   }
   const problemWith = (draft: TurfDraft): string | null => {
-    if (!isDrawnTurf(draft)) return null
-    if (draft.name.trim() === '') return 'Name this turf'
+    const unnamed = draft.name.trim() === ''
+    if (!isDrawnTurf(draft)) {
+      return unnamed ? 'Draw and name this turf' : 'Draw this turf'
+    }
+    if (unnamed) return 'Name this turf'
     if ((nameCounts.get(nameKey(draft.name)) ?? 0) > 1) {
       return 'Two turfs have this name. Change one.'
     }
@@ -345,6 +351,15 @@ export const TurfPanel = ({
             <ul className="flex flex-col gap-2">
               {drafts.map((draft) => {
                 const selected = draft.clientId === active?.clientId
+                // A shapeless card that is NOT the one under the cursor is
+                // unfinished business rather than a turf in progress, so it
+                // says so at once instead of waiting for a refused Save.
+                // That is the whole visible half of `Add turf` on an
+                // unfinished turf: the one left behind goes red as the new
+                // one opens. Under the cursor the same card is simply being
+                // drawn, and a red card would be scolding somebody for not
+                // having finished yet.
+                const unfinished = !isDrawnTurf(draft) && !selected
                 // `block` on the `li` is not decoration. `app/globals.css`
                 // forces `display: flex` on every `li` under a `[data-slot]`
                 // ancestor, and this panel has one — which shrinks a single
@@ -365,6 +380,8 @@ export const TurfPanel = ({
                           <DraftCounts
                             stats={draftStats.get(draft.clientId) ?? null}
                           />
+                        ) : unfinished ? (
+                          'Not drawn'
                         ) : (
                           'Drawing'
                         )
@@ -375,7 +392,9 @@ export const TurfPanel = ({
                       onPickColor={onPickColor}
                       onAssign={onAssign}
                       onRename={onRename}
-                      error={attemptedSave ? problemWith(draft) : null}
+                      error={
+                        attemptedSave || unfinished ? problemWith(draft) : null
+                      }
                     />
                   </li>
                 )
@@ -440,11 +459,10 @@ export const TurfPanel = ({
               setAttemptedSave(true)
               return
             }
-            // Leaving with nothing drawn is a legitimate exit, and so is
-            // leaving after taking every point back: both hand back to a
-            // step whose own Continue is already disabled, which says so
-            // once. What must not survive is the blank draft itself.
-            for (const draft of abandoned) onRemoveDraft(draft.clientId)
+            // Leaving with nothing drawn at all is still a legitimate
+            // exit — there are no cards, so there is nothing to finish and
+            // nothing to carry to the draw step. It is a card that cannot
+            // become a turf that holds the press.
             onSave()
           }}
         >

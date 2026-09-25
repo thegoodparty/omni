@@ -469,48 +469,67 @@ export default function NativeDoorKnockingPage({
   // one object for the life of the mount: the canvas keeps it in a ref, so a
   // fresh identity buys nothing, and anything that keys an effect on it
   // instead re-runs on every turf.
+  // Where the cursor goes when whatever it was on is gone — a turf deleted,
+  // or a half-cut one thrown away. The turf cut most RECENTLY takes it, so
+  // the panel closes back onto the list it already has.
+  //
+  // Handing the canvas a fresh empty session instead is what put a blank
+  // card on the panel after every delete: the turf being cut has a card of
+  // its own, so opening a session ADDED one at the moment a turf was
+  // removed. With nothing left to fall back to there is no card either —
+  // the panel returns to its empty state and the session waits behind it.
+  //
+  // The boundary has to be let go of in both branches. Letting go of the
+  // draft alone left the removed turf's ring painted on the map with
+  // nothing in the panel that owned it: the shape was still there, the
+  // card underneath it named a turf with no boundary, and the two were
+  // describing different worlds. `visibleTurfs` handles a turf that was
+  // not the one being cut — it reads `turfDrafts`, so that ring goes with
+  // the draft. Only the live drawing session has a second copy to clear.
+  const handBackCursor = useCallback(
+    (remaining: TurfDraft[]) => {
+      setRing(null)
+      setPendingAssigneeId(null)
+      setPendingName('')
+      const last = remaining[remaining.length - 1]
+      if (last) {
+        activeDraftRef.current = last.clientId
+        setActiveDraftId(last.clientId)
+        draw.loadRing(last.polygon, last.color)
+        return
+      }
+      activeDraftRef.current = null
+      setActiveDraftId(null)
+      // The freed colour goes back into the palette rather than the session
+      // advancing past it, which `startNextTurf` deliberately does:
+      // removing the only turf and drawing again should give back the blue
+      // Turf 1 was cut in, not the next hue along. `seedColor` cannot
+      // answer yet — it is a memo over state the caller has only just
+      // queued — so the same expression is evaluated here against the list
+      // that is left.
+      draw.startNewTurf(
+        assignNextColor([
+          ...(siblingTurfs ?? []).map((turf) => turf.color),
+          ...remaining.map((draft) => draft.color),
+        ]),
+      )
+    },
+    [draw, siblingTurfs],
+  )
   const removeDraft = useCallback(
     (clientId: string) => {
-      setTurfDrafts((current) =>
-        current.filter((draft) => draft.clientId !== clientId),
+      const remaining = turfDrafts.filter(
+        (draft) => draft.clientId !== clientId,
       )
+      setTurfDrafts(remaining)
       // Dropping the turf that is open for edits leaves the drawing session
       // holding a boundary with nothing behind it. Letting go of it here is
       // what makes the next valid ring commit a fresh draft instead of
       // writing its shape onto a draft that no longer exists.
       if (activeDraftRef.current !== clientId) return
-      activeDraftRef.current = null
-      setActiveDraftId(null)
-      // And the boundary itself has to go with it. Letting go of the draft
-      // alone left the removed turf's ring painted on the map with nothing
-      // in the panel that owned it: the shape was still there, the card
-      // underneath it had gone back to naming a turf with no boundary, and
-      // the two were describing different worlds. Removing the LAST turf is
-      // the case that made it obvious — an empty campaign that still had a
-      // turf drawn on it.
-      //
-      // `visibleTurfs` handles a turf that was not the one being cut: it
-      // reads `turfDrafts`, so that ring goes with the draft. Only the live
-      // drawing session has a second copy to clear.
-      setRing(null)
-      setPendingAssigneeId(null)
-      setPendingName('')
-      // The freed colour goes back into the palette rather than the session
-      // advancing past it, which `startNextTurf` deliberately does: removing
-      // the only turf and drawing again should give back the blue Turf 1 was
-      // cut in, not the next hue along. `seedColor` cannot answer yet — it
-      // is a memo over state this call has only just queued — so the same
-      // expression is evaluated here against the list minus this turf.
-      draw.startNewTurf(
-        assignNextColor([
-          ...(siblingTurfs ?? []).map((turf) => turf.color),
-          ...turfDrafts
-            .filter((draft) => draft.clientId !== clientId)
-            .map((draft) => draft.color),
-        ]),
-      )
+      handBackCursor(remaining)
     },
-    [draw, siblingTurfs, turfDrafts],
+    [handBackCursor, turfDrafts],
   )
   // Who the turf being cut will be handed to, before there is a turf to hand
   // it to. The panel's card is open from the first corner, so the canvasser
@@ -580,14 +599,53 @@ export default function NativeDoorKnockingPage({
   // Starting the next turf: let go of the active one and hand the canvas an
   // empty session. The turf just finished keeps its draft — this is "I'm done
   // with that one", not "throw it away".
+  //
+  // Which is why a turf that never reached its third corner is COMMITTED
+  // here, shapeless, on the way past. Add turf has to add one, and on an
+  // unfinished turf it did nothing a candidate could see: the card on the
+  // panel was the pending one, and the press replaced it with an identical
+  // pending one. Parking it keeps the turf they started, as a card that
+  // says what it is short of — the panel reddens an undrawn card the
+  // moment it is no longer the one under the cursor. The corners already
+  // placed do go: a ring below three points is not a boundary, and there
+  // is nowhere to keep two of them.
   const startNextTurf = useCallback(() => {
+    const parkedColor = draw.drawColor
+    const parking = activeDraftRef.current === null
+    if (parking) {
+      commitDraft({
+        polygon: [],
+        color: parkedColor,
+        name: pendingName,
+        assigneeId: pendingAssigneeId,
+      })
+    }
     activeDraftRef.current = null
     setActiveDraftId(null)
     setPendingAssigneeId(null)
     setPendingName('')
     setRing(null)
-    draw.startNewTurf(seedColor)
-  }, [draw, seedColor])
+    // `seedColor` is a memo over drafts this call has only just added to,
+    // so the parked turf's own colour has to be excluded by hand or the
+    // next turf is cut in the hue just used.
+    draw.startNewTurf(
+      parking
+        ? assignNextColor([
+            ...(siblingTurfs ?? []).map((turf) => turf.color),
+            ...turfDrafts.map((draft) => draft.color),
+            parkedColor,
+          ])
+        : seedColor,
+    )
+  }, [
+    commitDraft,
+    draw,
+    pendingAssigneeId,
+    pendingName,
+    seedColor,
+    siblingTurfs,
+    turfDrafts,
+  ])
   // Picking an existing turf out of the toolbar: its boundary goes back under
   // the cursor in its own colour. The ref moves first — see its declaration
   // for why the order is load-bearing.
@@ -604,23 +662,12 @@ export default function NativeDoorKnockingPage({
   // Throwing away the turf being cut, from its own card. There is no draft
   // to remove — that is what "being cut" means — so what goes is the
   // drawing session: the corners placed so far, the name typed into the
-  // open card, and the canvasser picked for it.
-  //
-  // Where the cursor lands afterwards is the whole question. Starting yet
-  // another empty session would put back the card just deleted, so the
-  // turf cut most recently takes the cursor instead and the panel closes
-  // back onto the list. With nothing to fall back to, the session restarts
-  // and the panel returns to its empty state.
-  const discardPendingTurf = useCallback(() => {
-    setPendingAssigneeId(null)
-    setPendingName('')
-    const last = turfDrafts[turfDrafts.length - 1]
-    if (last) {
-      selectDraft(last.clientId)
-      return
-    }
-    startNextTurf()
-  }, [selectDraft, startNextTurf, turfDrafts])
+  // open card, and the canvasser picked for it. Every draft survives,
+  // which is why this hands back the list unchanged.
+  const discardPendingTurf = useCallback(
+    () => handBackCursor(turfDrafts),
+    [handBackCursor, turfDrafts],
+  )
   // The toolbar's colour picker. Both halves are needed and neither is
   // redundant: the canvas tints the live ring from `drawColor`, and the draft
   // is what the ring will be saved as, so a hue written to only one of them

@@ -380,6 +380,53 @@ describe('TurfPanel', () => {
     expect(row).toHaveTextContent('Turf 1Alex Rivera·4 stops')
   })
 
+  it('reddens a turf that was started and never drawn, without a press', () => {
+    // A shapeless card that is not the one under the cursor is unfinished
+    // business rather than a turf in progress. That is the visible half of
+    // `Add turf` on an unfinished turf: the one left behind goes red as
+    // the new one opens.
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[
+          draft({ clientId: 'draft-0', name: 'Ward 4', polygon: [] }),
+          draft(),
+        ]}
+        active={draft()}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Draw this turf')
+    // Not "Drawing" — nobody is drawing it.
+    expect(screen.getByText('Not drawn')).toBeInTheDocument()
+  })
+
+  it('leaves the turf under the cursor alone until Save is pressed', () => {
+    // Undo below three corners blanks a draft rather than deleting it, so
+    // the turf being cut is shapeless for as long as it takes to place
+    // three points. Reddening it there would be scolding somebody for not
+    // having finished yet.
+    const onSave = vi.fn()
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[draft({ name: '', polygon: [] })]}
+        active={draft({ name: '', polygon: [] })}
+        onSave={onSave}
+      />,
+    )
+
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('Drawing')).toBeInTheDocument()
+
+    // The press is what asks the question, and both halves are named.
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSave).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Draw and name this turf',
+    )
+  })
+
   it('refuses to save two turfs with one name, and reddens both', async () => {
     // The name is how a turf is told apart everywhere it is met afterwards
     // — outreach history, the walk header, the printed sheet — and none of
