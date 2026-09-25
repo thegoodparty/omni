@@ -486,9 +486,10 @@ export const OutreachDetailsDrawer = ({
   // sibling list — the campaign status rollup belongs to
   // `collapseDoorKnockingCampaigns`, and no surface guards that badge.
   const [markCampaignDoneOpen, setMarkCampaignDoneOpen] = useState(false)
-  // A sibling row's confirm is the child's, but its clicks land outside this
-  // drawer exactly like the two below, so the drawer has to know one is up.
-  const [turfConfirmOpen, setTurfConfirmOpen] = useState(false)
+  // A sibling row's confirm and its assignee menu are the child's, but their
+  // clicks land outside this drawer exactly like the two below, so the
+  // drawer has to know one is up.
+  const [turfOverlayOpen, setTurfOverlayOpen] = useState(false)
   // A per-turf Done from the sibling list moves the campaign without going
   // through this drawer's own mutation, so the history row's snapshot goes
   // stale — and the footer reads that snapshot. Finishing the LAST unfinished
@@ -671,7 +672,7 @@ export const OutreachDetailsDrawer = ({
             deleteConfirmOpen ||
             draftDeleteConfirmOpen ||
             markCampaignDoneOpen ||
-            turfConfirmOpen
+            turfOverlayOpen
           ) {
             event.preventDefault()
           }
@@ -1020,8 +1021,15 @@ export const OutreachDetailsDrawer = ({
                 Serve is excluded outright: team accounts are a Win feature
                 (the roles are campaign roles), so an elected official is
                 offered no assignment rather than one labelled in Win's
-                vocabulary. */}
-            {(isPhoneBanking || isDoorKnocking) && !isServe && (
+                vocabulary.
+
+                Phone banking's alone. A canvasser is handed a TURF — one
+                walk down one street — and a campaign is several of them, so
+                assigning at this level meant naming somebody for work the
+                product cannot hand them. The turfs carry their own menu
+                (`TurfAssigneeMenu`), which writes to the same assignments
+                endpoint against the turf's own envelope. */}
+            {isPhoneBanking && !isServe && (
               <OutreachAssigneesSection
                 outreachId={row.id}
                 outreachName={row.name || row.title || undefined}
@@ -1200,7 +1208,7 @@ export const OutreachDetailsDrawer = ({
               <CampaignTurfList
                 anchorOutreachId={anchorOutreachId}
                 outreachId={row.id}
-                onConfirmOpenChange={setTurfConfirmOpen}
+                onOverlayOpenChange={setTurfOverlayOpen}
                 onTurfCompleted={handleTurfCompleted}
               />
             )}

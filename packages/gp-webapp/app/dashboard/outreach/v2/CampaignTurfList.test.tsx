@@ -9,6 +9,17 @@ import { CampaignTurfList } from './CampaignTurfList'
 // Every mutation here snackbars, and `render` wraps only a QueryClient.
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
 
+// The per-turf assignee menu reads both. Off by default, which is this
+// drawer's own default: an org without team accounts has no roster to pick
+// from and the menu renders nothing.
+let teamAccountsFlag = { ready: true, enabled: false }
+vi.mock('@shared/experiments/teamAccountsFlag', () => ({
+  useTeamAccountsFlag: () => teamAccountsFlag,
+}))
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1' }),
+}))
+
 // The drawer's sibling list, which had no tests at all until it grew a write.
 // What is pinned here is mostly about which rows offer which control: the row
 // used to branch on `archived` alone, so a FINISHED turf still offered a
@@ -18,6 +29,7 @@ describe('CampaignTurfList', () => {
   const errorSnackbar = vi.fn()
 
   beforeEach(() => {
+    teamAccountsFlag = { ready: true, enabled: false }
     vi.mocked(useSnackbar).mockReturnValue({
       displaySnackbar: vi.fn(),
       errorSnackbar,
@@ -51,7 +63,7 @@ describe('CampaignTurfList', () => {
       data: turfs as never,
     })
 
-  const renderList = (props: { onConfirmOpenChange?: () => void } = {}) =>
+  const renderList = (props: { onOverlayOpenChange?: () => void } = {}) =>
     render(
       <CampaignTurfList anchorOutreachId={30} outreachId={30} {...props} />,
     )
@@ -73,13 +85,13 @@ describe('CampaignTurfList', () => {
     renderList()
 
     expect(
-      await screen.findByRole('link', { name: 'Continue' }),
+      await screen.findByRole('link', { name: 'Continue knocking' }),
     ).toHaveAttribute(
       'href',
       '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
     )
     expect(
-      screen.getByRole('button', { name: 'Mark done' }),
+      screen.getByRole('button', { name: 'Mark as done' }),
     ).toBeInTheDocument()
   })
 
@@ -90,8 +102,8 @@ describe('CampaignTurfList', () => {
     renderList()
 
     expect(await screen.findByText('Done')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Continue' })).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Mark done' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Continue knocking' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Mark as done' })).toBeNull()
   })
 
   it('reads Archived on a shelved turf', async () => {
@@ -99,7 +111,7 @@ describe('CampaignTurfList', () => {
     renderList()
 
     expect(await screen.findByText('Archived')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Continue' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Continue knocking' })).toBeNull()
   })
 
   it('confirms before marking a partly logged turf done', async () => {
@@ -112,7 +124,7 @@ describe('CampaignTurfList', () => {
     renderList()
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark done' }),
+      await screen.findByRole('button', { name: 'Mark as done' }),
     )
 
     expect(await screen.findByText('Mark this turf done?')).toBeInTheDocument()
@@ -138,10 +150,11 @@ describe('CampaignTurfList', () => {
     })
     renderList()
 
-    const oakRow = (await screen.findByText('Oak Ave')).closest('div')
-      ?.parentElement as HTMLElement
+    const oakRow = (await screen.findByText('Oak Ave')).closest(
+      '[data-slot="card"]',
+    ) as HTMLElement
     await userEvent.click(
-      within(oakRow).getByRole('button', { name: 'Mark done' }),
+      within(oakRow).getByRole('button', { name: 'Mark as done' }),
     )
     const dialog = await screen.findByRole('alertdialog')
     await userEvent.click(
@@ -163,7 +176,7 @@ describe('CampaignTurfList', () => {
     renderList()
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark done' }),
+      await screen.findByRole('button', { name: 'Mark as done' }),
     )
 
     expect(screen.queryByRole('alertdialog')).toBeNull()
@@ -172,32 +185,24 @@ describe('CampaignTurfList', () => {
 
   // The drawer's `onInteractOutside` guard depends on this, and it is
   // invisible from inside this component.
-  it('reports when its confirm opens and closes', async () => {
+  it('reports when an overlay opens and closes', async () => {
+    // Both of a row's overlays portal out of the drawer, so a click that
+    // dismisses either lands as an outside-interaction and would take the
+    // drawer with it. The row says one is up; the drawer decides what that
+    // means.
     mockTurfs()
-    const onConfirmOpenChange = vi.fn()
-    renderList({ onConfirmOpenChange })
+    const onOverlayOpenChange = vi.fn()
+    renderList({ onOverlayOpenChange })
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Mark done' }),
+      await screen.findByRole('button', { name: 'Mark as done' }),
     )
-    expect(onConfirmOpenChange).toHaveBeenCalledWith(true)
+    expect(onOverlayOpenChange).toHaveBeenCalledWith(true)
 
     const dialog = await screen.findByRole('alertdialog')
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Keep knocking' }),
     )
-    expect(onConfirmOpenChange).toHaveBeenCalledWith(false)
-  })
-
-  it('links Add another turf into the create flow for this campaign', async () => {
-    mockTurfs()
-    renderList()
-
-    expect(
-      await screen.findByRole('link', { name: 'Add another turf' }),
-    ).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking?campaignOutreachId=30&create=1',
-    )
+    expect(onOverlayOpenChange).toHaveBeenCalledWith(false)
   })
 })

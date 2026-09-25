@@ -45,12 +45,22 @@ type Props = {
 // which is the rule `draftCounts.tsx` already records.
 export const turfCountsLabel = (
   turf: Pick<DoorKnockingTurf, 'stopCount' | 'peopleCount'>,
-) =>
-  `${turf.stopCount.toLocaleString()} ${
-    turf.stopCount === 1 ? 'stop' : 'stops'
-  }, ${turf.peopleCount.toLocaleString()} ${
+) => {
+  const people = `${turf.peopleCount.toLocaleString()} ${
     turf.peopleCount === 1 ? 'person' : 'people'
   }`
+  // `stopCount` arrived after these surfaces did, and a preview deploy talks
+  // to the dev API, which is a release behind the branch that adds it — so
+  // it is genuinely absent at runtime for as long as that skew lasts, even
+  // though the contract types it as required. People alone is the honest
+  // degradation: `doorCount` is a DIFFERENT number (a block of flats is one
+  // stop and many doors), so printing it under the word "stops" would be a
+  // plausible-looking lie rather than a missing figure.
+  if (typeof turf.stopCount !== 'number') return people
+  return `${turf.stopCount.toLocaleString()} ${
+    turf.stopCount === 1 ? 'stop' : 'stops'
+  }, ${people}`
+}
 
 export const TurfRowCard = ({
   turf,

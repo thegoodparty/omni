@@ -74,7 +74,11 @@ export const ListDetailsSheetShell = ({
           </DrawerClose>
         </div>
       </div>
-      <DrawerBody className="flex-1 overflow-y-auto px-4 pb-6 lg:px-6">
+      {/* `pt-6` to match the bottom: the body opens directly under the
+          header's hairline, and its first section is an overline, which
+          sat almost on the rule with nothing but the line's own margin
+          between them. */}
+      <DrawerBody className="flex-1 overflow-y-auto px-4 pt-6 pb-6 lg:px-6">
         <div className="mx-auto w-full max-w-[608px] space-y-6">{children}</div>
       </DrawerBody>
       {footer}

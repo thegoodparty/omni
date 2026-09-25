@@ -1019,9 +1019,18 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     expect(
       await screen.findByRole('button', { name: 'Mark campaign done' }),
     ).toBeInTheDocument()
+    // Every way into a walk belongs to a turf. Counted rather than queried
+    // for absence, because the rows carry the same label: what must not
+    // exist is a walk link OUTSIDE the turfs.
+    const turfs = screen
+      .getByText('Turfs in this campaign')
+      .closest('section') as HTMLElement
     expect(
-      screen.queryByRole('link', { name: 'Continue knocking' }),
-    ).not.toBeInTheDocument()
+      within(turfs).getAllByRole('link', { name: 'Continue knocking' }),
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByRole('link', { name: 'Continue knocking' }),
+    ).toHaveLength(2)
     expect(
       screen.queryByRole('link', { name: 'Walk this route' }),
     ).not.toBeInTheDocument()
@@ -1065,7 +1074,9 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     // "Logged", never "reached": three of the outcomes behind this number
     // are doors where nobody spoke to anybody.
     expect(await screen.findByText('6 of 9 people logged')).toBeInTheDocument()
-    expect(screen.getByText('67%')).toBeInTheDocument()
+    // Twice over: the campaign's progress card, and the turf's own card in
+    // the section above it.
+    expect(screen.getAllByText('67%')).toHaveLength(2)
     expect(screen.getByText('Logged')).toBeInTheDocument()
     expect(screen.getByText('Remaining')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
