@@ -2,7 +2,7 @@
 name: explain-feature
 description: Write the holistic understanding doc for a feature that already exists: what it is for, how it works end to end, what must stay true, what breaks if you touch it, and what is deliberate but looks wrong. Use before modifying an unfamiliar feature, when onboarding an agent onto one, or when a change keeps breaking things nobody predicted. Produces docs/how-it-works/<feature>.md.
 argument-hint: <feature> [--commit <sha>]
-allowed-tools: Bash Read Write Glob Grep
+allowed-tools: Bash Read Write Glob Grep Skill mcp__claude_ai_ClickUp__clickup_get_document_pages mcp__claude_ai_ClickUp__clickup_list_document_pages mcp__claude_ai_ClickUp__clickup_search
 ---
 
 Write the understanding doc for the feature named in $ARGUMENTS.
@@ -36,8 +36,23 @@ cut.
 1. **The code. It is the truth.** What it does is what the feature does.
 2. **`AGENTS.md` in each directory the feature touches.** These carry invariants
    someone already paid to learn. Harvest them; do not re-derive them.
-3. **The design and any TDD.** These are *intent*. Useful for what the feature was
-   trying to be.
+3. **The design and any TDD.** These are *intent*: what the feature was trying to
+   be. Three places to look, and the first two are outside the repo:
+
+   - **Claude Design.** Use the `claude-design-read` skill. Do not use
+     `DesignSync.get_file` directly: it caps every read at 256 KiB and reports
+     success while truncating, so you get roughly the first third of a real design
+     with no error.
+   - **ClickUp.** TDDs live under the Technical Design Docs page
+     (`2ky4jq2q-81493`) in the Eng Docs doc (`2ky4jq2q-20493`), workspace
+     `90132012119`. Search for the feature name, then read the page and its
+     Implementation Notes child. **Read only.** Never create or update a ClickUp
+     page from this skill.
+   - **The repo.** `docs/features/` holds TDDs and implementation plans.
+
+   If you cannot reach a source, say so in the derived-from stamp rather than
+   quietly proceeding without it. A document that claims to reconcile code against
+   intent, having never seen the intent, is worse than one that admits the gap.
 
 **Where the code and the intent disagree, say so.** A design that shows a refund
 the code never implements is either a missing feature or a stale design, and which
@@ -57,6 +72,9 @@ sometimes the styleguide and a vendor module. Start from the obvious directory,
 then find the rest:
 
 ```bash
+# design and TDD, if they exist: /claude-design-read for the design,
+# ClickUp search for the TDD, and locally:
+ls docs/features/*<feature>* docs/how-it-works/*<feature>* 2>/dev/null
 # the obvious homes
 ls packages/gp-api/src/<feature> packages/gp-webapp/app/dashboard/<feature> 2>/dev/null
 # everything that names it
@@ -158,7 +176,8 @@ read. A stale explanation is worse than none, because it is confidently wrong, a
 without a stamp staleness is invisible.
 
 ```
-Derived from <sha> on <date>, reading: <dirs>.
+Derived from <sha> on <date>.
+Code read: <dirs>. Intent read: <design / TDD, or "none found">.
 If the feature has changed since, this document is suspect. Verify before trusting.
 ```
 
