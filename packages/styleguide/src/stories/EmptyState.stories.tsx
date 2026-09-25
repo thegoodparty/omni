@@ -12,6 +12,7 @@ const meta: Meta<typeof EmptyState> = {
 export default meta
 
 type PlaygroundArgs = {
+  title: string
   message: string
   showAction: boolean
   actionLabel: string
@@ -19,11 +20,16 @@ type PlaygroundArgs = {
 
 export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
+    title: '',
     message: 'No door knocking campaigns yet. Create one to start knocking.',
     showAction: true,
     actionLabel: 'Create campaign',
   },
   argTypes: {
+    title: {
+      control: 'text',
+      description: 'An optional heading over the sentence. Empty renders none.',
+    },
     message: {
       control: 'text',
       description:
@@ -39,17 +45,19 @@ export const Playground: StoryObj<PlaygroundArgs> = {
       if: { arg: 'showAction' },
     },
   },
-  render: ({ message, showAction, actionLabel }) => (
+  render: ({ title, message, showAction, actionLabel }) => (
     <EmptyState
+      title={title || undefined}
       message={message}
       action={showAction ? <Button>{actionLabel}</Button> : undefined}
     />
   ),
 }
 
-// The two shapes this comes in. A statement and an invitation — an archive
-// with nothing in it has no button that would help, so the action is
-// optional rather than a required slot every caller has to fill.
+// The three shapes this comes in. A statement, an invitation, and an
+// invitation that has room for a heading — an archive with nothing in it
+// has no button that would help, and a row in a table has no room for a
+// title, so both slots are optional rather than ones every caller fills.
 export const Variants: StoryObj<typeof EmptyState> = {
   parameters: { controls: { disable: true } },
   render: () => (
@@ -60,7 +68,17 @@ export const Variants: StoryObj<typeof EmptyState> = {
         action={
           <Button>
             <PlusIcon />
-            Draw first turf
+            Draw the first turf
+          </Button>
+        }
+      />
+      <EmptyState
+        title="No turfs yet"
+        message="Navigate to the location you want to draw your first turf."
+        action={
+          <Button>
+            <PlusIcon />
+            Draw the first turf
           </Button>
         }
       />

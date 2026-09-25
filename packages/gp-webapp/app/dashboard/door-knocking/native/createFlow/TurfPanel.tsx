@@ -40,6 +40,10 @@ interface TurfPanelProps {
   onSelectDraft: (clientId: string) => void
   onStartNewTurf: () => void
   onRemoveDraft: (clientId: string) => void
+  // Throw away the turf still being cut — the one with no draft behind it
+  // yet. Separate from `onRemoveDraft` because there is no `clientId` to
+  // pass: what it discards is the drawing session itself.
+  onDiscardPendingTurf: () => void
   onPickColor: (color: string) => void
   // Renames the turf under the cursor. The card for the turf still being
   // CUT reports through this too — the page holds its name as
@@ -123,6 +127,7 @@ export const TurfPanel = ({
   onSelectDraft,
   onStartNewTurf,
   onRemoveDraft,
+  onDiscardPendingTurf,
   onPickColor,
   onRename,
   onAssign,
@@ -152,6 +157,24 @@ export const TurfPanel = ({
   // gesture for every one after.
   const [started, setStarted] = useState(drafts.length > 0)
   const introducing = !started && drafts.length === 0
+  // Deleting the last card hands the panel back to the empty state rather
+  // than to a bare "Turfs" heading over nothing. The same press that got
+  // here is the one that leaves: an emptied panel is in exactly the state
+  // the empty state was written for, and the alternative is a surface whose
+  // only remaining control is Cancel.
+  //
+  // The two removals differ only in what they are removing. A draft is the
+  // last one when it is the only one AND nothing is being cut beside it —
+  // `active === null` means a turf is in progress, and that card survives
+  // this press.
+  const removeDraft = (clientId: string) => {
+    if (drafts.length === 1 && active?.clientId === clientId) setStarted(false)
+    onRemoveDraft(clientId)
+  }
+  const discardPendingTurf = () => {
+    if (drafts.length === 0) setStarted(false)
+    onDiscardPendingTurf()
+  }
   // A turf that EXISTS needs something to call it. A draft with no shape is
   // not a turf at all — undo below three corners blanks a draft rather than
   // deleting it (see `isDrawnTurf`), so what a candidate is left holding
@@ -234,18 +257,16 @@ export const TurfPanel = ({
           exactly the thing that makes you want it. */}
       <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-4 pb-3 max-lg:pt-1">
         <h2 className="text-base font-semibold">Turfs</h2>
-        {/* Dead while a turf is still being cut, because one boundary is
-            drawn at a time: the canvas has a single drawing session, so a
-            second Add turf would abandon the corners already placed
-            without saying so. `active === null` IS that state — a turf
-            becomes a draft on its third corner, so a null active turf
-            means one is in progress and unfinished.
+        {/* Live even while a turf is being cut. It used to go dead there —
+            the canvas draws one boundary at a time, so starting a second
+            turf abandons whatever corners are down — but that put a dead
+            control in the corner for the whole of the most common state on
+            this surface, including the moment straight after `Draw first
+            turf` when there is nothing to lose at all. What it costs is at
+            most two placed corners, which Undo takes back one at a time
+            anyway; what it bought was a button that looked broken.
 
-            No tooltip on the disabled button: the row directly below it
-            says "Drawing" against the turf in question, which is the
-            reason, adjacent and readable — and a tooltip on a disabled
-            control needs a wrapper to fire at all. */}
-        {/* Absent rather than disabled before the first turf: there is
+            Absent rather than disabled before the FIRST turf: there is
             nothing to add one TO yet, and a dead control beside an empty
             state is a second thing to explain. */}
         {!introducing && (
@@ -253,7 +274,6 @@ export const TurfPanel = ({
             type="button"
             size="small"
             variant="outline"
-            disabled={active === null}
             onClick={onStartNewTurf}
           >
             <PlusIcon className="size-4" />
@@ -275,7 +295,7 @@ export const TurfPanel = ({
               action={
                 <Button type="button" onClick={() => setStarted(true)}>
                   <PlusIcon className="size-4" />
-                  Draw first turf
+                  Draw the first turf
                 </Button>
               }
             />
@@ -316,7 +336,7 @@ export const TurfPanel = ({
                       }
                       team={team}
                       onSelect={() => onSelectDraft(draft.clientId)}
-                      onRemove={() => onRemoveDraft(draft.clientId)}
+                      onRemove={() => removeDraft(draft.clientId)}
                       onPickColor={onPickColor}
                       onAssign={onAssign}
                       onRename={onRename}
@@ -346,6 +366,7 @@ export const TurfPanel = ({
                     cardRef={selectedCardRef}
                     counts="Drawing"
                     team={team}
+                    onRemove={discardPendingTurf}
                     onPickColor={onPickColor}
                     onAssign={onAssign}
                     onRename={onRename}

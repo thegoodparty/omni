@@ -601,6 +601,26 @@ export default function NativeDoorKnockingPage({
     },
     [turfDrafts, draw],
   )
+  // Throwing away the turf being cut, from its own card. There is no draft
+  // to remove — that is what "being cut" means — so what goes is the
+  // drawing session: the corners placed so far, the name typed into the
+  // open card, and the canvasser picked for it.
+  //
+  // Where the cursor lands afterwards is the whole question. Starting yet
+  // another empty session would put back the card just deleted, so the
+  // turf cut most recently takes the cursor instead and the panel closes
+  // back onto the list. With nothing to fall back to, the session restarts
+  // and the panel returns to its empty state.
+  const discardPendingTurf = useCallback(() => {
+    setPendingAssigneeId(null)
+    setPendingName('')
+    const last = turfDrafts[turfDrafts.length - 1]
+    if (last) {
+      selectDraft(last.clientId)
+      return
+    }
+    startNextTurf()
+  }, [selectDraft, startNextTurf, turfDrafts])
   // The toolbar's colour picker. Both halves are needed and neither is
   // redundant: the canvas tints the live ring from `drawColor`, and the draft
   // is what the ring will be saved as, so a hue written to only one of them
@@ -1474,6 +1494,7 @@ export default function NativeDoorKnockingPage({
                 onSelectDraft={selectDraft}
                 onStartNewTurf={startNextTurf}
                 onRemoveDraft={removeDraft}
+                onDiscardPendingTurf={discardPendingTurf}
                 onPickColor={pickActiveColor}
                 onRename={renameActiveTurf}
                 pendingAssigneeId={pendingAssigneeId}

@@ -35,12 +35,7 @@
 // the campaign name is a valid retry destination for a failed create. Points
 // is not in it because it sits pre-name and a walkback that far usually
 // means changing the audience upstream; who/purpose release the filter.
-export type CreateFlowStep =
-  | 'filters'
-  | 'draw'
-  | 'name'
-  | 'points'
-  | 'success'
+export type CreateFlowStep = 'filters' | 'draw' | 'name' | 'points' | 'success'
 
 export const PRE_DRAW_STAGES = ['purpose', 'who'] as const
 

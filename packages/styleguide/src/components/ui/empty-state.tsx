@@ -12,11 +12,17 @@ import { cn } from '../../lib/utils'
 // what to do about it, in that order. The sentence is one line of twenty
 // words or fewer; anything longer is explaining the system.
 function EmptyState({
+  title,
   message,
   action,
   className,
   ...props
-}: Omit<React.ComponentProps<typeof Card>, 'children'> & {
+}: Omit<React.ComponentProps<typeof Card>, 'children' | 'title'> & {
+  // A heading over the sentence. Optional, and worth adding only where the
+  // sentence alone would be read as a caption on the surface rather than
+  // as the whole of what is there — a panel that has room for it, not a
+  // one-line row in a table.
+  title?: React.ReactNode
   message: React.ReactNode
   // The one thing to do about it. Optional, because plenty of empty states
   // are a statement rather than an invitation — an archive with nothing in
@@ -32,7 +38,16 @@ function EmptyState({
       )}
       {...props}
     >
-      <p>{message}</p>
+      {/* Tighter than the card's own `gap-4`: a title and the sentence it
+          heads are one block, and the CTA is the thing that sits apart
+          from them. With no title this renders exactly as the single
+          paragraph did. */}
+      <div className="flex flex-col gap-1">
+        {title && (
+          <h3 className="text-base font-semibold text-foreground">{title}</h3>
+        )}
+        <p>{message}</p>
+      </div>
       {action}
     </Card>
   )

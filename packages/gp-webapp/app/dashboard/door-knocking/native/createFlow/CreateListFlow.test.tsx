@@ -420,12 +420,7 @@ describe('CreateListFlow', () => {
       }
     })
 
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-      />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToDraw(rerender, {}, 'Retry turf')
 
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
@@ -550,12 +545,7 @@ describe('CreateListFlow', () => {
       data: { message: 'No matching voters inside this turf — widen the area' },
     })
 
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-      />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToDraw(rerender, {})
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
@@ -566,7 +556,9 @@ describe('CreateListFlow', () => {
       'No matching voters inside this turf — widen the area',
     )
     expect(baseProps.onStepChange).not.toHaveBeenCalledWith('success')
-    expect(screen.getByRole('button', { name: 'Create campaign' })).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: 'Create campaign' }),
+    ).toBeEnabled()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.RouteBuildFailed,
       { mode: 'walk', loop: true, status: 400 },
@@ -587,12 +579,7 @@ describe('CreateListFlow', () => {
       return { status: 200, data: savedTurf }
     })
 
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-      />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToDraw(rerender, {})
 
     fireEvent.click(screen.getByRole('radio', { name: /Driving/ }))
@@ -1065,12 +1052,7 @@ describe('CreateListFlow', () => {
       return { status: 200 as const, data: savedTurf }
     })
 
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-      />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToDraw(rerender, {})
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
@@ -2096,12 +2078,7 @@ describe('CreateListFlow — the Pro gate', () => {
 
   it('free candidate: completing the gate builds the route once', async () => {
     const turfPosts = mockCreate()
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-      />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToDraw(rerender, {}, 'Tuesday evening')
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
     await screen.findByTestId('pro-upgrade-flow')

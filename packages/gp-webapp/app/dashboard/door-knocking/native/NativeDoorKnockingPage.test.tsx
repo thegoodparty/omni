@@ -417,7 +417,7 @@ const drawnTurfCard = (name: string) =>
 // brings the drawing controls, and only the FIRST turf of a session has
 // one to press.
 const drawFirstTurf = () => {
-  const cta = screen.queryByRole('button', { name: /Draw first turf/ })
+  const cta = screen.queryByRole('button', { name: /Draw the first turf/ })
   if (cta) fireEvent.click(cta)
 }
 
@@ -937,7 +937,9 @@ describe('NativeDoorKnockingPage create flow', () => {
     expect(panel().queryByRole('button', { name: /Add turf/ })).toBeNull()
     expect(panel().queryByLabelText('Turf name')).toBeNull()
 
-    fireEvent.click(panel().getByRole('button', { name: /Draw first turf/ }))
+    fireEvent.click(
+      panel().getByRole('button', { name: /Draw the first turf/ }),
+    )
 
     // The press brings all three at once.
     expect(panel().getByLabelText('Turf name')).toBeInTheDocument()
@@ -969,8 +971,40 @@ describe('NativeDoorKnockingPage create flow', () => {
     // Back on the draw step with no card on it — the surface is gone and
     // nothing took its place.
     await waitFor(() => expect(screen.queryByText('Turfs')).toBeNull())
-    expect(screen.queryByText('Name this turf')).toBeNull()
+    expect(screen.queryByText(/Name this turf/)).toBeNull()
     expect(screen.queryByText('Drawing')).toBeNull()
+  })
+
+  it('throws away the turf being cut, and goes back to the empty state', async () => {
+    // Undo takes back one corner at a time and cannot take back the turf,
+    // so a candidate who started one by mistake needs a control of their
+    // own — and pressing it on the only turf leaves an empty panel, which
+    // is exactly the state the empty state was written for.
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+
+    // Two corners down: a turf with no draft behind it, which is the case
+    // that had nothing to press.
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    const panel = () => within(turfPanel())
+    fireEvent.click(panel().getByRole('button', { name: 'Delete this turf' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    expect(
+      await panel().findByText(/Navigate to the location/),
+    ).toBeInTheDocument()
+    expect(panel().queryByLabelText('Turf name')).toBeNull()
+    expect(panel().queryByText('Drawing')).toBeNull()
   })
 
   // The reported bug: draw three points, undo them all, press Save. Undo

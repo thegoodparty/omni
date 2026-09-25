@@ -41,8 +41,10 @@ interface TurfCardProps {
   // button that selects what is selected is a target with no outcome. Its
   // absence is also what drops the name out of a `button` element.
   onSelect?: () => void
-  // Absent for the same turf: there is no draft to remove yet, and Undo is
-  // the gesture that takes a corner back.
+  // Throw this turf away. Offered on the turf still being CUT too, where
+  // there is no draft behind it yet: Undo takes back one corner at a time
+  // and cannot take back the turf, so without this a candidate who started
+  // one by mistake had nothing to press.
   onRemove?: () => void
   // Reopen the map with this turf's boundary under the cursor. Only the
   // draw step offers it — on the drawing surface the boundary is already
@@ -92,6 +94,10 @@ export const TurfCard = ({
   error = null,
 }: TurfCardProps) => {
   const member = team.find((option) => option.userId === assigneeId)
+  // What delete calls a turf nobody has named yet. "Delete ?" is the
+  // alternative, and the turf being cut can now be thrown away before it
+  // has either a name or a third corner.
+  const deleteLabel = name || 'this turf'
   // Only the open card. A closed row is for comparing turfs, and an input on
   // every one of them would put five focus targets in a list whose job is to
   // be scanned.
@@ -298,7 +304,7 @@ export const TurfCard = ({
             {/* Sibling of the menu, never inside it — see `RemoveTurfDialog`. */}
             {onRemove && (
               <RemoveTurfDialog
-                turfName={name}
+                turfName={deleteLabel}
                 onRemove={onRemove}
                 open={confirmOpen}
                 onOpenChange={setConfirmOpen}
@@ -307,10 +313,10 @@ export const TurfCard = ({
           </>
         ) : (
           onRemove && (
-            <RemoveTurfDialog turfName={name} onRemove={onRemove}>
+            <RemoveTurfDialog turfName={deleteLabel} onRemove={onRemove}>
               <button
                 type="button"
-                aria-label={`Delete ${name}`}
+                aria-label={`Delete ${deleteLabel}`}
                 className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
               >
                 <Trash2Icon className="size-4" />

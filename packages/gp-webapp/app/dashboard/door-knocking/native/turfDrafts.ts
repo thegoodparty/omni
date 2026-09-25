@@ -122,8 +122,10 @@ export const nextTurfName = (existingCount: number): string =>
   `Turf ${existingCount + 1}`
 
 // What an unnamed turf shows: in the input as its placeholder, and on a
-// closed row where there is no input to place anything in.
-export const UNNAMED_TURF_LABEL = 'Name this turf'
+// closed row where there is no input to place anything in. The ellipsis is
+// what keeps it reading as an invitation to type rather than as the name
+// somebody already gave the turf.
+export const UNNAMED_TURF_LABEL = 'Name this turf...'
 
 // Renders a draft on the canvas by shape-adapting it to `DoorKnockingTurf`.
 // Only the fields the `saved-turfs` PolygonLayer actually reads are honest
