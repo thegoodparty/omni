@@ -1186,6 +1186,8 @@ export {
   type DoorKnockingOutreachDetail,
   DoorKnockingArchiveRequestSchema,
   type DoorKnockingArchiveRequest,
+  BuildDoorKnockingRouteSchema,
+  type BuildDoorKnockingRoute,
   DoorKnockingRouteHeaderSchema,
   type DoorKnockingRouteHeader,
   DoorKnockingModeSchema,

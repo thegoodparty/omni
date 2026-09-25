@@ -15,6 +15,8 @@ import {
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
 import {
+  BuildDoorKnockingRoute,
+  BuildDoorKnockingRouteSchema,
   CreateDoorKnockingTurf,
   CreateDoorKnockingTurfSchema,
   RecordDoorKnockInteraction,
@@ -102,11 +104,14 @@ export class DoorKnockingController {
     private readonly contacts: ContactsService,
   ) {}
 
-  // Creating a list buys its route: this is the only paid call in the feature
-  // and the only place the Win/Serve scope is chosen. Everything downstream is
+  // The only place the Win/Serve scope is chosen. Everything downstream is
   // reached through `voterFileFilter.organizationSlug` and so is already
   // org-scoped, which is why this and its serve sibling below are the only
   // pair — the same shape phone banking settled on.
+  //
+  // It still buys a route when the body carries `mode` and `loop`, which is
+  // what the current flow sends. Without them the turf is saved unrouted and
+  // `POST turfs/:id/route` buys it at first knock.
   @Post('turfs')
   @UseOrganization()
   @UseCampaign({ continueIfNotFound: true })
@@ -362,6 +367,45 @@ export class DoorKnockingController {
       anchorId,
       organization.slug,
       input.archived,
+    )
+  }
+
+  // Buy the route for a turf that has none — the only paid call in the
+  // feature now that creating a list does not make one. POST rather than PUT
+  // because it is an event with a cost, and it shares a path with the GET
+  // below on purpose: the same turf, the thing being bought and then the
+  // thing being walked.
+  //
+  // ONE route for both surfaces, unlike the create pair above. Those two
+  // exist because a create CHOOSES the Win/Serve scope; this addresses a turf
+  // that already has one, so there is nothing to choose — same as
+  // `turfs/:id/complete` and `turfs/:id/archive`.
+  //
+  // @AllowVolunteer(), like the GET below and the complete press: a
+  // volunteer buys the route for the turf they were assigned, because they
+  // are the one standing at the door and the alternative is a canvasser who
+  // cannot start without a manager. It makes this the first spend a
+  // volunteer can trigger, which is why the assignment check is not
+  // optional — an unassigned volunteer 404s exactly as they do on the walk.
+  @Post('turfs/:id/route')
+  @UseOrganization()
+  @AllowVolunteer()
+  @ResponseSchema(DoorKnockingTurfSchema)
+  async buildTurfRoute(
+    @Param('id', ParseIntPipe) id: number,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
+    @Body(new ZodValidationPipe(BuildDoorKnockingRouteSchema))
+    input: BuildDoorKnockingRoute,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.createService.buildRouteForTurf(
+      organization,
+      id,
+      input,
+      user.id,
+      role,
     )
   }
 

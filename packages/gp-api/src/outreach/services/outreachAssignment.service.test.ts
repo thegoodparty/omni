@@ -400,6 +400,7 @@ describe('OutreachAssignmentService', () => {
           campaignId: campaign.id,
           organizationSlug: organization.slug,
           outreachType: OutreachType.nativeDoorKnocking,
+          doorKnockingTurfId: route.doorKnockingTurfId,
           doorKnockingRouteId: route.id,
         },
       })
@@ -407,13 +408,13 @@ describe('OutreachAssignmentService', () => {
     }
 
     const createStopTarget = async (
-      doorKnockingRouteId: number,
+      doorKnockingTurfId: number,
       seq: number,
       personId: string,
     ) => {
       const stop = await service.prisma.doorKnockingStop.create({
         data: {
-          doorKnockingRouteId,
+          doorKnockingTurfId,
           seq,
           lat: 0,
           lng: 0,

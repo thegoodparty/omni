@@ -47,19 +47,34 @@ export const GeoJsonPolygonSchema = z
 
 export type GeoJsonPolygon = z.infer<typeof GeoJsonPolygonSchema>
 
-// Creating a turf buys its route, so the walk settings ride the create body:
-// `mode` and `loop` are what the route is optimized for and they freeze onto
-// it. They used to be a separate knock request sent later, from a dialog on an
-// already-saved list; 3.0 has no such moment, because a turf without a route
-// is a state the model no longer has.
+// Creating a turf no longer buys its route, so the walk settings are
+// OPTIONAL here. `mode` and `loop` are what a route is optimized for and they
+// freeze onto it, and the honest moment to ask them is when somebody is about
+// to walk — the person at the top of the street knows whether they are
+// walking it, and a manager planning turfs weeks earlier is guessing into a
+// route nobody re-buys.
+//
+// Sent: the route is bought with the turf, exactly as before. Omitted: the
+// turf is saved with all of its doors but no walk order, and
+// `POST turfs/:id/route` buys that later. Both are supported on purpose — a
+// client that has not shipped the new flow keeps working, and this is what
+// lets creation stop buying without a flag day.
+//
+// What is NOT optional either way is the audience: a create always resolves
+// and freezes the doors, whether or not it buys a route for them.
+//
+// The two are optional TOGETHER, enforced below. Independently optional, a
+// body carrying `mode` and no `loop` validated, saved the turf unrouted and
+// dropped the travel mode on the floor — a client asking to be routed got a
+// 201 and no route, with nothing anywhere saying why.
 export const CreateDoorKnockingTurfSchema = z
   .object({
     voterFileFilterId: z.number().int().positive(),
     name: z.string().min(1).max(120),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     geoPoly: GeoJsonPolygonSchema,
-    mode: DoorKnockingModeSchema,
-    loop: z.boolean(),
+    mode: DoorKnockingModeSchema.optional(),
+    loop: z.boolean().optional(),
     // The goal the candidate picked on the wizard's first step. It has always
     // been asked and never persisted — until now it decided a suggested list
     // name and was dropped on submit.
@@ -110,6 +125,16 @@ export const CreateDoorKnockingTurfSchema = z
     campaignName: z.string().min(1).max(120).optional(),
   })
   .strict()
+  // Both walk settings or neither. They are one decision — how this turf
+  // gets travelled — and the server reads them as a pair, so half of one is
+  // a request nothing can honour.
+  .refine(
+    (input) => (input.mode === undefined) === (input.loop === undefined),
+    {
+      message: 'mode and loop must be sent together, or neither',
+      path: ['loop'],
+    },
+  )
 
 export type CreateDoorKnockingTurf = z.infer<
   typeof CreateDoorKnockingTurfSchema
@@ -133,14 +158,15 @@ export type UpdateDoorKnockingTurf = z.infer<
   typeof UpdateDoorKnockingTurfSchema
 >
 
-// There is no `locked` field. It was derived from the route's existence, and
-// since 3.0 buys the route in the same transaction that inserts the turf there
-// is no unlocked state left for it to describe.
+// There is no `locked` field, and an unrouted turf does not bring it back.
+// Whether a route exists is `routeSeconds === null`, which is one fact in one
+// place; a boolean beside it could only disagree with it.
 //
-// That is also why the counts are non-nullable here. They used to be null
-// rather than 0 on an unlocked list — nothing frozen, nothing to count, and a
-// zero would have claimed a walked list that turned out empty. Every turf now
-// has a route from birth, so there is always something to count. Doors are
+// The counts stay non-nullable, and they are REAL from the moment the turf
+// is drawn rather than zero until it is walked: the doors are the turf's
+// audience, frozen at creation, and only the walk order waits on the route.
+// A details page can therefore report what a campaign covers before anybody
+// has started it. Doors are
 // addresses and people are knockable targets (do-not-knock and not-a-voter
 // residents dropped), the same two populations the walk surfaces report;
 // `loggedCount` is the subset of `peopleCount` whose derived knock status is
@@ -181,7 +207,17 @@ export const DoorKnockingTurfSchema = z.object({
   // at them (see `doorKnockingServe.service.ts`). The create flow's estimate
   // and the details drawer's are a different quantity, and printing one here
   // under the same clock icon would put two of them in one column of the rail.
-  routeSeconds: z.number().int(),
+  //
+  // NULL means the turf has no route yet, which is a real state now that the
+  // route is bought at first knock rather than at create. It is the one field
+  // that says so, deliberately, rather than a second `routed` boolean that
+  // could disagree with it — a surface asking "is this routed" asks whether
+  // this is null. The COUNTS do not answer that question: they are non-zero
+  // from creation, because the doors are frozen with the turf and only their
+  // order is bought. A routed turf whose travel happens to be 0 seconds is
+  // not a case the router can produce, since a route spans at least two
+  // stops.
+  routeSeconds: z.number().int().nullable(),
   // Both read off the turf's Outreach envelope, which since 3.0 is the one
   // place the lifecycle lives. They are shaped differently because the
   // envelope stores them differently: completion is a `status` value, so it
@@ -214,13 +250,16 @@ export type DoorKnockingTurf = z.infer<typeof DoorKnockingTurfSchema>
 // derivation here would be the two-denominator failure ADR 0010 wrote the rule
 // against — one quantity, one number, wherever it is printed.
 //
-// `turfId` is what the drawer could not reach before: the envelope stores
-// `doorKnockingRouteId`, and the turf is one `@unique` hop the other side of
-// it. It is here so the drawer's Archive action can name the turf, and so the
-// footer can link into the walk.
+// `turfId` is what the drawer could not reach before, and it is what the
+// envelope names directly now. It is here so the drawer's Archive action can
+// name the turf, and so the footer can link into the walk.
 export const DoorKnockingOutreachDetailSchema = z.object({
   turfId: z.number().int(),
-  routeId: z.number().int(),
+  // NULL until the route is bought at first knock. The three counts below do
+  // NOT wait on it — the doors are frozen when the turf is drawn — so an
+  // unwalked campaign opens a drawer reporting what it covers, with this
+  // field as the one thing saying nobody has started.
+  routeId: z.number().int().nullable(),
   // The turf's live name, not the envelope's `name` snapshot taken at knock
   // time: a list renamed since is one list, and two names for it across two
   // drawers is the same class of defect as two counts.
@@ -240,6 +279,30 @@ export const DoorKnockingOutreachDetailSchema = z.object({
 
 export type DoorKnockingOutreachDetail = z.infer<
   typeof DoorKnockingOutreachDetailSchema
+>
+
+// `POST /v1/door-knocking/turfs/:id/route` — buy the route for a turf that
+// does not have one. The same two settings the create body may carry, asked
+// at the moment somebody is actually about to walk.
+//
+// Idempotent by design rather than by hope: a turf that already has a route
+// gets that route back untouched. `DoorKnockingRoute.doorKnockingTurfId` is
+// `@unique`, so one route per turf is a database fact and a race cannot
+// produce two — what the server-side short-circuit adds is not paying the
+// vendor twice for the answer.
+//
+// It buys an ORDER, not an audience. The doors were frozen when the turf was
+// drawn, so this resolves no roster and cannot fail on one that has grown
+// past the 150-stop cap since.
+export const BuildDoorKnockingRouteSchema = z
+  .object({
+    mode: DoorKnockingModeSchema,
+    loop: z.boolean(),
+  })
+  .strict()
+
+export type BuildDoorKnockingRoute = z.infer<
+  typeof BuildDoorKnockingRouteSchema
 >
 
 // A boolean rather than two endpoints, so restore-from-archive can't drift

@@ -13,7 +13,7 @@ export type DoorKnockingTurfCounts = {
 // `addressKey` contains pipes of its own, so the stop id goes first: it is
 // numeric, so the first pipe always ends it and the pair round-trips.
 //
-// Not a bare `COUNT(DISTINCT address_key)` over the route, and the difference
+// Not a bare `COUNT(DISTINCT address_key)` over the turf, and the difference
 // is not academic — `buildStops` groups by COORDINATE, so one address key
 // geocoded to two points is two stops and therefore two doors. The walk's own
 // `countDoors` sums addresses WITHIN each stop, so pairing the key with its
@@ -45,21 +45,23 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
     super()
   }
 
-  // Keyed by route id, which is the turf's lock: an unlocked turf has no route
-  // and so is absent from the result rather than present with zeroes.
-  async forRoutes(
+  // Keyed by TURF id, which is what every caller was asking about anyway —
+  // it went through the route only because that is where the stops used to
+  // hang. A turf reports real doors and people from the moment it is drawn,
+  // whether or not anyone has bought its route.
+  async forTurfs(
     organizationSlug: string,
-    routeIds: number[],
+    turfIds: number[],
   ): Promise<Map<number, DoorKnockingTurfCounts>> {
-    if (routeIds.length === 0) return new Map()
+    if (turfIds.length === 0) return new Map()
 
     const targets = await this.model.findMany({
-      where: { stop: { doorKnockingRouteId: { in: routeIds } } },
+      where: { stop: { doorKnockingTurfId: { in: turfIds } } },
       select: {
         personId: true,
         addressKey: true,
         doorKnockingStopId: true,
-        stop: { select: { doorKnockingRouteId: true } },
+        stop: { select: { doorKnockingTurfId: true } },
       },
     })
 
@@ -79,18 +81,18 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
     const loggedDoors = new Map<number, Set<string>>()
     const people = new Map<number, number>()
     const logged = new Map<number, number>()
-    for (const routeId of routeIds) {
-      doors.set(routeId, new Set())
-      knockableDoors.set(routeId, new Set())
-      loggedDoors.set(routeId, new Set())
-      people.set(routeId, 0)
-      logged.set(routeId, 0)
+    for (const turfId of turfIds) {
+      doors.set(turfId, new Set())
+      knockableDoors.set(turfId, new Set())
+      loggedDoors.set(turfId, new Set())
+      people.set(turfId, 0)
+      logged.set(turfId, 0)
     }
 
     for (const target of targets) {
-      const routeId = target.stop.doorKnockingRouteId
+      const turfId = target.stop.doorKnockingTurfId
       const door = doorKey(target.doorKnockingStopId, target.addressKey)
-      doors.get(routeId)?.add(door)
+      doors.get(turfId)?.add(door)
 
       // The walk's `isKnockable`: ADR 0007 do-not-knock and ADR 0008
       // not-a-voter residents are nobody to talk to, so they are not people
@@ -102,27 +104,27 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
       ) {
         continue
       }
-      people.set(routeId, (people.get(routeId) ?? 0) + 1)
-      knockableDoors.get(routeId)?.add(door)
+      people.set(turfId, (people.get(turfId) ?? 0) + 1)
+      knockableDoors.get(turfId)?.add(door)
 
       // "Logged", not "reached": not_home, inaccessible and refused all
       // satisfy this, and none of them is a conversation. Counted over the
       // same knockable people as above, never over doors — the pair is
       // rendered as one ratio, so both halves have to be one population.
       if ((statusByPersonId.get(target.personId) ?? 'unknown') !== 'unknown') {
-        logged.set(routeId, (logged.get(routeId) ?? 0) + 1)
+        logged.set(turfId, (logged.get(turfId) ?? 0) + 1)
         // A door is KNOCKED once anybody behind it has an answer written down.
         // At-least-one rather than all-of-them, because that is what the verb
         // describes: a canvasser knocks once and speaks to whoever opens.
-        loggedDoors.get(routeId)?.add(door)
+        loggedDoors.get(turfId)?.add(door)
       }
     }
 
     return new Map(
-      routeIds.map((routeId) => {
-        const all = doors.get(routeId) ?? new Set<string>()
-        const knockable = knockableDoors.get(routeId) ?? new Set<string>()
-        const loggedAt = loggedDoors.get(routeId) ?? new Set<string>()
+      turfIds.map((turfId) => {
+        const all = doors.get(turfId) ?? new Set<string>()
+        const knockable = knockableDoors.get(turfId) ?? new Set<string>()
+        const loggedAt = loggedDoors.get(turfId) ?? new Set<string>()
         // Doors with nobody knockable behind them are counted as done rather
         // than left outstanding: they were correctly skipped, there is nothing
         // to write down there, and leaving them out of the numerator alone
@@ -132,12 +134,12 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
           if (!knockable.has(door)) knockedDoorCount += 1
         }
         return [
-          routeId,
+          turfId,
           {
             doorCount: all.size,
             knockedDoorCount,
-            peopleCount: people.get(routeId) ?? 0,
-            loggedCount: logged.get(routeId) ?? 0,
+            peopleCount: people.get(turfId) ?? 0,
+            loggedCount: logged.get(turfId) ?? 0,
           },
         ]
       }),

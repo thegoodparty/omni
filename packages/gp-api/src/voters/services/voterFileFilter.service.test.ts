@@ -223,8 +223,9 @@ describe('findOutreachesByVoterFileFilterId', () => {
         date: null,
       },
     })
-    // A nativeDoorKnocking envelope cannot exist without its route — the
-    // 1:1:1 chain is a CHECK constraint — so the turf and route come first.
+    // A nativeDoorKnocking envelope cannot exist without its turf — a CHECK
+    // constraint enforces it — so the turf comes first. The route is here
+    // because the row this test builds is a walked one.
     const turf = await service.prisma.doorKnockingTurf.create({
       data: {
         voterFileFilterId: filter.id,
@@ -258,6 +259,7 @@ describe('findOutreachesByVoterFileFilterId', () => {
         campaignId: campaign.id,
         voterFileFilterId: filter.id,
         outreachType: OutreachType.nativeDoorKnocking,
+        doorKnockingTurfId: turf.id,
         doorKnockingRouteId: route.id,
         date: new Date('2026-06-01T00:00:00.000Z'),
       },

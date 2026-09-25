@@ -140,19 +140,20 @@ export class DoorKnockingStatsService extends createPrismaBase(
       -- choice, and cannot make this one — knock rows hang off the
       -- organization rather than the turf and outlive it by design.
       turf AS (
-        SELECT tf.id, r.id AS route_id
+        SELECT tf.id
         FROM door_knocking_turf tf
         JOIN voter_file_filter vff ON vff.id = tf.voter_file_filter_id
-        LEFT JOIN door_knocking_route r ON r.door_knocking_turf_id = tf.id
         WHERE vff.organization_slug = ${organizationSlug}
           AND tf.deleted_at IS NULL
       ),
-      -- There is no completedAt on the turf by design: the lifecycle lives on
-      -- the Outreach envelope, reached through the route.
+      -- There is no completedAt on the turf by design: the lifecycle lives
+      -- on the Outreach envelope, which hangs off the turf. It used to be
+      -- reached through the route, which would now miss every turf nobody
+      -- has walked — and an unwalked turf can be marked done.
       completed_turf AS (
         SELECT t.id
         FROM turf t
-        JOIN outreach o ON o.door_knocking_route_id = t.route_id
+        JOIN outreach o ON o.door_knocking_turf_id = t.id
         WHERE o.status = 'completed'
       ),
       -- Two targets are the same DOOR when they share a stop and an address
@@ -183,8 +184,7 @@ export class DoorKnockingStatsService extends createPrismaBase(
         SELECT DISTINCT s.id AS stop_id, t.address_key
         FROM door_knocking_stop_target t
         JOIN door_knocking_stop s ON s.id = t.door_knocking_stop_id
-        JOIN door_knocking_route r ON r.id = s.door_knocking_route_id
-        JOIN turf tf ON tf.id = r.door_knocking_turf_id
+        JOIN turf tf ON tf.id = s.door_knocking_turf_id
         WHERE t.person_id IN (SELECT person_id FROM knock)
       ),
       -- A mind changed at a door: an earlier non_supporter answer followed by
