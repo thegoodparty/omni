@@ -74,6 +74,11 @@ describe('OutreachService', () => {
 
   const mockCampaign = {
     id: 1,
+    // Deliberately NOT mockUser.id: the send terminal keys on the campaign's
+    // userId COLUMN, not the loaded `user` relation, so the two must differ
+    // for that to be pinned — with both at 100 an implementation reading
+    // `campaign.user?.id` passes, and in the no-user case both are undefined.
+    userId: 55,
     slug: 'jane-doe',
     organizationSlug: 'org-test',
     aiContent: {},

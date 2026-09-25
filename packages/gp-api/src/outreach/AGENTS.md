@@ -476,15 +476,26 @@ ROBOCALL_SETTLE_MARGIN_HOURS (24)` must fit inside the hold's `capture_before`
   email leg alongside the unchanged Segment event (ENG-11035,
   `OutreachRobocallSingleSendService`) — see `HUBSPOT_INTEGRATION.md`'s
   "Robocall payment / receipt" table.
-- **Cross-channel send terminal.** `scheduleSpineAndNotify` also emits
-  `EVENTS.Outreach.CampaignScheduled` (`Voter Outreach - Campaign Scheduled`,
-  `channel: 'robocall'`, messageId `<outreachId>:campaign_scheduled`, DATA-2526),
-  gated on the same `pending_payment → pending` transition as the CAS notice, so
-  a re-authorize never re-emits. No HubSpot leg — this one exists to answer "how
-  many candidates committed a send, by channel?" across sms/robocall/social in
-  ONE event, so do not add a per-channel twin. It is NOT a double-fire with
+- **Cross-channel send terminal.** `EVENTS.Outreach.CampaignScheduled`
+  (`Voter Outreach - Campaign Scheduled`, `channel: 'robocall'`, messageId
+  `<outreachId>:campaign_scheduled`, DATA-2526), emitted from the authorize
+  COMMIT and from `scheduleCoveredRun` — **not** from `scheduleSpineAndNotify`.
+  That distinction is load-bearing: the deferred card-save path advances the
+  spine before any hold exists, so gating on the spine transition emitted for an
+  unpaid row AND left the deferred sweep's real commit finding the spine already
+  `pending`, dropping the event entirely. Keep it on the money commit.
+  `recipientCount` is the count the authorization was PRICED on, passed in by
+  the caller — `OutreachRobocall.billableCount` is the draft-time snapshot that
+  authorize re-derives and never persists, so reading it back would report a
+  number nobody was charged for. No HubSpot leg — this exists to answer "how many
+  candidates committed a send, by channel?" across sms/robocall/social in ONE
+  event, so do not add a per-channel twin. It is NOT a double-fire with
   `Robocall - Scheduled`, which fires earlier, at draft-create, on a still-unpaid
-  row. The sms and social emits live in `outreach.service.ts`
+  row. **It is not exactly-once per outreach:** a hold that lapses before dial
+  resets the row to `hold_failed`, and a new-card re-authorize commits and emits
+  again under the same messageId, days later and outside Segment's ~24h dedup
+  window — one send commitment, retried, which downstream collapses on
+  `outreachId`. The sms and social emits live in `outreach.service.ts`
   (`finalizeOutreachPurchase`) and `outreachSocial.service.ts`
   (`saveSocialOutreach`, Win only).
 

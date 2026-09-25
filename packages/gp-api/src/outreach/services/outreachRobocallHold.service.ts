@@ -150,6 +150,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
           outreachId,
           draft.settleState,
           promo,
+          promoBillableCount,
         )
       }
     }
@@ -240,6 +241,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // card decline, which is a terminal hold_failed the caller resolves with a
     // new card.
     let estimate: number
+    // The count this authorization is PRICED on, carried out of the try so the
+    // send terminal reports the same number the candidate was charged for.
+    let authorizedBillableCount: number
     let holdAmount: number
     let customerId: string
     let holdPaymentMethodId: string
@@ -258,6 +262,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
           voterFileFilterId,
         ))
       this.robocallService.assertReachableCount(billableCount)
+      authorizedBillableCount = billableCount
       // Total = per-call cost + the flat number-rental fee (the fee is part of
       // every authorized hold). A reward code takes its discount off this whole
       // total; the ceiling below still judges the undiscounted estimate.
@@ -516,7 +521,11 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // here for an unpaid row and then find the spine already `pending` when
     // the deferred sweep really does commit, dropping the event entirely.
     // The placement CAS above elects one committer, so this is exactly-once.
-    await this.emitCampaignScheduled(outreachId, user.id)
+    await this.emitCampaignScheduled(
+      outreachId,
+      user.id,
+      authorizedBillableCount,
+    )
     if (promo) {
       await this.promos.consume(promo.promotionCodeId)
     }
@@ -571,6 +580,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     outreachId: number,
     fallback: RobocallSettleState,
     promo: ResolvedRobocallPromo,
+    billableCount: number,
   ): Promise<RobocallAuthorizeResponse> {
     let commit: { count: number }
     try {
@@ -611,7 +621,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     await this.scheduleSpineAndNotify(outreachId, user, campaign)
     // A covered run commits at $0 with no hold — the redeemed code IS the
     // payment — so it is a send terminal like the authorized commit above.
-    await this.emitCampaignScheduled(outreachId, user.id)
+    await this.emitCampaignScheduled(outreachId, user.id, billableCount)
     await this.promos.consume(promo.promotionCodeId)
     return {
       status: 'authorized',
@@ -669,26 +679,22 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     void this.sendScheduledNotice(outreachId, user, campaign)
   }
 
-  // billableCount is the priced landline count — the robocall channel's
-  // recipient figure, read here because it is not in scope at all three
-  // scheduleSpineAndNotify callers.
+  // recipientCount is the count this authorization was PRICED on, passed in by
+  // the caller rather than read back off OutreachRobocall.billableCount. That
+  // column is the draft-time snapshot and the authorize path re-derives a fresh
+  // count it never persists, so the two diverge whenever the audience shifted
+  // between draft and payment — exactly the case the re-derivation exists for.
+  // Reading the column would report a number nobody was charged for.
   private async emitCampaignScheduled(
     outreachId: number,
     userId: number,
+    recipientCount: number,
   ): Promise<void> {
     try {
-      const draft = await this.model.findFirst({
-        where: { outreachId },
-        select: { billableCount: true },
-      })
       await this.analytics.track(
         userId,
         EVENTS.Outreach.CampaignScheduled,
-        {
-          channel: 'robocall',
-          outreachId,
-          recipientCount: draft?.billableCount ?? undefined,
-        },
+        { channel: 'robocall', outreachId, recipientCount },
         undefined,
         `${outreachId}:campaign_scheduled`,
       )
