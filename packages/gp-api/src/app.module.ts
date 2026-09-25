@@ -16,6 +16,7 @@ import { ContactInteractionModule } from '@/contactInteraction/contactInteractio
 import { DoorKnockingModule } from './doorKnocking/doorKnocking.module'
 import { PhoneBankingModule } from './phoneBanking/phoneBanking.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
+import { ConstituentFeedbackModule } from '@/constituentFeedback/constituentFeedback.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContentModule } from '@/content/content.module'
 import { CrmModule } from '@/crm/crmModule'
@@ -116,6 +117,7 @@ import { TestFixturesModule } from '@/testFixtures/testFixtures.module'
     ContactEngagementModule,
     ContactInteractionModule,
     ContactNoteModule,
+    ConstituentFeedbackModule,
     RecommendedListsModule,
     DoorKnockingModule,
     PhoneBankingModule,
