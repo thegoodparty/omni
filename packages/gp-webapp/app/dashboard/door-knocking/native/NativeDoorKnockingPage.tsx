@@ -1517,7 +1517,6 @@ export default function NativeDoorKnockingPage({
                   turfDrafts={turfDrafts}
                   draftStats={draftStats}
                   onSelectDraft={selectDraft}
-                  onUpdateDraft={updateDraft}
                   onRemoveDraft={removeDraft}
                   preselectedRecommendedVariant={carriedVariant}
                   onRecommendedPreselectApplied={() =>

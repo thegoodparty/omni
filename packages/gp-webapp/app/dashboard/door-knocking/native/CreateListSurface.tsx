@@ -318,10 +318,6 @@ export interface CreateListSurfaceProps {
   // A draft missing from the map has no answer yet and prints as such.
   draftStats: Map<string, PolygonStats>
   onSelectDraft: (clientId: string) => void
-  onUpdateDraft: (
-    clientId: string,
-    patch: Partial<Omit<TurfDraft, 'clientId'>>,
-  ) => void
   onRemoveDraft: (clientId: string) => void
   // The same pair for a recommendation carried in on `?recommended=`.
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -359,7 +355,6 @@ export default function CreateListSurface({
   turfDrafts,
   draftStats,
   onSelectDraft,
-  onUpdateDraft,
   onRemoveDraft,
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
@@ -559,7 +554,6 @@ export default function CreateListSurface({
       turfDrafts={turfDrafts}
       draftStats={draftStats}
       onSelectDraft={onSelectDraft}
-      onUpdateDraft={onUpdateDraft}
       onRemoveDraft={onRemoveDraft}
     />
   )

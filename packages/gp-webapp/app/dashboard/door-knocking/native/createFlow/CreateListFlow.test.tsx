@@ -161,8 +161,6 @@ const baseProps = {
   onSelectDraft: vi.fn(),
   onStartNewTurf: vi.fn(),
   onRemoveDraft: vi.fn(),
-  onUpdateDraft: vi.fn(),
-  onPickColor: vi.fn(),
 }
 
 // What gp-api hands back for a created turf. Every count is a real number
@@ -700,8 +698,10 @@ describe('CreateListFlow', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: /^Turf 1/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Turf 2/ })).toBeInTheDocument()
+    // Text, not a row button: the step's cards never open, so nothing
+    // selects them and the name is not a control.
+    expect(screen.getByText('Turf 1')).toBeInTheDocument()
+    expect(screen.getByText('Turf 2')).toBeInTheDocument()
     // Stops, the router's own unit and the one the 150 cap is stated in.
     // `turfStats(stops, households)` puts stops first.
     expect(screen.getByText(/^14 stops/)).toBeInTheDocument()

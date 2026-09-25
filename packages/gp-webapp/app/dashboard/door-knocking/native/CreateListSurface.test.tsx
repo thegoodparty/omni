@@ -194,7 +194,6 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     turfDrafts={[]}
     draftStats={new Map()}
     onSelectDraft={vi.fn()}
-    onUpdateDraft={vi.fn()}
     onRemoveDraft={vi.fn()}
     {...overrides}
   />

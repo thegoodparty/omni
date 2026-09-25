@@ -319,12 +319,6 @@ interface CreateListFlowProps {
   // now, which the page mounts — so this seam carries only the two things
   // the STEP can do to a turf: open it, or drop it.
   onSelectDraft: (clientId: string) => void
-  // Write a turf's colour or canvasser from the draw step's cards, which
-  // open onto the same two controls the drawing surface's panel offers.
-  onUpdateDraft: (
-    clientId: string,
-    patch: Partial<Omit<TurfDraft, 'clientId'>>,
-  ) => void
   onRemoveDraft: (clientId: string) => void
 }
 
@@ -426,7 +420,6 @@ export default function CreateListFlow({
   turfDrafts,
   draftStats,
   onSelectDraft,
-  onUpdateDraft,
   onRemoveDraft,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
@@ -1790,12 +1783,6 @@ export default function CreateListFlow({
               drafts={turfDrafts}
               draftStats={draftStats}
               team={teamOptions}
-              onPickColor={(clientId, color) =>
-                onUpdateDraft(clientId, { color })
-              }
-              onAssign={(clientId, assigneeId) =>
-                onUpdateDraft(clientId, { assigneeId })
-              }
               onOpenFullScreen={(origin) =>
                 onDrawFullScreenChange(true, origin)
               }

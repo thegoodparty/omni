@@ -50,8 +50,13 @@ interface TurfCardProps {
   // draw step offers it — on the drawing surface the boundary is already
   // under the cursor, so there is nowhere to go.
   onEdit?: (origin: DOMRect) => void
-  onPickColor: (color: string) => void
-  onAssign: (assigneeId: number | null) => void
+  // Both optional, and both absent on the draw step: a turf's colour and
+  // its canvasser are set on the surface that draws it, and the step's
+  // cards are a place to check the campaign over rather than a second
+  // form. Without them there is nothing behind the open half, so that
+  // step passes no `onSelect` either and the card never opens.
+  onPickColor?: (color: string) => void
+  onAssign?: (assigneeId: number | null) => void
   // Rename in place, on the open card only. Absent means the name is not
   // editable here — the closed rows in the list are a place to compare
   // turfs, not to type into.
@@ -293,7 +298,7 @@ export const TurfCard = ({
                     }}
                   >
                     <PencilIcon className="size-4" />
-                    Edit turf
+                    Edit
                   </DropdownMenuItem>
                   {onRemove && (
                     <DropdownMenuItem
@@ -301,7 +306,7 @@ export const TurfCard = ({
                       onSelect={() => setConfirmOpen(true)}
                     >
                       <Trash2Icon className="size-4" />
-                      Delete turf
+                      Delete
                     </DropdownMenuItem>
                   )}
                 </DropdownMenuContent>
@@ -363,7 +368,7 @@ export const TurfCard = ({
                         : 'border-transparent'
                     }`}
                     style={{ backgroundColor: option }}
-                    onClick={() => onPickColor(option)}
+                    onClick={() => onPickColor?.(option)}
                   >
                     {/* Inverts with the swatch, the same rule the edit dialog
                         and the walk list's stop numeral follow — a white tick
@@ -412,7 +417,7 @@ export const TurfCard = ({
                     {team.map((option) => (
                       <DropdownMenuItem
                         key={option.userId}
-                        onSelect={() => onAssign(option.userId)}
+                        onSelect={() => onAssign?.(option.userId)}
                       >
                         <span className="truncate">{option.label}</span>
                       </DropdownMenuItem>
@@ -420,7 +425,7 @@ export const TurfCard = ({
                     {member && (
                       <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => onAssign(null)}>
+                        <DropdownMenuItem onSelect={() => onAssign?.(null)}>
                           Unassign
                         </DropdownMenuItem>
                       </>

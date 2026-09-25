@@ -402,11 +402,11 @@ const mapReady = () => screen.findByTestId('voter-map')
 // drawn shape is a card naming that turf. It used to be one paragraph of
 // "N matching households · M selected households", which described a single
 // boundary — the thing this step stopped being about.
-// The draw step's cards are the same component the panel draws, so the row
-// button's accessible name carries the counts and the canvasser too — match
-// on the turf's name at the start of it.
-const drawnTurfCard = (name: string) =>
-  screen.findByRole('button', { name: new RegExp(`^${name}`) })
+// The draw step's cards are the same component the panel draws, but never
+// open and never selectable there — a turf's name, colour and canvasser are
+// all set on the surface that cuts it — so the name is plain text rather
+// than the accessible name of a row button.
+const drawnTurfCard = (name: string) => screen.findByText(name)
 
 // A turf is named before it is drawn now: the card for the one being cut is
 // open from the moment the drawing surface is, and its name is what the
@@ -1433,9 +1433,7 @@ describe('NativeDoorKnockingPage draw step', () => {
 
     // Back on the step that lists the campaign's turfs, with the one just
     // cut on it — not forward into the flow.
-    expect(
-      await screen.findByRole('button', { name: /^Turf 1/ }),
-    ).toBeInTheDocument()
+    expect(await drawnTurfCard('Turf 1')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Draw another turf' }),
     ).toBeInTheDocument()
@@ -1549,7 +1547,7 @@ describe('NativeDoorKnockingPage draw step', () => {
     // delete a turf the candidate cut in an earlier session and never asked
     // to lose, which is the whole reason the snapshot is per-session.
     expect(await drawnTurfCard('Turf 1')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^Turf 2/ })).toBeNull()
+    expect(screen.queryByText('Turf 2')).toBeNull()
   })
 
   it('does not ask when a session with turfs already in it changed nothing', async () => {
