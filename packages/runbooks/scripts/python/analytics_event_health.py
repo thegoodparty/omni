@@ -899,6 +899,9 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
             "Clears on recovery, or when the metric's `anchored_on` changes in the "
             "semantic layer. There is no dismiss path."
         )
+    for problem in result.get("dismissal_problems") or []:
+        lines.append("")
+        lines.append(f"> **Dismissal refused.** {problem}")
     # The guard disabling itself must be as loud as the thing it guards against.
     for problem in result.get("anchor_problems") or []:
         lines.append("")
@@ -1059,8 +1062,17 @@ def load_monitored_events(path: Path = WATCHLIST) -> tuple[list[str], list[str],
     return families, events, dismissed
 
 
-def load_cause_dismissals(path: Path = WATCHLIST) -> dict[str, str]:
-    """Read ``dismissed:`` rows carrying a ``cause:`` -> ``{cause_key: reason}``.
+# Causes no dismissal may ever silence. A latched OKR anchor means a number the company
+# steers by is wrong right now; it clears on recovery or on an upstream `anchored_on`
+# change, and nothing else. A counter blind spot is our own tooling and is already held
+# out of the Slack post, so a dismissal would only make a future change to that
+# suppression silently dangerous. Enforced here rather than stated in the runbook,
+# because a rule that lives only in prose is one YAML edit away from being ignored.
+UNDISMISSABLE_CAUSES = frozenset({"okr_anchor_dormant", "counter_blind_spot"})
+
+
+def load_cause_dismissals(path: Path = WATCHLIST) -> tuple[dict[str, str], list[str]]:
+    """Read ``dismissed:`` rows carrying a ``cause:`` -> ``({cause_key: reason}, problems)``.
 
     A cause dismissal closes a whole cluster with one decision, which is the point: a
     deploy that stranded 22 name constants is one ruling, not 22. Rows with ``event:``
@@ -1070,15 +1082,29 @@ def load_cause_dismissals(path: Path = WATCHLIST) -> dict[str, str]:
     A dismissed cause is silenced, never deleted: the records keep their place in the
     JSON report and the digest prints the cause with its current member count, so a
     cluster that keeps growing after someone waved it through stays visible.
+
+    A row naming an undismissable cause is refused and reported rather than raised: the
+    weekly digest is more valuable degraded than not posted at all, and the safe
+    direction for this particular mistake is that the alert keeps firing. The problem
+    reaches the digest, so nobody is left believing a dismissal took effect.
     """
     if not path.exists():
-        return {}
+        return {}, []
     doc = yaml.safe_load(path.read_text()) or {}
-    return {
-        row["cause"]: str(row.get("reason") or "")
-        for row in (doc.get("dismissed", []) or [])
-        if row.get("cause")
-    }
+    dismissals: dict[str, str] = {}
+    problems: list[str] = []
+    for row in (doc.get("dismissed", []) or []):
+        cause = row.get("cause")
+        if not cause:
+            continue
+        if cause in UNDISMISSABLE_CAUSES:
+            problems.append(
+                f"`{cause}` cannot be dismissed; the row in {path.name} was ignored and "
+                "every finding under that cause is still live."
+            )
+            continue
+        dismissals[cause] = str(row.get("reason") or "")
+    return dismissals, problems
 
 
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
@@ -1360,12 +1386,13 @@ def run_monitor(
     # Stamp dismissed causes rather than dropping the records: the digest still counts
     # them and the report still carries them, so a waved-through cluster that grows is
     # not a cluster that disappeared.
-    dismissed_causes = load_cause_dismissals(watchlist_path)
+    dismissed_causes, dismissal_problems = load_cause_dismissals(watchlist_path)
     for record in result["flagged"]:
         reason = dismissed_causes.get(cause_key(record))
         if reason is not None:
             record["dismissed_cause"] = reason
     result["dismissed_causes"] = dismissed_causes
+    result["dismissal_problems"] = dismissal_problems
 
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes

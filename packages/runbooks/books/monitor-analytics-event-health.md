@@ -274,6 +274,10 @@ no qualifier (`orphaned_firing`, `never_observed`). Everything the dismissal cov
 in the JSON report and keeps its place in the count, so a cluster that keeps growing after
 it was waved through is still visible.
 
+`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed. The loader refuses
+those two keys and the digest prints a "Dismissal refused" line naming the row, so the
+findings under them stay live whatever the config says.
+
 ### Post the digest to Slack (`--slack`, DATA-2057 + DATA-2174)
 
 Pass `--slack` to also push a priority-tiered digest to the analytics event-lifecycle Slack

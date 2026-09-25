@@ -421,10 +421,11 @@ The cause key is the string the digest prints for that line, qualifier included
 Rules:
 
 - **Check membership first** — skip if the same `cause` is already in `dismissed:`.
-- **Never dismiss `okr_anchor_dormant`.** A latched OKR anchor clears on recovery or when
-  the metric's `anchored_on` changes upstream. There is no dismiss path, by design.
-- **Never dismiss `counter_blind_spot`.** It is already out of the queue and out of Slack;
-  the fix is `count_call_sites` in the provenance backfill, not a dismissal.
+- **`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed.** The loader
+  refuses both and the digest prints "Dismissal refused" naming the row, so a dismissal
+  written anyway does nothing except tell on itself. A latched OKR anchor clears on
+  recovery or when the metric's `anchored_on` changes upstream; a counter blind spot is
+  fixed in `count_call_sites` in the provenance backfill.
 - A dismissed cause stays in the digest struck through, with its current member count, and
   stays whole in the JSON report. It is silenced, not deleted, so a cluster that keeps
   growing after it was settled is still visible.

@@ -713,6 +713,9 @@ behaviors:
 #   cause:  digest cause key
 #   reason: why the whole cluster is settled
 #   date:   YYYY-MM-DD the decision was made
+# `okr_anchor_dormant` and `counter_blind_spot` are refused: a latched OKR anchor clears
+# on recovery or on an upstream anchored_on change, and a counter blind spot is our own
+# tooling. A row naming either is ignored and reported in the digest.
 dismissed:
   - {metric: win_activated_users, event: "Door Knocking - List Created", reason: "building a walk list is preparation to reach voters, not outreach; the completed walk fires Voter Outreach - Campaign Completed with method native, which is the leg", date: "2026-09-24"}
   - {metric: win_activated_users, event: "Robocall - Scheduled", reason: "fires at robocall draft-create on an unpaid row; activation counts the pay commit, which the shared Voter Outreach - Campaign Scheduled terminal emits", date: "2026-09-24"}

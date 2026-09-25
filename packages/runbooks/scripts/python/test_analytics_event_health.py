@@ -1142,11 +1142,34 @@ def test_load_cause_dismissals_reads_only_cause_rows(tmp_path):
         "  - {event: 'Some Event', reason: 'UI micro-interaction'}\n"
         "  - {event: 'Other', metric: 'win_activated_users', reason: 'overclaims'}\n"
     )
-    assert eh.load_cause_dismissals(path) == {
-        "call_site_removed@2026-09-01": "retired with the flow"
-    }
+    dismissals, problems = eh.load_cause_dismissals(path)
+    assert dismissals == {"call_site_removed@2026-09-01": "retired with the flow"}
+    assert problems == []
     # The proposal queue and Queue C keep their own dismissal shapes, untouched.
     assert eh.load_watchlist(path)[2] == ["Some Event"]
+
+
+def test_load_cause_dismissals_refuses_to_silence_a_latched_okr_anchor(tmp_path):
+    # The rule was written in the runbook and the triage skill. Prose is one YAML edit
+    # away from being ignored, and the edit that ignores it silences exactly the alert
+    # this whole loop exists for: a number the company steers by going quiet.
+    path = tmp_path / "monitored_events.yaml"
+    path.write_text(
+        "dismissed:\n"
+        "  - {cause: 'okr_anchor_dormant', reason: 'noisy'}\n"
+        "  - {cause: 'counter_blind_spot', reason: 'our bug'}\n"
+        "  - {cause: 'orphaned_firing', reason: 'content builder is gone'}\n"
+    )
+    dismissals, problems = eh.load_cause_dismissals(path)
+    assert dismissals == {"orphaned_firing": "content builder is gone"}
+    assert len(problems) == 2
+    assert all("cannot be dismissed" in p for p in problems)
+
+
+def test_digest_says_so_when_a_dismissal_was_refused():
+    out = _digest([_flag("Orphan", 1, "orphaned_firing")],
+                  dismissal_problems=["`okr_anchor_dormant` cannot be dismissed; ignored."])
+    assert "> **Dismissal refused.** `okr_anchor_dormant` cannot be dismissed" in out
 
 
 def test_render_collapses_dormant_tail_and_caps_changes():
