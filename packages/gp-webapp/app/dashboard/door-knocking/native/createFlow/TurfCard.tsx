@@ -197,247 +197,252 @@ export const TurfCard = ({
   )
 
   return (
-    // The padding is on the two halves rather than on the card, which is
-    // what lets the rule between them run the full width — a divider inset
-    // from the edges reads as a line inside one block, not as the seam
-    // between a header and what opened under it. The card clips so the
-    // open half's fill respects the bottom corners; `overflow-clip` rather
-    // than `overflow-hidden` because `cardRef` is a `scrollIntoView`
-    // target and the CSSOM spec treats `hidden` as a scrollable box.
-    <div
-      ref={(node) => {
-        rootRef.current = node
-        if (cardRef) cardRef.current = node
-      }}
-      data-turf-card=""
-      className={`flex flex-col overflow-clip rounded-lg border bg-background ${
-        error ? 'border-destructive' : selected ? '' : 'border-border'
-      }`}
-      // The open card is drawn in the turf's OWN colour rather than in the
-      // brand's, so the card and the ring it is about are the same object
-      // on two surfaces — pick green and the border follows on the next
-      // frame, beside a green shape on the map. Inline for the reason the
-      // dot and the swatches already are: a turf's colour is data the
-      // candidate chose, not a decision this file can name a token for.
-      // The two-digit suffixes are hex alpha on the palette's 6-digit hex.
-      style={selected && !error ? { borderColor: color } : undefined}
-    >
-      {/* The whole row opens the card, not just the name.
-
-          This is a deliberate departure from the rule `ListCard` records
-          ("selection is a button on the title, never a handler on the
-          card"), and it avoids both failures that rule is about. There is
-          no `stopPropagation` on each control — one `closest('button')`
-          guard ignores any click that landed on one, so adding a third
-          control cannot forget to opt out. And the row is NOT given a
-          button role: the name stays a real button, which is what a screen
-          reader is offered, and this handler is a pointer affordance
-          layered over it. No button inside a button. */}
+    // The caption is a sibling of the card, not a row inside it. Inside, it
+    // landed between the header and the open half — a line of red wedged
+    // between a turf's name and its colour picker, reading as part of the
+    // card's contents rather than as a note about the card. `scrollIntoView`
+    // targets this wrapper so the caption comes into view with the card it
+    // is about.
+    <div ref={cardRef} className="flex flex-col gap-1.5">
+      {/* The padding is on the two halves rather than on the card, which is
+          what lets the rule between them run the full width — a divider
+          inset from the edges reads as a line inside one block, not as the
+          seam between a header and what opened under it. The card clips so
+          the open half's fill respects the bottom corners; `overflow-clip`
+          rather than `overflow-hidden` because the wrapper above is a
+          `scrollIntoView` target and the CSSOM spec treats `hidden` as a
+          scrollable box. */}
       <div
-        className={`flex items-center gap-3 px-3 py-2.5 ${
-          onSelect ? 'cursor-pointer' : ''
+        ref={rootRef}
+        data-turf-card=""
+        className={`flex flex-col overflow-clip rounded-lg border bg-background ${
+          error ? 'border-destructive' : selected ? '' : 'border-border'
         }`}
-        onClick={(event) => {
-          if (!onSelect) return
-          if ((event.target as HTMLElement).closest('button')) return
-          onSelect()
-        }}
+        // The open card is drawn in the turf's OWN colour rather than in the
+        // brand's, so the card and the ring it is about are the same object
+        // on two surfaces — pick green and the border follows on the next
+        // frame, beside a green shape on the map. Inline for the reason the
+        // dot and the swatches already are: a turf's colour is data the
+        // candidate chose, not a decision this file can name a token for.
+        // The two-digit suffixes are hex alpha on the palette's 6-digit hex.
+        style={selected && !error ? { borderColor: color } : undefined}
       >
-        {onSelect && !editable ? (
-          <button
-            type="button"
-            aria-current={selected}
-            onClick={onSelect}
-            className="flex min-w-0 flex-1 gap-3 text-left"
-          >
-            {headingBody}
-          </button>
-        ) : (
-          <span className="flex min-w-0 flex-1 gap-3">{headingBody}</span>
-        )}
-        {/* One overflow menu when there are two actions, a bare trash when
-          there is one. The design puts a three-dot in the corner; a menu
-          holding a single item would be a tap tax, which is the rule this
-          directory already records for a draft's Remove.
+        {/* The whole row opens the card, not just the name.
 
-          HORIZONTAL, and shaped like `ListCard`'s — the CRM's list card is
-          the same object as this one (a card in a list, Edit and Delete
-          behind a corner menu) and is the pattern to follow. Horizontal is
-          what every card and row menu in the app uses; the vertical glyph
-          belongs to the generic `MoreMenu` util. */}
-        {onEdit ? (
-          <>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="small"
-                  // Leads with "Options" rather than the turf's name, so a query for
-                  // the row by name cannot also match this trigger.
-                  aria-label={`Options for ${name}`}
-                  className="size-8 shrink-0 p-0"
-                >
-                  <MoreHorizontalIcon className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onSelect={() => {
-                    const rect = rootRef.current?.getBoundingClientRect()
-                    if (rect) onEdit(rect)
-                  }}
-                >
-                  <PencilIcon className="size-4" />
-                  Edit turf
-                </DropdownMenuItem>
-                {onRemove && (
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={() => setConfirmOpen(true)}
-                  >
-                    <Trash2Icon className="size-4" />
-                    Delete turf
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {/* Sibling of the menu, never inside it — see `RemoveTurfDialog`. */}
-            {onRemove && (
-              <RemoveTurfDialog
-                turfName={deleteLabel}
-                onRemove={onRemove}
-                open={confirmOpen}
-                onOpenChange={setConfirmOpen}
-              />
-            )}
-          </>
-        ) : (
-          onRemove && (
-            <RemoveTurfDialog turfName={deleteLabel} onRemove={onRemove}>
-              <button
-                type="button"
-                aria-label={`Delete ${deleteLabel}`}
-                className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
-              >
-                <Trash2Icon className="size-4" />
-              </button>
-            </RemoveTurfDialog>
-          )
-        )}
-      </div>
-      {/* Under the row it is about, not in a banner somewhere else on the
-          panel: the refusal names one turf, and a message about "a turf"
-          would leave the candidate counting cards to find which. `alert`
-          so a screen reader is told without having to go looking, since
-          the press that caused it moved no focus. */}
-      {error && (
-        <p
-          role="alert"
-          className="px-3 pb-2.5 text-xs font-medium text-destructive"
-        >
-          {error}
-        </p>
-      )}
-      {/* The open card carries its own settings, and that is the point of
-          putting them here rather than in a block under the list: below,
-          they said "the selected turf" while the row they meant could be
-          scrolled out of sight. Inside the card there is nothing to say —
-          the controls are in the thing they change. Being open IS being
-          selected, so there is no second disclosure to keep in step. */}
-      {selected && (
+            This is a deliberate departure from the rule `ListCard` records
+            ("selection is a button on the title, never a handler on the
+            card"), and it avoids both failures that rule is about. There is
+            no `stopPropagation` on each control — one `closest('button')`
+            guard ignores any click that landed on one, so adding a third
+            control cannot forget to opt out. And the row is NOT given a
+            button role: the name stays a real button, which is what a screen
+            reader is offered, and this handler is a pointer affordance
+            layered over it. No button inside a button. */}
         <div
-          className="flex flex-col gap-4 border-t px-3 py-3"
-          style={{
-            backgroundColor: `${color}14`,
-            borderColor: `${color}33`,
+          className={`flex items-center gap-3 px-3 py-2.5 ${
+            onSelect ? 'cursor-pointer' : ''
+          }`}
+          onClick={(event) => {
+            if (!onSelect) return
+            if ((event.target as HTMLElement).closest('button')) return
+            onSelect()
           }}
         >
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              Color
-            </span>
-            {/* Wraps, because eight 32px swatches plus their gaps do not
-                clear a 389px card at every zoom. */}
-            <div className="flex flex-wrap gap-2">
-              {TURF_COLORS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  aria-label={turfColorLabel(option)}
-                  aria-pressed={color === option}
-                  className={`flex size-7 justify-center rounded-full border-2 ${
-                    color === option
-                      ? 'border-foreground'
-                      : 'border-transparent'
-                  }`}
-                  style={{ backgroundColor: option }}
-                  onClick={() => onPickColor(option)}
-                >
-                  {/* Inverts with the swatch, the same rule the edit dialog
-                      and the walk list's stop numeral follow — a white tick
-                      vanishes on green and amber. */}
-                  {color === option && (
-                    <CheckCircleIcon
-                      size={14}
-                      aria-hidden="true"
-                      className="my-auto"
-                      style={{ color: turfColorTick(option) }}
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+          {onSelect && !editable ? (
+            <button
+              type="button"
+              aria-current={selected}
+              onClick={onSelect}
+              className="flex min-w-0 flex-1 gap-3 text-left"
+            >
+              {headingBody}
+            </button>
+          ) : (
+            <span className="flex min-w-0 flex-1 gap-3">{headingBody}</span>
+          )}
+          {/* One overflow menu when there are two actions, a bare trash when
+            there is one. The design puts a three-dot in the corner; a menu
+            holding a single item would be a tap tax, which is the rule this
+            directory already records for a draft's Remove.
 
-          {/* Hidden rather than disabled when the roster is empty: an org
-              with no team has nobody to assign to, and a control whose only
-              outcome is finding that out is worse than none. A roster that
-              failed to load lands here too. */}
-          {team.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-medium text-muted-foreground">
-                Who walks this turf
-              </span>
+            HORIZONTAL, and shaped like `ListCard`'s — the CRM's list card is
+            the same object as this one (a card in a list, Edit and Delete
+            behind a corner menu) and is the pattern to follow. Horizontal is
+            what every card and row menu in the app uses; the vertical glyph
+            belongs to the generic `MoreMenu` util. */}
+          {onEdit ? (
+            <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
-                    type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="small"
-                    className="w-full justify-between bg-background"
+                    // Leads with "Options" rather than the turf's name, so a query for
+                    // the row by name cannot also match this trigger.
+                    aria-label={`Options for ${name}`}
+                    className="size-8 shrink-0 p-0"
                   >
-                    <span className="flex min-w-0 gap-2">
-                      <UserIcon className="my-auto size-4 shrink-0" />
-                      <span className="truncate">
-                        {member?.label ?? 'Unassigned'}
-                      </span>
-                    </span>
-                    <ChevronDownIcon className="size-4 shrink-0" />
+                    <MoreHorizontalIcon className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-[12rem]">
-                  <DropdownMenuLabel>Who walks this turf</DropdownMenuLabel>
-                  {team.map((option) => (
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const rect = rootRef.current?.getBoundingClientRect()
+                      if (rect) onEdit(rect)
+                    }}
+                  >
+                    <PencilIcon className="size-4" />
+                    Edit turf
+                  </DropdownMenuItem>
+                  {onRemove && (
                     <DropdownMenuItem
-                      key={option.userId}
-                      onSelect={() => onAssign(option.userId)}
+                      variant="destructive"
+                      onSelect={() => setConfirmOpen(true)}
                     >
-                      <span className="truncate">{option.label}</span>
+                      <Trash2Icon className="size-4" />
+                      Delete turf
                     </DropdownMenuItem>
-                  ))}
-                  {member && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={() => onAssign(null)}>
-                        Unassign
-                      </DropdownMenuItem>
-                    </>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
+              {/* Sibling of the menu, never inside it — see `RemoveTurfDialog`. */}
+              {onRemove && (
+                <RemoveTurfDialog
+                  turfName={deleteLabel}
+                  onRemove={onRemove}
+                  open={confirmOpen}
+                  onOpenChange={setConfirmOpen}
+                />
+              )}
+            </>
+          ) : (
+            onRemove && (
+              <RemoveTurfDialog turfName={deleteLabel} onRemove={onRemove}>
+                <button
+                  type="button"
+                  aria-label={`Delete ${deleteLabel}`}
+                  className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
+                >
+                  <Trash2Icon className="size-4" />
+                </button>
+              </RemoveTurfDialog>
+            )
           )}
         </div>
+        {/* The open card carries its own settings, and that is the point of
+            putting them here rather than in a block under the list: below,
+            they said "the selected turf" while the row they meant could be
+            scrolled out of sight. Inside the card there is nothing to say —
+            the controls are in the thing they change. Being open IS being
+            selected, so there is no second disclosure to keep in step. */}
+        {selected && (
+          <div
+            className="flex flex-col gap-4 border-t px-3 py-3"
+            style={{
+              backgroundColor: `${color}14`,
+              borderColor: `${color}33`,
+            }}
+          >
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-muted-foreground">
+                Color
+              </span>
+              {/* Wraps, because eight 32px swatches plus their gaps do not
+                  clear a 389px card at every zoom. */}
+              <div className="flex flex-wrap gap-2">
+                {TURF_COLORS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-label={turfColorLabel(option)}
+                    aria-pressed={color === option}
+                    className={`flex size-7 justify-center rounded-full border-2 ${
+                      color === option
+                        ? 'border-foreground'
+                        : 'border-transparent'
+                    }`}
+                    style={{ backgroundColor: option }}
+                    onClick={() => onPickColor(option)}
+                  >
+                    {/* Inverts with the swatch, the same rule the edit dialog
+                        and the walk list's stop numeral follow — a white tick
+                        vanishes on green and amber. */}
+                    {color === option && (
+                      <CheckCircleIcon
+                        size={14}
+                        aria-hidden="true"
+                        className="my-auto"
+                        style={{ color: turfColorTick(option) }}
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Hidden rather than disabled when the roster is empty: an org
+                with no team has nobody to assign to, and a control whose only
+                outcome is finding that out is worse than none. A roster that
+                failed to load lands here too. */}
+            {team.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Who walks this turf
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="small"
+                      className="w-full justify-between bg-background"
+                    >
+                      <span className="flex min-w-0 gap-2">
+                        <UserIcon className="my-auto size-4 shrink-0" />
+                        <span className="truncate">
+                          {member?.label ?? 'Unassigned'}
+                        </span>
+                      </span>
+                      <ChevronDownIcon className="size-4 shrink-0" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="min-w-[12rem]">
+                    <DropdownMenuLabel>Who walks this turf</DropdownMenuLabel>
+                    {team.map((option) => (
+                      <DropdownMenuItem
+                        key={option.userId}
+                        onSelect={() => onAssign(option.userId)}
+                      >
+                        <span className="truncate">{option.label}</span>
+                      </DropdownMenuItem>
+                    ))}
+                    {member && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => onAssign(null)}>
+                          Unassign
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {/* Under the card it is about, not inside it and not in a banner
+          somewhere else on the panel: the refusal names one turf, and a
+          message about "a turf" would leave the candidate counting cards
+          to find which. Inside, it landed between the name and the colour
+          picker and read as part of the turf rather than as a note about
+          it. `alert` so a screen reader is told without having to go
+          looking, since the press that caused it moved no focus. */}
+      {error && (
+        <p role="alert" className="px-1 text-xs font-medium text-destructive">
+          {error}
+        </p>
       )}
     </div>
   )

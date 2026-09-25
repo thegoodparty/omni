@@ -1043,6 +1043,75 @@ describe('NativeDoorKnockingPage create flow', () => {
     expect(screen.getByText('Turfs')).toBeInTheDocument()
   })
 
+  it('keeps a named turf that is still being cut when another is selected', async () => {
+    // Reported from the app: name the turf you are cutting, click a
+    // different turf, and the named one is gone — its card only existed
+    // while it was the one under the cursor.
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    // A second turf, named but not yet drawn.
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+    )
+    nameThisTurf('Turf 2')
+
+    // Back to the first one.
+    fireEvent.click(
+      await within(turfPanel()).findByRole('button', { name: /^Turf 1/ }),
+    )
+
+    // Turf 2 survives as a card of its own, closed, saying what it needs.
+    expect(
+      await within(turfPanel()).findByRole('button', { name: /^Turf 2/ }),
+    ).toBeInTheDocument()
+    expect(within(turfPanel()).getByRole('alert')).toHaveTextContent(
+      'Draw this turf',
+    )
+  })
+
+  it('drops an untouched turf being cut when another is selected', async () => {
+    // The other half of the rule. Clicking a turf is navigation rather
+    // than a request for a card, and a session nobody has typed into or
+    // assigned carries nothing worth a row in the list — parking it would
+    // spawn an empty card out of a click.
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+    )
+    // Nothing typed, nobody assigned, no corner placed.
+    fireEvent.click(
+      await within(turfPanel()).findByRole('button', { name: /^Turf 1/ }),
+    )
+
+    expect(within(turfPanel()).queryByText('Not drawn')).toBeNull()
+    expect(within(turfPanel()).queryByRole('alert')).toBeNull()
+  })
+
   it('hands the cursor back to the turf before the one deleted', async () => {
     // Reported from the app: delete the second of two turfs and the turf
     // and its name go, but an empty card is left behind. The turf being

@@ -596,30 +596,38 @@ export default function NativeDoorKnockingPage({
     },
     [commitDraft, updateDraft],
   )
+  // Keeping the turf being cut when the cursor leaves it. It has no draft
+  // behind it — that is what "being cut" means — so without this, moving
+  // away throws out the name typed into its open card, the canvasser
+  // picked for it, and the card itself. It is committed SHAPELESS: the
+  // corners already placed do go, because a ring below three points is not
+  // a boundary and there is nowhere to keep two of them, but the turf they
+  // started survives as a card that says what it is short of.
+  //
+  // No-op once a third corner has landed, since from then on there is a
+  // draft and everything is already written to it.
+  const parkTurfBeingCut = useCallback(() => {
+    if (activeDraftRef.current !== null) return false
+    commitDraft({
+      polygon: [],
+      color: draw.drawColor,
+      name: pendingName,
+      assigneeId: pendingAssigneeId,
+    })
+    return true
+  }, [commitDraft, draw, pendingAssigneeId, pendingName])
   // Starting the next turf: let go of the active one and hand the canvas an
   // empty session. The turf just finished keeps its draft — this is "I'm done
   // with that one", not "throw it away".
   //
-  // Which is why a turf that never reached its third corner is COMMITTED
-  // here, shapeless, on the way past. Add turf has to add one, and on an
-  // unfinished turf it did nothing a candidate could see: the card on the
-  // panel was the pending one, and the press replaced it with an identical
-  // pending one. Parking it keeps the turf they started, as a card that
-  // says what it is short of — the panel reddens an undrawn card the
-  // moment it is no longer the one under the cursor. The corners already
-  // placed do go: a ring below three points is not a boundary, and there
-  // is nowhere to keep two of them.
+  // The turf being cut is parked on the way past, and `Add turf` parks it
+  // UNCONDITIONALLY — even one with nothing in it. The press is a request
+  // FOR a card, and answering it by leaving the panel exactly as it was is
+  // what made the button look broken. Selecting another turf is the softer
+  // case and parks only what has something in it.
   const startNextTurf = useCallback(() => {
     const parkedColor = draw.drawColor
-    const parking = activeDraftRef.current === null
-    if (parking) {
-      commitDraft({
-        polygon: [],
-        color: parkedColor,
-        name: pendingName,
-        assigneeId: pendingAssigneeId,
-      })
-    }
+    const parking = parkTurfBeingCut()
     activeDraftRef.current = null
     setActiveDraftId(null)
     setPendingAssigneeId(null)
@@ -637,15 +645,7 @@ export default function NativeDoorKnockingPage({
           ])
         : seedColor,
     )
-  }, [
-    commitDraft,
-    draw,
-    pendingAssigneeId,
-    pendingName,
-    seedColor,
-    siblingTurfs,
-    turfDrafts,
-  ])
+  }, [draw, parkTurfBeingCut, seedColor, siblingTurfs, turfDrafts])
   // Picking an existing turf out of the toolbar: its boundary goes back under
   // the cursor in its own colour. The ref moves first — see its declaration
   // for why the order is load-bearing.
@@ -653,11 +653,22 @@ export default function NativeDoorKnockingPage({
     (clientId: string) => {
       const draft = turfDrafts.find((entry) => entry.clientId === clientId)
       if (!draft) return
+      // Reported from the app: name the turf you are cutting, click
+      // another turf, and the one you named is gone — its card only exists
+      // while it is the one under the cursor. Unlike `Add turf` this parks
+      // only a turf with something IN it, because clicking a turf is
+      // navigation rather than a request for a card, and an untouched
+      // session carries nothing worth a row in the list.
+      if (pendingName.trim() !== '' || pendingAssigneeId !== null) {
+        parkTurfBeingCut()
+      }
+      setPendingAssigneeId(null)
+      setPendingName('')
       activeDraftRef.current = clientId
       setActiveDraftId(clientId)
       draw.loadRing(draft.polygon, draft.color)
     },
-    [turfDrafts, draw],
+    [draw, parkTurfBeingCut, pendingAssigneeId, pendingName, turfDrafts],
   )
   // Throwing away the turf being cut, from its own card. There is no draft
   // to remove — that is what "being cut" means — so what goes is the
