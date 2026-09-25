@@ -1051,6 +1051,127 @@ def _flag(event_type, rank, status, **kw):
     return base
 
 
+def _digest(flagged, **overrides):
+    result = {
+        "run_date": date(2026, 6, 26),
+        "current_week_basis": "complete weeks before 2026-06-22",
+        "total_events": 100,
+        "status_counts": {"active": 90},
+        "metadata_coverage": None,
+        "proposals": [],
+        "flagged": flagged,
+    }
+    result.update(overrides)
+    changes = {"new": [], "resolved": [], "still_open": [], "escalated": []}
+    return eh.render_digest_section(result, changes)
+
+
+def test_cause_key_splits_call_site_removals_by_deploy():
+    # Two deploys that each stranded a batch of name constants are two decisions. One
+    # deploy is one decision however many events it stranded, which is the whole point
+    # of counting causes rather than events.
+    sept1 = _flag("A", 2, "dormant", call_site_count=0, call_site_retired_date="2026-09-01")
+    sept8 = _flag("B", 2, "dormant", call_site_count=0, call_site_retired_date="2026-09-08")
+    assert eh.cause_key(sept1) == "call_site_removed@2026-09-01"
+    assert eh.cause_key(sept1) != eh.cause_key(sept8)
+    assert eh.cause_label(eh.cause_key(sept1)) == "call sites removed on 2026-09-01"
+
+
+def test_cluster_flagged_orders_by_rank_then_size_and_keeps_elevated_visible():
+    flagged = [
+        _flag("Orphan", 1, "orphaned_firing"),
+        _flag("Gone A", 2, "dormant", call_site_count=0, call_site_retired_date="2026-09-01"),
+        _flag("Gone B", 2, "dormant", call_site_count=0, call_site_retired_date="2026-09-01"),
+        _flag("Gone C", 2, "dormant", call_site_count=0, call_site_retired_date="2026-09-01", elevated=True),
+    ]
+    clusters = eh.cluster_flagged(flagged)
+    assert [c["cause"] for c in clusters] == ["orphaned_firing", "call_site_removed@2026-09-01"]
+    assert [c["count"] for c in clusters] == [1, 3]
+    # An OKR-adjacent event must never be legible only as part of a number.
+    assert clusters[1]["elevated"] == ["Gone C"]
+
+
+def test_render_groups_by_cause_and_keeps_per_event_detail_collapsed():
+    flagged = [
+        _flag("Gone A", 2, "dormant", call_site_count=0, call_site_retired_date="2026-09-01"),
+        _flag("Gone B", 2, "dormant", call_site_count=0, call_site_retired_date="2026-09-01"),
+    ]
+    out = _digest(flagged)
+    assert "### Flagged (by cause)" in out
+    assert "**call sites removed on 2026-09-01** — 2 event(s)" in out
+    assert "Gone A · Gone B" in out
+    # The log is the longitudinal record, so the rows survive; they are just folded away.
+    assert "<details><summary>Per-event detail (2)</summary>" in out
+    assert "| Gone A |" in out
+    assert "2 priority in 1 cause(s)" in out
+
+
+def test_render_routes_counter_blind_spots_out_of_the_queue():
+    # Our call-site counter failing to see a reference is a bug in our tooling. It ranks
+    # 0 for visibility but it is not a product finding, and it must not compete with one.
+    canary = _flag("Aliased", 0, "active", call_site_count=0, event_count_30d=2167)
+    real = _flag("Orphan", 1, "orphaned_firing")
+    out = _digest([canary, real])
+    assert "### Counter blind spots (our tooling, not the product)" in out
+    assert "1 event(s) fire normally with zero counted call sites" in out
+    causes = out.split("### Flagged (by cause)")[1].split("<details>")[0]
+    assert "Aliased" not in causes
+    assert "declared not-in-use, still firing" in causes
+    assert "1 priority in 1 cause(s), 1 counter blind spot(s)" in out
+
+
+def test_render_strikes_through_a_dismissed_cause_but_still_counts_it():
+    # Silenced, never deleted: a cluster someone waved through that keeps growing has to
+    # stay visible, or the dismissal becomes the next blind spot.
+    flagged = [
+        _flag("Gone A", 2, "dormant", call_site_count=0,
+              call_site_retired_date="2026-09-01", dismissed_cause="retired with the flow"),
+        _flag("Gone B", 2, "dormant", call_site_count=0,
+              call_site_retired_date="2026-09-01", dismissed_cause="retired with the flow"),
+    ]
+    out = _digest(flagged)
+    assert "~~call sites removed on 2026-09-01~~ — 2 event(s), dismissed: retired with the flow" in out
+    assert "| Gone A |" in out  # still in the per-event detail
+
+
+def test_load_cause_dismissals_reads_only_cause_rows(tmp_path):
+    path = tmp_path / "monitored_events.yaml"
+    path.write_text(
+        "dismissed:\n"
+        "  - {cause: 'call_site_removed@2026-09-01', reason: 'retired with the flow'}\n"
+        "  - {event: 'Some Event', reason: 'UI micro-interaction'}\n"
+        "  - {event: 'Other', metric: 'win_activated_users', reason: 'overclaims'}\n"
+    )
+    dismissals, problems = eh.load_cause_dismissals(path)
+    assert dismissals == {"call_site_removed@2026-09-01": "retired with the flow"}
+    assert problems == []
+    # The proposal queue and Queue C keep their own dismissal shapes, untouched.
+    assert eh.load_watchlist(path)[2] == ["Some Event"]
+
+
+def test_load_cause_dismissals_refuses_to_silence_a_latched_okr_anchor(tmp_path):
+    # The rule was written in the runbook and the triage skill. Prose is one YAML edit
+    # away from being ignored, and the edit that ignores it silences exactly the alert
+    # this whole loop exists for: a number the company steers by going quiet.
+    path = tmp_path / "monitored_events.yaml"
+    path.write_text(
+        "dismissed:\n"
+        "  - {cause: 'okr_anchor_dormant', reason: 'noisy'}\n"
+        "  - {cause: 'counter_blind_spot', reason: 'our bug'}\n"
+        "  - {cause: 'orphaned_firing', reason: 'content builder is gone'}\n"
+    )
+    dismissals, problems = eh.load_cause_dismissals(path)
+    assert dismissals == {"orphaned_firing": "content builder is gone"}
+    assert len(problems) == 2
+    assert all("cannot be dismissed" in p for p in problems)
+
+
+def test_digest_says_so_when_a_dismissal_was_refused():
+    out = _digest([_flag("Orphan", 1, "orphaned_firing")],
+                  dismissal_problems=["`okr_anchor_dormant` cannot be dismissed; ignored."])
+    assert "> **Dismissal refused.** `okr_anchor_dormant` cannot be dismissed" in out
+
+
 def test_render_collapses_dormant_tail_and_caps_changes():
     flagged = [
         _flag("Orphan", 1, "orphaned_firing", elevated=True, event_count_30d=9),
@@ -1075,7 +1196,7 @@ def test_render_collapses_dormant_tail_and_caps_changes():
     out = eh.render_digest_section(result, changes)
 
     assert "## 2026-06-26" in out
-    assert "1 priority, 2 dormant tail" in out
+    assert "1 priority in 1 cause(s), 2 dormant tail" in out
     # priority flag is a detailed table row; tail events are collapsed to one line
     assert "| 1 orphaned-firing" in out and "Orphan" in out
     assert "**Dormant tail (2)**" in out and "Tail A · Tail B" in out
@@ -1246,6 +1367,32 @@ def test_build_slack_triage_runs_on_changes(monkeypatch):
     assert triage is not None and triage["items"][0]["event_type"] == "A"
 
 
+def test_build_slack_triage_drops_canaries_and_dismissed_causes(monkeypatch):
+    # Slack is the surface one person reads on a Monday. A bug in our own counter and a
+    # cause already ruled on are not decisions, and they crowd out the ones that are.
+    # Both stay in the digest and the JSON report, which is where the audit trail lives.
+    monkeypatch.setattr(
+        "digest_triage.run_triage", lambda items, **kw: {"status": "ok", "items": items})
+    base = {"okr": None, "on_watchlist": False, "elevated": False, "anomaly": None,
+            "last_seen_date": None, "instrumented_pr": None, "divergence": None,
+            "gpmeta": None, "call_site_retired_date": None}
+    canary = {**base, "event_type": "Aliased", "status": "active", "rank": 0,
+              "call_site_count": 0, "event_count_30d": 2167}
+    settled = {**base, "event_type": "Gone", "status": "dormant", "rank": 2,
+               "call_site_count": 0, "event_count_30d": 0,
+               "dismissed_cause": "retired with the flow"}
+    real = {**base, "event_type": "Orphan", "status": "orphaned_firing", "rank": 1,
+            "call_site_count": None, "event_count_30d": 9}
+    result = {"run_date": date(2026, 8, 4), "proposals": [], "status_counts": {},
+              "total_events": 3, "flagged": [canary, settled, real]}
+    changes = {"new": ["Aliased", "Gone", "Orphan"], "escalated": [], "resolved": [],
+               "still_open": []}
+    triage = eh.build_slack_triage(result, changes, state_path=None, gap=None)
+    assert [i["event_type"] for i in triage["items"]] == ["Orphan"]
+    # Not mutated: the caller's result still carries everything for the digest + report.
+    assert len(result["flagged"]) == 3
+
+
 # --- path-qualified legs (DATA-2421 Part B) -----------------------------------
 
 
@@ -1284,6 +1431,31 @@ def test_latched_record_outranks_the_counter_blind_spot_canary():
     record = {"status": "active", "elevated": True, "anomaly": None, "divergence": None,
               "call_site_count": 5, "okr": "win_active_candidates_30d", "latched": True}
     assert eh.rank_record(record) == 0
+
+
+def test_latched_record_with_zero_call_sites_takes_the_okr_cause_not_the_canary():
+    # The overlap is the dangerous shape: a latched OKR anchor can also satisfy the
+    # blind-spot predicate (active, no anomaly, zero counted call sites). Routed to
+    # counter_blind_spot it would leave the queue, leave Slack, and become dismissable
+    # — a number the company steers by going quiet, which is the failure the latch
+    # exists to prevent. Every guard that picks between the two is asserted here.
+    record = _flag("Campaign Plan - Campaign Tracker Viewed", 0, "active",
+                   elevated=True, call_site_count=0,
+                   okr="win_active_candidates_30d", latched=True)
+    assert eh.is_counter_blind_spot(record)  # the predicate really does fire
+    assert eh.rank_record(record) == 0
+    assert eh.cause_key(record) == "okr_anchor_dormant"
+    assert eh.cause_key(record) not in eh.UNDISMISSABLE_CAUSES - {"okr_anchor_dormant"}
+    assert eh.cause_key(record) in eh.UNDISMISSABLE_CAUSES
+
+    clusters = eh.cluster_flagged([record])
+    assert [c["cause"] for c in clusters] == ["okr_anchor_dormant"]
+
+    # And the digest keeps it in the queue rather than the tooling section.
+    out = _digest([record])
+    assert "### Counter blind spots" not in out
+    causes = out.split("### Flagged (by cause)")[1].split("<details>")[0]
+    assert "OKR anchor dormant" in causes
 
 
 def test_unlatched_records_rank_exactly_as_before():
@@ -1615,7 +1787,7 @@ def test_digest_shouts_when_the_anchor_read_failed():
     out = eh.render_digest_section(
         _render_result(anchor_problems=["token missing"]), _NO_CHANGES)
     assert "> **OKR dormancy checks degraded.** token missing" in out
-    assert "### Flagged (ranked)" in out  # the rest of the digest still renders
+    assert "### Flagged (by cause)" in out  # the rest of the digest still renders
 
 
 def test_anchor_problem_posts_to_slack_as_red_with_its_text_intact(monkeypatch):
@@ -1947,7 +2119,7 @@ def test_a_malformed_sem_file_still_produces_a_digest(tmp_path, monkeypatch):
 
     assert any("malformed" in p for p in result["anchor_problems"])
     assert "> **OKR dormancy checks degraded.**" in out
-    assert "### Flagged (ranked)" in out  # the rest of the digest still renders
+    assert "### Flagged (by cause)" in out  # the rest of the digest still renders
     assert result["total_events"] == 1  # and the other two axes still reconciled
 
 

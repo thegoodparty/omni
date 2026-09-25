@@ -139,6 +139,8 @@ the canary (DATA-2427).
 
 ### Rank 0 — counter blind spot (DATA-2106)
 
+These render in their own digest section and are kept out of the triage queue and the Slack post: a bug in our counter should not compete for attention with a product finding.
+
 A rank-0 flag is a contradiction: the provenance CSV says zero call sites, but the event is
 firing normally. A client event cannot fire without a call site, so the call-site counter is
 blind to how the reference is written — not the event dead. Fix the counter, not the event:
@@ -241,6 +243,40 @@ Set as constants at the top of `analytics_event_health.py`:
 The committed durable artifacts are the longitudinal log and the diff state. The full JSON
 report (`--json`) and the remediation payloads are gitignored transients. Route rank-1/2
 flags + their stage-2 verdicts to Eng/PM.
+
+### How to read the digest
+
+**Flagged (by cause)** is the queue. One line per reason events were flagged, with the
+event names under it, worst rank first. The unit is the decision, not the event: a deploy
+that stranded twenty-two name constants is one ruling ("retire them or re-point them"), and
+counting it as twenty-two made a week's queue look unworkable when it was eight or nine
+calls. Events elevated as OKR-adjacent are named on the cause line as well, so one is never
+legible only as part of a count.
+
+**Per-event detail** is the same flags, one row each, folded into a `<details>` block. This
+file is the longitudinal record, so every row a pass produced stays in it and a flag can
+still be traced across weeks.
+
+**Counter blind spots** sit in their own section, below the queue and outside it. They are
+our call-site counter failing to see a reference, not a product finding, and they are not
+posted to Slack. Fix the counter (see Rank 0 below).
+
+A cause someone has ruled on is struck through and still counted, never removed. Dismiss
+one by adding a `cause:` row to `dismissed:` in `monitored_events.yaml`:
+
+```yaml
+dismissed:
+  - {cause: "call_site_removed@2026-09-01", reason: "retired with the outreach v2 cutover", date: "2026-09-25"}
+```
+
+The cause string is the one the digest prints after `@`, or the bare key for a cause with
+no qualifier (`orphaned_firing`, `never_observed`). Everything the dismissal covers stays
+in the JSON report and keeps its place in the count, so a cluster that keeps growing after
+it was waved through is still visible.
+
+`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed. The loader refuses
+those two keys and the digest prints a "Dismissal refused" line naming the row, so the
+findings under them stay live whatever the config says.
 
 ### Post the digest to Slack (`--slack`, DATA-2057 + DATA-2174)
 
