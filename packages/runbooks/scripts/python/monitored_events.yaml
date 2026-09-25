@@ -244,14 +244,18 @@ behaviors:
       is one send commitment retried, and it must count once. Win only: the
       `Voter Outreach -` prefix classifies to the win_voter_outreach family, so the Serve
       social route deliberately stays silent. Phone banking is excluded by definition, not
-      by omission (see its surface below). `win_activated_users` still declares
-      `Voter Outreach - Campaign Completed`, which since the outreach/v2 rewrite survives
-      only on a completed door-knocking walk and the manual self-report modal (DATA-2343
-      sweep); pointing the metric at the new event is a separate semantic-layer change.
+      by omission (see its surface below). `win_activated_users` declares this event as a leg
+      alongside `Voter Outreach - Campaign Completed`, which since the outreach/v2 rewrite
+      survives only on a completed door-knocking walk and the manual self-report modal
+      (DATA-2343 sweep). `Robocall - Scheduled` is deliberately NOT a leg of that metric: it
+      is a live instrument and stays on the behavior, but it fires at draft-create on an
+      unpaid row, so counting it would activate a candidate who built a draft and never
+      paid. That scope call is recorded as a dismissal below, not as a gap.
       Outreach Intensity has no governed declaration yet and is not tracked as an OKR here.
     surfaces:
       # Per-channel. Robocall keeps its earlier draft-create milestone AND emits the shared
-      # terminal at the pay commit; the two are different moments, not a double-fire.
+      # terminal at the pay commit; the two are different moments, not a double-fire. Only
+      # the pay-commit terminal is an activation leg; see the dismissal for the other.
       - path: packages/gp-api/src/outreach/services/outreachRobocall.service.ts
         label: robocall_draft_created
         instrumented_by: "Robocall - Scheduled"
@@ -701,6 +705,8 @@ behaviors:
 #   reason: why it was dismissed (e.g. "UI micro-interaction, not a funnel milestone")
 #   date:   YYYY-MM-DD the decision was made
 dismissed:
+  - {metric: win_activated_users, event: "Door Knocking - List Created", reason: "building a walk list is preparation to reach voters, not outreach; the completed walk fires Voter Outreach - Campaign Completed with method native, which is the leg", date: "2026-09-24"}
+  - {metric: win_activated_users, event: "Robocall - Scheduled", reason: "fires at robocall draft-create on an unpaid row; activation counts the pay commit, which the shared Voter Outreach - Campaign Scheduled terminal emits", date: "2026-09-24"}
   - {event: "Briefing Assistant - Attachment Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
   - {event: "Pro Upgrade - Texting Setup Banner Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Onboarding V2 - Why Are You Running Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
