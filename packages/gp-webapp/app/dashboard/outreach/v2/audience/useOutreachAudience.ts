@@ -634,6 +634,16 @@ export const useOutreachAudience = ({
         )
         data = response.data
       } catch (error) {
+        // Same identifying properties as Accepted below, minus the two that are
+        // only knowable from the response that never arrived, so the two can be
+        // compared as one rate.
+        trackEvent(EVENTS.Outreach.RecommendedList.Failed, {
+          variant: recommendation.variant,
+          channel: reachabilityKey,
+          intent: recommendation.intent,
+          count: recommendation.count,
+          voteGoalShare: recommendation.voteGoalShare,
+        })
         setCreateRecommendedListError("We couldn't save this list. Try again.")
         throw error
       } finally {
