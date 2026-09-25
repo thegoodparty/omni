@@ -128,6 +128,20 @@ const AGENTIC_DISPATCH_CLAIM_TTL_MINUTES = 5
 // registrations resume automatically once billing clears.
 export const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
 
+// Matches records whose persisted CV status is anything but VERIFIED —
+// including null, which the CV scan may not have stamped yet. The null branch
+// is load-bearing: `NOT: { peerlyCvStatus: VERIFIED }` compiles to bare SQL
+// `NOT (col = $1)`, where a NULL column evaluates to NULL and the row is
+// excluded — so a PIN entered between scan slots skipped the VERIFIED stamp
+// entirely and sweepUnsubmittedUsecases couldn't see the record until the
+// next scan.
+export const cvStatusNotYetVerified = {
+  OR: [
+    { peerlyCvStatus: null },
+    { peerlyCvStatus: { not: PeerlyCvVerificationStatus.VERIFIED } },
+  ],
+}
+
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
 
 const manualFilingAddressColumns = (
@@ -2589,7 +2603,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     await this.model.updateMany({
       where: {
         peerlyIdentityId,
-        NOT: { peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED },
+        ...cvStatusNotYetVerified,
       },
       data: {
         peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,

@@ -51,6 +51,7 @@ type WhereClause = {
   peerlyProfileStatusChangedAt?: { lt: Date }
   NOT?: object
   OR?: object[]
+  AND?: object[]
   campaign?: { isPro: boolean }
 }
 
@@ -888,13 +889,18 @@ describe('Nightly10DlcReportService', () => {
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBeNull()
       // Actively billing-blocked records list under their own section only.
-      expect(where.NOT).toEqual({
-        peerlyBillingBlockedAt: { gte: expect.any(Date) },
-      })
-      expect(where.OR).toHaveLength(2)
-      const [startedAtBranch] = where.OR as [
-        { peerlySubmissionStartedAt: { lt: Date } },
+      // Never-blocked records (NULL column) must stay in the set — a bare
+      // NOT >= filter excludes NULL rows in SQL.
+      const [billingBranch, ageBranch] = where.AND as [
+        { OR: [{ peerlyBillingBlockedAt: null }, object] },
+        { OR: [{ peerlySubmissionStartedAt: { lt: Date } }, object] },
       ]
+      expect(billingBranch.OR).toEqual([
+        { peerlyBillingBlockedAt: null },
+        { peerlyBillingBlockedAt: { lt: expect.any(Date) } },
+      ])
+      expect(ageBranch.OR).toHaveLength(2)
+      const [startedAtBranch] = ageBranch.OR
       const thresholdMs = subHours(new Date(), 13).getTime()
       expect(
         Math.abs(
@@ -1398,17 +1404,20 @@ describe('Nightly10DlcReportService', () => {
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.VERIFIED)
       // Excludes only records inside the active billing-block window; a
-      // stale block (past cooldown) must not hide a profile stall.
-      const notClause = where.NOT as {
-        peerlyBillingBlockedAt: { gte: Date }
-      }
+      // stale block (past cooldown) and a never-blocked NULL column must not
+      // hide a profile stall (a bare NOT >= filter excludes NULL rows in SQL).
+      const [neverBlocked, staleBlocked] = where.OR as [
+        { peerlyBillingBlockedAt: null },
+        { peerlyBillingBlockedAt: { lt: Date } },
+      ]
+      expect(neverBlocked).toEqual({ peerlyBillingBlockedAt: null })
       const blockWindowMs = subMinutes(
         new Date(),
         PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES,
       ).getTime()
       expect(
         Math.abs(
-          notClause.peerlyBillingBlockedAt.gte.getTime() - blockWindowMs,
+          staleBlocked.peerlyBillingBlockedAt.lt.getTime() - blockWindowMs,
         ),
       ).toBeLessThan(5000)
       const thresholdMs = subHours(new Date(), 20).getTime()
