@@ -3367,7 +3367,13 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockModel.updateMany).toHaveBeenCalledWith({
         where: {
           peerlyIdentityId: 'peerly-1',
-          NOT: { peerlyCvStatus: 'VERIFIED' },
+          // The null branch matters: a record the CV scan hasn't stamped yet
+          // (persisted status null) must still receive the VERIFIED stamp —
+          // a bare NOT/not filter excludes NULL rows in SQL.
+          OR: [
+            { peerlyCvStatus: null },
+            { peerlyCvStatus: { not: 'VERIFIED' } },
+          ],
         },
         data: {
           peerlyCvStatus: 'VERIFIED',

@@ -124,6 +124,24 @@ export const reportableCampaign = {
   },
 }
 
+// Actively billing-blocked records list under their own section only — the
+// case 1/2/3a/3b queries exclude them to avoid double-counting. The null
+// branch is load-bearing: `NOT: { peerlyBillingBlockedAt: { gte } }` compiles
+// to bare SQL `NOT (col >= $1)`, where a NULL column evaluates to NULL and
+// the row is excluded — which silently dropped every never-billing-blocked
+// record from all four stall queries, so no vendor escalation or one-time
+// alert ever fired (christine-silva, Sep 2026).
+export const notActivelyBillingBlocked = (now: Date) => ({
+  OR: [
+    { peerlyBillingBlockedAt: null },
+    {
+      peerlyBillingBlockedAt: {
+        lt: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
+      },
+    },
+  ],
+})
+
 type RecordWithCampaign = TcrCompliance & { campaign: Campaign }
 
 type DomainWithCampaign = Domain & {
@@ -368,20 +386,22 @@ export class Nightly10DlcReportService extends createPrismaBase(
           // An actively billing-blocked record already appears in the
           // billingBlocked section — exclude it here to avoid
           // double-counting it in the stuck total (mirrors case 3a).
-          NOT: {
-            peerlyBillingBlockedAt: {
-              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
-            },
-          },
-          OR: [
+          AND: [
+            notActivelyBillingBlocked(now),
             {
-              peerlySubmissionStartedAt: {
-                lt: subHours(now, CV_NEVER_REACHED_MIN_AGE_HOURS),
-              },
-            },
-            {
-              peerlySubmissionStartedAt: null,
-              createdAt: { lt: subHours(now, CV_NEVER_REACHED_MIN_AGE_HOURS) },
+              OR: [
+                {
+                  peerlySubmissionStartedAt: {
+                    lt: subHours(now, CV_NEVER_REACHED_MIN_AGE_HOURS),
+                  },
+                },
+                {
+                  peerlySubmissionStartedAt: null,
+                  createdAt: {
+                    lt: subHours(now, CV_NEVER_REACHED_MIN_AGE_HOURS),
+                  },
+                },
+              ],
             },
           ],
         },
@@ -399,11 +419,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           // double-count it in the stuck total. Records whose block is older
           // than the cooldown are not in that section and must not be
           // excluded here.
-          NOT: {
-            peerlyBillingBlockedAt: {
-              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
-            },
-          },
+          ...notActivelyBillingBlocked(now),
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },
@@ -425,11 +441,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           peerlyIdentityId: { not: null },
           // Actively billing-blocked records list under their own section
           // only (mirrors cases 1 and 3a).
-          NOT: {
-            peerlyBillingBlockedAt: {
-              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
-            },
-          },
+          ...notActivelyBillingBlocked(now),
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },
@@ -447,11 +459,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
         where: {
           ...proOnly,
           peerlyIdentityId: { not: null },
-          NOT: {
-            peerlyBillingBlockedAt: {
-              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
-            },
-          },
+          ...notActivelyBillingBlocked(now),
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },
