@@ -302,7 +302,11 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   invisible to Vercel (`boughtAt` set, site serving 200 on the edge) and to
   our DB, so DNS is the only signal. Transient lookup failures (timeout,
   SERVFAIL) skip the domain for the night — a resolver outage must not mark
-  the whole fleet dark. Disjoint from "Domain purchase never completed":
+  the whole fleet dark. Campaigns whose `details.electionDate` has passed
+  are skipped before any lookup: post-election we stop renewing, so their
+  domains lapsing into redemption is the expected lifecycle, not a hold
+  (five expired post-election domains rendered as false serverHold leads on
+  2026-09-25). Disjoint from "Domain purchase never completed":
   post-cutoff unverified rows belong only to that section.
 - **The awaiting-PIN nudge is `peerlyCvStatus = APPROVED` only (ENG-10866).**
   It used to be `{ not: null, notIn: [VERIFIED] }`, which swept in `REQUESTED`

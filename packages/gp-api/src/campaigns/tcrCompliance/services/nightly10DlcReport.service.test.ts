@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { formatInTimeZone } from 'date-fns-tz'
-import { subDays, subHours, subMinutes } from 'date-fns'
+import { addDays, format, subDays, subHours, subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -17,7 +17,7 @@ import {
   SlackMessageBlock,
   SlackMessageType,
 } from '../../../vendors/slack/slackService.types'
-import { EASTERN_TIMEZONE } from '../../../shared/util/date.util'
+import { DateFormats, EASTERN_TIMEZONE } from '../../../shared/util/date.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
 import {
@@ -373,7 +373,12 @@ describe('Nightly10DlcReportService', () => {
           registrantVerifiedAt: null,
           website: {
             campaignId: 666,
-            campaign: { id: 666, slug: 'domain-camp', isPro: true },
+            campaign: {
+              id: 666,
+              slug: 'domain-camp',
+              isPro: true,
+              details: {},
+            },
           },
         },
       ])
@@ -475,9 +480,26 @@ describe('Nightly10DlcReportService', () => {
         registrantVerifiedAt: subDays(new Date(), 7),
         website: {
           campaignId: 777,
-          campaign: { id: 777, slug: 'held-camp', isPro: true },
+          campaign: {
+            id: 777,
+            slug: 'held-camp',
+            isPro: true,
+            details: {
+              electionDate: format(
+                addDays(new Date(), 30),
+                DateFormats.isoDate,
+              ),
+            },
+          },
         },
         ...overrides,
+      })
+
+      const campaignWithElection = (electionDate: string | undefined) => ({
+        id: 777,
+        slug: 'held-camp',
+        isPro: true,
+        details: electionDate === undefined ? {} : { electionDate },
       })
 
       const queueHeldSweepDomains = (rows: object[]) => {
@@ -520,6 +542,48 @@ describe('Nightly10DlcReportService', () => {
         const text = blocksText(blocks)
         expect(text).toContain('no campaigns stuck')
         expect(text).not.toContain('Domain not resolving')
+      })
+
+      it('skips a dark domain whose campaign election has passed — a lapsed post-election domain is not a registry hold', async () => {
+        queueHeldSweepDomains([
+          boughtDomainRow('lurchbulldogforking.org', {
+            website: {
+              campaignId: 777,
+              campaign: campaignWithElection(
+                format(subDays(new Date(), 30), DateFormats.isoDate),
+              ),
+            },
+          }),
+        ])
+        mockResolveNs.mockRejectedValue(dnsError('ENOTFOUND'))
+
+        await service.handleNightlyReport({ reportDate: '2026-09-25' })
+
+        const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+          { blocks: SlackMessageBlock[] },
+        ]
+        expect(blocksText(blocks)).not.toContain('Domain not resolving')
+        expect(mockResolveNs).not.toHaveBeenCalled()
+      })
+
+      it('still sweeps a dark domain when the election date is missing', async () => {
+        queueHeldSweepDomains([
+          boughtDomainRow('vote-no-election-date.site', {
+            website: {
+              campaignId: 777,
+              campaign: campaignWithElection(undefined),
+            },
+          }),
+        ])
+        mockResolveNs.mockRejectedValue(dnsError('ENOTFOUND'))
+
+        await service.handleNightlyReport({ reportDate: '2026-09-25' })
+
+        const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+          { blocks: SlackMessageBlock[] },
+        ]
+        expect(blocksText(blocks)).toContain('Domain not resolving')
+        expect(blocksText(blocks)).toContain('vote-no-election-date.site')
       })
 
       it('does not report a domain whose delegation resolves', async () => {
