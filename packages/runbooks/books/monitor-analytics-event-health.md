@@ -315,6 +315,13 @@ stopped firing on 2026-09-08, so watching the event would have said nothing. Qua
 legs have no Amplitude catalog record, so they are judged from their own weekly rows and,
 when latched, appear in the digest as a synthesized `okr_anchor_dormant` row.
 
+A latch reaches further than this digest. gp-data-platform's semantic catalog reads the
+`latches` block of the persisted state file and marks that metric's **build approval as
+needing re-verification** for as long as the leg is dormant, so a sign-off cannot go on
+reading approved over an instrument that stopped firing. That makes `metric`, `since` and
+`latched` a cross-repo contract rather than this monitor's private state: renaming one
+turns the catalog warning off silently. Change it on both sides or not at all.
+
 The `<!here>` mention on a red section can be overridden with `SLACK_EVENT_ALERT_MENTION`
 (e.g. a subteam handle) so paging doesn't always go to the whole channel. The post happens
 inline **before** the state file is advanced (the diff is consumed once state is written),

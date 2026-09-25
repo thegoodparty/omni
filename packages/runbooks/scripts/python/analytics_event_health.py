@@ -1652,6 +1652,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             # DATA-2421: the latch's sticky reference and "broken since" only survive
             # across runs here — losing them re-derives a reference from the already
             # broken weeks, which is the drift the latch exists to prevent.
+            #
+            # CROSS-REPO CONTRACT. gp-data-platform's semantic catalog reads this
+            # block to mark a metric's build approval as needing re-verification
+            # while its declared instrument is dormant, which is how a seal stops
+            # outliving the events it names. It reads exactly three keys per
+            # entry — `metric`, `since` and `latched` — plus the entry key itself
+            # as the leg key. Renaming or dropping any of them silently turns that
+            # catalog warning off, and the catalog goes back to reading green
+            # while an instrument is broken. `test_latch_record_keeps_its_cross_repo_keys`
+            # pins them; change the contract on both sides or not at all.
             "latches": result.get("latches") or {},
         }
         # default=_json_default like the --json write: the latch records are authored by
