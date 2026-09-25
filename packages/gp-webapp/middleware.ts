@@ -1,7 +1,11 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse, NextRequest } from 'next/server'
 import { handleApiRequestRewrite } from 'helpers/handleApiRequestRewrite'
-import { ANONYMOUS_ID_COOKIE } from 'helpers/anonymousId'
+import {
+  ANONYMOUS_ID_COOKIE,
+  SEGMENT_ANONYMOUS_ID_COOKIE,
+  resolveAnonymousId,
+} from 'helpers/anonymousId'
 import { API_VERSION_PREFIX } from 'appEnv'
 
 const ANONYMOUS_ID_MAX_AGE = 60 * 60 * 24 * 365
@@ -11,14 +15,25 @@ const ANONYMOUS_ID_MAX_AGE = 60 * 60 * 24 * 365
 // otherwise-cacheable pages as uncacheable. Applied to the login redirect too,
 // so a visitor bounced to sign in still keeps one identity across the round
 // trip. Not `httpOnly` — the client reads it to seed Segment.
+//
+// See `resolveAnonymousId` for why a returning visitor's existing Segment id
+// is adopted here rather than replaced.
 const seedAnonymousId = (req: NextRequest, res: NextResponse): NextResponse => {
   if (!req.cookies.has(ANONYMOUS_ID_COOKIE)) {
-    res.cookies.set(ANONYMOUS_ID_COOKIE, crypto.randomUUID(), {
-      maxAge: ANONYMOUS_ID_MAX_AGE,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/',
-    })
+    const segmentAnonymousId = req.cookies.get(
+      SEGMENT_ANONYMOUS_ID_COOKIE,
+    )?.value
+
+    res.cookies.set(
+      ANONYMOUS_ID_COOKIE,
+      resolveAnonymousId(segmentAnonymousId),
+      {
+        maxAge: ANONYMOUS_ID_MAX_AGE,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+      },
+    )
   }
   return res
 }
