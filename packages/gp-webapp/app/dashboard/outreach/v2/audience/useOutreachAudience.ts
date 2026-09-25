@@ -688,7 +688,27 @@ export const useOutreachAudience = ({
   )
 
   const createList = useCallback(async (): Promise<SegmentResponse> => {
-    const created = await runCreateList()
+    let created: SegmentResponse
+    try {
+      created = await runCreateList()
+    } catch (error) {
+      // The twin for this route. A candidate who seeds the builder from a
+      // recommendation, edits it and fails to save has accepted nothing, and
+      // without this the route's acceptance is a success count with no
+      // denominator — the same defect the create path above carries. Gated on
+      // recommendedMeta for the same reason Accepted is: a hand-built list has
+      // no recommendation to accept or fail to accept.
+      if (recommendedMeta) {
+        trackEvent(EVENTS.Outreach.RecommendedList.Failed, {
+          variant: recommendedMeta.variant,
+          channel: recommendedMeta.channel,
+          intent: recommendedMeta.intent,
+          count: recommendedMeta.count,
+          voteGoalShare: recommendedMeta.voteGoalShare,
+        })
+      }
+      throw error
+    }
     // Only knowable now: whether the candidate accepted the recommendation
     // as-is or edited it first (gp-api's recommendedModified, computed at
     // create time). Fires here rather than on card selection, and not at
