@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
+  ConstituentFeedbackTriple,
   DoorKnockOutcome,
   DoorKnockStatus,
   FollowUpAnswer,
@@ -16,7 +17,9 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
 import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
+import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
+import IssueCaptureConfirmCard from './IssueCaptureConfirmCard'
 import {
   ANSWER_OPTIONS,
   engagementOptions,
@@ -112,6 +115,9 @@ export default function RecordKnockForm({
   // door derives to exactly that: the walk would not advance, the list would
   // never complete, and paper would reprint the door with empty boxes.
   const serveMode = useDoorKnockingServeMode()
+  // Issue capture rides on the Serve branch only, and only once the flag is
+  // on. `trackExposure` stays default: this form is the treatment surface.
+  const { enabled: captureEnabled } = useServeIssueCaptureFlag()
   // Two steps, two pieces of state, because the contract's five-way outcome is
   // a flattening of the tree the canvasser walks: `answered` in step one only
   // means "keep asking", and step two is what the door actually ends as.
@@ -127,13 +133,41 @@ export default function RecordKnockForm({
   // paragraph one-handed on a doorstep in the rain. The shared hook already
   // reports under EVENTS.Dictation with this label — the transcript itself
   // never leaves the textarea.
+  // Whether any of the note arrived by voice. Only the dictation hook's own
+  // callback can say so, and it is worth recording: capture method is the
+  // metric that tells us whether the ten-second spoken memo is something
+  // canvassers actually do or something we imagined they would.
+  const [spoken, setSpoken] = useState(false)
   const dictation = useDictationAppend({
     analyticsLabel: 'door_knocking_note',
     value: note,
     // The textarea's maxLength only constrains typing, so a long dictation
     // appends straight past it and the same ceiling is enforced here.
-    onChange: (next) => setNote(next.slice(0, NOTE_MAX_LENGTH)),
+    onChange: (next) => {
+      setNote(next.slice(0, NOTE_MAX_LENGTH))
+      setSpoken(true)
+    },
   })
+
+  // Held between the knock save and the confirm step. A ref rather than state
+  // because `advance` is called from mutation callbacks in the same tick the
+  // knock's own success handler sets it, and a render has not happened yet.
+  const recordedRef = useRef<{
+    personId: string
+    knockStatus: DoorKnockStatus
+  } | null>(null)
+  const [captured, setCaptured] = useState<{
+    id: string
+    proposed: ConstituentFeedbackTriple | null
+  } | null>(null)
+
+  // The one place the walk moves on, so confirmed, skipped and failed all
+  // leave the form in the same state.
+  const advance = () => {
+    const done = recordedRef.current
+    if (done === null) return
+    onRecorded(done.personId, done.knockStatus)
+  }
 
   const record = useMutation({
     mutationFn: (input: {
@@ -163,8 +197,65 @@ export default function RecordKnockForm({
         ...(input.willVote ? { willVote: input.willVote } : {}),
         ...(input.followUp ? { followUp: input.followUp } : {}),
       })
-      onRecorded(data.personId, data.knockStatus)
+      if (!input.note || !captureEnabled || !serveMode) {
+        onRecorded(data.personId, data.knockStatus)
+        return
+      }
+      recordedRef.current = {
+        personId: data.personId,
+        knockStatus: data.knockStatus,
+      }
+      capture.mutate(input.note)
     },
+  })
+
+  // The memo is a second write on top of a knock that has already saved, and
+  // it reuses the knock's clientKey: one memo per knock, and a dead-zone retry
+  // upserts the same row rather than forking a duplicate.
+  const capture = useMutation({
+    mutationFn: (transcript: string) =>
+      clientRequest('POST /v1/constituent-feedback', {
+        channel: 'door_knock',
+        knockClientKey: clientKey,
+        clientKey,
+        transcript,
+        captureMethod: spoken ? 'dictation' : 'typed',
+      }).then((res) => res.data),
+    onSuccess: (data) => {
+      trackEvent(EVENTS.ConstituentFeedback.IssueCaptured, {
+        channel: 'doorKnocking',
+        captureMethod: spoken ? 'dictation' : 'typed',
+        extractionStatus: data.extractionStatus,
+      })
+      setCaptured({ id: data.id, proposed: data.extraction })
+    },
+    // Holding a canvasser at a door whose knock already saved, because a
+    // second request failed, is worse than losing the memo. Advance.
+    onError: () => advance(),
+  })
+
+  const confirm = useMutation({
+    mutationFn: (triple: ConstituentFeedbackTriple) =>
+      clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
+        id: captured?.id ?? '',
+        ...triple,
+      }).then((res) => res.data),
+    onSuccess: (_data, triple) => {
+      trackEvent(EVENTS.ConstituentFeedback.IssueConfirmed, {
+        channel: 'doorKnocking',
+        // Whether the canvasser changed what the model proposed, never what
+        // either of them said — a constituent's words are not analytics.
+        corrected:
+          triple.issueLabel !== (captured?.proposed?.issueLabel ?? null) ||
+          triple.stance !== (captured?.proposed?.stance ?? null) ||
+          triple.desiredOutcome !==
+            (captured?.proposed?.desiredOutcome ?? null),
+      })
+      advance()
+    },
+    // A failed confirm leaves the memo saved and unconfirmed, which reporting
+    // can already tell apart. Holding the canvasser is the worse outcome.
+    onError: () => advance(),
   })
 
   const opened = outcome === 'answered'
@@ -217,6 +308,26 @@ export default function RecordKnockForm({
       // never asked for.
       ...(trimmed ? { note: trimmed } : {}),
     })
+  }
+
+  // The knock is already saved by the time this renders, so the ladder is
+  // replaced rather than added to: every question on it has been answered and
+  // leaving them on screen would invite a correction that no longer has
+  // anywhere to go.
+  if (captured !== null) {
+    return (
+      <IssueCaptureConfirmCard
+        proposed={captured.proposed}
+        saving={confirm.isPending}
+        onConfirm={(triple) => confirm.mutate(triple)}
+        onSkip={() => {
+          trackEvent(EVENTS.ConstituentFeedback.IssueSkipped, {
+            channel: 'doorKnocking',
+          })
+          advance()
+        }}
+      />
+    )
   }
 
   return (
