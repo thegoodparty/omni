@@ -62,6 +62,22 @@ export const AGENTS: Agent[] = [
     estCostPerRunUsd: 1.5,
   },
   {
+    name: 'trending_issues',
+    kind: 'background',
+    description: 'Issues gaining momentum in a jurisdiction right now.',
+    aliases: ['trending issues', 'trending', 'issue trends'],
+    experimentId: 'trending_issues',
+    estCostPerRunUsd: 1.8,
+  },
+  {
+    name: 'meeting_schedule',
+    kind: 'background',
+    description: "Finds when and where a jurisdiction's governing body meets.",
+    aliases: ['meeting schedule', 'meeting schedules', 'schedules'],
+    experimentId: 'meeting_schedule',
+    estCostPerRunUsd: 1.0,
+  },
+  {
     name: 'ordinance_draft',
     kind: 'foreground',
     description: 'Drafts ordinance text in the ordinance flow (draft step).',

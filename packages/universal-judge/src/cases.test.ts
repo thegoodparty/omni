@@ -17,6 +17,8 @@ describe('loadCases', () => {
       find_existing_ordinances: ['state', 'office'],
       top_community_issues: ['state', 'office', 'district_descriptor'],
       meeting_briefing: ['officialName', 'state', 'meetingDate'],
+      trending_issues: ['state', 'office', 'district_descriptor'],
+      meeting_schedule: ['state', 'office'],
     }
     for (const [agent, fields] of Object.entries(required)) {
       for (const testCase of loadCases(agent)) {

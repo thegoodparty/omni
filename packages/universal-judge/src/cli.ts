@@ -31,6 +31,8 @@ Options:
   --candidate-checkout <p>  Repo root for the candidate, required for foreground agents.
   --env <dev|prod>          Which environment to dispatch into (default: dev).
   --judge-model <id>        Judge model (default: ${DEFAULT_JUDGE_MODEL}).
+  --candidate-model <id>    Publish the candidate with this model (sonnet|opus|haiku)
+                            instead of the manifest's. Background agents only.
   --refresh-baseline        Re-run the baseline instead of reusing cached outputs.
   --out <path>              Write the rendered PR comment here.
   --plan-out <path>         Write the resolved plan as JSON and stop. Used by CI to decide
@@ -241,6 +243,7 @@ export const main = async (argv = process.argv.slice(2)) => {
         candidateCheckout: str(args, 'candidate-checkout'),
         samples: spec.samplesPerAgent,
         refreshBaseline: spec.refreshBaseline,
+        candidateModel: str(args, 'candidate-model'),
         client,
         judgeModel,
         log: (message) => console.log(`  ${message}`),

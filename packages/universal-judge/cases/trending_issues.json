@@ -1,0 +1,62 @@
+{
+  "agent": "trending_issues",
+  "description": "Same jurisdictions as top_community_issues, whose input schema this matches exactly. Keeping the two sibling agents on one set of districts means a change that helps one and hurts the other is visible. organization_slug is injected per run.",
+  "cases": [
+    {
+      "id": "chicago_ward",
+      "label": "Large city ward \u2014 dense local coverage",
+      "params": {
+        "state": "IL",
+        "office": "City Council",
+        "district_descriptor": "District 5, Chicago, IL"
+      }
+    },
+    {
+      "id": "fayetteville_ward",
+      "label": "Mid-size city ward, with an L2 district binding",
+      "params": {
+        "state": "AR",
+        "office": "City Council",
+        "district_descriptor": "Ward 2, Fayetteville, AR",
+        "l2_district_type": "City_Ward",
+        "l2_district_name": "FAYETTEVILLE CITY WARD 2"
+      }
+    },
+    {
+      "id": "cheyenne_council",
+      "label": "Small state capital, at-large council",
+      "params": {
+        "state": "WY",
+        "office": "City Council",
+        "district_descriptor": "Cheyenne, WY"
+      }
+    },
+    {
+      "id": "covington_aldermen",
+      "label": "Small town board \u2014 thin local press, tests honest data_quality",
+      "params": {
+        "state": "TN",
+        "office": "Board of Mayor and Aldermen",
+        "district_descriptor": "Covington, TN"
+      }
+    },
+    {
+      "id": "ramsey_council",
+      "label": "Suburban city council",
+      "params": {
+        "state": "MN",
+        "office": "City Council",
+        "district_descriptor": "Ramsey, MN"
+      }
+    },
+    {
+      "id": "school_board_york",
+      "label": "School board \u2014 different office type, different issue space",
+      "params": {
+        "state": "PA",
+        "office": "School Board",
+        "district_descriptor": "York City School District, PA"
+      }
+    }
+  ]
+}

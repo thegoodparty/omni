@@ -1,0 +1,36 @@
+{
+  "agent": "meeting_schedule",
+  "description": "The same six jurisdictions as find_existing_ordinances, so a change that helps one civic-discovery agent and hurts another is visible across both. Spans code-host and agenda-platform types and a wide population range; the small towns are where schedule discovery degrades. elected_office_id is an opaque passthrough the agent does not use during the run, so it is omitted.",
+  "cases": [
+    {
+      "id": "york_pa",
+      "label": "York, PA — city council",
+      "params": { "state": "PA", "office": "York City Council" }
+    },
+    {
+      "id": "ramsey_mn",
+      "label": "Ramsey, MN — suburban city",
+      "params": { "state": "MN", "office": "Ramsey City Council" }
+    },
+    {
+      "id": "olathe_ks",
+      "label": "Olathe, KS — mid-size suburb",
+      "params": { "state": "KS", "office": "Olathe City Council" }
+    },
+    {
+      "id": "newton_ma",
+      "label": "Newton, MA — city with a named charter",
+      "params": { "state": "MA", "office": "Newton City Council" }
+    },
+    {
+      "id": "socorro_tx",
+      "label": "Socorro, TX — small city, name shared across states",
+      "params": { "state": "TX", "office": "Socorro City Council" }
+    },
+    {
+      "id": "toledo_or",
+      "label": "Toledo, OR — tiny city sharing a name with a major city",
+      "params": { "state": "OR", "office": "Toledo City Council" }
+    }
+  ]
+}

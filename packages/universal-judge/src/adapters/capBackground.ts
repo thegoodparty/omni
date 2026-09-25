@@ -168,6 +168,16 @@ export const publishClone = async (args: {
   experimentId: string
   tag: string
   env: string
+  /**
+   * Swap the manifest's model on the clone only.
+   *
+   * CAP bakes the model into the manifest and has no per-run override, so the only
+   * way to A/B a model is to publish a second experiment that differs by one field.
+   * That is the first trade-off the eval brief names, so it gets a first-class
+   * argument rather than asking someone to hand-edit a manifest and remember to
+   * put it back.
+   */
+  modelOverride?: string
   s3?: S3Client
 }) => {
   const s3 = args.s3 ?? new S3Client({ region: REGION })
@@ -191,6 +201,7 @@ export const publishClone = async (args: {
   ) as Record<string, unknown>
   delete manifest.$schema
   manifest.id = targetId
+  if (args.modelOverride) manifest.model = args.modelOverride
 
   const manifestBody = `${JSON.stringify(manifest, null, 2)}\n`
   const instructionBody = readFileSync(join(source, 'instruction.md'))

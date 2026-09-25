@@ -41,6 +41,8 @@ export type RunOptions = {
   candidateCheckout?: string
   samples: number
   refreshBaseline: boolean
+  /** Publish the candidate with this model instead of the manifest's own. */
+  candidateModel?: string
   client: Anthropic
   judgeModel?: string
   log?: (message: string) => void
@@ -92,6 +94,7 @@ const produceBackground = async (
     experimentId,
     tag: options.candidate.tag,
     env: options.env,
+    modelOverride: options.candidateModel,
   })
   log(`published candidate as ${candidateExperimentId}`)
 
