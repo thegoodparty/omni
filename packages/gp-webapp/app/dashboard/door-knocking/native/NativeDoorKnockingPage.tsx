@@ -1033,6 +1033,22 @@ export default function NativeDoorKnockingPage({
   // The whole chain committed. The design hands straight over to the walk
   // rather than returning to the rail: the list was created to be knocked, and
   // its route is already bought and frozen.
+  // "Start knocking" on one turf of the flow's success screen. Tears the
+  // flow down and starts that turf's walk, which is where the walk-or-drive
+  // prompt and the route buy will live — until then a turf created without
+  // a route has none to serve, and the walk says so.
+  const handleStartKnocking = (turf: DoorKnockingTurf) => {
+    setRing(null)
+    tileOpened.current = false
+    setFlowStep(null)
+    setFilters({})
+    setPrecincts([])
+    clearDrafts()
+    draw.clearDrawing()
+    walkOrigin.current = { kind: 'hub' }
+    walk.start({ id: turf.id, name: turf.name }, 'newRoute')
+  }
+
   // "View campaign" on the flow's success screen. The flow no longer hands
   // over to a walk — there is no route to walk until somebody buys one — so
   // this tears the flow down and opens the campaign's details drawer on the
@@ -1375,6 +1391,7 @@ export default function NativeDoorKnockingPage({
                   onRestartDrawing={draw.startDrawing}
                   drawnStops={drawnStops}
                   onCampaignCreated={handleCampaignCreated}
+                  onStartKnocking={handleStartKnocking}
                   isServeOrg={isServeOrg}
                   unpreviewableKeys={unpreviewableKeys}
                   orgSlug={organization?.slug}

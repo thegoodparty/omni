@@ -270,6 +270,7 @@ export interface CreateListSurfaceProps {
   // suggestion. From the pack, which is the orchestrator's.
   drawnStops: Array<[number, number]> | null
   onCampaignCreated: (anchorOutreachId: number) => void
+  onStartKnocking: (turf: DoorKnockingTurf) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
@@ -346,6 +347,7 @@ export default function CreateListSurface({
   onRestartDrawing,
   drawnStops,
   onCampaignCreated,
+  onStartKnocking,
   isServeOrg,
   precincts,
   onPrecinctsChange,
@@ -546,6 +548,7 @@ export default function CreateListSurface({
       onRestartDrawing={onRestartDrawing}
       drawnStops={drawnStops}
       onCampaignCreated={onCampaignCreated}
+      onStartKnocking={onStartKnocking}
       isServeOrg={isServeOrg}
       unpreviewableKeys={unpreviewableKeys}
       orgSlug={orgSlug}

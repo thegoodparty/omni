@@ -247,9 +247,13 @@ interface CreateListFlowProps {
   // The whole chain committed: turf, route and outreach envelope all exist.
   // Carries the created row because the page opens the walk on it directly.
   // The anchor Outreach id of the campaign just created — what the details
-  // page is addressed by. Replaces `onListCreated`, which handed a turf over
-  // to a walk: there is no route to walk until somebody buys one.
+  // drawer is addressed by. Replaces `onListCreated`, which handed a turf
+  // over to a walk unprompted: there is no route to walk until somebody
+  // buys one.
   onCampaignCreated: (anchorOutreachId: number) => void
+  // One turf's Start knocking, from the success screen. This is the press
+  // that will buy the route once the walk-or-drive prompt exists.
+  onStartKnocking: (turf: DoorKnockingTurf) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays a plain
   // presentational flow and its tests don't need an organization provider.
@@ -415,6 +419,7 @@ export default function CreateListFlow({
   drawFullScreen,
   onDrawFullScreenChange,
   onCampaignCreated,
+  onStartKnocking,
   isServeOrg,
   unpreviewableKeys,
   orgSlug,
@@ -529,11 +534,11 @@ export default function CreateListFlow({
   )
   const [loop] = useState(true)
   // What the create actually wrote, held for the success screen: the anchor
-  // the details page is addressed by, plus the figures to report back.
+  // the details drawer is addressed by, and the turfs themselves — the
+  // screen lists them with their own counts and a knock control each.
   const [createdAnchor, setCreatedAnchor] = useState<{
     outreachId: number
-    doorCount: number
-    turfCount: number
+    turfs: DoorKnockingTurf[]
   } | null>(null)
 
   // The card the canvassers will read. Three of these four lines are the
@@ -1411,8 +1416,7 @@ export default function CreateListFlow({
       // because there is no route to walk until somebody buys one.
       setCreatedAnchor({
         outreachId: first.turf.outreachId,
-        doorCount: created.reduce((sum, c) => sum + c.turf.doorCount, 0),
-        turfCount: created.length,
+        turfs: created.map((c) => c.turf),
       })
       goToStage('success')
     },
@@ -1875,12 +1879,12 @@ export default function CreateListFlow({
           {stage === 'success' && createdAnchor && (
             <CreateCampaignSuccess
               campaignName={name.trim()}
-              turfCount={createdAnchor.turfCount}
-              doorCount={createdAnchor.doorCount}
+              turfs={createdAnchor.turfs}
+              onStartKnocking={onStartKnocking}
               onViewCampaign={() =>
                 onCampaignCreated(createdAnchor.outreachId)
               }
-              onClose={onClose}
+              onDone={onClose}
             />
           )}
         </div>
