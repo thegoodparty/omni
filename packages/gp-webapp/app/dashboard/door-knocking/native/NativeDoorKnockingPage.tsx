@@ -11,7 +11,6 @@ import {
 } from '@goodparty_org/contracts'
 import { Spinner } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
-import { DoorKnockingDailyLimitDialog } from './DoorKnockingDailyLimitDialog'
 import { Campaign } from 'helpers/types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
@@ -29,11 +28,7 @@ import {
   type PolygonStats,
 } from './filterEngine'
 import type { DecodedPack } from './packDecoder'
-import {
-  campaignTurfsQueryOptions,
-  quotaQueryOptions,
-  turfsQueryOptions,
-} from './turfQueries'
+import { campaignTurfsQueryOptions, turfsQueryOptions } from './turfQueries'
 import { assignNextColor } from './turfColors'
 import {
   draftAsTurfLike,
@@ -638,14 +633,6 @@ export default function NativeDoorKnockingPage({
   // is withheld rather than disabled on a list already done or archived,
   // because the row itself is the authority and it refetches after the write.
   const walkMarkDone = useWalkMarkDone(walkTurfRow)
-  const quotaQuery = useQuery(quotaQueryOptions)
-  // The allowance that refused, captured when it did rather than read from the
-  // query while the dialog is up: the number is in the sentence on screen, and
-  // a refetch landing behind it must not rewrite what the candidate is reading.
-  // Null is closed.
-  const [refusedCampaignLimit, setRefusedCampaignLimit] = useState<
-    number | null
-  >(null)
   // Whether we are on the way out to the hub. Every exit from door knocking is
   // now a client-side navigation, and the surface being left is torn down
   // before it resolves — so without this the candidate gets a frame or two of
@@ -953,24 +940,13 @@ export default function NativeDoorKnockingPage({
     turfsQuery.isFetched &&
     !turfsQuery.data?.some((candidate) => candidate.id === walkTurfId)
 
-  // Every way into the create flow goes through here, because the daily
-  // campaign allowance refuses the FLOW and not the press at the end of it —
-  // a candidate who is told after drawing a boundary and naming a walk has
-  // lost work that a reload would not bring back.
-  //
-  // An allowance that hasn't answered yet, or failed to, opens the flow: the
-  // two asserts inside the create transaction are the authority either way,
-  // and refusing on a read we don't have would lock the feature whenever this
-  // one query is down.
+  // Every way into the create flow goes through here. It used to be where the
+  // daily campaign allowance refused the FLOW rather than the press at the end
+  // of it; the allowance is gone, so the flow simply opens.
   const beginCreateFlow = useCallback((): boolean => {
-    const quota = quotaQuery.data
-    if (quota && quota.campaignsRemaining === 0) {
-      setRefusedCampaignLimit(quota.campaignLimit)
-      return false
-    }
     setFlowStep('filters')
     return true
-  }, [quotaQuery.data])
+  }, [])
 
   // Arriving here IS asking to build a campaign. There is no landing surface
   // to choose from any more — the saved-lists rail is gone, and door knocking
@@ -1009,19 +985,10 @@ export default function NativeDoorKnockingPage({
     // it and no control to make one. Treated as an ordinary arrival instead.
     if (walkTurfId !== undefined && !deadWalkLink) return
     if (consumedWalkTurfId.current !== undefined || walkTurf) return
-    if (isUnresolvable || quotaQuery.isPending) return
-    // Marked spent either way: an org that is out of campaigns gets the limit
-    // dialog, and re-firing would reopen it every time it was dismissed.
+    if (isUnresolvable) return
     landingOpened.current = true
     beginCreateFlow()
-  }, [
-    walkTurfId,
-    deadWalkLink,
-    walkTurf,
-    isUnresolvable,
-    quotaQuery.isPending,
-    beginCreateFlow,
-  ])
+  }, [walkTurfId, deadWalkLink, walkTurf, isUnresolvable, beginCreateFlow])
 
   const changeFlowStep = (next: CreateFlowStep) => {
     // Arriving at the draw step from anywhere else — this is where the
@@ -1493,14 +1460,6 @@ export default function NativeDoorKnockingPage({
             }}
           />
         )}
-        {/* Safety net for direct-URL entry, a race between the hub's own
-            gate and the quota refetch, or a limit hit in another tab —
-            the hub intercepts the tile click when it can, but this ensures
-            an org that reaches the page still gets refused cleanly. */}
-        <DoorKnockingDailyLimitDialog
-          limit={refusedCampaignLimit}
-          onDismiss={() => setRefusedCampaignLimit(null)}
-        />
       </DashboardLayout>
     </DoorKnockingSurface>
   )

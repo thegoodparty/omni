@@ -268,10 +268,10 @@ tiles (`v2/ChannelTileGrid.tsx`) and the `?compose=` deep link
 (`components/OutreachComposeDeepLink.tsx`) stop refusing a free candidate
 for text, robocall, phone banking and door knocking. Door knocking's page
 (`door-knocking/native/DoorKnockingPageGate.tsx`) admits a free campaign
-under the same flag, since the four reads its map needs (`GET turfs`, `GET
-pack`, `GET quota`, `POST audience-check`) are open to one server-side; only
-Build route, the Geoapify spend, is still gated, and that is where its
-create flow's in-flow gate stands.
+under the same flag, since the three reads its map needs (`GET turfs`, `GET
+pack`, `POST audience-check`) are open to one server-side; only the Geoapify
+spends are still gated, and that is where its create flow's in-flow gate
+stands.
 
 **Five outreach routes are relaxed for the build path** (`POST
 /v1/outreach/sms/draft`, `POST /v1/outreach/robocall/draft`, `POST

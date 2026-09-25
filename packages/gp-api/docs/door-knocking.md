@@ -45,9 +45,8 @@ nullable until then).
   it. `locked` is not coming back either: it gated update and delete, and
   neither is gated on the route's existence.
 - **A second purchase IS possible again**, so the per-turf advisory lock is
-  back on the buy path (`buildRouteForTurf`). Nothing serializes two creates:
-  they make different turfs, and the daily campaign gate was never serialized
-  across turfs anyway (see below).
+  back on the buy path (`buildRouteForTurf`). Nothing serializes two creates,
+  and nothing needs to: they make different turfs.
 
 The envelope's link is a `CHECK` rather than a convention:
 `outreach_type <> 'nativeDoorKnocking' OR door_knocking_turf_id IS NOT NULL`.
@@ -547,9 +546,8 @@ Both are supported so creation can stop buying without a flag day.
 
 It runs as ONE interactive transaction. There is no advisory lock here and
 none is needed: a create always makes a new turf, so there is no shared row
-to serialize on, and two creates racing each other were never serialized
-anyway — see the quota note at step 4. The buy-later path is where the lock
-lives now (§ The route buy).
+to serialize on. The buy-later path is where the lock lives now (§ The route
+buy).
 
 The steps:
 
@@ -576,16 +574,6 @@ The steps:
    org's suppressed people — do-not-knock plus not-a-voter — are read
    _before_ the transaction and passed as one deduped `excludePersonIds`
    (see "Do-not-knock" and "'Not a voter'").
-4. Check the daily campaign budget, and check it here so it cannot reach the
-   vendor. `campaignQuota.util.ts` allows 5 turfs per organization per rolling
-   24 hours, counted off `door_knocking_turf` itself, or whatever
-   `organization.override_door_knocking_campaign_limit` says instead (see
-   § Raising one organization's allowance). Over budget → 429 and no vendor
-   call. A 500-stop daily budget was checked here beside it and has been
-   removed, so this is the only per-account limit a create has to clear — see
-   § The daily campaign gate. Nothing serializes two creates in one org, so
-   simultaneous ones can overshoot by one; that's deliberate, and the util
-   says why.
 5. Group the stops into **block faces** — one side of one street, by house
    number parity — in `blockFace.util.ts`. Then one Geoapify Route Planner
    call to order those faces (coords + opaque job ids only — no PII leaves;
@@ -700,36 +688,19 @@ this the first spend a volunteer can trigger, which is why the assignment
 check is not optional: an unassigned volunteer 404s exactly as they do on the
 walk.
 
-**The daily campaign gate is still on the create, and is not moving here —
-it is being removed.** The cap exists because creating a turf bought a route
-(`campaignQuota.util.ts` says so in its own first paragraph), and that is the
-premise this change removes. Relocating it would also mean measuring the
-wrong thing: it counts TURFS CREATED in a rolling 24 hours, so on this press
-it would refuse a canvasser opening a turf drawn weeks ago because a
-teammate drew five this morning, while letting a backlog of aged-out turfs
-be bought all at once. Removal is approved and is its own change.
+**Nothing rations this press, by decision.** There was a per-organization
+cap — five campaigns a rolling day — and it existed because creating a turf
+bought a route. Creating turfs is free now, so pacing it rationed nothing,
+and it was removed rather than moved here. What bounds door-knocking spend
+is the account-wide tiered alerting over the ledger (§ Spend visibility),
+which is the only thing that ever bounded the shared credit pool.
 
-Until that lands the buy has no ceiling, and the exposure is bounded by there
-being no way to reach it: an unrouted turf only exists if a client omits
-`mode`/`loop`, and the wizard always sends both, so every turf the product
-creates is routed at creation and this press short-circuits on it. What
-bounds the spend after the cap goes is the account-wide tiered alerting over
-the ledger (§ Spend visibility), which is the only thing that ever bounded
-the shared credit pool.
-
-**Two of the four failure modes cannot reach the paid press.** The draw step
+**Two of the three failure modes cannot reach the paid press.** The draw step
 runs `DoorKnockingPreviewService`, which is this evaluation minus the vendor
-call, and blocks on an empty result or one over the 150-stop cap. The third,
-the daily campaign limit, is pre-flighted the same way: `GET quota` reports
-what the organization has left, so the client refuses to **open** the flow on
-a spent day rather than letting a 429 land at the one press that costs money —
-the remedy is waiting out a rolling 24-hour window, which the flow's in-memory
-state cannot survive. The preview response used to carry the day's remaining
-stop allowance beside its counts so the draw step could disable **Build route**
-on the stop budget as well; that budget is gone, so the only thing that
-disables Continue there now is the 150-stop cap — a per-list bound rather than
+call, and blocks on an empty result or one over the 150-stop cap. The only
+thing that disables Continue there is that cap — a per-list bound rather than
 a daily allowance, and therefore fixable by drawing a smaller shape. A vendor
-timeout is the fourth and stays a plain retry.
+timeout is the third and stays a plain retry.
 
 Non-negotiable tests: (a) crash-mid-freeze → zero rows; (b) interaction replay
 with the same `clientKey` → one row; (c) a create that rolls back after the
@@ -841,96 +812,6 @@ The measurements are in PR #1849. Re-deriving them needs only the Databricks
 CLI (`docs/databricks.md`) — they are two `GROUP BY`s over
 `dbt.m_people_api__voter`.
 
-### The daily campaign gate
-
-Step 4 is one limit: `DEFAULT_DAILY_CAMPAIGN_LIMIT` (5) turfs per organization
-per rolling 24 hours, in `campaignQuota.util.ts`, counted off
-`door_knocking_turf` rows and refused with a 429. The window rolls rather than
-resetting at midnight because campaigns knock in every US time zone and
-nothing on the organization says which one, so a calendar reset would land
-mid-afternoon for some of them.
-
-**A 500-stop daily budget used to sit beside it**, summed over the same
-rolling window from the `door_knocking_route_planner_spend` ledger, with an
-admin override of its own — and it is worth knowing it existed, because
-`waypoints` is still recorded and still means stops. Two ceilings on one press
-meant a candidate could be refused for either reason and the flow had to
-explain both, and of the two, this is the one that describes the behaviour
-worth pacing. Every turf is a paid Geoapify route and a list nobody has walked
-yet, so an afternoon spent carving the map into lists is backlog being built
-rather than doors being knocked, and a stop count cannot express that: five
-two-stop turfs and one ten-stop turf spent the same stop allowance and are not
-the same behaviour.
-
-What replaced the stop budget is not another cap but visibility. Spend is still
-recorded per route (`waypointSpend.util.ts`) and the account-wide total is
-alerted on in tiers, so the shared credit pool is bounded by watching it rather
-than by rationing each organization against a number nobody could set
-correctly — see § Spend visibility and the budget tiers below it. **Nothing
-caps stops per organization any longer.** The only bound on how large one list
-can be is `MAX_STOPS` (150), which is a per-list hard cap enforced at the
-freeze and by the `CHECK` on `stop.seq`, and which the draw step blocks on
-before the paid press.
-
-The 429's body is the design's own wording, because the create flow renders it
-as a blocking dialog rather than a toast:
-
-> You've created 5 door knocking campaigns today. Go knock the doors you've
-> already mapped, and build more lists tomorrow.
-
-The five in that sentence is the organization's own limit read back through
-`dailyCampaignLimit()`, not the constant, so an org an admin has raised is
-quoted the number that actually refused it.
-
-**Deleted turfs still count.** `campaignsRemaining` deliberately omits the
-`deletedAt: null` every other turf read carries. Every turf since 3.0 was
-billed for a Geoapify route the moment it was created, and that route is
-documented above as never re-bought, so the spend stands whether or not the
-row was later shelved. A count that skipped tombstones would also make Delete
-the way to buy unlimited routes: create, delete, repeat.
-
-**The campaign gate counts rows; it does not read the remainder.** The create
-transaction inserts its turf at step 1, before reaching step 4, so the count
-inside the transaction already includes the campaign being created — the fifth
-of a window sees five rows and is allowed, the sixth sees six and is not. Both
-of those report zero remaining, so a gate written against `campaignsRemaining`
-would quietly leave every organization with four.
-
-**The five is where an organization starts, not where it has to stay.** An
-admin can raise a single org, and the column that does it is the one the stop
-budget used to own — see § Raising one organization's allowance. That is the
-whole of the per-account story now: one number, resolved in one function, read
-by the gate, the 429's wording and `GET quota` alike.
-
-### Reading the allowance before the press
-
-`GET /v1/door-knocking/quota`, Pro-gated with the rest:
-
-```ts
-type DoorKnockingQuotaResponse = {
-  campaignsRemaining: number
-  campaignLimit: number
-}
-```
-
-It used to answer two allowances; the stop budget's remainder and its limit
-went with the budget itself, and there is nothing left for a client to
-pre-flight except this one.
-
-The limit rides along with the remainder rather than being a constant the
-client keeps a copy of, because it is genuinely per organization: a hardcoded 5
-is wrong for exactly the orgs an admin raised.
-
-Org-scoped, with no Serve sibling. The allowance belongs to the organization —
-turfs reach it through `voter_file_filter.organization_slug` — so there is no
-per-surface answer for a Win/Serve pair to keep apart the way the rail has.
-
-Advisory, and that is the division of labour: `assertCampaignQuota` inside the
-create transaction stays the authority, since a teammate's turf can spend the
-allowance between this read and the press. This read exists so the flow can
-refuse to open on a spent day rather than take a candidate through five steps
-and 429 at the end.
-
 ## Spend visibility
 
 The spend ledger is a record, not a guardrail. It used to be half of one: the
@@ -981,13 +862,13 @@ or labelled. Every metric attribute is a closed set of literals.
 What pages: the global **route planner spend ceiling** alert (>10,000 credits /
 6h across all orgs, `#dev-alerts`, `@win-bugs`), the **daily credit budget**
 tiers below it, and the `≥ 500` route alerts on this controller — including the
-502 for a missing `GEOAPIFY_API_KEY`. The per-org 429, the empty/oversized-turf
-400s, and the `VOTER_DATA_UNAVAILABLE` 400 deliberately do not (see gp-api
+502 for a missing `GEOAPIFY_API_KEY`. The empty/oversized-turf 400s and the
+`VOTER_DATA_UNAVAILABLE` 400 deliberately do not (see gp-api
 `docs/observability.md` § Server-errors-only controllers).
 
-Deliberately a chart-and-alert rather than an enforced global cap: a hard
-ceiling across organizations would let one org's knocking fail another's, which
-is worse than a page during a pilot.
+Deliberately a chart-and-alert rather than an enforced cap, and now the only
+thing watching door-knocking spend at all: a hard ceiling across organizations
+would let one org's knocking fail another's, which is worse than a page.
 
 ### Which 5xx the candidate is allowed to read
 
@@ -1070,60 +951,6 @@ fields (`VoterReadLogService`), emitted on the failure path too — deliberately
 so cold-start attribution is not biased toward the reads that were already
 fast. The door-knocking create is `op="dk-evaluate"`; the map download is the
 pack build.
-
-### Raising one organization's allowance
-
-The five is a default, not a ceiling.
-`organization.override_door_knocking_campaign_limit` (nullable int, null = the
-default) replaces it for exactly one org, and `dailyCampaignLimit()` in
-`campaignQuota.util.ts` is the only place it is read — so the gate inside the
-create transaction, the 429's wording and `GET quota`'s `campaignLimit` all
-quote the same number.
-
-The override used to move the stop budget, which was what "raising an
-organization" meant while that budget existed: more doors per day, and the same
-five turfs. It was repurposed rather than deleted when the budget went, because
-the reason for having it did not go with it — a pilot org can legitimately need
-more than five lists a day, and the campaign count is now the only thing
-between it and the vendor.
-
-- **Who can set it:** admins only, through
-  `PATCH /v1/organizations/admin/:slug` behind
-  `AdminOrM2MGuard`. It is deliberately absent from the self-service
-  `PatchOrganizationDto`: a candidate raising their own spending limit is the
-  whole risk, since every campaign it buys is a paid Geoapify route drawn from
-  one daily pool shared with every other organization.
-- **How to read the current value:** `GET /v1/organizations/admin/:slug`
-  returns `overrideDoorKnockingCampaignLimit` (null when the org is on the
-  default), so triaging a budget alert does not need a psql session. Readable
-  exactly where it is writable — the candidate-facing `GET /organizations/` and
-  `GET /organizations/:slug` do not carry it, and neither does the
-  `/admin/list` search table.
-- **How high:** capped at `MAX_DAILY_CAMPAIGN_LIMIT` (30 campaigns), which is
-  derived rather than chosen. The derivation is now conservative in the
-  account's favour: it assumed a campaign of `MAX_STOPS` (150) billed
-  locations at ten credits each, near 1,650 credits, and thirty of those is
-  about the account's assumed daily pool of 50,000. Since the vendor is billed
-  per block face rather than per stop, a full-sized campaign costs a fraction
-  of that. Most campaigns are far smaller still, so in practice thirty sits
-  well under the pool; the point is that no admin can hand one organization an
-  allowance the account could not fund even in the worst case. Above it the
-  number is unhonourable no matter which org asks, so the DTO rejects it with a
-  400 rather than letting the vendor discover it.
-- **How long:** per organization and permanent until someone sets it back to
-  null. Nothing expires it and nothing reviews it.
-- **What it costs everyone else:** the pool the budget tiers below watch is
-  fixed and shared, so an override does not create headroom — it moves one
-  org's share of the same 50,000 credits. An org raised to 30 campaigns can
-  consume the whole account's day on its own, which is exactly why 30 is the
-  ceiling and not a round number above it.
-
-There is no audit table in gp-api, so the only record of a change is the
-structured log line `event: 'DoorKnockingCampaignLimitOverride'`
-(`organizationSlug`, `previousLimit`, `newLimit`, `actorEmail`), queryable in
-Loki the same way `DoorKnockingSpend` is. `actorEmail` is frequently null:
-gp-admin authenticates with an M2M token and authorizes the human in its own
-server action, so gp-api never sees who pressed the button.
 
 ### Turfs the road network cannot serve
 
@@ -1232,14 +1059,13 @@ order by credits desc;
 ```
 
 Both queries measure money, and `credits` is the same figure in either. There
-is no per-organization spend cap to read a heavy org against any more, so the
-yardstick is the campaign limit: a full-sized 150-stop campaign is about 210
-credits now that the vendor is billed per block face — the 1,650 that figure
-replaced was one billed location per stop, and it survives only as the
-worst-case bound `MAX_DAILY_CAMPAIGN_LIMIT` is derived from. So an
-organization far above five of those (~1,000 in a rolling 24h) has either been
-granted an override — check `override_door_knocking_campaign_limit` on the org
-— or is looping. The `waypoints` sum beside it is stops, and it answers a
+is no per-organization cap of any kind to read a heavy org against, so the
+yardstick is what a campaign costs: a full-sized 150-stop campaign is about
+210 credits now that the vendor is billed per block face. An organization far
+above a handful of those in a rolling 24 hours is either running a real
+canvassing operation or looping, and the two look alike from here — which is
+the cost of having no cap, and why the account-wide tiers page instead. The
+`waypoints` sum beside it is stops, and it answers a
 different question: how much walking the organization actually bought. It is
 not a credit figure divided by anything, because credits are not proportional
 to stops — the vendor is billed per block face rather than per stop, a turf
@@ -2210,11 +2036,10 @@ account with whoever provisioned it before sizing a pilot on it.
 
 The distinction has teeth, because the free tier is 3,000 credits/day: at the
 ~11 credits a stop really costs that is ~272 optimized stops/day across the
-whole account, or fewer than two full-sized campaigns. A single organization's
-default of five (`DEFAULT_DAILY_CAMPAIGN_LIMIT` in `campaignQuota.util.ts`) is
-therefore more than a free key can fund on its own. On such a key the vendor's
-ceiling binds long before ours does, our own 429 never fires, and one
-enthusiastic pilot campaign can exhaust the account for everyone.
+whole account, or fewer than two full-sized campaigns. Nothing on our side
+rations that, so on such a key the vendor's ceiling is the first thing anyone
+meets, and one enthusiastic pilot campaign can exhaust the account for
+everyone.
 Free is fine for a gated QA pass — Geoapify permits commercial use on it
 provided the map carries their attribution, which initializing MapLibre from
 their `style.json` does automatically, as `VoterMapCanvas` does — but it is not
@@ -2256,11 +2081,11 @@ and still isn't, on either the nav or the page.
 ## The Pro gate (ENG-10888)
 
 **Every route in `src/doorKnocking/` is Pro-gated except the two suppression
-writes and the four reads the create flow needs before its one paid write.**
-The reads (`GET /turfs`, `GET /pack`, `GET /quota`, `POST /audience-check`)
-opened with outreach-pro-gating-v2: a free campaign can list, draw and shape
-a list behind the create flow's in-flow gate, and `POST /turfs`, the Geoapify
-spend, is where it is refused. `POST /address-preview` stays gated because it
+writes and the three reads the create flow needs before its paid writes.**
+The reads (`GET /turfs`, `GET /pack`, `POST /audience-check`) opened with
+outreach-pro-gating-v2: a free campaign can list, draw and shape a list
+behind the create flow's in-flow gate, and the two Geoapify spends —
+`POST /turfs` and `POST /turfs/:id/route` — are where it is refused. `POST /address-preview` stays gated because it
 returns addresses (ADR 0010). The gate is `ContactsService.assertProAccess(organization)`, called at
 the top of each controller method — the CRM's own predicate, reused rather than
 reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
@@ -2285,7 +2110,6 @@ either status would stay quiet and the convention rests on the semantics.
 | `GET /turfs/:id/route`  | yes    |
 | `POST /turfs/:id/route` | yes    |
 | `GET /pack`             | **no** |
-| `GET /quota`            | **no** |
 | `POST /address-preview` | yes    |
 | `POST /audience-check`  | **no** |
 | `POST /interactions`    | yes    |
@@ -2336,10 +2160,10 @@ Six routes carry `@AllowVolunteer()`, admitting an assigned volunteer past
 `GET :id/route`, `POST :id/complete`, `POST interactions`,
 `POST do-not-knock`, `POST not-a-voter` — the whole loop of reading a turf,
 walking its route, logging a knock, and ending the session. Every other
-route (create, list, update, delete, archive, `GET pack`, `GET quota`,
+route (create, list, update, delete, archive, `GET pack`,
 `POST address-preview`, `POST audience-check`) stays manager+: `pack` answers
-for the whole district rather than one turf, and quota/address-preview/
-audience-check describe spend and audience a volunteer never draws from.
+for the whole district rather than one turf, and address-preview and
+audience-check describe an audience a volunteer never draws from.
 
 One shared predicate enforces it, `assertVolunteerAssignedToOutreach`
 (`utils/doorKnockingAccess.util.ts`): a no-op for owner/campaignAdmin, and

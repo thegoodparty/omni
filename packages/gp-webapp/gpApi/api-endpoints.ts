@@ -3,7 +3,6 @@ import type {
   DoorKnockingAddressPreviewResponse,
   DoorKnockingArchiveRequest,
   DoorKnockingAudienceCheckResponse,
-  DoorKnockingQuotaResponse,
   DoorKnockingRoutePayload,
   DoorKnockingTalkingPointsDraftResponse,
   DoorKnockingTalkingPointsPurpose,
@@ -1430,13 +1429,6 @@ export type APIEndpoints = {
   'GET /v1/door-knocking/serve/turfs': {
     Request: {}
     Response: DoorKnockingTurf[]
-  }
-  // Both daily allowances, read before the create flow opens. Org-scoped and
-  // NOT surface-scoped, unlike the two rails above: an org has one campaign
-  // allowance and one stop allowance, shared across Win and Serve.
-  'GET /v1/door-knocking/quota': {
-    Request: {}
-    Response: DoorKnockingQuotaResponse
   }
   // Creating a list buys its Geoapify route in the same transaction, so this
   // is the only paid call the feature makes and the request carries the walk

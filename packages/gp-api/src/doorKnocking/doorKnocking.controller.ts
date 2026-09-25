@@ -30,7 +30,6 @@ import {
   SetNotAVoterResponseSchema,
   DoorKnockingAddressPreviewResponseSchema,
   DoorKnockingAudienceCheckResponseSchema,
-  DoorKnockingQuotaResponseSchema,
   DoorKnockingArchiveRequest,
   DoorKnockingArchiveRequestSchema,
   DoorKnockingRoutePayloadSchema,
@@ -62,7 +61,6 @@ import { DoorKnockingServeService } from './services/doorKnockingServe.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
 import { DoorKnockingPreviewService } from './services/doorKnockingPreview.service'
-import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
 import { DoorKnockingAudienceCheckService } from './services/doorKnockingAudienceCheck.service'
 import {
   DoorKnockingAddressPreview,
@@ -75,18 +73,18 @@ import {
 
 // Every route here is Pro-gated through ContactsService.assertProAccess — the
 // CRM's own predicate, so an `eo-` (Serve) org keeps access without isPro —
-// EXCEPT the two suppression writes below and the four reads the create flow
-// needs before its one paid write (GET turfs, GET pack, GET quota, POST
-// audience-check). Those are open so a free campaign can draw and shape a
-// list behind outreach-pro-gating-v2's in-flow gate; POST turfs, which spends
-// real Geoapify routing credits, and every read that returns a person's
-// address stay gated.
+// EXCEPT the two suppression writes below and the three reads the create flow
+// needs before its one paid write (GET turfs, GET pack, POST audience-check).
+// Those are open so a free campaign can draw and shape a list behind
+// outreach-pro-gating-v2's in-flow gate; the two writes that spend real
+// Geoapify routing credits — POST turfs and POST turfs/:id/route — and every
+// read that returns a person's address stay gated.
 //
 // Six routes additionally carry @AllowVolunteer() (ENG-11051): a volunteer's
 // walk — turf get, route serve, complete, interactions, do-not-knock,
 // not-a-voter — scoped to their own OutreachAssignment by the service layer
 // (see doorKnockingAccess.util.ts). Everything else (create, list, update,
-// delete, archive, the two campaign-level lifecycle writes, pack, quota,
+// delete, archive, the two campaign-level lifecycle writes, pack,
 // address-preview, audience-check) stays manager+ by the guard's default
 // posture. The campaign pair is the one worth naming: the assignment check is
 // per envelope, so it has no answer for a write that spans N of them.
@@ -99,7 +97,6 @@ export class DoorKnockingController {
     private readonly interactionService: DoorKnockingInteractionService,
     private readonly packService: DoorKnockingPackService,
     private readonly previewService: DoorKnockingPreviewService,
-    private readonly quotaService: DoorKnockingQuotaService,
     private readonly audienceCheckService: DoorKnockingAudienceCheckService,
     private readonly contacts: ContactsService,
   ) {}
@@ -476,24 +473,6 @@ export class DoorKnockingController {
     input: DoorKnockingAudienceCheck,
   ) {
     return this.audienceCheckService.check(organization, input)
-  }
-
-  // The day's allowance, read before the flow opens rather than discovered at
-  // the last press. The remedy for this 429 is waiting out a rolling 24-hour
-  // window, and the flow holds its polygon, name and travel mode in memory
-  // only — so meeting it at Build route throws all of that away. This is the
-  // only allowance left to report: a 500-stop daily budget rode the
-  // address-preview response and has been removed.
-  //
-  // Org-scoped with no serve sibling. The allowance belongs to the
-  // organization — turfs reach it through `voterFileFilter.organizationSlug`
-  // — so there is no per-surface answer for a Win/Serve pair to keep apart,
-  // and a Serve org reaches this the same way it reaches address-preview.
-  @Get('quota')
-  @UseOrganization()
-  @ResponseSchema(DoorKnockingQuotaResponseSchema)
-  async quota(@ReqOrganization() organization: Organization) {
-    return this.quotaService.read(organization)
   }
 
   // A volunteer logs a knock on a door in their assigned turf (ENG-11051).

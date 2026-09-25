@@ -363,6 +363,7 @@ import { dirname, join, relative } from 'node:path'
 //     refusal, mounted by both NativeDoorKnockingPage and the outreach
 //     tile (server-side redirect isn't an option — the click that
 //     surfaces it also fires an intent event and starts the pack warm).
+//     Deleted 2026-09-25 with the allowance it refused on.
 //   - RecommendedListNameDrawer: vaul Drawer for naming a saved list on
 //     recommendation accept, used by OutreachAudienceStep. Vaul is
 //     client-only.
@@ -489,7 +490,10 @@ import { dirname, join, relative } from 'node:path'
 // into feat/pro-upgrade-drafts. Measured against the merged tree: this branch
 // counted up to 586 from a base main has since moved off, and main sits at
 // 567 after its own removals, so neither number is reachable by arithmetic.
-const BASELINE = 586
+// 2026-09-25: 586 -> 585. The daily door-knocking campaign allowance was
+// removed, and DoorKnockingDailyLimitDialog went with it — the only thing it
+// ever rendered was that refusal.
+const BASELINE = 585
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

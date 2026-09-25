@@ -29,7 +29,6 @@ export type AdminOrganization = {
   // gp-api's default. Returned by `/organizations/admin/:slug` only, which is
   // also the only route that can set it.
   // Optional: older gp-api deployments omit it, current ones return it.
-  overrideDoorKnockingCampaignLimit?: number | null
 }
 
 export type ListOrganizationsOptions = {
@@ -65,5 +64,4 @@ export type PatchOrganizationInput = {
   // Daily door-knocking campaign allowance for this org; null restores
   // gp-api's default. gp-api caps it at 30 — roughly the whole Geoapify
   // account's assumed daily pool — and rejects anything higher with a 400.
-  overrideDoorKnockingCampaignLimit?: number | null
 }

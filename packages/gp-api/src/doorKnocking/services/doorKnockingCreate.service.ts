@@ -50,7 +50,6 @@ import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
 import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { lockTurf } from '../utils/turfLock.util'
 import { activeTurfScope } from '../utils/turfScope.util'
-import { assertCampaignQuota } from '../utils/campaignQuota.util'
 import { recordWaypointSpend } from '../utils/waypointSpend.util'
 
 // Leadership-approved hard cap; the DB CHECK on stop.seq enforces the same
@@ -354,18 +353,6 @@ export class DoorKnockingCreateService extends createPrismaBase(
           excludePersonIds,
         })
         const stops = this.buildStops(people, input.geoPoly, isServe)
-
-        // Last gate before the only paid call in the system, and the sole
-        // per-account limit: five campaigns a rolling day. A 500-stop daily
-        // budget used to be checked here too and was removed — the per-org
-        // stop cap is gone, and the shared credit pool is now bounded by the
-        // account-wide alerts over the spend ledger rather than by rationing
-        // each organization against it.
-        //
-        // The create flow refuses to open once this is spent, so reaching it
-        // here means a teammate spent the day's allowance in between. It stays
-        // as the authority: that read is advisory and this is the write.
-        await assertCampaignQuota(tx, organization)
 
         // A travel mode is what turns a create into a purchase. Sent, the
         // route is bought here exactly as it always was. Omitted, the turf

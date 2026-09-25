@@ -1125,11 +1125,6 @@ export {
 } from './doorKnocking/DoorKnockingAudienceCheck.schema'
 
 export {
-  DoorKnockingQuotaResponseSchema,
-  type DoorKnockingQuotaResponse,
-} from './doorKnocking/DoorKnockingQuota.schema'
-
-export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
   CONTACTS_MADE_DIM_KEY,
