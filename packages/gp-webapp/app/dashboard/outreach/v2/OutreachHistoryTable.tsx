@@ -553,7 +553,7 @@ export const OutreachHistoryTable = ({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-foreground">
-            {showArchive ? 'Archived outreach' : 'Outreach campaign history'}
+            {showArchive ? 'Archived campaigns' : 'Active campaigns'}
           </h2>
           <p className="text-sm text-muted-foreground">
             {showArchive

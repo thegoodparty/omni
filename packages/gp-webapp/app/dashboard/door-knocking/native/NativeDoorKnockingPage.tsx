@@ -39,6 +39,7 @@ import {
   sameDrafts,
   type TurfDraft,
 } from './turfDrafts'
+import { StartKnockingDialog } from './StartKnockingDialog'
 import { DoorKnockingSurface } from './doorKnockingSurface'
 import {
   HARD_STOP_LIMIT,
@@ -894,12 +895,22 @@ export default function NativeDoorKnockingPage({
     router.push(hubPath)
   }
 
-  // Every list has its route from the moment it exists, so Knock is now
-  // exactly "open the walk" — no dialog, no purchase, no branch. Named once
-  // because three surfaces reach it: the rail card's Knock, the details
-  // drawer's Start knocking, and the outreach hub's Continue knocking through
-  // the deep link below. Each passes where closing should return to.
+  // The one door into a walk, and the one place the travel question is
+  // asked. Four surfaces reach it: the rail card's Knock, the details
+  // sheet's Start knocking, the create flow's success screen, and the
+  // outreach drawer's Continue knocking through the deep link below. Each
+  // passes where closing should return to.
+  //
+  // An UNROUTED turf has no walk to open yet — the doors are frozen but
+  // nothing has decided what order to walk them in — so the question comes
+  // first and the answer is what buys the route. A routed turf goes straight
+  // through: its route is frozen and documented as never re-bought, so
+  // asking again would collect an answer that changes nothing.
   const startKnocking = (turf: DoorKnockingTurf, origin: WalkOrigin) => {
+    if (turf.routeSeconds === null) {
+      setKnockPrompt({ turf, origin })
+      return
+    }
     walkOrigin.current = origin
     walk.start({ id: turf.id, name: turf.name }, 'existingRoute')
   }
@@ -921,11 +932,15 @@ export default function NativeDoorKnockingPage({
     if (!turf) return
     consumedWalkTurfId.current = walkTurfId
     router.replace('/dashboard/door-knocking', { scroll: false })
-    walkOrigin.current =
+    // Through `startKnocking` rather than straight to `walk.start`, so a
+    // turf the outreach drawer sent us to that has never been walked gets
+    // the same travel question as one pressed on the rail.
+    startKnocking(
+      turf,
       fromOutreachId === undefined
         ? { kind: 'hub' }
-        : { kind: 'outreach', outreachId: fromOutreachId }
-    walk.start({ id: turf.id, name: turf.name }, 'existingRoute')
+        : { kind: 'outreach', outreachId: fromOutreachId },
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walkTurfId, fromOutreachId, turfsQuery.data, router])
 
@@ -1033,11 +1048,16 @@ export default function NativeDoorKnockingPage({
   // The whole chain committed. The design hands straight over to the walk
   // rather than returning to the rail: the list was created to be knocked, and
   // its route is already bought and frozen.
-  // "Start knocking" on one turf of the flow's success screen. Tears the
-  // flow down and starts that turf's walk, which is where the walk-or-drive
-  // prompt and the route buy will live — until then a turf created without
-  // a route has none to serve, and the walk says so.
-  const handleStartKnocking = (turf: DoorKnockingTurf) => {
+  // The turf whose walk-or-drive question is on screen, with where closing
+  // its walk should return to. Null when nothing is being asked.
+  const [knockPrompt, setKnockPrompt] = useState<{
+    turf: DoorKnockingTurf
+    origin: WalkOrigin
+  } | null>(null)
+
+  // Tears the create flow down so the walk can own the screen. A no-op when
+  // the flow is not open, which is most of the ways into a walk.
+  const leaveFlowForWalk = () => {
     setRing(null)
     tileOpened.current = false
     setFlowStep(null)
@@ -1045,7 +1065,22 @@ export default function NativeDoorKnockingPage({
     setPrecincts([])
     clearDrafts()
     draw.clearDrawing()
-    walkOrigin.current = { kind: 'hub' }
+  }
+
+  // "Start knocking" on one turf of the flow's success screen. The flow is
+  // on screen here and nothing else is, so it comes down first.
+  const handleStartKnocking = (turf: DoorKnockingTurf) => {
+    leaveFlowForWalk()
+    startKnocking(turf, { kind: 'hub' })
+  }
+
+  // The vendor has answered and the turf is routed, so the walk has
+  // something to serve. The origin is the one the press carried in, not the
+  // hub: a knock started from the outreach drawer still returns there.
+  const handleRouteBuilt = (turf: DoorKnockingTurf) => {
+    const origin = knockPrompt?.origin ?? { kind: 'hub' }
+    setKnockPrompt(null)
+    walkOrigin.current = origin
     walk.start({ id: turf.id, name: turf.name }, 'newRoute')
   }
 
@@ -1488,6 +1523,13 @@ export default function NativeDoorKnockingPage({
             }}
           />
         )}
+        <StartKnockingDialog
+          turf={knockPrompt?.turf ?? null}
+          onOpenChange={(open) => {
+            if (!open) setKnockPrompt(null)
+          }}
+          onRouteBuilt={handleRouteBuilt}
+        />
       </DashboardLayout>
     </DoorKnockingSurface>
   )
