@@ -403,6 +403,32 @@ site, do not trust the count.
 
 Never decide a case 3 yourself.
 
+## Settle a whole cause (digest queue)
+
+The digest's **Flagged (by cause)** section groups flags by the reason they fired, so one
+deploy that stranded twenty-two name constants is one ruling rather than twenty-two. When
+the reviewer settles a cause rather than an event, append a `cause:` row to `dismissed:`
+in `monitored_events.yaml`:
+
+```yaml
+- {cause: "<cause key>", reason: "<reason>", date: "<run_date>"}
+```
+
+The cause key is the string the digest prints for that line, qualifier included
+(`call_site_removed@2026-09-01`), or the bare key where there is none (`orphaned_firing`,
+`never_observed`, `intent_divergence`, `dormant_elevated`, `anomaly_drop`).
+
+Rules:
+
+- **Check membership first** — skip if the same `cause` is already in `dismissed:`.
+- **Never dismiss `okr_anchor_dormant`.** A latched OKR anchor clears on recovery or when
+  the metric's `anchored_on` changes upstream. There is no dismiss path, by design.
+- **Never dismiss `counter_blind_spot`.** It is already out of the queue and out of Slack;
+  the fix is `count_call_sites` in the provenance backfill, not a dismissal.
+- A dismissed cause stays in the digest struck through, with its current member count, and
+  stays whole in the JSON report. It is silenced, not deleted, so a cluster that keeps
+  growing after it was settled is still visible.
+
 ## Diagnose — red/yellow health items
 
 Runs when the digest has a 🔴/🟡 tier and the reviewer wants the story, not just the
