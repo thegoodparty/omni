@@ -166,8 +166,18 @@ RUN /opt/runbooks/install.sh copy user && \
 # since this build that a real `npm ci` is required.
 ENV BAKED_OMNI_DIR="/opt/omni-bake"
 COPY --from=omni-checkout . "$BAKED_OMNI_DIR/omni"
+# npm_config_* rather than `npm config set`: these tune this one install and
+# leave no .npmrc in the image. Installing all of omni pulls thousands of
+# tarballs, so a single transient ETIMEDOUT would otherwise fail the whole
+# build — npm's stock 2 retries and 5-minute per-request ceiling are sized for
+# an app, not a monorepo. This is belt-and-braces behind the native-arm64
+# runner: that removed the emulator starvation that made timeouts routine,
+# this covers an ordinary registry blip.
 RUN cd "$BAKED_OMNI_DIR/omni" && \
     sha256sum package-lock.json | awk '{print $1}' > "$BAKED_OMNI_DIR/lockfile.sha256" && \
+    npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_maxtimeout=120000 \
+    npm_config_fetch_timeout=600000 \
     npm ci --ignore-scripts && \
     chown -R agent:agent "$BAKED_OMNI_DIR"
 

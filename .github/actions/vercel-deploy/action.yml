@@ -119,7 +119,28 @@ runs:
           echo "Building against NEXT_PUBLIC_API_BASE=$API_BASE" >> "$GITHUB_STEP_SUMMARY"
         fi
 
-        vercel build "${BUILD_ARGS[@]}"
+        # Retried, because this one command is where the release train meets
+        # the outside world. No check workflow runs `next build` — gp-webapp.yml
+        # only typechecks, lints and tests — so the train's build is the first
+        # and only one, and it reaches out mid-build: next/font/google
+        # downloads from Google (a failed fetch surfaces far downstream as
+        # module-not-found on the generated font CSS), and @vercel/next then
+        # applies its own modifyConfig step. Both have taken the train down on
+        # commits with nothing wrong with them. The build is local and writes
+        # only .vercel/output, so re-running it has no side effects; a build
+        # that is genuinely broken still fails, just three times.
+        for attempt in 1 2 3; do
+          if vercel build "${BUILD_ARGS[@]}"; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "::error::vercel build failed on all 3 attempts."
+            exit 1
+          fi
+          echo "::warning::vercel build failed (attempt $attempt/3); retrying."
+          sleep "$((attempt * 15))"
+        done
+
         DEPLOY_URL="$(vercel deploy "${DEPLOY_ARGS[@]}" | awk 'NF { line=$0 } END { print line }')"
         case "$DEPLOY_URL" in
           http*) ;;
