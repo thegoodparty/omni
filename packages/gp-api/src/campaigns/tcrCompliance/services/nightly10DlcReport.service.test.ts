@@ -50,6 +50,7 @@ type WhereClause = {
   peerlyProfileStatus?: string | null
   peerlyProfileStatusChangedAt?: { lt: Date }
   NOT?: object
+  AND?: object[]
   OR?: object[]
   campaign?: { isPro: boolean }
 }
