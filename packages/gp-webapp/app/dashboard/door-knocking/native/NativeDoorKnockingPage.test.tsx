@@ -929,7 +929,7 @@ describe('NativeDoorKnockingPage create flow', () => {
 
     const panel = () => within(turfPanel())
     expect(
-      await panel().findByText(/Navigate to the location/),
+      await panel().findByText(/Navigate the map to the location/),
     ).toBeInTheDocument()
     // Save stays live — leaving without cutting anything is a real exit.
     expect(panel().getByRole('button', { name: 'Save' })).toBeEnabled()
@@ -947,7 +947,7 @@ describe('NativeDoorKnockingPage create flow', () => {
       panel().getByRole('button', { name: /Add turf/ }),
     ).toBeInTheDocument()
     expect(panel().getByRole('button', { name: 'Save' })).toBeEnabled()
-    expect(panel().queryByText(/Navigate to the location/)).toBeNull()
+    expect(panel().queryByText(/Navigate the map to the location/)).toBeNull()
   })
 
   // The other half of the reported bug. Undo blanks a draft rather than
@@ -1001,7 +1001,7 @@ describe('NativeDoorKnockingPage create flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
 
     expect(
-      await panel().findByText(/Navigate to the location/),
+      await panel().findByText(/Navigate the map to the location/),
     ).toBeInTheDocument()
     expect(panel().queryByLabelText('Turf name')).toBeNull()
     expect(panel().queryByText('Drawing')).toBeNull()

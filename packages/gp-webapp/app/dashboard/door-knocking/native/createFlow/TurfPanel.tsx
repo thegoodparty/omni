@@ -327,10 +327,9 @@ export const TurfPanel = ({
           {introducing && (
             <EmptyState
               title="No turfs yet"
-              message="Navigate to the location you want to draw your first turf."
+              message="Navigate the map to the location you want to draw your first turf."
               action={
                 <Button type="button" onClick={() => setStarted(true)}>
-                  <PlusIcon className="size-4" />
                   Draw the first turf
                 </Button>
               }

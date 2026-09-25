@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { EmptyState } from '../components/ui/empty-state'
 import { Button } from '../components/ui/button'
-import { PlusIcon } from '../components/ui/icons'
 
 const meta: Meta<typeof EmptyState> = {
   component: EmptyState,
@@ -64,23 +63,13 @@ export const Variants: StoryObj<typeof EmptyState> = {
     <div className="flex flex-col gap-4">
       <EmptyState message="No archived campaigns." />
       <EmptyState
-        message="Navigate to the location you want to draw your first turf."
-        action={
-          <Button>
-            <PlusIcon />
-            Draw the first turf
-          </Button>
-        }
+        message="Navigate the map to the location you want to draw your first turf."
+        action={<Button>Draw the first turf</Button>}
       />
       <EmptyState
         title="No turfs yet"
-        message="Navigate to the location you want to draw your first turf."
-        action={
-          <Button>
-            <PlusIcon />
-            Draw the first turf
-          </Button>
-        }
+        message="Navigate the map to the location you want to draw your first turf."
+        action={<Button>Draw the first turf</Button>}
       />
     </div>
   ),
