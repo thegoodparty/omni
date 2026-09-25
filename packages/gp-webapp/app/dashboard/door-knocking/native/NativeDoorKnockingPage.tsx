@@ -1035,7 +1035,13 @@ export default function NativeDoorKnockingPage({
   // its route is already bought and frozen.
   // "View campaign" on the flow's success screen. The flow no longer hands
   // over to a walk — there is no route to walk until somebody buys one — so
-  // this tears the flow down and navigates to the campaign's details page.
+  // this tears the flow down and opens the campaign's details drawer on the
+  // outreach hub.
+  //
+  // The hub's own drawer rather than a page of door knocking's own: it is
+  // the surface every channel's campaign already opens in, it reads the
+  // anchor envelope this id names, and it carries the sibling turf list. A
+  // second details surface would be a second place to keep correct.
   const handleCampaignCreated = (anchorOutreachId: number) => {
     // Clear the ring in the same batch: the canvas effect that emits null runs
     // after paint, and a committed render with the stale ring would briefly
@@ -1047,7 +1053,13 @@ export default function NativeDoorKnockingPage({
     setPrecincts([])
     clearDrafts()
     draw.clearDrawing()
-    router.push(`/dashboard/door-knocking/campaigns/${anchorOutreachId}`)
+    // Win only, same as the walk's own exit above and for the same reason:
+    // the Serve hub's page takes no searchParams, so the id would sit in the
+    // bar with nothing to read it. A Serve campaign lands on its hub with the
+    // row in the table rather than reopened in its drawer.
+    router.push(
+      serveMode ? hubPath : `${OUTREACH_HUB}?outreachId=${anchorOutreachId}`,
+    )
   }
   // Two surfaces, and only one of them can be on screen. There is no third
   // "landing" case any more: the walk is the only thing that renders beside
