@@ -1033,22 +1033,21 @@ export default function NativeDoorKnockingPage({
   // The whole chain committed. The design hands straight over to the walk
   // rather than returning to the rail: the list was created to be knocked, and
   // its route is already bought and frozen.
-  const handleListCreated = (turf: DoorKnockingTurf) => {
+  // "View campaign" on the flow's success screen. The flow no longer hands
+  // over to a walk — there is no route to walk until somebody buys one — so
+  // this tears the flow down and navigates to the campaign's details page.
+  const handleCampaignCreated = (anchorOutreachId: number) => {
     // Clear the ring in the same batch: the canvas effect that emits null runs
     // after paint, and a committed render with the stale ring would briefly
     // enable Continue against the just-saved polygon.
     setRing(null)
-    // Spent: the walk owns the screen now, and closing it exits to the hub on
-    // its own terms rather than popping the history entry the tile pushed.
-    // `landingOpened` is deliberately left set — see the landing effect.
     tileOpened.current = false
     setFlowStep(null)
     setFilters({})
     setPrecincts([])
     clearDrafts()
     draw.clearDrawing()
-    walkOrigin.current = { kind: 'hub' }
-    walk.start({ id: turf.id, name: turf.name }, 'newRoute')
+    router.push(`/dashboard/door-knocking/campaigns/${anchorOutreachId}`)
   }
   // Two surfaces, and only one of them can be on screen. There is no third
   // "landing" case any more: the walk is the only thing that renders beside
@@ -1363,7 +1362,7 @@ export default function NativeDoorKnockingPage({
                   onDrawFullScreenChange={openDrawing}
                   onRestartDrawing={draw.startDrawing}
                   drawnStops={drawnStops}
-                  onListCreated={handleListCreated}
+                  onCampaignCreated={handleCampaignCreated}
                   isServeOrg={isServeOrg}
                   unpreviewableKeys={unpreviewableKeys}
                   orgSlug={organization?.slug}

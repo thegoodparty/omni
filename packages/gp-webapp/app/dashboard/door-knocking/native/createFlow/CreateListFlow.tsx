@@ -73,7 +73,7 @@ import {
 } from './serveDoorKnockingPurposes'
 import { WhoStep } from './WhoStep'
 import { DrawStep } from './DrawStep'
-import { RouteStep } from './RouteStep'
+import { CreateCampaignSuccess } from './CreateCampaignSuccess'
 import type { SavedListOption } from './savedListOptions'
 import type {
   DoorKnockingAddressPreviewResponse,
@@ -246,7 +246,10 @@ interface CreateListFlowProps {
   onRestartDrawing: () => void
   // The whole chain committed: turf, route and outreach envelope all exist.
   // Carries the created row because the page opens the walk on it directly.
-  onListCreated: (turf: DoorKnockingTurf) => void
+  // The anchor Outreach id of the campaign just created — what the details
+  // page is addressed by. Replaces `onListCreated`, which handed a turf over
+  // to a walk: there is no route to walk until somebody buys one.
+  onCampaignCreated: (anchorOutreachId: number) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays a plain
   // presentational flow and its tests don't need an organization provider.
@@ -341,10 +344,10 @@ export interface RecommendedCriteria {
 // outreach channel puts it and where the design puts it: the sheet header
 // carries only the back button and the stepper.
 //
-// The route step's title names the list, so it is built below rather than
-// stored here.
+// `success` is absent: it draws no header at all, so it has no title or
+// caption to store.
 const STAGE_META: Record<
-  Exclude<CreateFlowStage, 'route'>,
+  Exclude<CreateFlowStage, 'success'>,
   { title: string; caption: string }
 > = {
   purpose: {
@@ -388,9 +391,6 @@ const EMPTY_POINTS: TalkingPointsLines = {
   ask: '',
 }
 
-const ROUTE_CAPTION =
-  'This helps us draw the most efficient route for you based on how ' +
-  'you’re getting there.'
 
 export default function CreateListFlow({
   step,
@@ -414,7 +414,7 @@ export default function CreateListFlow({
   drawPointCount,
   drawFullScreen,
   onDrawFullScreenChange,
-  onListCreated,
+  onCampaignCreated,
   isServeOrg,
   unpreviewableKeys,
   orgSlug,
@@ -524,10 +524,17 @@ export default function CreateListFlow({
   const [listOpen, setListOpen] = useState(false)
   // The route the last step buys. Overrides only — `mode` falls back to what
   // the drawn shape's geometry suggests, which can resolve after this mounts.
-  const [modeOverride, setModeOverride] = useState<DoorKnockingMode | null>(
+  const [modeOverride] = useState<DoorKnockingMode | null>(
     null,
   )
-  const [loop, setLoop] = useState(true)
+  const [loop] = useState(true)
+  // What the create actually wrote, held for the success screen: the anchor
+  // the details page is addressed by, plus the figures to report back.
+  const [createdAnchor, setCreatedAnchor] = useState<{
+    outreachId: number
+    doorCount: number
+    turfCount: number
+  } | null>(null)
 
   // The card the canvassers will read. Three of these four lines are the
   // model's; `cta` is composed from the campaign's own website below and is
@@ -886,7 +893,7 @@ export default function CreateListFlow({
   // that far back usually means changing the audience upstream, and any
   // step above points (who, purpose) invalidates the filter anyway.
   useEffect(() => {
-    if (step === 'name' || step === 'draw' || step === 'route') return
+    if (step === 'name' || step === 'draw' || step === 'success') return
     releaseOrphanFilterRef.current()
   }, [step])
   // Closing the flow from confirm or route unmounts without a step change, so
@@ -1217,10 +1224,13 @@ export default function CreateListFlow({
           type: 'Polygon' as const,
           coordinates: [closeRing(draft.polygon)],
         },
-        mode,
-        loop,
+        // No `mode`/`loop`: creating a campaign does not buy a route any
+        // more. They are asked at first knock, by the person who knows
+        // whether they are walking it, and the contract takes them as a
+        // pair or not at all.
+        //
         // Why this list is being walked, and the card its canvassers read —
-        // frozen with the route for the same reason the door list is:
+        // frozen with the turf for the same reason the door list is:
         // everyone works from the same plan. Both optional server-side, so a
         // flow that skipped the points step still creates a turf.
         ...(purpose ? { purpose } : {}),
@@ -1389,13 +1399,22 @@ export default function CreateListFlow({
       void queryClient.invalidateQueries({
         queryKey: ['door-knocking-preselected-recommendation', orgSlug],
       })
-      // A partial batch stays on the route step with its unsold turfs still
-      // in the list, so the same Build route press finishes the job. Handing
-      // over to a walk here would strand the turfs that failed on a screen
-      // with no way back to them.
+      // A partial batch stays on the draw step with its unsaved turfs still
+      // in the list, so the same Create campaign press finishes the job.
+      // Advancing here would strand the turfs that failed on a screen with
+      // no way back to them.
       if (failures.length > 0) return
       const first = created[0]
-      if (first) onListCreated(first.turf)
+      if (!first) return
+      // The campaign exists. The flow's last screen names it and offers the
+      // two things to do next; it does NOT hand over to a walk any more,
+      // because there is no route to walk until somebody buys one.
+      setCreatedAnchor({
+        outreachId: first.turf.outreachId,
+        doorCount: created.reduce((sum, c) => sum + c.turf.doorCount, 0),
+        turfCount: created.length,
+      })
+      goToStage('success')
     },
     onError: (error) => {
       trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
@@ -1421,7 +1440,7 @@ export default function CreateListFlow({
   const saveErrorMessage = save.isError
     ? toCreateErrorMessage(save.error)
     : partialFailure
-      ? `${toCreateErrorMessage(partialFailure)} The turfs that did build are saved — press Build route again to finish the rest.`
+      ? `${toCreateErrorMessage(partialFailure)} The turfs that were created are saved — press Create campaign again to finish the rest.`
       : null
 
   // The per-list stop cap above is the only thing the drawing surface
@@ -1467,11 +1486,8 @@ export default function CreateListFlow({
     return null
   }
 
-  const title =
-    stage === 'route'
-      ? 'Will you be walking or driving?'
-      : STAGE_META[stage].title
-  const caption = stage === 'route' ? ROUTE_CAPTION : STAGE_META[stage].caption
+  const title = stage === 'success' ? '' : STAGE_META[stage].title
+  const caption = stage === 'success' ? '' : STAGE_META[stage].caption
   const { currentStep, totalSteps } = stepperPosition(stage)
 
   return (
@@ -1590,40 +1606,19 @@ export default function CreateListFlow({
                     }
                   : stage === 'draw'
                     ? {
-                        // Bare word — the shape's own count sits on the
-                        // drawing surface, and the cap warnings are there
-                        // too, so a count in the CTA would be a third place
-                        // saying the same number. With several turfs on the
-                        // step there is no single number it could carry
-                        // anyway.
-                        label: 'Continue',
-                        // One turf is the whole requirement: a campaign with
-                        // no boundary has nothing to route, and the per-turf
-                        // validity was settled when each was committed.
-                        disabled: drawnDrafts.length === 0,
-                        onClick: () => goToStage('route'),
-                      }
-                    : {
-                        // While the mutation runs, the button shows both a
-                        // spinner (via `loading`) and the "Building route"
-                        // label — same treatment the design calls for on the
-                        // one CTA whose click starts a paid multi-second
-                        // request.
-                        // Plural once the campaign holds more than one turf:
-                        // the press buys a route per turf, and a singular
-                        // label on a four-turf campaign understates what is
-                        // about to be spent.
+                        // Drawing is the last thing the candidate does, so
+                        // this is the press that writes the campaign. It
+                        // names what it creates rather than what it spends:
+                        // nothing is bought here any more.
                         label: save.isPending
-                          ? 'Building routes'
-                          : drawnDrafts.length > 1
-                            ? `Build ${drawnDrafts.length} routes`
-                            : 'Build route',
+                          ? 'Creating campaign'
+                          : 'Create campaign',
+                        // One turf is the whole requirement: a campaign with
+                        // no boundary has nothing in it, and the per-turf
+                        // validity was settled when each was committed.
                         disabled: save.isPending || drawnDrafts.length === 0,
                         loading: save.isPending,
                         onClick: () => {
-                          // Nothing is bought until the candidate can have the
-                          // route: a gated click opens the gate and the
-                          // mutation waits for it to clear.
                           if (gate.requirement !== null) {
                             setGateOrigin('build')
                             setGateOpen(true)
@@ -1632,6 +1627,9 @@ export default function CreateListFlow({
                           save.mutate()
                         },
                       }
+                    : // `success` carries its own two buttons in the body,
+                      // so the shell has no CTA to draw.
+                      null
       }
     >
       <GateExplainerModal
@@ -1868,21 +1866,22 @@ export default function CreateListFlow({
             />
           )}
 
-          {stage === 'route' && (
-            <>
-              <RouteStep
-                mode={mode}
-                onModeChange={setModeOverride}
-                loop={loop}
-                onLoopChange={setLoop}
-                suggested={suggestedMode}
-              />
-              {saveErrorMessage && (
-                <p role="alert" className="text-sm text-destructive">
-                  {saveErrorMessage}
-                </p>
-              )}
-            </>
+          {stage === 'draw' && saveErrorMessage && (
+            <p role="alert" className="text-sm text-destructive">
+              {saveErrorMessage}
+            </p>
+          )}
+
+          {stage === 'success' && createdAnchor && (
+            <CreateCampaignSuccess
+              campaignName={name.trim()}
+              turfCount={createdAnchor.turfCount}
+              doorCount={createdAnchor.doorCount}
+              onViewCampaign={() =>
+                onCampaignCreated(createdAnchor.outreachId)
+              }
+              onClose={onClose}
+            />
           )}
         </div>
       )}
