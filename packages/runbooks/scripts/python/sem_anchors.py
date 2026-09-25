@@ -33,6 +33,18 @@ _API = "https://api.github.com/repos/{repo}/contents/{path}"
 _TIMEOUT = 20
 
 
+def _freeze_excluding(raw: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Normalise `excluding` to a sorted, hashable shape. A declared value may be one
+    string or a list of them, matching what the dbt macro compiles."""
+    if not raw:
+        return ()
+    frozen = []
+    for prop, value in sorted(dict(raw).items()):  # type: ignore[call-overload]
+        values = value if isinstance(value, (list, tuple)) else [value]
+        frozen.append((str(prop), tuple(str(v) for v in values)))
+    return tuple(frozen)
+
+
 @dataclass(frozen=True)
 class Leg:
     """One raw signal that feeds a governed metric."""
@@ -40,11 +52,32 @@ class Leg:
     event: str
     path: str | None = None
     era: str | None = None
+    excluding: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def key(self) -> str:
-        """Series key. Path legs need their own key: 'Viewed' is site-wide at 4.46M
-        rows and only its '/dashboard' slice is the instrument."""
+        """Series key. A qualified leg needs its own: 'Viewed' is site-wide at 4.46M
+        rows and only its '/dashboard' slice is the instrument, and 'Voter Outreach -
+        Campaign Completed' covers three moments of which the metric counts two. Watching
+        the bare event in either case watches something wider than the metric counts."""
+        quals = [f"path={self.path}"] if self.path else []
+        quals += [f"excluding {prop}={','.join(values)}" for prop, values in self.excluding]
+        return f"{self.event}[{', '.join(quals)}]" if quals else self.event
+
+    @property
+    def qualified(self) -> bool:
+        """True when the leg is narrower than its event, so Amplitude's catalog has no
+        record for it and its own weekly rows are the only honest source."""
+        return bool(self.path or self.excluding)
+
+    @property
+    def registry_key(self) -> str:
+        """The key a behavior-registry surface names this leg under.
+
+        A path slice is its own instrument, so the registry names the slice. An exclusion
+        is a scope rule the metric applies over one event, not a different call site, so
+        the registry names the bare event and the two must still compare equal.
+        """
         return f"{self.event}[path={self.path}]" if self.path else self.event
 
     @property
@@ -54,8 +87,22 @@ class Leg:
         return self.era != "historical"
 
 
+def is_qualified_key(key: str) -> bool:
+    """Whether a series key names a slice of an event rather than a whole event.
+
+    String-level because the alignment checks are handed registry surface keys, which
+    are strings with no Leg behind them.
+    """
+    return "[path=" in key or "[excluding " in key
+
+
 def parse_anchors(text: str) -> dict[str, list[Leg]]:
-    """Parse a sem YAML into ``{metric_name: [Leg, ...]}`` for metrics declaring one."""
+    """Parse a sem YAML into ``{metric_name: [Leg, ...]}`` for metrics declaring one.
+
+    Every qualifier the declaration carries is kept. A parser that drops one reports a
+    leg as wider than the metric actually counts, which is the monitor watching the
+    wrong thing while reading green.
+    """
     doc = yaml.safe_load(text) or {}
     anchors: dict[str, list[Leg]] = {}
     for metric in doc.get("metrics") or []:
@@ -69,7 +116,14 @@ def parse_anchors(text: str) -> dict[str, list[Leg]]:
                 raise ValueError(
                     f"{metric.get('name')}: every anchored_on leg needs an 'event' key"
                 )
-            legs.append(Leg(event=event, path=leg.get("path"), era=leg.get("era")))
+            legs.append(
+                Leg(
+                    event=event,
+                    path=leg.get("path"),
+                    era=leg.get("era"),
+                    excluding=_freeze_excluding(leg.get("excluding")),
+                )
+            )
         anchors[metric["name"]] = legs
     return anchors
 

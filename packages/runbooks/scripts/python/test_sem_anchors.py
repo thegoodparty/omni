@@ -27,6 +27,57 @@ def test_path_leg_key_is_distinguishable_from_the_bare_event():
     assert sa.Leg("Viewed", None, None).key == "Viewed"
 
 
+def test_the_excluding_qualifier_survives_the_parse():
+    # Dropping it is what let the monitor watch the shared outreach terminal wider than
+    # win_activated_users counts: the self-report path kept the bare event's counts up
+    # after the in-product send stopped firing on 2026-09-08.
+    anchors = sa.parse_anchors(FIXTURE.read_text())
+    legs = {leg.event: leg for leg in anchors["win_activated_users"]}
+    assert legs["Voter Outreach - Campaign Completed"].excluding == (("method", ("manual",)),)
+
+
+def test_an_excluding_leg_gets_its_own_series_key():
+    leg = sa.Leg("VO - Completed", None, None, (("method", ("manual",)),))
+    assert leg.key == "VO - Completed[excluding method=manual]"
+    assert leg.qualified is True
+
+
+def test_an_excluding_leg_still_compares_equal_to_the_bare_registry_surface():
+    # An exclusion narrows what the metric counts over one event; it does not change
+    # which call site instruments the behavior. A path is the other way round.
+    leg = sa.Leg("VO - Completed", None, None, (("method", ("manual",)),))
+    assert leg.registry_key == "VO - Completed"
+    assert sa.Leg("Viewed", "/dashboard", None).registry_key == "Viewed[path=/dashboard]"
+
+
+def test_a_declared_exclusion_may_be_one_value_or_a_list():
+    declared = (
+        "metrics:\n  - name: m\n    config:\n      meta:\n        anchored_on:\n"
+        "          - event: E\n            excluding:\n              method: [manual, native]\n"
+    )
+    leg = sa.parse_anchors(declared)["m"][0]
+    assert leg.excluding == (("method", ("manual", "native")),)
+    assert leg.key == "E[excluding method=manual,native]"
+
+
+def test_excluding_normalises_to_a_stable_order():
+    # Two declarations that mean the same thing must seal and key the same, or a YAML
+    # reorder would read as a new instrument.
+    a = sa.parse_anchors(
+        "metrics:\n  - name: m\n    config:\n      meta:\n        anchored_on:\n"
+        "          - event: E\n            excluding: {b: 1, a: 2}\n")["m"][0]
+    b = sa.parse_anchors(
+        "metrics:\n  - name: m\n    config:\n      meta:\n        anchored_on:\n"
+        "          - event: E\n            excluding: {a: 2, b: 1}\n")["m"][0]
+    assert a == b and a.key == b.key
+
+
+def test_is_qualified_key_recognises_both_qualifier_shapes():
+    assert sa.is_qualified_key("Viewed[path=/dashboard]")
+    assert sa.is_qualified_key("E[excluding method=manual]")
+    assert not sa.is_qualified_key("Voter Outreach - Campaign Completed")
+
+
 def test_historical_legs_are_not_watched():
     assert sa.Leg("Dashboard - Campaign Plan Viewed", None, "historical").watched is False
     assert sa.Leg("Campaign Plan - Campaign Tracker Viewed", None, None).watched is True
