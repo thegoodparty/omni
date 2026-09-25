@@ -1691,6 +1691,28 @@ def test_upsert_retire_does_not_clobber_existing_retirement(tmp_path):
     assert row["retired_date"] == "2026-06-01"
 
 
+def test_upsert_retire_fills_an_empty_pr_on_a_later_call(tmp_path):
+    # The add path's twin (DATA-2525): retire before the PR exists, then re-run with the
+    # number once it is open. A date-only guard dropped that second call silently, leaving a
+    # retired row with no link to the PR that retired it.
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("E", "retire", None, "2026-06-01", "2026-06-01T00:00:00", csv_path=csv)
+    assert bf.read_provenance_rows(csv)["E"]["retired_pr"] is None
+
+    bf.upsert_provenance_row("E", "retire", "2124", "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    row = bf.read_provenance_rows(csv)["E"]
+    assert row["retired_pr"] == f"{_PR}/2124"
+    # Filling the PR must not move the retirement date off the first sighting.
+    assert row["retired_date"] == "2026-06-01"
+
+
+def test_upsert_retire_without_a_pr_leaves_a_recorded_pr_alone(tmp_path):
+    csv = str(tmp_path / "p.csv")
+    bf.upsert_provenance_row("E", "retire", "1", "2026-06-01", "2026-06-01T00:00:00", csv_path=csv)
+    bf.upsert_provenance_row("E", "retire", None, "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    assert bf.read_provenance_rows(csv)["E"]["retired_pr"] == f"{_PR}/1"
+
+
 def test_upsert_add_clears_stale_call_site_and_retired_columns(tmp_path):
     # A prior walk retired this event (call_site_count=0, retirement fields set). Re-instrumenting
     # via the skill (add) must clear ALL of them — a leftover call_site_count=0 would make the

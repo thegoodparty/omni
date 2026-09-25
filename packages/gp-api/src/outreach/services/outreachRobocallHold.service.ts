@@ -150,6 +150,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
           outreachId,
           draft.settleState,
           promo,
+          promoBillableCount,
         )
       }
     }
@@ -240,6 +241,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // card decline, which is a terminal hold_failed the caller resolves with a
     // new card.
     let estimate: number
+    // The count this authorization is PRICED on, carried out of the try so the
+    // send terminal reports the same number the candidate was charged for.
+    let authorizedBillableCount: number
     let holdAmount: number
     let customerId: string
     let holdPaymentMethodId: string
@@ -258,6 +262,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
           voterFileFilterId,
         ))
       this.robocallService.assertReachableCount(billableCount)
+      authorizedBillableCount = billableCount
       // Total = per-call cost + the flat number-rental fee (the fee is part of
       // every authorized hold). A reward code takes its discount off this whole
       // total; the ceiling below still judges the undiscounted estimate.
@@ -510,6 +515,17 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     // The hold committed, so this is a real scheduled send: make it visible in
     // the history list.
     await this.scheduleSpineAndNotify(outreachId, user, campaign)
+    // The send terminal, emitted at the COMMIT rather than inside
+    // scheduleSpineAndNotify: the deferred card-save path advances the spine
+    // before any hold exists, so a gate on that transition would both fire
+    // here for an unpaid row and then find the spine already `pending` when
+    // the deferred sweep really does commit, dropping the event entirely.
+    // The placement CAS above elects one committer, so this is exactly-once.
+    await this.emitCampaignScheduled(
+      outreachId,
+      user.id,
+      authorizedBillableCount,
+    )
     if (promo) {
       await this.promos.consume(promo.promotionCodeId)
     }
@@ -564,6 +580,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     outreachId: number,
     fallback: RobocallSettleState,
     promo: ResolvedRobocallPromo,
+    billableCount: number,
   ): Promise<RobocallAuthorizeResponse> {
     let commit: { count: number }
     try {
@@ -602,6 +619,9 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       return this.currentStateResult(outreachId, fallback)
     }
     await this.scheduleSpineAndNotify(outreachId, user, campaign)
+    // A covered run commits at $0 with no hold — the redeemed code IS the
+    // payment — so it is a send terminal like the authorized commit above.
+    await this.emitCampaignScheduled(outreachId, user.id, billableCount)
     await this.promos.consume(promo.promotionCodeId)
     return {
       status: 'authorized',
@@ -650,12 +670,40 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   ): Promise<void> {
     const scheduled = await this.markSpineScheduled(outreachId)
     if (!scheduled) return
+
     // Fire-and-forget: the CAS notice reads the audience + a HubSpot owner and
     // POSTs to Slack, and authorizeHold is a user-facing pay request. Only the
     // spine transition above is awaited (the client refetches history right
     // after); the notice must not add its latency to the response. Internally
     // catch-isolated, so the floating promise never rejects.
     void this.sendScheduledNotice(outreachId, user, campaign)
+  }
+
+  // recipientCount is the count this authorization was PRICED on, passed in by
+  // the caller rather than read back off OutreachRobocall.billableCount. That
+  // column is the draft-time snapshot and the authorize path re-derives a fresh
+  // count it never persists, so the two diverge whenever the audience shifted
+  // between draft and payment — exactly the case the re-derivation exists for.
+  // Reading the column would report a number nobody was charged for.
+  private async emitCampaignScheduled(
+    outreachId: number,
+    userId: number,
+    recipientCount: number,
+  ): Promise<void> {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Outreach.CampaignScheduled,
+        { channel: 'robocall', outreachId, recipientCount },
+        undefined,
+        `${outreachId}:campaign_scheduled`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall campaign scheduled emit failed',
+      )
+    }
   }
 
   private async sendScheduledNotice(

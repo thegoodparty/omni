@@ -33,6 +33,8 @@ import { EmailService } from 'src/email/email.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachService, type P2pOutreachImageInput } from './outreach.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 
 const mockOutreachCreate = vi.fn()
 const mockOutreachFindMany = vi.fn()
@@ -51,6 +53,7 @@ const mockSendEmail = vi.fn()
 const mockFindVoterFileFilter = vi.fn()
 const mockFilterAccessCheck = vi.fn()
 const mockMaterializeOutreach = vi.fn()
+const mockAnalyticsTrack = vi.fn()
 
 vi.mock('../util/campaignGeography.util', () => ({
   resolveP2pJobGeography: (
@@ -71,6 +74,11 @@ describe('OutreachService', () => {
 
   const mockCampaign = {
     id: 1,
+    // Deliberately NOT mockUser.id: the send terminal keys on the campaign's
+    // userId COLUMN, not the loaded `user` relation, so the two must differ
+    // for that to be pinned — with both at 100 an implementation reading
+    // `campaign.user?.id` passes, and in the no-user case both are undefined.
+    userId: 55,
     slug: 'jane-doe',
     organizationSlug: 'org-test',
     aiContent: {},
@@ -127,6 +135,8 @@ describe('OutreachService', () => {
     mockFindVoterFileFilter.mockReset()
     mockFilterAccessCheck.mockReset()
     mockFilterAccessCheck.mockResolvedValue(undefined)
+    mockAnalyticsTrack.mockReset()
+    mockAnalyticsTrack.mockResolvedValue(undefined)
     mockMaterializeOutreach.mockReset()
     mockMaterializeOutreach.mockResolvedValue(undefined)
 
@@ -197,6 +207,10 @@ describe('OutreachService', () => {
         {
           provide: StripeService,
           useValue: {},
+        },
+        {
+          provide: AnalyticsService,
+          useValue: { track: mockAnalyticsTrack },
         },
         OutreachService,
       ],
@@ -355,6 +369,79 @@ describe('OutreachService', () => {
         expect.objectContaining({ id: 43, projectId: 'job-456' }),
       )
       expect(mockNotifySuccess).not.toHaveBeenCalled()
+      // The OKR signal is keyed on campaign.userId, not the absent `user`
+      // relation, so a missing user record drops the notifications above but
+      // NOT the send terminal (DATA-2526).
+      expect(mockAnalyticsTrack).toHaveBeenCalledWith(
+        mockCampaign.userId,
+        EVENTS.Outreach.CampaignScheduled,
+        expect.objectContaining({ channel: 'sms', outreachId: 43 }),
+        undefined,
+        '43:campaign_scheduled',
+      )
+    })
+
+    it('emits the send terminal once on finalize, with the recipient count', async () => {
+      const draft = {
+        id: 44,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter',
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: 250,
+        billableTextCount: 250,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: mockUser },
+      }
+      mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+      mockOutreachFindUniqueOrThrow.mockResolvedValue(draft)
+      mockGetFileBytes.mockResolvedValue({
+        bytes: Buffer.from('img'),
+        contentType: 'image/png',
+      })
+      mockPeerlyCreateJob.mockResolvedValue('job-789')
+      mockOutreachUpdate.mockResolvedValue({})
+
+      await service.finalizeOutreachPurchase(44, 1)
+
+      const scheduled = mockAnalyticsTrack.mock.calls.filter(
+        (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
+      )
+      expect(scheduled).toHaveLength(1)
+      expect(firstOrThrow(scheduled)).toEqual([
+        mockCampaign.userId,
+        EVENTS.Outreach.CampaignScheduled,
+        { channel: 'sms', outreachId: 44, recipientCount: 250 },
+        undefined,
+        // Deterministic messageId: a Segment replay dedups to one event.
+        '44:campaign_scheduled',
+      ])
+    })
+
+    it('does not emit the send terminal when the purchase claim finds nothing', async () => {
+      // The replay path: a Stripe webhook retry loses the pending_payment ->
+      // pending race, so finalize returns at the claim. This is what makes the
+      // emit exactly-once without its own dedup.
+      // confirmFinalized's findFirst is an un-stubbed vi.fn() returning
+      // undefined, so its poll breaks on the first pass rather than sleeping,
+      // then throws to send the webhook back for a retry. Either way the claim
+      // was lost, so nothing is emitted.
+      mockOutreachUpdateMany.mockResolvedValue({ count: 0 })
+
+      await expect(service.finalizeOutreachPurchase(45, 1)).rejects.toThrow()
+
+      expect(mockAnalyticsTrack).not.toHaveBeenCalled()
     })
 
     it('forwards campaignPlanDueDate from the DTO into notifySuccess', async () => {

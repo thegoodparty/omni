@@ -230,33 +230,52 @@ behaviors:
     metric: win_activated_users
     asked_by: nate@goodparty.org
     headline: >-
-      This number is wrong today. It counts door knocks and self-reports rather than scheduled
-      outreach, and three of the four channels record nothing when something is sent.
+      Every channel that has a send now records one. Phone banking records nothing, on
+      purpose — nothing is ever sent through us on that channel.
     caveats: >-
-      `win_activated_users` declares one leg, `Voter Outreach - Campaign Completed`, which
-      stopped firing on outreach scheduling when the flow was rewritten to outreach/v2/ and
+      `Voter Outreach - Campaign Scheduled` (DATA-2526) is the send terminal for the three
+      channels that have one, keyed by `channel` (sms | robocall | social). It is emitted
+      server-side from the point where the payment commits — the pending_payment -> pending
+      claim for sms, the placement/covered-run CAS for robocall, the save transaction for
+      social — so a webhook or pay-step replay cannot double-count. COUNT DISTINCT
+      `outreachId`, not rows: the event is not exactly-once per outreach, because a robocall
+      whose hold lapses before dial can be re-authorized with a new card and commits a second
+      time under the same messageId, days apart and so past Segment's ~24h dedup window. That
+      is one send commitment retried, and it must count once. Win only: the
+      `Voter Outreach -` prefix classifies to the win_voter_outreach family, so the Serve
+      social route deliberately stays silent. Phone banking is excluded by definition, not
+      by omission (see its surface below). `win_activated_users` declares this event as a leg
+      alongside `Voter Outreach - Campaign Completed`, which since the outreach/v2 rewrite
       survives only on a completed door-knocking walk and the manual self-report modal
-      (DATA-2343 sweep). Three of four channels have no scheduled/sent terminal at all. The
-      surfaces below name what actually fires; where that is broader than the declaration,
-      the monitor reports it as a scope disagreement for the semantic-layer owners to settle.
+      (DATA-2343 sweep). `Robocall - Scheduled` is deliberately NOT a leg of that metric: it
+      is a live instrument and stays on the behavior, but it fires at draft-create on an
+      unpaid row, so counting it would activate a candidate who built a draft and never
+      paid. That scope call is recorded as a dismissal below, not as a gap.
       Outreach Intensity has no governed declaration yet and is not tracked as an OKR here.
     surfaces:
-      # Per-channel, 2026-09-16. Only robocall has a true scheduled terminal; door knocking has a
-      # completion event, which is a different moment. The three nulls replace a single
-      # components/tasks/flows/TaskFlow.tsx pointer that claimed all scheduling was covered.
+      # Per-channel. Robocall keeps its earlier draft-create milestone AND emits the shared
+      # terminal at the pay commit; the two are different moments, not a double-fire. Only
+      # the pay-commit terminal is an activation leg; see the dismissal for the other.
       - path: packages/gp-api/src/outreach/services/outreachRobocall.service.ts
-        label: robocall_scheduled
+        label: robocall_draft_created
         instrumented_by: "Robocall - Scheduled"
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx
+      - path: packages/gp-api/src/outreach/services/outreachRobocallHold.service.ts
+        label: robocall_scheduled
+        instrumented_by: "Voter Outreach - Campaign Scheduled"
+      - path: packages/gp-api/src/outreach/services/outreach.service.ts
         label: sms_scheduled
-        instrumented_by: null
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx
+        instrumented_by: "Voter Outreach - Campaign Scheduled"
+      - path: packages/gp-api/src/outreach/services/outreachSocial.service.ts
         label: social_scheduled
-        instrumented_by: null
-      # Call List Created and Call Sheet Downloaded are preparation, not outreach, so this stays a
-      # declared gap rather than borrowing either as a proxy.
+        instrumented_by: "Voter Outreach - Campaign Scheduled"
+      # NOT a gap — a definitional exclusion, settled 2026-09-24. Activation means an action
+      # taken through our product. Phone banking has no send: the candidate builds a call list
+      # here and then dials it himself or herself, off-platform, over days. List creation and
+      # call-sheet download are preparation and are already instrumented as such, so there is
+      # nothing further to add and nothing here to fix. Do not re-file this as missing
+      # instrumentation; changing it means changing the definition of activation first.
       - path: packages/gp-webapp/app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow.tsx
-        label: phone_banking_scheduled
+        label: phone_banking_no_send_terminal
         instrumented_by: null
       - path: packages/gp-webapp/app/dashboard/door-knocking/native/useWalkSession.ts
         label: door_knocking_walk_completed
@@ -381,14 +400,15 @@ behaviors:
     product: win
     asked_by: nate@goodparty.org
     headline: >-
-      Only robocall records a send, so the other channels look abandoned when they may not be.
-      The first step also fires twice, which inflates it.
+      The funnel closes for every channel that has a send. The first step still fires twice,
+      which inflates it.
     caveats: >-
-      Entry and intermediate steps fire, but the send terminal exists for robocall only. For SMS,
-      social and phone banking the funnel has a start and no end, which reads identically to total
-      abandonment rather than to missing instrumentation — same root cause as
-      voter_outreach_scheduled. `Outreach - Click Create` also double-fires, so any step counted off
-      it is inflated; that is a query-time de-duplication decision, not a gap.
+      `Voter Outreach - Campaign Scheduled` (DATA-2526) closes the funnel for sms, robocall and
+      social; filter it by `channel` to split them. Phone banking has no send terminal and never
+      will — see voter_outreach_scheduled, where that exclusion is recorded — so a phone-banking
+      funnel ends at call-list creation by definition, not by abandonment. `Outreach - Click
+      Create` still double-fires, so any step counted off it is inflated; that is a query-time
+      de-duplication decision, not a gap.
     surfaces:
       - path: packages/gp-webapp/app/dashboard/contacts/crm/lists/ListDetailSheet.tsx
         label: outreach_funnel_entry
@@ -399,9 +419,9 @@ behaviors:
       - path: packages/gp-webapp/app/dashboard/outreach/v2/ChannelTileGrid.tsx
         label: outreach_channel_chosen
         instrumented_by: "Outreach - Click Create"
-      - path: packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx
+      - path: packages/gp-api/src/outreach/services/outreach.service.ts
         label: outreach_send_terminal
-        instrumented_by: null
+        instrumented_by: "Voter Outreach - Campaign Scheduled"
     review: {interval_days: 90, last_reviewed: 2026-09-16, reviewed_by: tristan@goodparty.org}
 
   - id: ai_artifacts_acted_on
@@ -685,6 +705,8 @@ behaviors:
 #   reason: why it was dismissed (e.g. "UI micro-interaction, not a funnel milestone")
 #   date:   YYYY-MM-DD the decision was made
 dismissed:
+  - {metric: win_activated_users, event: "Door Knocking - List Created", reason: "building a walk list is preparation to reach voters, not outreach; the completed walk fires Voter Outreach - Campaign Completed with method native, which is the leg", date: "2026-09-24"}
+  - {metric: win_activated_users, event: "Robocall - Scheduled", reason: "fires at robocall draft-create on an unpaid row; activation counts the pay commit, which the shared Voter Outreach - Campaign Scheduled terminal emits", date: "2026-09-24"}
   - {event: "Briefing Assistant - Attachment Clicked", reason: "UI micro-interaction, not a funnel milestone", date: "2026-08-06"}
   - {event: "Pro Upgrade - Texting Setup Banner Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}
   - {event: "Onboarding V2 - Why Are You Running Viewed", reason: "step impression; the paired '* Completed' event carries the funnel signal", date: "2026-08-06"}

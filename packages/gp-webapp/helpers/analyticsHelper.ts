@@ -647,14 +647,7 @@ export const EVENTS = {
     PaymentStarted: 'Voter Outreach - Payment Started',
     ViewAccessed: 'Outreach - View Accessed',
     ClickCreate: 'Outreach - Click Create',
-    SocialMedia: {
-      Complete: 'Outreach - Social Media: Complete',
-    },
-    DoorKnocking: {
-      Complete: 'Outreach - Door Knocking: Complete',
-    },
     PhoneBanking: {
-      Complete: 'Outreach - Phone Banking: Complete',
       // v2 create flow (phase 1 TDD): fires once the create call succeeds.
       ListCreated: 'Voter Outreach - Phone Banking Call List Created',
       // Fires from every entry point that links to the print/[listId]/pdf

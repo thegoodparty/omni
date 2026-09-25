@@ -26,6 +26,8 @@ import {
   type SmsStandardsRule,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { EmailService } from 'src/email/email.service'
 import { ASSET_DOMAIN, WEBAPP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
@@ -108,6 +110,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly s3: S3Service,
     private readonly stripeService: StripeService,
     private readonly emailService: EmailService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -565,6 +568,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       data: { projectId: jobId },
     })
 
+    await this.tryTrackCampaignScheduled(
+      campaign.userId,
+      outreachId,
+      outreach.textCount,
+    )
+
     const finalized = { ...outreach, projectId: jobId }
     // Materialization needs no user — a missing user record must not skip
     // the filter lock and interaction rows for a paid launch.
@@ -730,6 +739,40 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         throw err
       }
       throw new OutreachStepError('peerlyJobCreation', err)
+    }
+  }
+
+  // The send terminal for the SMS channel, emitted once per purchase: the
+  // pending_payment -> pending claim in finalizeOutreachPurchase already
+  // returned for every replay, so a Stripe webhook retry never reaches this.
+  // Keyed on campaign.userId rather than the loaded `user` relation, so a
+  // missing user record does not silently drop the OKR signal the way it
+  // skips the notifications. Awaited with the catch inside (the house pattern
+  // here and in the robocall services) rather than left floating: a floating
+  // emit resolves after the caller returns, which makes the event's own tests
+  // race the assertion. A Segment failure still cannot fail the request.
+  private async tryTrackCampaignScheduled(
+    userId: number,
+    outreachId: number,
+    textCount: number | null,
+  ) {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Outreach.CampaignScheduled,
+        {
+          channel: 'sms',
+          outreachId,
+          recipientCount: textCount ?? undefined,
+        },
+        undefined,
+        `${outreachId}:campaign_scheduled`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'Outreach campaign scheduled emit failed',
+      )
     }
   }
 
