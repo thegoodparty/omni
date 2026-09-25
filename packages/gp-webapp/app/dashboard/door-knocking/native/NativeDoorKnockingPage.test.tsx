@@ -904,6 +904,39 @@ describe('NativeDoorKnockingPage create flow', () => {
   // re-runs the landing effect — so re-arming the guard when a list was
   // created reopened the flow at step one on top of the walk that had just
   // started, against a turf list that had not refetched yet.
+  // The reported bug: draw three points, undo them all, press Save. Undo
+  // BLANKS a draft rather than deleting it, so what was left was a turf
+  // with no name and no shape — and Save took it, because the only thing
+  // it ever checked was the stop cap.
+  it('refuses to save a turf that is missing its name, and says so on the card', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    fireEvent.click(within(turfPanel()).getByRole('button', { name: 'Save' }))
+
+    // Still on the drawing surface, and the card says what it is short of.
+    expect(await within(turfPanel()).findByRole('alert')).toHaveTextContent(
+      'Name this turf',
+    )
+
+    // Naming it clears that card's error with no second press, because the
+    // problem is derived from the draft rather than stored on the attempt.
+    nameThisTurf('Ward 4')
+    await waitFor(() =>
+      expect(within(turfPanel()).queryByRole('alert')).not.toBeInTheDocument(),
+    )
+  })
+
   it('does not reopen the flow when creating a campaign refetches the rail', async () => {
     api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })

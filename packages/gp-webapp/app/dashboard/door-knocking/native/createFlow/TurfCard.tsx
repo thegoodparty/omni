@@ -319,6 +319,19 @@ export const TurfCard = ({
           )
         )}
       </div>
+      {/* Under the row it is about, not in a banner somewhere else on the
+          panel: the refusal names one turf, and a message about "a turf"
+          would leave the candidate counting cards to find which. `alert`
+          so a screen reader is told without having to go looking, since
+          the press that caused it moved no focus. */}
+      {error && (
+        <p
+          role="alert"
+          className="px-3 pb-2.5 text-xs font-medium text-destructive"
+        >
+          {error}
+        </p>
+      )}
       {/* The open card carries its own settings, and that is the point of
           putting them here rather than in a block under the list: below,
           they said "the selected turf" while the row they meant could be

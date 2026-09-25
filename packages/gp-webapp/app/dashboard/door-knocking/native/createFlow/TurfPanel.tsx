@@ -135,6 +135,22 @@ export const TurfPanel = ({
     useSheetSnap('half')
   const docked = useIsDocked()
   const [discardOpen, setDiscardOpen] = useState(false)
+  // Whether Save has been pressed and refused. The problems themselves are
+  // NOT stored — they are derived from the drafts on every render, so
+  // typing a name or drawing the missing shape clears its card's error on
+  // the next frame without anything having to remember to.
+  const [attemptedSave, setAttemptedSave] = useState(false)
+  // A turf needs both halves to be saved: something to call it and
+  // somewhere to walk. Undo below three corners BLANKS a draft rather than
+  // deleting it (see `isDrawnTurf`), so a turf with no shape is a real
+  // state and not a transient one — it is what a candidate is left holding
+  // after taking their points back.
+  const problemWith = (draft: TurfDraft): string | null => {
+    if (draft.name.trim() === '') return 'Name this turf'
+    if (!isDrawnTurf(draft)) return 'Draw this turf on the map'
+    return null
+  }
+  const incomplete = drafts.filter((draft) => problemWith(draft) !== null)
   // Selecting a turf expands its card, and the controls it opens can land
   // below the fold on a short panel. `nearest` scrolls the least that makes
   // them visible, so a card already in view does not jump.
@@ -271,6 +287,7 @@ export const TurfPanel = ({
                     onPickColor={onPickColor}
                     onAssign={onAssign}
                     onRename={onRename}
+                    error={attemptedSave ? problemWith(draft) : null}
                   />
                 </li>
               )
@@ -324,7 +341,17 @@ export const TurfPanel = ({
           type="button"
           className="flex-1"
           disabled={saveDisabled}
-          onClick={onSave}
+          onClick={() => {
+            // Refused rather than disabled. A dead Save button says a turf
+            // is wrong without saying which one or why, and the answer is
+            // per-card — so the press is what asks the question and the
+            // cards are where it is answered.
+            if (incomplete.length > 0) {
+              setAttemptedSave(true)
+              return
+            }
+            onSave()
+          }}
         >
           Save
         </Button>
