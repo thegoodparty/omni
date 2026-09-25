@@ -114,7 +114,13 @@ export const StartKnockingDialog = ({
           >
             Cancel
           </Button>
-          {/* Disabled in flight rather than merely spinning: this is a paid
+          {/* "Build route" rather than a second "Start knocking": the card
+              that opened this dialog already says that, and the two presses
+              do very different things — that one asks a question, this one
+              spends money. Naming what this press does is what keeps them
+              apart.
+
+              Disabled in flight rather than merely spinning: this is a paid
               vendor call, and the cheapest guard against a double press is
               the press not being available. The server short-circuits a turf
               that already has a route, so a genuine race resolves to the
@@ -124,7 +130,7 @@ export const StartKnockingDialog = ({
             disabled={build.isPending}
             loading={build.isPending}
           >
-            {build.isPending ? 'Planning route' : 'Start knocking'}
+            {build.isPending ? 'Building route' : 'Build route'}
           </Button>
         </DialogFooter>
       </DialogContent>
