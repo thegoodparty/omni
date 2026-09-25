@@ -113,10 +113,12 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
 export const config = {
   matcher: [
     // Skip Next.js internals and all static files, unless found in search params.
-    // `mx/` is the first-party Segment proxy (see next.config.ts): it must not
-    // reach Clerk, which would 307 logged-out visitors to /login and lose
-    // exactly the pre-signup events the proxy exists to recover.
-    '/((?!_next|mx/|[^?]*\\.(?:html?|css|js(?:on)?|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    // `mx/` (the first-party Segment proxy, see next.config.ts) and
+    // `monitoring` (Sentry's `tunnelRoute`, set at the bottom of the same file)
+    // are both telemetry sinks that must not reach Clerk. Neither is in
+    // `isPublicRoute`, so without this they 307 logged-out visitors to /login
+    // and silently drop exactly the events and errors they exist to carry.
+    '/((?!_next|mx/|monitoring|[^?]*\\.(?:html?|css|js(?:on)?|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
     // Always run for API routes
     '/(api|trpc)(.*)',
   ],
