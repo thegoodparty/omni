@@ -69,6 +69,12 @@ export const runAgent = async (options: RunOptions): Promise<AgentResult> => {
       log,
     )
     return { agent: agent.name, verdicts, runs, notes }
+  } catch (error) {
+    // Producing those runs cost real money. A judging failure must not throw them
+    // away — report what was produced, and say why it could not be scored.
+    const message = error instanceof Error ? error.message : String(error)
+    notes.push(`Outputs were produced but could not be judged: ${message}`)
+    return { agent: agent.name, verdicts: [], runs, notes }
   } finally {
     await cleanup()
   }

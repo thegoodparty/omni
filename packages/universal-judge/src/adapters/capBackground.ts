@@ -59,6 +59,13 @@ export const cloneId = (experimentId: string, tag: string) => {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
+  // An empty tag would leave every variant sharing one id, so two PRs would
+  // overwrite each other's clone mid-run.
+  if (!safe) {
+    throw new Error(
+      `variant tag "${tag}" leaves no usable characters, so the derived experiment id is not publishable`,
+    )
+  }
   const derived = `${experimentId}_uj_${safe}`
   if (!ID_PATTERN.test(derived)) {
     throw new Error(`derived experiment id is not publishable: ${derived}`)
@@ -414,12 +421,81 @@ export const pollRun = async (args: {
 }
 
 /**
- * Best-effort per-run cost from the session transcript.
+ * Best-effort per-run cost, priced from the session transcript's token usage.
  *
- * The authoritative figure is experiment_run.costUsd in Postgres, which CI cannot
- * reach. Any line carrying a total cost wins; otherwise undefined, and the report
- * shows a dash rather than a number nobody should trust.
+ * The transcript records usage per assistant message but no dollar figure, so this
+ * sums tokens and prices them. The authoritative number is experiment_run.costUsd
+ * in Postgres, which CI cannot reach; this is close enough to show a direction and
+ * is labelled as an estimate wherever it surfaces. When the model is unknown or the
+ * transcript is missing, the result is undefined and the report shows a dash rather
+ * than a number nobody should trust.
+ *
+ * Cache reads dominate these runs, so pricing them at the flat input rate would
+ * overstate cost by roughly an order of magnitude.
  */
+type Price = {
+  input: number
+  cacheWrite: number
+  cacheRead: number
+  output: number
+}
+
+const PRICES_PER_MTOK: Record<string, Price> = {
+  sonnet: { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 },
+  opus: { input: 15, cacheWrite: 18.75, cacheRead: 1.5, output: 75 },
+  haiku: { input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 },
+}
+
+const priceFor = (model: string): Price | undefined =>
+  Object.entries(PRICES_PER_MTOK).find(([family]) =>
+    model.includes(family),
+  )?.[1]
+
+export const costFromTranscript = (body: string): number | undefined => {
+  const totals = new Map<
+    string,
+    { in: number; cw: number; cr: number; out: number }
+  >()
+
+  for (const line of body.split('\n')) {
+    if (!line.trim()) continue
+    let record: {
+      message?: { model?: string; usage?: Record<string, unknown> }
+    }
+    try {
+      record = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const usage = record.message?.usage
+    const model = record.message?.model
+    if (!usage || typeof model !== 'string') continue
+
+    const num = (key: string) =>
+      typeof usage[key] === 'number' ? (usage[key] as number) : 0
+    const running = totals.get(model) ?? { in: 0, cw: 0, cr: 0, out: 0 }
+    running.in += num('input_tokens')
+    running.cw += num('cache_creation_input_tokens')
+    running.cr += num('cache_read_input_tokens')
+    running.out += num('output_tokens')
+    totals.set(model, running)
+  }
+
+  let cost: number | undefined
+  for (const [model, t] of totals) {
+    const price = priceFor(model)
+    if (!price) continue
+    cost =
+      (cost ?? 0) +
+      (t.in * price.input +
+        t.cw * price.cacheWrite +
+        t.cr * price.cacheRead +
+        t.out * price.output) /
+        1_000_000
+  }
+  return cost
+}
+
 const costFromSessionLog = async (
   s3: S3Client,
   bucket: string,
@@ -433,20 +509,7 @@ const costFromSessionLog = async (
         Key: `${experimentId}/${runId}/logs/session.jsonl`,
       }),
     )
-    const body = await res.Body!.transformToString()
-    let total: number | undefined
-    for (const line of body.split('\n')) {
-      if (!line.trim()) continue
-      try {
-        const record = JSON.parse(line) as Record<string, unknown>
-        for (const field of ['total_cost_usd', 'cost_usd', 'totalCostUsd']) {
-          if (typeof record[field] === 'number') total = record[field] as number
-        }
-      } catch {
-        continue
-      }
-    }
-    return total
+    return costFromTranscript(await res.Body!.transformToString())
   } catch {
     return undefined
   }
