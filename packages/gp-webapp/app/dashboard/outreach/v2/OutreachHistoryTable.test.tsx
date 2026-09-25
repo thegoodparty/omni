@@ -27,7 +27,7 @@ describe('OutreachHistoryTable — unified history', () => {
       // send time (draft-first finalize leaves the spine at pending).
       {
         id: 2,
-        date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        date: '2099-01-01T00:00:00.000Z',
         outreachType: 'text',
         name: 'Scheduled blast',
         status: 'pending',
