@@ -158,7 +158,7 @@ const ringA: PolygonRing = [
 ]
 
 const onStepChange = vi.fn()
-const onListCreated = vi.fn()
+const onStartKnocking = vi.fn()
 
 const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
   <CreateListSurface
@@ -187,7 +187,7 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     onRestartDrawing={vi.fn()}
     drawPointCount={3}
     drawnStops={null}
-    onListCreated={onListCreated}
+    onStartKnocking={onStartKnocking}
     isServeOrg={false}
     unpreviewableKeys={[]}
     orgSlug="campaign-9"
@@ -205,7 +205,7 @@ describe('CreateListSurface seam', () => {
     testQueryClient.clear()
     flowProps.current = null
     onStepChange.mockClear()
-    onListCreated.mockClear()
+    onStartKnocking.mockClear()
     mockPreview()
     mockAudienceCheck()
   })
