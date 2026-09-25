@@ -58,6 +58,11 @@ Three properties worth keeping:
   the sources the output itself cites. It does not browse and does not fact-check
   against what it happens to know.
 
+A verdict is withheld below six non-tied cases. A two-sided sign test on n cases
+bottoms out at 2/2^n, which first crosses 0.05 at n=6, so a smaller sample gets its
+tally reported and no direction claimed. Run-to-run variance alone will sweep two or
+three cases, which is exactly how this rule got written.
+
 Verdicts are graded pairwise only — `much_better`, `better`, `tie` — which gives
 direction and the approximate magnitude the brief asks for, without pretending to a
 precision this cannot support.
@@ -73,11 +78,20 @@ npm run judge -w packages/universal-judge -- \
 
 # A real background comparison.
 npm run judge -w packages/universal-judge -- \
-  --agents find_existing_ordinances --samples 3 \
+  --agents find_existing_ordinances --samples 6 \
   --baseline-ref main --candidate-ref my-branch \
   --experiments-dir "$PWD/packages/runbooks/experiments" \
   --env dev --out /tmp/report.md
 ```
+
+Re-judge outputs that already exist, with no AWS and no agent spend — this is how
+you iterate on a rubric:
+
+```bash
+npm run judge -w packages/universal-judge -- --replay path/to/replay.json
+```
+
+A replay file is `{agent, pairs: [{caseId, input, baseline, candidate, ...}]}`.
 
 Needs `ANTHROPIC_API_KEY` and AWS credentials for the dev account. Foreground agents
 additionally need `--baseline-checkout` and `--candidate-checkout`, plus Docker,
@@ -89,7 +103,8 @@ Both sides of every case are real agent runs, so a comparison costs roughly
 `2 x samples x per-run cost`. Guardrails, all enforced in code after any model has
 had its say:
 
-- 3 cases per agent by default, 10 maximum
+- 6 cases per agent by default (the fewest that can clear the power floor below),
+  10 maximum
 - a $75 estimated-spend ceiling per comment, which trims the sample count rather
   than refusing the request
 - baseline outputs are cached per `(agent, base ref, case)`, so repeat comments on a
