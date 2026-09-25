@@ -598,6 +598,16 @@ export default function NativeDoorKnockingPage({
     },
     [draw, updateDraft],
   )
+  // Renaming the turf under the cursor, from its open card. Same shape as
+  // the colour above: the panel's controls act on the active turf, which is
+  // the one the card belongs to.
+  const renameActiveTurf = useCallback(
+    (name: string) => {
+      const active = activeDraftRef.current
+      if (active !== null) updateDraft(active, { name })
+    },
+    [updateDraft],
+  )
   // The walk surface's half of the canvas: pins, the path, and a tapped pin as
   // a request to open that door.
   const walkMap = useWalkMapSession(walkTurf)
@@ -1443,6 +1453,7 @@ export default function NativeDoorKnockingPage({
                 onStartNewTurf={startNextTurf}
                 onRemoveDraft={removeDraft}
                 onPickColor={pickActiveColor}
+                onRename={renameActiveTurf}
                 pendingAssigneeId={pendingAssigneeId}
                 onAssign={(assigneeId) => {
                   // Before the third corner there is no draft to write to,

@@ -24,6 +24,7 @@ interface DrawStepProps {
   onEditDraft: (clientId: string, origin: DOMRect) => void
   onRemoveDraft: (clientId: string) => void
   onPickColor: (clientId: string, color: string) => void
+  onRename: (clientId: string, name: string) => void
   onAssign: (clientId: string, assigneeId: number | null) => void
 }
 
@@ -56,6 +57,7 @@ export const DrawStep = ({
   onEditDraft,
   onRemoveDraft,
   onPickColor,
+  onRename,
   onAssign,
 }: DrawStepProps) => {
   // Which card is open. Local disclosure, unlike the panel's, where being
@@ -151,6 +153,7 @@ export const DrawStep = ({
               onEdit={(origin) => onEditDraft(draft.clientId, origin)}
               onRemove={() => onRemoveDraft(draft.clientId)}
               onPickColor={(color) => onPickColor(draft.clientId, color)}
+              onRename={(name) => onRename(draft.clientId, name)}
               onAssign={(assigneeId) => onAssign(draft.clientId, assigneeId)}
             />
           ))}

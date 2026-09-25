@@ -14,7 +14,12 @@ import {
   UserIcon,
 } from '@styleguide'
 import { useRef, useState, type ReactNode, type RefObject } from 'react'
-import { TURF_COLORS, turfColorLabel, turfColorTick } from '../turfQueries'
+import {
+  MAX_TURF_NAME_LENGTH,
+  TURF_COLORS,
+  turfColorLabel,
+  turfColorTick,
+} from '../turfQueries'
 import type { TeamOption } from '../useTeamOptions'
 import { RemoveTurfDialog } from './removeTurfDialog'
 
@@ -44,6 +49,10 @@ interface TurfCardProps {
   onEdit?: (origin: DOMRect) => void
   onPickColor: (color: string) => void
   onAssign: (assigneeId: number | null) => void
+  // Rename in place, on the open card only. Absent means the name is not
+  // editable here — the closed rows in the list are a place to compare
+  // turfs, not to type into.
+  onRename?: (name: string) => void
 }
 
 // One turf in the panel's list, closed to a row or open onto its settings.
@@ -67,8 +76,21 @@ export const TurfCard = ({
   onEdit,
   onPickColor,
   onAssign,
+  onRename,
 }: TurfCardProps) => {
   const member = team.find((option) => option.userId === assigneeId)
+  // Only the open card. A closed row is for comparing turfs, and an input on
+  // every one of them would put five focus targets in a list whose job is to
+  // be scanned.
+  const editable = selected && onRename !== undefined
+  // An empty or whitespace-only name is a turf with nothing to call it, so
+  // the previous one stands. Silent rather than an error: the name is still
+  // on screen, so nothing has been lost and there is nothing to explain.
+  const commitRename = (next: string) => {
+    const trimmed = next.trim()
+    if (trimmed === '' || trimmed === name) return
+    onRename?.(trimmed)
+  }
   const [confirmOpen, setConfirmOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   // The row is a button on the whole thing rather than on the name alone,
@@ -86,9 +108,42 @@ export const TurfCard = ({
           down the list is on it: what it is called, who walks it, and what
           it is worth. */}
       <span className="flex min-w-0 flex-1 items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {name}
-        </span>
+        {/* No border, no background, no visible field — the name is the
+            control. A bordered input in a list of five rows reads as a form
+            to fill in; this reads as a name you can correct, which is what
+            it is. The focus ring is the only affordance, and it only shows
+            once somebody is actually in it.
+
+            Uncontrolled via `defaultValue`, keyed on the turf, so typing
+            does not round-trip through the draft on every keystroke and a
+            re-render mid-word cannot move the caret. The value is committed
+            on blur and on Enter. */}
+        {editable ? (
+          <input
+            key={name}
+            defaultValue={name}
+            aria-label="Turf name"
+            maxLength={MAX_TURF_NAME_LENGTH}
+            className="min-w-0 flex-1 truncate rounded-sm border-0 bg-transparent p-0 text-sm font-medium outline-none focus:ring-2 focus:ring-primary-focus"
+            onClick={(event) => event.stopPropagation()}
+            onBlur={(event) => commitRename(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                event.currentTarget.blur()
+              }
+              // Abandon the edit: put the committed name back and leave.
+              if (event.key === 'Escape') {
+                event.currentTarget.value = name
+                event.currentTarget.blur()
+              }
+            }}
+          />
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-sm font-medium">
+            {name}
+          </span>
+        )}
         {/* The canvasser and the count are one group, right-aligned, so the
             count's right edge lands in the same column on every row — which
             is the whole point of `tabular-nums`, and what lets a candidate
@@ -161,7 +216,7 @@ export const TurfCard = ({
           onSelect()
         }}
       >
-        {onSelect ? (
+        {onSelect && !editable ? (
           <button
             type="button"
             aria-current={selected}

@@ -40,6 +40,7 @@ interface TurfPanelProps {
   onStartNewTurf: () => void
   onRemoveDraft: (clientId: string) => void
   onPickColor: (color: string) => void
+  onRename: (name: string) => void
   onAssign: (assigneeId: number | null) => void
   // Keep what this drawing session did, and hand back to the step. Blocked
   // only by a shape that will not route.
@@ -119,6 +120,7 @@ export const TurfPanel = ({
   onStartNewTurf,
   onRemoveDraft,
   onPickColor,
+  onRename,
   onAssign,
   onSave,
   saveDisabled,
@@ -265,6 +267,7 @@ export const TurfPanel = ({
                     onRemove={() => onRemoveDraft(draft.clientId)}
                     onPickColor={onPickColor}
                     onAssign={onAssign}
+                    onRename={onRename}
                   />
                 </li>
               )

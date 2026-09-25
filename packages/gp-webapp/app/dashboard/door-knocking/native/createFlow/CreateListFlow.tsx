@@ -390,7 +390,6 @@ const EMPTY_POINTS: TalkingPointsLines = {
   ask: '',
 }
 
-
 export default function CreateListFlow({
   step,
   filters,
@@ -523,9 +522,7 @@ export default function CreateListFlow({
   const [listOpen, setListOpen] = useState(false)
   // The route the last step buys. Overrides only — `mode` falls back to what
   // the drawn shape's geometry suggests, which can resolve after this mounts.
-  const [modeOverride] = useState<DoorKnockingMode | null>(
-    null,
-  )
+  const [modeOverride] = useState<DoorKnockingMode | null>(null)
   const [loop] = useState(true)
   // The turfs the create actually wrote, held for the success screen, which
   // lists them with their own counts and a knock control each.
@@ -1793,6 +1790,7 @@ export default function CreateListFlow({
               onPickColor={(clientId, color) =>
                 onUpdateDraft(clientId, { color })
               }
+              onRename={(clientId, name) => onUpdateDraft(clientId, { name })}
               onAssign={(clientId, assigneeId) =>
                 onUpdateDraft(clientId, { assigneeId })
               }
