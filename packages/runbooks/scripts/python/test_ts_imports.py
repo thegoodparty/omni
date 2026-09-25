@@ -34,8 +34,9 @@ def test_resolve_import_tries_bundler_suffixes():
 
 def test_resolve_import_refuses_to_escape_the_repo_root():
     # Review Focus 5: a traversing spec must not resolve to something outside the tree.
-    ex = _exists({"../../../etc/passwd.ts"})
-    assert ti.resolve_import("app/a/Comp.tsx", "../../../../etc/passwd", ex) is None
+    # exists() returns True for everything, so this passes ONLY because of the `..` guard —
+    # delete the guard and the test fails, which is the point of the test.
+    assert ti.resolve_import("app/a/Comp.tsx", "../../../../etc/passwd", lambda _rel: True) is None
 
 
 def test_is_hook_name():
