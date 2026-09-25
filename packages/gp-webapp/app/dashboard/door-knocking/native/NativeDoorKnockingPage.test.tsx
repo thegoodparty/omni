@@ -1081,11 +1081,11 @@ describe('NativeDoorKnockingPage create flow', () => {
     )
   })
 
-  it('drops an untouched turf being cut when another is selected', async () => {
-    // The other half of the rule. Clicking a turf is navigation rather
-    // than a request for a card, and a session nobody has typed into or
-    // assigned carries nothing worth a row in the list — parking it would
-    // spawn an empty card out of a click.
+  it('keeps an untouched turf being cut when another is selected', async () => {
+    // The second half of the same report. A card on this panel is a turf
+    // the candidate started — they pressed Add turf to get it — so an
+    // empty one is no more disposable than a named one, and the only
+    // thing that takes a card off the panel is delete.
     renderPage()
     await mapReady()
 
@@ -1108,8 +1108,12 @@ describe('NativeDoorKnockingPage create flow', () => {
       await within(turfPanel()).findByRole('button', { name: /^Turf 1/ }),
     )
 
-    expect(within(turfPanel()).queryByText('Not drawn')).toBeNull()
-    expect(within(turfPanel()).queryByRole('alert')).toBeNull()
+    expect(
+      await within(turfPanel()).findByText('Not drawn'),
+    ).toBeInTheDocument()
+    expect(within(turfPanel()).getByRole('alert')).toHaveTextContent(
+      'Draw and name this turf',
+    )
   })
 
   it('hands the cursor back to the turf before the one deleted', async () => {

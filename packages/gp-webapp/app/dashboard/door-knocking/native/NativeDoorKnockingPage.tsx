@@ -620,11 +620,9 @@ export default function NativeDoorKnockingPage({
   // empty session. The turf just finished keeps its draft — this is "I'm done
   // with that one", not "throw it away".
   //
-  // The turf being cut is parked on the way past, and `Add turf` parks it
-  // UNCONDITIONALLY — even one with nothing in it. The press is a request
-  // FOR a card, and answering it by leaving the panel exactly as it was is
-  // what made the button look broken. Selecting another turf is the softer
-  // case and parks only what has something in it.
+  // The turf being cut is parked on the way past, empty or not: the press
+  // is a request FOR a card, and answering it by leaving the panel exactly
+  // as it was is what made the button look broken.
   const startNextTurf = useCallback(() => {
     const parkedColor = draw.drawColor
     const parking = parkTurfBeingCut()
@@ -653,22 +651,21 @@ export default function NativeDoorKnockingPage({
     (clientId: string) => {
       const draft = turfDrafts.find((entry) => entry.clientId === clientId)
       if (!draft) return
-      // Reported from the app: name the turf you are cutting, click
-      // another turf, and the one you named is gone — its card only exists
-      // while it is the one under the cursor. Unlike `Add turf` this parks
-      // only a turf with something IN it, because clicking a turf is
-      // navigation rather than a request for a card, and an untouched
-      // session carries nothing worth a row in the list.
-      if (pendingName.trim() !== '' || pendingAssigneeId !== null) {
-        parkTurfBeingCut()
-      }
+      // Reported from the app twice: name the turf you are cutting, click
+      // another turf, and the one you named is gone — then again for one
+      // with nothing typed into it yet. Its card only exists while it is
+      // the one under the cursor, so moving the cursor took it off the
+      // panel. Parked unconditionally, empty or not: a card on this panel
+      // is a turf the candidate started, and the only thing that takes one
+      // off is delete.
+      parkTurfBeingCut()
       setPendingAssigneeId(null)
       setPendingName('')
       activeDraftRef.current = clientId
       setActiveDraftId(clientId)
       draw.loadRing(draft.polygon, draft.color)
     },
-    [draw, parkTurfBeingCut, pendingAssigneeId, pendingName, turfDrafts],
+    [draw, parkTurfBeingCut, turfDrafts],
   )
   // Throwing away the turf being cut, from its own card. There is no draft
   // to remove — that is what "being cut" means — so what goes is the
