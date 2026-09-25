@@ -178,8 +178,15 @@ export class OutreachCompletionService extends createPrismaBase(
           )
         }
       }
-    } finally {
+
+      // Sealed only after the scan ran: a throw above leaves the claim open
+      // for the lock's stale takeover to retry within the hour.
       await this.cronLock.markHourlyCompleted(OUTREACH_COMPLETION_JOB, now)
+    } catch (err) {
+      this.logger.error(
+        { err },
+        '[Outreach Completion] sweep failed; slot left open for takeover',
+      )
     }
   }
 
