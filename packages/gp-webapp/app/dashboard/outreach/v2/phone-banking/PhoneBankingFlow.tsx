@@ -16,6 +16,7 @@ import {
   type ServePhoneBankingPurpose,
   type ServePhoneBankingScriptDraftRequest,
   type SocialTone,
+  COMMUNITY_INPUT_PURPOSE,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -54,12 +55,25 @@ import {
 import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
+import { QuestionStep } from './QuestionStep'
 
-type StepId = 'purpose' | 'who' | 'script' | 'sheets' | 'download'
-const STEP_ORDER: StepId[] = ['purpose', 'who', 'script', 'sheets', 'download']
+type StepId = 'purpose' | 'question' | 'who' | 'script' | 'sheets' | 'download'
+
+// The question step belongs to one purpose, so the order is derived rather
+// than fixed. That also keeps the progress bar honest: a hardcoded length
+// would draw five segments for a six-step flow.
+//
+// NOT gated on `serve-issue-capture`. The create contract requires a question
+// whenever the purpose is community_input, so a flow that skipped this step
+// would 400 on save with nothing on screen explaining why.
+const stepOrderFor = (purpose: PhoneBankingFlowPurpose | null): StepId[] =>
+  purpose === COMMUNITY_INPUT_PURPOSE
+    ? ['purpose', 'question', 'who', 'script', 'sheets', 'download']
+    : ['purpose', 'who', 'script', 'sheets', 'download']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
+  question: 'What do you want to learn?',
   who: 'Who do you want to reach?',
   script: 'Write your call script',
   sheets: 'How many call sheets would you like me to create?',
@@ -150,6 +164,10 @@ interface PhoneBankingFlowCreateInput {
   sheetCount: number
   purpose: PhoneBankingFlowPurpose
   voterFileFilterId: number
+  // Serve's community_input only, where the contract requires it. Always
+  // undefined on the Win surface, whose purpose vocabulary has no such
+  // member, so its endpoint never sees the field.
+  communityInputQuestion?: string
 }
 
 // A caller-supplied surface parametrizes purpose cards, the name-suggestion
@@ -266,6 +284,10 @@ export const PhoneBankingFlow = ({
   const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
+  // What this effort is asking, collected on the step that follows a
+  // community_input purpose. Required there by contract, so the step's
+  // Continue stays disabled until it is filled in.
+  const [question, setQuestion] = useState('')
 
   const [tone, setTone] = useState<SocialTone>('warm')
   const [script, setScript] = useState('')
@@ -335,6 +357,9 @@ export const PhoneBankingFlow = ({
         sheetCount,
         purpose: purpose as PhoneBankingFlowPurpose,
         voterFileFilterId,
+        ...(purpose === COMMUNITY_INPUT_PURPOSE
+          ? { communityInputQuestion: question.trim() }
+          : {}),
       })
     },
     onSuccess: (response) => {
@@ -471,7 +496,8 @@ export const PhoneBankingFlow = ({
     setSheetCount(count)
   }
 
-  const stepIndex = STEP_ORDER.indexOf(stepId)
+  const stepOrder = stepOrderFor(purpose)
+  const stepIndex = stepOrder.indexOf(stepId)
 
   const audienceLabel = audience.selectedList?.name ?? ''
 
@@ -533,7 +559,7 @@ export const PhoneBankingFlow = ({
     setScript('')
     setScriptManuallyEdited(false)
     setInstructions('')
-    setStepId('who')
+    setStepId(selected === COMMUNITY_INPUT_PURPOSE ? 'question' : 'who')
     requestDraft(selected, 'warm', undefined, undefined, '')
   }
 
@@ -608,7 +634,7 @@ export const PhoneBankingFlow = ({
       audience.resetBuilder()
       return
     }
-    const previous = STEP_ORDER[stepIndex - 1]
+    const previous = stepOrder[stepIndex - 1]
     if (!previous) return
     // Backing OFF the who step discards the picked list so a re-entry starts
     // from an empty picker instead of resuming a selection the user just
@@ -696,43 +722,51 @@ export const PhoneBankingFlow = ({
             onClose()
           },
         }
-      : stepId === 'who'
-        ? audienceCta
-        : stepId === 'script'
-          ? {
-              label: 'Continue',
-              onClick: () => setStepId('sheets'),
-              disabled:
-                script.trim().length === 0 ||
-                draftMutation.isPending ||
-                name.trim().length === 0,
-            }
-          : stepId === 'sheets'
+      : stepId === 'question'
+        ? {
+            label: 'Continue',
+            onClick: () => setStepId('who'),
+            // Required by contract, so a blank question would 400 on save
+            // several steps later with nothing on screen explaining why.
+            disabled: question.trim().length === 0,
+          }
+        : stepId === 'who'
+          ? audienceCta
+          : stepId === 'script'
             ? {
                 label: 'Continue',
-                onClick: () => {
-                  // Nothing is written until the candidate can have the list:
-                  // a gated Continue shows the ready screen as a preview, and
-                  // the gate opens from there (design: the download step's
-                  // download and Continue both open it).
-                  if (gate.requirement !== null) {
-                    setStepId('download')
-                    return
-                  }
-                  createMutation.mutate()
-                },
-                disabled: createMutation.isPending,
-                loading: createMutation.isPending,
+                onClick: () => setStepId('sheets'),
+                disabled:
+                  script.trim().length === 0 ||
+                  draftMutation.isPending ||
+                  name.trim().length === 0,
               }
-            : stepId === 'download'
+            : stepId === 'sheets'
               ? {
                   label: 'Continue',
                   onClick: () => {
-                    setGateOrigin('create')
-                    setGateOpen(true)
+                    // Nothing is written until the candidate can have the list:
+                    // a gated Continue shows the ready screen as a preview, and
+                    // the gate opens from there (design: the download step's
+                    // download and Continue both open it).
+                    if (gate.requirement !== null) {
+                      setStepId('download')
+                      return
+                    }
+                    createMutation.mutate()
                   },
+                  disabled: createMutation.isPending,
+                  loading: createMutation.isPending,
                 }
-              : null
+              : stepId === 'download'
+                ? {
+                    label: 'Continue',
+                    onClick: () => {
+                      setGateOrigin('create')
+                      setGateOpen(true)
+                    },
+                  }
+                : null
 
   return (
     <OutreachFlowShell
@@ -746,7 +780,7 @@ export const PhoneBankingFlow = ({
         />
       }
       currentStep={stepIndex + 1}
-      totalSteps={STEP_ORDER.length}
+      totalSteps={stepOrder.length}
       onBack={stepIndex > 0 && !saved && !gateOpen ? handleBack : undefined}
       cta={cta}
       // A React element is truthy even when it renders null, so the caller
@@ -802,6 +836,15 @@ export const PhoneBankingFlow = ({
             selected={purpose}
             onSelect={handleSelectPurpose}
           />
+        </div>
+      ) : stepId === 'question' ? (
+        <div className="space-y-6">
+          <Intro
+            channel="phoneBanking"
+            title={STEP_TITLES.question}
+            body="We will read this back to you with what people said."
+          />
+          <QuestionStep question={question} onChange={setQuestion} />
         </div>
       ) : stepId === 'who' ? (
         <>
