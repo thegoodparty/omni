@@ -6,6 +6,7 @@ import Stripe from 'stripe'
 import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
@@ -22,6 +23,7 @@ const paymentIntentsCreate = vi.fn()
 const paymentIntentsCancel = vi.fn()
 const paymentMethodsRetrieve = vi.fn()
 
+let trackSpy: ReturnType<typeof vi.spyOn>
 let campaign: Campaign
 let orgSlug: string
 let filterId: number
@@ -101,9 +103,9 @@ beforeEach(async () => {
     service.app.get(OutreachRobocallService),
     'deriveBillableCount',
   ).mockResolvedValue(100)
-  vi.spyOn(service.app.get(AnalyticsService), 'track').mockResolvedValue(
-    undefined as never,
-  )
+  trackSpy = vi
+    .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
   vi.spyOn(
     service.app.get(HubspotSingleSendService),
     'sendSingleSend',
@@ -413,6 +415,22 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize with a promo', () => 
     })
     // Visible in history like any scheduled send.
     expect((await readSpine(outreachId)).status).toBe('pending')
+    // And counted like any scheduled send: a covered run commits at $0 with
+    // no hold because the redeemed code IS the payment, so it is a send
+    // terminal exactly as the authorized commit is (DATA-2526).
+    const trackCalls = trackSpy.mock.calls as Parameters<
+      AnalyticsService['track']
+    >[]
+    const scheduled = trackCalls.filter(
+      (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
+    )
+    expect(scheduled).toHaveLength(1)
+    expect(scheduled[0]?.[0]).toBe(service.user.id)
+    expect(scheduled[0]?.[2]).toMatchObject({
+      channel: 'robocall',
+      outreachId,
+    })
+    expect(scheduled[0]?.[4]).toBe(`${outreachId}:campaign_scheduled`)
   })
 
   it('does not schedule a covered run twice', async () => {
