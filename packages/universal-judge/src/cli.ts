@@ -8,7 +8,7 @@
 import { writeFileSync } from 'node:fs'
 import { summarise, type Summary } from './aggregate.js'
 import { makeClient, DEFAULT_JUDGE_MODEL } from './pairwise.js'
-import { catalogue, resolveAgent } from './registry.js'
+import { agentByName, catalogue, resolveAgent } from './registry.js'
 import { COMMENT_MARKER, renderComment } from './report.js'
 import { runAgent } from './run.js'
 import { estimateCost, isTriggered, parseSpec, type JobSpec } from './spec.js'
@@ -32,6 +32,8 @@ Options:
   --judge-model <id>        Judge model (default: ${DEFAULT_JUDGE_MODEL}).
   --refresh-baseline        Re-run the baseline instead of reusing cached outputs.
   --out <path>              Write the rendered PR comment here.
+  --plan-out <path>         Write the resolved plan as JSON and stop. Used by CI to decide
+                            which packages it needs to install before running.
   --dry-run                 Resolve the job and print the plan and cost estimate, then stop.
   --requested-by <login>    Attribute the run in the comment.
 
@@ -115,6 +117,31 @@ export const main = async (argv = process.argv.slice(2)) => {
     if (str(args, 'samples'))
       spec.samplesPerAgent = Number(str(args, 'samples'))
     if (args['refresh-baseline']) spec.refreshBaseline = true
+  }
+
+  // CI resolves the plan first so it knows whether it needs to install gp-api in
+  // both checkouts, which is only worth doing when a foreground agent is asked for.
+  const planOut = str(args, 'plan-out')
+  if (planOut) {
+    const kinds = spec.agents.map((name) => agentByName(name).kind)
+    writeFileSync(
+      planOut,
+      JSON.stringify(
+        {
+          agents: spec.agents,
+          samplesPerAgent: spec.samplesPerAgent,
+          refreshBaseline: spec.refreshBaseline,
+          hasForeground: kinds.includes('foreground'),
+          hasBackground: kinds.includes('background'),
+          estimatedCostUsd: Number(estimateCost(spec).toFixed(2)),
+          notes: spec.notes,
+        },
+        null,
+        2,
+      ),
+    )
+    console.log(`Wrote plan to ${planOut}`)
+    return 0
   }
 
   if (!spec.agents.length) {
