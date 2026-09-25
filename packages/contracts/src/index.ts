@@ -1237,6 +1237,24 @@ export {
 } from './doorKnocking/DoorKnockingNotAVoter.schema'
 
 export {
+  CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
+  ConstituentFeedbackTripleSchema,
+  type ConstituentFeedbackTriple,
+  RecordConstituentFeedbackSchema,
+  type RecordConstituentFeedback,
+  RecordConstituentFeedbackResponseSchema,
+  type RecordConstituentFeedbackResponse,
+  ConfirmConstituentFeedbackSchema,
+  type ConfirmConstituentFeedback,
+  ConstituentFeedbackSchema,
+  type ConstituentFeedbackRecord,
+  ConstituentFeedbackListResponseSchema,
+  type ConstituentFeedbackListResponse,
+} from './constituentFeedback/ConstituentFeedback.schema'
+
+export {
   PHONE_BANKING_PURPOSE_VALUES,
   PhoneBankingPurposeSchema,
   type PhoneBankingPurpose,
