@@ -50,6 +50,13 @@ model DoorKnockingTurf {
   // for exactly those lists, which is what makes this shippable without a
   // backfill.
   purpose           DoorKnockingPurpose?
+  // The specific thing this effort is asking constituents, set on the wizard
+  // step that follows a `community_input` purpose and required there. It is
+  // what gives issue capture's extraction its context: without it the model
+  // reads "no" and cannot tell a refused compost bin from a declined yard
+  // sign. Null on every other purpose, and on every turf cut before this
+  // shipped.
+  communityInputQuestion String? @map("community_input_question") @db.Text
   /// [GeoJsonPolygon]
   geoPoly           Json              @map("geo_poly")
   // Genuinely optional, not just an artifact of the FK living on the child.

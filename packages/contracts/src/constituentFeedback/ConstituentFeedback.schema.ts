@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import {
   ConstituentFeedbackCaptureMethodSchema,
   ConstituentFeedbackExtractionStatusSchema,
@@ -70,6 +71,12 @@ export const RecordConstituentFeedbackSchema = z.discriminatedUnion('channel', [
       // The `clientKey` of the knock this memo belongs to, which the server
       // resolves via (organizationSlug, sourceId).
       knockClientKey: z.guid(),
+      // The same frozen stop target the knock itself was recorded against.
+      // Sent rather than derived because a knock row carries no turf, and the
+      // turf is what holds the effort's question — resolving it from the
+      // person instead would pick an arbitrary one when the same resident
+      // sits in two turfs.
+      stopTargetId: z.number().int().positive(),
       ...RecordConstituentFeedbackBase,
     })
     .strict(),
@@ -118,14 +125,14 @@ export type ConfirmConstituentFeedback = z.infer<
 export const ConstituentFeedbackSchema = z.object({
   id: z.string(),
   personId: z.string(),
-  occurredAt: z.coerce.date(),
+  occurredAt: zCoerceDate(),
   channel: z.string(),
   transcript: z.string().nullable(),
   issueLabel: z.string().nullable(),
   stance: ConstituentFeedbackStanceSchema.nullable(),
   desiredOutcome: z.string().nullable(),
   extractionStatus: ConstituentFeedbackExtractionStatusSchema,
-  confirmedAt: z.coerce.date().nullable(),
+  confirmedAt: zCoerceDate().nullable(),
   // Who recorded it. Null when the actor's user row has since been removed,
   // matching how the contact feed renders an authorless note.
   actorName: z.string().nullable(),

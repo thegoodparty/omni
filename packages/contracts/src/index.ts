@@ -831,6 +831,8 @@ export {
   type OutreachPurpose,
   SERVE_OUTREACH_PURPOSE_VALUES,
   ServeOutreachPurposeSchema,
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   type ServeOutreachPurpose,
 } from './outreach/OutreachPurpose.schema'
 export {

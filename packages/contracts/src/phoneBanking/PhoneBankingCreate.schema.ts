@@ -1,5 +1,7 @@
 import { z } from 'zod'
 import {
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   OUTREACH_PURPOSE_VALUES,
   SERVE_OUTREACH_PURPOSE_VALUES,
 } from '../outreach/OutreachPurpose.schema'
@@ -62,8 +64,27 @@ export const ServePhoneBankingCreateSchema = z
     sheetCount: z.number().int().min(1).max(PHONE_BANKING_MAX_SHEET_COUNT),
     voterFileFilterId: z.number().int().positive(),
     purpose: ServePhoneBankingPurposeSchema,
+    // What this effort is asking, when the purpose is `community_input`.
+    // Same field and same rule as the door-knocking turf's — the question a
+    // caller reads is the same question a canvasser reads, and issue capture
+    // hands both to the same extraction.
+    communityInputQuestion: z
+      .string()
+      .min(1)
+      .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
+      .optional(),
   })
   .strict()
+  .refine(
+    (input) =>
+      (input.purpose === COMMUNITY_INPUT_PURPOSE) ===
+      (input.communityInputQuestion !== undefined),
+    {
+      message:
+        'communityInputQuestion is required for community_input and refused otherwise',
+      path: ['communityInputQuestion'],
+    },
+  )
 
 export type ServePhoneBankingCreate = z.infer<
   typeof ServePhoneBankingCreateSchema

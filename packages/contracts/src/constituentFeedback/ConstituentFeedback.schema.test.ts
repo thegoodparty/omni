@@ -11,6 +11,7 @@ const MEMO_KEY = '22222222-2222-4222-8222-222222222222'
 const knockMemo = {
   channel: 'door_knock' as const,
   knockClientKey: KNOCK_KEY,
+  stopTargetId: 21,
   clientKey: MEMO_KEY,
   transcript: 'Talked to Bob. Against the Flock cameras, wants them removed.',
   captureMethod: 'dictation' as const,

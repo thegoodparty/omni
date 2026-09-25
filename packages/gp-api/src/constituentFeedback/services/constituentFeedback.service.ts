@@ -60,6 +60,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
         ? await this.resolveKnock(
             input.organizationSlug,
             input.body.knockClientKey,
+            input.body.stopTargetId,
           )
         : await this.resolvePhoneBankCall(
             input.organizationSlug,
@@ -219,7 +220,11 @@ export class ConstituentFeedbackService extends createPrismaBase(
     }
   }
 
-  private async resolveKnock(organizationSlug: string, knockClientKey: string) {
+  private async resolveKnock(
+    organizationSlug: string,
+    knockClientKey: string,
+    stopTargetId: number,
+  ) {
     const knock = await this.client.contactInteractionDoorKnock.findUnique({
       where: {
         organizationSlug_sourceId: {
@@ -231,11 +236,28 @@ export class ConstituentFeedbackService extends createPrismaBase(
     })
     if (knock === null) throw new NotFoundException()
 
+    // A knock row carries no turf, and the turf is what holds the question.
+    // Scoped through the turf's own organization so a stop target from
+    // another org cannot pull its question into this row.
+    const target = await this.client.doorKnockingStopTarget.findFirst({
+      where: {
+        id: stopTargetId,
+        personId: knock.personId,
+        stop: { turf: { voterFileFilter: { organizationSlug } } },
+      },
+      select: {
+        stop: {
+          select: { turf: { select: { communityInputQuestion: true } } },
+        },
+      },
+    })
+    if (target === null) throw new NotFoundException()
+
     return {
       personId: knock.personId,
       doorKnockInteractionId: knock.id,
       phoneBankingInteractionId: null,
-      effortQuestion: null,
+      effortQuestion: target.stop.turf.communityInputQuestion,
     }
   }
 
@@ -246,7 +268,10 @@ export class ConstituentFeedbackService extends createPrismaBase(
   ) {
     const entry = await this.client.phoneBankingListEntry.findFirst({
       where: { id: entryId, list: { organizationSlug } },
-      select: { phoneBankingListId: true },
+      select: {
+        phoneBankingListId: true,
+        list: { select: { communityInputQuestion: true } },
+      },
     })
     if (entry === null) throw new NotFoundException()
 
@@ -265,7 +290,7 @@ export class ConstituentFeedbackService extends createPrismaBase(
       personId: call.personId,
       doorKnockInteractionId: null,
       phoneBankingInteractionId: call.id,
-      effortQuestion: null,
+      effortQuestion: entry.list.communityInputQuestion,
     }
   }
 }
