@@ -931,7 +931,8 @@ describe('NativeDoorKnockingPage create flow', () => {
     expect(
       await panel().findByText(/Navigate to the location/),
     ).toBeInTheDocument()
-    expect(panel().getByRole('button', { name: 'Save' })).toBeDisabled()
+    // Save stays live — leaving without cutting anything is a real exit.
+    expect(panel().getByRole('button', { name: 'Save' })).toBeEnabled()
     // Absent rather than disabled: there is nothing to add a turf to yet.
     expect(panel().queryByRole('button', { name: /Add turf/ })).toBeNull()
     expect(panel().queryByLabelText('Turf name')).toBeNull()
@@ -945,6 +946,31 @@ describe('NativeDoorKnockingPage create flow', () => {
     ).toBeInTheDocument()
     expect(panel().getByRole('button', { name: 'Save' })).toBeEnabled()
     expect(panel().queryByText(/Navigate to the location/)).toBeNull()
+  })
+
+  // The other half of the reported bug. Undo blanks a draft rather than
+  // deleting it, so taking every point back used to hand a card with
+  // nothing in it to the draw step. Leaving is still allowed — what must
+  // not survive is the empty draft.
+  it('saves with nothing drawn, and leaves no turf behind', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+
+    // Straight out again, having cut nothing.
+    fireEvent.click(within(turfPanel()).getByRole('button', { name: 'Save' }))
+
+    // Back on the draw step with no card on it — the surface is gone and
+    // nothing took its place.
+    await waitFor(() => expect(screen.queryByText('Turfs')).toBeNull())
+    expect(screen.queryByText('Name this turf')).toBeNull()
+    expect(screen.queryByText('Drawing')).toBeNull()
   })
 
   // The reported bug: draw three points, undo them all, press Save. Undo

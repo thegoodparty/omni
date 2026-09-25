@@ -310,21 +310,16 @@ describe('TurfPanel', () => {
     expect(row).toHaveTextContent('Turf 1Alex Rivera·4 stops')
   })
 
-  it('gates Save on the empty state and on a shape that will not route', () => {
-    // Dead on the empty state, which is a change from the old rule that
-    // Save was never blocked by having no turfs. That rule existed so
-    // Cancel could not become the only live control on a surface somebody
-    // is standing on — the empty state answers that instead, since it
-    // carries its own CTA and Cancel is beside it.
+  it('gates Save only on a shape that will not route', () => {
+    // Deliberately NOT gated on having a turf, nor on the empty state.
+    // Leaving a surface you are standing on is never the thing to block: a
+    // candidate who opened the map and decided not to cut anything hands
+    // back to a step whose own Continue is already disabled, which says so
+    // once.
     const onSave = vi.fn()
     const { rerender } = render(
       <TurfPanel {...baseProps} drafts={[]} active={null} onSave={onSave} />,
     )
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
-
-    // Saying you are ready to draw brings it to life, along with the card
-    // and Add turf.
-    fireEvent.click(screen.getByRole('button', { name: /Draw first turf/ }))
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
 
     rerender(<TurfPanel {...baseProps} saveDisabled onSave={onSave} />)

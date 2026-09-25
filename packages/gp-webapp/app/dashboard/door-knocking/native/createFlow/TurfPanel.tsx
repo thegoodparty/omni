@@ -152,16 +152,15 @@ export const TurfPanel = ({
   // gesture for every one after.
   const [started, setStarted] = useState(drafts.length > 0)
   const introducing = !started && drafts.length === 0
-  // A turf needs both halves to be saved: something to call it and
-  // somewhere to walk. Undo below three corners BLANKS a draft rather than
-  // deleting it (see `isDrawnTurf`), so a turf with no shape is a real
-  // state and not a transient one — it is what a candidate is left holding
-  // after taking their points back.
-  const problemWith = (draft: TurfDraft): string | null => {
-    if (draft.name.trim() === '') return 'Name this turf'
-    if (!isDrawnTurf(draft)) return 'Draw this turf on the map'
-    return null
-  }
+  // A turf that EXISTS needs something to call it. A draft with no shape is
+  // not a turf at all — undo below three corners blanks a draft rather than
+  // deleting it (see `isDrawnTurf`), so what a candidate is left holding
+  // after taking their points back is an abandoned attempt. Saving drops
+  // those rather than arguing about them, which is also what stops one
+  // reaching the draw step as a card with nothing in it.
+  const abandoned = drafts.filter((draft) => !isDrawnTurf(draft))
+  const problemWith = (draft: TurfDraft): string | null =>
+    isDrawnTurf(draft) && draft.name.trim() === '' ? 'Name this turf' : null
   const incomplete = drafts.filter((draft) => problemWith(draft) !== null)
   // Selecting a turf expands its card, and the controls it opens can land
   // below the fold on a short panel. `nearest` scrolls the least that makes
@@ -375,7 +374,7 @@ export const TurfPanel = ({
         <Button
           type="button"
           className="flex-1"
-          disabled={saveDisabled || introducing}
+          disabled={saveDisabled}
           onClick={() => {
             // Refused rather than disabled. A dead Save button says a turf
             // is wrong without saying which one or why, and the answer is
@@ -385,6 +384,11 @@ export const TurfPanel = ({
               setAttemptedSave(true)
               return
             }
+            // Leaving with nothing drawn is a legitimate exit, and so is
+            // leaving after taking every point back: both hand back to a
+            // step whose own Continue is already disabled, which says so
+            // once. What must not survive is the blank draft itself.
+            for (const draft of abandoned) onRemoveDraft(draft.clientId)
             onSave()
           }}
         >
