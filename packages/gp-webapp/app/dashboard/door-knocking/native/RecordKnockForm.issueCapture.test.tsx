@@ -123,14 +123,14 @@ beforeEach(() => {
     data: {
       id: 'feedback-1',
       personId: 'person-1',
-      occurredAt: '2026-09-25T00:00:00.000Z',
+      occurredAt: new Date('2026-09-25T00:00:00.000Z'),
       channel: 'door_knock',
       transcript: MEMO,
       issueLabel: 'Flock cameras',
       stance: 'opposes',
       desiredOutcome: 'Remove them and delete the data',
       extractionStatus: 'extracted',
-      confirmedAt: '2026-09-25T00:00:01.000Z',
+      confirmedAt: new Date('2026-09-25T00:00:01.000Z'),
       actorName: 'Kamal Al Sawafi',
     },
   })

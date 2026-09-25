@@ -128,3 +128,50 @@ describe('previousStage', () => {
     expect(moves).toBe(stepperPosition('route').totalSteps - 1)
   })
 })
+
+// The community-input purpose inserts one stage after `purpose`, making the
+// path seven long. Everything else about the flow is unchanged, which is what
+// the default-argument shape is for.
+describe('the community-input question stage', () => {
+  it('sits second and pushes every later stage along by one', () => {
+    expect(stepperPosition('purpose', true)).toEqual({
+      currentStep: 1,
+      totalSteps: 7,
+    })
+    expect(stepperPosition('question', true)).toEqual({
+      currentStep: 2,
+      totalSteps: 7,
+    })
+    expect(stepperPosition('who', true)).toEqual({
+      currentStep: 3,
+      totalSteps: 7,
+    })
+    expect(stepperPosition('route', true)).toEqual({
+      currentStep: 7,
+      totalSteps: 7,
+    })
+  })
+
+  it('walks back through the question rather than past it', () => {
+    expect(previousStage('who', true)).toBe('question')
+    expect(previousStage('question', true)).toBe('purpose')
+    expect(previousStage('purpose', true)).toBeNull()
+  })
+
+  // The orchestrator must not learn about this stage: it lives inside the
+  // page's single `filters` step, so the canvas's draw-session transition is
+  // untouched by its existence.
+  it('reports the filters step, like every other pre-draw stage', () => {
+    expect(stageStep('question')).toBe('filters')
+  })
+
+  it('still walks back to the start in totalSteps - 1 moves', () => {
+    let stage: CreateFlowStage | null = 'route'
+    let moves = 0
+    while (stage !== null && moves < 12) {
+      stage = previousStage(stage, true)
+      if (stage !== null) moves += 1
+    }
+    expect(moves).toBe(stepperPosition('route', true).totalSteps - 1)
+  })
+})

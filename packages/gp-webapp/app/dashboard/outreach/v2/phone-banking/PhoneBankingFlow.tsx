@@ -55,7 +55,7 @@ import {
 import { ScriptStep } from './ScriptStep'
 import { SheetCountStep } from './SheetCountStep'
 import { DownloadStep } from './DownloadStep'
-import { QuestionStep } from './QuestionStep'
+import { CommunityInputQuestionStep } from '../CommunityInputQuestionStep'
 
 type StepId = 'purpose' | 'question' | 'who' | 'script' | 'sheets' | 'download'
 
@@ -844,7 +844,10 @@ export const PhoneBankingFlow = ({
             title={STEP_TITLES.question}
             body="We will read this back to you with what people said."
           />
-          <QuestionStep question={question} onChange={setQuestion} />
+          <CommunityInputQuestionStep
+            question={question}
+            onChange={setQuestion}
+          />
         </div>
       ) : stepId === 'who' ? (
         <>

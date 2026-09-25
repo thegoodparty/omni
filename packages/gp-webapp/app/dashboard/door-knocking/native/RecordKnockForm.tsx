@@ -217,6 +217,7 @@ export default function RecordKnockForm({
       clientRequest('POST /v1/constituent-feedback', {
         channel: 'door_knock',
         knockClientKey: clientKey,
+        stopTargetId: target.stopTargetId,
         clientKey,
         transcript,
         captureMethod: spoken ? 'dictation' : 'typed',

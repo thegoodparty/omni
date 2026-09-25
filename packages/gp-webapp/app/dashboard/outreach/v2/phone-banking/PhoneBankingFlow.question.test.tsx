@@ -45,9 +45,9 @@ beforeEach(() => {
   })
   api.mock('POST /v1/outreach/serve/phone-banking/draft', {
     status: 200,
-    data: { script: 'Hi, this is your council member.' },
+    data: { draft: 'Hi, this is your council member.' },
   })
-  api.mock('GET /v1/voters/voter-file/filter', { status: 200, data: [] })
+  api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
 })
 
 describe('PhoneBankingFlow community-input question step', () => {

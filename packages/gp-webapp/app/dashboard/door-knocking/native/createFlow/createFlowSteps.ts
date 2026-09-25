@@ -34,7 +34,11 @@
 // means changing the audience upstream; who/purpose release the filter.
 export type CreateFlowStep = 'filters' | 'draw' | 'name' | 'points' | 'route'
 
-export const PRE_DRAW_STAGES = ['purpose', 'who'] as const
+// `question` sits between them for the one purpose that asks one. It is a
+// PRE-DRAW stage rather than a step of its own precisely because this phase
+// can grow without the orchestrator learning about it — `stageStep` still
+// reports `filters`, so the canvas's draw-session transition is untouched.
+export const PRE_DRAW_STAGES = ['purpose', 'question', 'who'] as const
 
 export type PreDrawStage = (typeof PRE_DRAW_STAGES)[number]
 
@@ -79,20 +83,31 @@ export interface StepperPosition {
 // filtered draft with no saved list behind it). It is deliberately not
 // implemented — a filtered draft continues to the draw step like any other
 // audience, and the filter it mints is named by the campaign name on confirm.
-export const stepperPosition = (stage: CreateFlowStage): StepperPosition => {
+// `asksQuestion` is the community-input purpose being selected, which inserts
+// one stage after `purpose` and makes the path seven long. Passed in rather
+// than read here so this module stays pure and the flow keeps owning what the
+// purpose means.
+export const stepperPosition = (
+  stage: CreateFlowStage,
+  asksQuestion = false,
+): StepperPosition => {
+  const totalSteps = asksQuestion ? 7 : 6
+  const after = (base: number): number => (asksQuestion ? base + 1 : base)
   switch (stage) {
     case 'purpose':
-      return { currentStep: 1, totalSteps: 6 }
+      return { currentStep: 1, totalSteps }
+    case 'question':
+      return { currentStep: 2, totalSteps }
     case 'who':
-      return { currentStep: 2, totalSteps: 6 }
+      return { currentStep: after(2), totalSteps }
     case 'points':
-      return { currentStep: 3, totalSteps: 6 }
+      return { currentStep: after(3), totalSteps }
     case 'name':
-      return { currentStep: 4, totalSteps: 6 }
+      return { currentStep: after(4), totalSteps }
     case 'draw':
-      return { currentStep: 5, totalSteps: 6 }
+      return { currentStep: after(5), totalSteps }
     case 'route':
-      return { currentStep: 6, totalSteps: 6 }
+      return { currentStep: after(6), totalSteps }
   }
 }
 
@@ -100,12 +115,15 @@ export const stepperPosition = (stage: CreateFlowStage): StepperPosition => {
 // way.
 export const previousStage = (
   stage: CreateFlowStage,
+  asksQuestion = false,
 ): CreateFlowStage | null => {
   switch (stage) {
     case 'purpose':
       return null
-    case 'who':
+    case 'question':
       return 'purpose'
+    case 'who':
+      return asksQuestion ? 'question' : 'purpose'
     case 'points':
       return 'who'
     case 'name':
