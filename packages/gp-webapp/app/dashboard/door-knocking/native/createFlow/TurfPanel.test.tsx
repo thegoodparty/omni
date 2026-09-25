@@ -39,6 +39,7 @@ const baseProps = {
   pendingAssigneeId: null,
   drawColor: '#2563eb',
   draftStats: new Map([['draft-1', stats(6, 4)]]),
+  savedTurfNames: [],
   team: TEAM,
   onSelectDraft: vi.fn(),
   onStartNewTurf: vi.fn(),
@@ -377,6 +378,112 @@ describe('TurfPanel', () => {
     // The spacing is CSS, so the order is what the text content shows.
     const row = screen.getByRole('button', { name: /^Turf 1/ })
     expect(row).toHaveTextContent('Turf 1Alex Rivera·4 stops')
+  })
+
+  it('refuses to save two turfs with one name, and reddens both', async () => {
+    // The name is how a turf is told apart everywhere it is met afterwards
+    // — outreach history, the walk header, the printed sheet — and none of
+    // those carry the colour or the id that would disambiguate them.
+    const onSave = vi.fn()
+    const twins = [
+      draft({ name: 'Ward 4' }),
+      // Trimmed and case-folded: the same turf to everyone but the
+      // database.
+      draft({ clientId: 'draft-2', name: 'ward 4 ' }),
+    ]
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={twins}
+        draftStats={
+          new Map([
+            ['draft-1', stats(6, 4)],
+            ['draft-2', stats(11, 8)],
+          ])
+        }
+        onSave={onSave}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onSave).not.toHaveBeenCalled()
+    // BOTH, because either one is the one to change and a single red card
+    // would be picking for them.
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts).toHaveLength(2)
+    for (const alert of alerts) {
+      expect(alert).toHaveTextContent('Two turfs have this name. Change one.')
+    }
+  })
+
+  it('counts the turfs this campaign already holds as names taken', async () => {
+    // Entered through "Draw more turfs", the campaign's saved turfs are not
+    // on this panel and have no card to redden — so the collision is
+    // reported on the draft, which is the half that can still be changed.
+    const onSave = vi.fn()
+    const { rerender } = render(
+      <TurfPanel
+        {...baseProps}
+        savedTurfNames={['Downtown', 'Ward 4']}
+        onSave={onSave}
+      />,
+    )
+
+    // `Turf 1` clashes with neither, so the press goes through.
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    onSave.mockClear()
+    rerender(
+      <TurfPanel
+        {...baseProps}
+        drafts={[draft({ name: 'Downtown' })]}
+        savedTurfNames={['Downtown', 'Ward 4']}
+        onSave={onSave}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onSave).not.toHaveBeenCalled()
+    // One card, because only one of the two is on this panel.
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]).toHaveTextContent('Two turfs have this name. Change one.')
+  })
+
+  it('clears the duplicate on the next frame, with no second press', async () => {
+    // Derived from the drafts on every render rather than stored when the
+    // press was refused, so fixing one card clears its own error without
+    // anything having to remember to.
+    const onSave = vi.fn()
+    const { rerender } = render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[
+          draft({ name: 'Ward 4' }),
+          draft({ clientId: 'draft-2', name: 'Ward 4' }),
+        ]}
+        onSave={onSave}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findAllByRole('alert')).toHaveLength(2)
+
+    rerender(
+      <TurfPanel
+        {...baseProps}
+        drafts={[
+          draft({ name: 'Ward 4' }),
+          draft({ clientId: 'draft-2', name: 'Ward 5' }),
+        ]}
+        onSave={onSave}
+      />,
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSave).toHaveBeenCalledTimes(1)
   })
 
   it('gates Save only on a shape that will not route', () => {

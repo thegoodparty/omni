@@ -1490,6 +1490,7 @@ export default function NativeDoorKnockingPage({
                 pendingName={pendingName}
                 drawColor={ringColor}
                 draftStats={draftStats}
+                savedTurfNames={(siblingTurfs ?? []).map((turf) => turf.name)}
                 team={teamOptions}
                 onSelectDraft={selectDraft}
                 onStartNewTurf={startNextTurf}

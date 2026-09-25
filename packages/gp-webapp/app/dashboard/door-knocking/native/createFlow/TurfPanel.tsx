@@ -36,6 +36,12 @@ interface TurfPanelProps {
   // right swatch before the third corner lands.
   drawColor: string
   draftStats: Map<string, PolygonStats>
+  // What the campaign's ALREADY-SAVED turfs are called, when this surface
+  // was entered to add turfs to one. A name has to be unique across the
+  // campaign and not merely across this drawing session, and those turfs
+  // have no card here to go red — so the collision is reported on the
+  // draft, which is the half the candidate can still change.
+  savedTurfNames: string[]
   team: TeamOption[]
   onSelectDraft: (clientId: string) => void
   onStartNewTurf: () => void
@@ -123,6 +129,7 @@ export const TurfPanel = ({
   pendingAssigneeId,
   drawColor,
   draftStats,
+  savedTurfNames,
   team,
   onSelectDraft,
   onStartNewTurf,
@@ -182,8 +189,36 @@ export const TurfPanel = ({
   // those rather than arguing about them, which is also what stops one
   // reaching the draw step as a card with nothing in it.
   const abandoned = drafts.filter((draft) => !isDrawnTurf(draft))
-  const problemWith = (draft: TurfDraft): string | null =>
-    isDrawnTurf(draft) && draft.name.trim() === '' ? 'Name this turf' : null
+  // And two turfs in one campaign cannot be called the same thing. The name
+  // is how a turf is told apart everywhere it is met afterwards — the
+  // outreach history, the walk header, the printed sheet, the message that
+  // hands one to a volunteer — and none of those carry the colour or the
+  // id that would disambiguate them. Compared trimmed and case-folded,
+  // because "Ward 4" and "ward 4 " are the same turf to everyone but the
+  // database.
+  //
+  // The saved siblings count and are not shown, so a draft can collide
+  // with a turf that has no card on this panel. One wording covers both:
+  // the sentence is true either way, and the card carrying it is always the
+  // one that can be changed.
+  const nameKey = (name: string) => name.trim().toLowerCase()
+  const nameCounts = new Map<string, number>()
+  for (const name of [
+    ...savedTurfNames,
+    ...drafts.filter(isDrawnTurf).map((draft) => draft.name),
+  ]) {
+    const key = nameKey(name)
+    if (key === '') continue
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
+  }
+  const problemWith = (draft: TurfDraft): string | null => {
+    if (!isDrawnTurf(draft)) return null
+    if (draft.name.trim() === '') return 'Name this turf'
+    if ((nameCounts.get(nameKey(draft.name)) ?? 0) > 1) {
+      return 'Two turfs have this name. Change one.'
+    }
+    return null
+  }
   const incomplete = drafts.filter((draft) => problemWith(draft) !== null)
   // Selecting a turf expands its card, and the controls it opens can land
   // below the fold on a short panel. `nearest` scrolls the least that makes
