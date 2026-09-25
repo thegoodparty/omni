@@ -301,3 +301,71 @@ describe('OutreachFlowShell terminal stage and session reset', () => {
     )
   })
 })
+
+// Robocall has no success screen, so it settles while still reporting its last
+// stage. SMS and social swap in a success screen and drop trackedStep to null.
+// Both must record the terminal completion exactly once, which is why settling
+// is handled before trackedStep rather than inside its null branch.
+describe('OutreachFlowShell settling without a success screen', () => {
+  beforeEach(() => {
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  const payStep = (settled: boolean) => (
+    <OutreachFlowShell
+      {...baseProps}
+      channel="robocall"
+      trackedStep="pay"
+      settled={settled}
+      currentStep={4}
+      totalSteps={4}
+      cta={null}
+    >
+      Body
+    </OutreachFlowShell>
+  )
+
+  it('completes the terminal stage when the caller keeps reporting it', () => {
+    const { rerender } = render(payStep(false))
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(payStep(true))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepCompleted,
+      {
+        channel: 'robocall',
+        step: 'pay',
+      },
+    )
+  })
+
+  it('does not re-view the terminal stage when it settles', () => {
+    const { rerender } = render(payStep(false))
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(payStep(true))
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepViewed,
+      expect.anything(),
+    )
+  })
+
+  it('completes the terminal stage once across later renders', () => {
+    const { rerender } = render(payStep(false))
+    rerender(payStep(true))
+    vi.mocked(trackEvent).mockClear()
+
+    rerender(payStep(true))
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  // Reopening an already-finished flow traverses no stage, so it completes none.
+  it('completes nothing when the flow opens already settled', () => {
+    render(payStep(true))
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+})

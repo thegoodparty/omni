@@ -73,10 +73,10 @@ interface OutreachFlowShellProps {
   // would merge two funnels into one series.
   trackedStep?: string | null
   // True once the flow has reached its terminal state (campaign scheduled,
-  // post saved, payment settled). Settling is the last stage completing: the
-  // caller drops `trackedStep` to null at the same moment, so without this the
-  // terminal step of every channel would record a Viewed and never a
-  // Completed — and that is the step that converts.
+  // post saved, payment settled). Settling is the last stage completing, and
+  // that stage is the one that converts, so it must be recorded whether or not
+  // the caller also drops `trackedStep` at the same moment: SMS and social do
+  // because they swap in a success screen, robocall does not.
   settled?: boolean
   // Any user input diverging from the initial state: closing asks "Discard
   // changes?"; a pristine (or completed) flow closes silently.
@@ -131,12 +131,13 @@ export const OutreachFlowShell = ({
     if (!channel) return
     const previous = lastStage.current
 
-    // Left the tracked stages. Having settled means the stage we were on is
-    // the one that completed; the gate sub-flow also parks trackedStep at null
-    // but has not settled, so it keeps its place and completes nothing.
-    // Clearing the ref here keeps a re-render while settled from firing twice.
-    if (trackedStep === null) {
-      if (settled && previous) {
+    // Settling ends the funnel, so the stage we were on is the one that
+    // completed. Checked before trackedStep so the caller's success-screen
+    // convention cannot change what gets recorded, and clearing the ref keeps
+    // a later render from counting the same stage twice. A flow that opens
+    // already settled has no previous stage and so completes nothing.
+    if (settled) {
+      if (previous) {
         trackEvent(EVENTS.Outreach.Flow.StepCompleted, {
           channel,
           step: previous.id,
@@ -145,6 +146,10 @@ export const OutreachFlowShell = ({
       }
       return
     }
+
+    // Left the tracked stages without settling — the gate sub-flow borrows this
+    // chrome mid-flow, so the stage keeps its place and completes nothing.
+    if (trackedStep === null) return
 
     if (previous && currentStep > previous.step) {
       trackEvent(EVENTS.Outreach.Flow.StepCompleted, {
