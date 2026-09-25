@@ -211,7 +211,15 @@ jobs:
       && needs.changes.outputs.services != '[]'
       && needs.validate.result != 'failure'
       && needs.validate.result != 'cancelled'
-    runs-on: ubuntu-latest
+    # Native arm64, not ubuntu-latest. Every image here is linux/arm64, so an
+    # amd64 runner built them through the buildkit QEMU emulator — and the
+    # autopilot Dockerfile's whole-monorepo `npm ci` under emulation ran 9-14
+    # minutes and intermittently died on `npm error code ETIMEDOUT` fetching a
+    # different tarball each time. The registry was fine; QEMU starved the
+    # download of CPU until npm's fetch timeout tripped. Building natively
+    # removes the emulator, and with it that entire failure class. The GHA
+    # layer cache carries over unchanged — these layers were always arm64.
+    runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:

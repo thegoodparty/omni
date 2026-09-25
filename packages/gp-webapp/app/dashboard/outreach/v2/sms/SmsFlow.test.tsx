@@ -574,13 +574,15 @@ describe('SmsFlow', () => {
 
     // Builder: CRM wizard pills; continue stays disabled until a selection.
     expect(await screen.findByText('Build a voter list')).toBeInTheDocument()
-    // Awaited, not queried synchronously: the step's heading renders before
-    // the CTA settles on its label, and until the unfiltered count comes back
-    // the button is in its loading state under a different accessible name.
-    // Reading it in that gap found no "Continue" at all and failed the step
-    // rather than the behaviour it is checking.
+    // Matched on a prefix, because the exact accessible name here is a race
+    // the assertion does not care about: the CTA reads "Continue" only while
+    // the unfiltered count is in flight and "Continue (875)" once it lands.
+    // Pinning the bare name waited out the full async timeout on any run where
+    // the mocked count resolved first, which is what made this test flaky.
+    // What is actually under test is that it stays disabled with no selection,
+    // and that holds in either label state.
     expect(
-      await screen.findByRole('button', { name: 'Continue' }),
+      await screen.findByRole('button', { name: /^Continue/ }),
     ).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: 'Super' }))
 
