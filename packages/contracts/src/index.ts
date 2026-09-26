@@ -20,6 +20,18 @@ export {
   type SupportAnswer,
   SUPPORT_ANSWER_VALUES,
   SupportAnswerSchema,
+  type ConstituentFeedbackStance,
+  CONSTITUENT_FEEDBACK_STANCE_VALUES,
+  ConstituentFeedbackStanceSchema,
+  type ConstituentFeedbackChannel,
+  CONSTITUENT_FEEDBACK_CHANNEL_VALUES,
+  ConstituentFeedbackChannelSchema,
+  type ConstituentFeedbackCaptureMethod,
+  CONSTITUENT_FEEDBACK_CAPTURE_METHOD_VALUES,
+  ConstituentFeedbackCaptureMethodSchema,
+  type ConstituentFeedbackExtractionStatus,
+  CONSTITUENT_FEEDBACK_EXTRACTION_STATUS_VALUES,
+  ConstituentFeedbackExtractionStatusSchema,
   type DoorKnockOutcome,
   DOOR_KNOCK_OUTCOME_VALUES,
   DoorKnockOutcomeSchema,
@@ -819,6 +831,8 @@ export {
   type OutreachPurpose,
   SERVE_OUTREACH_PURPOSE_VALUES,
   ServeOutreachPurposeSchema,
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   type ServeOutreachPurpose,
 } from './outreach/OutreachPurpose.schema'
 export {
@@ -1235,6 +1249,24 @@ export {
   SetNotAVoterResponseSchema,
   type SetNotAVoterResponse,
 } from './doorKnocking/DoorKnockingNotAVoter.schema'
+
+export {
+  CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
+  ConstituentFeedbackTripleSchema,
+  type ConstituentFeedbackTriple,
+  RecordConstituentFeedbackSchema,
+  type RecordConstituentFeedback,
+  RecordConstituentFeedbackResponseSchema,
+  type RecordConstituentFeedbackResponse,
+  ConfirmConstituentFeedbackSchema,
+  type ConfirmConstituentFeedback,
+  ConstituentFeedbackSchema,
+  type ConstituentFeedbackRecord,
+  ConstituentFeedbackListResponseSchema,
+  type ConstituentFeedbackListResponse,
+} from './constituentFeedback/ConstituentFeedback.schema'
 
 export {
   PHONE_BANKING_PURPOSE_VALUES,

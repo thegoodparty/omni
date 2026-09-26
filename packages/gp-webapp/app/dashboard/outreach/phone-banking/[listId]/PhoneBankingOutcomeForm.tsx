@@ -1,17 +1,26 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
+import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
+import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
+import IssueCaptureConfirmCard from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
+  ConstituentFeedbackCaptureMethod,
   PhoneBankingCallResult,
   PhoneBankingInteraction,
+  ConstituentFeedbackTriple,
 } from '@goodparty_org/contracts'
+import { CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
   FilterPill,
   FilterPillGroup,
   IconButton,
   PencilIcon,
+  Textarea,
   cn,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
@@ -34,6 +43,26 @@ import {
   isDraftComplete,
   type PhoneBankingOutcomeDraft,
 } from './phoneBankingOutcome.util'
+
+// Everything `onSuccess` needs, frozen when Save is pressed. react-query
+// refreshes a mutation's callbacks on every render, so `onSuccess` runs
+// against the LATEST render's closure rather than the one that fired it — and
+// nothing disables the pills or the memo box while the request is in flight.
+// A caller who edits either mid-save would otherwise have the memo dropped
+// (an engaged call edited to refused skips capture) or the wrong draft
+// reported to analytics.
+interface SaveInput {
+  markHouseholdDone: boolean
+  draft: PhoneBankingOutcomeDraft
+  capturesIssues: boolean
+  transcript: string
+  captureMethod: ConstituentFeedbackCaptureMethod
+}
+
+interface CaptureInput {
+  transcript: string
+  captureMethod: ConstituentFeedbackCaptureMethod
+}
 
 interface PhoneBankingOutcomeFormProps {
   listId: number
@@ -71,6 +100,95 @@ export default function PhoneBankingOutcomeForm({
   // Edit — mirrors the canvas's sticky log-call bar.
   const [isEditing, setIsEditing] = useState(!interaction)
 
+  // Issue capture. Serve only, flag only, and only once the call is answered
+  // — there is nothing to summarize about a voicemail.
+  const { enabled: captureEnabled } = useServeIssueCaptureFlag()
+  const [memo, setMemo] = useState('')
+  const [spoken, setSpoken] = useState(false)
+  const [captured, setCaptured] = useState<{
+    id: string
+    proposed: ConstituentFeedbackTriple | null
+  } | null>(null)
+  // A failed capture is the one failure on this surface that loses DATA: the
+  // call's own payload carries no memo, so unlike the door — where the note
+  // rides the knock and only the extraction is lost — nothing else holds
+  // these words. Keeping them here is what makes the retry below possible.
+  const [failedMemo, setFailedMemo] = useState<CaptureInput | null>(null)
+  // Replay idempotency for THIS mount's retries, which is all a client-minted
+  // key can be: the panel keys this component on personId, so a tab switch
+  // mints a fresh one. Re-recording the same call across a remount is made
+  // safe by gp-api resolving the row from the interaction rather than from
+  // this key — see `capture()` in constituentFeedback.service.ts.
+  const memoKeyRef = useRef(crypto.randomUUID())
+  const dictation = useDictationAppend({
+    analyticsLabel: 'phone_banking_memo',
+    value: memo,
+    onChange: (next) => {
+      setMemo(next.slice(0, CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH))
+      setSpoken(true)
+    },
+  })
+
+  // `captureMethod` rides the mutation's variables rather than being read off
+  // `spoken` twice. The two reads happen a round trip apart — the request on
+  // mutate, the event on settle — so once `spoken` is reset after a save they
+  // would disagree about the same memo, and the event is the half we would
+  // believe later.
+  const capture = useMutation({
+    mutationFn: (input: CaptureInput) =>
+      clientRequest('POST /v1/constituent-feedback', {
+        channel: 'phone_bank',
+        entryId,
+        personId,
+        clientKey: memoKeyRef.current,
+        transcript: input.transcript,
+        captureMethod: input.captureMethod,
+      }).then((res) => res.data),
+    onSuccess: (data, input) => {
+      trackEvent(EVENTS.ConstituentFeedback.IssueCaptured, {
+        channel: 'phoneBanking',
+        captureMethod: input.captureMethod,
+        extractionStatus: data.extractionStatus,
+      })
+      setCaptured({ id: data.id, proposed: data.extraction })
+      setFailedMemo(null)
+    },
+    onError: (_error, input) => setFailedMemo(input),
+  })
+
+  const confirmCapture = useMutation({
+    mutationFn: (triple: ConstituentFeedbackTriple) =>
+      clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
+        id: captured?.id ?? '',
+        ...triple,
+      }).then((res) => res.data),
+    onSuccess: (_data, triple) => {
+      trackEvent(EVENTS.ConstituentFeedback.IssueConfirmed, {
+        channel: 'phoneBanking',
+        // Whether the caller changed what the model proposed, never what
+        // either of them said — a constituent's words are not analytics.
+        corrected:
+          triple.issueLabel !== (captured?.proposed?.issueLabel ?? null) ||
+          triple.stance !== (captured?.proposed?.stance ?? null) ||
+          triple.desiredOutcome !==
+            (captured?.proposed?.desiredOutcome ?? null),
+      })
+    },
+    // Dismiss either way: a failed confirm leaves the memo saved and
+    // unconfirmed, which reporting already tells apart.
+    onSettled: () => setCaptured(null),
+  })
+
+  // `answered` is only the branch INTO the engagement question, and two of
+  // its three answers are non-conversations: a refused or hung-up call is a
+  // person-attributed outcome, not something a constituent said. Capturing
+  // there would file a memo about a conversation that did not happen.
+  const capturesIssues =
+    captureEnabled &&
+    isServe &&
+    draft.outcome === 'answered' &&
+    draft.engagement === 'engaged'
+
   const logCallAnalytics = (savedDraft: PhoneBankingOutcomeDraft): void => {
     if (!savedDraft.outcome) return
     // What the API stored, not the raw pill: engage = Refused/Hung up
@@ -93,80 +211,146 @@ export default function PhoneBankingOutcomeForm({
   }
 
   const saveMutation = useMutation({
-    mutationFn: (markHouseholdDone: boolean) =>
+    mutationFn: (input: SaveInput) =>
       clientRequest('POST /v1/phone-banking/lists/:id/calls', {
         id: String(listId),
-        ...buildRecordCallRequest(entryId, draft, personId, markHouseholdDone),
+        ...buildRecordCallRequest(
+          entryId,
+          input.draft,
+          personId,
+          input.markHouseholdDone,
+        ),
       }).then((res) => res.data),
-    onSuccess: (data) => {
+    onSuccess: (data, input) => {
+      // The call is logged before the memo is even posted, and the panel is
+      // told so immediately — unlike the door, where the walk is HELD at the
+      // stop until the triple is answered. A caller picks their next entry
+      // themselves, so there is nothing to hold, and leaving the list stale
+      // while a second request runs would be the worse trade.
       onSaved(data.results)
       setIsEditing(false)
-      logCallAnalytics(draft)
+      logCallAnalytics(input.draft)
+      // Re-editing this same call through the pencil toggles `isEditing` on a
+      // live instance rather than remounting it (the key is personId), so
+      // without these the second memo inherits the first one's text and is
+      // reported as dictated even when it was typed.
+      setMemo('')
+      setSpoken(false)
+      if (input.capturesIssues && input.transcript.length > 0) {
+        capture.mutate({
+          transcript: input.transcript,
+          captureMethod: input.captureMethod,
+        })
+      }
     },
   })
+
+  // The one place the snapshot is taken, so the two Save presses cannot
+  // disagree about what they froze.
+  const save = (markHouseholdDone: boolean) =>
+    saveMutation.mutate({
+      markHouseholdDone,
+      draft,
+      capturesIssues,
+      transcript: memo.trim(),
+      captureMethod: spoken ? 'dictation' : 'typed',
+    })
 
   const handleCancel = () => {
     setDraft(draftFromInteraction(interaction, isServe))
     setIsEditing(!interaction)
   }
 
+  if (captured !== null) {
+    return (
+      <IssueCaptureConfirmCard
+        proposed={captured.proposed}
+        saving={confirmCapture.isPending}
+        onConfirm={(triple) => confirmCapture.mutate(triple)}
+        onSkip={() => {
+          trackEvent(EVENTS.ConstituentFeedback.IssueSkipped, {
+            channel: 'phoneBanking',
+          })
+          setCaptured(null)
+        }}
+      />
+    )
+  }
+
   if (!isEditing && interaction) {
     return (
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <span
-              className={cn(
-                'size-2.5 rounded-full',
-                OUTCOME_DOT_CLASS[interaction.outcome],
-              )}
-            />
-            {OUTCOME_LABEL[interaction.outcome]}
-          </span>
-          {/* Read off the interaction rather than the draft, so the surface
+      <div className="flex flex-col gap-2">
+        {failedMemo !== null && (
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm text-destructive">
+              Couldn&apos;t save what they said.
+            </p>
+            <Button
+              variant="outline"
+              size="small"
+              disabled={capture.isPending}
+              onClick={() => capture.mutate(failedMemo)}
+            >
+              Try again
+            </Button>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+              <span
+                className={cn(
+                  'size-2.5 rounded-full',
+                  OUTCOME_DOT_CLASS[interaction.outcome],
+                )}
+              />
+              {OUTCOME_LABEL[interaction.outcome]}
+            </span>
+            {/* Read off the interaction rather than the draft, so the surface
               has to be checked here too: a Serve list's existing rows carry
               the Win answers (it shipped asking them), and showing them back
               would put "Support: Yes" in front of the caller this change
               exists to stop asking. Gated symmetrically with the edit form
               below — each surface reads back only its own question. */}
-          {interaction.outcome === 'answered' && (
-            <>
-              {!isServe && interaction.supportAnswer && (
-                <span className="truncate">
-                  {' · Support: '}
-                  <span className="font-medium text-foreground">
-                    {SUPPORT_ANSWER_LABEL[interaction.supportAnswer]}
+            {interaction.outcome === 'answered' && (
+              <>
+                {!isServe && interaction.supportAnswer && (
+                  <span className="truncate">
+                    {' · Support: '}
+                    <span className="font-medium text-foreground">
+                      {SUPPORT_ANSWER_LABEL[interaction.supportAnswer]}
+                    </span>
                   </span>
-                </span>
-              )}
-              {!isServe && interaction.willVote && (
-                <span className="truncate">
-                  {' · Will vote: '}
-                  <span className="font-medium text-foreground">
-                    {WILL_VOTE_ANSWER_LABEL[interaction.willVote]}
+                )}
+                {!isServe && interaction.willVote && (
+                  <span className="truncate">
+                    {' · Will vote: '}
+                    <span className="font-medium text-foreground">
+                      {WILL_VOTE_ANSWER_LABEL[interaction.willVote]}
+                    </span>
                   </span>
-                </span>
-              )}
-              {isServe && interaction.followUp && (
-                <span className="truncate">
-                  {' · Follow-up: '}
-                  <span className="font-medium text-foreground">
-                    {FOLLOW_UP_ANSWER_LABEL[interaction.followUp]}
+                )}
+                {isServe && interaction.followUp && (
+                  <span className="truncate">
+                    {' · Follow-up: '}
+                    <span className="font-medium text-foreground">
+                      {FOLLOW_UP_ANSWER_LABEL[interaction.followUp]}
+                    </span>
                   </span>
-                </span>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
+          </div>
+          <IconButton
+            variant="outline"
+            size="small"
+            aria-label="Edit this call's outcome"
+            className="shrink-0"
+            onClick={() => setIsEditing(true)}
+          >
+            <PencilIcon size={16} />
+          </IconButton>
         </div>
-        <IconButton
-          variant="outline"
-          size="small"
-          aria-label="Edit this call's outcome"
-          className="shrink-0"
-          onClick={() => setIsEditing(true)}
-        >
-          <PencilIcon size={16} />
-        </IconButton>
       </div>
     )
   }
@@ -313,13 +497,41 @@ export default function PhoneBankingOutcomeForm({
         </>
       )}
 
+      {capturesIssues && showActions && (
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground">
+            What did they say?
+          </span>
+          <div className="relative mt-2">
+            <Textarea
+              value={memo}
+              maxLength={CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH}
+              placeholder="Say it out loud. We'll clean it up."
+              rows={3}
+              className="min-h-20 pr-12"
+              onChange={(e) => setMemo(e.target.value)}
+            />
+            <DictationMicButton
+              dictation={dictation}
+              idleLabel="Dictate summary"
+              recordingLabel="Stop dictation"
+              disabled={saveMutation.isPending}
+            />
+          </div>
+          <DictationFeedback dictation={dictation} />
+        </div>
+      )}
+
       {showActions && (
         <div className="flex flex-col gap-2 pt-1">
           <Button
             className="w-full"
             disabled={saveMutation.isPending}
-            loading={saveMutation.isPending && saveMutation.variables === false}
-            onClick={() => saveMutation.mutate(false)}
+            loading={
+              saveMutation.isPending &&
+              saveMutation.variables?.markHouseholdDone === false
+            }
+            onClick={() => save(false)}
           >
             Save
           </Button>
@@ -331,9 +543,10 @@ export default function PhoneBankingOutcomeForm({
                 className="w-full"
                 disabled={saveMutation.isPending}
                 loading={
-                  saveMutation.isPending && saveMutation.variables === true
+                  saveMutation.isPending &&
+                  saveMutation.variables?.markHouseholdDone === true
                 }
-                onClick={() => saveMutation.mutate(true)}
+                onClick={() => save(true)}
               >
                 Save &amp; mark rest of household done
               </Button>

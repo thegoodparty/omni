@@ -7,6 +7,10 @@ import {
   type DoorKnockingPurpose,
 } from '../generated/enums'
 import { DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH } from '../outreach/DoorKnockingTalkingPoints.schema'
+import {
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
+} from '../outreach/OutreachPurpose.schema'
 
 export {
   DoorKnockingModeSchema,
@@ -90,6 +94,16 @@ export const CreateDoorKnockingTurfSchema = z
     // acceptable here. The wizard only ever offers the six for the rail it is
     // drawing.
     purpose: DoorKnockingPurposeSchema.optional(),
+    // What this effort is asking, when the purpose is `community_input`. The
+    // wizard requires it on that branch and omits it on every other, and the
+    // server refuses the mismatch both ways below — a question recorded
+    // against a purpose that never asks one would be read as context by the
+    // extraction that runs at every door.
+    communityInputQuestion: z
+      .string()
+      .min(1)
+      .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
+      .optional(),
     // The generated talking points, frozen with the list.
     //
     // Plain text, one line per section, landing on the `Outreach.script`
@@ -133,6 +147,21 @@ export const CreateDoorKnockingTurfSchema = z
     {
       message: 'mode and loop must be sent together, or neither',
       path: ['loop'],
+    },
+  )
+  // The question and the purpose that asks it travel together. Refused in
+  // both directions: a `community_input` effort with no question leaves every
+  // extraction reading its notes blind, and a question on any other purpose
+  // is context the canvasser was never given and the model would still be
+  // handed.
+  .refine(
+    (input) =>
+      (input.purpose === COMMUNITY_INPUT_PURPOSE) ===
+      (input.communityInputQuestion !== undefined),
+    {
+      message:
+        'communityInputQuestion is required for community_input and refused otherwise',
+      path: ['communityInputQuestion'],
     },
   )
 

@@ -1821,6 +1821,39 @@ describe('CreateListFlow purpose step', () => {
     expect(screen.queryByText('Turn out my supporters')).toBeNull()
   })
 
+  // The community-input purpose is the only one that asks a question, and it
+  // is the one the door's issue capture reads as the context for every memo.
+  it('asks what the campaign wants to learn, and holds Continue until it does', async () => {
+    renderPurpose(true)
+
+    fireEvent.click(screen.getByText('Ask for community input'))
+
+    const field = await screen.findByLabelText('The question')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+
+    fireEvent.change(field, { target: { value: 'Would you compost?' } })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
+  // Continue only guards emptiness, so a question left over from an earlier
+  // pick would ship as this campaign's rather than tripping the guard.
+  it('does not carry a question over to a later purpose pick', async () => {
+    renderPurpose(true)
+
+    fireEvent.click(screen.getByText('Ask for community input'))
+    fireEvent.change(await screen.findByLabelText('The question'), {
+      target: { value: 'Would you compost?' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(await screen.findByText('Ask for community input'))
+
+    expect(await screen.findByLabelText('The question')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
   // The per-card second line is gone with the bespoke card: no other channel
   // has one, and the step is now literally the other channels' component.
   it('draws a card as a label alone', () => {

@@ -44,6 +44,10 @@ model ContactInteractionPhoneBanking {
   actorUserId        Int?                 @map("actor_user_id")
   actor              User?                @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
+  // The caller's spoken summary of this call, when they recorded one. At most
+  // one per call row — a re-record corrects in place.
+  constituentFeedback ConstituentFeedback?
+
   // The upsert key: an answered-outcome save writes one row per person on
   // the list, and a corrected answer upserts in place rather than forking.
   @@unique([phoneBankingListId, personId])

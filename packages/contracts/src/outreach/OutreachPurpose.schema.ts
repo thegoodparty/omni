@@ -34,3 +34,14 @@ export const SERVE_OUTREACH_PURPOSE_VALUES = [
 ] as const
 export const ServeOutreachPurposeSchema = z.enum(SERVE_OUTREACH_PURPOSE_VALUES)
 export type ServeOutreachPurpose = z.infer<typeof ServeOutreachPurposeSchema>
+
+// The one purpose that asks a question rather than delivering a message, and
+// therefore the only one that has to record what the question IS. Lives here
+// rather than in either channel's schema because door knocking and phone
+// banking both branch on it and a second copy is how they would drift.
+export const COMMUNITY_INPUT_PURPOSE = 'community_input'
+
+// A question a canvasser reads aloud at a door, so a sentence or two rather
+// than a paragraph. Also the extraction prompt's context, where a long
+// rambling question buries the note it is supposed to frame.
+export const COMMUNITY_INPUT_QUESTION_MAX_LENGTH = 300

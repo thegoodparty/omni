@@ -1,0 +1,131 @@
+// The channel a piece of feedback arrived through. Door knocking and phone
+// banking are the first two, not the definition — a poll response and an
+// inbound constituent form are the same object with a different provenance —
+// so this grows rather than the table forking.
+enum ConstituentFeedbackChannel {
+  door_knock
+  phone_bank
+}
+
+// Where the constituent stands on the issue they named. Deliberately NOT
+// SupportAnswer: that asks whether someone supports a candidate, which is a
+// question an elected official's canvasser never asks. `mixed` is a settled
+// position with reservations; `unclear` is the absence of one.
+enum ConstituentFeedbackStance {
+  supports
+  opposes
+  mixed
+  unclear
+}
+
+enum ConstituentFeedbackCaptureMethod {
+  dictation
+  typed
+}
+
+// `extracted` means a model produced a triple, not that anyone agreed with
+// it — `confirmedAt` is the only column that says a human saw it. `failed`
+// covers a refusal or a malformed response; the transcript survives either
+// way, so nothing recorded in the field is ever lost to an extraction error.
+enum ConstituentFeedbackExtractionStatus {
+  pending
+  extracted
+  failed
+}
+
+// What a canvasser or caller recorded about one conversation with one
+// constituent: a short spoken summary in THEIR voice, plus the issue,
+// position and desired-outcome triple extracted from it.
+//
+// The voice on the recording is the official's, never the constituent's, and
+// that is a deliberate design constraint rather than an implementation
+// detail. It keeps two-party-consent law out of the feature entirely, and it
+// means every row is an official's characterization of a named resident —
+// which is very likely a public record, so treat it as disclosable.
+//
+// There is no issue catalog behind `issueLabel`. Topics are derived from the
+// corpus during synthesis, not authored before a canvass, so this table is
+// the whole data model for the collection phase.
+model ConstituentFeedback {
+  id               String       @id @default(uuid(7))
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String       @map("person_id")
+  occurredAt       DateTime     @map("occurred_at")
+
+  // Required, unlike the nullable `actorUserId` on the interaction tables.
+  // Those backfilled nothing and render authorless rows; this column has no
+  // legacy rows to accommodate, and an unattributed characterization of a
+  // named resident is not a record worth keeping.
+  actorUserId Int  @map("actor_user_id")
+  actor       User @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  channel ConstituentFeedbackChannel
+
+  // Exactly one is set, matching `channel`, enforced by the contract rather
+  // than a CHECK — the same call the knock contract makes about its two
+  // answer vocabularies. Unique because a re-record corrects in place instead
+  // of forking, matching how both interaction tables upsert.
+  doorKnockInteractionId String?                      @unique @map("door_knock_interaction_id")
+  doorKnockInteraction   ContactInteractionDoorKnock? @relation(fields: [doorKnockInteractionId], references: [id], onDelete: Cascade)
+
+  phoneBankingInteractionId String?                         @unique @map("phone_banking_interaction_id")
+  phoneBankingInteraction   ContactInteractionPhoneBanking? @relation(fields: [phoneBankingInteractionId], references: [id], onDelete: Cascade)
+
+  // The recorded summary. Nullable because dictation can fail after the knock
+  // itself has already saved, and a row with a failed memo is a more honest
+  // record than no row at all.
+  transcript    String?                          @db.Text
+  captureMethod ConstituentFeedbackCaptureMethod @map("capture_method")
+
+  // Reserved for the offline path (record locally, upload, batch-transcribe).
+  // Null on every row today: dictation streams to Transcribe over a live
+  // socket and no audio is persisted anywhere.
+  audioKey String? @map("audio_key")
+
+  // The triple, holding the CONFIRMED values — what the canvasser accepted or
+  // corrected while they still remembered the conversation.
+  issueLabel     String?                    @map("issue_label")
+  stance         ConstituentFeedbackStance?
+  desiredOutcome String?                    @map("desired_outcome") @db.Text
+
+  extractionStatus     ConstituentFeedbackExtractionStatus @default(pending) @map("extraction_status")
+  extractionConfidence Float?                              @map("extraction_confidence")
+  extractionModel      String?                             @map("extraction_model")
+
+  // What the model proposed before a human touched it. The confirmed columns
+  // above are the truth; these are the only record of what got corrected,
+  // and it cannot be reconstructed after the fact. Together they are the
+  // labeled corpus the synthesis phase gets evaluated against, which is why
+  // they are written during collection rather than added later.
+  //
+  // `proposedStance` is free text, not the enum: the model is prompted for
+  // one of four values but not bound to them, and an off-vocabulary answer is
+  // exactly the kind of thing worth being able to read back.
+  proposedIssueLabel     String? @map("proposed_issue_label")
+  proposedStance         String? @map("proposed_stance")
+  proposedDesiredOutcome String? @map("proposed_desired_outcome") @db.Text
+
+  // The effort's question as it stood when this row was extracted.
+  // Denormalized because the question can be edited afterwards and an
+  // extraction has to stay readable against the prompt it actually ran with.
+  effortQuestion String? @map("effort_question") @db.Text
+
+  // Set when the person who was there accepted or corrected the triple. Null
+  // means nobody with first-hand knowledge ever saw it, and no rollup should
+  // count such a row as evidence of anything.
+  confirmedAt DateTime? @map("confirmed_at")
+
+  // Replay idempotency for a dead-zone retry, the same contract the knock
+  // payload's `clientKey` carries: the same key upserts the same row.
+  clientKey String @map("client_key")
+
+  @@unique([organizationSlug, clientKey])
+  @@index([organizationSlug, personId, occurredAt])
+  @@index([organizationSlug, actorUserId])
+  // The collection-phase read: everything awaiting or missing an extraction.
+  @@index([organizationSlug, extractionStatus])
+  @@map("constituent_feedback")
+}

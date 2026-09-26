@@ -323,6 +323,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
             // talking-points step existed has none, and because the wizard
             // does not require a purpose to route a walk.
             purpose: input.purpose,
+            // Set only on a `community_input` effort, which the contract
+            // enforces both ways. It is what gives issue capture's extraction
+            // its context at every door on this turf.
+            communityInputQuestion: input.communityInputQuestion,
           },
         })
 

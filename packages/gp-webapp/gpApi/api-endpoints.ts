@@ -11,6 +11,11 @@ import type {
   GeoJsonPolygon,
   GeoJsonShape,
   ServeDoorKnockingTalkingPointsPurpose,
+  ConfirmConstituentFeedback,
+  ConstituentFeedbackListResponse,
+  ConstituentFeedbackRecord,
+  RecordConstituentFeedback,
+  RecordConstituentFeedbackResponse,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -1562,6 +1567,22 @@ export type APIEndpoints = {
   'POST /v1/door-knocking/not-a-voter': {
     Request: SetNotAVoter
     Response: SetNotAVoterResponse
+  }
+  // Serve issue capture. Separate from the interaction write because the
+  // knock has to save first — the memo resolves its knock by the clientKey
+  // that write persisted — and because a dead-zone failure here must never
+  // cost the canvasser the knock they already logged.
+  'POST /v1/constituent-feedback': {
+    Request: RecordConstituentFeedback
+    Response: RecordConstituentFeedbackResponse
+  }
+  'PATCH /v1/constituent-feedback/:id/confirm': {
+    Request: ConfirmConstituentFeedback
+    Response: ConstituentFeedbackRecord
+  }
+  'GET /v1/constituent-feedback': {
+    Request: { personId: string }
+    Response: ConstituentFeedbackListResponse
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
