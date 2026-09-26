@@ -385,6 +385,18 @@ with `<@SLACK_PEERLY_CONTACT_MEMBER_ID>` when that env var is set
 member ID isn't configured) it renders as before — no mention, no crash.
 Never hardcode a real person's Slack member ID; env var only.
 
+**The shared channel posts via the Web API, not a webhook.** It is a Slack
+Connect channel owned by Peerly, and an incoming webhook cannot be created
+for a Connect channel we don't own — which is how the first-ever escalations
+(2026-09-26) landed in `bot-10dlc-compliance`: the shared channel's env vars
+had been seeded with the internal channel's webhook. `SlackService.message`
+routes any channel configured with `apiChannelId` through
+`chat.postMessage`; `SLACK_SHARED_PEERLY_10DLC_CHANNEL_ID` must hold the
+real channel ID (`C…`, not a webhook `B…` id), and the **goodparty** app
+(the `SLACK_APP_BOT_TOKEN` bot) must be a member of the shared channel or
+the post fails `not_in_channel` — which resolves undefined, so the
+escalation claim rolls back and retries the next night.
+
 **Internal mirror:** two more report sections ("Escalated to Peerly: CV
 IN_REVIEW >3 business days" / "... waiting_to_finalize >3 business days")
 list the same escalation-eligible set every night while still stuck, each
