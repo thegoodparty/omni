@@ -917,7 +917,8 @@ def render_gap_section(
         "### Potential instrumentation gaps",
         "",
         f"Coverage: {cov['tracked_gaps']} tracked — {cov['new']} new, {cov['open']} open, "
-        f"{cov['accepted']} accepted, {cov['dismissed']} dismissed.",
+        f"{cov['accepted']} accepted, {cov['dismissed']} dismissed, "
+        f"{cov['resolved']} resolved, {cov['retired']} retired.",
         # The original 2026-07-20 design called for this line and it was never built: without
         # it, a quiet queue (no new gaps) reads identically whether the sweep saw everything
         # and found nothing, or silently scanned zero surfaces.
@@ -1146,8 +1147,14 @@ def run_sweep(
 
     return (
         new_state, gaps, status, pending, closed,
-        len(surfaces),                                      # surfaces_enumerated
-        sum(1 for s in surfaces if s.get("has_tracking")),  # suppressed_by_tracking
+        len(surfaces),                    # surfaces_enumerated
+        # Every surface that did not survive into `gaps`, whichever check dropped it — the
+        # per-scope one for handlers and wizards, the file-level one for cta and route.
+        # Counting only `has_tracking` (the scope-level check) undercounts suppression by
+        # however many cta/route surfaces find_gaps drops at the file level, and overstates
+        # candidates by the same amount — exactly backwards for a line whose job is letting
+        # a reader tell a quiet queue from a blind one.
+        len(surfaces) - len(gaps),        # suppressed_by_tracking
         merged_rulings,
     )
 

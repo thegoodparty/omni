@@ -467,6 +467,24 @@ def test_coverage_line_reports_enumeration_and_suppression():
     assert "110 already tracked" in section
 
 
+def test_coverage_line_numbers_reconcile():
+    state = {
+        "a": _entry("a", disposition="new"),
+        "b": _entry("b", disposition="resolved"),
+        "c": _entry("c", disposition="retired"),
+    }
+    section = ig.render_gap_section(
+        state, "2026-09-25", surfaces_enumerated=448, suppressed_by_tracking=107,
+    )
+    # every bucket coverage_stats counts is visible, so the total reconciles
+    assert "3 tracked" in section
+    assert "1 resolved" in section and "1 retired" in section
+    # and the scan line's own arithmetic holds
+    assert "448 surfaces enumerated" in section
+    assert "107 already tracked" in section
+    assert "341 candidates" in section
+
+
 def test_load_state_missing_file_returns_empty(tmp_path):
     assert ig.load_state(tmp_path / "nope.json") == {}
     assert ig.load_state(None) == {}
