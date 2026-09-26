@@ -858,6 +858,8 @@ def build_slack_payload(
     feedback_url: str | None,
     top_n: int = 10,
     judge_consecutive_failures: int = 0,
+    surfaces_enumerated: int = 0,
+    suppressed_by_tracking: int = 0,
 ) -> dict:
     """Run-data the health step reads to fold the gaps into its Slack post. The digest is
     delta-led (like the health monitor's new/escalated/resolved), so the Slack signal is
@@ -883,6 +885,8 @@ def build_slack_payload(
         "new_count": len(new_gaps_this_run),
         "pending_count": pending_count,
         "judge_consecutive_failures": judge_consecutive_failures,
+        "surfaces_enumerated": surfaces_enumerated,
+        "suppressed_by_tracking": suppressed_by_tracking,
         "new_gaps": new_gaps,
         "browse_url": browse_url,
         "feedback_url": feedback_url,
@@ -896,6 +900,8 @@ def render_gap_section(
     *,
     judgment_status: str = "ok",
     pending_count: int = 0,
+    surfaces_enumerated: int = 0,
+    suppressed_by_tracking: int = 0,
 ) -> str:
     """One dated markdown section: coverage line, ranked new-gaps table (with the rubric
     rule and dashboard question from the judge), and a graceful judgment-status line when
@@ -912,6 +918,11 @@ def render_gap_section(
         "",
         f"Coverage: {cov['tracked_gaps']} tracked — {cov['new']} new, {cov['open']} open, "
         f"{cov['accepted']} accepted, {cov['dismissed']} dismissed.",
+        # The original 2026-07-20 design called for this line and it was never built: without
+        # it, a quiet queue (no new gaps) reads identically whether the sweep saw everything
+        # and found nothing, or silently scanned zero surfaces.
+        f"Scan: {surfaces_enumerated} surfaces enumerated, {suppressed_by_tracking} "
+        f"already tracked, {surfaces_enumerated - suppressed_by_tracking} candidates.",
         "",
     ]
     if not visible:
@@ -1460,7 +1471,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         (
             new_state, _gaps, judgment_status, pending, _closed, surfaces_enumerated,
-            _suppressed, prior_rulings,
+            suppressed_by_tracking, prior_rulings,
         ) = run_sweep(
             repo_root, args.config, args.state, today,
             api_key=api_key, model=args.model, limit=args.limit,
@@ -1494,6 +1505,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     section = render_gap_section(
         new_state, today.isoformat(),
         judgment_status=judgment_status, pending_count=pending,
+        surfaces_enumerated=surfaces_enumerated, suppressed_by_tracking=suppressed_by_tracking,
     )
     if judgment_status not in JUDGE_OK_STATUSES:
         streak_note = f", {streak} consecutive runs" if streak > 1 else ""
@@ -1512,6 +1524,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             new_state, today.isoformat(), judgment_status, pending,
             browse_url=gaps_browse_url(), feedback_url=gaps_feedback_url(),
             judge_consecutive_failures=streak,
+            surfaces_enumerated=surfaces_enumerated, suppressed_by_tracking=suppressed_by_tracking,
         )
         args.slack_out.parent.mkdir(parents=True, exist_ok=True)
         args.slack_out.write_text(json.dumps(payload, indent=2) + "\n")

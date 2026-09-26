@@ -458,6 +458,15 @@ def test_render_gap_section_ok_status_has_no_unavailable_line():
     assert "Judgment unavailable" not in out
 
 
+def test_coverage_line_reports_enumeration_and_suppression():
+    section = ig.render_gap_section(
+        {"a": _entry("a", disposition="new")}, "2026-09-25",
+        surfaces_enumerated=402, suppressed_by_tracking=110,
+    )
+    assert "402 surfaces enumerated" in section
+    assert "110 already tracked" in section
+
+
 def test_load_state_missing_file_returns_empty(tmp_path):
     assert ig.load_state(tmp_path / "nope.json") == {}
     assert ig.load_state(None) == {}
@@ -1468,6 +1477,14 @@ def test_build_slack_payload_defaults_the_streak_to_zero():
     payload = ig.build_slack_payload({}, "2026-09-09", "ok", 0,
                                      browse_url=None, feedback_url=None)
     assert payload["judge_consecutive_failures"] == 0
+
+
+def test_build_slack_payload_carries_scan_coverage_counts():
+    payload = ig.build_slack_payload({}, "2026-09-09", "ok", 0,
+                                     browse_url=None, feedback_url=None,
+                                     surfaces_enumerated=402, suppressed_by_tracking=110)
+    assert payload["surfaces_enumerated"] == 402
+    assert payload["suppressed_by_tracking"] == 110
 
 
 def _fake_repo(tmp_path):

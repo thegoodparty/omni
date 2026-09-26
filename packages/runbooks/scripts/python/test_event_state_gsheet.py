@@ -233,6 +233,11 @@ def test_build_gap_values_header_sorted_rows_and_surface_maps_to_id():
     assert values[2][gs.GAPS_COLUMNS.index("surface")] == "/b"
 
 
+def test_gaps_columns_carry_the_closed_state():
+    assert "resolved_at" in gs.GAPS_COLUMNS
+    assert "resolved_cause" in gs.GAPS_COLUMNS
+
+
 def test_build_gap_values_missing_cell_becomes_blank():
     state = {"/a": {"id": "/a", "rank": 1}}  # most fields absent
     values = gs.build_gap_values(state)

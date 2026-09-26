@@ -109,6 +109,16 @@ run's untriaged (`disposition: new`, `first_seen == run_date`) gaps as a JSON ar
 each with `id`, `surface_type`, `location`, `rubric_rule`, `dashboard_question`,
 `judge_reason`, `rank`.
 
+`resolved` and `retired` are terminal dispositions — a gap that closed itself (the
+surface got instrumented, or the surface disappeared) never comes back as `new`, so
+neither ever appears in `--list-new`. They only show up in `coverage_stats`'s counts
+and the committed state file.
+
+Some entries also carry a `prior_ruling` field: `{id, disposition, reason, ruled_on}`
+from a resplit predecessor at the same location/surface_type. When present, show the
+reviewer that earlier decision and reason alongside the judge's verdict — it is
+usually the same call, made in seconds.
+
 - **Empty batch** → say so ("no new instrumentation gaps this run") and skip straight
   to Queue B.
 - **Otherwise**, offer **interactive** or **batch**; suggest **batch** once the batch
@@ -125,8 +135,9 @@ of asking the reviewer to open an editor.
    writes one `## <id>` block per gap with blank `- disposition:` / `- reason:` lines
    (`render_review_artifact` → `render_seed_artifact`).
 2. For each block, show the reviewer `rank`, `surface_type`, `location`, `rubric_rule`,
-   `dashboard_question`, `judge_reason` and ask for a verb: **accept**, **dismiss** (nudge
-   for a reason — that's the field that stops the re-nag), or **defer**.
+   `dashboard_question`, `judge_reason` — and `prior_ruling`, when present, beside the
+   judge's verdict — and ask for a verb: **accept**, **dismiss** (nudge for a reason —
+   that's the field that stops the re-nag), or **defer**.
 3. Edit the artifact file in place, filling each block's disposition per the mapping
    below (never leave `- disposition:` blank for an answered item — blank means "still
    new" to the parser).
