@@ -382,6 +382,44 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(captureBodies[1]?.captureMethod).toBe('typed')
   })
 
+  // react-query refreshes a mutation's callbacks every render, so `onSuccess`
+  // runs against the latest closure — and nothing disables the pills while the
+  // save is in flight. Editing the engagement mid-save must not retroactively
+  // decide that the memo already typed should be thrown away.
+  it('still captures when the engagement is changed mid-save', async () => {
+    // A deferred the mock awaits, so the save is genuinely in flight while
+    // the pill is clicked. Held in an object rather than a bare `let`: a
+    // null-initialised local narrows to `never` across the await, and a
+    // no-op initialiser trips no-empty-function.
+    const gate: { release: () => void } = { release: () => undefined }
+    const inFlight = new Promise<void>((resolve) => {
+      gate.release = resolve
+    })
+    let saveStarted = false
+    api.mock('POST /v1/phone-banking/lists/:id/calls', async () => {
+      saveStarted = true
+      await inFlight
+      return {
+        status: 200,
+        data: { entryId: ENTRY_ID, results: [], envelopeCompleted: false },
+      }
+    })
+
+    const { onSaved } = renderForm()
+    callAndSave()
+    await waitFor(() => expect(saveStarted).toBe(true))
+
+    // The caller fumbles a pill while the request is still out.
+    fireEvent.click(
+      screen.getAllByRole('radio', { name: 'Refused' })[1] as HTMLElement,
+    )
+    gate.release()
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    await waitFor(() => expect(captureBodies).toHaveLength(1))
+    expect(captureBodies[0]?.transcript).toBe(MEMO)
+  })
+
   it('asks for no memo when the flag is off', async () => {
     vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
       ready: true,

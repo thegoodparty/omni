@@ -44,6 +44,21 @@ import {
   type PhoneBankingOutcomeDraft,
 } from './phoneBankingOutcome.util'
 
+// Everything `onSuccess` needs, frozen when Save is pressed. react-query
+// refreshes a mutation's callbacks on every render, so `onSuccess` runs
+// against the LATEST render's closure rather than the one that fired it — and
+// nothing disables the pills or the memo box while the request is in flight.
+// A caller who edits either mid-save would otherwise have the memo dropped
+// (an engaged call edited to refused skips capture) or the wrong draft
+// reported to analytics.
+interface SaveInput {
+  markHouseholdDone: boolean
+  draft: PhoneBankingOutcomeDraft
+  capturesIssues: boolean
+  transcript: string
+  captureMethod: ConstituentFeedbackCaptureMethod
+}
+
 interface CaptureInput {
   transcript: string
   captureMethod: ConstituentFeedbackCaptureMethod
@@ -196,12 +211,17 @@ export default function PhoneBankingOutcomeForm({
   }
 
   const saveMutation = useMutation({
-    mutationFn: (markHouseholdDone: boolean) =>
+    mutationFn: (input: SaveInput) =>
       clientRequest('POST /v1/phone-banking/lists/:id/calls', {
         id: String(listId),
-        ...buildRecordCallRequest(entryId, draft, personId, markHouseholdDone),
+        ...buildRecordCallRequest(
+          entryId,
+          input.draft,
+          personId,
+          input.markHouseholdDone,
+        ),
       }).then((res) => res.data),
-    onSuccess: (data) => {
+    onSuccess: (data, input) => {
       // The call is logged before the memo is even posted, and the panel is
       // told so immediately — unlike the door, where the walk is HELD at the
       // stop until the triple is answered. A caller picks their next entry
@@ -209,20 +229,32 @@ export default function PhoneBankingOutcomeForm({
       // while a second request runs would be the worse trade.
       onSaved(data.results)
       setIsEditing(false)
-      logCallAnalytics(draft)
-      const transcript = memo.trim()
-      const captureMethod = spoken ? 'dictation' : 'typed'
+      logCallAnalytics(input.draft)
       // Re-editing this same call through the pencil toggles `isEditing` on a
       // live instance rather than remounting it (the key is personId), so
       // without these the second memo inherits the first one's text and is
       // reported as dictated even when it was typed.
       setMemo('')
       setSpoken(false)
-      if (capturesIssues && transcript.length > 0) {
-        capture.mutate({ transcript, captureMethod })
+      if (input.capturesIssues && input.transcript.length > 0) {
+        capture.mutate({
+          transcript: input.transcript,
+          captureMethod: input.captureMethod,
+        })
       }
     },
   })
+
+  // The one place the snapshot is taken, so the two Save presses cannot
+  // disagree about what they froze.
+  const save = (markHouseholdDone: boolean) =>
+    saveMutation.mutate({
+      markHouseholdDone,
+      draft,
+      capturesIssues,
+      transcript: memo.trim(),
+      captureMethod: spoken ? 'dictation' : 'typed',
+    })
 
   const handleCancel = () => {
     setDraft(draftFromInteraction(interaction, isServe))
@@ -495,8 +527,11 @@ export default function PhoneBankingOutcomeForm({
           <Button
             className="w-full"
             disabled={saveMutation.isPending}
-            loading={saveMutation.isPending && saveMutation.variables === false}
-            onClick={() => saveMutation.mutate(false)}
+            loading={
+              saveMutation.isPending &&
+              saveMutation.variables?.markHouseholdDone === false
+            }
+            onClick={() => save(false)}
           >
             Save
           </Button>
@@ -508,9 +543,10 @@ export default function PhoneBankingOutcomeForm({
                 className="w-full"
                 disabled={saveMutation.isPending}
                 loading={
-                  saveMutation.isPending && saveMutation.variables === true
+                  saveMutation.isPending &&
+                  saveMutation.variables?.markHouseholdDone === true
                 }
-                onClick={() => saveMutation.mutate(true)}
+                onClick={() => save(true)}
               >
                 Save &amp; mark rest of household done
               </Button>
