@@ -170,6 +170,12 @@ export default function RecordKnockForm({
     onRecorded(done.personId, done.knockStatus)
   }
 
+  // `engaged` and `captureMethod` ride the variables for the reason every
+  // other field here already does: react-query refreshes a mutation's
+  // callbacks each render, so `onSuccess` runs against the latest closure
+  // rather than the one that fired it, and the engagement pills stay live
+  // while the request is out. A canvasser who re-taps one mid-save would
+  // otherwise have the memo dropped on a door that saved as engaged.
   const record = useMutation({
     mutationFn: (input: {
       outcome: DoorKnockOutcome
@@ -177,6 +183,8 @@ export default function RecordKnockForm({
       willVote?: WillVoteAnswer
       followUp?: FollowUpAnswer
       note?: string
+      engaged: boolean
+      captureMethod: ConstituentFeedbackCaptureMethod
     }) =>
       clientRequest('POST /v1/door-knocking/interactions', {
         stopTargetId: target.stopTargetId,
@@ -202,7 +210,7 @@ export default function RecordKnockForm({
       // offered on every branch, including a not-home door, so "dog in the
       // yard, come back Saturday" is a note the knock should keep but never a
       // constituent's position on an issue. Only a conversation gets extracted.
-      if (!input.note || !captureEnabled || !serveMode || !engaged) {
+      if (!input.note || !captureEnabled || !serveMode || !input.engaged) {
         onRecorded(data.personId, data.knockStatus)
         return
       }
@@ -212,7 +220,7 @@ export default function RecordKnockForm({
       }
       capture.mutate({
         transcript: input.note,
-        captureMethod: spoken ? 'dictation' : 'typed',
+        captureMethod: input.captureMethod,
       })
     },
   })
@@ -306,6 +314,8 @@ export default function RecordKnockForm({
     const trimmed = note.trim()
     record.mutate({
       outcome: finalOutcome,
+      engaged,
+      captureMethod: spoken ? 'dictation' : 'typed',
       // The contract rejects answers on anything but `answered`, so a
       // canvasser who backed out of the engaged branch can't ship the answers
       // they had picked inside it. The surface guards are the same rule one

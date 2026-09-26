@@ -224,6 +224,38 @@ describe('RecordKnockForm issue capture', () => {
     expect(screen.queryByText('Is this right?')).toBeNull()
   })
 
+  // react-query refreshes a mutation's callbacks every render, so `onSuccess`
+  // runs against the latest closure — and the engagement pills stay live while
+  // the knock is in flight. Re-tapping one must not retroactively decide the
+  // memo already dictated should be thrown away.
+  it('still captures when the engagement is re-tapped mid-save', async () => {
+    // A deferred the mock awaits, so the knock is genuinely in flight when the
+    // pill is tapped. Held in an object: a null-initialised local narrows to
+    // `never` across the await.
+    const gate: { release: () => void } = { release: () => undefined }
+    const inFlight = new Promise<void>((resolve) => {
+      gate.release = resolve
+    })
+    let knockStarted = false
+    api.mock('POST /v1/door-knocking/interactions', async () => {
+      knockStarted = true
+      await inFlight
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'needs_follow_up' },
+      }
+    })
+
+    renderForm()
+    await walkAndSave()
+    await waitFor(() => expect(knockStarted).toBe(true))
+
+    answer('Did they engage?', 'Refused')
+    gate.release()
+
+    expect(await screen.findByText('Is this right?')).toBeVisible()
+  })
+
   it('does not capture when the flag is off', async () => {
     vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
       ready: true,
