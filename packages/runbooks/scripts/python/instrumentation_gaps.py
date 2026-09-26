@@ -1014,8 +1014,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"applied {applied} / skipped {skipped} (unknown ids or invalid dispositions)")
         return 0
 
-    cfg_roots = load_gap_config(args.config)["scan_roots"]
-    if not any((repo_root / r["path"]).exists() for r in cfg_roots):
+    try:
+        cfg_roots = load_gap_config(args.config)["scan_roots"]
+    except Exception:  # noqa: BLE001 — a bad config must degrade, not crash the cron
+        # The sweep below calls load_gap_config inside its own try/except and will report
+        # the real error there. This pre-check only warns about missing roots.
+        cfg_roots = []
+    if cfg_roots and not any((repo_root / r["path"]).exists() for r in cfg_roots):
         print(
             f"gap-sweep: no configured scan root found under {repo_root}; nothing to scan.",
             file=sys.stderr,

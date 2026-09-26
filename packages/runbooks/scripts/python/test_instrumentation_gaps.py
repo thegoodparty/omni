@@ -357,6 +357,25 @@ def test_main_warns_when_neither_scan_root_exists(tmp_path, capsys):
     assert "no configured scan root found" in err
 
 
+def test_main_survives_a_malformed_config_file(tmp_path, capsys):
+    """The scan-roots pre-check in main() must degrade like every other failure path here —
+    one stderr line and rc 0 — never a raw traceback from yaml.safe_load. The real sweep
+    below has its own try/except and reports the substantive error; this guard only exists
+    to warn about missing roots and must not itself be able to crash the cron."""
+    bad_config = tmp_path / "bad.yaml"
+    bad_config.write_text('exclude_globs: [\n  - "unclosed\n')
+    state = tmp_path / "state.json"
+
+    rc = ig.main([
+        "--config", str(bad_config), "--no-judge", "--no-log",
+        "--state", str(state), "--today", "2026-07-17",
+    ])
+
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "gap-sweep:" in err
+
+
 def test_judge_verdict_schema_roundtrips():
     v = ig.JudgeVerdict(
         id="/dashboard/wizard#wizard_stage",
