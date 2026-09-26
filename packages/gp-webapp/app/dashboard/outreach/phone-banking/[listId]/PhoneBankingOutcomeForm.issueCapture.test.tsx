@@ -94,7 +94,7 @@ beforeEach(() => {
 
   api.mock('POST /v1/phone-banking/lists/:id/calls', {
     status: 200,
-    data: { results: [] },
+    data: { entryId: ENTRY_ID, results: [], envelopeCompleted: false },
   })
   api.mock('POST /v1/constituent-feedback', ({ body }) => {
     captureBodies.push(body as (typeof captureBodies)[number])
