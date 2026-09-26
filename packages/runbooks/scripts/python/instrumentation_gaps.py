@@ -38,6 +38,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 import llm_judge
+import ts_imports
 import ts_scopes
 
 class CorruptStateError(Exception):
@@ -433,6 +434,24 @@ def has_tracking_call(text: str) -> bool:
     return _TRACKING_RE.search(text) is not None
 
 
+def hook_fires_events(
+    rel_path: str, text: str, files_with_tracking: set[str], exists
+) -> bool:
+    """Whether any `use*` hook this file imports fires events one hop away.
+
+    Only the hook edge is followed. Measured on 2026-09-25: hook imports flag 8 of 259 gap
+    files and caught both of that day's false alarms, while following every relative import
+    flags 62 and is mostly a parent importing an unrelated tracked child, which says nothing
+    about the parent's own surface."""
+    for name, spec in ts_imports.parse_relative_imports(text):
+        if not ts_imports.is_hook_name(name):
+            continue
+        target = ts_imports.resolve_import(rel_path, spec, exists)
+        if target is not None and target in files_with_tracking:
+            return True
+    return False
+
+
 def find_gaps(surfaces: Sequence[dict], files_with_tracking: set[str]) -> list[dict]:
     """A candidate surface with no tracking call in its own scope is a candidate gap.
 
@@ -502,6 +521,9 @@ _JUDGE_INSTRUCTIONS = (
     "toggle open/close). For each candidate name the rubric_rule that applies, the "
     "dashboard_question the missing event would answer, a rank 0-5 (0 = highest priority, "
     "e.g. a URL-stable multi-step flow stage; higher = lower value), and a one-line reason. "
+    "When tracked_in_hook is true, a React hook this file imports does fire events, so the "
+    "surface may already be instrumented one hop away and the snippet cannot show it; weigh "
+    "that as evidence, not as a verdict. "
     "Copy each id verbatim. Return exactly one verdict per candidate via the tool."
 )
 
@@ -519,6 +541,7 @@ def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
             "surface_type": c["surface_type"],
             "location": c["location"],
             "snippet": c.get("snippet", ""),
+            "tracked_in_hook": c.get("tracked_in_hook", False),
         }
         for c in candidates
     ]
@@ -876,6 +899,9 @@ def scan_repo(
     surfaces: list[dict] = []
     files_with_tracking: set[str] = set()
     page_texts: dict[str, str] = {}
+    # Only kept for files that produced a has_tracking-bearing surface, since that's the
+    # only case the second pass below needs a file's text for.
+    texts: dict[str, str] = {}
     for root in roots:
         for rel, path in _iter_files(repo_root, root["path"], exclude_globs):
             text = path.read_text(errors="replace")
@@ -889,10 +915,21 @@ def scan_repo(
                 )
                 surface.pop("scope", None)  # offsets are per-file; never persisted to state
                 surfaces.append(surface)
+                if "has_tracking" in surface:
+                    texts[rel] = text
     routes = enumerate_route_surfaces(list(page_texts), exclude_globs)
     for r in routes:
         r["snippet"] = extract_context(page_texts.get(r["location"], ""), None)
     surfaces.extend(routes)
+
+    # Second pass: the hint needs the full tracking set, which only exists after the walk.
+    exists = lambda rel: (repo_root / rel).exists()
+    for surface in surfaces:
+        if "has_tracking" not in surface:
+            continue  # cta/route carry no hint — they have no handler to lift
+        surface["tracked_in_hook"] = hook_fires_events(
+            surface["location"], texts[surface["location"]], files_with_tracking, exists
+        )
     return surfaces, files_with_tracking
 
 

@@ -444,6 +444,47 @@ def test_build_judge_messages_carries_candidates():
     assert "/a" in msgs[0]["content"]
 
 
+def test_hook_fires_events_follows_only_hook_imports():
+    text = (
+        "import { useThing } from './useThing'\n"
+        "import { Child } from './Child'\n"
+        "const C = () => <form onSubmit={x} />\n"
+    )
+    known = {"a/useThing.ts", "a/Child.tsx"}
+    # the hook fires events -> true
+    assert ig.hook_fires_events("a/C.tsx", text, {"a/useThing.ts"}, lambda r: r in known)
+    # only an ordinary child component fires -> false, because a parent importing a tracked
+    # child says nothing about the parent's own surface
+    assert not ig.hook_fires_events("a/C.tsx", text, {"a/Child.tsx"}, lambda r: r in known)
+
+
+def test_hook_hint_rides_in_the_judge_payload():
+    msgs = ig.build_judge_messages([{
+        "id": "a/B.tsx#form_submit", "surface_type": "form_submit",
+        "location": "a/B.tsx", "snippet": "x", "tracked_in_hook": True,
+    }])
+    assert '"tracked_in_hook": true' in msgs[0]["content"]
+
+
+def test_hook_hint_never_removes_a_candidate(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "useForm.ts").write_text(
+        "import { trackEvent } from 'h'\nexport const useForm = () => trackEvent('S', {})\n"
+    )
+    (app / "C.tsx").write_text(
+        "import { useForm } from './useForm'\nconst C = () => <form onSubmit={s} />\n"
+    )
+    surfaces, tracked = ig.scan_repo(
+        tmp_path, exclude_globs=[],
+        scan_roots=[{"path": "packages/gp-webapp", "detectors": "webapp"}],
+    )
+    gaps = ig.find_gaps(surfaces, tracked)
+    hinted = [g for g in gaps if g["location"].endswith("C.tsx")]
+    assert hinted, "the hint must inform the judge, never drop the candidate"
+    assert hinted[0]["tracked_in_hook"] is True
+
+
 def test_judge_system_prompt_includes_rubric():
     sp = ig.judge_system_prompt("RUBRIC-BODY-MARKER")
     assert "RUBRIC-BODY-MARKER" in sp
