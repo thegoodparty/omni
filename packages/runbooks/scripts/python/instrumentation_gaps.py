@@ -672,6 +672,42 @@ def merge_judged_state(
     return out
 
 
+_CLOSED = {"resolved", "retired"}
+# Below this fraction of the previous run's surface count, the scan is not believed and
+# nothing is closed. A broken glob or a fat-fingered detector regex would otherwise retire
+# the entire backlog in one unattended run, and closing is the one operation here that
+# removes work from a human's queue.
+_COLLAPSE_FLOOR = 0.5
+
+
+def close_resolved_entries(
+    state: Mapping[str, dict],
+    surface_ids: set[str],
+    gap_ids: set[str],
+    today: date,
+) -> tuple[dict[str, dict], int]:
+    """Close entries that stopped being gaps. Returns (new_state, closed_count).
+
+    `resolved` when the surface is still detected but no longer reads as untracked — someone
+    instrumented it, which is the one outcome this whole loop exists to produce and which had
+    no way to be recorded. `retired` when the surface is not detected at all.
+
+    Applies to accepted and dismissed entries too. Nothing is deleted and no human field is
+    touched: reason, first_seen and ticket_url survive, so a closed row is still the audit
+    trail of what someone decided and why."""
+    out = {k: dict(v) for k, v in state.items()}
+    closed = 0
+    iso = today.isoformat()
+    for gid, entry in out.items():
+        if entry.get("disposition") in _CLOSED or gid in gap_ids:
+            continue
+        entry["disposition"] = "resolved" if gid in surface_ids else "retired"
+        entry["resolved_cause"] = "instrumented" if gid in surface_ids else "surface_gone"
+        entry["resolved_at"] = iso
+        closed += 1
+    return out, closed
+
+
 def is_visible(entry: Mapping) -> bool:
     """The digest shows only untriaged (`new`) gaps. open collapses to a count line;
     accepted/dismissed are suppressed."""
@@ -679,7 +715,9 @@ def is_visible(entry: Mapping) -> bool:
 
 
 def coverage_stats(state: Mapping[str, dict]) -> dict:
-    counts = {"new": 0, "open": 0, "accepted": 0, "dismissed": 0}
+    counts = {
+        "new": 0, "open": 0, "accepted": 0, "dismissed": 0, "resolved": 0, "retired": 0,
+    }
     for entry in state.values():
         d = entry.get("disposition", "new")
         if d in counts:
@@ -851,12 +889,19 @@ def load_run_state(path: Path | None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def next_run_state(prior: Mapping, judgment_status: str, today: date) -> dict:
+def next_run_state(
+    prior: Mapping, judgment_status: str, today: date, surface_count: int | None = None,
+) -> dict:
     """Advance the judge-failure streak for this run's status.
 
     A failure increments and an ok resets and stamps last_ok. Everything in JUDGE_STREAK_HOLD
     holds the current value: those runs are evidence of neither health nor failure, so they
-    must neither clear a real streak nor invent one."""
+    must neither clear a real streak nor invent one.
+
+    surface_count carries this run's scanned-surface total forward, so the next run's collapse
+    guard has something to compare against. Callers must omit it (leaving the prior count
+    untouched) whenever this run's scan wasn't believed — otherwise a collapsed count becomes
+    the new baseline and the guard can never fire again."""
     out = dict(prior)
     raw = out.get("judge_consecutive_failures", 0)
     streak = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0 else 0
@@ -867,6 +912,8 @@ def next_run_state(prior: Mapping, judgment_status: str, today: date) -> dict:
         out["judge_consecutive_failures"] = streak
     else:
         out["judge_consecutive_failures"] = streak + 1
+    if surface_count is not None:
+        out["surface_count"] = surface_count
     return out
 
 
@@ -945,13 +992,15 @@ def run_sweep(
     rubric_path: Path = DEFAULT_RUBRIC_PATH,
     client_factory=None,
     enable_judge: bool = True,
-) -> tuple[dict, list[dict], str, int]:
-    """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps.
-    Returns (new_state, gaps, judgment_status, pending_count). Judgment is graceful: when it
-    does not return 'ok', no new entries are added and pending_count reports the candidates
-    that went un-judged. client_factory defaults to None (resolved here, not at def time) so
-    that callers like main() which never pass it still pick up a test's monkeypatched
-    make_anthropic_client instead of a frozen reference to the original."""
+    run_state_path: Path | None = None,
+) -> tuple[dict, list[dict], str, int, int, int, int]:
+    """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps →
+    close entries that stopped being gaps. Returns (new_state, gaps, judgment_status,
+    pending_count, closed_count, surfaces_enumerated, suppressed_by_tracking). Judgment is
+    graceful: when it does not return 'ok', no new entries are added and pending_count reports
+    the candidates that went un-judged. client_factory defaults to None (resolved here, not at
+    def time) so that callers like main() which never pass it still pick up a test's
+    monkeypatched make_anthropic_client instead of a frozen reference to the original."""
     client_factory = client_factory or make_anthropic_client
     cfg = load_gap_config(config_path)
     prior = load_state(state_path)
@@ -968,7 +1017,30 @@ def run_sweep(
         verdicts, status = {}, NO_JUDGE_STATUS
     new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
     pending = 0 if status in JUDGE_OK_STATUSES else len(candidates)
-    return new_state, gaps, status, pending
+
+    prior_count = load_run_state(run_state_path).get("surface_count")
+    believable = (
+        not isinstance(prior_count, int)
+        or prior_count <= 0
+        or len(surfaces) >= prior_count * _COLLAPSE_FLOOR
+    )
+    if believable:
+        new_state, closed = close_resolved_entries(
+            new_state, {s["id"] for s in surfaces}, {g["id"] for g in gaps}, today
+        )
+    else:
+        closed = 0
+        print(
+            f"gap-sweep: scan returned {len(surfaces)} surfaces against a previous "
+            f"{prior_count}; closing skipped and state left as-is.",
+            file=sys.stderr,
+        )
+
+    return (
+        new_state, gaps, status, pending, closed,
+        len(surfaces),                                      # surfaces_enumerated
+        sum(1 for s in surfaces if s.get("has_tracking")),  # suppressed_by_tracking
+    )
 
 
 def render_seed_artifact(state: Mapping[str, dict]) -> str:
@@ -1285,10 +1357,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Graceful-skip contract: a scan/walk failure must never fail the governance run.
     try:
-        new_state, _gaps, judgment_status, pending = run_sweep(
-            repo_root, args.config, args.state, today,
-            api_key=api_key, model=args.model, limit=args.limit,
-            rubric_path=args.rubric, enable_judge=not args.no_judge,
+        new_state, _gaps, judgment_status, pending, _closed, surfaces_enumerated, _suppressed = (
+            run_sweep(
+                repo_root, args.config, args.state, today,
+                api_key=api_key, model=args.model, limit=args.limit,
+                rubric_path=args.rubric, enable_judge=not args.no_judge,
+                run_state_path=args.run_state,
+            )
         )
     except CorruptStateError as exc:
         print(
@@ -1301,7 +1376,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"gap-sweep: scan failed ({exc}); skipping this run, state untouched.", file=sys.stderr)
         return 0
 
-    run_state = next_run_state(load_run_state(args.run_state), judgment_status, today)
+    prior_run_state = load_run_state(args.run_state)
+    prior_surface_count = prior_run_state.get("surface_count")
+    # Mirrors run_sweep's own collapse guard: if this run's scan wasn't believed (and so
+    # closing was skipped), the collapsed count must not overwrite the recorded baseline —
+    # otherwise the guard could never fire again on the next run.
+    scan_believable = (
+        not isinstance(prior_surface_count, int)
+        or prior_surface_count <= 0
+        or surfaces_enumerated >= prior_surface_count * _COLLAPSE_FLOOR
+    )
+    run_state = next_run_state(
+        prior_run_state, judgment_status, today,
+        surface_count=surfaces_enumerated if scan_believable else None,
+    )
     streak = run_state["judge_consecutive_failures"]
 
     section = render_gap_section(

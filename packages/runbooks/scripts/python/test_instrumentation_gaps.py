@@ -212,7 +212,87 @@ def test_coverage_stats_counts_by_disposition():
     }
     assert ig.coverage_stats(state) == {
         "tracked_gaps": 4, "new": 2, "open": 1, "accepted": 0, "dismissed": 1,
+        "resolved": 0, "retired": 0,
     }
+
+
+def _entry(gid, disposition="accepted", **kw):
+    return {"id": gid, "surface_type": "form_submit", "location": "a/B.tsx",
+            "disposition": disposition, "reason": "human reason", "rank": 2,
+            "first_seen": "2026-08-01", "last_seen": "2026-08-06", **kw}
+
+
+def test_instrumented_surface_closes_as_resolved_preserving_human_fields():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", ticket_url="http://t/1")}
+    out, closed = ig.close_resolved_entries(
+        state, surface_ids={"a/B.tsx#form_submit"}, gap_ids=set(), today=date(2026, 9, 25)
+    )
+    e = out["a/B.tsx#form_submit"]
+    assert closed == 1
+    assert e["disposition"] == "resolved"
+    assert e["resolved_cause"] == "instrumented"
+    assert e["resolved_at"] == "2026-09-25"
+    assert e["reason"] == "human reason"
+    assert e["first_seen"] == "2026-08-01"
+    assert e["ticket_url"] == "http://t/1"
+
+
+def test_vanished_surface_closes_as_retired():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}
+    out, closed = ig.close_resolved_entries(
+        state, surface_ids=set(), gap_ids=set(), today=date(2026, 9, 25)
+    )
+    assert closed == 1
+    assert out["a/B.tsx#form_submit"]["disposition"] == "retired"
+    assert out["a/B.tsx#form_submit"]["resolved_cause"] == "surface_gone"
+
+
+def test_still_a_gap_is_left_alone():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="new")}
+    out, closed = ig.close_resolved_entries(
+        state, surface_ids={"a/B.tsx#form_submit"}, gap_ids={"a/B.tsx#form_submit"},
+        today=date(2026, 9, 25),
+    )
+    assert closed == 0
+    assert out["a/B.tsx#form_submit"]["disposition"] == "new"
+
+
+def test_already_closed_entries_are_not_reclosed():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="resolved",
+                                           resolved_at="2026-09-01")}
+    out, closed = ig.close_resolved_entries(
+        state, surface_ids=set(), gap_ids=set(), today=date(2026, 9, 25)
+    )
+    assert closed == 0
+    assert out["a/B.tsx#form_submit"]["resolved_at"] == "2026-09-01"
+
+
+def test_coverage_stats_counts_the_closed_buckets():
+    state = {
+        "a": _entry("a", disposition="new"),
+        "b": _entry("b", disposition="resolved"),
+        "c": _entry("c", disposition="retired"),
+    }
+    cov = ig.coverage_stats(state)
+    assert cov["resolved"] == 1 and cov["retired"] == 1 and cov["new"] == 1
+
+
+def test_a_collapsed_scan_closes_nothing(tmp_path, capsys):
+    # Review Focus 3: a broken glob must not retire the backlog.
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}))
+    run_state = tmp_path / "run.json"
+    run_state.write_text(json.dumps({"surface_count": 400}))
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+
+    new_state, *_ = ig.run_sweep(
+        tmp_path, tmp_path / "none.yaml", state_path, date(2026, 9, 25),
+        api_key=None, enable_judge=False, run_state_path=run_state,
+    )
+    assert new_state["a/B.tsx#form_submit"]["disposition"] == "accepted"
+    assert "closing skipped" in capsys.readouterr().err
 
 
 def test_render_gap_section_shows_judged_columns():
@@ -720,7 +800,7 @@ def test_run_sweep_no_judge_adds_nothing_and_reports_pending(tmp_path):
     app = tmp_path / "packages/gp-webapp/app/dashboard"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
-    new_state, gaps, status, pending = ig.run_sweep(
+    new_state, gaps, status, pending, *_ = ig.run_sweep(
         tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
         enable_judge=False,
     )
@@ -743,7 +823,7 @@ def test_run_sweep_with_fake_judge_adds_confirmed(tmp_path):
             ]
         })
 
-    new_state, gaps, status, pending = ig.run_sweep(
+    new_state, gaps, status, pending, *_ = ig.run_sweep(
         tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
         api_key="sk-ant-x", model="claude-sonnet-5", client_factory=fake_factory,
     )
