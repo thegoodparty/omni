@@ -1,0 +1,58 @@
+{
+  "agent": "meeting_briefing",
+  "description": "Officials spanning agenda-platform types (Granicus, CivicPlus, BoardDocs, city-hosted PDF) and body sizes. NOTE: meetingDate must point at a real upcoming meeting, so these dates go stale — refresh them when a run starts returning no_meeting_found across the board. organization_slug is injected per run.",
+  "cases": [
+    {
+      "id": "cheyenne_council",
+      "label": "Cheyenne, WY city council",
+      "params": {
+        "officialName": "Universal Judge Test Official",
+        "state": "WY",
+        "positionName": "Cheyenne City Council",
+        "meetingDate": "2026-10-06"
+      }
+    },
+    {
+      "id": "covington_aldermen",
+      "label": "Covington, TN board of mayor and aldermen — small town",
+      "params": {
+        "officialName": "Universal Judge Test Official",
+        "state": "TN",
+        "positionName": "Covington Board of Mayor and Aldermen",
+        "meetingDate": "2026-10-13"
+      }
+    },
+    {
+      "id": "nyc_district_25",
+      "label": "NYC council district 25 — large body, L2 district bound",
+      "params": {
+        "officialName": "Universal Judge Test Official",
+        "state": "NY",
+        "positionName": "City Council Member",
+        "l2DistrictType": "City_Council_Commissioner_District",
+        "l2DistrictName": "25",
+        "meetingDate": "2026-10-20"
+      }
+    },
+    {
+      "id": "ramsey_council",
+      "label": "Ramsey, MN city council — suburban",
+      "params": {
+        "officialName": "Universal Judge Test Official",
+        "state": "MN",
+        "positionName": "Ramsey City Council",
+        "meetingDate": "2026-10-13"
+      }
+    },
+    {
+      "id": "no_meeting_probe",
+      "label": "Deliberate miss — exercises the no-meeting-found branch cheaply",
+      "params": {
+        "officialName": "Universal Judge Test Official",
+        "state": "OR",
+        "positionName": "Toledo City Council",
+        "meetingDate": "2026-12-25"
+      }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "agent": "ordinance_draft",
+  "description": "Ordinance-flow draft-step cases. Each names a captured fixture record; the producer seeds that record's prior-step state and drives the draft turn. The draft step is chosen because it synthesises from already-hydrated prior-step data instead of researching live, so two variants answer the same question rather than racing the open web.",
+  "cases": [
+    {
+      "id": "shade_trees",
+      "label": "Shade trees — new ordinance from a policy goal",
+      "params": { "fixture": "shade-trees" }
+    },
+    {
+      "id": "bike_parking",
+      "label": "Bike parking — new ordinance with comparables",
+      "params": { "fixture": "bike-parking" }
+    },
+    {
+      "id": "bike_parking_redraft",
+      "label": "Bike parking redraft — amends existing law, expects redline",
+      "params": { "fixture": "bike-parking-redraft" }
+    },
+    {
+      "id": "oil_spill",
+      "label": "Oil spill response — fully researched prior steps",
+      "params": { "fixture": "oil-spill" }
+    },
+    {
+      "id": "oil_spill_early",
+      "label": "Oil spill response — thin prior steps, tests honest uncertainty",
+      "params": { "fixture": "oil-spill-early" }
+    },
+    {
+      "id": "rent_cap_spokane",
+      "label": "Rent cap, Spokane — state preemption pressure on authority",
+      "params": { "fixture": "rent-cap-spokane" }
+    }
+  ]
+}
