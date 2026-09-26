@@ -22,6 +22,13 @@ _NAME_RE = re.compile(
 _TYPE_HEAD = re.compile(r"(?:\binterface\s+\w+|\btype\s+\w+\s*=|\benum\s+\w+)\s*$")
 # A scope head that is executable: an arrow, a function, or a call/param list.
 _CODE_HEAD = re.compile(r"(?:=>|\bfunction\b[\w\s]*\([^()]*\)|\)\s*)\s*$")
+# Words that open a block but never name a scope. Without this, `if (ready) {` reads as a
+# code head (it ends in `)`), so a surface inside a conditional resolves to the conditional
+# and is named "if" instead of the component it lives in. Measured 14/270 before the guard.
+_CONTROL = {"if", "for", "while", "switch", "catch", "else", "do", "return", "with"}
+_CONTROL_HEAD = re.compile(
+    r"(?<!\w)(?:if|for|while|switch|catch|else|do)\s*(?:\([^()]*\))?\s*$"
+)
 _HEAD_LOOKBACK = 220
 
 
@@ -87,6 +94,8 @@ def scope_kind(code: str, open_idx: int) -> str:
     head = _head(code, open_idx)
     if _TYPE_HEAD.search(head):
         return "type"
+    if _CONTROL_HEAD.search(head):
+        return "other"
     if _CODE_HEAD.search(head):
         return "code"
     return "other"
@@ -97,7 +106,10 @@ def scope_name(code: str, open_idx: int) -> str | None:
     head = code[max(0, open_idx - 300) : open_idx].replace("\n", " ")
     best = None
     for m in _NAME_RE.finditer(head):
-        best = next(g for g in m.groups() if g)
+        name = next(g for g in m.groups() if g)
+        if name in _CONTROL:
+            continue
+        best = name
     return best
 
 
