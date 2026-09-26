@@ -48,7 +48,6 @@ import {
   filtersToDimSelections,
   unpreviewableFilterKeys,
 } from './createFlow/voterFilterPreview'
-import { stopPositionsInRing, suggestTravelMode } from './travelMode'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
 import { TurfPanel } from './createFlow/TurfPanel'
 import { useTeamOptions } from './useTeamOptions'
@@ -521,7 +520,15 @@ export default function NativeDoorKnockingPage({
       const remaining = turfDrafts.filter(
         (draft) => draft.clientId !== clientId,
       )
-      setTurfDrafts(remaining)
+      // The WRITE is a functional updater and the snapshot above is only
+      // for the cursor. A partial create drops its saved drafts in a loop —
+      // `for (const row of created) onRemoveDraft(...)` — and every call in
+      // that loop reads the same render's `turfDrafts`, so writing the
+      // snapshot back would keep only the last removal and hand the retry a
+      // turf it had already bought.
+      setTurfDrafts((current) =>
+        current.filter((draft) => draft.clientId !== clientId),
+      )
       // Dropping the turf that is open for edits leaves the drawing session
       // holding a boundary with nothing behind it. Letting go of it here is
       // what makes the next valid ring commit a fresh draft instead of
@@ -1008,6 +1015,11 @@ export default function NativeDoorKnockingPage({
       setKnockPrompt({ turf, origin })
       return
     }
+    // Only now, because only now is there somewhere to go. Tearing the flow
+    // down beside the QUESTION left a candidate who cancelled it on a bare
+    // map with no flow, no walk and no nav — this page hides it — which is
+    // reachable straight off the success screen.
+    leaveFlowForWalk()
     walkOrigin.current = origin
     walk.start({ id: turf.id, name: turf.name }, 'existingRoute')
   }
@@ -1152,21 +1164,6 @@ export default function NativeDoorKnockingPage({
     origin: WalkOrigin
   } | null>(null)
 
-  // The travel mode a saved turf's shape argues for, computed at the moment
-  // the knock prompt opens. Walking or driving is a question about the doors
-  // and how far apart they are, and the frozen stops are exactly that.
-  const knockSuggestion = useMemo(() => {
-    const pack = packQuery.data
-    const turf = knockPrompt?.turf
-    if (!pack || !turf || !selections) return null
-    const stops = stopPositionsInRing(
-      pack,
-      selections,
-      turf.geoPoly.coordinates[0] ?? [],
-    )
-    return stops.length > 0 ? suggestTravelMode(stops) : null
-  }, [packQuery.data, selections, knockPrompt])
-
   // Tears the create flow down so the walk can own the screen. A no-op when
   // the flow is not open, which is most of the ways into a walk.
   const leaveFlowForWalk = () => {
@@ -1182,7 +1179,6 @@ export default function NativeDoorKnockingPage({
   // "Start knocking" on one turf of the flow's success screen. The flow is
   // on screen here and nothing else is, so it comes down first.
   const handleStartKnocking = (turf: DoorKnockingTurf) => {
-    leaveFlowForWalk()
     startKnocking(turf, { kind: 'hub' })
   }
 
@@ -1192,6 +1188,7 @@ export default function NativeDoorKnockingPage({
   const handleRouteBuilt = (turf: DoorKnockingTurf) => {
     const origin = knockPrompt?.origin ?? { kind: 'hub' }
     setKnockPrompt(null)
+    leaveFlowForWalk()
     walkOrigin.current = origin
     walk.start({ id: turf.id, name: turf.name }, 'newRoute')
   }
@@ -1607,14 +1604,16 @@ export default function NativeDoorKnockingPage({
             }}
           />
         )}
+        {/* No `suggested`, deliberately. Walking or driving is a question
+            about how far apart the turf's OWN doors are, and those are
+            frozen server-side — the only audience this page can measure a
+            polygon against is whatever the create flow currently has
+            selected, which for a saved turf (or a deep link, which starts
+            with none) is a different set of people. A suggestion computed
+            from the wrong audience is worse than none, so the dialog opens
+            on walking until the server can answer. */}
         <StartKnockingDialog
           turf={knockPrompt?.turf ?? null}
-          // Suggested from the turf's OWN shape rather than from whatever
-          // is on the canvas: this dialog is opened for a saved turf, which
-          // may have been cut in another session entirely. Null when the
-          // pack has not decoded — the dialog then opens on walking, which
-          // is the right default for a turf nobody can measure yet.
-          suggested={knockSuggestion}
           onOpenChange={(open) => {
             if (!open) setKnockPrompt(null)
           }}

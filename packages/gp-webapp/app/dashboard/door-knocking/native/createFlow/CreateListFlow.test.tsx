@@ -2089,7 +2089,7 @@ describe('CreateListFlow multi-turf save', () => {
   // Distinct envelope ids, so a body carrying `campaignOutreachId` can only
   // have got it from the turf that was actually bought first.
   const mockBatch = (
-    overrides: { failSecond?: boolean } = {},
+    overrides: { failSecond?: boolean; failSecondOnce?: boolean } = {},
   ): { turfs: Record<string, unknown>[]; assignments: unknown[] } => {
     const turfs: Record<string, unknown>[] = []
     const assignments: unknown[] = []
@@ -2100,7 +2100,13 @@ describe('CreateListFlow multi-turf save', () => {
     api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
       const sent = body as Record<string, unknown>
       turfs.push(sent)
-      if (overrides.failSecond && sent.name === 'Turf 2') {
+      const secondTurfFails =
+        sent.name === 'Turf 2' &&
+        (overrides.failSecond ||
+          // Once only, so the retry can be walked to its end.
+          (overrides.failSecondOnce &&
+            turfs.filter((t) => t.name === 'Turf 2').length === 1))
+      if (secondTurfFails) {
         return { status: 502 as const, data: {} }
       }
       const index = turfs.length
@@ -2243,6 +2249,37 @@ describe('CreateListFlow multi-turf save', () => {
     // in the product can merge two.
     expect(turfs[2]).toMatchObject({ campaignOutreachId: 901 })
     expect(turfs[3]).toMatchObject({ campaignOutreachId: 901 })
+  })
+
+  it('names every turf the campaign got, not only the retry’s', async () => {
+    // A partial batch leaves the flow on the draw step with the turf that
+    // failed still in the list, so the retry buys one turf and its success
+    // screen would name one turf — of a campaign that holds two.
+    const { turfs } = mockBatch({ failSecondOnce: true })
+    const onRemoveDraft = vi.fn()
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...twoTurfs} step="name" />,
+    )
+    advanceToDraw(rerender, twoTurfs, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() => expect(turfs).toHaveLength(2))
+
+    // What the page does with the anchor's spent draft, which is what makes
+    // the retry buy only what is still owed.
+    const owed = { turfDrafts: [SECOND], onRemoveDraft }
+    rerender(<CreateListFlow {...baseProps} {...owed} step="draw" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...owed} step="success" />)
+
+    // Both turfs, each with its own knock control: the one the first press
+    // bought and the one the retry did.
+    expect(await screen.findByText('Turf 1')).toBeInTheDocument()
+    expect(screen.getByText('Turf 2')).toBeInTheDocument()
   })
 
   it('joins an existing campaign without buying an anchor of its own', async () => {

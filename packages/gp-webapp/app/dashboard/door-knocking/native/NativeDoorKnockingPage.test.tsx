@@ -1194,6 +1194,126 @@ describe('NativeDoorKnockingPage create flow', () => {
     )
   })
 
+  it('spends every draft the create wrote, not just the last one', async () => {
+    // The drafts are dropped in a loop — one call per turf the press
+    // bought — so a handler that writes back a snapshot of the list keeps
+    // only the LAST removal. A partial batch is where that shows: the
+    // retry then re-posts a turf the campaign already has.
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 9 },
+    })
+    let made = 0
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      const name = String((body as { name: string }).name)
+      if (name === 'Turf 3') return { status: 502 as const, data: {} }
+      made += 1
+      return {
+        status: 200 as const,
+        data: {
+          ...turf,
+          id: 100 + made,
+          outreachId: 900 + made,
+          voterFileFilterId: 9,
+          name,
+          routeSeconds: null,
+        },
+      }
+    })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    for (const name of ['Turf 2', 'Turf 3']) {
+      fireEvent.click(
+        within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+      )
+      nameThisTurf(name)
+      fireEvent.click(tapMap)
+      fireEvent.click(tapMap)
+      fireEvent.click(tapMap)
+    }
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create campaign' }),
+    )
+
+    // Two bought, one lost — so the step keeps exactly the one still owed.
+    await waitFor(() => expect(made).toBe(2))
+    expect(await screen.findByText('Turf 3')).toBeInTheDocument()
+    expect(screen.queryByText('Turf 1')).toBeNull()
+    expect(screen.queryByText('Turf 2')).toBeNull()
+  })
+
+  it('keeps the success screen when the travel question is dismissed', async () => {
+    // The flow used to come down beside the QUESTION rather than beside the
+    // walk, so cancelling left a bare map: no flow, no walk, and this page
+    // hides the nav — nothing on screen to press.
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 9 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', {
+      status: 200,
+      data: {
+        ...turf,
+        id: 5,
+        outreachId: 77,
+        voterFileFilterId: 9,
+        name: 'Turf 1',
+        // Unrouted, which is what makes the press ask before it buys.
+        routeSeconds: null,
+      },
+    })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create campaign' }),
+    )
+    await screen.findByText('Your campaign is ready')
+
+    fireEvent.click(screen.getByRole('button', { name: /^Start knocking$/ }))
+    expect(
+      await screen.findByRole('button', { name: 'Build route' }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    // Nothing was bought, so nothing has changed: the screen that asked is
+    // still the screen you are on.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Build route' })).toBeNull(),
+    )
+    expect(screen.getByText('Your campaign is ready')).toBeInTheDocument()
+  })
+
   it('does not reopen the flow when creating a campaign refetches the rail', async () => {
     api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })

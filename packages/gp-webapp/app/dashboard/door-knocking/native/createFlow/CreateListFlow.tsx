@@ -507,6 +507,11 @@ export default function CreateListFlow({
   const [listOpen, setListOpen] = useState(false)
   // The turfs the create actually wrote, held for the success screen, which
   // lists them with their own counts and a knock control each.
+  //
+  // ACCUMULATED across presses, because a partial batch leaves the flow on
+  // the draw step with the turfs that failed still in the list: the retry's
+  // own success would otherwise name only what the second press bought, and
+  // the campaign would look like it had lost the turfs it started with.
   const [createdTurfs, setCreatedTurfs] = useState<DoorKnockingTurf[] | null>(
     null,
   )
@@ -1360,17 +1365,26 @@ export default function CreateListFlow({
       void queryClient.invalidateQueries({
         queryKey: ['door-knocking-preselected-recommendation', orgSlug],
       })
+      // Recorded BEFORE the partial-batch return, and accumulated: a press
+      // that saved two turfs and lost a third has still bought two, and the
+      // retry's own success screen has to name the campaign's turfs rather
+      // than the last press's. Dropping them here is how the screen came to
+      // list one turf of a campaign holding three.
+      if (created.length > 0) {
+        setCreatedTurfs((earlier) => [
+          ...(earlier ?? []),
+          ...created.map((c) => c.turf),
+        ])
+      }
       // A partial batch stays on the draw step with its unsaved turfs still
       // in the list, so the same Create campaign press finishes the job.
       // Advancing here would strand the turfs that failed on a screen with
       // no way back to them.
       if (failures.length > 0) return
-      const first = created[0]
-      if (!first) return
+      if (created.length === 0) return
       // The campaign exists. The flow's last screen names it and offers the
       // two things to do next; it does NOT hand over to a walk any more,
       // because there is no route to walk until somebody buys one.
-      setCreatedTurfs(created.map((c) => c.turf))
       goToStage('success')
     },
   })

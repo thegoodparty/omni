@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Dialog,
@@ -34,8 +34,6 @@ import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 // again would collect an answer that changes nothing.
 type Props = {
   turf: Pick<DoorKnockingTurf, 'id' | 'name'> | null
-  // The mode the turf's own shape argues for, when the caller knows it.
-  suggested?: DoorKnockingMode | null
   onOpenChange: (open: boolean) => void
   // Handed the turf as the server returned it, routed.
   onRouteBuilt: (turf: DoorKnockingTurf) => void
@@ -43,7 +41,6 @@ type Props = {
 
 export const StartKnockingDialog = ({
   turf,
-  suggested = null,
   onOpenChange,
   onRouteBuilt,
 }: Props) => {
@@ -86,6 +83,17 @@ export const StartKnockingDialog = ({
     },
   })
 
+  // One dialog serves every turf, so it has to forget the last one. Without
+  // this the next unrouted turf opens on the mode picked for the previous
+  // one and can still be showing its error.
+  const { reset } = build
+  useEffect(() => {
+    if (!turf) return
+    setMode('walk')
+    setLoop(true)
+    reset()
+  }, [turf?.id, reset])
+
   return (
     <Dialog
       open={turf !== null}
@@ -105,12 +113,21 @@ export const StartKnockingDialog = ({
           </DialogDescription>
         </DialogHeader>
 
+        {/* No suggestion. Walking or driving is a question about how far
+            apart THIS turf's doors are, and they are frozen server-side —
+            the only audience the page can measure a polygon against is
+            whatever the create flow currently has selected, which for a
+            saved turf (or a deep link, which starts with none) is a
+            different set of people. "Suggested because every stop is
+            within a 5-minute walk of the next one" would then be a
+            sentence about somebody else's stops. Walking is the honest
+            default until the server can answer. */}
         <RouteStep
           mode={mode}
           onModeChange={setMode}
           loop={loop}
           onLoopChange={setLoop}
-          suggested={suggested}
+          suggested={null}
         />
 
         {build.isError && (

@@ -50,7 +50,7 @@ test.describe('door knocking is entered from Voter Outreach', () => {
       waitUntil: 'domcontentloaded',
     })
     await expect(
-      page.getByRole('heading', { name: 'Create an outreach campaign' }),
+      page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
     await page.waitForURL((url) => !url.searchParams.has('listId'), {
       timeout: 30_000,
