@@ -284,6 +284,101 @@ describe('constituent feedback routes', () => {
     expect(res.data.feedback[0]?.issueLabel).toBe('Compost collection')
   })
 
+  // The question is denormalized onto the row precisely because the effort's
+  // own copy can be edited later. `extract()` always reads the current one, so
+  // a stale copy here would leave the row claiming a prompt nothing ran with.
+  it('re-reads the effort question when the memo is re-recorded', async () => {
+    const first = await capture('Rosa wants weekly compost pickup.')
+    expect(first.status).toBe(201)
+
+    await service.prisma.phoneBankingList.update({
+      where: { id: listId },
+      data: { communityInputQuestion: 'Should we expand the compost pilot?' },
+    })
+
+    const second = await capture('Still about compost, but the wider pilot.')
+    expect(second.status).toBe(201)
+
+    const row = await service.prisma.constituentFeedback.findUniqueOrThrow({
+      where: { id: first.data.id },
+    })
+    expect(row.effortQuestion).toBe('Should we expand the compost pilot?')
+  })
+
+  // The phone arm's own scope, mirroring the door's. `resolvePhoneBankCall`
+  // finds the entry through `list: { organizationSlug }`; without it, another
+  // org's entry resolves and its call is written into this org's record.
+  it('refuses an entry from another org', async () => {
+    const otherSlug = `eo-pbother-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2)}`
+    await service.prisma.organization.create({
+      data: {
+        slug: otherSlug,
+        ownerId: service.user.id,
+        overrideDistrictId: DISTRICT_ID,
+      },
+    })
+    await service.prisma.electedOffice.create({
+      data: { userId: service.user.id, organizationSlug: otherSlug },
+    })
+    const otherFilter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: otherSlug, name: 'Their constituents' },
+    })
+
+    // The SAME person, called on both orgs' lists. Anything less and the
+    // interaction lookup would do the rejecting and the org scope would never
+    // be reached — the mistake the door's version of this test started with.
+    const theirList = await service.client.post(
+      '/v1/phone-banking/serve/lists',
+      {
+        name: 'Their calls',
+        script: 'Calling from another office.',
+        sheetCount: 1,
+        voterFileFilterId: otherFilter.id,
+        purpose: 'community_input',
+        communityInputQuestion: 'Theirs, and private',
+      },
+      { headers: { 'x-organization-slug': otherSlug } },
+    )
+    expect(theirList.status).toBe(201)
+
+    const theirEntry =
+      await service.prisma.phoneBankingListEntry.findFirstOrThrow({
+        where: { phoneBankingListId: theirList.data.id },
+      })
+    const theirCall = await service.client.post(
+      `/v1/phone-banking/lists/${theirList.data.id}/calls`,
+      {
+        entryId: theirEntry.id,
+        outcome: 'answered',
+        personId,
+        followUp: 'yes',
+      },
+      { headers: { 'x-organization-slug': otherSlug } },
+    )
+    expect(theirCall.status).toBe(201)
+
+    const res = await service.client.post(
+      '/v1/constituent-feedback',
+      {
+        channel: 'phone_bank',
+        entryId: theirEntry.id,
+        personId,
+        clientKey: randomUUID(),
+        transcript: 'Should not be readable from here.',
+        captureMethod: 'dictation',
+      },
+      { ...headers(), validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(404)
+    const rows = await service.prisma.constituentFeedback.findMany({
+      where: { organizationSlug: eoSlug },
+    })
+    expect(rows).toHaveLength(0)
+  })
+
   // The door arm resolves through the TURF, because a knock row carries no
   // turf and the turf is what holds the question. That nested
   // `stop.turf.voterFileFilter.organizationSlug` filter is the only thing

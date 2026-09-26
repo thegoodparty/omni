@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
+  ConstituentFeedbackCaptureMethod,
   ConstituentFeedbackTriple,
   DoorKnockOutcome,
   DoorKnockStatus,
@@ -209,27 +210,36 @@ export default function RecordKnockForm({
         personId: data.personId,
         knockStatus: data.knockStatus,
       }
-      capture.mutate(input.note)
+      capture.mutate({
+        transcript: input.note,
+        captureMethod: spoken ? 'dictation' : 'typed',
+      })
     },
   })
 
   // The memo is a second write on top of a knock that has already saved, and
   // it reuses the knock's clientKey: one memo per knock, and a dead-zone retry
   // upserts the same row rather than forking a duplicate.
+  // `captureMethod` rides the variables rather than being read off `spoken`
+  // twice: the request goes on mutate and the event on settle, a round trip
+  // apart, so a reset in between would have them disagree about one memo.
   const capture = useMutation({
-    mutationFn: (transcript: string) =>
+    mutationFn: (input: {
+      transcript: string
+      captureMethod: ConstituentFeedbackCaptureMethod
+    }) =>
       clientRequest('POST /v1/constituent-feedback', {
         channel: 'door_knock',
         knockClientKey: clientKey,
         stopTargetId: target.stopTargetId,
         clientKey,
-        transcript,
-        captureMethod: spoken ? 'dictation' : 'typed',
+        transcript: input.transcript,
+        captureMethod: input.captureMethod,
       }).then((res) => res.data),
-    onSuccess: (data) => {
+    onSuccess: (data, input) => {
       trackEvent(EVENTS.ConstituentFeedback.IssueCaptured, {
         channel: 'doorKnocking',
-        captureMethod: spoken ? 'dictation' : 'typed',
+        captureMethod: input.captureMethod,
         extractionStatus: data.extractionStatus,
       })
       setCaptured({ id: data.id, proposed: data.extraction })
@@ -284,6 +294,7 @@ export default function RecordKnockForm({
     setWillVote(undefined)
     setFollowUp(undefined)
     setNote('')
+    setSpoken(false)
     // The failure banner isn't gated on the walk, so without this a Cancel
     // after a failed save leaves it sitting over an empty form promising that
     // "your answers are still here" — which Cancel has just made untrue.

@@ -4,6 +4,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
+import type { PhoneBankingInteraction } from '@goodparty_org/contracts'
 import PhoneBankingOutcomeForm from './PhoneBankingOutcomeForm'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -52,23 +53,40 @@ const ENTRY_ID = 4021
 
 const dictate = (text: string) => act(() => mocks.input.current?.onChange(text))
 
+const formWith = (
+  isServe: boolean,
+  onSaved: () => void,
+  interaction: PhoneBankingInteraction | null,
+) => (
+  <PhoneBankingOutcomeForm
+    listId={9}
+    entryId={ENTRY_ID}
+    entrySeq={1}
+    personId="person-1"
+    interaction={interaction}
+    householdHasOthersUnlogged={false}
+    isServe={isServe}
+    onSaved={onSaved}
+  />
+)
+
 const renderForm = ({
   isServe = true,
   onSaved = vi.fn(),
 }: { isServe?: boolean; onSaved?: () => void } = {}) => {
-  const view = render(
-    <PhoneBankingOutcomeForm
-      listId={9}
-      entryId={ENTRY_ID}
-      entrySeq={1}
-      personId="person-1"
-      interaction={null}
-      householdHasOthersUnlogged={false}
-      isServe={isServe}
-      onSaved={onSaved}
-    />,
-  )
-  return { view, onSaved }
+  const view = render(formWith(isServe, onSaved, null))
+  return { view, onSaved, isServe }
+}
+
+// What the parent hands back once the call is logged. Re-rendering with it
+// (rather than remounting) is what the panel really does: the key is personId,
+// so pressing the pencil reopens the SAME instance.
+const LOGGED: PhoneBankingInteraction = {
+  outcome: 'answered',
+  supportAnswer: null,
+  willVote: null,
+  followUp: 'yes',
+  occurredAt: new Date('2026-09-26T00:00:00.000Z'),
 }
 
 // A Serve call that connected, engaged and was given a memo, then saved.
@@ -80,7 +98,11 @@ const callAndSave = (withMemo = true) => {
   fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 }
 
-let captureBodies: { clientKey: string; transcript: string }[] = []
+let captureBodies: {
+  clientKey: string
+  transcript: string
+  captureMethod: string
+}[] = []
 
 beforeEach(() => {
   testQueryClient.clear()
@@ -274,6 +296,45 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
       await waitFor(() => expect(captureBodies).toHaveLength(0))
     },
   )
+
+  // Re-editing through the pencil toggles `isEditing` on a live instance
+  // rather than remounting, so anything left in memo state rides along.
+  it('reopens an edited call with an empty memo box', async () => {
+    const { view, onSaved } = renderForm()
+    callAndSave()
+    await waitFor(() => expect(captureBodies).toHaveLength(1))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+    view.rerender(formWith(true, onSaved, LOGGED))
+    fireEvent.click(
+      await screen.findByRole('button', { name: "Edit this call's outcome" }),
+    )
+
+    expect(screen.getByPlaceholderText(/Say it out loud/i)).toHaveValue('')
+  })
+
+  // `spoken` is what decides `captureMethod`, and it is sticky: a first memo
+  // that was dictated would report the typed second one as dictation too.
+  it('reports a typed second memo as typed, not dictated', async () => {
+    const { view, onSaved } = renderForm()
+    callAndSave()
+    await waitFor(() => expect(captureBodies).toHaveLength(1))
+    expect(captureBodies[0]?.captureMethod).toBe('dictation')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+    view.rerender(formWith(true, onSaved, LOGGED))
+    fireEvent.click(
+      await screen.findByRole('button', { name: "Edit this call's outcome" }),
+    )
+
+    fireEvent.change(screen.getByPlaceholderText(/Say it out loud/i), {
+      target: { value: 'Typed this one out instead.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(captureBodies).toHaveLength(2))
+    expect(captureBodies[1]?.captureMethod).toBe('typed')
+  })
 
   it('asks for no memo when the flag is off', async () => {
     vi.mocked(useServeIssueCaptureFlag).mockReturnValue({

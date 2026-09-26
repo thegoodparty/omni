@@ -8,6 +8,7 @@ import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedb
 import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
 import IssueCaptureConfirmCard from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
+  ConstituentFeedbackCaptureMethod,
   PhoneBankingCallResult,
   PhoneBankingInteraction,
   ConstituentFeedbackTriple,
@@ -103,20 +104,28 @@ export default function PhoneBankingOutcomeForm({
     },
   })
 
+  // `captureMethod` rides the mutation's variables rather than being read off
+  // `spoken` twice. The two reads happen a round trip apart — the request on
+  // mutate, the event on settle — so once `spoken` is reset after a save they
+  // would disagree about the same memo, and the event is the half we would
+  // believe later.
   const capture = useMutation({
-    mutationFn: (transcript: string) =>
+    mutationFn: (input: {
+      transcript: string
+      captureMethod: ConstituentFeedbackCaptureMethod
+    }) =>
       clientRequest('POST /v1/constituent-feedback', {
         channel: 'phone_bank',
         entryId,
         personId,
         clientKey: memoKeyRef.current,
-        transcript,
-        captureMethod: spoken ? 'dictation' : 'typed',
+        transcript: input.transcript,
+        captureMethod: input.captureMethod,
       }).then((res) => res.data),
-    onSuccess: (data) => {
+    onSuccess: (data, input) => {
       trackEvent(EVENTS.ConstituentFeedback.IssueCaptured, {
         channel: 'phoneBanking',
-        captureMethod: spoken ? 'dictation' : 'typed',
+        captureMethod: input.captureMethod,
         extractionStatus: data.extractionStatus,
       })
       setCaptured({ id: data.id, proposed: data.extraction })
@@ -193,7 +202,16 @@ export default function PhoneBankingOutcomeForm({
       setIsEditing(false)
       logCallAnalytics(draft)
       const transcript = memo.trim()
-      if (capturesIssues && transcript.length > 0) capture.mutate(transcript)
+      const captureMethod = spoken ? 'dictation' : 'typed'
+      // Re-editing this same call through the pencil toggles `isEditing` on a
+      // live instance rather than remounting it (the key is personId), so
+      // without these the second memo inherits the first one's text and is
+      // reported as dictated even when it was typed.
+      setMemo('')
+      setSpoken(false)
+      if (capturesIssues && transcript.length > 0) {
+        capture.mutate({ transcript, captureMethod })
+      }
     },
   })
 

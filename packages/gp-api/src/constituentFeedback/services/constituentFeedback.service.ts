@@ -135,6 +135,11 @@ export class ConstituentFeedbackService extends createPrismaBase(
       update: {
         transcript: input.body.transcript,
         captureMethod: input.body.captureMethod,
+        // Re-read, not left at the first recording's value: the effort's
+        // question can be edited between the two, and `extract()` above always
+        // runs against the current one. Keeping the old copy here would leave
+        // the row claiming a prompt the extraction never saw.
+        effortQuestion: target.effortQuestion,
         confirmedAt: null,
         ...this.extractionFields(extracted),
       },
