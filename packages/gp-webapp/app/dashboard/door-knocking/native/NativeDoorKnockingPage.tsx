@@ -515,29 +515,34 @@ export default function NativeDoorKnockingPage({
     },
     [draw, siblingTurfs],
   )
-  const removeDraft = useCallback(
-    (clientId: string) => {
-      const remaining = turfDrafts.filter(
-        (draft) => draft.clientId !== clientId,
-      )
-      // The WRITE is a functional updater and the snapshot above is only
-      // for the cursor. A partial create drops its saved drafts in a loop —
-      // `for (const row of created) onRemoveDraft(...)` — and every call in
-      // that loop reads the same render's `turfDrafts`, so writing the
-      // snapshot back would keep only the last removal and hand the retry a
-      // turf it had already bought.
-      setTurfDrafts((current) =>
-        current.filter((draft) => draft.clientId !== clientId),
-      )
-      // Dropping the turf that is open for edits leaves the drawing session
-      // holding a boundary with nothing behind it. Letting go of it here is
-      // what makes the next valid ring commit a fresh draft instead of
-      // writing its shape onto a draft that no longer exists.
-      if (activeDraftRef.current !== clientId) return
-      handBackCursor(remaining)
-    },
-    [handBackCursor, turfDrafts],
-  )
+  // A functional updater and nothing else. The drafts a create spent are
+  // dropped in a LOOP — `for (const row of created) onRemoveDraft(...)` —
+  // and every call in it reads the same render, so anything computed from
+  // `turfDrafts` here is stale by the second call: writing such a snapshot
+  // back kept only the last removal, and handing the cursor one pointed it
+  // at a draft the loop had already dropped.
+  //
+  // Where the cursor goes is therefore not decided here at all. It is the
+  // effect below, which runs once against the list that actually resulted.
+  const removeDraft = useCallback((clientId: string) => {
+    setTurfDrafts((current) =>
+      current.filter((draft) => draft.clientId !== clientId),
+    )
+  }, [])
+  // The one rule: the cursor points at a draft that exists. Dropping the
+  // turf that is open for edits leaves the drawing session holding a
+  // boundary with nothing behind it, so the next valid ring would write its
+  // shape onto a draft that is gone.
+  //
+  // Keyed on the list rather than performed by each removal, because a
+  // removal cannot see what the ones beside it did. One press, one
+  // hand-back, against the drafts that are really left.
+  useEffect(() => {
+    const active = activeDraftRef.current
+    if (active === null) return
+    if (turfDrafts.some((draft) => draft.clientId === active)) return
+    handBackCursor(turfDrafts)
+  }, [turfDrafts, handBackCursor])
   // Who the turf being cut will be handed to, before there is a turf to hand
   // it to. The panel's card is open from the first corner, so the canvasser
   // can be picked then; it is stamped onto the draft when one is committed,
