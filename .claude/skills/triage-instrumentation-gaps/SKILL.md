@@ -344,6 +344,13 @@ dumper.
 - `declared_leg_unmonitored`: add a surface to the behavior that points at the metric, or
   an `events:` row if no behavior owns the question, in the exact row shape Queue B's
   accept uses. Same `page_path` rule.
+
+A finding's `event_key` may carry an `excluding` qualifier
+(`Voter Outreach - Campaign Completed[excluding method=manual]`). That is a scope rule the
+metric applies over one event, not a second call site, so **never mirror it onto a
+surface**: the surface names the bare event and the two still match. `suggested` never
+carries one, for the same reason. If the exclusion itself looks wrong, that is an
+`anchored_on` change in gp-data-platform, which is case 2.
 - `metric_undeclared`: either the pointer is misspelled (fix it against the sem file's
   `name:` values) or the metric is not governed yet. In the second case remove the
   pointer and tell the reviewer the metric is not an OKR until it is declared. Do not
