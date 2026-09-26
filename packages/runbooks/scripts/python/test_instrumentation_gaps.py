@@ -9,10 +9,14 @@ import instrumentation_gaps as ig
 
 @pytest.fixture(autouse=True)
 def _isolate_run_state(tmp_path_factory, monkeypatch):
-    """main() defaults --run-state into the committed instrumentation_data/ dir, so without
-    this every sweep-running test would write the repo's real state file."""
+    """main() defaults --run-state and --prior-rulings into the committed instrumentation_data/
+    dir, so without this every sweep-running test would write the repo's real files."""
     monkeypatch.setattr(
         ig, "DEFAULT_RUN_STATE", tmp_path_factory.mktemp("run_state") / "run_state.json"
+    )
+    monkeypatch.setattr(
+        ig, "DEFAULT_PRIOR_RULINGS",
+        tmp_path_factory.mktemp("prior_rulings") / "prior_rulings.json",
     )
 
 
@@ -293,6 +297,89 @@ def test_coverage_stats_counts_the_closed_buckets():
     }
     cov = ig.coverage_stats(state)
     assert cov["resolved"] == 1 and cov["retired"] == 1 and cov["new"] == 1
+
+
+# --- prior rulings carried across an id-scheme migration (DATA-2539) ---------------------
+
+
+def test_resplit_predecessors_ruling_attaches_to_each_live_sibling():
+    # The predecessor id closes as resplit; every live surface sharing its (location,
+    # surface_type) should see the predecessor's own ruling as context.
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="accepted",
+                                           reason="known handler")}
+    surfaces = [
+        {"id": "a/B.tsx#form_submit#Alpha", "location": "a/B.tsx", "surface_type": "form_submit"},
+        {"id": "a/B.tsx#form_submit#Beta", "location": "a/B.tsx", "surface_type": "form_submit"},
+    ]
+    rulings = ig.build_prior_rulings(state, surfaces, gap_ids=set(), today=date(2026, 9, 25))
+    assert set(rulings) == {"a/B.tsx#form_submit#Alpha", "a/B.tsx#form_submit#Beta"}
+    assert all(r["id"] == "a/B.tsx#form_submit" for r in rulings.values())
+    assert all(r["disposition"] == "accepted" for r in rulings.values())
+    assert all(r["reason"] == "known handler" for r in rulings.values())
+
+
+def test_successor_enters_as_new_never_inheriting_the_predecessors_disposition():
+    # The safety property this whole ticket exists to guarantee: a dismissed predecessor
+    # auto-dismissing a genuinely untracked sibling handler would be exactly the silent miss
+    # DATA-2539 removes. prior_ruling is context on the entry, never its disposition.
+    prior = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="dismissed",
+                                           reason="not worth it")}
+    ruling = {"id": "a/B.tsx#form_submit", "disposition": "dismissed",
+              "reason": "not worth it", "ruled_on": "2026-08-06"}
+    verdicts = {"a/B.tsx#form_submit#Alpha": {
+        "id": "a/B.tsx#form_submit#Alpha", "is_gap": True, "rubric_rule": "flow",
+        "dashboard_question": "q", "rank": 1, "reason": "judge says gap",
+    }}
+    cands = {"a/B.tsx#form_submit#Alpha": {
+        "id": "a/B.tsx#form_submit#Alpha", "surface_type": "form_submit", "location": "a/B.tsx",
+    }}
+    out = ig.merge_judged_state(
+        prior, verdicts, cands, date(2026, 9, 25),
+        prior_rulings={"a/B.tsx#form_submit#Alpha": ruling},
+    )
+    entry = out["a/B.tsx#form_submit#Alpha"]
+    assert entry["disposition"] == "new"  # NOT "dismissed" — the safety property
+    assert entry["prior_ruling"] == ruling
+
+
+def test_prior_ruling_attaches_on_creation_only_and_is_not_overwritten():
+    ruling = {"id": "old", "disposition": "accepted", "reason": "r", "ruled_on": "2026-08-01"}
+    verdicts = {"new_id": {"id": "new_id", "is_gap": True, "rubric_rule": "flow",
+                           "dashboard_question": "q", "rank": 1, "reason": "gap"}}
+    cands = {"new_id": {"id": "new_id", "surface_type": "form_submit", "location": "a.tsx"}}
+    out1 = ig.merge_judged_state(
+        {}, verdicts, cands, date(2026, 9, 25), prior_rulings={"new_id": ruling},
+    )
+    assert out1["new_id"]["prior_ruling"] == ruling
+
+    # Second run: a different ruling is offered for the same id, but the entry already
+    # exists — the field records what was true at creation and must not be refreshed.
+    verdicts2 = {"new_id": {"id": "new_id", "is_gap": True, "rubric_rule": "flow",
+                            "dashboard_question": "q", "rank": 1, "reason": "still a gap"}}
+    other_ruling = {"id": "old", "disposition": "dismissed", "reason": "different",
+                    "ruled_on": "2026-09-01"}
+    out2 = ig.merge_judged_state(
+        out1, verdicts2, cands, date(2026, 9, 26), prior_rulings={"new_id": other_ruling},
+    )
+    assert out2["new_id"]["prior_ruling"] == ruling  # unchanged
+
+
+def test_run_sweep_survives_a_corrupt_prior_rulings_file(tmp_path):
+    # Same never-raise contract as the run-state file: a bad side file must not break the
+    # unattended cron, and must degrade to {} rather than raising.
+    state_path = tmp_path / "state.json"
+    state_path.write_text("{}")
+    prior_rulings = tmp_path / "prior_rulings.json"
+    prior_rulings.write_text("{ not json")
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+
+    *_rest, rulings = ig.run_sweep(
+        tmp_path, tmp_path / "none.yaml", state_path, date(2026, 9, 25),
+        api_key=None, enable_judge=False, prior_rulings_path=prior_rulings,
+    )
+    assert rulings == {}
 
 
 def test_a_collapsed_scan_closes_nothing(tmp_path, capsys):

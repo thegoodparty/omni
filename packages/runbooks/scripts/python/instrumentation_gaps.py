@@ -30,6 +30,7 @@ import json
 import os
 import re
 import sys
+from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
 from pathlib import Path
@@ -57,6 +58,10 @@ DEFAULT_LOG = DATA_DIR / "instrumentation-gaps-log.md"
 # that file is a flat map keyed by gap id and load_state rejects anything else. Same shape of
 # small companion file as amplitude_event_provenance_state.json.
 DEFAULT_RUN_STATE = DATA_DIR / "instrumentation_gaps_run_state.json"
+# Successor-id -> a resplit predecessor's ruling (DATA-2539). A sibling file, not a key inside
+# instrumentation_gaps.json, for the same reason as DEFAULT_RUN_STATE: it can outlive the run
+# that computed it, since a successor id may not enter state until a later, judge-capped run.
+DEFAULT_PRIOR_RULINGS = DATA_DIR / "instrumentation_gaps_prior_rulings.json"
 
 JUDGE_OK_STATUSES = llm_judge.OK_STATUSES
 NO_JUDGE_STATUS = "skipped: --no-judge"
@@ -634,11 +639,17 @@ def merge_judged_state(
     verdicts: Mapping[str, dict],
     candidates_by_id: Mapping[str, dict],
     today: date,
+    prior_rulings: Mapping[str, dict] | None = None,
 ) -> dict[str, dict]:
     """Fold judge-confirmed gaps into the disposition state. Only is_gap=true verdicts
     create or refresh entries; is_gap=false is dropped and never added. Human decisions
     (disposition, reason) and first_seen are preserved; the judge's reason is stored as
-    judge_reason so it never clobbers the human field. Prior ids absent this run are kept."""
+    judge_reason so it never clobbers the human field. Prior ids absent this run are kept.
+
+    prior_rulings (id-scheme migration, DATA-2539): a successor id that first enters state
+    here and matches a resplit predecessor's ruling gets that ruling attached as `prior_ruling`
+    context — never on refresh of an entry that already exists, since it records what a human
+    decided about the *predecessor* surface, not a live fact about this one."""
     iso = today.isoformat()
     out: dict[str, dict] = {k: dict(v) for k, v in prior.items()}
     for gid, verdict in verdicts.items():
@@ -662,6 +673,9 @@ def merge_judged_state(
                 "last_seen": iso,
                 **judged,
             }
+            ruling = (prior_rulings or {}).get(gid)
+            if ruling:
+                out[gid]["prior_ruling"] = ruling
             continue
         entry = out[gid]
         entry["last_seen"] = iso
@@ -742,6 +756,45 @@ def close_resolved_entries(
         entry["resolved_at"] = iso
         closed += 1
     return out, closed
+
+
+def build_prior_rulings(
+    state: Mapping[str, dict], surfaces: Sequence[Mapping], gap_ids: set[str], today: date,
+) -> dict[str, dict]:
+    """{successor_id: ruling} for every live surface sharing (location, surface_type) with an
+    entry this run closes as `resplit` (DATA-2539 id-scheme migration).
+
+    Reuses close_resolved_entries's own resplit test rather than re-deriving it, so the two
+    can never drift apart — a fork here would mean a successor could get a ruling attached
+    for an id the closer doesn't actually consider resplit, or vice versa.
+
+    Every live sibling at that (location, surface_type) gets the ruling, regardless of the
+    predecessor's own disposition: a `new` predecessor (never actually ruled on) still yields
+    one, just an uninformative one (empty reason) — that is itself honest context (the
+    predecessor was untriaged), not a case to special-case away. Pure: takes this run's already
+    -scanned surfaces, does no IO."""
+    closed, _ = close_resolved_entries(state, surfaces, gap_ids, today)
+    by_loc_type: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for s in surfaces:
+        by_loc_type[(s.get("location", ""), s.get("surface_type", ""))].append(s["id"])
+
+    rulings: dict[str, dict] = {}
+    for gid, entry in closed.items():
+        if entry.get("resolved_cause") != "resplit":
+            continue
+        source = state[gid]
+        ruling = {
+            "id": gid,
+            "disposition": source.get("disposition", "new"),
+            "reason": source.get("reason", ""),
+            "ruled_on": source.get("last_seen", ""),
+        }
+        key = (entry.get("location", ""), entry.get("surface_type", ""))
+        for child_id in by_loc_type.get(key, []):
+            if child_id == gid:
+                continue  # resplit means gid itself isn't live; guard anyway
+            rulings[child_id] = ruling
+    return rulings
 
 
 def is_visible(entry: Mapping) -> bool:
@@ -1029,19 +1082,28 @@ def run_sweep(
     client_factory=None,
     enable_judge: bool = True,
     run_state_path: Path | None = None,
-) -> tuple[dict, list[dict], str, int, int, int, int]:
+    prior_rulings_path: Path | None = None,
+) -> tuple[dict, list[dict], str, int, int, int, int, dict]:
     """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps →
     close entries that stopped being gaps. Returns (new_state, gaps, judgment_status,
-    pending_count, closed_count, surfaces_enumerated, suppressed_by_tracking). Judgment is
-    graceful: when it does not return 'ok', no new entries are added and pending_count reports
-    the candidates that went un-judged. client_factory defaults to None (resolved here, not at
-    def time) so that callers like main() which never pass it still pick up a test's
-    monkeypatched make_anthropic_client instead of a frozen reference to the original."""
+    pending_count, closed_count, surfaces_enumerated, suppressed_by_tracking,
+    prior_rulings). Judgment is graceful: when it does not return 'ok', no new entries are
+    added and pending_count reports the candidates that went un-judged. client_factory
+    defaults to None (resolved here, not at def time) so that callers like main() which never
+    pass it still pick up a test's monkeypatched make_anthropic_client instead of a frozen
+    reference to the original.
+
+    prior_rulings_path (DATA-2539): a successor id can first enter state on a *later* run than
+    the one that closes its predecessor as resplit (the judge caps candidates per run), so the
+    mapping is persisted between runs via load_run_state's never-raise contract rather than
+    recomputed from scratch each time. Already-recorded rulings win over a fresh recompute —
+    once captured, a ruling must not shift out from under an id that already carries it."""
     client_factory = client_factory or make_anthropic_client
     cfg = load_gap_config(config_path)
     prior = load_state(state_path)
     surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"], cfg["scan_roots"])
     gaps = find_gaps(surfaces, tracked)
+    gap_ids = {g["id"] for g in gaps}
     candidates = select_candidates(gaps, prior, limit)
     candidates_by_id = {c["id"]: c for c in candidates}
     if enable_judge:
@@ -1051,15 +1113,18 @@ def run_sweep(
         )
     else:
         verdicts, status = {}, NO_JUDGE_STATUS
-    new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
+    recorded_rulings = load_run_state(prior_rulings_path)
+    fresh_rulings = build_prior_rulings(prior, surfaces, gap_ids, today)
+    merged_rulings = {**fresh_rulings, **recorded_rulings}
+    new_state = merge_judged_state(
+        prior, verdicts, candidates_by_id, today, prior_rulings=merged_rulings
+    )
     pending = 0 if status in JUDGE_OK_STATUSES else len(candidates)
 
     prior_count = load_run_state(run_state_path).get("surface_count")
     believable = scan_is_believable(prior_count, len(surfaces))
     if believable:
-        new_state, closed = close_resolved_entries(
-            new_state, surfaces, {g["id"] for g in gaps}, today
-        )
+        new_state, closed = close_resolved_entries(new_state, surfaces, gap_ids, today)
     else:
         closed = 0
         print(
@@ -1072,6 +1137,7 @@ def run_sweep(
         new_state, gaps, status, pending, closed,
         len(surfaces),                                      # surfaces_enumerated
         sum(1 for s in surfaces if s.get("has_tracking")),  # suppressed_by_tracking
+        merged_rulings,
     )
 
 
@@ -1239,6 +1305,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--run-state", type=Path, default=DEFAULT_RUN_STATE,
                         help="run-level counters (judge-failure streak) carried between runs")
+    parser.add_argument("--prior-rulings", type=Path, default=DEFAULT_PRIOR_RULINGS,
+                        help="successor-id -> resplit predecessor's ruling, carried between "
+                             "runs (DATA-2539)")
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--json", type=Path, help="also write the full state JSON here")
@@ -1389,13 +1458,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Graceful-skip contract: a scan/walk failure must never fail the governance run.
     try:
-        new_state, _gaps, judgment_status, pending, _closed, surfaces_enumerated, _suppressed = (
-            run_sweep(
-                repo_root, args.config, args.state, today,
-                api_key=api_key, model=args.model, limit=args.limit,
-                rubric_path=args.rubric, enable_judge=not args.no_judge,
-                run_state_path=args.run_state,
-            )
+        (
+            new_state, _gaps, judgment_status, pending, _closed, surfaces_enumerated,
+            _suppressed, prior_rulings,
+        ) = run_sweep(
+            repo_root, args.config, args.state, today,
+            api_key=api_key, model=args.model, limit=args.limit,
+            rubric_path=args.rubric, enable_judge=not args.no_judge,
+            run_state_path=args.run_state,
+            prior_rulings_path=args.prior_rulings,
         )
     except CorruptStateError as exc:
         print(
@@ -1433,6 +1504,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         prepend_log(args.log, section)
     _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")
     _atomic_write(args.run_state, json.dumps(run_state, indent=2, sort_keys=True) + "\n")
+    _atomic_write(args.prior_rulings, json.dumps(prior_rulings, indent=2, sort_keys=True) + "\n")
     if args.json:
         args.json.write_text(json.dumps(new_state, indent=2, sort_keys=True) + "\n")
     if args.slack_out:

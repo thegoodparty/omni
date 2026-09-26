@@ -1,0 +1,194 @@
+{
+  "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#L215": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit",
+    "reason": "Bug-report submit success and failure is worth tracking as briefing-quality feedback.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit#ReportErrorSheet": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/briefings/components/annotations/ReportErrorSheet.tsx#form_submit",
+    "reason": "Bug-report submit success and failure is worth tracking as briefing-quality feedback.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#AddNotesDialog": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit",
+    "reason": "Notes intake is the primary briefing input; worth splitting by intake mode (Type / Camera / Upload) since the three cards have different failure modes.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit#footer": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/briefings/components/notes-intake/AddNotesDialog.tsx#form_submit",
+    "reason": "Notes intake is the primary briefing input; worth splitting by intake mode (Type / Camera / Upload) since the three cards have different failure modes.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#L77": {
+    "disposition": "dismissed",
+    "id": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit",
+    "reason": "Low-frequency single-field save; not a funnel milestone.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#RunningAgainstForm": {
+    "disposition": "dismissed",
+    "id": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit",
+    "reason": "Low-frequency single-field save; not a funnel milestone.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit#handleChangeField": {
+    "disposition": "dismissed",
+    "id": "packages/gp-webapp/app/dashboard/campaign-details/components/RunningAgainstForm.tsx#form_submit",
+    "reason": "Low-frequency single-field save; not a funnel milestone.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/CreateQuestion.tsx#form_submit#CreateQuestion": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/CreateQuestion.tsx#form_submit",
+    "reason": "Question creation is the real authoring work inside survey setup, distinct from survey creation itself.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/CreateQuestion.tsx#form_submit#L156": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/CreateQuestion.tsx#form_submit",
+    "reason": "Question creation is the real authoring work inside survey setup, distinct from survey creation itself.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/CreateQuestion.tsx#form_submit#L214": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/CreateQuestion.tsx#form_submit",
+    "reason": "Question creation is the real authoring work inside survey setup, distinct from survey creation itself.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/EditQuestion.tsx#form_submit#EditQuestion": {
+    "disposition": "dismissed",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/EditQuestion.tsx#form_submit",
+    "reason": "Rank 2. Same as CreateQuestion; question-level edits are not a funnel signal.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/EditQuestion.tsx#form_submit#L167": {
+    "disposition": "dismissed",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/EditQuestion.tsx#form_submit",
+    "reason": "Rank 2. Same as CreateQuestion; question-level edits are not a funnel signal.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/EditQuestion.tsx#form_submit#L219": {
+    "disposition": "dismissed",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/surveys/[id]/components/EditQuestion.tsx#form_submit",
+    "reason": "Rank 2. Same as CreateQuestion; question-level edits are not a funnel signal.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/door-knocking/surveys/components/CreateSurvey.tsx#form_submit#CreateSurvey": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/surveys/components/CreateSurvey.tsx#form_submit",
+    "reason": "Survey creation is a funnel milestone for door-knocking adoption, and the published-vs-unpublished split is a real question.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/door-knocking/surveys/components/CreateSurvey.tsx#form_submit#L159": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/door-knocking/surveys/components/CreateSurvey.tsx#form_submit",
+    "reason": "Survey creation is a funnel milestone for door-knocking adoption, and the published-vs-unpublished split is a real question.",
+    "ruled_on": "2026-08-06"
+  },
+  "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceBugReportSheet.tsx#form_submit#L138": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceBugReportSheet.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceBugReportSheet.tsx#form_submit#OrdinanceBugReportSheet": {
+    "disposition": "accepted",
+    "id": "packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceBugReportSheet.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L112": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L88": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#L90": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit#RecommendedListNameDrawer": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/audience/RecommendedListNameDrawer.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L694": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#L694.2": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit#RobocallPayForm": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit#L153": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit#PinForm": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit#handleSubmit": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/profile/texting-compliance/submit-pin/components/TextingComplianceSubmitPinForm.tsx#form_submit#L67": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/profile/texting-compliance/submit-pin/components/TextingComplianceSubmitPinForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-23"
+  },
+  "packages/gp-webapp/app/dashboard/profile/texting-compliance/submit-pin/components/TextingComplianceSubmitPinForm.tsx#form_submit#TextingComplianceSubmitPinForm": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/profile/texting-compliance/submit-pin/components/TextingComplianceSubmitPinForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-23"
+  },
+  "packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit#L155": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit#L165": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit#originalTotal": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-24"
+  }
+}
