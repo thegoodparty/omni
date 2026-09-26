@@ -121,12 +121,25 @@ def load_rubric(path: Path = DEFAULT_RUBRIC_PATH) -> str:
     return path.read_text()
 
 
+# The roots walked when the config predates scan_roots. Keeps an old checkout scanning what
+# it always scanned instead of silently scanning nothing.
+_DEFAULT_SCAN_ROOTS = (
+    {"path": "packages/gp-webapp", "detectors": "webapp"},
+    {"path": "packages/gp-api/src", "detectors": "api"},
+)
+
+
 def load_gap_config(path: Path = CONFIG_PATH) -> dict:
-    """Read the exclusion config. Missing file -> empty excludes (scan everything)."""
-    if not path.exists():
-        return {"exclude_globs": []}
-    doc = yaml.safe_load(path.read_text()) or {}
-    return {"exclude_globs": list(doc.get("exclude_globs", []) or [])}
+    """Read the exclusion config and the scan roots. Missing file -> empty excludes and the
+    default roots (scan everything we have always scanned)."""
+    doc = {}
+    if path.exists():
+        doc = yaml.safe_load(path.read_text()) or {}
+    roots = list(doc.get("scan_roots") or []) or [dict(r) for r in _DEFAULT_SCAN_ROOTS]
+    return {
+        "exclude_globs": list(doc.get("exclude_globs", []) or []),
+        "scan_roots": roots,
+    }
 
 
 def is_excluded(rel_path: str, exclude_globs: Sequence[str]) -> bool:
@@ -184,17 +197,19 @@ _DETECTOR_PATTERN: dict[str, re.Pattern[str]] = {
     name: pat for name, pat in (*_WEBAPP_DETECTORS, *_API_DETECTORS)
 }
 
+# Keyed by the scan root's `detectors` name (config-driven, DATA-2539) rather than a path
+# prefix — with configurable roots a path prefix can no longer decide which set applies.
+_DETECTOR_SETS = {"webapp": _WEBAPP_DETECTORS, "api": _API_DETECTORS}
 
-def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
-    """Run the path-appropriate detectors over one file's text. One surface per matched
-    detector type (not per match) — the coarse unit here is 'this file has a wizard', which
-    the judgment pass later refines. In-file surfaces have no URL, so they key on
-    path#surface_type (the spec's path-plus-symbol fallback)."""
-    if rel_path.startswith("packages/gp-webapp/"):
-        detectors = _WEBAPP_DETECTORS
-    elif rel_path.startswith("packages/gp-api/"):
-        detectors = _API_DETECTORS
-    else:
+
+def detect_surfaces_in_file(rel_path: str, text: str, detector_set: str) -> list[dict]:
+    """Run one detector set over a file's text. The caller resolves which set from the scan
+    root the file came from — a path prefix cannot, now that roots are configurable. One
+    surface per matched detector type (not per match) — the coarse unit here is 'this file
+    has a wizard', which the judgment pass later refines. In-file surfaces have no URL, so
+    they key on path#surface_type (the spec's path-plus-symbol fallback)."""
+    detectors = _DETECTOR_SETS.get(detector_set)
+    if not detectors:
         return []
     out: list[dict] = []
     for surface_type, pattern in detectors:
@@ -584,8 +599,6 @@ def render_gap_section(
 
 # --- IO + CLI -----------------------------------------------------------------
 
-_WEBAPP_ROOT = "packages/gp-webapp"
-_API_ROOT = "packages/gp-api/src"
 _SCAN_SUFFIXES = (".ts", ".tsx")
 
 
@@ -661,20 +674,23 @@ def _iter_files(repo_root: Path, sub: str, exclude_globs: Sequence[str]):
         yield rel, p
 
 
-def scan_repo(repo_root: Path, exclude_globs: Sequence[str]) -> tuple[list[dict], set[str]]:
-    """Walk gp-webapp + gp-api, returning all candidate surfaces (each with a bounded code
-    snippet for the judge) and the set of files that fire at least one event."""
+def scan_repo(
+    repo_root: Path, exclude_globs: Sequence[str], scan_roots: Sequence[Mapping] | None = None
+) -> tuple[list[dict], set[str]]:
+    """Walk each configured scan root, returning all candidate surfaces (each with a bounded
+    code snippet for the judge) and the set of files that fire at least one event."""
+    roots = list(scan_roots or _DEFAULT_SCAN_ROOTS)
     surfaces: list[dict] = []
     files_with_tracking: set[str] = set()
     page_texts: dict[str, str] = {}
-    for sub in (_WEBAPP_ROOT, _API_ROOT):
-        for rel, path in _iter_files(repo_root, sub, exclude_globs):
+    for root in roots:
+        for rel, path in _iter_files(repo_root, root["path"], exclude_globs):
             text = path.read_text(errors="replace")
             if has_tracking_call(text):
                 files_with_tracking.add(rel)
             if rel.endswith("/page.tsx"):
                 page_texts[rel] = text
-            for surface in detect_surfaces_in_file(rel, text):
+            for surface in detect_surfaces_in_file(rel, text, root["detectors"]):
                 pat = _DETECTOR_PATTERN.get(surface["surface_type"])
                 surface["snippet"] = extract_context(text, pat)
                 surfaces.append(surface)
@@ -707,7 +723,7 @@ def run_sweep(
     client_factory = client_factory or make_anthropic_client
     cfg = load_gap_config(config_path)
     prior = load_state(state_path)
-    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
+    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"], cfg["scan_roots"])
     gaps = find_gaps(surfaces, tracked)
     candidates = select_candidates(gaps, prior, limit)
     candidates_by_id = {c["id"]: c for c in candidates}
@@ -788,7 +804,7 @@ def run_seed(
     confirmed gaps as `new`. Graceful like run_sweep — never raises on judgment issues."""
     cfg = load_gap_config(config_path)
     prior = load_state(state_path)
-    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
+    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"], cfg["scan_roots"])
     gaps = find_gaps(surfaces, tracked)
     candidates = select_candidates(gaps, prior, limit=None)
     candidates_by_id = {c["id"]: c for c in candidates}
@@ -998,9 +1014,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"applied {applied} / skipped {skipped} (unknown ids or invalid dispositions)")
         return 0
 
-    if not (repo_root / _WEBAPP_ROOT).exists() and not (repo_root / _API_ROOT).exists():
+    cfg_roots = load_gap_config(args.config)["scan_roots"]
+    if not any((repo_root / r["path"]).exists() for r in cfg_roots):
         print(
-            f"gap-sweep: neither scan root found under {repo_root}; nothing to scan.",
+            f"gap-sweep: no configured scan root found under {repo_root}; nothing to scan.",
             file=sys.stderr,
         )
 

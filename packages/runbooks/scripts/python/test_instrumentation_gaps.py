@@ -32,7 +32,11 @@ def test_is_excluded_matches_package_and_file_globs():
 
 def test_load_gap_config_missing_file_returns_empty(tmp_path):
     cfg = ig.load_gap_config(tmp_path / "nope.yaml")
-    assert cfg == {"exclude_globs": []}
+    assert cfg["exclude_globs"] == []
+    # Missing file predates scan_roots entirely -> falls back to the default roots.
+    assert {r["path"] for r in cfg["scan_roots"]} == {
+        "packages/gp-webapp", "packages/gp-api/src"
+    }
 
 
 def test_route_pattern_from_page_path():
@@ -69,7 +73,7 @@ def test_detect_webapp_wizard_and_form_and_cta():
         "  </form>\n"
         "}\n"
     )
-    out = ig.detect_surfaces_in_file("packages/gp-webapp/components/Wizard.tsx", text)
+    out = ig.detect_surfaces_in_file("packages/gp-webapp/components/Wizard.tsx", text, "webapp")
     kinds = {s["surface_type"] for s in out}
     assert "wizard_stage" in kinds
     assert "form_submit" in kinds
@@ -86,7 +90,7 @@ def test_detect_api_job_webhook_status():
         "  async complete() { this.status = 'COMPLETED' }\n"
         "}\n"
     )
-    out = ig.detect_surfaces_in_file("packages/gp-api/src/briefing/briefing.worker.ts", text)
+    out = ig.detect_surfaces_in_file("packages/gp-api/src/briefing/briefing.worker.ts", text, "api")
     kinds = {s["surface_type"] for s in out}
     assert "api_job" in kinds
     assert "api_webhook" in kinds
@@ -94,7 +98,7 @@ def test_detect_api_job_webhook_status():
 
 
 def test_detect_returns_nothing_for_plain_file():
-    assert ig.detect_surfaces_in_file("packages/gp-webapp/helpers/x.ts", "export const x = 1\n") == []
+    assert ig.detect_surfaces_in_file("packages/gp-webapp/helpers/x.ts", "export const x = 1\n", "webapp") == []
 
 
 def test_extract_context_windows_around_match():
@@ -350,7 +354,7 @@ def test_main_warns_when_neither_scan_root_exists(tmp_path, capsys):
     ])
     assert rc == 0
     err = capsys.readouterr().err
-    assert "neither scan root found" in err
+    assert "no configured scan root found" in err
 
 
 def test_judge_verdict_schema_roundtrips():
@@ -1265,3 +1269,41 @@ def test_main_no_judge_leaves_the_streak_alone(tmp_path):
                   "--run-state", str(run_state), "--slack-out", str(out)])
     assert rc == 0
     assert json.loads(out.read_text())["judge_consecutive_failures"] == 0
+
+
+def test_load_gap_config_defaults_scan_roots_when_absent(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("exclude_globs: []\n")
+    cfg = ig.load_gap_config(p)
+    # A config predating this key must keep scanning the two original roots rather than
+    # silently scanning nothing.
+    assert {r["path"] for r in cfg["scan_roots"]} == {
+        "packages/gp-webapp", "packages/gp-api/src"
+    }
+
+
+def test_load_gap_config_reads_scan_roots():
+    cfg = ig.load_gap_config(ig.CONFIG_PATH)
+    paths = {r["path"] for r in cfg["scan_roots"]}
+    assert "packages/election-api/src" in paths
+    assert "packages/gp-admin" not in paths
+    assert all(r["detectors"] in ("webapp", "api") for r in cfg["scan_roots"])
+
+
+def test_detect_surfaces_takes_detector_set_explicitly():
+    api_text = "@Processor('queue')\nclass W {}\n"
+    assert ig.detect_surfaces_in_file("packages/election-api/src/w.ts", api_text, "api")
+    # the same text under the webapp detector set matches nothing
+    assert ig.detect_surfaces_in_file("packages/election-api/src/w.ts", api_text, "webapp") == []
+
+
+def test_scan_repo_walks_a_configured_third_root(tmp_path):
+    root = tmp_path / "packages/election-api/src/jobs"
+    root.mkdir(parents=True)
+    (root / "sender.ts").write_text("@Processor('send')\nclass S { run(){} }\n")
+    surfaces, _tracked = ig.scan_repo(
+        tmp_path,
+        exclude_globs=[],
+        scan_roots=[{"path": "packages/election-api/src", "detectors": "api"}],
+    )
+    assert any(s["location"] == "packages/election-api/src/jobs/sender.ts" for s in surfaces)
