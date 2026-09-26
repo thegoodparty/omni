@@ -680,6 +680,23 @@ _CLOSED = {"resolved", "retired"}
 _COLLAPSE_FLOOR = 0.5
 
 
+def scan_is_believable(prior_count, surface_count: int) -> bool:
+    """Whether a scan returned enough surfaces to trust its conclusions.
+
+    Single-sourced deliberately: this is the guard that stops an unattended run from closing
+    a human's triage queue off a broken glob or a fat-fingered detector regex. It was briefly
+    duplicated between run_sweep and main, which is how a guard like this quietly stops
+    working — one copy gets edited, the other does not.
+
+    No baseline (first run, or a reset/corrupt run-state file) means nothing to compare
+    against, so the scan is believed. That matches load_run_state's never-raise contract:
+    a missing counter costs one under-protected run, whereas raising would cost the whole
+    cron."""
+    if not isinstance(prior_count, int) or isinstance(prior_count, bool) or prior_count <= 0:
+        return True
+    return surface_count >= prior_count * _COLLAPSE_FLOOR
+
+
 def close_resolved_entries(
     state: Mapping[str, dict],
     surfaces: Sequence[Mapping],
@@ -1038,11 +1055,7 @@ def run_sweep(
     pending = 0 if status in JUDGE_OK_STATUSES else len(candidates)
 
     prior_count = load_run_state(run_state_path).get("surface_count")
-    believable = (
-        not isinstance(prior_count, int)
-        or prior_count <= 0
-        or len(surfaces) >= prior_count * _COLLAPSE_FLOOR
-    )
+    believable = scan_is_believable(prior_count, len(surfaces))
     if believable:
         new_state, closed = close_resolved_entries(
             new_state, surfaces, {g["id"] for g in gaps}, today
@@ -1400,11 +1413,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # Mirrors run_sweep's own collapse guard: if this run's scan wasn't believed (and so
     # closing was skipped), the collapsed count must not overwrite the recorded baseline —
     # otherwise the guard could never fire again on the next run.
-    scan_believable = (
-        not isinstance(prior_surface_count, int)
-        or prior_surface_count <= 0
-        or surfaces_enumerated >= prior_surface_count * _COLLAPSE_FLOOR
-    )
+    scan_believable = scan_is_believable(prior_surface_count, surfaces_enumerated)
     run_state = next_run_state(
         prior_run_state, judgment_status, today,
         surface_count=surfaces_enumerated if scan_believable else None,

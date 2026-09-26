@@ -313,6 +313,29 @@ def test_a_collapsed_scan_closes_nothing(tmp_path, capsys):
     assert "closing skipped" in capsys.readouterr().err
 
 
+def test_main_on_a_collapsed_scan_keeps_the_old_surface_count(tmp_path, capsys):
+    # The highest-risk invariant in this ticket. If a collapsed run writes its own tiny count
+    # back as the baseline, the guard is disarmed for every future run and nothing reports it.
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}))
+    run_state = tmp_path / "run.json"
+    run_state.write_text(json.dumps({"surface_count": 400}))
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+
+    rc = ig.main([
+        "--repo", str(tmp_path), "--state", str(state_path), "--run-state", str(run_state),
+        "--config", str(tmp_path / "none.yaml"), "--no-judge", "--no-log",
+        "--today", "2026-09-25",
+    ])
+    assert rc == 0
+    assert "closing skipped" in capsys.readouterr().err
+    assert json.loads(state_path.read_text())["a/B.tsx#form_submit"]["disposition"] == "accepted"
+    # the point of the test: the baseline was NOT overwritten with the collapsed count
+    assert json.loads(run_state.read_text())["surface_count"] == 400
+
+
 def test_render_gap_section_shows_judged_columns():
     state = {
         "/wiz": {"id": "/wiz", "surface_type": "wizard_stage", "location": "a.tsx",
