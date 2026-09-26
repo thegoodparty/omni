@@ -1,17 +1,25 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import { DictationMicButton } from 'app/dashboard/shared/dictation/DictationMicButton'
+import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedback'
+import { useServeIssueCaptureFlag } from 'app/shared/experiments/serveIssueCaptureFlag'
+import IssueCaptureConfirmCard from 'app/dashboard/door-knocking/native/IssueCaptureConfirmCard'
 import type {
   PhoneBankingCallResult,
   PhoneBankingInteraction,
+  ConstituentFeedbackTriple,
 } from '@goodparty_org/contracts'
+import { CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Button,
   FilterPill,
   FilterPillGroup,
   IconButton,
   PencilIcon,
+  Textarea,
   cn,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
@@ -71,6 +79,58 @@ export default function PhoneBankingOutcomeForm({
   // Edit — mirrors the canvas's sticky log-call bar.
   const [isEditing, setIsEditing] = useState(!interaction)
 
+  // Issue capture. Serve only, flag only, and only once the call is answered
+  // — there is nothing to summarize about a voicemail.
+  const { enabled: captureEnabled } = useServeIssueCaptureFlag()
+  const [memo, setMemo] = useState('')
+  const [spoken, setSpoken] = useState(false)
+  const [captured, setCaptured] = useState<{
+    id: string
+    proposed: ConstituentFeedbackTriple | null
+  } | null>(null)
+  // One memo per call, stable across retries of the same one.
+  const memoKeyRef = useRef(crypto.randomUUID())
+  const dictation = useDictationAppend({
+    analyticsLabel: 'phone_banking_memo',
+    value: memo,
+    onChange: (next) => {
+      setMemo(next.slice(0, CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH))
+      setSpoken(true)
+    },
+  })
+
+  const capture = useMutation({
+    mutationFn: (transcript: string) =>
+      clientRequest('POST /v1/constituent-feedback', {
+        channel: 'phone_bank',
+        entryId,
+        personId,
+        clientKey: memoKeyRef.current,
+        transcript,
+        captureMethod: spoken ? 'dictation' : 'typed',
+      }).then((res) => res.data),
+    onSuccess: (data) => {
+      trackEvent(EVENTS.ConstituentFeedback.IssueCaptured, {
+        channel: 'phoneBanking',
+        captureMethod: spoken ? 'dictation' : 'typed',
+        extractionStatus: data.extractionStatus,
+      })
+      setCaptured({ id: data.id, proposed: data.extraction })
+    },
+  })
+
+  const confirmCapture = useMutation({
+    mutationFn: (triple: ConstituentFeedbackTriple) =>
+      clientRequest('PATCH /v1/constituent-feedback/:id/confirm', {
+        id: captured?.id ?? '',
+        ...triple,
+      }).then((res) => res.data),
+    onSettled: () => setCaptured(null),
+  })
+
+  const capturesIssues =
+    captureEnabled && isServe && draft.outcome === 'answered'
+
   const logCallAnalytics = (savedDraft: PhoneBankingOutcomeDraft): void => {
     if (!savedDraft.outcome) return
     // What the API stored, not the raw pill: engage = Refused/Hung up
@@ -99,15 +159,38 @@ export default function PhoneBankingOutcomeForm({
         ...buildRecordCallRequest(entryId, draft, personId, markHouseholdDone),
       }).then((res) => res.data),
     onSuccess: (data) => {
+      // The call is logged before the memo is even posted, and the panel is
+      // told so immediately — unlike the door, where the walk is HELD at the
+      // stop until the triple is answered. A caller picks their next entry
+      // themselves, so there is nothing to hold, and leaving the list stale
+      // while a second request runs would be the worse trade.
       onSaved(data.results)
       setIsEditing(false)
       logCallAnalytics(draft)
+      const transcript = memo.trim()
+      if (capturesIssues && transcript.length > 0) capture.mutate(transcript)
     },
   })
 
   const handleCancel = () => {
     setDraft(draftFromInteraction(interaction, isServe))
     setIsEditing(!interaction)
+  }
+
+  if (captured !== null) {
+    return (
+      <IssueCaptureConfirmCard
+        proposed={captured.proposed}
+        saving={confirmCapture.isPending}
+        onConfirm={(triple) => confirmCapture.mutate(triple)}
+        onSkip={() => {
+          trackEvent(EVENTS.ConstituentFeedback.IssueSkipped, {
+            channel: 'phoneBanking',
+          })
+          setCaptured(null)
+        }}
+      />
+    )
   }
 
   if (!isEditing && interaction) {
@@ -311,6 +394,31 @@ export default function PhoneBankingOutcomeForm({
             </>
           )}
         </>
+      )}
+
+      {capturesIssues && showActions && (
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-[0.03em] text-muted-foreground">
+            What did they say?
+          </span>
+          <div className="relative mt-2">
+            <Textarea
+              value={memo}
+              maxLength={CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH}
+              placeholder="Say it out loud. We'll clean it up."
+              rows={3}
+              className="min-h-20 pr-12"
+              onChange={(e) => setMemo(e.target.value)}
+            />
+            <DictationMicButton
+              dictation={dictation}
+              idleLabel="Dictate summary"
+              recordingLabel="Stop dictation"
+              disabled={saveMutation.isPending}
+            />
+          </div>
+          <DictationFeedback dictation={dictation} />
+        </div>
       )}
 
       {showActions && (
