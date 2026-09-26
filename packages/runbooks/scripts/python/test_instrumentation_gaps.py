@@ -1463,3 +1463,21 @@ def test_wizard_is_one_surface_per_file_with_a_scope_level_check():
     assert len(wiz) == 1, "a wizard's many currentStep references are one surface"
     assert wiz[0]["id"] == "a/F.tsx#wizard_stage"
     assert wiz[0]["has_tracking"] is False
+
+
+def test_a_second_collision_on_one_line_gets_an_ordinal():
+    # Three matches, all in the same named scope (`Both`) and on the same source line: the
+    # name key collides for all three, then the line-key fallback collides too for the second
+    # and third. Without the ordinal tiebreak the third surface silently overwrites the second
+    # in the state file.
+    text = (
+        "const Both = () => {\n"
+        "  return (<div><form onSubmit={a} /><form onSubmit={b} /><form onSubmit={d} />"
+        "</div>)\n"
+        "}\n"
+    )
+    ids = [s["id"] for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+           if s["surface_type"] == "form_submit"]
+    assert len(ids) == 3
+    assert len(set(ids)) == 3, f"duplicate ids: {ids}"
+    assert any(i.endswith(".2") for i in ids), f"ordinal tiebreak never fired: {ids}"
