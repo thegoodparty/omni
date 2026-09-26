@@ -206,9 +206,13 @@ _DETECTOR_SETS = {"webapp": _WEBAPP_DETECTORS, "api": _API_DETECTORS}
 # Detectors that get one candidate per match. cta is excluded deliberately: it is 74 of the
 # 110 surfaces the old file-level filter discarded and it ranks lowest in the rubric, so
 # per-match cta would add ~200 low-value candidates to every judge batch for decisions nobody
-# acts on. route has no in-file match to key on at all.
+# acts on. route has no in-file match to key on at all. wizard_stage is excluded too: a
+# wizard's N `currentStep` references are one wizard, not N surfaces — per-match detection
+# measured 95 of 138 line-keyed ids and 9 of 17 duplicate ids, all for the same underlying
+# surface. It still gets a scope-level (not file-level) tracking check — see the non-per-match
+# branch below.
 _PER_MATCH_TYPES = frozenset(
-    {"wizard_stage", "form_submit", "api_job", "api_webhook", "api_status"}
+    {"form_submit", "api_job", "api_webhook", "api_status"}
 )
 # `onSubmit={handleThing}` and `onSubmit={(e) => ...}`
 _PROP_IDENT = re.compile(r"=\{\s*([A-Za-z_$][\w$]*)\s*\}")
@@ -306,8 +310,32 @@ def detect_surfaces_in_file(rel_path: str, text: str, detector_set: str) -> list
             matches = [m for m in matches if not _in_type_declaration(code, m.start(), pairs)]
         if not matches:
             continue
+        if surface_type == "wizard_stage":
+            # One surface per file: a wizard's N `currentStep` references are one wizard, not
+            # N surfaces. Measured: per-match wizard produced 95 of 138 line-keyed ids and 9
+            # of 17 duplicate ids, all for the same underlying surface.
+            # has_tracking is still scope-scoped, not file-scoped — the union of this
+            # surface's own match scopes, which is strictly tighter than the whole file.
+            spans = [
+                span for span in (
+                    ts_scopes.enclosing_scope(code, m.start(), pairs) for m in matches
+                ) if span is not None
+            ]
+            out.append({
+                "id": f"{rel_path}#{surface_type}",
+                "surface_type": surface_type,
+                "location": rel_path,
+                "match_start": matches[0].start(),
+                "has_tracking": any(
+                    _TRACKING_RE.search(text[a:b]) is not None for a, b in spans
+                ),
+                "scope": spans[0] if spans else None,
+            })
+            continue
         if surface_type not in _PER_MATCH_TYPES:
-            # Coarse unit: "this file has buttons". The judge refines it.
+            # Coarse unit: "this file has buttons" (cta). Unlike wizard_stage above, this
+            # stays a genuinely file-level question — no has_tracking key here, so find_gaps
+            # falls back to the whole-file files_with_tracking set, exactly the old behavior.
             out.append({
                 "id": f"{rel_path}#{surface_type}",
                 "surface_type": surface_type,
@@ -340,7 +368,14 @@ def detect_surfaces_in_file(rel_path: str, text: str, detector_set: str) -> list
             if gid in seen:
                 # Two matches resolving to one scope. Fall to the line key rather than
                 # silently dropping the second surface.
-                gid = f"{rel_path}#{surface_type}#L{text.count(chr(10), 0, m.start()) + 1}"
+                line_key = f"{rel_path}#{surface_type}#L{text.count(chr(10), 0, m.start()) + 1}"
+                gid = line_key
+                # Two matches on ONE line collide again; an ordinal is the last tiebreak.
+                # Without it the second surface silently overwrites the first in state.
+                n = 2
+                while gid in seen:
+                    gid = f"{line_key}.{n}"
+                    n += 1
             seen.add(gid)
             out.append({
                 "id": gid,

@@ -1438,3 +1438,28 @@ def test_snippet_windows_on_the_surfaces_own_match(tmp_path):
     )
     untracked = next(s for s in surfaces if s["id"].endswith("#form_submit#Untracked"))
     assert "onSend" in untracked["snippet"]
+
+
+def test_two_matches_on_one_line_get_distinct_ids():
+    # Without the ordinal tiebreak both collapse to the same #L key and one surface is
+    # silently lost from the state file.
+    text = "const B = () => (<div><form onSubmit={a} /><form onSubmit={b} /></div>)\n"
+    ids = [s["id"] for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+           if s["surface_type"] == "form_submit"]
+    assert len(ids) == 2
+    assert len(set(ids)) == 2, f"duplicate ids: {ids}"
+
+
+def test_wizard_is_one_surface_per_file_with_a_scope_level_check():
+    text = (
+        "const Flow = () => {\n"
+        "  const [currentStep, setCurrentStep] = useState(0)\n"
+        "  const next = () => { setCurrentStep(currentStep + 1) }\n"
+        "  return <div>{currentStep}</div>\n"
+        "}\n"
+    )
+    wiz = [s for s in ig.detect_surfaces_in_file("a/F.tsx", text, "webapp")
+           if s["surface_type"] == "wizard_stage"]
+    assert len(wiz) == 1, "a wizard's many currentStep references are one surface"
+    assert wiz[0]["id"] == "a/F.tsx#wizard_stage"
+    assert wiz[0]["has_tracking"] is False
