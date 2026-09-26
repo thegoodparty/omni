@@ -559,6 +559,10 @@ export const PhoneBankingFlow = ({
     setScript('')
     setScriptManuallyEdited(false)
     setInstructions('')
+    // Same staleness as the four above, and the one with teeth: the question
+    // step's Continue only guards emptiness, so a question typed for an
+    // earlier community-input pick would sail through as this effort's.
+    setQuestion('')
     setStepId(selected === COMMUNITY_INPUT_PURPOSE ? 'question' : 'who')
     requestDraft(selected, 'warm', undefined, undefined, '')
   }

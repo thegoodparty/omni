@@ -256,6 +256,25 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     expect(screen.queryByText('Is this right?')).toBeNull()
   })
 
+  // `answered` is only the branch into the engagement question. Refused and
+  // hung up are person-attributed non-conversations, so there is nothing a
+  // constituent said to capture.
+  it.each(['Refused', 'Hung up'])(
+    'asks for no memo on a call the constituent %s',
+    async (engagement) => {
+      renderForm()
+      fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
+      fireEvent.click(
+        screen.getAllByRole('radio', { name: engagement })[1] as HTMLElement,
+      )
+
+      expect(screen.queryByText('What did they say?')).toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(captureBodies).toHaveLength(0))
+    },
+  )
+
   it('asks for no memo when the flag is off', async () => {
     vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
       ready: true,

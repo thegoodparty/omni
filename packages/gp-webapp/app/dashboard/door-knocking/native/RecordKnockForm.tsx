@@ -197,7 +197,11 @@ export default function RecordKnockForm({
         ...(input.willVote ? { willVote: input.willVote } : {}),
         ...(input.followUp ? { followUp: input.followUp } : {}),
       })
-      if (!input.note || !captureEnabled || !serveMode) {
+      // `engaged` and not merely `complete`: the note field is deliberately
+      // offered on every branch, including a not-home door, so "dog in the
+      // yard, come back Saturday" is a note the knock should keep but never a
+      // constituent's position on an issue. Only a conversation gets extracted.
+      if (!input.note || !captureEnabled || !serveMode || !engaged) {
         onRecorded(data.personId, data.knockStatus)
         return
       }

@@ -82,6 +82,28 @@ describe('PhoneBankingFlow community-input question step', () => {
     await waitFor(() => expect(cta).toBeEnabled())
   })
 
+  // The Continue guard only checks emptiness, so a question left over from an
+  // earlier pick would not trip it — it would ship as this effort's question.
+  it('does not carry a question over to a later purpose pick', async () => {
+    renderFlow()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Ask for community input/i }),
+    )
+    await userEvent.type(
+      await screen.findByPlaceholderText(/compost pilot/i),
+      'Would you take part in a compost pilot?',
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Ask for community input/i }),
+    )
+
+    expect(await screen.findByLabelText('The question')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
   // Every other purpose goes straight to the audience step, and its progress
   // bar has one fewer segment.
   it('skips the step for a purpose that asks nothing', async () => {

@@ -146,8 +146,15 @@ export default function PhoneBankingOutcomeForm({
     onSettled: () => setCaptured(null),
   })
 
+  // `answered` is only the branch INTO the engagement question, and two of
+  // its three answers are non-conversations: a refused or hung-up call is a
+  // person-attributed outcome, not something a constituent said. Capturing
+  // there would file a memo about a conversation that did not happen.
   const capturesIssues =
-    captureEnabled && isServe && draft.outcome === 'answered'
+    captureEnabled &&
+    isServe &&
+    draft.outcome === 'answered' &&
+    draft.engagement === 'engaged'
 
   const logCallAnalytics = (savedDraft: PhoneBankingOutcomeDraft): void => {
     if (!savedDraft.outcome) return

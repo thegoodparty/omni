@@ -209,6 +209,21 @@ describe('RecordKnockForm issue capture', () => {
     )
   })
 
+  // The note field is deliberately offered on every branch, including a
+  // not-home door, so a note there is real and worth keeping — but it is not
+  // a constituent's position and must not be extracted as one.
+  it('saves a not-home note without capturing an issue from it', async () => {
+    const onRecorded = renderForm()
+    answer('Did they answer?', 'Not home')
+    dictate('Dog in the yard, come back Saturday.')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(onRecorded).toHaveBeenCalledWith('person-1', 'needs_follow_up'),
+    )
+    expect(screen.queryByText('Is this right?')).toBeNull()
+  })
+
   it('does not capture when the flag is off', async () => {
     vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
       ready: true,

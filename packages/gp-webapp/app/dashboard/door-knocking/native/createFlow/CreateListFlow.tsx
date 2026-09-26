@@ -1652,6 +1652,10 @@ export default function CreateListFlow({
               selected={purpose}
               onSelect={(next) => {
                 setPurpose(next)
+                // The question step's Continue only guards emptiness, so a
+                // question typed for an earlier community-input pick would
+                // otherwise ride along as this campaign's.
+                setQuestion('')
                 goToStage(next === COMMUNITY_INPUT_PURPOSE ? 'question' : 'who')
               }}
             />
