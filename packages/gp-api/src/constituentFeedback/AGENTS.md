@@ -69,6 +69,33 @@ reconstructed later, which is why it is written here.
 values but not bound to them, and `toStance()` drops an off-vocabulary answer
 to a null stance while the raw string survives for whoever asks why.
 
+## Re-recording
+
+A memo can be recorded more than once for the same conversation: a dead-zone
+retry, or a deliberate correction, or an edit of a call already logged. Three
+rules hold that together.
+
+- **The row is resolved by its INTERACTION, not by `clientKey`.** One memo per
+  interaction is the real invariant, and both unique indexes say so. A client
+  cannot be relied on to re-send the same replay key — the phone panel keys its
+  form on `personId`, so switching tabs mints a fresh uuid — and keying the
+  upsert on it alone takes the create branch and collides on
+  `phoneBankingInteractionId` rather than updating what is already there.
+  `clientKey` is still the fallback, which is what covers a retry whose first
+  attempt never landed.
+- **A re-record clears `confirmedAt`.** The update branch replaces the triple
+  with a fresh model proposal, so any confirmation the old one earned is void.
+  Leaving it set hands reporting a model guess wearing a human's signature,
+  which is the one thing the column exists to prevent.
+- **An overlong proposal is truncated, not rejected.** The response schema caps
+  `issueLabel` at 120 and `desiredOutcome` at 1000 and the interceptor enforces
+  that on the way out, so an unclamped string would save the row and then 500
+  the request that saved it — the surface would show a capture failure for a
+  memo safely on disk. The untruncated text survives in `proposed*` and in the
+  transcript.
+
+`tests/constituentFeedback.routes.test.ts` covers all three.
+
 ## Gotchas
 
 - **Neither capture surface knows its interaction row's id.** The knock

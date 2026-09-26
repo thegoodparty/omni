@@ -88,7 +88,11 @@ export default function PhoneBankingOutcomeForm({
     id: string
     proposed: ConstituentFeedbackTriple | null
   } | null>(null)
-  // One memo per call, stable across retries of the same one.
+  // Replay idempotency for THIS mount's retries, which is all a client-minted
+  // key can be: the panel keys this component on personId, so a tab switch
+  // mints a fresh one. Re-recording the same call across a remount is made
+  // safe by gp-api resolving the row from the interaction rather than from
+  // this key — see `capture()` in constituentFeedback.service.ts.
   const memoKeyRef = useRef(crypto.randomUUID())
   const dictation = useDictationAppend({
     analyticsLabel: 'phone_banking_memo',
@@ -125,6 +129,20 @@ export default function PhoneBankingOutcomeForm({
         id: captured?.id ?? '',
         ...triple,
       }).then((res) => res.data),
+    onSuccess: (_data, triple) => {
+      trackEvent(EVENTS.ConstituentFeedback.IssueConfirmed, {
+        channel: 'phoneBanking',
+        // Whether the caller changed what the model proposed, never what
+        // either of them said — a constituent's words are not analytics.
+        corrected:
+          triple.issueLabel !== (captured?.proposed?.issueLabel ?? null) ||
+          triple.stance !== (captured?.proposed?.stance ?? null) ||
+          triple.desiredOutcome !==
+            (captured?.proposed?.desiredOutcome ?? null),
+      })
+    },
+    // Dismiss either way: a failed confirm leaves the memo saved and
+    // unconfirmed, which reporting already tells apart.
     onSettled: () => setCaptured(null),
   })
 

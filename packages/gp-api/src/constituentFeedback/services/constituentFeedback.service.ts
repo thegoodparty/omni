@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import {
+  CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
+  CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
   ConfirmConstituentFeedback,
   ConstituentFeedbackRecord,
   RecordConstituentFeedback,
@@ -16,6 +18,16 @@ import {
   ConstituentFeedbackExtractionService,
   RawExtraction,
 } from './constituentFeedbackExtraction.service'
+
+// The model is told to answer short and nearly always does, but nothing
+// makes it. The contract caps these two at 120 and 1000, and the response
+// interceptor enforces that cap on the way out — so an overlong string would
+// save the row and then 500 the request that saved it, leaving the canvasser
+// looking at a capture failure for a memo that is safely on disk. Truncating
+// keeps the record; the untruncated text stays in `proposed*` and in the
+// transcript, so nothing the model said is actually lost.
+const clamp = (value: string | null, max: number): string | null =>
+  value === null || value.length <= max ? value : value.slice(0, max)
 
 type ExtractionFields = {
   extractionStatus: ConstituentFeedbackExtractionStatus
@@ -74,13 +86,34 @@ export class ConstituentFeedbackService extends createPrismaBase(
       userId: input.actorUserId,
     })
 
-    const row = await this.model.upsert({
+    // One memo per interaction is the real invariant, and the two unique
+    // indexes say so: `clientKey` is only a replay key. A client cannot be
+    // relied on to re-send the same one — the phone panel keys its form on
+    // personId, so switching tabs and re-recording mints a fresh uuid — and
+    // keying the upsert on it alone would take the create branch and collide
+    // on `phoneBankingInteractionId` instead of updating the row that is
+    // already there. So resolve by the interaction first and fall back to the
+    // replay key, which still covers a retry whose first attempt never landed.
+    const existing = await this.findFirst({
       where: {
-        organizationSlug_clientKey: {
-          organizationSlug: input.organizationSlug,
-          clientKey: input.body.clientKey,
-        },
+        organizationSlug: input.organizationSlug,
+        ...(target.doorKnockInteractionId !== null
+          ? { doorKnockInteractionId: target.doorKnockInteractionId }
+          : { phoneBankingInteractionId: target.phoneBankingInteractionId }),
       },
+      select: { id: true },
+    })
+
+    const row = await this.model.upsert({
+      where:
+        existing !== null
+          ? { id: existing.id }
+          : {
+              organizationSlug_clientKey: {
+                organizationSlug: input.organizationSlug,
+                clientKey: input.body.clientKey,
+              },
+            },
       create: {
         organizationSlug: input.organizationSlug,
         clientKey: input.body.clientKey,
@@ -95,9 +128,14 @@ export class ConstituentFeedbackService extends createPrismaBase(
         phoneBankingInteractionId: target.phoneBankingInteractionId,
         ...this.extractionFields(extracted),
       },
+      // A re-record REPLACES the triple with a fresh model proposal, so any
+      // confirmation the old one earned is void. Leaving `confirmedAt` set
+      // would hand reporting a model guess wearing a human's signature, which
+      // is the one thing the column exists to prevent.
       update: {
         transcript: input.body.transcript,
         captureMethod: input.body.captureMethod,
+        confirmedAt: null,
         ...this.extractionFields(extracted),
       },
     })
@@ -177,9 +215,15 @@ export class ConstituentFeedbackService extends createPrismaBase(
         }
       : {
           extractionStatus: ConstituentFeedbackExtractionStatus.extracted,
-          issueLabel: extracted.extraction.issueLabel,
+          issueLabel: clamp(
+            extracted.extraction.issueLabel,
+            CONSTITUENT_FEEDBACK_ISSUE_LABEL_MAX_LENGTH,
+          ),
           stance: toStance(extracted.extraction.stance),
-          desiredOutcome: extracted.extraction.desiredOutcome,
+          desiredOutcome: clamp(
+            extracted.extraction.desiredOutcome,
+            CONSTITUENT_FEEDBACK_DESIRED_OUTCOME_MAX_LENGTH,
+          ),
           extractionConfidence: extracted.extraction.confidence,
           extractionModel: extracted.model,
           proposedIssueLabel: extracted.extraction.issueLabel,
