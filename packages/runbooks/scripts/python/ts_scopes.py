@@ -131,6 +131,11 @@ def enclosing_scope(
     if not decisive:
         return spanning[0]
     for o, c in spanning:
+        # decisive=True's whole job: a surface is never "inside" an interface or type body,
+        # so those are skipped even when the name lookback would happily name them. Without
+        # this the loop is indistinguishable from returning spanning[0].
+        if scope_kind(code, o) == "type":
+            continue
         if scope_kind(code, o) == "code" or scope_name(code, o):
             return (o, c)
     return spanning[-1]

@@ -95,3 +95,28 @@ def test_destructured_props_still_name_the_component():
     pairs = ts.brace_pairs(code)
     span = ts.enclosing_scope(code, text.index("onSubmit={"), pairs)
     assert ts.scope_name(code, span[0]) == "Form"
+
+
+def test_decisive_scope_skips_a_type_body():
+    # Two spanning pairs: the interface body and the component. decisive=True must skip the
+    # type body; decisive=False must not. This is the only behavior that distinguishes the
+    # decisive loop from "return the innermost pair", so it is what pins it.
+    text = (
+        "const Registry = () => {\n"
+        "  interface Props {\n"
+        "    currentStep?: string\n"
+        "  }\n"
+        "  return null\n"
+        "}\n"
+    )
+    code = ts.blank_noncode(text)
+    pairs = ts.brace_pairs(code)
+    pos = text.index("currentStep?")
+    innermost = sorted(
+        (p for p in pairs if p[0] <= pos < p[1]), key=lambda p: p[1] - p[0]
+    )[0]
+    assert ts.scope_kind(code, innermost[0]) == "type"
+    decisive = ts.enclosing_scope(code, pos, pairs)
+    assert decisive != innermost, "decisive=True must skip the type body"
+    assert ts.scope_name(code, decisive[0]) == "Registry"
+    assert ts.enclosing_scope(code, pos, pairs, decisive=False) == innermost
