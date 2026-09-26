@@ -34,6 +34,14 @@ interface ListDetailsSheetShellProps {
   // A caller whose confirm dialogs portal outside the drawer content needs
   // this to keep those clicks from dismissing the sheet mid-action.
   onInteractOutside?: ComponentProps<typeof DrawerContent>['onInteractOutside']
+  // False while something the caller mounted owns the next dismissal — a
+  // portaled dropdown, say. `onInteractOutside` cannot answer for that one:
+  // vaul closes on its own OVERLAY press, which never reaches that handler,
+  // and refusing the resulting `onOpenChange` is worse than useless (the
+  // close animation has already run, so the sheet goes while its `open`
+  // prop still says it is there). Taking dismissibility away for as long as
+  // the child overlay is up is the only thing that stops it starting.
+  dismissible?: boolean
 }
 
 export const ListDetailsSheetShell = ({
@@ -44,8 +52,14 @@ export const ListDetailsSheetShell = ({
   children,
   footer,
   onInteractOutside,
+  dismissible = true,
 }: ListDetailsSheetShellProps) => (
-  <Drawer open={open} onOpenChange={onOpenChange} direction="bottom">
+  <Drawer
+    open={open}
+    onOpenChange={onOpenChange}
+    direction="bottom"
+    dismissible={dismissible}
+  >
     <DrawerContent
       className="flex h-[calc(100dvh-4rem)] flex-col p-0 data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px] lg:h-[calc(100dvh-8rem)] lg:data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-8rem)]"
       // The close lives inside the 608px content column (top right), not on
@@ -74,7 +88,11 @@ export const ListDetailsSheetShell = ({
           </DrawerClose>
         </div>
       </div>
-      <DrawerBody className="flex-1 overflow-y-auto px-4 pb-6 lg:px-6">
+      {/* `pt-6` to match the bottom: the body opens directly under the
+          header's hairline, and its first section is an overline, which
+          sat almost on the rule with nothing but the line's own margin
+          between them. */}
+      <DrawerBody className="flex-1 overflow-y-auto px-4 pt-6 pb-6 lg:px-6">
         <div className="mx-auto w-full max-w-[608px] space-y-6">{children}</div>
       </DrawerBody>
       {footer}

@@ -71,7 +71,7 @@ const baseProps = {
   onRestartDrawing: vi.fn(),
   color: '#2563eb',
   drawnStops: null,
-  onListCreated: vi.fn(),
+  onStartKnocking: vi.fn(),
   isServeOrg: false,
   unpreviewableKeys: [],
   // A settled pack: recommendations are about what the who step offers, not
@@ -108,6 +108,7 @@ const savedTurf = {
     type: 'Polygon' as const,
     coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
   },
+  stopCount: 9,
   doorCount: 9,
   peopleCount: 22,
   loggedCount: 0,
@@ -471,10 +472,10 @@ describe('CreateListFlow — recommended lists', () => {
         {...baseProps}
         onFiltersChange={onFiltersChange}
         filters={appliedFilters}
-        step="route"
+        step="draw"
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() => expect(filterCalls).toHaveLength(1))
     expect(filterCalls[0]).toMatchObject({
@@ -561,9 +562,9 @@ describe('CreateListFlow — recommended lists', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     rerender(
-      <CreateListFlow {...baseProps} savedLists={savedLists} step="route" />,
+      <CreateListFlow {...baseProps} savedLists={savedLists} step="draw" />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() => expect(turfBody).not.toBeNull())
     expect(filterCalls).toHaveLength(0)

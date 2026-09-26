@@ -15,12 +15,17 @@ import {
   MarkDoneDialog,
   type MarkDoneTarget,
 } from 'app/dashboard/door-knocking/native/MarkDoneDialog'
+import { turfCountsLabel } from 'app/dashboard/door-knocking/native/TurfRowCard'
+import { TurfAssigneeMenu } from './TurfAssigneeMenu'
 import { DetailsSection } from './listDetails/ListDetailsMetric'
+import { CONTINUE_LABELS, UNROUTED_LABEL } from './listDetails/footerMode'
 
 // The compact in-drawer sibling list for a door-knocking campaign anchor.
-// One row per turf in the campaign, plus an "Add another turf" affordance
-// that navigates the candidate into the create flow already scoped to this
-// campaign. Deliberately NOT a full map: the drawer's 608px column would
+// One row per turf in the campaign. It carried an "Add another turf" link
+// into the create flow scoped to this campaign, and that is gone: the map
+// preview above is the way back to the surface that cuts turfs, and a
+// second door into the same flow from a list of finished ones is a control
+// competing with the thing the section is for. Deliberately NOT a full map: the drawer's 608px column would
 // force VoterMapCanvas into a shape it was not designed for, and the same
 // candidate is one navigation away from the door-knocking page where the
 // campaign's interactive canvas already lives (ENG-11055).
@@ -34,12 +39,13 @@ import { DetailsSection } from './listDetails/ListDetailsMetric'
 interface CampaignTurfListProps {
   anchorOutreachId: number
   outreachId: number
-  // A row's confirm dialog portals out of the drawer this section sits in, so
-  // its clicks land as outside-interactions and would dismiss the sheet
-  // mid-write — the bug the drawer's own two confirms already record. The row
-  // reports that one is open and the drawer decides what it means, rather
-  // than the drawer owning a dialog for a mutation it has no turf for.
-  onConfirmOpenChange?: (open: boolean) => void
+  // A row's overlays — its confirm dialog and its assignee menu — portal out
+  // of the drawer this section sits in, so their clicks land as
+  // outside-interactions and would dismiss the sheet mid-write. The bug the
+  // drawer's own confirms already record; dismissing the assignee menu hit
+  // it again. The row reports that one is up and the drawer decides what it
+  // means, rather than the drawer owning overlays for turfs it has none of.
+  onOverlayOpenChange?: (open: boolean) => void
   // Raised with the turf's own id once a per-row Done lands. The campaign's
   // status lives on the history row, which is a snapshot the hub holds and
   // this write never goes through — so the drawer has to be told, or its
@@ -55,16 +61,18 @@ const percentLabel = (numerator: number, denominator: number): string => {
 export const CampaignTurfList = ({
   anchorOutreachId,
   outreachId,
-  onConfirmOpenChange,
+  onOverlayOpenChange,
   onTurfCompleted,
 }: CampaignTurfListProps) => {
   const query = useQuery(campaignTurfsQueryOptions(anchorOutreachId))
   const turfs = query.data ?? []
-  const addTurfHref = `/dashboard/door-knocking?campaignOutreachId=${anchorOutreachId}&create=1`
 
   return (
     <DetailsSection title="Turfs in this campaign">
-      <div className="flex flex-col gap-2">
+      {/* 24px between cards. Each one is two stacked halves with its own
+          internal rule, so the 8px these sat at read as a third divider
+          rather than as the gap between two objects. */}
+      <div className="flex flex-col gap-6">
         {query.isPending && (
           <p className="text-sm text-muted-foreground">Loading turfs&hellip;</p>
         )}
@@ -78,14 +86,11 @@ export const CampaignTurfList = ({
             key={turf.id}
             turf={turf}
             outreachId={outreachId}
-            onConfirmOpenChange={onConfirmOpenChange}
+            onOverlayOpenChange={onOverlayOpenChange}
             onTurfCompleted={onTurfCompleted}
           />
         ))}
       </div>
-      <Button asChild variant="outline" className="mt-3">
-        <Link href={addTurfHref}>Add another turf</Link>
-      </Button>
     </DetailsSection>
   )
 }
@@ -93,7 +98,7 @@ export const CampaignTurfList = ({
 interface TurfRowProps {
   turf: DoorKnockingTurf
   outreachId: number
-  onConfirmOpenChange?: (open: boolean) => void
+  onOverlayOpenChange?: (open: boolean) => void
   onTurfCompleted?: (turfId: number) => void
 }
 
@@ -104,7 +109,7 @@ interface TurfRowProps {
 const TurfRow = ({
   turf,
   outreachId,
-  onConfirmOpenChange,
+  onOverlayOpenChange,
   onTurfCompleted,
 }: TurfRowProps) => {
   const [markDoneTarget, setMarkDoneTarget] = useState<MarkDoneTarget | null>(
@@ -129,75 +134,111 @@ const TurfRow = ({
     setMarkDoneTarget(
       open ? { kind: 'turf', name: turf.name, unloggedCount: unlogged } : null,
     )
-    onConfirmOpenChange?.(open)
+    onOverlayOpenChange?.(open)
   }
+  // Two labels, keyed on whether the turf has a route rather than on
+  // whether anybody has knocked yet. `routeSeconds` is the field that says
+  // which — null means no route, deliberately, rather than a second boolean
+  // that could disagree with it.
+  //
+  // An unrouted press does something the other does not: it plans the route
+  // and asks walking or driving on the way, so it reads as starting the
+  // work. Once the route exists the press is the same press whether or not
+  // a door has been logged, so it reads the same — which is a deliberate
+  // departure from the zero-progress rule the drawer's own footer follows
+  // (`ZERO_PROGRESS_LABELS`, "Walk this route"). On a card that already
+  // shows a progress bar and a percentage, a second way of saying "nothing
+  // yet" is the third thing on the card saying it.
+  const knockLabel =
+    turf.routeSeconds === null ? UNROUTED_LABEL : CONTINUE_LABELS.doorKnocking
   return (
-    <Card className="gap-2 rounded-lg p-3">
-      <div className="flex items-center gap-3">
-        <span
-          aria-hidden="true"
-          className={`h-3 w-3 shrink-0 rounded-full ${
-            active ? '' : 'opacity-40'
-          }`}
-          style={{ backgroundColor: turf.color }}
-        />
-        <span
-          className={`min-w-0 flex-1 truncate text-sm font-medium ${
-            active ? 'text-foreground' : 'text-muted-foreground'
-          }`}
-        >
-          {turf.name}
-        </span>
-        {active ? (
-          <>
-            {/* The first manual `markDone` caller in the product. The row's
-                second control, which is inside the four the rail's budget
-                allows, so no overflow menu. Muted and left of Continue so the
-                primary action keeps the right edge. */}
-            <button
-              type="button"
-              className="shrink-0 text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-60"
-              disabled={pending}
-              onClick={() => {
-                // Nothing to warn about on a fully logged turf.
-                if (unlogged <= 0) {
-                  return lifecycle.markDone({
-                    onSuccess: () => onTurfCompleted?.(turf.id),
-                  })
-                }
-                openConfirm(true)
-              }}
-            >
-              Mark done
-            </button>
-            <Link
-              href={walkHref}
-              className="shrink-0 text-sm font-medium text-primary hover:underline"
-            >
-              Continue
-            </Link>
-          </>
-        ) : (
-          // A label rather than a disabled link: there is nothing to press,
-          // and the rail's own archived rings are dimmed rather than removed
-          // for the same reason — shelved is a state, not a deletion.
-          <span className="shrink-0 text-sm font-medium text-muted-foreground">
-            {turfStatusLabel(turf)}
+    // The two-half card the drawing surface's own turf cards use: a header
+    // and, under a full-bleed rule, a washed half.
+    //
+    // **The turf's colour is the DOT and nothing else here.** Drawing the
+    // bar, the wash and the CTA in it as well was tried and is too much: a
+    // list of turfs became a list of differently-coloured buttons, and the
+    // one control you came for stopped looking like the same control on
+    // every card. The drawing surface can afford the full treatment because
+    // there is one open card at a time beside the shape it is about; a list
+    // cannot. Two of the palette's seven hues also cannot carry white text,
+    // so a coloured CTA needs an ink flip that the primary token never does.
+    <Card className="gap-0 overflow-clip rounded-lg p-0">
+      <div className="flex flex-col gap-2 px-3 py-3">
+        <div className="flex flex-row items-center gap-3">
+          <span
+            aria-hidden="true"
+            className={`my-auto size-3 shrink-0 rounded-full ${
+              active ? '' : 'opacity-40'
+            }`}
+            style={{ backgroundColor: turf.color }}
+          />
+          <span
+            className={`min-w-0 flex-1 truncate text-sm font-medium ${
+              active ? 'text-foreground' : 'text-muted-foreground'
+            }`}
+          >
+            {turf.name}
           </span>
-        )}
+          {/* Who walks it, as the control that changes it. On a turf nobody
+              is walking any more there is nothing to hand over, so the
+              status takes the slot instead — one thing in the top right,
+              whichever it is. */}
+          {active ? (
+            <TurfAssigneeMenu
+              outreachId={turf.outreachId}
+              onMenuOpenChange={onOverlayOpenChange}
+            />
+          ) : (
+            <span className="shrink-0 text-sm font-medium text-muted-foreground">
+              {turfStatusLabel(turf)}
+            </span>
+          )}
+        </div>
+        <Progress value={progress} />
+        {/* What the turf is worth on the left, how much of it is done on the
+            right. The percentage is of PEOPLE logged, which is the
+            population the left-hand figure ends with — the two have to name
+            the same denominator or the number reads as a share of stops. */}
+        <div className="flex flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span className="tabular-nums">{turfCountsLabel(turf)}</span>
+          <span className="shrink-0 tabular-nums">
+            {percentLabel(turf.loggedCount, turf.peopleCount)}
+          </span>
+        </div>
       </div>
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>
-          {turf.peopleCount.toLocaleString()} people (
-          {turf.doorCount.toLocaleString()} doors)
-        </span>
-        <span>
-          {turf.loggedCount.toLocaleString()} of{' '}
-          {turf.peopleCount.toLocaleString()} logged (
-          {percentLabel(turf.loggedCount, turf.peopleCount)})
-        </span>
-      </div>
-      <Progress value={progress} />
+      {/* Only while there is something to do. A done or archived turf keeps
+          its figures and loses the bar, rather than offering a dead CTA. */}
+      {active && (
+        <div className="flex flex-row items-center justify-between gap-3 border-t bg-primary/5 px-3 py-2.5">
+          {/* The first manual `markDone` caller in the product, and the
+              quieter of the two: it ends the turf, so it is a text button
+              beside the filled one rather than competing with it. */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="small"
+            disabled={pending}
+            onClick={() => {
+              // Nothing to warn about on a fully logged turf.
+              if (unlogged <= 0) {
+                return lifecycle.markDone({
+                  onSuccess: () => onTurfCompleted?.(turf.id),
+                })
+              }
+              openConfirm(true)
+            }}
+          >
+            Mark as done
+          </Button>
+          {/* Both at `size="small"` and neither restyled: the row is what
+              positions them (`justify-between`), so the quiet one keeps the
+              left edge and the one you came for keeps the right. */}
+          <Button asChild size="small">
+            <Link href={walkHref}>{knockLabel}</Link>
+          </Button>
+        </div>
+      )}
       <MarkDoneDialog
         target={markDoneTarget}
         onOpenChange={openConfirm}

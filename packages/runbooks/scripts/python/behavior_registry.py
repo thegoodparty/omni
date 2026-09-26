@@ -13,6 +13,7 @@ from pathlib import Path
 
 import yaml
 
+import sem_anchors
 from analytics_event_health import WATCHLIST, load_watchlist
 
 BEHAVIOR_FIELDS = frozenset({
@@ -48,13 +49,13 @@ def metric_list(behavior: dict) -> list[str]:
 
 
 def surface_key(surface: dict) -> str | None:
-    """The series key the monitor watches this surface under. Mirrors sem_anchors.Leg.key
-    so a page_path surface and a path-qualified leg compare equal."""
+    """The key the monitor watches this surface under. Delegates to
+    ``sem_anchors.Leg.registry_key`` rather than restating the format, so a page_path
+    surface and a path-qualified leg cannot drift apart."""
     name = surface.get("instrumented_by")
     if not name:
         return None
-    page_path = surface.get("page_path")
-    return f"{name}[path={page_path}]" if page_path else name
+    return sem_anchors.Leg(name, surface.get("page_path")).registry_key
 
 
 def _parse_date(value) -> date | None:

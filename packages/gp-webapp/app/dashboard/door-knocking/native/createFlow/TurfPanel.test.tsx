@@ -39,10 +39,13 @@ const baseProps = {
   pendingAssigneeId: null,
   drawColor: '#2563eb',
   draftStats: new Map([['draft-1', stats(6, 4)]]),
+  savedTurfNames: [],
   team: TEAM,
   onSelectDraft: vi.fn(),
   onStartNewTurf: vi.fn(),
+  onRename: vi.fn(),
   onRemoveDraft: vi.fn(),
+  onDiscardPendingTurf: vi.fn(),
   onPickColor: vi.fn(),
   onAssign: vi.fn(),
   onSave: vi.fn(),
@@ -67,7 +70,9 @@ describe('TurfPanel', () => {
       />,
     )
 
-    expect(screen.getByText('Turf 1')).toBeInTheDocument()
+    // Turf 1 is the open card, so its name is an input and therefore a
+    // VALUE; Turf 2 is closed and is text.
+    expect(screen.getByDisplayValue('Turf 1')).toBeInTheDocument()
     expect(screen.getByText('Turf 2')).toBeInTheDocument()
     // Stops, and only stops: the router's own unit, and the one the 150 cap
     // is stated in. `stats(people, households)` sets stops from households.
@@ -152,8 +157,13 @@ describe('TurfPanel', () => {
         onPickColor={onPickColor}
       />,
     )
+    // The pending card lives behind the empty state now.
+    const cta = screen.queryByRole('button', { name: /Draw the first turf/ })
+    if (cta) fireEvent.click(cta)
 
-    expect(screen.getByText('Turf 2')).toBeInTheDocument()
+    // The card being cut is open, so its name is an input and therefore a
+    // VALUE rather than text.
+    expect(screen.getByDisplayValue('Turf 2')).toBeInTheDocument()
     expect(screen.getByText('Drawing')).toBeInTheDocument()
     expect(screen.getByText('Who walks this turf')).toBeInTheDocument()
 
@@ -173,18 +183,89 @@ describe('TurfPanel', () => {
         pendingAssigneeId={42}
       />,
     )
+    // The pending card lives behind the empty state now.
+    const cta = screen.queryByRole('button', { name: /Draw the first turf/ })
+    if (cta) fireEvent.click(cta)
 
     expect(screen.getByRole('button', { name: 'Alex Rivera' })).toBeVisible()
   })
 
-  it('offers no way to select or remove the turf being cut', () => {
-    // It is already the open one, and Undo is the gesture that takes its
-    // corners back — a Remove here would be a control for a draft that does
-    // not exist.
-    render(<TurfPanel {...baseProps} drafts={[]} active={null} />)
+  it('offers no way to select the turf being cut, but throws it away', async () => {
+    // Nothing to select: it is already the open one, so a button that
+    // selects it is a target with no outcome. Delete is a different
+    // question — Undo takes back one corner at a time and cannot take back
+    // the turf, so without this a candidate who started one by mistake has
+    // nothing to press.
+    const onDiscardPendingTurf = vi.fn()
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[]}
+        active={null}
+        onDiscardPendingTurf={onDiscardPendingTurf}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Draw the first turf/ }))
 
     expect(screen.queryByRole('button', { name: /^Turf 2/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Turf 2' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    expect(onDiscardPendingTurf).toHaveBeenCalled()
+
+    // And the panel is empty again, so it says what the empty panel says
+    // rather than putting the card straight back.
+    expect(
+      screen.getByRole('button', { name: /Draw the first turf/ }),
+    ).toBeInTheDocument()
+  })
+
+  it('returns to the empty state when the last turf is deleted', async () => {
+    // The press that empties the panel is the one that leaves: an emptied
+    // panel is in exactly the state the empty state was written for, and
+    // the alternative is a "Turfs" heading over nothing with Cancel as the
+    // only live control.
+    const onRemoveDraft = vi.fn()
+    const { rerender } = render(
+      <TurfPanel {...baseProps} onRemoveDraft={onRemoveDraft} />,
+    )
+
+    expect(
+      screen.queryByRole('button', { name: /Draw the first turf/ }),
+    ).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Turf 1' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    expect(onRemoveDraft).toHaveBeenCalledWith('draft-1')
+
+    // The page owns the list, so it is the one that drops the draft and
+    // hands back an empty campaign with a fresh drawing session behind it.
+    // Without the reset that is the pending card's cue to appear.
+    rerender(
+      <TurfPanel
+        {...baseProps}
+        drafts={[]}
+        active={null}
+        onRemoveDraft={onRemoveDraft}
+      />,
+    )
+    expect(
+      screen.getByRole('button', { name: /Draw the first turf/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Add turf/ })).toBeNull()
+  })
+
+  it('names delete after the turf, or after no turf at all', async () => {
+    // "Delete ?" is what the unnamed case used to read, and the turf being
+    // cut can now be thrown away before it has either a name or a third
+    // corner.
+    render(
+      <TurfPanel {...baseProps} drafts={[]} active={null} pendingName="" />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Draw the first turf/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete this turf' }))
+    expect(await screen.findByText('Delete this turf?')).toBeInTheDocument()
   })
 
   it('assigns the selected turf, and can take it back', async () => {
@@ -220,12 +301,14 @@ describe('TurfPanel', () => {
     expect(screen.queryByText('Who walks this turf')).toBeNull()
   })
 
-  it('will not start a second turf while one is still being cut', () => {
-    // The canvas draws one boundary at a time, so a second Add turf would
-    // abandon the corners already placed without saying so. A null active
-    // turf IS that state: a turf becomes a draft on its third corner.
+  it('starts another turf while one is still being cut', () => {
+    // Add turf used to go dead here, on the argument that the canvas draws
+    // one boundary at a time so a second press abandons the corners
+    // already down. That put a dead control in the corner for the whole of
+    // the most common state on this surface — including the moment
+    // straight after `Draw the first turf`, when there is nothing to lose.
     const onStartNewTurf = vi.fn()
-    const { rerender } = render(
+    render(
       <TurfPanel
         {...baseProps}
         drafts={[]}
@@ -233,11 +316,12 @@ describe('TurfPanel', () => {
         onStartNewTurf={onStartNewTurf}
       />,
     )
-    expect(screen.getByRole('button', { name: /Add turf/ })).toBeDisabled()
+    // No drafts is the panel's empty state, which offers neither Add turf
+    // nor a card until the candidate says they are ready to draw.
+    fireEvent.click(screen.getByRole('button', { name: /Draw the first turf/ }))
 
-    // Finished — the turf is a draft now, so the next one can start.
-    rerender(<TurfPanel {...baseProps} onStartNewTurf={onStartNewTurf} />)
-    expect(screen.getByRole('button', { name: /Add turf/ })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: /Add turf/ }))
+    expect(onStartNewTurf).toHaveBeenCalled()
   })
 
   it('starts the next turf and drops one', () => {
@@ -287,20 +371,174 @@ describe('TurfPanel', () => {
         active={null}
       />,
     )
+    // The pending card lives behind the empty state now.
+    const cta = screen.queryByRole('button', { name: /Draw the first turf/ })
+    if (cta) fireEvent.click(cta)
 
     // The spacing is CSS, so the order is what the text content shows.
     const row = screen.getByRole('button', { name: /^Turf 1/ })
     expect(row).toHaveTextContent('Turf 1Alex Rivera·4 stops')
   })
 
+  it('reddens a turf that was started and never drawn, without a press', () => {
+    // A shapeless card that is not the one under the cursor is unfinished
+    // business rather than a turf in progress. That is the visible half of
+    // `Add turf` on an unfinished turf: the one left behind goes red as
+    // the new one opens.
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[
+          draft({ clientId: 'draft-0', name: 'Ward 4', polygon: [] }),
+          draft(),
+        ]}
+        active={draft()}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Draw this turf')
+    // Not "Drawing" — nobody is drawing it.
+    expect(screen.getByText('Not drawn')).toBeInTheDocument()
+  })
+
+  it('leaves the turf under the cursor alone until Save is pressed', () => {
+    // Undo below three corners blanks a draft rather than deleting it, so
+    // the turf being cut is shapeless for as long as it takes to place
+    // three points. Reddening it there would be scolding somebody for not
+    // having finished yet.
+    const onSave = vi.fn()
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[draft({ name: '', polygon: [] })]}
+        active={draft({ name: '', polygon: [] })}
+        onSave={onSave}
+      />,
+    )
+
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('Drawing')).toBeInTheDocument()
+
+    // The press is what asks the question, and both halves are named.
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSave).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Draw and name this turf',
+    )
+  })
+
+  it('refuses to save two turfs with one name, and reddens both', async () => {
+    // The name is how a turf is told apart everywhere it is met afterwards
+    // — outreach history, the walk header, the printed sheet — and none of
+    // those carry the colour or the id that would disambiguate them.
+    const onSave = vi.fn()
+    const twins = [
+      draft({ name: 'Ward 4' }),
+      // Trimmed and case-folded: the same turf to everyone but the
+      // database.
+      draft({ clientId: 'draft-2', name: 'ward 4 ' }),
+    ]
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={twins}
+        draftStats={
+          new Map([
+            ['draft-1', stats(6, 4)],
+            ['draft-2', stats(11, 8)],
+          ])
+        }
+        onSave={onSave}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onSave).not.toHaveBeenCalled()
+    // BOTH, because either one is the one to change and a single red card
+    // would be picking for them.
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts).toHaveLength(2)
+    for (const alert of alerts) {
+      expect(alert).toHaveTextContent('Two turfs have this name. Change one.')
+    }
+  })
+
+  it('counts the turfs this campaign already holds as names taken', async () => {
+    // Entered through "Draw more turfs", the campaign's saved turfs are not
+    // on this panel and have no card to redden — so the collision is
+    // reported on the draft, which is the half that can still be changed.
+    const onSave = vi.fn()
+    const { rerender } = render(
+      <TurfPanel
+        {...baseProps}
+        savedTurfNames={['Downtown', 'Ward 4']}
+        onSave={onSave}
+      />,
+    )
+
+    // `Turf 1` clashes with neither, so the press goes through.
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSave).toHaveBeenCalledTimes(1)
+
+    onSave.mockClear()
+    rerender(
+      <TurfPanel
+        {...baseProps}
+        drafts={[draft({ name: 'Downtown' })]}
+        savedTurfNames={['Downtown', 'Ward 4']}
+        onSave={onSave}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(onSave).not.toHaveBeenCalled()
+    // One card, because only one of the two is on this panel.
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]).toHaveTextContent('Two turfs have this name. Change one.')
+  })
+
+  it('clears the duplicate on the next frame, with no second press', async () => {
+    // Derived from the drafts on every render rather than stored when the
+    // press was refused, so fixing one card clears its own error without
+    // anything having to remember to.
+    const onSave = vi.fn()
+    const { rerender } = render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[
+          draft({ name: 'Ward 4' }),
+          draft({ clientId: 'draft-2', name: 'Ward 4' }),
+        ]}
+        onSave={onSave}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(await screen.findAllByRole('alert')).toHaveLength(2)
+
+    rerender(
+      <TurfPanel
+        {...baseProps}
+        drafts={[
+          draft({ name: 'Ward 4' }),
+          draft({ clientId: 'draft-2', name: 'Ward 5' }),
+        ]}
+        onSave={onSave}
+      />,
+    )
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSave).toHaveBeenCalledTimes(1)
+  })
+
   it('gates Save only on a shape that will not route', () => {
-    // Deliberately NOT gated on having a turf. Two states would otherwise
-    // leave Cancel as the only live control on a surface somebody is
-    // standing on: a candidate who cut two turfs and pressed Add turf has an
-    // empty ring and two turfs to save, and one who removed every turf still
-    // has to be able to leave without answering a discard prompt. An empty
-    // campaign hands back to a step whose own Continue is already disabled,
-    // which says so once.
+    // Deliberately NOT gated on having a turf, nor on the empty state.
+    // Leaving a surface you are standing on is never the thing to block: a
+    // candidate who opened the map and decided not to cut anything hands
+    // back to a step whose own Continue is already disabled, which says so
+    // once.
     const onSave = vi.fn()
     const { rerender } = render(
       <TurfPanel {...baseProps} drafts={[]} active={null} onSave={onSave} />,

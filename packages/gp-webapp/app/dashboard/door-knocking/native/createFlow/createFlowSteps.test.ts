@@ -7,6 +7,16 @@ import {
   type CreateFlowStage,
 } from './createFlowSteps'
 
+// Every stage the stepper counts. `success` is deliberately not one of them —
+// see its own describe below.
+const COUNTED_STAGES: CreateFlowStage[] = [
+  'purpose',
+  'who',
+  'points',
+  'name',
+  'draw',
+]
+
 // The two pre-draw stages hide inside the orchestrator's single `filters`
 // step. That is the whole trick — the page (#1380) starts a drawing session on
 // exactly the filters → draw transition, so a stage the page never hears about
@@ -17,7 +27,7 @@ describe('flowStage / stageStep', () => {
     expect(flowStage('filters', 'who')).toBe('who')
     expect(flowStage('draw', 'who')).toBe('draw')
     expect(flowStage('name', 'purpose')).toBe('name')
-    expect(flowStage('route', 'purpose')).toBe('route')
+    expect(flowStage('success', 'purpose')).toBe('success')
   })
 
   it('reports every pre-draw stage back to the page as filters', () => {
@@ -26,19 +36,11 @@ describe('flowStage / stageStep', () => {
     expect(stageStep('draw')).toBe('draw')
     expect(stageStep('name')).toBe('name')
     expect(stageStep('points')).toBe('points')
-    expect(stageStep('route')).toBe('route')
+    expect(stageStep('success')).toBe('success')
   })
 
   it('round-trips: a stage’s page step maps back to that stage', () => {
-    const stages: CreateFlowStage[] = [
-      'purpose',
-      'who',
-      'draw',
-      'name',
-      'points',
-      'route',
-    ]
-    for (const stage of stages) {
+    for (const stage of [...COUNTED_STAGES, 'success' as const]) {
       const step = stageStep(stage)
       const preDraw = step === 'filters' ? stage : 'who'
       expect(flowStage(step, preDraw as 'purpose' | 'who')).toBe(stage)
@@ -46,26 +48,25 @@ describe('flowStage / stageStep', () => {
   })
 })
 
-// One path of six steps, always. Door knocking has no ending that skips the
-// boundary and the route, so there is no audience choice — picking a saved
-// list, or cutting a new one from the filter pills — that shortens the flow.
+// One path of five steps, always. Drawing is the last thing the candidate
+// does — the route is bought at first knock, so there is nothing left to ask
+// once the map is cut — and no audience choice shortens the path.
 describe('stepperPosition', () => {
-  it('numbers six steps, in order, on the only path there is', () => {
+  it('numbers five steps, in order, on the only path there is', () => {
     expect(stepperPosition('purpose')).toEqual({
       currentStep: 1,
-      totalSteps: 6,
+      totalSteps: 5,
     })
-    expect(stepperPosition('who')).toEqual({ currentStep: 2, totalSteps: 6 })
+    expect(stepperPosition('who')).toEqual({ currentStep: 2, totalSteps: 5 })
     expect(stepperPosition('points')).toEqual({
       currentStep: 3,
-      totalSteps: 6,
+      totalSteps: 5,
     })
     expect(stepperPosition('name')).toEqual({
       currentStep: 4,
-      totalSteps: 6,
+      totalSteps: 5,
     })
-    expect(stepperPosition('draw')).toEqual({ currentStep: 5, totalSteps: 6 })
-    expect(stepperPosition('route')).toEqual({ currentStep: 6, totalSteps: 6 })
+    expect(stepperPosition('draw')).toEqual({ currentStep: 5, totalSteps: 5 })
   })
 
   // The regression that sent a candidate who touched a filter pill from
@@ -73,26 +74,28 @@ describe('stepperPosition', () => {
   // so choosing one renumbered the flow underneath them. Nothing about the
   // audience may move either number.
   it('never renumbers a step because of the audience chosen', () => {
-    const stages: CreateFlowStage[] = [
-      'purpose',
-      'who',
-      'draw',
-      'name',
-      'points',
-      'route',
-    ]
-    for (const stage of stages) {
-      expect(stepperPosition(stage).totalSteps).toBe(6)
+    for (const stage of COUNTED_STAGES) {
+      expect(stepperPosition(stage).totalSteps).toBe(5)
     }
   })
 
   // The property that matters more than any single number: the last step is
-  // the total, so the stepper never reads "Step 5 of 6" on the screen that
+  // the total, so the stepper never reads "Step 4 of 5" on the screen that
   // finishes, and never overruns it either.
   it('lands the final step exactly on the total', () => {
-    expect(stepperPosition('route')).toMatchObject({
-      currentStep: 6,
-      totalSteps: 6,
+    expect(stepperPosition('draw')).toMatchObject({
+      currentStep: 5,
+      totalSteps: 5,
+    })
+  })
+
+  // `totalSteps: 0` is what the shell reads as "draw no stepper", the same
+  // thing SMS and social do on their own last screens. The campaign exists by
+  // then, so numbering it would invite a Back into creating it twice.
+  it('draws no stepper on the success screen', () => {
+    expect(stepperPosition('success')).toEqual({
+      currentStep: 0,
+      totalSteps: 0,
     })
   })
 })
@@ -107,48 +110,62 @@ describe('previousStage', () => {
   })
 
   // The campaign name is settled before the polygon is drawn (name sits
-  // between talking points and draw), and route lands last. So Back from
-  // route walks route → draw → name → points → who → purpose without
-  // detouring back into an audience step.
-  it('walks route → draw → name → points → who → purpose in one back per step', () => {
-    expect(previousStage('route')).toBe('draw')
+  // between talking points and draw), and draw lands last. So Back from draw
+  // walks draw → name → points → who → purpose without detouring back into
+  // an audience step.
+  it('walks draw → name → points → who → purpose in one back per step', () => {
     expect(previousStage('draw')).toBe('name')
     expect(previousStage('name')).toBe('points')
     expect(previousStage('points')).toBe('who')
     expect(previousStage('who')).toBe('purpose')
   })
 
+  // The campaign is already created by the time this renders, so there is
+  // nothing to go back to that would not mean creating it again.
+  it('offers no back from the success screen', () => {
+    expect(previousStage('success')).toBeNull()
+  })
+
   it('walks the path back to the start in exactly totalSteps - 1 moves', () => {
-    let stage: CreateFlowStage | null = 'route'
+    let stage: CreateFlowStage | null = 'draw'
     let moves = 0
     while (stage !== null && moves < 10) {
       stage = previousStage(stage)
       if (stage !== null) moves += 1
     }
-    expect(moves).toBe(stepperPosition('route').totalSteps - 1)
+    expect(moves).toBe(stepperPosition('draw').totalSteps - 1)
   })
 })
 
 // The community-input purpose inserts one stage after `purpose`, making the
-// path seven long. Everything else about the flow is unchanged, which is what
+// path six long. Everything else about the flow is unchanged, which is what
 // the default-argument shape is for.
 describe('the community-input question stage', () => {
   it('sits second and pushes every later stage along by one', () => {
     expect(stepperPosition('purpose', true)).toEqual({
       currentStep: 1,
-      totalSteps: 7,
+      totalSteps: 6,
     })
     expect(stepperPosition('question', true)).toEqual({
       currentStep: 2,
-      totalSteps: 7,
+      totalSteps: 6,
     })
     expect(stepperPosition('who', true)).toEqual({
       currentStep: 3,
-      totalSteps: 7,
+      totalSteps: 6,
     })
-    expect(stepperPosition('route', true)).toEqual({
-      currentStep: 7,
-      totalSteps: 7,
+    expect(stepperPosition('draw', true)).toEqual({
+      currentStep: 6,
+      totalSteps: 6,
+    })
+  })
+
+  // `success` sits outside the stepper whether or not a question was asked,
+  // so the extra stage must not give it a number.
+  it('leaves the success screen headerless', () => {
+    expect(stepperPosition('success', true)).toEqual({
+      currentStep: 0,
+      totalSteps: 0,
     })
   })
 
@@ -166,12 +183,12 @@ describe('the community-input question stage', () => {
   })
 
   it('still walks back to the start in totalSteps - 1 moves', () => {
-    let stage: CreateFlowStage | null = 'route'
+    let stage: CreateFlowStage | null = 'draw'
     let moves = 0
     while (stage !== null && moves < 12) {
       stage = previousStage(stage, true)
       if (stage !== null) moves += 1
     }
-    expect(moves).toBe(stepperPosition('route', true).totalSteps - 1)
+    expect(moves).toBe(stepperPosition('draw', true).totalSteps - 1)
   })
 })

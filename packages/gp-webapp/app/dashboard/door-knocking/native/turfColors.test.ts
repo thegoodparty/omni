@@ -31,9 +31,11 @@ describe('assignNextColor', () => {
   })
 
   it('wraps by count past the palette length', () => {
-    // Ninth turf → palette[0]. Tenth → palette[1]. Prevents the "everyone
-    // picks purple" papercut the design memo names for repeated picks.
-    const nine = [...TURF_COLORS, TURF_COLORS[0]]
-    expect(assignNextColor(nine)).toBe(TURF_COLORS[1])
+    // One past a full palette → palette[0]. Two past → palette[1]. Prevents
+    // the "everyone picks purple" papercut the design memo names for
+    // repeated picks. Counted rather than written out, so the palette can
+    // lose a colour without this test claiming the wrong number.
+    const oneMore = [...TURF_COLORS, TURF_COLORS[0]]
+    expect(assignNextColor(oneMore)).toBe(TURF_COLORS[1])
   })
 })

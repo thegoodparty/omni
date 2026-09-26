@@ -210,6 +210,7 @@ const turfFixture: DoorKnockingTurf = {
       ],
     ],
   },
+  stopCount: 12,
   doorCount: 12,
   peopleCount: 18,
   loggedCount: 0,

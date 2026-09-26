@@ -252,7 +252,7 @@ export const ChannelTileGrid = ({
     <section className="space-y-3">
       <div>
         <h2 className="text-lg font-semibold text-foreground">
-          Create an outreach campaign
+          Create a campaign
         </h2>
         <p className="text-sm text-muted-foreground">
           Pick a channel to draft and send a new campaign.

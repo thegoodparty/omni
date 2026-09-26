@@ -89,11 +89,16 @@ export const FilterGroup = ({
   title,
   values,
 }: {
-  title: string
+  // Optional, for the group that is the whole of its section: door
+  // knocking's "Voter list used" holds one list and nothing else, so a
+  // label under the heading would name the same thing twice.
+  title?: string
   values: string[]
 }) => (
   <div className="space-y-1.5">
-    <p className="text-xs font-medium text-muted-foreground">{title}</p>
+    {title && (
+      <p className="text-xs font-medium text-muted-foreground">{title}</p>
+    )}
     {/* Purely presentational, so plain Badges rather than toggle pills —
         nothing here should read as clickable, and the canvas draws them in
         the outlined resting state, not the toggled-on fill. Labels repeat

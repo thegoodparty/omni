@@ -138,6 +138,7 @@ const NO_WALK_TURF: DoorKnockingTurf = {
   name: '',
   color: '#000000',
   geoPoly: { type: 'Polygon', coordinates: [] },
+  stopCount: 0,
   doorCount: 0,
   knockedDoorCount: 0,
   peopleCount: 0,
