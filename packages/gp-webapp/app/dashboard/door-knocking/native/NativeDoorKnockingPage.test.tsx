@@ -343,6 +343,7 @@ const turf: DoorKnockingTurf = {
   // Every count is a real number from the moment a list exists: the create
   // transaction buys the route, so the frozen doors are counted before
   // anything sees the row.
+  stopCount: 2,
   doorCount: 2,
   peopleCount: 3,
   loggedCount: 0,
@@ -402,11 +403,31 @@ const mapReady = () => screen.findByTestId('voter-map')
 // drawn shape is a card naming that turf. It used to be one paragraph of
 // "N matching households · M selected households", which described a single
 // boundary — the thing this step stopped being about.
-// The draw step's cards are the same component the panel draws, so the row
-// button's accessible name carries the counts and the canvasser too — match
-// on the turf's name at the start of it.
-const drawnTurfCard = (name: string) =>
-  screen.findByRole('button', { name: new RegExp(`^${name}`) })
+// The draw step's cards are the same component the panel draws, but never
+// open and never selectable there — a turf's name, colour and canvasser are
+// all set on the surface that cuts it — so the name is plain text rather
+// than the accessible name of a row button.
+const drawnTurfCard = (name: string) => screen.findByText(name)
+
+// A turf is named before it is drawn now: the card for the one being cut is
+// open from the moment the drawing surface is, and its name is what the
+// draft is stamped with when a third corner lands. No turf is auto-named,
+// so a test that wants to find one by name has to give it one first.
+// The panel opens on an empty state whose whole job is "find the place
+// first" — no card, no Add turf, Save disabled. Pressing this is what
+// brings the drawing controls, and only the FIRST turf of a session has
+// one to press.
+const drawFirstTurf = () => {
+  const cta = screen.queryByRole('button', { name: /Draw the first turf/ })
+  if (cta) fireEvent.click(cta)
+}
+
+const nameThisTurf = (name: string) => {
+  fireEvent.change(screen.getByLabelText('Turf name'), {
+    target: { value: name },
+  })
+  fireEvent.blur(screen.getByLabelText('Turf name'))
+}
 
 // The who step's CTA carries the audience it is about to continue with, so it
 // is matched on the word rather than on the count — which is the fixture's
@@ -449,11 +470,16 @@ const openFlowAndDraw = async () => {
 // step returns the draw step exactly as it was left. The drawing surface's
 // instructions AlertDialog opens on every mount and inerts the map behind it,
 // so it has to be dismissed before any tap can reach the canvas.
-const drawRingAndReview = async () => {
+const drawRingAndReview = async (turfName = 'Turf 1') => {
   fireEvent.click(
     screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
   )
   const tapMap = screen.getByRole('button', { name: 'tap the map' })
+  // Named before the first corner, which is the order the surface now asks
+  // in — and without it the turf has no name for anything downstream to
+  // find it by.
+  drawFirstTurf()
+  nameThisTurf(turfName)
   fireEvent.click(tapMap)
   fireEvent.click(tapMap)
   fireEvent.click(tapMap)
@@ -889,7 +915,353 @@ describe('NativeDoorKnockingPage create flow', () => {
   // re-runs the landing effect — so re-arming the guard when a list was
   // created reopened the flow at step one on top of the walk that had just
   // started, against a turf list that had not refetched yet.
-  it('does not reopen the flow when creating a list refetches the allowance', async () => {
+  // The panel opens on an invitation to find the place, not on a card and a
+  // live Save: a boundary cannot be drawn before the map has been moved
+  // anywhere, and offering the controls first asks for one.
+  it('opens the drawing panel on an empty state, with no card and no live Save', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+
+    const panel = () => within(turfPanel())
+    expect(
+      await panel().findByText(/Navigate the map to the location/),
+    ).toBeInTheDocument()
+    // Save stays live — leaving without cutting anything is a real exit.
+    expect(panel().getByRole('button', { name: 'Save' })).toBeEnabled()
+    // Absent rather than disabled: there is nothing to add a turf to yet.
+    expect(panel().queryByRole('button', { name: /Add turf/ })).toBeNull()
+    expect(panel().queryByLabelText('Turf name')).toBeNull()
+
+    fireEvent.click(
+      panel().getByRole('button', { name: /Draw the first turf/ }),
+    )
+
+    // The press brings all three at once.
+    expect(panel().getByLabelText('Turf name')).toBeInTheDocument()
+    expect(
+      panel().getByRole('button', { name: /Add turf/ }),
+    ).toBeInTheDocument()
+    expect(panel().getByRole('button', { name: 'Save' })).toBeEnabled()
+    expect(panel().queryByText(/Navigate the map to the location/)).toBeNull()
+  })
+
+  // The other half of the reported bug. Undo blanks a draft rather than
+  // deleting it, so taking every point back used to hand a card with
+  // nothing in it to the draw step. Leaving is still allowed — what must
+  // not survive is the empty draft.
+  it('saves with nothing drawn, and leaves no turf behind', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+
+    // Straight out again, having cut nothing.
+    fireEvent.click(within(turfPanel()).getByRole('button', { name: 'Save' }))
+
+    // Back on the draw step with no card on it — the surface is gone and
+    // nothing took its place.
+    await waitFor(() => expect(screen.queryByText('Turfs')).toBeNull())
+    expect(screen.queryByText(/Name this turf/)).toBeNull()
+    expect(screen.queryByText('Drawing')).toBeNull()
+  })
+
+  it('throws away the turf being cut, and goes back to the empty state', async () => {
+    // Undo takes back one corner at a time and cannot take back the turf,
+    // so a candidate who started one by mistake needs a control of their
+    // own — and pressing it on the only turf leaves an empty panel, which
+    // is exactly the state the empty state was written for.
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+
+    // Two corners down: a turf with no draft behind it, which is the case
+    // that had nothing to press.
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    const panel = () => within(turfPanel())
+    fireEvent.click(panel().getByRole('button', { name: 'Delete this turf' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    expect(
+      await panel().findByText(/Navigate the map to the location/),
+    ).toBeInTheDocument()
+    expect(panel().queryByLabelText('Turf name')).toBeNull()
+    expect(panel().queryByText('Drawing')).toBeNull()
+  })
+
+  it('parks the unfinished turf as a card of its own when another is added', async () => {
+    // `Add turf` has to add one. On a turf that had not reached its third
+    // corner it did nothing a candidate could see: the card on the panel
+    // was the pending one, and the press replaced it with an identical
+    // pending one.
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    const panel = () => within(turfPanel())
+    fireEvent.click(panel().getByRole('button', { name: /Add turf/ }))
+
+    // The one left behind is a card, red, naming both halves it is short
+    // of — and it is no longer the one being drawn.
+    expect(await panel().findByRole('alert')).toHaveTextContent(
+      'Draw and name this turf',
+    )
+    expect(panel().getByText('Not drawn')).toBeInTheDocument()
+    // The new one is open and under the cursor.
+    expect(panel().getByText('Drawing')).toBeInTheDocument()
+
+    // And Save will not take a card that cannot become a turf.
+    fireEvent.click(panel().getByRole('button', { name: 'Save' }))
+    expect(panel().getByRole('alert')).toBeInTheDocument()
+    expect(screen.getByText('Turfs')).toBeInTheDocument()
+  })
+
+  it('keeps a named turf that is still being cut when another is selected', async () => {
+    // Reported from the app: name the turf you are cutting, click a
+    // different turf, and the named one is gone — its card only existed
+    // while it was the one under the cursor.
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    // A second turf, named but not yet drawn.
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+    )
+    nameThisTurf('Turf 2')
+
+    // Back to the first one.
+    fireEvent.click(
+      await within(turfPanel()).findByRole('button', { name: /^Turf 1/ }),
+    )
+
+    // Turf 2 survives as a card of its own, closed, saying what it needs.
+    expect(
+      await within(turfPanel()).findByRole('button', { name: /^Turf 2/ }),
+    ).toBeInTheDocument()
+    expect(within(turfPanel()).getByRole('alert')).toHaveTextContent(
+      'Draw this turf',
+    )
+  })
+
+  it('keeps an untouched turf being cut when another is selected', async () => {
+    // The second half of the same report. A card on this panel is a turf
+    // the candidate started — they pressed Add turf to get it — so an
+    // empty one is no more disposable than a named one, and the only
+    // thing that takes a card off the panel is delete.
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+    )
+    // Nothing typed, nobody assigned, no corner placed.
+    fireEvent.click(
+      await within(turfPanel()).findByRole('button', { name: /^Turf 1/ }),
+    )
+
+    expect(
+      await within(turfPanel()).findByText('Not drawn'),
+    ).toBeInTheDocument()
+    expect(within(turfPanel()).getByRole('alert')).toHaveTextContent(
+      'Draw and name this turf',
+    )
+  })
+
+  it('hands the cursor back to the turf before the one deleted', async () => {
+    // Reported from the app: delete the second of two turfs and the turf
+    // and its name go, but an empty card is left behind. The turf being
+    // cut IS a card, so handing the canvas a fresh session on delete added
+    // one at the moment a turf was removed.
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    drawFirstTurf()
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+    )
+    nameThisTurf('Turf 2')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    expect(
+      await within(turfPanel()).findByDisplayValue('Turf 2'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      within(turfPanel()).getByRole('button', { name: 'Delete Turf 2' }),
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    // Turf 1 is under the cursor again — open, so its name is a value —
+    // and nothing blank was left in its place.
+    expect(
+      await within(turfPanel()).findByDisplayValue('Turf 1'),
+    ).toBeInTheDocument()
+    expect(within(turfPanel()).queryByText('Drawing')).toBeNull()
+    expect(within(turfPanel()).queryByText('Not drawn')).toBeNull()
+  })
+
+  // The reported bug: draw three points, undo them all, press Save. Undo
+  // BLANKS a draft rather than deleting it, so what was left was a turf
+  // with no name and no shape — and Save took it, because the only thing
+  // it ever checked was the stop cap.
+  it('refuses to save a turf that is missing its name, and says so on the card', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    fireEvent.click(within(turfPanel()).getByRole('button', { name: 'Save' }))
+
+    // Still on the drawing surface, and the card says what it is short of.
+    expect(await within(turfPanel()).findByRole('alert')).toHaveTextContent(
+      'Name this turf',
+    )
+
+    // Naming it clears that card's error with no second press, because the
+    // problem is derived from the draft rather than stored on the attempt.
+    nameThisTurf('Ward 4')
+    await waitFor(() =>
+      expect(within(turfPanel()).queryByRole('alert')).not.toBeInTheDocument(),
+    )
+  })
+
+  it('spends every draft the create wrote, not just the last one', async () => {
+    // The drafts are dropped in a loop — one call per turf the press
+    // bought — so a handler that writes back a snapshot of the list keeps
+    // only the LAST removal. A partial batch is where that shows: the
+    // retry then re-posts a turf the campaign already has.
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 9 },
+    })
+    let made = 0
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      const name = String((body as { name: string }).name)
+      if (name === 'Turf 3') return { status: 502 as const, data: {} }
+      made += 1
+      return {
+        status: 200 as const,
+        data: {
+          ...turf,
+          id: 100 + made,
+          outreachId: 900 + made,
+          voterFileFilterId: 9,
+          name,
+          routeSeconds: null,
+        },
+      }
+    })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+
+    for (const name of ['Turf 2', 'Turf 3']) {
+      fireEvent.click(
+        within(turfPanel()).getByRole('button', { name: /Add turf/ }),
+      )
+      nameThisTurf(name)
+      fireEvent.click(tapMap)
+      fireEvent.click(tapMap)
+      fireEvent.click(tapMap)
+    }
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create campaign' }),
+    )
+
+    // Two bought, one lost — so the step keeps exactly the one still owed.
+    await waitFor(() => expect(made).toBe(2))
+    expect(await screen.findByText('Turf 3')).toBeInTheDocument()
+    expect(screen.queryByText('Turf 1')).toBeNull()
+    expect(screen.queryByText('Turf 2')).toBeNull()
+  })
+
+  it('keeps the success screen when the travel question is dismissed', async () => {
+    // The flow used to come down beside the QUESTION rather than beside the
+    // walk, so cancelling left a bare map: no flow, no walk, and this page
+    // hides the nav — nothing on screen to press.
     api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
     api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
     api.mock('POST /v1/voters/voter-file/filter', {
@@ -901,8 +1273,68 @@ describe('NativeDoorKnockingPage create flow', () => {
       data: {
         ...turf,
         id: 5,
+        outreachId: 77,
+        voterFileFilterId: 9,
+        name: 'Turf 1',
+        // Unrouted, which is what makes the press ask before it buys.
+        routeSeconds: null,
+      },
+    })
+    render(page())
+    await mapReady()
+
+    await openFlowAndDraw()
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
+    )
+    const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
+    nameThisTurf('Turf 1')
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(tapMap)
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create campaign' }),
+    )
+    await screen.findByText('Your campaign is ready')
+
+    fireEvent.click(screen.getByRole('button', { name: /^Start knocking$/ }))
+    expect(
+      await screen.findByRole('button', { name: 'Build route' }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    // Nothing was bought, so nothing has changed: the screen that asked is
+    // still the screen you are on.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Build route' })).toBeNull(),
+    )
+    expect(screen.getByText('Your campaign is ready')).toBeInTheDocument()
+  })
+
+  it('does not reopen the flow when creating a campaign refetches the rail', async () => {
+    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 9 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', {
+      status: 200,
+      data: {
+        ...turf,
+        id: 5,
+        outreachId: 77,
         voterFileFilterId: 9,
         name: 'Introduction walk',
+        color: '#2563eb',
+        stopCount: 12,
+        doorCount: 12,
+        peopleCount: 20,
+        loggedCount: 0,
+        routeSeconds: null,
       },
     })
     api.mock('GET /v1/door-knocking/turfs/:id/route', {
@@ -917,6 +1349,8 @@ describe('NativeDoorKnockingPage create flow', () => {
       screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
     )
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
+    nameThisTurf('Turf 1')
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
@@ -924,23 +1358,29 @@ describe('NativeDoorKnockingPage create flow', () => {
     // campaign was already named by `openFlowAndDraw` — the name step sits
     // before the polygon now, because the campaign is the container the
     // turfs are cut into.
+    // Back to the draw step with one turf on it, then the press that writes
+    // the campaign. The campaign was already named by `openFlowAndDraw` —
+    // the name step sits before the polygon, because the campaign is the
+    // container the turfs are cut into.
     fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create campaign' }),
+    )
 
-    // The design hands straight over to the walk: the list was created to be
-    // knocked, and its route is already bought and frozen.
-    await screen.findByRole('button', { name: 'tap pin 11' })
-    expect(walkSurface().getByText('Introduction walk')).toBeInTheDocument()
+    // The flow ends on its own screen rather than handing over to a walk:
+    // nothing has bought a route, so there is nothing to walk yet.
+    expect(
+      await screen.findByText('Your campaign is ready'),
+    ).toBeInTheDocument()
 
-    // The rail refetching behind the walk, which is what the create's own
+    // The rail refetching behind it, which is what the create's own
     // invalidation does. It must not re-fire the landing opener and drop the
-    // candidate back into the flow they just finished.
+    // candidate back into step one of the flow they just finished.
     await act(async () => {
       await testQueryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })
     })
 
-    expect(walkSurface().getByText('Introduction walk')).toBeInTheDocument()
+    expect(screen.getByText('Your campaign is ready')).toBeInTheDocument()
     expect(screen.queryByText(/Introduce myself/)).toBeNull()
   })
 
@@ -1084,6 +1524,8 @@ describe('NativeDoorKnockingPage draw step', () => {
     )
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
+    nameThisTurf('Turf 1')
     const save = () => within(turfPanel()).getByRole('button', { name: 'Save' })
     // Nothing over the map before the first point: the instructions dialog
     // has just named the gesture and the panel names the turf. Save is live
@@ -1103,15 +1545,17 @@ describe('NativeDoorKnockingPage draw step', () => {
     // draft — so it is the moment the panel beside the map gains a row for
     // it.
     fireEvent.click(tapMap)
-    expect(await within(turfPanel()).findByText('Turf 1')).toBeInTheDocument()
+    // The open card's name is an input, so it is a VALUE and not text —
+    // `findByText` cannot see it.
+    expect(
+      await within(turfPanel()).findByDisplayValue('Turf 1'),
+    ).toBeInTheDocument()
 
     fireEvent.click(save())
 
     // Back on the step that lists the campaign's turfs, with the one just
     // cut on it — not forward into the flow.
-    expect(
-      await screen.findByRole('button', { name: /^Turf 1/ }),
-    ).toBeInTheDocument()
+    expect(await drawnTurfCard('Turf 1')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Draw another turf' }),
     ).toBeInTheDocument()
@@ -1205,10 +1649,16 @@ describe('NativeDoorKnockingPage draw step', () => {
       within(turfPanel()).getByRole('button', { name: /Add turf/ }),
     )
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
+    drawFirstTurf()
+    nameThisTurf('Turf 2')
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
-    expect(await within(turfPanel()).findByText('Turf 2')).toBeInTheDocument()
+    // The open card's name is an input, so it is a VALUE and not text —
+    // `findByText` cannot see it.
+    expect(
+      await within(turfPanel()).findByDisplayValue('Turf 2'),
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     // Something would be lost, so it asks — the prompt this button carries
@@ -1219,7 +1669,7 @@ describe('NativeDoorKnockingPage draw step', () => {
     // delete a turf the candidate cut in an earlier session and never asked
     // to lose, which is the whole reason the snapshot is per-session.
     expect(await drawnTurfCard('Turf 1')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^Turf 2/ })).toBeNull()
+    expect(screen.queryByText('Turf 2')).toBeNull()
   })
 
   it('does not ask when a session with turfs already in it changed nothing', async () => {

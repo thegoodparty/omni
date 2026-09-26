@@ -78,7 +78,7 @@ const baseProps = {
   onRestartDrawing: vi.fn(),
   color: '#2563eb',
   drawnStops: null,
-  onListCreated: vi.fn(),
+  onStartKnocking: vi.fn(),
   isServeOrg: false,
   unpreviewableKeys: [],
   orgSlug: 'campaign-9',
@@ -169,7 +169,7 @@ const renderAtPoints = async (
 const rerenderWith = (
   view: { rerender: (ui: ReactElement) => void },
   props: Partial<ComponentProps<typeof CreateListFlow>>,
-  step: 'points' | 'route',
+  step: 'points' | 'draw',
 ) => view.rerender(<CreateListFlow {...baseProps} {...props} step={step} />)
 
 beforeEach(() => {
@@ -467,6 +467,7 @@ describe('freezing the card with the list', () => {
             type: 'Polygon' as const,
             coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
           },
+          stopCount: 9,
           doorCount: 9,
           peopleCount: 22,
           loggedCount: 0,
@@ -491,8 +492,8 @@ describe('freezing the card with the list', () => {
     const props = { onStepChange: vi.fn() }
 
     const view = await renderAtPoints(props)
-    rerenderWith(view, props, 'route')
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    rerenderWith(view, props, 'draw')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]).toMatchObject({
@@ -528,8 +529,8 @@ describe('freezing the card with the list', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled(),
     )
-    rerenderWith(view, props, 'route')
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    rerenderWith(view, props, 'draw')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]).not.toHaveProperty('talkingPoints')
@@ -567,8 +568,8 @@ describe('freezing the card with the list', () => {
       'Point them to janedoe.org to learn more — no commitment needed.',
     )
 
-    rerenderWith(view, props, 'route')
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    rerenderWith(view, props, 'draw')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]).not.toHaveProperty('talkingPoints')
@@ -587,8 +588,8 @@ describe('freezing the card with the list', () => {
     fireEvent.change(screen.getByLabelText('Context'), {
       target: { value: 'Fix the roads.\nAnd the sidewalks.' },
     })
-    rerenderWith(view, props, 'route')
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    rerenderWith(view, props, 'draw')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() => expect(bodies).toHaveLength(1))
     const stored = bodies[0]?.talkingPoints as string

@@ -199,6 +199,12 @@ export const DoorKnockingTurfSchema = z.object({
   name: z.string(),
   color: z.string(),
   geoPoly: GeoJsonPolygonSchema,
+  // Three quantities, not one, and every surface that lists turfs prints
+  // two of them. A multi-unit building is ONE stop with many doors behind
+  // it, and its residents are more people again. Stops is the router's own
+  // unit and the one the 150 cap is stated in, so it is what a card leads
+  // with; doors is what the walk knocks; people is who is behind them.
+  stopCount: z.number().int(),
   doorCount: z.number().int(),
   knockedDoorCount: z.number().int(),
   peopleCount: z.number().int(),

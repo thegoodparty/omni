@@ -44,6 +44,7 @@ const turf = (overrides: Partial<DoorKnockingTurf> = {}): DoorKnockingTurf => ({
       ],
     ],
   },
+  stopCount: 2,
   doorCount: 2,
   peopleCount: 3,
   loggedCount: 0,

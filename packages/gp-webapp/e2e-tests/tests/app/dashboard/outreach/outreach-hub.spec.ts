@@ -31,7 +31,7 @@ test.describe('outreach hub — default-on channel tiles', () => {
 
     await page.goto('/dashboard/outreach')
     await expect(
-      page.getByRole('heading', { name: 'Create an outreach campaign' }),
+      page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
 
     for (const name of [
@@ -52,7 +52,7 @@ test.describe('outreach hub — default-on channel tiles', () => {
 
     await page.goto('/dashboard/outreach')
     await expect(
-      page.getByRole('heading', { name: 'Create an outreach campaign' }),
+      page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
     await page.getByRole('button', { name: /^Social media/ }).click()
 
@@ -135,7 +135,7 @@ test.describe('outreach hub — sms tile upgrade-at-entry', () => {
 
     await page.goto('/dashboard/outreach')
     await expect(
-      page.getByRole('heading', { name: 'Create an outreach campaign' }),
+      page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
     await page.getByRole('button', { name: /^SMS/ }).click()
 
@@ -184,7 +184,7 @@ test.describe('outreach hub — in-flow gate (outreach-pro-gating-v2 on)', () =>
 
     await page.goto('/dashboard/outreach')
     await expect(
-      page.getByRole('heading', { name: 'Create an outreach campaign' }),
+      page.getByRole('heading', { name: 'Create a campaign' }),
     ).toBeVisible({ timeout: 30_000 })
 
     await page.getByRole('button', { name: /^SMS/ }).click()

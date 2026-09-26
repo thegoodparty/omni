@@ -9,6 +9,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  EmptyState,
   PlusIcon,
 } from '@styleguide'
 import { useSheetControlsOffset, useSheetSnap } from '../useSheetSnap'
@@ -35,11 +36,25 @@ interface TurfPanelProps {
   // right swatch before the third corner lands.
   drawColor: string
   draftStats: Map<string, PolygonStats>
+  // What the campaign's ALREADY-SAVED turfs are called, when this surface
+  // was entered to add turfs to one. A name has to be unique across the
+  // campaign and not merely across this drawing session, and those turfs
+  // have no card here to go red — so the collision is reported on the
+  // draft, which is the half the candidate can still change.
+  savedTurfNames: string[]
   team: TeamOption[]
   onSelectDraft: (clientId: string) => void
   onStartNewTurf: () => void
   onRemoveDraft: (clientId: string) => void
+  // Throw away the turf still being cut — the one with no draft behind it
+  // yet. Separate from `onRemoveDraft` because there is no `clientId` to
+  // pass: what it discards is the drawing session itself.
+  onDiscardPendingTurf: () => void
   onPickColor: (color: string) => void
+  // Renames the turf under the cursor. The card for the turf still being
+  // CUT reports through this too — the page holds its name as
+  // `pendingName` until a third corner commits a draft to stamp it onto.
+  onRename: (name: string) => void
   onAssign: (assigneeId: number | null) => void
   // Keep what this drawing session did, and hand back to the step. Blocked
   // only by a shape that will not route.
@@ -114,11 +129,14 @@ export const TurfPanel = ({
   pendingAssigneeId,
   drawColor,
   draftStats,
+  savedTurfNames,
   team,
   onSelectDraft,
   onStartNewTurf,
   onRemoveDraft,
+  onDiscardPendingTurf,
   onPickColor,
+  onRename,
   onAssign,
   onSave,
   saveDisabled,
@@ -130,6 +148,84 @@ export const TurfPanel = ({
     useSheetSnap('half')
   const docked = useIsDocked()
   const [discardOpen, setDiscardOpen] = useState(false)
+  // Whether Save has been pressed and refused. The problems themselves are
+  // NOT stored — they are derived from the drafts on every render, so
+  // typing a name or drawing the missing shape clears its card's error on
+  // the next frame without anything having to remember to.
+  const [attemptedSave, setAttemptedSave] = useState(false)
+  // Whether the candidate has said they are ready to draw. A session that
+  // opens straight onto a card and a live Save asks for a boundary before
+  // the map has been moved anywhere — so the panel opens on an empty state
+  // whose whole job is "find the place first", and the drawing controls
+  // arrive when that is answered.
+  //
+  // Only ever the FIRST turf. Reopening the surface on a campaign that
+  // already holds turfs has nothing to introduce, and `Add turf` is the
+  // gesture for every one after.
+  const [started, setStarted] = useState(drafts.length > 0)
+  const introducing = !started && drafts.length === 0
+  // Deleting the last card hands the panel back to the empty state rather
+  // than to a bare "Turfs" heading over nothing. The same press that got
+  // here is the one that leaves: an emptied panel is in exactly the state
+  // the empty state was written for, and the alternative is a surface whose
+  // only remaining control is Cancel.
+  //
+  // The two removals differ only in what they are removing. A draft is the
+  // last one when it is the only one AND nothing is being cut beside it —
+  // `active === null` means a turf is in progress, and that card survives
+  // this press.
+  const removeDraft = (clientId: string) => {
+    if (drafts.length === 1 && active?.clientId === clientId) setStarted(false)
+    onRemoveDraft(clientId)
+  }
+  const discardPendingTurf = () => {
+    if (drafts.length === 0) setStarted(false)
+    onDiscardPendingTurf()
+  }
+  // A turf needs BOTH halves: a boundary and something to call it. A card
+  // missing either is refused rather than silently dropped, and the caption
+  // names the half that is missing rather than the pair — a candidate who
+  // drew a shape and skipped the name is not told to draw it again.
+  //
+  // There are two ways to be holding a shapeless card. Undo below three
+  // corners blanks a draft rather than deleting it (see `isDrawnTurf`), and
+  // `Add turf` parks the turf being cut whether or not it ever reached a
+  // third corner. Both leave a turf the candidate started, so both are the
+  // candidate's to finish or to delete.
+  // And two turfs in one campaign cannot be called the same thing. The name
+  // is how a turf is told apart everywhere it is met afterwards — the
+  // outreach history, the walk header, the printed sheet, the message that
+  // hands one to a volunteer — and none of those carry the colour or the
+  // id that would disambiguate them. Compared trimmed and case-folded,
+  // because "Ward 4" and "ward 4 " are the same turf to everyone but the
+  // database.
+  //
+  // The saved siblings count and are not shown, so a draft can collide
+  // with a turf that has no card on this panel. One wording covers both:
+  // the sentence is true either way, and the card carrying it is always the
+  // one that can be changed.
+  const nameKey = (name: string) => name.trim().toLowerCase()
+  const nameCounts = new Map<string, number>()
+  for (const name of [
+    ...savedTurfNames,
+    ...drafts.filter(isDrawnTurf).map((draft) => draft.name),
+  ]) {
+    const key = nameKey(name)
+    if (key === '') continue
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
+  }
+  const problemWith = (draft: TurfDraft): string | null => {
+    const unnamed = draft.name.trim() === ''
+    if (!isDrawnTurf(draft)) {
+      return unnamed ? 'Draw and name this turf' : 'Draw this turf'
+    }
+    if (unnamed) return 'Name this turf'
+    if ((nameCounts.get(nameKey(draft.name)) ?? 0) > 1) {
+      return 'Two turfs have this name. Change one.'
+    }
+    return null
+  }
+  const incomplete = drafts.filter((draft) => problemWith(draft) !== null)
   // Selecting a turf expands its card, and the controls it opens can land
   // below the fold on a short panel. `nearest` scrolls the least that makes
   // them visible, so a card already in view does not jump.
@@ -202,74 +298,108 @@ export const TurfPanel = ({
           exactly the thing that makes you want it. */}
       <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-4 pb-3 max-lg:pt-1">
         <h2 className="text-base font-semibold">Turfs</h2>
-        {/* Dead while a turf is still being cut, because one boundary is
-            drawn at a time: the canvas has a single drawing session, so a
-            second Add turf would abandon the corners already placed
-            without saying so. `active === null` IS that state — a turf
-            becomes a draft on its third corner, so a null active turf
-            means one is in progress and unfinished.
+        {/* Live even while a turf is being cut. It used to go dead there —
+            the canvas draws one boundary at a time, so starting a second
+            turf abandons whatever corners are down — but that put a dead
+            control in the corner for the whole of the most common state on
+            this surface, including the moment straight after `Draw first
+            turf` when there is nothing to lose at all. What it costs is at
+            most two placed corners, which Undo takes back one at a time
+            anyway; what it bought was a button that looked broken.
 
-            No tooltip on the disabled button: the row directly below it
-            says "Drawing" against the turf in question, which is the
-            reason, adjacent and readable — and a tooltip on a disabled
-            control needs a wrapper to fire at all. */}
-        <Button
-          type="button"
-          size="small"
-          variant="outline"
-          disabled={active === null}
-          onClick={onStartNewTurf}
-        >
-          <PlusIcon className="size-4" />
-          Add turf
-        </Button>
+            Absent rather than disabled before the FIRST turf: there is
+            nothing to add one TO yet, and a dead control beside an empty
+            state is a second thing to explain. */}
+        {!introducing && (
+          <Button
+            type="button"
+            size="small"
+            variant="outline"
+            onClick={onStartNewTurf}
+          >
+            <PlusIcon className="size-4" />
+            Add turf
+          </Button>
+        )}
       </div>
 
       {showBody && (
         <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+          {/* Before the first turf there is no list and no card to open —
+              the one thing to do is move the map to the neighbourhood, and
+              the panel says so rather than sitting empty beside a live
+              Save. Pressing the CTA is what brings the card, `Add turf`
+              and a live Save at once. */}
+          {introducing && (
+            <EmptyState
+              title="No turfs yet"
+              message="Navigate the map to the location you want to draw your first turf."
+              action={
+                <Button type="button" onClick={() => setStarted(true)}>
+                  Draw the first turf
+                </Button>
+              }
+            />
+          )}
           {/* Each turf is its own card, inset from the panel edge and
               rounded, so the list reads as a set of objects you can act on
               rather than a table of rows. What makes a card fill the width
               it is given is the `block` on its `li` below — without it they
               shrink to their text, which is a different problem wearing the
               same symptom. */}
-          <ul className="flex flex-col gap-2">
-            {drafts.map((draft) => {
-              const selected = draft.clientId === active?.clientId
-              // `block` on the `li` is not decoration. `app/globals.css`
-              // forces `display: flex` on every `li` under a `[data-slot]`
-              // ancestor, and this panel has one — which shrinks a single
-              // child to its content width and reads as a row stopping
-              // short of the panel. That file's own comment names this
-              // exact symptom and prescribes an explicit display utility;
-              // it lives in `@layer base` so the utility wins.
-              return (
-                <li key={draft.clientId} className="block">
-                  <TurfCard
-                    name={draft.name}
-                    color={draft.color}
-                    assigneeId={draft.assigneeId}
-                    selected={selected}
-                    cardRef={selected ? selectedCardRef : undefined}
-                    counts={
-                      isDrawnTurf(draft) ? (
-                        <DraftCounts
-                          stats={draftStats.get(draft.clientId) ?? null}
-                        />
-                      ) : (
-                        'Drawing'
-                      )
-                    }
-                    team={team}
-                    onSelect={() => onSelectDraft(draft.clientId)}
-                    onRemove={() => onRemoveDraft(draft.clientId)}
-                    onPickColor={onPickColor}
-                    onAssign={onAssign}
-                  />
-                </li>
-              )
-            })}
-            {/* The turf being cut is not in `drafts` until its third corner
+          {!introducing && (
+            <ul className="flex flex-col gap-2">
+              {drafts.map((draft) => {
+                const selected = draft.clientId === active?.clientId
+                // A shapeless card that is NOT the one under the cursor is
+                // unfinished business rather than a turf in progress, so it
+                // says so at once instead of waiting for a refused Save.
+                // That is the whole visible half of `Add turf` on an
+                // unfinished turf: the one left behind goes red as the new
+                // one opens. Under the cursor the same card is simply being
+                // drawn, and a red card would be scolding somebody for not
+                // having finished yet.
+                const unfinished = !isDrawnTurf(draft) && !selected
+                // `block` on the `li` is not decoration. `app/globals.css`
+                // forces `display: flex` on every `li` under a `[data-slot]`
+                // ancestor, and this panel has one — which shrinks a single
+                // child to its content width and reads as a row stopping
+                // short of the panel. That file's own comment names this
+                // exact symptom and prescribes an explicit display utility;
+                // it lives in `@layer base` so the utility wins.
+                return (
+                  <li key={draft.clientId} className="block">
+                    <TurfCard
+                      name={draft.name}
+                      color={draft.color}
+                      assigneeId={draft.assigneeId}
+                      selected={selected}
+                      cardRef={selected ? selectedCardRef : undefined}
+                      counts={
+                        isDrawnTurf(draft) ? (
+                          <DraftCounts
+                            stats={draftStats.get(draft.clientId) ?? null}
+                          />
+                        ) : unfinished ? (
+                          'Not drawn'
+                        ) : (
+                          'Drawing'
+                        )
+                      }
+                      team={team}
+                      onSelect={() => onSelectDraft(draft.clientId)}
+                      onRemove={() => removeDraft(draft.clientId)}
+                      onPickColor={onPickColor}
+                      onAssign={onAssign}
+                      onRename={onRename}
+                      error={
+                        attemptedSave || unfinished ? problemWith(draft) : null
+                      }
+                    />
+                  </li>
+                )
+              })}
+              {/* The turf being cut is not in `drafts` until its third corner
               lands, so it gets a card of its own rather than the list being
               empty while somebody is visibly drawing into it.
 
@@ -280,22 +410,25 @@ export const TurfPanel = ({
               under the cursor at the moment they landed. This turf is the
               one being worked on by definition, which is what the open
               state means everywhere else in this list. */}
-            {active === null && (
-              <li className="block">
-                <TurfCard
-                  name={pendingName}
-                  color={drawColor}
-                  assigneeId={pendingAssigneeId}
-                  selected
-                  cardRef={selectedCardRef}
-                  counts="Drawing"
-                  team={team}
-                  onPickColor={onPickColor}
-                  onAssign={onAssign}
-                />
-              </li>
-            )}
-          </ul>
+              {active === null && (
+                <li className="block">
+                  <TurfCard
+                    name={pendingName}
+                    color={drawColor}
+                    assigneeId={pendingAssigneeId}
+                    selected
+                    cardRef={selectedCardRef}
+                    counts="Drawing"
+                    team={team}
+                    onRemove={discardPendingTurf}
+                    onPickColor={onPickColor}
+                    onAssign={onAssign}
+                    onRename={onRename}
+                  />
+                </li>
+              )}
+            </ul>
+          )}
         </div>
       )}
 
@@ -317,7 +450,21 @@ export const TurfPanel = ({
           type="button"
           className="flex-1"
           disabled={saveDisabled}
-          onClick={onSave}
+          onClick={() => {
+            // Refused rather than disabled. A dead Save button says a turf
+            // is wrong without saying which one or why, and the answer is
+            // per-card — so the press is what asks the question and the
+            // cards are where it is answered.
+            if (incomplete.length > 0) {
+              setAttemptedSave(true)
+              return
+            }
+            // Leaving with nothing drawn at all is still a legitimate
+            // exit — there are no cards, so there is nothing to finish and
+            // nothing to carry to the draw step. It is a card that cannot
+            // become a turf that holds the press.
+            onSave()
+          }}
         >
           Save
         </Button>

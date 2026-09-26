@@ -726,7 +726,9 @@ describe('OutreachHistoryTable — unified history', () => {
 
     await userEvent.click(toggle)
 
-    expect(screen.getByText('Archived outreach')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Archived campaigns' }),
+    ).toBeInTheDocument()
     expect(
       screen.getByText(
         'Completed and cancelled campaigns from earlier cycles.',
