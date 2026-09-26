@@ -264,18 +264,64 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
     await waitFor(() => expect(screen.queryByText('Is this right?')).toBeNull())
   })
 
-  // The call is already logged by the time capture runs, so a capture failure
-  // is invisible to the caller rather than an error they have to clear.
-  it('never interrupts the caller when capture fails', async () => {
+  // The call is already logged by the time capture runs, so a failure must
+  // not block the caller — but it must not be silent either. The call payload
+  // carries no memo, so a dropped capture loses the words outright.
+  it('releases the caller but says the memo did not save', async () => {
     api.mock('POST /v1/constituent-feedback', {
       status: 500,
       data: { message: 'boom' },
     })
-    const { onSaved } = renderForm()
+    const { view, onSaved } = renderForm()
     callAndSave()
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     expect(screen.queryByText('Is this right?')).toBeNull()
+
+    view.rerender(formWith(true, onSaved, LOGGED))
+    expect(
+      await screen.findByText(/Couldn't save what they said/i),
+    ).toBeVisible()
+  })
+
+  // The retry has to carry the ORIGINAL transcript: the memo box was cleared
+  // on save, so if the failure did not hold these words nothing would.
+  it('retries the failed memo with the words it lost', async () => {
+    api.mock('POST /v1/constituent-feedback', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    const { view, onSaved } = renderForm()
+    callAndSave()
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+
+    view.rerender(formWith(true, onSaved, LOGGED))
+    await screen.findByText(/Couldn't save what they said/i)
+
+    api.mock('POST /v1/constituent-feedback', ({ body }) => {
+      captureBodies.push(body as (typeof captureBodies)[number])
+      return {
+        status: 200,
+        data: {
+          id: 'feedback-1',
+          personId: 'person-1',
+          extractionStatus: 'extracted',
+          extraction: {
+            issueLabel: 'Compost collection',
+            stance: 'mixed',
+            desiredOutcome: 'Weekly pickup instead of fortnightly',
+          },
+        },
+      }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(captureBodies).toHaveLength(1))
+    expect(captureBodies[0]?.transcript).toBe(MEMO)
+    expect(captureBodies[0]?.captureMethod).toBe('dictation')
+    await waitFor(() =>
+      expect(screen.queryByText(/Couldn't save what they said/i)).toBeNull(),
+    )
   })
 
   // `answered` is only the branch into the engagement question. Refused and

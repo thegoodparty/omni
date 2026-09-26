@@ -44,6 +44,11 @@ import {
   type PhoneBankingOutcomeDraft,
 } from './phoneBankingOutcome.util'
 
+interface CaptureInput {
+  transcript: string
+  captureMethod: ConstituentFeedbackCaptureMethod
+}
+
 interface PhoneBankingOutcomeFormProps {
   listId: number
   entryId: number
@@ -89,6 +94,11 @@ export default function PhoneBankingOutcomeForm({
     id: string
     proposed: ConstituentFeedbackTriple | null
   } | null>(null)
+  // A failed capture is the one failure on this surface that loses DATA: the
+  // call's own payload carries no memo, so unlike the door — where the note
+  // rides the knock and only the extraction is lost — nothing else holds
+  // these words. Keeping them here is what makes the retry below possible.
+  const [failedMemo, setFailedMemo] = useState<CaptureInput | null>(null)
   // Replay idempotency for THIS mount's retries, which is all a client-minted
   // key can be: the panel keys this component on personId, so a tab switch
   // mints a fresh one. Re-recording the same call across a remount is made
@@ -110,10 +120,7 @@ export default function PhoneBankingOutcomeForm({
   // would disagree about the same memo, and the event is the half we would
   // believe later.
   const capture = useMutation({
-    mutationFn: (input: {
-      transcript: string
-      captureMethod: ConstituentFeedbackCaptureMethod
-    }) =>
+    mutationFn: (input: CaptureInput) =>
       clientRequest('POST /v1/constituent-feedback', {
         channel: 'phone_bank',
         entryId,
@@ -129,7 +136,9 @@ export default function PhoneBankingOutcomeForm({
         extractionStatus: data.extractionStatus,
       })
       setCaptured({ id: data.id, proposed: data.extraction })
+      setFailedMemo(null)
     },
+    onError: (_error, input) => setFailedMemo(input),
   })
 
   const confirmCapture = useMutation({
@@ -238,61 +247,78 @@ export default function PhoneBankingOutcomeForm({
 
   if (!isEditing && interaction) {
     return (
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <span
-              className={cn(
-                'size-2.5 rounded-full',
-                OUTCOME_DOT_CLASS[interaction.outcome],
-              )}
-            />
-            {OUTCOME_LABEL[interaction.outcome]}
-          </span>
-          {/* Read off the interaction rather than the draft, so the surface
+      <div className="flex flex-col gap-2">
+        {failedMemo !== null && (
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm text-destructive">
+              Couldn&apos;t save what they said.
+            </p>
+            <Button
+              variant="outline"
+              size="small"
+              disabled={capture.isPending}
+              onClick={() => capture.mutate(failedMemo)}
+            >
+              Try again
+            </Button>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+              <span
+                className={cn(
+                  'size-2.5 rounded-full',
+                  OUTCOME_DOT_CLASS[interaction.outcome],
+                )}
+              />
+              {OUTCOME_LABEL[interaction.outcome]}
+            </span>
+            {/* Read off the interaction rather than the draft, so the surface
               has to be checked here too: a Serve list's existing rows carry
               the Win answers (it shipped asking them), and showing them back
               would put "Support: Yes" in front of the caller this change
               exists to stop asking. Gated symmetrically with the edit form
               below — each surface reads back only its own question. */}
-          {interaction.outcome === 'answered' && (
-            <>
-              {!isServe && interaction.supportAnswer && (
-                <span className="truncate">
-                  {' · Support: '}
-                  <span className="font-medium text-foreground">
-                    {SUPPORT_ANSWER_LABEL[interaction.supportAnswer]}
+            {interaction.outcome === 'answered' && (
+              <>
+                {!isServe && interaction.supportAnswer && (
+                  <span className="truncate">
+                    {' · Support: '}
+                    <span className="font-medium text-foreground">
+                      {SUPPORT_ANSWER_LABEL[interaction.supportAnswer]}
+                    </span>
                   </span>
-                </span>
-              )}
-              {!isServe && interaction.willVote && (
-                <span className="truncate">
-                  {' · Will vote: '}
-                  <span className="font-medium text-foreground">
-                    {WILL_VOTE_ANSWER_LABEL[interaction.willVote]}
+                )}
+                {!isServe && interaction.willVote && (
+                  <span className="truncate">
+                    {' · Will vote: '}
+                    <span className="font-medium text-foreground">
+                      {WILL_VOTE_ANSWER_LABEL[interaction.willVote]}
+                    </span>
                   </span>
-                </span>
-              )}
-              {isServe && interaction.followUp && (
-                <span className="truncate">
-                  {' · Follow-up: '}
-                  <span className="font-medium text-foreground">
-                    {FOLLOW_UP_ANSWER_LABEL[interaction.followUp]}
+                )}
+                {isServe && interaction.followUp && (
+                  <span className="truncate">
+                    {' · Follow-up: '}
+                    <span className="font-medium text-foreground">
+                      {FOLLOW_UP_ANSWER_LABEL[interaction.followUp]}
+                    </span>
                   </span>
-                </span>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
+          </div>
+          <IconButton
+            variant="outline"
+            size="small"
+            aria-label="Edit this call's outcome"
+            className="shrink-0"
+            onClick={() => setIsEditing(true)}
+          >
+            <PencilIcon size={16} />
+          </IconButton>
         </div>
-        <IconButton
-          variant="outline"
-          size="small"
-          aria-label="Edit this call's outcome"
-          className="shrink-0"
-          onClick={() => setIsEditing(true)}
-        >
-          <PencilIcon size={16} />
-        </IconButton>
       </div>
     )
   }
