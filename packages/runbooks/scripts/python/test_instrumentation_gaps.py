@@ -224,9 +224,8 @@ def _entry(gid, disposition="accepted", **kw):
 
 def test_instrumented_surface_closes_as_resolved_preserving_human_fields():
     state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", ticket_url="http://t/1")}
-    out, closed = ig.close_resolved_entries(
-        state, surface_ids={"a/B.tsx#form_submit"}, gap_ids=set(), today=date(2026, 9, 25)
-    )
+    surfaces = [{"id": "a/B.tsx#form_submit", "location": "a/B.tsx", "surface_type": "form_submit"}]
+    out, closed = ig.close_resolved_entries(state, surfaces, gap_ids=set(), today=date(2026, 9, 25))
     e = out["a/B.tsx#form_submit"]
     assert closed == 1
     assert e["disposition"] == "resolved"
@@ -239,19 +238,40 @@ def test_instrumented_surface_closes_as_resolved_preserving_human_fields():
 
 def test_vanished_surface_closes_as_retired():
     state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}
-    out, closed = ig.close_resolved_entries(
-        state, surface_ids=set(), gap_ids=set(), today=date(2026, 9, 25)
-    )
+    out, closed = ig.close_resolved_entries(state, [], gap_ids=set(), today=date(2026, 9, 25))
     assert closed == 1
     assert out["a/B.tsx#form_submit"]["disposition"] == "retired"
     assert out["a/B.tsx#form_submit"]["resolved_cause"] == "surface_gone"
 
 
+def test_a_resplit_surface_retires_with_its_own_cause():
+    # The id changed but the file still offers surfaces of this type: the surface lives, so
+    # this must not read as a disappearance. Task 7 relies on the cause to decide which
+    # entries hand their ruling to successors.
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}
+    surfaces = [
+        {"id": "a/B.tsx#form_submit#Alpha", "location": "a/B.tsx", "surface_type": "form_submit"},
+        {"id": "a/B.tsx#form_submit#Beta", "location": "a/B.tsx", "surface_type": "form_submit"},
+    ]
+    out, closed = ig.close_resolved_entries(state, surfaces, set(), date(2026, 9, 25))
+    assert closed == 1
+    e = out["a/B.tsx#form_submit"]
+    assert e["disposition"] == "retired"
+    assert e["resolved_cause"] == "resplit"
+    assert e["reason"] == "human reason"
+
+
+def test_a_vanished_surface_is_distinguished_from_a_resplit_one():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}
+    out, closed = ig.close_resolved_entries(state, [], set(), date(2026, 9, 25))
+    assert out["a/B.tsx#form_submit"]["resolved_cause"] == "surface_gone"
+
+
 def test_still_a_gap_is_left_alone():
     state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="new")}
+    surfaces = [{"id": "a/B.tsx#form_submit", "location": "a/B.tsx", "surface_type": "form_submit"}]
     out, closed = ig.close_resolved_entries(
-        state, surface_ids={"a/B.tsx#form_submit"}, gap_ids={"a/B.tsx#form_submit"},
-        today=date(2026, 9, 25),
+        state, surfaces, gap_ids={"a/B.tsx#form_submit"}, today=date(2026, 9, 25),
     )
     assert closed == 0
     assert out["a/B.tsx#form_submit"]["disposition"] == "new"
@@ -260,9 +280,7 @@ def test_still_a_gap_is_left_alone():
 def test_already_closed_entries_are_not_reclosed():
     state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="resolved",
                                            resolved_at="2026-09-01")}
-    out, closed = ig.close_resolved_entries(
-        state, surface_ids=set(), gap_ids=set(), today=date(2026, 9, 25)
-    )
+    out, closed = ig.close_resolved_entries(state, [], gap_ids=set(), today=date(2026, 9, 25))
     assert closed == 0
     assert out["a/B.tsx#form_submit"]["resolved_at"] == "2026-09-01"
 

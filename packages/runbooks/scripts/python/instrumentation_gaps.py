@@ -682,7 +682,7 @@ _COLLAPSE_FLOOR = 0.5
 
 def close_resolved_entries(
     state: Mapping[str, dict],
-    surface_ids: set[str],
+    surfaces: Sequence[Mapping],
     gap_ids: set[str],
     today: date,
 ) -> tuple[dict[str, dict], int]:
@@ -690,19 +690,38 @@ def close_resolved_entries(
 
     `resolved` when the surface is still detected but no longer reads as untracked — someone
     instrumented it, which is the one outcome this whole loop exists to produce and which had
-    no way to be recorded. `retired` when the surface is not detected at all.
+    no way to be recorded. Otherwise `retired`, split into two causes: `resplit` when the id
+    is gone but the file still offers surfaces of that (location, surface_type) — the id
+    changed shape (e.g. an added ordinal/component suffix disambiguating multiple matches per
+    file) but the surface itself is still alive; `surface_gone` when it genuinely is not.
+    Distinguishing the two here, from the same surface list the rest of the sweep already
+    scanned, means an id-scheme change never has to be paired with a one-shot migration
+    script that must run before the cron does — the result is correct regardless of run order.
 
     Applies to accepted and dismissed entries too. Nothing is deleted and no human field is
     touched: reason, first_seen and ticket_url survive, so a closed row is still the audit
     trail of what someone decided and why."""
     out = {k: dict(v) for k, v in state.items()}
+    surface_ids = {s["id"] for s in surfaces}
+    live_by_loc_type: dict[tuple[str, str], int] = {}
+    for s in surfaces:
+        key = (s.get("location", ""), s.get("surface_type", ""))
+        live_by_loc_type[key] = live_by_loc_type.get(key, 0) + 1
     closed = 0
     iso = today.isoformat()
     for gid, entry in out.items():
         if entry.get("disposition") in _CLOSED or gid in gap_ids:
             continue
-        entry["disposition"] = "resolved" if gid in surface_ids else "retired"
-        entry["resolved_cause"] = "instrumented" if gid in surface_ids else "surface_gone"
+        if gid in surface_ids:
+            disposition, cause = "resolved", "instrumented"
+        elif live_by_loc_type.get(
+            (entry.get("location", ""), entry.get("surface_type", "")), 0
+        ):
+            disposition, cause = "retired", "resplit"
+        else:
+            disposition, cause = "retired", "surface_gone"
+        entry["disposition"] = disposition
+        entry["resolved_cause"] = cause
         entry["resolved_at"] = iso
         closed += 1
     return out, closed
@@ -1026,7 +1045,7 @@ def run_sweep(
     )
     if believable:
         new_state, closed = close_resolved_entries(
-            new_state, {s["id"] for s in surfaces}, {g["id"] for g in gaps}, today
+            new_state, surfaces, {g["id"] for g in gaps}, today
         )
     else:
         closed = 0
