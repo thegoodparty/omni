@@ -38,6 +38,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 import llm_judge
+import ts_scopes
 
 class CorruptStateError(Exception):
     """The on-disk state file exists but is not a readable JSON object. Distinct from a
@@ -202,25 +203,154 @@ _DETECTOR_PATTERN: dict[str, re.Pattern[str]] = {
 _DETECTOR_SETS = {"webapp": _WEBAPP_DETECTORS, "api": _API_DETECTORS}
 
 
+# Detectors that get one candidate per match. cta is excluded deliberately: it is 74 of the
+# 110 surfaces the old file-level filter discarded and it ranks lowest in the rubric, so
+# per-match cta would add ~200 low-value candidates to every judge batch for decisions nobody
+# acts on. route has no in-file match to key on at all.
+_PER_MATCH_TYPES = frozenset(
+    {"wizard_stage", "form_submit", "api_job", "api_webhook", "api_status"}
+)
+# `onSubmit={handleThing}` and `onSubmit={(e) => ...}`
+_PROP_IDENT = re.compile(r"=\{\s*([A-Za-z_$][\w$]*)\s*\}")
+_PROP_INLINE = re.compile(r"=\{\s*(?:async\s*)?\(")
+_DECL_MAX_LINES_TO_BRACE = 2
+
+
+def _local_decl_block(code: str, ident: str, pairs) -> tuple[int, int] | None:
+    """Span of `const ident = ...` / `function ident(...)` declared in this same file, or None
+    when the name comes from props, an import or a hook."""
+    m = re.search(
+        rf"^[ \t]*(?:export\s+)?(?:const|let|function)\s+{re.escape(ident)}\b", code, re.M
+    )
+    if not m:
+        return None
+    after = [p for p in pairs if p[0] >= m.start()]
+    if not after:
+        return None
+    open_idx, close_idx = min(after, key=lambda p: p[0])
+    if code.count("\n", m.start(), open_idx) > _DECL_MAX_LINES_TO_BRACE:
+        return None
+    return (m.start(), close_idx + 1)
+
+
+def surface_scope(code: str, text: str, match_start: int, pairs):
+    """(span, name, kind) for one surface. Most specific scope first.
+
+    1. `handler` — the named handler the prop references, wherever it is declared in this file.
+    2. `inline` — the arrow written inline in the prop.
+    3. `component` — the enclosing component.
+
+    Step 1 is not an optimization, it is the whole fix. ChiefOfStaffChatBody.tsx is one
+    component spanning all 1,327 lines; it fires 8 events between lines 293 and 804 and its
+    chat submit at 1272 fires nothing. Scoped to the component the submit reads as tracked and
+    the sweep stays silent — the exact cosmetic outcome DATA-2539 warns about. Scoped to
+    `onSend` (declared at 895) it reads correctly as a gap."""
+    tail = text[match_start : match_start + 120]
+    ident = _PROP_IDENT.search(tail)
+    if ident:
+        span = _local_decl_block(code, ident.group(1), pairs)
+        if span:
+            return span, ident.group(1), "handler"
+    if _PROP_INLINE.search(tail):
+        after = [p for p in pairs if p[0] >= match_start]
+        if after:
+            open_idx, close_idx = min(after, key=lambda p: p[0])
+            outer = ts_scopes.enclosing_scope(code, match_start, pairs)
+            name = ts_scopes.scope_name(code, outer[0]) if outer else None
+            return (open_idx, close_idx + 1), name, "inline"
+    span = ts_scopes.enclosing_scope(code, match_start, pairs)
+    if span:
+        return span, ts_scopes.scope_name(code, span[0]), "component"
+    return None, None, "none"
+
+
+def _in_type_declaration(code: str, pos: int, pairs) -> bool:
+    """True when the match sits inside an interface/type/enum body rather than code. Drops
+    `currentStep?: string` without dropping the components that reference currentStep."""
+    span = ts_scopes.enclosing_scope(code, pos, pairs, decisive=False)
+    return span is not None and ts_scopes.scope_kind(code, span[0]) == "type"
+
+
+def surface_id(
+    rel_path: str, surface_type: str, text: str, match_start: int, match_count: int,
+    scope_name: str | None,
+) -> str:
+    """A single match keeps the historic `path#type` id, named scope or not — nothing needs
+    disambiguating, and this is what lets existing state entries in single-match files survive
+    with their human rulings. Appending the scope name unconditionally would rename every
+    entry and discard all 38 rulings instead of 21."""
+    if match_count == 1:
+        return f"{rel_path}#{surface_type}"
+    if scope_name:
+        return f"{rel_path}#{surface_type}#{scope_name}"
+    return f"{rel_path}#{surface_type}#L{text.count(chr(10), 0, match_start) + 1}"
+
+
 def detect_surfaces_in_file(rel_path: str, text: str, detector_set: str) -> list[dict]:
     """Run one detector set over a file's text. The caller resolves which set from the scan
-    root the file came from — a path prefix cannot, now that roots are configurable. One
-    surface per matched detector type (not per match) — the coarse unit here is 'this file
-    has a wizard', which the judgment pass later refines. In-file surfaces have no URL, so
-    they key on path#surface_type (the spec's path-plus-symbol fallback)."""
+    root the file came from — a path prefix cannot, now that roots are configurable.
+
+    Per-match types (_PER_MATCH_TYPES) get one candidate per match, each scoped to its own
+    handler/inline/component span so a file that tracks some things doesn't hide an untracked
+    one (DATA-2539). Other types (cta, and anything outside _PER_MATCH_TYPES) keep the old
+    coarse per-file unit — 'this file has buttons' — which the judgment pass refines."""
     detectors = _DETECTOR_SETS.get(detector_set)
     if not detectors:
         return []
+    code = ts_scopes.blank_noncode(text)
+    pairs = ts_scopes.brace_pairs(code)
     out: list[dict] = []
     for surface_type, pattern in detectors:
-        if pattern.search(text):
-            out.append(
-                {
-                    "id": f"{rel_path}#{surface_type}",
-                    "surface_type": surface_type,
-                    "location": rel_path,
-                }
+        matches = list(pattern.finditer(text))
+        if surface_type == "wizard_stage":
+            matches = [m for m in matches if not _in_type_declaration(code, m.start(), pairs)]
+        if not matches:
+            continue
+        if surface_type not in _PER_MATCH_TYPES:
+            # Coarse unit: "this file has buttons". The judge refines it.
+            out.append({
+                "id": f"{rel_path}#{surface_type}",
+                "surface_type": surface_type,
+                "location": rel_path,
+                "match_start": matches[0].start(),
+                "scope": None,
+            })
+            continue
+        seen: set[str] = set()
+        for m in matches:
+            span, name, scope_kind = surface_scope(code, text, m.start(), pairs)
+            # Fail toward noise: an unresolved scope yields a candidate the judge can rule on.
+            # A line-window fallback would read a neighbour's trackEvent and silently drop a
+            # real gap, which is the failure this ticket exists to remove.
+            has_tracking = span is not None and (
+                _TRACKING_RE.search(text[span[0] : span[1]]) is not None
             )
+            # The id names the surface's enclosing COMPONENT, never the handler identifier —
+            # two untracked submits in the same component (e.g. `onSend` and `onSave`, each
+            # its own named handler) must still collide down to a line key rather than mint
+            # two same-looking-but-different ids from handler names a reviewer never sees in
+            # the digest. Only the handler branch needs recomputing: inline/component already
+            # name the enclosing scope.
+            if scope_kind == "handler":
+                outer = ts_scopes.enclosing_scope(code, m.start(), pairs)
+                id_name = ts_scopes.scope_name(code, outer[0]) if outer else None
+            else:
+                id_name = name
+            gid = surface_id(rel_path, surface_type, text, m.start(), len(matches), id_name)
+            if gid in seen:
+                # Two matches resolving to one scope. Fall to the line key rather than
+                # silently dropping the second surface.
+                gid = f"{rel_path}#{surface_type}#L{text.count(chr(10), 0, m.start()) + 1}"
+            seen.add(gid)
+            out.append({
+                "id": gid,
+                "surface_type": surface_type,
+                "location": rel_path,
+                "match_start": m.start(),
+                "has_tracking": has_tracking,
+                "scope": span,
+                "scope_kind": scope_kind,
+            })
     return out
 
 
@@ -241,6 +371,23 @@ def extract_context(
     return "\n".join(lines[:max_lines]).strip("\n")
 
 
+def extract_context_at(
+    text: str, match_start: int, scope: tuple[int, int] | None = None, max_lines: int = 40
+) -> str:
+    """A bounded snippet centered on one surface, preferring its resolved scope when that
+    fits. The old windowing centered on the file's *first* match of the detector pattern,
+    which for a per-match candidate is a different surface entirely — the judge was ruling on
+    code it could not see."""
+    if scope is not None:
+        block = text[scope[0] : scope[1]]
+        if block.count("\n") < max_lines:
+            return block.strip("\n")
+    lines = text.splitlines()
+    hit = text.count("\n", 0, match_start)
+    start = max(0, hit - max_lines // 2)
+    return "\n".join(lines[start : start + max_lines]).strip("\n")
+
+
 # --- call-site diff -----------------------------------------------------------
 
 _TRACKING_RE = re.compile(r"\btrackEvent\s*\(|\bAnalyticsService\b|\.track\(")
@@ -252,8 +399,19 @@ def has_tracking_call(text: str) -> bool:
 
 
 def find_gaps(surfaces: Sequence[dict], files_with_tracking: set[str]) -> list[dict]:
-    """A candidate surface whose file fires no event is a candidate gap (file-level, Phase 1)."""
-    return [s for s in surfaces if s["location"] not in files_with_tracking]
+    """A candidate surface with no tracking call in its own scope is a candidate gap.
+
+    Per-match surfaces carry a scope-level `has_tracking` decided at detection time. cta and
+    route have no handler to scope to and fall back to the file-level set, which is the old
+    behavior for exactly the two types where it is still the right question."""
+    out: list[dict] = []
+    for s in surfaces:
+        if "has_tracking" in s:
+            if not s["has_tracking"]:
+                out.append(s)
+        elif s["location"] not in files_with_tracking:
+            out.append(s)
+    return out
 
 
 # --- ranking (heuristic; replaced/augmented by the LLM judge in Phase 2) ------
@@ -691,8 +849,10 @@ def scan_repo(
             if rel.endswith("/page.tsx"):
                 page_texts[rel] = text
             for surface in detect_surfaces_in_file(rel, text, root["detectors"]):
-                pat = _DETECTOR_PATTERN.get(surface["surface_type"])
-                surface["snippet"] = extract_context(text, pat)
+                surface["snippet"] = extract_context_at(
+                    text, surface["match_start"], surface.get("scope")
+                )
+                surface.pop("scope", None)  # offsets are per-file; never persisted to state
                 surfaces.append(surface)
     routes = enumerate_route_surfaces(list(page_texts), exclude_globs)
     for r in routes:

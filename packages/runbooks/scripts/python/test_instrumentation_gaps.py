@@ -1326,3 +1326,115 @@ def test_scan_repo_walks_a_configured_third_root(tmp_path):
         scan_roots=[{"path": "packages/election-api/src", "detectors": "api"}],
     )
     assert any(s["location"] == "packages/election-api/src/jobs/sender.ts" for s in surfaces)
+
+
+# --- per-surface detection + scoping (DATA-2539 task 4) -----------------------
+
+_TWO_FORMS = """\
+import { trackEvent } from 'helpers/analyticsHelper'
+
+const Tracked = () => {
+  const onSave = () => { trackEvent('Saved', {}) }
+  return <form onSubmit={onSave} />
+}
+
+const Untracked = () => {
+  const onSend = () => { void send() }
+  return <form onSubmit={onSend} />
+}
+"""
+
+
+def test_partly_instrumented_file_yields_exactly_one_gap():
+    surfaces = ig.detect_surfaces_in_file("packages/gp-webapp/app/x/F.tsx", _TWO_FORMS, "webapp")
+    forms = [s for s in surfaces if s["surface_type"] == "form_submit"]
+    assert len(forms) == 2
+    gaps = ig.find_gaps(surfaces, files_with_tracking={"packages/gp-webapp/app/x/F.tsx"})
+    gap_ids = {g["id"] for g in gaps if g["surface_type"] == "form_submit"}
+    assert gap_ids == {"packages/gp-webapp/app/x/F.tsx#form_submit#Untracked"}
+
+
+def test_single_match_keeps_the_historic_id():
+    # The 17 existing single-match state entries must survive untouched.
+    text = "const Only = () => <form onSubmit={onSend} />\n"
+    surfaces = ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+    assert surfaces[0]["id"] == "a/B.tsx#form_submit"
+
+
+def test_cta_stays_one_surface_per_file():
+    text = (
+        "const P = () => (<div>"
+        "<Button onClick={a}>A</Button>"
+        "<Button onClick={b}>B</Button>"
+        "</div>)\n"
+    )
+    ctas = [s for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+            if s["surface_type"] == "cta"]
+    assert len(ctas) == 1
+    assert ctas[0]["id"] == "a/B.tsx#cta"
+
+
+def test_two_matches_in_one_symbol_do_not_collide():
+    # Review Focus 2: same enclosing symbol, so the second must fall to a line-keyed id
+    # rather than overwriting the first.
+    text = (
+        "const Both = () => {\n"
+        "  return (<div>\n"
+        "    <form onSubmit={a} />\n"
+        "    <form onSubmit={b} />\n"
+        "  </div>)\n"
+        "}\n"
+    )
+    ids = [s["id"] for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+           if s["surface_type"] == "form_submit"]
+    assert len(ids) == len(set(ids)) == 2
+    assert "a/B.tsx#form_submit#Both" in ids
+    assert any(i.startswith("a/B.tsx#form_submit#L") for i in ids)
+
+
+def test_handler_declared_far_from_the_jsx_is_the_scope():
+    # The regression that decides DATA-2539. A component that fires unrelated events must not
+    # mask an untracked submit whose handler is declared elsewhere in the same component.
+    text = (
+        "const Body = () => {\n"
+        "  useEffect(() => { trackEvent('Peripheral', {}) }, [])\n"
+        + "  // filler\n" * 30
+        + "  const onSend = useCallback(() => {\n"
+        "    void send()\n"
+        "  }, [])\n"
+        + "  // filler\n" * 30
+        + "  return <form onSubmit={onSend} />\n"
+        "}\n"
+    )
+    surfaces = ig.detect_surfaces_in_file("a/Body.tsx", text, "webapp")
+    form = next(s for s in surfaces if s["surface_type"] == "form_submit")
+    assert form["scope_kind"] == "handler"
+    assert form["has_tracking"] is False, "scoped to the component, not the handler"
+
+
+def test_wizard_match_inside_a_type_declaration_is_dropped():
+    text = (
+        "interface Props {\n  currentStep?: string\n}\n"
+        "const C = () => { const x = currentStep; return null }\n"
+    )
+    wiz = [s for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+           if s["surface_type"] == "wizard_stage"]
+    assert len(wiz) == 1, "the props-type occurrence must not become its own candidate"
+
+
+def test_surface_ids_are_safe_for_the_digest_table():
+    # Review Focus 4: an id reaches a committed markdown table via _md_cell.
+    surfaces = ig.detect_surfaces_in_file("a/B.tsx", _TWO_FORMS, "webapp")
+    assert all("|" not in s["id"] and "\n" not in s["id"] for s in surfaces)
+
+
+def test_snippet_windows_on_the_surfaces_own_match(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "F.tsx").write_text(_TWO_FORMS)
+    surfaces, _ = ig.scan_repo(
+        tmp_path, exclude_globs=[],
+        scan_roots=[{"path": "packages/gp-webapp", "detectors": "webapp"}],
+    )
+    untracked = next(s for s in surfaces if s["id"].endswith("#form_submit#Untracked"))
+    assert "onSend" in untracked["snippet"]
