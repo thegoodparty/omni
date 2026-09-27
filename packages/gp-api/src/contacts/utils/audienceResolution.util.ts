@@ -24,9 +24,16 @@ import {
 // it (or any other per-caller row requirement) has to pass it as isEligible.
 // P2pPhoneListUploadService.hasGeoTargetableAddress is the worked example.
 //
-// Three circuit breakers guard this loop. They stop three different things
-// and none of them substitutes for another, so read them together:
+// Three circuit breakers guard this loop, plus a pre-flight that fires before
+// it starts. They stop four different things and none of them substitutes for
+// another, so read them together:
 //
+//   - the PRE-FLIGHT bounds the wall clock. A filter whose matched count
+//     already exceeds maxRecipients cannot be resolved inside the gateway's
+//     ~120s idle timeout, so it is refused on page 1 rather than discovered
+//     ~219s in, after the client has already been disconnected. This is the
+//     only guard whose reason is the caller's deadline rather than the
+//     audience's shape.
 //   - the CAP bounds the output. Too many recipients for one send.
 //   - the STALL guard bounds repetition. Consecutive full pages in which
 //     people-api handed back no phone number this resolution had not already
@@ -155,16 +162,49 @@ export async function* resolveFilterAudience(
         `Pagination exceeded ${maxPages} pages — aborting`,
       )
     }
-    const { people } = await contactsService.findContactsForFilter(
+    const { people, pagination } = await contactsService.findContactsForFilter(
       // SMS reachability belongs to the channel, not the shared filter
       // resolution — force it here regardless of what the request asked.
       { ...filterInput, hasCellPhone: true },
       // Page off the rows returned, never a count: the count no longer
       // bounds the audience, and skipCount avoids a full-scan COUNT per page.
-      { resultsPerPage: pageSize, page, skipCount: true },
+      //
+      // Page 1 is the exception, and it is nearly free. The count is asked for
+      // on a page that is fetched anyway, and the Databricks path runs the
+      // COUNT in PARALLEL with the page query, so this adds no round trip and
+      // at worst the amount by which the COUNT outlasts the page fetch (both
+      // are low single-digit seconds in prod). Every later page keeps
+      // skipCount, so it is one COUNT per resolution, not one per page.
+      { resultsPerPage: pageSize, page, skipCount: page > 1 },
       organization,
       excludePersonIds,
     )
+
+    // THE CAP, CHECKED BEFORE THE WORK INSTEAD OF DURING IT.
+    //
+    // The in-loop cap below is correct but unreachable: it can only throw once
+    // maxRecipients recipients have been resolved, which at the phone-list
+    // defaults means page 101. Measured in prod at ~2.17s/page that is ~219s,
+    // and the gateway gives up at ~120s — so an over-cap filter was killed in
+    // flight at 120s (logging `statusCode: null`, which is what pages us) and
+    // the handler then spent another ~99s paging toward a 400 no client was
+    // still there to receive. Ten of those in the 30 days to 2026-09-27.
+    //
+    // totalResults is an UPPER BOUND on the resolved count: every later step
+    // (the missing-phone skip, isEligible, the phone dedupe) only ever removes
+    // people. So `totalResults > maxRecipients` does not prove the resolution
+    // would have tripped the cap — but it does prove it must read more than
+    // maxRecipients/pageSize pages before it could finish either way, which at
+    // any observed page latency is past the gateway's patience. Nothing that
+    // completes today is refused here; what changes is that the answer arrives
+    // in about a second instead of never.
+    if (page === 1 && pagination.totalResults > maxRecipients) {
+      throw new BadRequestException(
+        limitExceededMessage ??
+          `This filter matches over the ${maxRecipients} recipient ` +
+            `limit — narrow the filter and try again.`,
+      )
+    }
 
     // Measured before the eligibility gate and off the phone rather than the
     // recipient, because this asks what people-api returned, not what this

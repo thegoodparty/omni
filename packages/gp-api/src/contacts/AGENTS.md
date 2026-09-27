@@ -607,6 +607,38 @@ which was ambiguous whenever two people shared a captured phone. The skipped
 count is persisted on `PeerlyPhoneList.excludedDuplicatePhoneCount`, alongside
 `excludedOptedOutCount`, for the same ENG-10808 UI to surface.
 
+**The audience cap is checked BEFORE the resolution, not during it.**
+`resolveFilterAudience` asks for the matched count on page 1 only (`skipCount:
+page > 1`) and refuses a filter whose count already exceeds `maxRecipients`.
+The in-loop cap it backs up is correct but was unreachable in production: it
+can only throw once `maxRecipients` recipients have been resolved, i.e. page
+101 at the phone-list defaults, which at the ~2.17s/page measured in prod is
+~219s — and the gateway gives up at ~120s. So an over-cap `POST
+/v1/p2p/phone-list` was killed in flight at 120s (logging `statusCode: null`,
+which is what pages the `p2p-route-errors` rule), and the handler then spent
+another ~99s paging toward a 400 no client was still connected to receive. Ten
+of those in the 30 days to 2026-09-27.
+
+Two things to know before touching it:
+
+- **The count is an upper bound, so the refusal is slightly over-eager.**
+  Every later step (missing-phone skip, `isEligible`, phone dedupe) only
+  removes people, so a matched count over the cap does not prove the
+  resolution would have tripped it — a dedupe-heavy list matching 110,500 rows
+  can resolve 99,500 recipients. That list is refused now. It also could not
+  be served before: 111 pages is ~241s. The honest fix for the band between
+  "resolves under the cap" and "cannot resolve inside 120s" is to take the
+  build off the request path; until then a fast refusal beats a silent hang.
+- **The COUNT is nearly free, and only because it is parallel.** The Databricks
+  path runs the count and the page query in `Promise.all`
+  (`databricksVoter.service.ts`), so page 1 costs no extra round trip. Moving
+  the check to its own call, or asking for the count on every page, would
+  reintroduce the per-page COUNT `skipCount` exists to avoid.
+
+`outreachServeSmsCreate.service.ts` drives the same resolver on a request path
+and gets the same guard for free. `outreachTextDelivery.service.ts` is
+SQS-driven, so the gateway deadline never applied to it.
+
 ### Write-back (collect-forward)
 
 Two `@Cron` sweeps in `src/outreach/services/` (scheduled fetch — Peerly
