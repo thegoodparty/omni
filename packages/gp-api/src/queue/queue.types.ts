@@ -15,6 +15,7 @@ export enum QueueType {
   AGENTIC_COMPLIANCE_KICKOFF = 'agenticComplianceKickoff',
   OCR_ATTACHMENT = 'ocrAttachment',
   NIGHTLY_10DLC_REPORT = 'nightly10DlcReport',
+  PEERLY_VENDOR_ESCALATION = 'peerlyVendorEscalation',
   CV_STATUS_POLL = 'cvStatusPoll',
   ORDINANCE_QUALITY_LOOP = 'ordinanceQualityLoop',
   EXTRACT_CHAT_ATTACHMENT = 'extractChatAttachment',
@@ -67,6 +68,10 @@ export type QueueMessage =
   | {
       type: QueueType.NIGHTLY_10DLC_REPORT
       data: Nightly10DlcReportMessage
+    }
+  | {
+      type: QueueType.PEERLY_VENDOR_ESCALATION
+      data: PeerlyVendorEscalationMessage
     }
   | {
       type: QueueType.CV_STATUS_POLL
@@ -204,6 +209,7 @@ export enum MessageGroup {
   weeklyTasksDigest = 'weeklyTasksDigest',
   agenticComplianceKickoff = 'agenticComplianceKickoff',
   nightly10DlcReport = 'nightly10DlcReport',
+  peerlyVendorEscalation = 'peerlyVendorEscalation',
   cvStatusPoll = 'cvStatusPoll',
   extractChatAttachment = 'extractChatAttachment',
 }
@@ -254,6 +260,13 @@ export const Nightly10DlcReportMessageSchema = z.object({
 })
 export type Nightly10DlcReportMessage = z.infer<
   typeof Nightly10DlcReportMessageSchema
+>
+
+export const PeerlyVendorEscalationMessageSchema = z.object({
+  escalationDate: z.string().regex(ISO_DATE_ONLY_RE),
+})
+export type PeerlyVendorEscalationMessage = z.infer<
+  typeof PeerlyVendorEscalationMessageSchema
 >
 
 // scanKey is the ET date-hour slot the cron fired in (also the FIFO
