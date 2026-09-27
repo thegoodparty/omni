@@ -1133,4 +1133,75 @@ export const GLOBAL_ALERTS: Alert[] = [
       'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout rather than the handler, and points at how long the query takes rather than at what it returned.',
     ].join('\n\n'),
   },
+  {
+    slug: 'win-callhub-account-out-of-credits',
+    name: '[Win] CallHub account out of credits',
+    type: 'log',
+    // THE ONLY RULE HERE THAT NAMES THE VENDOR'S BALANCE. Everything else in
+    // the robocall estate measures a consequence of it, which means the first
+    // notification of an empty CallHub account is always a candidate who has
+    // already failed.
+    //
+    // That is what happened on 2026-09-27. Credits ran out and the estate did
+    // page, in the right order and with correct wording — the generated
+    // `outreach-route-errors` rule at 20:05Z for 8 × 502 on POST
+    // /v1/outreach/robocall/number (two candidates unable to rent a caller-ID
+    // number), then `win-robocall-critical` at 21:09Z when the send sweep's
+    // launch PUT for outreach 83797 was rejected `{"detail":"low_credit"}` and
+    // the run was terminated send_failed with its Stripe hold voided. Both are
+    // true positives. Both are lagging: by the time either fired, the balance
+    // had been at zero for over an hour and the damage — a robocall that never
+    // dialed — was already taken.
+    //
+    // Neither names the cause, either, which is the other half of the cost. A
+    // 502 on a number rental and a voided hold are two unrelated-looking pages,
+    // and reading `low_credit` out of the vendor body underneath them took a
+    // Loki session across two services. This rule says it in the title.
+    //
+    // WHY A LOG RULE AND NOT A BALANCE CHECK. The honest fix is polling
+    // CallHub's balance and alerting on a threshold, which would fire BEFORE
+    // the first failure instead of on it. gp-api has no client for that today
+    // (see the instrumentation note in the 2026-09-27 post-mortem), so this
+    // rule buys the naming and the single-page consolidation now, and is
+    // strictly better than three teams deriving `low_credit` by hand. It is
+    // still reactive: it fires on the first refusal, not on the approach.
+    //
+    // Matches the VENDOR'S OWN strings, which is a real fragility — CallHub can
+    // reword them and silently unhook this rule, and nothing in gp-api
+    // normalises them into an error code we control. `global-alerts.test.ts`
+    // pins both spellings so a reword fails the suite rather than the page. The
+    // two surfaces log different shapes and neither is a superset of the other:
+    //   - campaign launch/START  → `{"detail":"low_credit"}` (CallhubCampaignService)
+    //   - number rental          → `{"data":{"error":"Error: You do not have
+    //     enough credits to buy this number..."}}` (CallhubNumbersService)
+    // so the regex carries both rather than a shared substring, of which there
+    // is none. Anchored on the `CallHub API error` line the shared
+    // error-handling wrapper writes, so a new credit-refusing surface is
+    // covered the moment it goes through that wrapper.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Cheap line filter before | json, as every sibling log alert does.
+      '|= "CallHub API error"',
+      '|~ "low_credit|enough credits to buy this number"',
+      '[1h]))',
+    ].join(' '),
+    threshold: 0,
+    // A [1h] vector needs a matching fetch window or the engine sees the
+    // default ten minutes; credit refusals are low-frequency and a run that
+    // fails once an hour must still page. 3600/60 = a reread factor of 60,
+    // inside MAX_REREAD_FACTOR — the line filter above keeps the scan cheap,
+    // though per § Query cost it is the window and selector that bill.
+    timeRangeSeconds: 3600,
+    // No grace period. An empty balance is not a spike that self-corrects, and
+    // every minute of it is a candidate's robocall not going out.
+    for: '0m',
+    message: [
+      'CallHub rejected a request because **our CallHub account is out of credits** — not a bug in gp-api, and not self-healing. Someone with CallHub billing access has to top the account up.',
+      "While the balance is zero, every robocall surface fails: candidates cannot rent a caller-ID number (`POST /v1/outreach/robocall/number` → 502), and any send whose scheduled window arrives is terminated `send_failed` with its Stripe hold voided — the run does not retry later, so the candidate's robocall simply never goes out.",
+      'Money is safe in that path by construction: a `low_credit` rejection is a definitive 4xx, so reconcile confirms the broadcast never STARTED before voiding, and no calls are ever charged for. Check the *named outreachId* on any `CRITICAL robocall send_failed` line that fired alongside this — those candidates need telling their send did not happen.',
+      'Click *View in Grafana* for the refusals. `{"detail":"low_credit"}` is the campaign launch path; `"...enough credits to buy this number"` is number rental. Both mean the same thing.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
 ]

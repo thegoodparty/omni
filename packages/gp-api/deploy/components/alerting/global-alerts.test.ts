@@ -564,3 +564,75 @@ describe('alert-notification-delivery-failing', () => {
     expect(alert.knownCauses).toBeUndefined()
   })
 })
+
+describe('win-callhub-account-out-of-credits', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'win-callhub-account-out-of-credits',
+  )!
+
+  // Verbatim from what CallHub actually returned in prod on 2026-09-27, as
+  // logged by CallhubErrorHandlingService::handleApiError. These are the
+  // VENDOR'S strings, not ours — nothing in gp-api normalises a credit refusal
+  // into an error code we own, so the rule matches the upstream wording and
+  // this test is the only thing that notices when CallHub rewords it and
+  // silently unhooks the alert. The two surfaces log genuinely different
+  // shapes with no shared substring, which is why the regex carries both.
+  const LAUNCH_REFUSAL = 'low_credit'
+  const RENTAL_REFUSAL = 'enough credits to buy this number'
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('matches the campaign-launch refusal', () => {
+    expect(alert.expr).toContain(LAUNCH_REFUSAL)
+  })
+
+  // The rental refusal is the one that hit real candidates first on
+  // 2026-09-27 (8 x 502 across two of them, an hour before the send failed),
+  // and it shares no substring with the launch refusal — matching only
+  // `low_credit` would miss it entirely.
+  it('matches the number-rental refusal', () => {
+    expect(alert.expr).toContain(RENTAL_REFUSAL)
+  })
+
+  // Both live in the same alternation, anchored on the shared wrapper's line,
+  // so a third credit-refusing surface is covered as soon as it goes through
+  // handleApiError.
+  it('anchors on the shared error-handling line', () => {
+    expect(alert.expr).toContain('CallHub API error')
+  })
+
+  it('keeps every range vector inside the window the engine fetches', () => {
+    const fetched = alert.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+    expect(widestRangeSeconds(alert.expr)).toBeLessThanOrEqual(fetched)
+  })
+
+  it('stays inside the reread ceiling', () => {
+    expect(rereadFactor(alert)).toBeLessThanOrEqual(MAX_REREAD_FACTOR)
+  })
+
+  // An empty vendor balance does not self-correct, so there is nothing for a
+  // grace period to wait out — every minute of it is a robocall not going out.
+  it('fires on the first refusal, with no grace period', () => {
+    expect(alert.for).toBe('0m')
+    expect(alert.threshold).toBe(0)
+  })
+
+  it('pages the team that owns robocalls', () => {
+    expect(alert.notify).toBe('win-bugs')
+  })
+
+  // The whole point of the rule is that the two alerts that DID fire named a
+  // symptom and not the cause. If this one does not say "top the account up"
+  // it has not improved on them.
+  it('names the remediation, which is not a code change', () => {
+    expect(alert.message.toLowerCase()).toContain('out of credits')
+    expect(alert.message.toLowerCase()).toContain('top the account up')
+  })
+
+  // A responder who reads "hold voided" must not go hunting for a refund bug.
+  it('tells the reader the voided-hold path is money-safe', () => {
+    expect(alert.message).toContain('never STARTED')
+  })
+})
