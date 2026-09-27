@@ -481,6 +481,58 @@ export const GLOBAL_ALERTS: Alert[] = [
     notify: 'win-bugs',
   },
   {
+    slug: 'win-callhub-number-rental-out-of-credits',
+    name: '[Win] CallHub account is out of credits',
+    type: 'log',
+    // CallHub is prepaid, and a dry balance is not a gp-api failure — it is an
+    // account condition that stops every robocall in the product at once. It
+    // arrives as HTTP 400 on POST /v1/numbers/rent/ with
+    // `{"data":{"error":"Error: You do not have enough credits to buy this
+    // number..."}}`. callhubErrorHandling maps any non-recoverable CallHub 4xx
+    // to CallhubPermanentError (a 502 to the candidate), so the ONLY thing that
+    // reached a human before this rule was the generated [outreach] route-error
+    // alert — which names a route and a status and cannot say which of CallHub's
+    // several 400s happened. On 2026-09-27 that cost a Loki session to learn the
+    // 502s were a billing balance; on 2026-09-09 the same condition hit a
+    // different candidate, was topped up, and was never written down.
+    //
+    // Matched on the vendor's own message rather than on the 502, because the
+    // status cannot distinguish this from the prefix-inventory 400 that
+    // rentNumber already retries past. Narrow literal, no parser: the bytes are
+    // billed by selector and window, and nothing here needs a field.
+    //
+    // THIS IS DETECTION, NOT A BUDGET ALERT, and it is worth being honest about
+    // the difference. Geoapify's tiers warn at 60% of a known pool; this cannot,
+    // because no CallHub balance is readable from gp-api — the client calls
+    // /v1/numbers/rent/ and nothing else that reports credit. So it necessarily
+    // fires on the first candidate who is already broken. Reading
+    // POST /v2/credits_usage/ (see callhubCampaignReport.schema.ts) would allow
+    // a real ahead-of-time tier; until someone adds that vendor call, first
+    // failure is the earliest signal that exists, and it beats a candidate
+    // filing a support ticket.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "enough credits to buy this number"',
+      '[1h]))',
+    ].join(' '),
+    threshold: 0,
+    // One is enough: the balance does not recover on its own, so a second
+    // occurrence is just a second candidate meeting the same wall.
+    for: '5m',
+    // A rare event on a [1h] vector; the default 600s fetch would see ten
+    // minutes and miss it (same reason as win-robocall-critical above). 60
+    // re-reads/day, well inside MAX_REREAD_FACTOR.
+    timeRangeSeconds: 3600,
+    message: [
+      'CallHub refused a robocall caller-ID number rental for lack of account credits in the last 60 minutes. This is a *prepaid vendor balance*, not a gp-api bug, and it is *account-wide*: until someone adds credits, every candidate who reaches the robocall compose step gets a 502 from `POST /v1/outreach/robocall/number`.',
+      'Fix it in CallHub billing by topping up the account — no deploy or code change will help. Then confirm recovery with a real rental: a *201 alone is not proof*, because a free-tier campaign that already holds a number is handed it back without renting. Recovery is a 201 whose request also logged no CallHub error.',
+      'Click *View in Grafana* for the refusals. `sum by (user) (count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "enough credits to buy this number" | json [24h]))` gives the affected candidates. Expect the generated `[outreach] Route errors detected` alert for `POST /v1/outreach/robocall/number` alongside this one — same cause, and this rule is the one that names it.',
+      'If this fires repeatedly, auto-recharge on the CallHub account is off or failing; that is the durable fix, not a bigger manual top-up.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'log',

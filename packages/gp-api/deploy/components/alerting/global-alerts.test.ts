@@ -313,6 +313,82 @@ describe('evaluation intervals', () => {
   })
 })
 
+describe('win-callhub-number-rental-out-of-credits', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'win-callhub-number-rental-out-of-credits',
+  )
+
+  // Verbatim from CallHub's own 400 body, as logged by
+  // callhubErrorHandling.service.ts. Mirrored rather than imported because
+  // deploy/ does not compile against src/ — and because the string belongs to
+  // the vendor, not to us. This is the test that notices if CallHub rewords it
+  // and silently unhooks the rule from the only condition it detects.
+  const OUT_OF_CREDITS_LINE =
+    'CallHub API error: {"data":{"error":"Error: You do not have enough credits to buy this number. Please <a href=\\"/billing/\\" class=\\"open-recharge-modal\\">add credits</a> to your account now."}}'
+
+  // The other 400 the same endpoint returns. rentNumber already retries past
+  // it without a prefix, so it is not an account condition and must not page.
+  const NO_INVENTORY_LINE =
+    'CallHub API error: {"data":{"error":"We are currently unable to offer your requested numbers"}}'
+
+  /** The `|= "..."` filter, as the matcher Loki would apply. */
+  const matchesExpr = (line: string) => {
+    const [, literal] = /\|= "([^"]+)"/.exec(alert!.expr) ?? []
+    if (!literal) throw new Error(`no line filter in: ${alert!.expr}`)
+    return line.includes(literal)
+  }
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('keeps every range vector inside the window the engine fetches', () => {
+    const fetched = alert!.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+    expect(widestRangeSeconds(alert!.expr)).toBeLessThanOrEqual(fetched)
+  })
+
+  it('promises the reader the window it actually queried', () => {
+    expect(promisedSeconds(alert!.message)).toEqual(
+      widestRangeSeconds(alert!.expr),
+    )
+  })
+
+  it('fires on the credit refusal', () => {
+    expect(matchesExpr(OUT_OF_CREDITS_LINE)).toBe(true)
+  })
+
+  // The distinction the HTTP status cannot make: both are 400s mapped to the
+  // same 502, and only one of them means the account is empty. Matching the
+  // inventory 400 too would page on a rental that went on to succeed.
+  it('ignores the prefix-inventory 400 that rentNumber retries past', () => {
+    expect(matchesExpr(NO_INVENTORY_LINE)).toBe(false)
+  })
+
+  // A balance does not refill itself, so one refusal is the whole signal. A
+  // threshold above 0 would mean waiting for a second candidate to be broken.
+  it('fires on a single refusal', () => {
+    expect(alert!.threshold).toBe(0)
+  })
+
+  // Says what to do somewhere other than a deploy, because no code change can
+  // fix an empty prepaid balance.
+  it('sends the reader to CallHub billing rather than to the code', () => {
+    expect(alert!.message).toMatch(/billing/i)
+  })
+
+  // The 201-is-not-proof warning. A free-tier campaign holding a number is
+  // handed it back without a rental, so a success can be read as recovery
+  // while the balance is still dry — which is exactly how this was nearly
+  // called resolved on 2026-09-27.
+  it('warns that a 201 alone does not prove recovery', () => {
+    expect(alert!.message).toMatch(/201/)
+  })
+
+  it('pages the team that owns robocalls', () => {
+    expect(alert!.notify).toEqual('win-bugs')
+  })
+})
+
 describe('geoapify daily budget tiers', () => {
   const tiers = GLOBAL_ALERTS.filter((a) =>
     a.slug.startsWith('geoapify-daily-budget-'),
