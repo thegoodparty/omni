@@ -454,4 +454,15 @@ export interface PeerlyApiErrorContext {
   // Background sweeps poll Peerly with no human waiting; a transient failure
   // there should log + throw but not page the 10DLC Slack channel.
   suppressSlackAlert?: boolean
+  // This failure is an expected outcome of the flow rather than a fault: the
+  // vendor declined the request on its own terms and whoever triggered it
+  // already sees the refusal in the response. Logs the `Peerly API ERROR`
+  // line at `warn` instead of `error`.
+  //
+  // DISTINCT FROM suppressSlackAlert, which every background sweep sets on a
+  // genuinely transient failure it does not want to page for. That failure is
+  // still a fault and still belongs at `error`; this one is not a fault at
+  // all. Coupling the two would downgrade every swept transport error and
+  // blind `win-peerly-warnings` to the vendor actually being down.
+  expectedRejection?: boolean
 }

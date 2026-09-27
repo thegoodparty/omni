@@ -912,6 +912,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       return cvVerificationStatus === CampaignVerificationStatus.VERIFIED
     } catch (e) {
       if (isAxiosError(e) && e.status === 400) {
+        // A nested 4xx is CampaignVerify declining the code itself — wrong or
+        // expired PIN — which is an expected outcome of the flow, not a fault.
+        // The candidate sees it as the 422 below. A nested 5xx means CV is
+        // down, so that keeps both the Slack page and the error-level line.
+        const expected = isPeerlyCvPinRejection(e)
         this.logger.warn(
           format(e),
           'Peerly API returned 400 Bad Request when verifying CV PIN. This is likely due to an invalid PIN. ',
@@ -921,7 +926,8 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           campaign,
           peerlyIdentityId,
           httpExceptionClass: UnprocessableEntityException,
-          suppressSlackAlert: isPeerlyCvPinRejection(e),
+          suppressSlackAlert: expected,
+          expectedRejection: expected,
         })
       } else {
         return await this.handleApiError(e, { campaign, peerlyIdentityId })
@@ -941,10 +947,14 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         `/v2/tdlc/${peerlyIdentityId}/resend_pin`,
       )
     } catch (e) {
+      // CV refuses a resend within 10 days of mailing a PIN. That refusal is
+      // the flow working as designed, so it neither pages nor logs at error.
+      const expected = isPeerlyCvPinRejection(e)
       await this.handleApiError(e, {
         campaign,
         peerlyIdentityId,
-        suppressSlackAlert: isPeerlyCvPinRejection(e),
+        suppressSlackAlert: expected,
+        expectedRejection: expected,
       })
     }
   }
