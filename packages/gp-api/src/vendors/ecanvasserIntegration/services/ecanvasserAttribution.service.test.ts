@@ -118,7 +118,13 @@ describe('EcanvasserAttributionService', () => {
     )
 
     expect(first).toEqual({ matched: 1, skipped: 0, deferred: 0 })
-    expect(lookup).toHaveBeenCalledWith('5551234567', expect.anything())
+    // Three arguments now: attribution resolves pro access once per call and
+    // passes it in, rather than letting each lookup re-derive it.
+    expect(lookup).toHaveBeenCalledWith(
+      '5551234567',
+      expect.anything(),
+      expect.any(Boolean),
+    )
 
     const rows = await service.prisma.voterOutreachActivity.findMany({
       where: { campaignId },
@@ -346,7 +352,11 @@ describe('EcanvasserAttributionService', () => {
     )
 
     expect(result).toEqual({ matched: 1, skipped: 0, deferred: 0 })
-    expect(lookup).toHaveBeenCalledWith('5557778888', expect.anything())
+    expect(lookup).toHaveBeenCalledWith(
+      '5557778888',
+      expect.anything(),
+      expect.any(Boolean),
+    )
   })
 
   // Rows built in memory rather than seeded: these cases care about how many
