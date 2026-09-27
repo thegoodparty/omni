@@ -1,57 +1,109 @@
 {
   "agent": "meeting_briefing",
-  "description": "Officials spanning agenda-platform types (Granicus, CivicPlus, BoardDocs, city-hosted PDF) and body sizes. NOTE: meetingDate must point at a real upcoming meeting, so these dates go stale — refresh them when a run starts returning no_meeting_found across the board. organization_slug is injected per run.",
+  "description": "Real officials and real past meetings, each pinned to the permanent agenda URL that run actually used. Past dates and a pinned agenda are deliberate: a future date rots, and once it passes the agent finds nothing, every pair ties, and the eval looks healthy while measuring nothing. Supplying agendaPacketUrl also makes the agent skip discovery, so both variants read the identical document and the comparison isolates briefing quality. A PR that changes agenda DISCOVERY needs a separate live-date set instead. Spread across agenda size, since the big ones test prioritisation and the small ones test whether a thin meeting still yields something worth reading. organization_slug is injected per run.",
   "cases": [
     {
-      "id": "cheyenne_council",
-      "label": "Cheyenne, WY city council",
+      "id": "taylor_mi",
+      "label": "Taylor, MI \u2014 City Council, 26-item agenda",
       "params": {
-        "officialName": "Universal Judge Test Official",
-        "state": "WY",
-        "positionName": "Cheyenne City Council",
-        "meetingDate": "2026-10-06"
+        "officialName": "Dan Wallace",
+        "state": "MI",
+        "positionName": "Taylor City Council",
+        "meetingDate": "2026-09-15",
+        "agendaPacketUrl": "https://www.cityoftaylor.com/AgendaCenter/ViewFile/Agenda/_09152026-890",
+        "meetingTime": "18:30",
+        "meetingTimezone": "America/New_York"
       }
     },
     {
-      "id": "covington_aldermen",
-      "label": "Covington, TN board of mayor and aldermen — small town",
+      "id": "fayetteville_tn",
+      "label": "Fayetteville, TN \u2014 Board of Mayor and Aldermen, 22-item agenda",
       "params": {
-        "officialName": "Universal Judge Test Official",
+        "officialName": "Joseph Faulkner",
         "state": "TN",
-        "positionName": "Covington Board of Mayor and Aldermen",
-        "meetingDate": "2026-10-13"
+        "positionName": "Fayetteville Board of Mayor and Aldermen",
+        "meetingDate": "2026-09-08",
+        "agendaPacketUrl": "https://cms9files.revize.com/fayettevilletn/2026-9-8%20BMA%20Agenda.pdf",
+        "meetingTime": "17:00",
+        "meetingTimezone": "America/Chicago"
       }
     },
     {
-      "id": "nyc_district_25",
-      "label": "NYC council district 25 — large body, L2 district bound",
+      "id": "warren_mi",
+      "label": "Warren, MI \u2014 City Council, 15-item agenda",
       "params": {
-        "officialName": "Universal Judge Test Official",
-        "state": "NY",
-        "positionName": "City Council Member",
-        "l2DistrictType": "City_Council_Commissioner_District",
-        "l2DistrictName": "25",
-        "meetingDate": "2026-10-20"
+        "officialName": "Henry Newnan",
+        "state": "MI",
+        "positionName": "Warren City Council",
+        "meetingDate": "2026-09-22",
+        "agendaPacketUrl": "https://www.cityofwarren.org/wp-content/uploads/2026/09/City-Council-Meeting-September-22-2026-Agenda.pdf",
+        "meetingTime": "19:00",
+        "meetingTimezone": "America/Detroit"
       }
     },
     {
-      "id": "ramsey_council",
-      "label": "Ramsey, MN city council — suburban",
+      "id": "rochester_mn",
+      "label": "Rochester, MN \u2014 Olmsted County Board of Commissioners, 11-item agenda",
       "params": {
-        "officialName": "Universal Judge Test Official",
+        "officialName": "Bob Hopkins",
         "state": "MN",
-        "positionName": "Ramsey City Council",
-        "meetingDate": "2026-10-13"
+        "positionName": "Rochester Olmsted County Board of Commissioners",
+        "meetingDate": "2026-09-15",
+        "agendaPacketUrl": "https://olmstedcounty.primegov.com/Public/CompiledDocument/58979",
+        "meetingTime": "10:30",
+        "meetingTimezone": "America/Chicago"
       }
     },
     {
-      "id": "no_meeting_probe",
-      "label": "Deliberate miss — exercises the no-meeting-found branch cheaply",
+      "id": "palm_coast_fl",
+      "label": "Palm Coast, FL \u2014 City Council Business Meeting, 11-item agenda",
       "params": {
-        "officialName": "Universal Judge Test Official",
-        "state": "OR",
-        "positionName": "Toledo City Council",
-        "meetingDate": "2026-12-25"
+        "officialName": "Ty Miller",
+        "state": "FL",
+        "positionName": "Palm Coast City Council Business Meeting",
+        "meetingDate": "2026-09-01",
+        "agendaPacketUrl": "https://agendas.palmcoastgov.com/meetings/2026/9/123_A_City_Council_26-09-01.pdf",
+        "meetingTime": "18:00",
+        "meetingTimezone": "America/New_York"
+      }
+    },
+    {
+      "id": "waunakee_wi",
+      "label": "Waunakee, WI \u2014 Village Board, 10-item agenda",
+      "params": {
+        "officialName": "Teresa Hanson",
+        "state": "WI",
+        "positionName": "Waunakee Village Board",
+        "meetingDate": "2026-07-20",
+        "agendaPacketUrl": "https://ob.waunakee.com/OnBaseAgendaOnline/Documents/DownloadFileBytes/Village_Board_2756_Agenda_Packet_7_20_2026_6_00_00_PM.pdf?documentType=5&meetingId=2756&isAttachment=True",
+        "meetingTime": "18:00",
+        "meetingTimezone": "America/Chicago"
+      }
+    },
+    {
+      "id": "sturgeon_bay_wi",
+      "label": "Sturgeon Bay, WI \u2014 Door County Board of Supervisors, 9-item agenda",
+      "params": {
+        "officialName": "Ryan Shaw",
+        "state": "WI",
+        "positionName": "Sturgeon Bay Door County Board of Supervisors",
+        "meetingDate": "2026-07-28",
+        "agendaPacketUrl": "https://www.co.door.wi.gov/AgendaCenter/ViewFile/Agenda/_07282026-2129",
+        "meetingTime": "09:00",
+        "meetingTimezone": "America/Chicago"
+      }
+    },
+    {
+      "id": "north_oaks_mn",
+      "label": "North Oaks, MN \u2014 City Council, 7-item agenda",
+      "params": {
+        "officialName": "Andrew Gaspard",
+        "state": "MN",
+        "positionName": "North Oaks City Council",
+        "meetingDate": "2026-09-10",
+        "agendaPacketUrl": "https://www.northoaksmn.gov/AgendaCenter/ViewFile/Agenda/_09102026-54",
+        "meetingTime": "19:00",
+        "meetingTimezone": "America/Chicago"
       }
     }
   ]
