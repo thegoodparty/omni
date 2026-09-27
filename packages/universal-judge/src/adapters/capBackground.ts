@@ -274,6 +274,39 @@ const mergeIndexEntry = async (
   await writeIndex(s3, bucket, index)
 }
 
+/**
+ * The property names an experiment's input_schema declares.
+ *
+ * Callers use this to decide whether a field may be added to params at all. Most
+ * of these schemas set additionalProperties:false, so sending a field the schema
+ * does not declare is rejected at dispatch before any container starts.
+ */
+export const inputPropertiesFromManifest = (manifest: {
+  input_schema?: { properties?: Record<string, unknown> }
+}) => new Set(Object.keys(manifest.input_schema?.properties ?? {}))
+
+/** Reads the working tree's manifest — the candidate side's schema. */
+export const localInputProperties = (experimentsDir: string, experimentId: string) =>
+  inputPropertiesFromManifest(
+    JSON.parse(readFileSync(join(experimentsDir, experimentId, 'manifest.json'), 'utf8')),
+  )
+
+/** Reads whatever is published — the baseline side's schema. */
+export const publishedInputProperties = async (
+  experimentId: string,
+  env: string,
+  s3?: S3Client,
+) => {
+  const client = s3 ?? new S3Client({ region: REGION })
+  const res = await client.send(
+    new GetObjectCommand({
+      Bucket: metadataBucket(env),
+      Key: `${experimentId}/manifest.json`,
+    }),
+  )
+  return inputPropertiesFromManifest(JSON.parse(await res.Body!.transformToString()))
+}
+
 export const indexHas = async (
   experimentId: string,
   env: string,

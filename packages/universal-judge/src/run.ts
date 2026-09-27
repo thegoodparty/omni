@@ -11,6 +11,8 @@ import type Anthropic from '@anthropic-ai/sdk'
 import {
   dispatch,
   indexHas,
+  localInputProperties,
+  publishedInputProperties,
   pollRun,
   publishClone,
   unpublishClone,
@@ -111,6 +113,14 @@ const produceBackground = async (
       )
     }
 
+    // Each side is validated against its own schema: a PR may change input_schema,
+    // in which case the two sides legitimately differ.
+    const baselineProperties = await publishedInputProperties(experimentId, options.env)
+    const candidateProperties = localInputProperties(
+      options.experimentsDir,
+      experimentId,
+    )
+
     const work = cases.map(async (testCase) => {
       const cached = options.refreshBaseline
         ? undefined
@@ -128,12 +138,20 @@ const produceBackground = async (
       return Promise.all([
         cached
           ? toOutcome(cached, testCase.id)
-          : dispatchAndPoll(experimentId, testCase, 'baseline', options, log),
+          : dispatchAndPoll(
+              experimentId,
+              testCase,
+              'baseline',
+              options,
+              baselineProperties,
+              log,
+            ),
         dispatchAndPoll(
           candidateExperimentId,
           testCase,
           'candidate',
           options,
+          candidateProperties,
           log,
         ),
       ])
@@ -182,12 +200,19 @@ const dispatchAndPoll = async (
   testCase: Case,
   variant: 'baseline' | 'candidate',
   options: RunOptions,
+  inputProperties: Set<string>,
   log: (m: string) => void,
 ): Promise<RunOutcome> => {
   const tag =
     variant === 'baseline' ? options.baseline.tag : options.candidate.tag
   const organizationSlug = slugFor(options.agentName, testCase.id, tag)
-  const params = { ...testCase.params, organization_slug: organizationSlug }
+  // organization_slug identifies the run on the SQS envelope regardless, but it
+  // may only go into params when the agent's schema declares it. Most of these
+  // schemas forbid additional properties, so adding an undeclared field gets the
+  // dispatch rejected before any container starts.
+  const params = inputProperties.has('organization_slug')
+    ? { ...testCase.params, organization_slug: organizationSlug }
+    : { ...testCase.params }
 
   try {
     const dispatchedAt = Date.now()

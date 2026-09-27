@@ -1,6 +1,6 @@
 {
   "agent": "trending_issues",
-  "description": "Same jurisdictions as top_community_issues, whose input schema this matches exactly. Keeping the two sibling agents on one set of districts means a change that helps one and hurts the other is visible. organization_slug is injected per run.",
+  "description": "Same jurisdictions as top_community_issues, whose required inputs this matches. The L2 district fields are deliberately absent: trending_issues has no Databricks scope and its schema does not declare them, so sending them gets the dispatch rejected. Keeping the two sibling agents on one set of districts means a change that helps one and hurts the other is visible. organization_slug is injected per run.",
   "cases": [
     {
       "id": "chicago_ward",
@@ -17,9 +17,7 @@
       "params": {
         "state": "AR",
         "office": "City Council",
-        "district_descriptor": "Ward 2, Fayetteville, AR",
-        "l2_district_type": "City_Ward",
-        "l2_district_name": "FAYETTEVILLE CITY WARD 2"
+        "district_descriptor": "Ward 2, Fayetteville, AR"
       }
     },
     {
