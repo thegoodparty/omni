@@ -214,13 +214,22 @@ describe('POST /v1/outreach/drafts', () => {
       where: { campaignId: CAMPAIGN_ID },
     })
     expect(rows).toHaveLength(1)
-    // Both passed preflight and uploaded; the loser's object is removed
-    // once the transaction refuses its row.
-    expect(deleteObject).toHaveBeenCalledTimes(1)
-    expect(deleteObject).toHaveBeenCalledWith(
-      ASSET_DOMAIN,
-      expect.stringMatching(/^scheduled-campaign\/jane-doe\/p2p\/draft\//),
-    )
+    // The loser can lose in either of two legal places, and which one it hits
+    // depends on whether the winner committed before the loser's preflight
+    // read. Lose in the transaction and it has already uploaded, so its object
+    // needs removing; lose in preflight and it never uploaded, so there is
+    // nothing to remove. Asserting one delete unconditionally assumes the
+    // first interleaving and fails on the second.
+    //
+    // The invariant that actually matters either way: every upload except the
+    // winner's is cleaned up, so nothing is orphaned in the bucket.
+    expect(deleteObject).toHaveBeenCalledTimes(uploadFile.mock.calls.length - 1)
+    for (const call of deleteObject.mock.calls) {
+      expect(call).toEqual([
+        ASSET_DOMAIN,
+        expect.stringMatching(/^scheduled-campaign\/jane-doe\/p2p\/draft\//),
+      ])
+    }
   })
 
   it('does not upload the image when the cap rejects the create', async () => {
