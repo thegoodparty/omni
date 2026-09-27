@@ -100,9 +100,24 @@ const produceBackground = async (
   })
   log(`published candidate as ${candidateExperimentId}`)
 
+  // Cleanup must never mask the result it is running after, and it must never
+  // leave the clone behind silently: this publishes into the shared dev index,
+  // so a stray entry is everyone's problem. A failure here is reported with the
+  // exact id to remove. The next publish from main regenerates the index from
+  // the tree and drops it anyway, so the leak is bounded, not permanent.
   const cleanup = async () => {
-    await unpublishClone(candidateExperimentId, options.env)
-    log(`removed ${candidateExperimentId}`)
+    try {
+      await unpublishClone(candidateExperimentId, options.env)
+      log(`removed ${candidateExperimentId}`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      notes.push(
+        `Could not remove the temporary experiment \`${candidateExperimentId}\` from ` +
+          `the ${options.env} index (${message}). It will be dropped by the next ` +
+          `publish from main, or can be removed by hand.`,
+      )
+      log(`WARNING: failed to remove ${candidateExperimentId}: ${message}`)
+    }
   }
 
   try {
@@ -115,7 +130,10 @@ const produceBackground = async (
 
     // Each side is validated against its own schema: a PR may change input_schema,
     // in which case the two sides legitimately differ.
-    const baselineProperties = await publishedInputProperties(experimentId, options.env)
+    const baselineProperties = await publishedInputProperties(
+      experimentId,
+      options.env,
+    )
     const candidateProperties = localInputProperties(
       options.experimentsDir,
       experimentId,
@@ -168,6 +186,8 @@ const produceBackground = async (
             r.status === 'ok' &&
             r.runId !== undefined,
         )
+        // Best-effort: the cache only saves money on a later run, so failing to
+        // write it must not discard a comparison that has already been paid for.
         .map((outcome) =>
           writeBaseline({
             agent: options.agentName,
@@ -175,7 +195,12 @@ const produceBackground = async (
             caseId: outcome.caseId,
             env: options.env,
             outcome,
-          }),
+          }).catch((error) =>
+            log(
+              `WARNING: could not cache the baseline for ${outcome.caseId}: ` +
+                `${error instanceof Error ? error.message : String(error)}`,
+            ),
+          ),
         ),
     )
 
