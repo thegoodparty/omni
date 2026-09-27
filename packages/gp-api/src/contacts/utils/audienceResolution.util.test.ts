@@ -400,6 +400,86 @@ describe('resolveFilterAudience', () => {
     expect(findContactsForFilter).toHaveBeenCalledTimes(61)
   })
 
+  it('resolves an over-cap-count list anyway when the caller has no deadline', async () => {
+    // The SQS delivery path. 105,000 matched rows resolving 85,000 recipients
+    // — the exact band the pre-flight is over-eager about. There is no gateway
+    // waiting on a queue consumer, so the resolution genuinely finishes, and
+    // refusing it would mark a PAID outreach permanently `failed`. The in-loop
+    // cap is the only guard that should speak here, and 85,000 is under it.
+    let pageNumber = 0
+    const findContactsForFilter = asFinder(
+      vi.fn(async () => {
+        pageNumber += 1
+        // 85 full pages of recipients, then a short page to end the loop.
+        if (pageNumber > 85)
+          return { people: [], pagination: { totalResults: 105_000 } }
+        const ids = Array.from({ length: 1000 }, (_, i) => `${pageNumber}-${i}`)
+        return {
+          people: peopleWithPhones(ids),
+          pagination: { totalResults: 105_000 },
+        }
+      }),
+    )
+
+    const { resolved } = await countDrain(
+      resolveFilterAudience(
+        { findContactsForFilter },
+        {
+          filterInput: {},
+          organization: ORGANIZATION,
+          excludePersonIds: new Set(),
+          skipPreflightCap: true,
+        },
+      ),
+    )
+
+    expect(resolved).toBe(85_000)
+    // And it never asked for the count it would not have read.
+    expect(findContactsForFilter).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ hasCellPhone: true }),
+      expect.objectContaining({ page: 1, skipCount: true }),
+      ORGANIZATION,
+      new Set(),
+    )
+  })
+
+  it('still enforces the in-loop cap when the pre-flight is off', async () => {
+    // skipPreflightCap turns off the deadline guard, not the audience-shape
+    // one: a resolution that really does exceed the cap must still refuse,
+    // however patient its caller is.
+    const findContactsForFilter = contactsStub(
+      [
+        [
+          person({ id: 'a', cellPhone: '1' }),
+          person({ id: 'b', cellPhone: '2' }),
+        ],
+        [
+          person({ id: 'c', cellPhone: '3' }),
+          person({ id: 'd', cellPhone: '4' }),
+        ],
+      ],
+      150_000,
+    )
+
+    await expect(
+      countDrain(
+        resolveFilterAudience(
+          { findContactsForFilter },
+          {
+            filterInput: {},
+            organization: ORGANIZATION,
+            excludePersonIds: new Set(),
+            pageSize: 2,
+            maxRecipients: 2,
+            skipPreflightCap: true,
+            limitExceededMessage: 'too many',
+          },
+        ),
+      ),
+    ).rejects.toThrow(new BadRequestException('too many'))
+  })
+
   it('keeps going when a whole page fails isEligible', async () => {
     // The Peerly shape of this: a page of 1000 voters who all have cell
     // phones and none of whom has a complete address. Fresh records, all

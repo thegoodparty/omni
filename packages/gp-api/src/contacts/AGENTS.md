@@ -636,8 +636,17 @@ Two things to know before touching it:
   reintroduce the per-page COUNT `skipCount` exists to avoid.
 
 `outreachServeSmsCreate.service.ts` drives the same resolver on a request path
-and gets the same guard for free. `outreachTextDelivery.service.ts` is
-SQS-driven, so the gateway deadline never applied to it.
+and gets the same guard for free. `outreachTextDelivery.service.ts` passes
+`skipPreflightCap: true` and keeps only the in-loop cap: it is SQS-driven, so no
+gateway deadline ever applied to it, and there the over-eagerness above is not a
+tolerable trade but a regression. Two reasons, either sufficient. Its
+matched-minus-resolved gap is routinely the size of the org's whole opt-out set,
+because it scrubs opt-outs in-process rather than as a query filter (so the
+official can be shown how many *this* audience lost); and `requestSend` reads a
+4xx out of the resolver as "the data is wrong, a retry reads the same rows" and
+marks the outreach permanently `failed` — on a row that is already paid, which
+its own log line calls out as needing a refund decision. So a filter matching
+105,000 rows and resolving 85,000 recipients must keep sending, and does.
 
 ### Write-back (collect-forward)
 

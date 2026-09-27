@@ -28,12 +28,13 @@ import {
 // it starts. They stop four different things and none of them substitutes for
 // another, so read them together:
 //
-//   - the PRE-FLIGHT bounds the wall clock. A filter whose matched count
-//     already exceeds maxRecipients cannot be resolved inside the gateway's
-//     ~120s idle timeout, so it is refused on page 1 rather than discovered
-//     ~219s in, after the client has already been disconnected. This is the
-//     only guard whose reason is the caller's deadline rather than the
-//     audience's shape.
+//   - the PRE-FLIGHT bounds the wall clock, for a caller with a request
+//     waiting. A filter whose matched count already exceeds maxRecipients
+//     cannot be resolved inside the gateway's ~120s idle timeout, so it is
+//     refused on page 1 rather than discovered ~219s in, after the client has
+//     already been disconnected. This is the only guard whose reason is the
+//     caller's deadline rather than the audience's shape — and so the only one
+//     a caller can turn off, which a queue consumer should (skipPreflightCap).
 //   - the CAP bounds the output. Too many recipients for one send.
 //   - the STALL guard bounds repetition. Consecutive full pages in which
 //     people-api handed back no phone number this resolution had not already
@@ -101,6 +102,28 @@ export type FilterAudienceOptions = {
   // Kept caller-supplied so each channel's cap message speaks its own
   // vocabulary; the default is channel-neutral.
   limitExceededMessage?: string
+  // Skip the page-1 pre-flight cap, leaving only the in-loop cap.
+  //
+  // SET THIS WHEN THERE IS NO REQUEST WAITING, and only then. The pre-flight
+  // trades precision for speed: it reads the MATCHED count, which is an upper
+  // bound on the resolved one, so it refuses a filter matching more than
+  // maxRecipients even when the skips would have brought it under. That trade
+  // is free for an HTTP caller, because a resolution that large cannot finish
+  // inside the gateway's ~120s idle timeout anyway — the refusal replaces a
+  // hang, not a success.
+  //
+  // On a queue consumer it is not free, it is a regression: there is no
+  // deadline, so the long resolution genuinely completes, and refusing it
+  // turns a send that works today into a `BadRequestException`. Worse, the
+  // delivery path reads a 4xx as "the data is wrong, a retry reads the same
+  // rows" and marks the outreach permanently `failed` on a row that is
+  // already PAID.
+  //
+  // The gap is not a corner case there either: outreachTextDelivery scrubs
+  // opt-outs in-process rather than as a query filter (so the official sees
+  // how many THIS audience lost), which means matched-minus-resolved is
+  // routinely the size of the org's whole opt-out set.
+  skipPreflightCap?: boolean
 }
 
 const hasCellPhone = (person: Person): person is PhoneAudiencePerson =>
@@ -135,6 +158,7 @@ export async function* resolveFilterAudience(
     maxRecipients = MAX_AUDIENCE_RECIPIENTS,
     isEligible,
     limitExceededMessage,
+    skipPreflightCap = false,
   } = options
 
   // The scan ceiling, in pages. `page > maxPages` permits exactly maxPages
@@ -175,30 +199,42 @@ export async function* resolveFilterAudience(
       // at worst the amount by which the COUNT outlasts the page fetch (both
       // are low single-digit seconds in prod). Every later page keeps
       // skipCount, so it is one COUNT per resolution, not one per page.
-      { resultsPerPage: pageSize, page, skipCount: page > 1 },
+      //
+      // Not asked for at all when the pre-flight is off, since nothing would
+      // read it: a caller that opted out should not pay for the COUNT either.
+      {
+        resultsPerPage: pageSize,
+        page,
+        skipCount: page > 1 || skipPreflightCap,
+      },
       organization,
       excludePersonIds,
     )
 
-    // THE CAP, CHECKED BEFORE THE WORK INSTEAD OF DURING IT.
+    // THE CAP, CHECKED BEFORE THE WORK INSTEAD OF DURING IT — for a caller
+    // with a request waiting. See skipPreflightCap for who opts out and why.
     //
-    // The in-loop cap below is correct but unreachable: it can only throw once
-    // maxRecipients recipients have been resolved, which at the phone-list
-    // defaults means page 101. Measured in prod at ~2.17s/page that is ~219s,
-    // and the gateway gives up at ~120s — so an over-cap filter was killed in
-    // flight at 120s (logging `statusCode: null`, which is what pages us) and
-    // the handler then spent another ~99s paging toward a 400 no client was
-    // still there to receive. Ten of those in the 30 days to 2026-09-27.
+    // The in-loop cap below is correct but unreachable on an HTTP path: it can
+    // only throw once maxRecipients recipients have been resolved, which at the
+    // phone-list defaults means page 101. Measured in prod at ~2.17s/page that
+    // is ~219s, and the gateway gives up at ~120s — so an over-cap filter was
+    // killed in flight at 120s (logging `statusCode: null`, which is what pages
+    // us) and the handler then spent another ~99s paging toward a 400 no client
+    // was still there to receive. Ten of those in the 30 days to 2026-09-27.
     //
     // totalResults is an UPPER BOUND on the resolved count: every later step
     // (the missing-phone skip, isEligible, the phone dedupe) only ever removes
     // people. So `totalResults > maxRecipients` does not prove the resolution
     // would have tripped the cap — but it does prove it must read more than
     // maxRecipients/pageSize pages before it could finish either way, which at
-    // any observed page latency is past the gateway's patience. Nothing that
-    // completes today is refused here; what changes is that the answer arrives
-    // in about a second instead of never.
-    if (page === 1 && pagination.totalResults > maxRecipients) {
+    // any observed page latency is past the gateway's patience. Nothing an HTTP
+    // caller completes today is refused here; what changes is that the answer
+    // arrives in about a second instead of never.
+    if (
+      !skipPreflightCap &&
+      page === 1 &&
+      pagination.totalResults > maxRecipients
+    ) {
       throw new BadRequestException(
         limitExceededMessage ??
           `This filter matches over the ${maxRecipients} recipient ` +
