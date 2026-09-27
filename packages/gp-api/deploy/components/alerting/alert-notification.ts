@@ -42,6 +42,61 @@ const tag = (environment: string) => `[${environment.toUpperCase()}]`
 export const buildAlertSummary = (alert: Alert, environment: string): string =>
   [tag(environment), alert.name, alert.summaryDetail].filter(Boolean).join(' ')
 
+/**
+ * The one thing every `message` in this repo silently assumes and none of them
+ * can promise: that the rule's condition was actually met.
+ *
+ * `grafana.ts` provisions every rule `execErrState: 'Alerting'`, a deliberate
+ * departure from Grafana's default of `Error`. Under that setting a query that
+ * FAILS does not raise a self-describing `DatasourceError` — it transitions the
+ * rule's own instance to Alerting, so the notification renders the rule's own
+ * `message`. The result is a page asserting a specific customer-facing outage
+ * on the strength of a query that never returned a number.
+ *
+ * That is not hypothetical and not rare. On 2026-09-25 the
+ * `public-campaigns-lookup-error-ratio` rule paged with "More than 10% of the
+ * campaign lookups ... returned a server error" while the route served 34x200
+ * and 746x404 and zero 5xx: the ratio's numerator was empty, so a value above
+ * the threshold was arithmetically impossible. Grafana Cloud's Loki query path
+ * was answering `rpc error: code = Unimplemented desc = unknown service
+ * logproto.Querier`, and 57 rules across the estate held that same error at
+ * once — 37 on the Loki RPC, 13 as downstream `sse.dependencyError`s, 7 on
+ * failed Prometheus POSTs. Each one that fired did so in the words of whatever
+ * it happens to watch, which is how one vendor incident becomes an estate's
+ * worth of unrelated-looking outages.
+ *
+ * The reason is not lost — Grafana attaches it as an `Error` annotation — but
+ * contact points render `summary` and `description`, so the reader never sees
+ * it. Hence this line: the cheapest honest thing a notification can do is admit
+ * which of the two things it cannot distinguish, and name the annotation that
+ * settles it.
+ *
+ * Appended to every provisioned alert rather than written into each `message`,
+ * for the same reason the environment tag is: it is true of every rule here,
+ * the generated controller ones included, and an author cannot be expected to
+ * remember a caveat about the provisioning layer.
+ *
+ * WHY NOT JUST SET `execErrState: 'Error'`. Because as a one-line change it
+ * would trade a false page for silence. A `DatasourceError` instance is
+ * independent of the rule's own: per Grafana's docs it carries
+ * `alertname=DatasourceError`, `datasource_uid` and `rulename`, and existing
+ * notification policies "may not apply" to it. Our tree's only route is
+ * `environment != prod -> nowhere`, and Alertmanager reads a missing label as
+ * the empty string, so a `DatasourceError` that does not inherit
+ * `environment=prod` matches that route and is delivered nowhere at all. The
+ * tree is hand-edited in Grafana Cloud rather than provisioned from here
+ * (`checkAlertRouting` only warns), so that half cannot ship in this repo
+ * alone. See docs/observability.md § When a rule fires because it could not run.
+ */
+const EVALUATION_CAVEAT =
+  'If this fired, either the condition was met or the rule could not be ' +
+  'evaluated — every rule here is provisioned `execErrState: Alerting`, so a ' +
+  'failed or timed-out query fires it with this same text and no number behind ' +
+  'it. Before acting on the wording above, confirm the rule returned a value: ' +
+  'check the `Error` annotation on the alert instance in Grafana, which is set ' +
+  'only in the second case and names the datasource that failed. A batch of ' +
+  'unrelated alerts firing together is that case, not a coincidence.'
+
 export const buildAlertDescription = (
   alert: Alert,
   environment: string,
@@ -58,7 +113,9 @@ export const buildAlertDescription = (
     .map((group) => `<!subteam^${SLACK_GROUP_IDS[group]}>`)
     .join(' ')
 
-  return [`${tag(environment)} ${message}`, mention]
+  // Caveat before the mention, so the group being paged stays the last thing in
+  // the body rather than being buried under boilerplate.
+  return [`${tag(environment)} ${message}`, EVALUATION_CAVEAT, mention]
     .filter(Boolean)
     .join('\n\n')
 }
