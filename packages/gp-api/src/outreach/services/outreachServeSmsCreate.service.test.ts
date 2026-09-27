@@ -4,7 +4,10 @@ import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { AUDIENCE_PAGE_SIZE } from '@/contacts/utils/audienceResolution.util'
+import {
+  AUDIENCE_PAGE_SIZE,
+  MAX_AUDIENCE_RECIPIENTS,
+} from '@/contacts/utils/audienceResolution.util'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -374,12 +377,30 @@ describe('OutreachServeSmsCreateService', () => {
     })
   })
 
-  // The audience helper is A3's and carries three circuit breakers. These pin
-  // the two that a Serve create can actually reach (the recipient cap needs
-  // 100k fixture rows), because the counts they guard are what gets charged —
-  // and because the rest of this file's fixtures are single short pages that
-  // never arm a breaker at all.
+  // The audience helper is A3's and carries three circuit breakers plus a
+  // page-1 pre-flight. These pin the ones a Serve create can actually reach,
+  // because the counts they guard are what gets charged — and because the rest
+  // of this file's fixtures are single short pages that never arm anything.
+  // The pre-flight needs no large fixture: it reads `pagination.totalResults`,
+  // which `page()` takes as its second argument.
   describe('the audience helper’s guards, through createDraft', () => {
+    it('refuses a filter whose matched count is over the cap, before paging', async () => {
+      // This path has a request waiting on it, so the pre-flight must stay
+      // armed here. A future edit that passed skipPreflightCap from this
+      // service would restore the two-minute hang this guard exists to remove,
+      // and nothing else in this suite would notice.
+      contacts.findContactsForFilter.mockResolvedValue(
+        page(people(120), MAX_AUDIENCE_RECIPIENTS + 1),
+      )
+
+      await expect(service.createDraft(ORG, request())).rejects.toThrow(
+        new RegExp(`over the ${MAX_AUDIENCE_RECIPIENTS} constituent limit`),
+      )
+      // One fetch, and nothing charged.
+      expect(contacts.findContactsForFilter).toHaveBeenCalledOnce()
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
     it('still resolves a dedup-heavy list rather than rejecting it', async () => {
       contacts.findContactsForFilter
         // A full page of fresh numbers...
