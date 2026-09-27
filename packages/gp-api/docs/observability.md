@@ -152,18 +152,26 @@ rule's own words, describing an outage nobody has measured.
 On 2026-09-25 `public-campaigns-lookup-error-ratio` paged with "More than 10% of
 the campaign lookups ... returned a server error" while `GET /v1/public-campaigns`
 served 34×200 and 746×404 and **zero 5xx**. The ratio's numerator was empty, so
-a value above the 10% threshold was arithmetically impossible. The cause was
-Grafana Cloud's Loki query path answering:
+a value above the 10% threshold was arithmetically impossible. The rule was
+holding this, from Grafana Cloud's Loki query path:
 
 ```
 rpc error: code = Unimplemented desc = unknown service logproto.Querier
 ```
 
-**It is never one rule.** At that moment 57 rules held an error annotation from
-the same event — 37 on that Loki RPC, 13 as downstream `sse.dependencyError`s,
-7 on failed Prometheus POSTs. All 202 provisioned rules share the setting, so
-one vendor incident can page as an estate's worth of unrelated outages, each in
-the vocabulary of whatever it watches.
+**It is never one rule.** 57 rules carried an `Error` annotation, clustered by
+`activeAt` on four dates — 47 of them within `2026-09-23T12`, matching a
+measured spike in Grafana Cloud's own evaluation-failure metric. All 202
+provisioned rules share the setting, so one query-path failure can page as
+dozens of unrelated outages, each in the vocabulary of whatever it watches.
+
+**Mind the timestamps before blaming a live failure.** That rule's `activeAt`
+was 09-23T12:42:40Z — two days before the page it produced. An `Error`
+annotation persists on the instance, so its presence tells you the rule failed
+_at some point_, not that it failed just now. Check `activeAt` and the
+evaluation-failure metric for the firing window before concluding the two are
+the same event; `repeat_interval` is 2d, so a notification can be a
+continuation of a much older firing.
 
 ### How to tell, in about ten seconds
 
@@ -172,10 +180,27 @@ instance in Grafana:
 
 - An **`Error` annotation** naming a datasource means the query failed. There is
   no number behind the notification's wording. The alert text is boilerplate.
+  Check its `activeAt` against the firing time — the annotation persists, so it
+  may be describing a failure from days ago.
 - **`value` is empty** and the labels carry `datasource_uid` / `ref_id`. A real
   breach carries the evaluated value instead.
+- **State reads `Normal (NoData)`** rather than `Alerting`. With
+  `noDataState: 'OK'` a rule whose query returns no series sits here, which is
+  also what an empty ratio numerator looks like.
 - **Several unrelated alerts fired together.** That is the tell for an
   infrastructure event, not a coincidence.
+
+For whether the alerting engine itself was failing — as opposed to a rule
+holding a stale error — Grafana Cloud meters it independently of the
+annotations, in the `grafanacloud-usage` datasource:
+
+```promql
+sum(grafanacloud_grafana_instance_alerting_rule_evaluation_failures_total:rate5m)
+```
+
+A single failed evaluation is visible in it, so an exact `0` across the firing
+window is a measurement and not missing data. Pair it with
+`...rule_evaluations_total:rate5m` to confirm the engine was evaluating at all.
 
 Then confirm against the data before acting on the rule's wording — for a
 ratio rule, query the numerator and denominator separately over the firing

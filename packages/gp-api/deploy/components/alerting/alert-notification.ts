@@ -57,13 +57,19 @@ export const buildAlertSummary = (alert: Alert, environment: string): string =>
  * `public-campaigns-lookup-error-ratio` rule paged with "More than 10% of the
  * campaign lookups ... returned a server error" while the route served 34x200
  * and 746x404 and zero 5xx: the ratio's numerator was empty, so a value above
- * the threshold was arithmetically impossible. Grafana Cloud's Loki query path
- * was answering `rpc error: code = Unimplemented desc = unknown service
- * logproto.Querier`, and 57 rules across the estate held that same error at
- * once — 37 on the Loki RPC, 13 as downstream `sse.dependencyError`s, 7 on
- * failed Prometheus POSTs. Each one that fired did so in the words of whatever
- * it happens to watch, which is how one vendor incident becomes an estate's
- * worth of unrelated-looking outages.
+ * the threshold was arithmetically impossible. The rule was holding
+ * `rpc error: code = Unimplemented desc = unknown service logproto.Querier`
+ * from Grafana Cloud's Loki query path, with an `activeAt` of 09-23T12:42:40Z
+ * — two days before the page.
+ *
+ * The scale is estate-wide rather than per-rule. 57 rules carried an `Error`
+ * annotation, clustered by `activeAt` on four dates (47 of them within
+ * 09-23T12, matching a measured spike in
+ * `grafanacloud_grafana_instance_alerting_rule_evaluation_failures_total:rate5m`
+ * in the `grafanacloud-usage` datasource). So a single query-path failure
+ * fires dozens of rules at once, each in the words of whatever it happens to
+ * watch, which is how one infrastructure event becomes an estate's worth of
+ * unrelated-looking outages.
  *
  * The reason is not lost — Grafana attaches it as an `Error` annotation — but
  * contact points render `summary` and `description`, so the reader never sees
