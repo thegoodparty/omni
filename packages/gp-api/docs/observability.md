@@ -79,7 +79,7 @@ All alerting configuration lives in `deploy/`:
 | `deploy/components/alerts.ts`                      | Ownership mapping and global alerts                                                             |
 | `deploy/components/alerting/controller-alerts.ts`  | One error count alert per controller; its Slack body links to the fired route's exception lines |
 | `deploy/components/alerting/alerts.types.ts`       | Type definitions for `Alert` and `SlackGroup`                                                   |
-| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention                                           |
+| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, evaluation caveat, mention                        |
 | `deploy/components/grafana.ts`                     | Converts alerts into Grafana rule groups via Pulumi                                             |
 
 ## How to opt in a controller
