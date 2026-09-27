@@ -280,5 +280,9 @@ export const makeClient = () => {
       'ANTHROPIC_API_KEY is not set. In CI it comes from repo secrets; locally, export it before running.',
     )
   }
-  return new Anthropic({ apiKey })
+  // A judging call is one short structured verdict over two artifacts; when it
+  // has not answered in two minutes it is wedged, not thinking. Bounding it
+  // explicitly turns a stall into one excluded case instead of a run that sits
+  // there until the SDK's ten-minute default gives up.
+  return new Anthropic({ apiKey, timeout: 120_000 })
 }

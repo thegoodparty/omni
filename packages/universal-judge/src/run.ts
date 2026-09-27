@@ -265,6 +265,7 @@ const judgeAll = async (
 ): Promise<CaseVerdict[]> => {
   const rubric = loadRubric(agentName)
   const verdicts: CaseVerdict[] = []
+  const unjudged: string[] = []
   let skipped = 0
 
   for (const testCase of cases) {
@@ -283,24 +284,40 @@ const judgeAll = async (
       continue
     }
 
-    verdicts.push(
-      await judgePair({
-        caseId: testCase.id,
-        input: testCase.params,
-        baselineOutput: baseline.output,
-        candidateOutput: candidate.output,
-        agent: agentName,
-        client: options.client,
-        model: options.judgeModel,
-        rubric,
-      }),
-    )
-    log(`${testCase.id}: judged`)
+    // Each pair is judged independently. A single API failure used to abort the
+    // whole batch and discard every verdict already earned, which on a six-case
+    // run threw away the judging of five good pairs and all the agent spend
+    // behind them.
+    try {
+      verdicts.push(
+        await judgePair({
+          caseId: testCase.id,
+          input: testCase.params,
+          baselineOutput: baseline.output,
+          candidateOutput: candidate.output,
+          agent: agentName,
+          client: options.client,
+          model: options.judgeModel,
+          rubric,
+        }),
+      )
+      log(`${testCase.id}: judged`)
+    } catch (error) {
+      unjudged.push(
+        `${testCase.id} (${error instanceof Error ? error.message : String(error)})`,
+      )
+      log(`${testCase.id}: judging failed`)
+    }
   }
 
   if (skipped) {
     notes.push(
       `${skipped} case(s) could not be judged because at least one side failed to produce an output.`,
+    )
+  }
+  if (unjudged.length) {
+    notes.push(
+      `The judge failed on ${unjudged.length} case(s), which are excluded: ${unjudged.join('; ')}.`,
     )
   }
   return verdicts

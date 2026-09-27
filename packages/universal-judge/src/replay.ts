@@ -48,6 +48,7 @@ export const runReplay = async (args: {
   const log = args.log ?? (() => {})
   const rubric = loadRubric(args.replay.agent)
   const verdicts: CaseVerdict[] = []
+  const unjudged: string[] = []
   const runs: RunOutcome[] = []
 
   for (const pair of args.replay.pairs) {
@@ -70,25 +71,41 @@ export const runReplay = async (args: {
       },
     )
 
-    verdicts.push(
-      await judgePair({
-        caseId: pair.caseId,
-        input: pair.input,
-        baselineOutput: pair.baseline,
-        candidateOutput: pair.candidate,
-        agent: args.replay.agent,
-        client: args.client,
-        model: args.judgeModel,
-        rubric,
-      }),
-    )
-    log(`${pair.caseId}: judged`)
+    // Judged independently so one API failure cannot discard the verdicts
+    // already earned for the other pairs.
+    try {
+      verdicts.push(
+        await judgePair({
+          caseId: pair.caseId,
+          input: pair.input,
+          baselineOutput: pair.baseline,
+          candidateOutput: pair.candidate,
+          agent: args.replay.agent,
+          client: args.client,
+          model: args.judgeModel,
+          rubric,
+        }),
+      )
+      log(`${pair.caseId}: judged`)
+    } catch (error) {
+      unjudged.push(
+        `${pair.caseId} (${error instanceof Error ? error.message : String(error)})`,
+      )
+      log(`${pair.caseId}: judging failed`)
+    }
   }
 
   return {
     agent: args.replay.agent,
     verdicts,
     runs,
-    notes: ['Replayed from stored outputs — no agent runs were dispatched.'],
+    notes: [
+      'Replayed from stored outputs — no agent runs were dispatched.',
+      ...(unjudged.length
+        ? [
+            `The judge failed on ${unjudged.length} case(s), which are excluded: ${unjudged.join('; ')}.`,
+          ]
+        : []),
+    ],
   }
 }
