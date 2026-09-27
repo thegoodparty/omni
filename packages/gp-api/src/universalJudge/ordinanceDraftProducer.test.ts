@@ -4,6 +4,15 @@ import { overrideEnvForEvals } from '../chats/evals/envOverride'
 // wins over the .env.test stub.
 overrideEnvForEvals()
 
+// Both .env and .env.test carry stub ANTHROPIC_API_KEY values, and vitest injects
+// .env.test over the inherited environment before this file loads, so a real key
+// exported by the caller never survives to the LLM call. The judge therefore hands
+// its key over on a name nothing else writes, and it is reasserted here — after
+// the override above, before the app graph is built in beforeEach.
+if (process.env.UNIVERSAL_JUDGE_ANTHROPIC_KEY) {
+  process.env.ANTHROPIC_API_KEY = process.env.UNIVERSAL_JUDGE_ANTHROPIC_KEY
+}
+
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { describe, expect, it } from 'vitest'

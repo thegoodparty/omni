@@ -1,15 +1,10 @@
 {
   "agent": "ordinance_draft",
-  "description": "Ordinance-flow draft-step cases. Each names a captured fixture record; the producer seeds that record's prior-step state and drives the draft turn. The draft step is chosen because it synthesises from already-hydrated prior-step data instead of researching live, so two variants answer the same question rather than racing the open web.",
+  "description": "Ordinance-flow draft-step cases. The draft step is chosen because it synthesises from already-hydrated prior-step data instead of researching live, so two variants answer the same question rather than racing the open web. Only fixtures whose prior steps are actually populated can be used: a fixture carrying nothing but a goal makes the agent ask a clarifying question instead of drafting, which is correct behaviour and useless as a comparison. That leaves three, below the six-case power floor — see the note in AGENTS.md.",
   "cases": [
     {
-      "id": "shade_trees",
-      "label": "Shade trees — new ordinance from a policy goal",
-      "params": { "fixture": "shade-trees" }
-    },
-    {
       "id": "bike_parking",
-      "label": "Bike parking — new ordinance with comparables",
+      "label": "Bike parking — new ordinance, all four prior steps hydrated",
       "params": { "fixture": "bike-parking" }
     },
     {
@@ -19,18 +14,8 @@
     },
     {
       "id": "oil_spill",
-      "label": "Oil spill response — fully researched prior steps",
+      "label": "Oil spill response — authority and current law settled, no comparables",
       "params": { "fixture": "oil-spill" }
-    },
-    {
-      "id": "oil_spill_early",
-      "label": "Oil spill response — thin prior steps, tests honest uncertainty",
-      "params": { "fixture": "oil-spill-early" }
-    },
-    {
-      "id": "rent_cap_spokane",
-      "label": "Rent cap, Spokane — state preemption pressure on authority",
-      "params": { "fixture": "rent-cap-spokane" }
     }
   ]
 }

@@ -132,5 +132,11 @@ agent-agnostic.
 - **Cost is best-effort.** The authoritative per-run figure is
   `experiment_run.costUsd` in Postgres, which CI cannot reach. Costs are read from
   the session transcript when present and shown as a dash when not.
+- **The foreground agent is underpowered.** `ordinance_draft` drafts from prior-step
+  state its fixture carries, and only three of the six ordinance fixtures are
+  hydrated far enough to draft at all — the rest make the agent ask a clarifying
+  question, which is correct behaviour and useless as a comparison. Three cases sit
+  below the six-case power floor, so a foreground comparison reports its tally and
+  declines to call a direction until more hydrated fixtures exist.
 - **Meeting-briefing cases go stale.** They name real future meeting dates. Refresh
   them when runs start returning no-meeting-found across the board.

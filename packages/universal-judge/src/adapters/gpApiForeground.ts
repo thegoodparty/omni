@@ -109,6 +109,9 @@ const runProducer = (args: {
         UNIVERSAL_JUDGE_CASE: args.testCase.id,
         UNIVERSAL_JUDGE_OUT: args.outPath,
         UNIVERSAL_JUDGE_PARAMS: JSON.stringify(args.testCase.params),
+        // Under its own name because gp-api's vitest env injects a stub over
+        // ANTHROPIC_API_KEY before the producer runs.
+        UNIVERSAL_JUDGE_ANTHROPIC_KEY: process.env.ANTHROPIC_API_KEY ?? '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
