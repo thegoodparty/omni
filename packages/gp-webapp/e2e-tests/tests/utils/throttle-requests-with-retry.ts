@@ -76,9 +76,13 @@ const CLERK_RATE_WINDOW_MS = 10_000
 // The 100-req/10s budget is per Clerk INSTANCE, and every process that holds
 // the dev secret key spends from it: all of this run's workers, any other E2E
 // run in flight at the same time (another PR, the release train, a re-run),
-// gp-api dev's own provisioning lookups (capped at 50/10s in its
-// clerkThrottle.util.ts), preview-stack gp-apis, and the 6-hourly test-user
-// sweep. workerCount must therefore count every worker of a whole CI run —
+// gp-api dev's own provisioning lookups, and the 6-hourly test-user sweep.
+// Note that gp-api's provisioning lookups are UNTHROTTLED and un-retried: its
+// own clerkThrottle.util.ts wraps only the test-fixture and test-user-sweep
+// calls, never the hot auth path, where ClerkAuthService.getUser goes straight
+// out via clerkCall — an OTel span plus a timeout, no rate limiting. The sweep
+// is gated to the dev and prod deploys, so preview stacks no longer each run
+// one. workerCount must therefore count every worker of a whole CI run —
 // 4 shards x 4 playwright workers (gp-webapp.yml matrix x playwright.config
 // workers), not one shard's 4 — or a single run budgets itself the entire
 // instance and any concurrency at all tips Clerk into 429s, which gp-api
