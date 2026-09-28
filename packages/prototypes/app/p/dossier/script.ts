@@ -1,9 +1,11 @@
 // The conversation, as a script the engine plays back with fake latency.
 //
 // Each beat is one exchange: what the user can say, what tools the agent runs,
-// what it then says, and what card it leaves behind. Beats unlock in order but
-// the suggestion set is always a small menu, so a demo can wander a little
-// without falling off the rails.
+// what it then says, and what card it leaves behind. Beats unlock in order,
+// because a beat that assumes earlier work has happened cannot be offered
+// before it has.
+
+import { OUTREACH_PLAN } from './data'
 
 export type ToolRun = {
   /** The tool's real name, shown the way the product shows it. */
@@ -53,7 +55,10 @@ export const BEATS: Beat[] = [
       kind: 'file',
       note: 'Open it to see what is settled and what is thin.',
     },
-    unlocks: ['asked-before', 'whats-left'],
+    // Only the next beat. Offering "what's left" straight after this one let
+    // a demo skip the outreach and still be told there was one thing left,
+    // which is not true until the outreach has actually gone.
+    unlocks: ['asked-before'],
   },
   {
     id: 'asked-before',
@@ -139,5 +144,4 @@ export const settledAck = (
 }
 
 /** Fired when the outreach is sent. */
-export const SENT_ACK =
-  'Sent. 312 people, and I will read the replies as they come in and tell you what changes. I have written it into the file under what they say.'
+export const SENT_ACK = `Sent. ${OUTREACH_PLAN.count} people, and I will read the replies as they come in and tell you what changes. I have written it into the file under what they say.`

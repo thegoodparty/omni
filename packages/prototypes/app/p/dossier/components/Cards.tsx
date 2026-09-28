@@ -111,7 +111,7 @@ export const OutreachCard = ({
           <div className="flex items-center gap-2">
             <Check className="size-4 text-success" />
             <span className="text-foreground text-sm">
-              Sent to 312 people, just now
+              Sent to {OUTREACH_PLAN.count.toLocaleString()} people, just now
             </span>
           </div>
           <p className="text-muted-foreground text-sm">
