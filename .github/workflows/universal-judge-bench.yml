@@ -1,0 +1,77 @@
+name: Universal judge bench
+
+# Developer-triggered behavioral bench for the chat assistants. It runs the
+# evergreen universal-judge cases against the real Campaign Manager code path
+# on whichever ref it is dispatched against, and pushes one Braintrust
+# experiment named for that commit. Dispatch it on two refs to compare them:
+# Braintrust aligns the cases and reports per-case improvements and
+# regressions.
+#
+# Deliberately not wired to pull_request. Every run makes two model calls per
+# case and costs real money, and with one run per case the aggregate score
+# moves several points when a single case flips, so this cannot gate a merge
+# until repeat runs show how much it moves on its own.
+#
+# It does not use braintrustdata/eval-action. That action runs the Braintrust
+# CLI, which bundles the eval file with esbuild and evaluates the bundle as a
+# string; this app's Nest graph breaks it on a createRequire(import.meta.url)
+# that is undefined under that evaluation. Running the same Braintrust Eval()
+# through vitest avoids it, because vitest already resolves this repo's path
+# aliases and decorator metadata.
+
+on:
+  workflow_dispatch:
+
+  # Scaffolding for the first run only, and removed before this merges.
+  # workflow_dispatch is only offered once the workflow sits on the default
+  # branch, so a push trigger is the only way to exercise the job beforehand.
+  push:
+    branches: [chore/universal-judge-bench-workflow]
+
+permissions:
+  contents: read
+
+env:
+  WORKSPACE: packages/gp-api
+
+jobs:
+  bench:
+    name: Bench
+    runs-on: ubuntu-latest
+    # One bench at a time. Two concurrent runs on the same ref would create
+    # duplicate experiments with the same name.
+    concurrency:
+      group: universal-judge-bench-${{ github.sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      - name: Confirm the bench drives the real handler
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          RUN_WIRING_CHECK: '1'
+        run: |
+          npx vitest run --config vitest.nodb.config.ts \
+            src/chats/general/campaign-manager/evals/wiringCheck.test.ts
+          cat "/tmp/wiring-$(git rev-parse --short HEAD).txt"
+
+      - name: Run the bench
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          RUN_LLM_EVALS: '1'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+        run: |
+          npx vitest run --config vitest.nodb.config.ts \
+            src/chats/general/campaign-manager/evals/universalJudge.eval.test.ts
