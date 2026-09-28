@@ -14,7 +14,7 @@ import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { ParadigmNote } from './ParadigmNote'
 import { MAPLE } from '../data'
 import { FLOW_STEPS, type FlowStep } from '../flow'
-import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
+import { BarVerdict, FooterBar } from './FooterBar'
 
 const lowerFirst = (value: string) =>
   value.length > 0 ? `${value.charAt(0).toLowerCase()}${value.slice(1)}` : value
@@ -92,7 +92,7 @@ export const StepperToday = () => {
   ]
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6 pb-40">
       <ParadigmNote
         name="Stepper (today)"
         oneLine="A linear seven-step wizard you walk front to back."
@@ -350,7 +350,8 @@ export const StepperToday = () => {
           </div>
         </>
       )}
-      <ChiefOfStaffPanel paradigm="stepper" />
+      <BarVerdict paradigm="stepper" />
+      <FooterBar paradigm="stepper" />
     </div>
   )
 }

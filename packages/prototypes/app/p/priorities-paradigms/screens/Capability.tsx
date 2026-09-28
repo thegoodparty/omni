@@ -18,7 +18,7 @@ import {
 } from '../data'
 import { CAPABILITY_PROMPTS, FOLLOW_UPS, type FollowUp } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
-import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
+import { BarVerdict, FooterBar } from './FooterBar'
 
 const CARD_LABEL: Record<CapabilityCardKind, string> = {
   affected: 'Checked your district data',
@@ -181,7 +181,7 @@ export const Capability = () => {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6 pb-40">
       <ParadigmNote
         name="Capability"
         oneLine="One Chief of Staff conversation. Priorities is something it can do, not somewhere you go."
@@ -295,7 +295,8 @@ export const Capability = () => {
           </CardContent>
         </Card>
       </div>
-      <ChiefOfStaffPanel paradigm="capability" />
+      <BarVerdict paradigm="capability" />
+      <FooterBar paradigm="capability" />
     </div>
   )
 }

@@ -1,110 +1,95 @@
-// The unresolved question from the Friday call: what is the relationship
-// between a priority's own surface and the Chief of Staff chat?
+// The real question a paradigm choice decides.
 //
-// Every shell gets the SAME question put to Chief of Staff, so the answer is
-// the comparison. What changes between them is how much this surface can see,
-// and whether the work can continue here or only over in the feature.
+// Chief of Staff is not a tab you visit. It is a bar pinned to the bottom of
+// every dashboard route (`FooterChatBar`, mounted by `DashboardLayout` unless a
+// page passes `hideChatDock`), and tapping it opens a full conversation. So any
+// priority surface with a composer of its own is putting a second text input
+// and a second thread on a screen that already has one.
+//
+// Each shell below answers: how many composers are on screen, how many threads
+// exist about this priority, does the bar know where you are, and what happens
+// when you tap it.
 
-export type Continuity =
-  /** Borrowed scope. The flow's thread lands in this history, unlabelled. */
-  | 'same-thread'
-  /** Reads the shared state, does not run the work. */
+export type Awareness =
+  /** The bar has no idea you are mid-task. */
+  | 'none'
+  /** The bar reads the surface's shared state. */
   | 'reads'
-  /** Genuinely unsettled: both surfaces want to host the conversation. */
-  | 'contested'
-  /** No relationship to design, because there is only one surface. */
-  | 'is-the-surface'
+  /** The bar and the surface are literally the same conversation. */
+  | 'same'
 
-export type ChiefOfStaffRelation = {
-  /** What Chief of Staff replies to "Where are we on Maple Ave?" */
-  answer: string
-  knows: string[]
-  blind: string[]
-  continuity: Continuity
+export type BarRelation = {
+  composers: number
+  threads: number
+  awareness: Awareness
+  /** What happens when you tap the bar, on this shell. */
+  onOpen: string
   verdict: string
+  /** Only set where the two surfaces actively fight. */
+  collision?: string
 }
 
-export const THE_QUESTION = 'Where are we on Maple Ave?'
-
-export const CONTINUITY_LABEL: Record<Continuity, string> = {
-  'same-thread': 'Shares this history, cannot read it',
-  reads: 'Reads the state, does not run the work',
-  contested: 'Both surfaces want to host this',
-  'is-the-surface': 'This is the surface',
+export const AWARENESS_LABEL: Record<Awareness, string> = {
+  none: 'The bar does not know you are here',
+  reads: 'The bar reads this surface',
+  same: 'The bar is this conversation',
 }
 
-export const RELATIONS: Record<string, ChiefOfStaffRelation> = {
+export const RELATIONS: Record<string, BarRelation> = {
   stepper: {
-    answer:
-      'You have three priorities and Maple Ave is one of them, added on 15 September with no target date. I do not have a read on where it stands. Tell me where you got to and I will pick it up from there.',
-    knows: ['The title and how you described it', 'That it is private'],
-    blind: [
-      'Which step the flow is on',
-      'What any step settled',
-      'That outreach went out to 312 households',
-    ],
-    continuity: 'same-thread',
+    composers: 2,
+    threads: 2,
+    awareness: 'none',
+    onOpen:
+      'A fresh Chief of Staff conversation opens over the flow. It does not know you were mid-step, so it greets you and asks what you need. The flow’s own composer is still down there underneath it.',
+    collision:
+      'The flow borrows the chief_of_staff scope, so its thread is listed in the bar’s own history popover, unlabelled, next to your real chats. Two inputs, two threads, one screen, same scope, neither aware of the other.',
     verdict:
-      'Same chat scope, no shared state. The flow runs on this surface’s plumbing, so its thread sits in your history here with no label, and this surface still cannot read what the flow settled. You would repeat yourself.',
+      'This is what ships today if nothing changes. The flow page does not pass hideChatDock, so the bar is drawn straight over the flow’s pinned composer.',
   },
   dossier: {
-    answer:
-      'Seven of the eight sections are settled. The one that matters is authority, and it is unchecked: it gates the method, so nothing downstream can move. Ask your attorney who owns the calming standard on Maple, and the options open up.',
-    knows: [
-      'Every section and whether it is settled',
-      'Which section is blocking',
-      'What the outreach asked and that nothing is back',
-    ],
-    blind: ['Nothing it needs for this answer'],
-    continuity: 'reads',
+    composers: 1,
+    threads: 1,
+    awareness: 'reads',
+    onOpen:
+      'The bar expands into the conversation you were already having. There is no second composer, because the dossier’s chat is the bar, opened tall.',
     verdict:
-      'The cleanest split of the six. The case file is the shared state, so this surface can answer precisely without running any of the work. One place to do it, one place to ask about it.',
+      'A surface stops needing a chat of its own the moment its state lives somewhere the bar can read. The case file is that somewhere, so one bar and one thread is enough.',
   },
   gates: {
-    answer:
-      'You have the problem and you have who it lands on. Outreach is out and nothing is back yet. What is actually blocking you is authority, and the two conditions behind it are both waiting on that one answer.',
-    knows: [
-      'Which conditions are settled',
-      'Which one is blocking',
-      'What is waiting on what',
-    ],
-    blind: ['The detail behind each condition, unless you ask for it'],
-    continuity: 'reads',
+    composers: 1,
+    threads: 1,
+    awareness: 'reads',
+    onOpen:
+      'The bar opens knowing which condition you are looking at, because the conditions are the shared state. Ask it anything and it answers against them, then points you back at the gate.',
     verdict:
-      'Works as well as the dossier and says less. Conditions are a small enough state that this surface can always name the next move in one line, which is exactly what you want from a chat.',
+      'Conditions are a small enough state that the bar is always useful without the feature owning a conversation. One bar, one thread, and the gates are just a view of it.',
   },
   'check-in': {
-    answer:
-      'Your last check-in was this morning. You asked me to price the capital route first, and I said I would come back with numbers. I have them now. Do you want them here, or should I put them in the next check-in?',
-    knows: [
-      'Every check-in and what you decided',
-      'What it owes you next',
-      'Everything, because it is the same conversation',
-    ],
-    blind: ['Nothing, and that is the problem'],
-    continuity: 'contested',
+    composers: 1,
+    threads: 1,
+    awareness: 'same',
+    onOpen:
+      'Nothing new starts. The bar opens on the briefing that was already waiting for you, which is the same thing the check-in card shows.',
     verdict:
-      'The blurriest of the six, and the one worth deciding deliberately. A check-in is already a conversation, so either this surface hosts them and Priorities collapses to an index, or you have two threads about one priority and neither is canonical.',
+      'The most natural fit of the six. A check-in is a message from your chief of staff, so the bar is its home and Priorities becomes the list you skim on the way in.',
   },
   'next-action': {
-    answer:
-      'One thing: ask the manager to direct the speed study. The attorney confirmed the city owns the standard, so it needs no vote and no agenda slot. That is the whole list for Maple right now.',
-    knows: [
-      'The one next action and why it is next',
-      'What has already been cleared',
-    ],
-    blind: ['The full reasoning, until you ask for it'],
-    continuity: 'reads',
+    composers: 1,
+    threads: 1,
+    awareness: 'reads',
+    onOpen:
+      'The bar opens on the reasoning behind whichever action you were looking at. The list never had a composer, so there is nothing for the bar to collide with.',
     verdict:
-      'A natural pairing. The list is the glance and this surface is the why, so the two do different jobs on the same state and nothing is duplicated.',
+      'The least ambiguous split of the six. The list is the glance, the bar is the conversation, and neither pretends to be the other.',
   },
   capability: {
-    answer:
-      'You are already here, and this thread is the whole record. I have the walk zone sized and the speed count read. The open question is authority, and the method follows from it. Ask your attorney and I will price whatever survives.',
-    knows: ['Everything, because there is nowhere else'],
-    blind: ['Nothing'],
-    continuity: 'is-the-surface',
+    composers: 1,
+    threads: 1,
+    awareness: 'same',
+    onOpen:
+      'Nothing opens, because you are already inside it. This screen is the bar, expanded to full height.',
     verdict:
-      'There is no relationship to design, which is the whole argument for it. Priorities is something this surface holds rather than somewhere else you go, so the question the other five have to answer does not arise.',
+      'There is no relationship left to design, which is the argument for it. The bar is the product and Priorities is something it holds.',
   },
 }

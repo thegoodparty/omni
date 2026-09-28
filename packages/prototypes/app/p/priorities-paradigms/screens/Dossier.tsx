@@ -22,7 +22,7 @@ import {
 } from '../data'
 import { FOLLOW_UPS } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
-import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
+import { BarVerdict, FooterBar } from './FooterBar'
 
 const CHIP_CLASS: Record<SectionState, string> = {
   confirmed: 'bg-success/10 text-success border-success/30',
@@ -122,7 +122,7 @@ export const Dossier = () => {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6 pb-40">
       <ParadigmNote
         name="Dossier"
         oneLine="A conversation on the left, a living case file on the right."
@@ -319,7 +319,8 @@ export const Dossier = () => {
           </Card>
         </div>
       </div>
-      <ChiefOfStaffPanel paradigm="dossier" />
+      <BarVerdict paradigm="dossier" />
+      <FooterBar paradigm="dossier" />
     </div>
   )
 }

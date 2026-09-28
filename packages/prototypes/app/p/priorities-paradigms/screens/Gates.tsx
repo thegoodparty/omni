@@ -15,7 +15,7 @@ import { Check, AlertCircle } from 'lucide-react'
 import { MAPLE, GATE_STATE_LABEL, type Gate, type GateState } from '../data'
 import { FLOW_STEPS, type StepQuestion } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
-import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
+import { BarVerdict, FooterBar } from './FooterBar'
 
 const findGateByLabel = (label: string, gates: Gate[]): Gate | undefined =>
   gates.find((gate: Gate) => gate.label === label)
@@ -185,7 +185,7 @@ export const Gates = () => {
   )
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6 pb-40">
       <ParadigmNote
         name="Gates"
         oneLine="Six conditions to satisfy, in whatever order the work allows."
@@ -358,7 +358,8 @@ export const Gates = () => {
           Reset
         </Button>
       </div>
-      <ChiefOfStaffPanel paradigm="gates" />
+      <BarVerdict paradigm="gates" />
+      <FooterBar paradigm="gates" />
     </div>
   )
 }

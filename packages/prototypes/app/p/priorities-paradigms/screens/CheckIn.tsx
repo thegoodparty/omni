@@ -15,7 +15,7 @@ import { Check } from 'lucide-react'
 import { MAPLE, type Session } from '../data'
 import { LATER_SESSIONS } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
-import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
+import { BarVerdict, FooterBar } from './FooterBar'
 
 type ClosedSession = Session & { resolved: string }
 
@@ -56,7 +56,7 @@ export const CheckIn = () => {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6 pb-40">
       <ParadigmNote
         name="Check-in"
         oneLine="A standing engagement. Each visit is a briefing and one decision."
@@ -205,7 +205,8 @@ export const CheckIn = () => {
           ))}
         </div>
       </div>
-      <ChiefOfStaffPanel paradigm="check-in" />
+      <BarVerdict paradigm="check-in" />
+      <FooterBar paradigm="check-in" />
     </div>
   )
 }
