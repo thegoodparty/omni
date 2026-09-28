@@ -96,6 +96,16 @@ beforeEach(async () => {
     },
   })
 
+  // The resume's phoneListId has to name a list this campaign uploaded.
+  await service.prisma.peerlyPhoneList.create({
+    data: {
+      organizationSlug: orgSlug,
+      campaignId: CAMPAIGN_ID,
+      token: 'phone-list-token',
+      peerlyListId: 3180213,
+    },
+  })
+
   const filter = await service.prisma.voterFileFilter.create({
     data: { organizationSlug: orgSlug, name: 'saved list' },
   })

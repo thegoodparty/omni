@@ -175,7 +175,6 @@ describe('PurchaseService', () => {
           type: PurchaseType.TEXT,
           metadata: {
             contactCount: 500,
-            pricePerContact: 3.5,
           },
         },
         metadata: { campaignId: mockCampaign.id },
@@ -311,7 +310,6 @@ describe('PurchaseService', () => {
           type: PurchaseType.TEXT,
           metadata: {
             contactCount: 298,
-            pricePerContact: 3.5,
             campaignId: 111,
           },
         },
@@ -351,7 +349,7 @@ describe('PurchaseService', () => {
         user: mockUser,
         dto: {
           type: PurchaseType.TEXT,
-          metadata: { contactCount: 200, pricePerContact: 3.5 },
+          metadata: { contactCount: 200 },
         },
         metadata: {},
       })
@@ -798,7 +796,6 @@ describe('PurchaseService', () => {
           purchaseType: PurchaseType.TEXT,
           metadata: {
             contactCount: 298,
-            pricePerContact: 3.5,
             outreachType: 'p2p',
             audienceSize: 500,
           },
@@ -841,7 +838,6 @@ describe('PurchaseService', () => {
             purchaseType: PurchaseType.TEXT,
             metadata: {
               contactCount: 100,
-              pricePerContact: 3.5,
               outreachType: 'p2p',
               audienceSize: 200,
             },
@@ -874,7 +870,6 @@ describe('PurchaseService', () => {
             purchaseType: PurchaseType.TEXT,
             metadata: {
               contactCount: 100,
-              pricePerContact: 3.5,
               outreachType: 'p2p',
               audienceSize: 200,
             },
@@ -895,7 +890,6 @@ describe('PurchaseService', () => {
           purchaseType: PurchaseType.TEXT,
           metadata: {
             contactCount: 50,
-            pricePerContact: 3.5,
             outreachType: 'p2p',
             audienceSize: 100,
           },
@@ -934,7 +928,6 @@ describe('PurchaseService', () => {
             purchaseType: PurchaseType.TEXT,
             metadata: {
               contactCount: 6000,
-              pricePerContact: 3.5,
               outreachType: 'p2p',
               audienceSize: 10000,
             },

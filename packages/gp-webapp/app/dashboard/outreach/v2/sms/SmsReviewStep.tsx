@@ -73,7 +73,6 @@ interface SmsReviewStepProps {
   contactCount: number | null
   pricePerContact: number
   outreachId: number | null
-  phoneListToken: string | null
   excludedOptedOutCount: number | null
   excludedDuplicatePhoneCount: number | null
   // Draft creation happens in the flow; until it lands there is no session
@@ -100,7 +99,6 @@ export const SmsReviewStep = ({
   contactCount,
   pricePerContact,
   outreachId,
-  phoneListToken,
   excludedOptedOutCount,
   excludedDuplicatePhoneCount,
   preparing,
@@ -144,10 +142,8 @@ export const SmsReviewStep = ({
     try {
       const response = await completeFreePurchase(PURCHASE_TYPES.TEXT, {
         contactCount: contactCount ?? 0,
-        pricePerContact,
         outreachType: 'p2p',
         outreachId: outreachId ?? undefined,
-        phoneListToken: phoneListToken ?? undefined,
       })
       if (!response.ok) {
         const parsed = purchaseErrorSchema.safeParse(response.data)

@@ -22,6 +22,7 @@ import { PrismaService } from 'src/prisma/prisma.service'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import type {
@@ -46,6 +47,7 @@ const mockGetFileBytes = vi.fn()
 const mockTcrFindFirstOrThrow = vi.fn()
 const mockTcrFindFirst = vi.fn()
 const mockPeerlyCreateJob = vi.fn()
+const mockCapturedPhoneList = vi.fn()
 const mockResolveP2pJobGeography = vi.fn()
 const mockNotifySuccess = vi.fn()
 const mockNotifyFailure = vi.fn()
@@ -120,6 +122,9 @@ describe('OutreachService', () => {
       committeeName: 'Friends of Jane',
     })
     mockPeerlyCreateJob.mockReset()
+    mockCapturedPhoneList.mockReset()
+    // The p2p DTO's phoneListId names a list this campaign uploaded.
+    mockCapturedPhoneList.mockResolvedValue({ id: 'list-1', peerlyListId: 100 })
     mockResolveP2pJobGeography.mockReset()
     mockNotifySuccess.mockReset()
     mockNotifySuccess.mockResolvedValue(undefined)
@@ -170,6 +175,10 @@ describe('OutreachService', () => {
           useValue: {
             createPeerlyP2pJob: mockPeerlyCreateJob,
           },
+        },
+        {
+          provide: PeerlyPhoneListCaptureService,
+          useValue: { findFirst: mockCapturedPhoneList },
         },
         {
           provide: OutreachNotificationService,

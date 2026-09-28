@@ -372,7 +372,7 @@ describe('SmsFlow', () => {
     )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',
-      expect.objectContaining({ outreachId: 55, phoneListToken: 'tok-1' }),
+      expect.objectContaining({ outreachId: 55 }),
     )
     expect(onScheduled).toHaveBeenCalledTimes(1)
 
