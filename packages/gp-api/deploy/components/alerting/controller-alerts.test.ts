@@ -525,6 +525,54 @@ describe('route recording rules', () => {
     }
   })
 
+  // THE INNER VECTOR'S WIDTH, AS A TEST. `count_over_time` counts one series
+  // per distinct label set, and on these lines the label set is structured
+  // metadata — which carries `requestId`, `trace_id`, `span_id` and
+  // `request_url`, all unique per request. Left alone, the vector being
+  // counted is about one series per log line, sized by traffic rather than by
+  // anything we control, and a `| json` on top of that doubles it (Grafana
+  // Cloud already promoted those fields, so the parser only adds
+  // `*_extracted` copies of labels the filter was reading anyway).
+  //
+  // `| keep` after the filter is what bounds it: the counted vector then
+  // carries exactly the label the rule groups by, so its width is the number
+  // of distinct endpoints — ROUTE_MAP's 421 plus a few no-route sentinels,
+  // and 119 in a measured hour of prod. Asserted as an equality with the
+  // `sum by` grouping rather than as "contains keep", because the two have to
+  // agree: a `keep` that dropped the grouping label would collapse every
+  // route into one unlabelled series and the alerts, which match on
+  // `request_endpoint`, would silently find nothing to read.
+  it('counts a vector carrying only the label it groups by', () => {
+    for (const rule of ROUTE_RECORDING_RULES) {
+      const [, grouped] = /^sum by \(([^)]*)\)/.exec(rule.expr) ?? []
+      const [, kept] = /\|\s*keep\s+([^[|]+)/.exec(rule.expr) ?? []
+
+      const labels = (list: string | undefined) =>
+        (list ?? '')
+          .split(',')
+          .map((label) => label.trim())
+          .filter(Boolean)
+          .sort()
+
+      expect(labels(kept), rule.slug).toEqual(labels(grouped))
+      expect(labels(grouped).length, rule.slug).toBeGreaterThan(0)
+    }
+  })
+
+  // The specific edit that reintroduces the above. A parser with no field list
+  // extracts every key in the line into the vector's identity, so it is never
+  // what these rules want — and here it was not even doing the extraction it
+  // looked like it was doing, since the fields it names arrive as structured
+  // metadata and Loki renamed the parser's output to `*_extracted`. A field
+  // list is fine; a bare parser is the regression.
+  it('extracts no per-request field into the counted vector', () => {
+    for (const rule of ROUTE_RECORDING_RULES) {
+      expect(rule.expr, rule.slug).not.toMatch(
+        /\|\s*(json|logfmt|pattern|regexp)\s*(\||\[)/,
+      )
+    }
+  })
+
   // Both rules read the one stream the alerts used to each read for
   // themselves, and both carry `$ENV` — grafana.ts substitutes the environment
   // into `expr` on provision, and a rule that hardcoded one would have dev and

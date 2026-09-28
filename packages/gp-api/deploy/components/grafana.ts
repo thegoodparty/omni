@@ -467,6 +467,20 @@ export const createGrafanaResources = async ({
       condition: 'C',
       for: alert.for,
       isPaused: alert.disabled ?? false,
+      // NoData IS the healthy steady state here, which is why this is not the
+      // trade-off it looks like. The route recording rules `sum by` over an
+      // error filter, so a route with no errors produces no series at all and
+      // its alert reads no data — nearly always, for nearly every route.
+      // `NoData -> Alerting` would page on every healthy route continuously.
+      //
+      // The gap it leaves is real: if a recording rule stops recording, the
+      // metric goes absent and the route alerts go quiet rather than loud.
+      // That gap is covered by `alerting-rule-evaluations-failing`, which
+      // watches the ruler's own failure ratio in Prometheus and so survives
+      // the Loki failure that would cause it. Covering it here instead would
+      // reproduce the 2026-09-28 flood — 74 rules each naming a route that is
+      // fine — which is the failure mode that alert exists to replace with one
+      // page. Reconsidered 2026-09-28 when the recording rules landed; keep.
       noDataState: 'OK',
       execErrState: 'Alerting',
       annotations: {

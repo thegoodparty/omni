@@ -29,7 +29,7 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **Door-knocking pack build failed mid-response** -- `GET /v1/door-knocking/pack` streams, so it commits a 200 before it starts building and a later failure cannot be a status code. The generated route alert is structurally blind to it; this log-line rule is the only signal. See gp-api `docs/door-knocking.md` § The pack.
 - **Loki query budget half spent / nearly spent** (50% and 80% of the included 100x-ingest allowance, hour-averaged) -- so the vendor is never again the first to tell us we are over. Both carry the per-rule attribution query in their notification, because "we are over budget" without "and this rule is why" is a puzzle rather than an alert.
 - **Loki active stream count approaching the cap** (80% of `max_global_streams_per_user`) -- past the cap Loki rejects writes for new streams and logs are dropped, not queued. Measured against the live limit rather than a constant, since the limit is Grafana's to raise.
-- **Alert rule evaluations are failing** (>20% of evaluations erroring for 5 minutes) -- the rule that says *alerting itself is blind*. See [When alerting cannot check](#when-alerting-cannot-check).
+- **Alert rule evaluations are failing** (>20% of evaluations erroring for 5 minutes) -- the rule that says _alerting itself is blind_. See [When alerting cannot check](#when-alerting-cannot-check).
 
 This list previously included a **Slow Prisma connection acquisitions** rule. No such rule exists in `GLOBAL_ALERTS`, and it never did — the entry described an intent, not a deployment. The underlying metrics are real and emitted by the span processor in `src/otel.ts`: `prisma.connection.duration` (histogram, ms) and `prisma.connection.slow` (counter, acquisitions over 150ms). They are queryable in Explore and worth a rule; they simply do not page today.
 
@@ -45,12 +45,14 @@ The allowance is shared and account-wide, so this is the one alerting knob where
 
 A recording rule runs a query on a schedule and writes its result into Prometheus as a metric. `ROUTE_RECORDING_RULES` in `deploy/components/alerting/controller-alerts.ts` declares two of them:
 
-| Metric | Counts |
-| ------------------------------------ | ---------------------------------------------- |
+| Metric                               | Counts                                               |
+| ------------------------------------ | ---------------------------------------------------- |
 | `gp_api:route_errors:count1m`        | the default filter (≥ 400 minus exclusions, or null) |
-| `gp_api:route_server_errors:count1m` | the `SERVER_ERRORS_ONLY` filter (≥ 500, or null) |
+| `gp_api:route_server_errors:count1m` | the `SERVER_ERRORS_ONLY` filter (≥ 500, or null)     |
 
-Both are `sum by (request_endpoint) (count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | json | <filter> [1m]))`, evaluated every 60 seconds. Each controller's alert then evaluates `sum by (request_endpoint) (sum_over_time(<metric>{environment="$ENV", request_endpoint=~"..."}[10m]))` against Prometheus, which is not metered by bytes read.
+Both are `sum by (request_endpoint) (count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | <filter> | keep request_endpoint [1m]))`, evaluated every 60 seconds.
+
+There is deliberately **no parser**. `request_endpoint`, `response_statusCode` and `responseTimeMs` arrive as structured metadata, so the filter reads them directly; a `| json` here collided with all three and Loki renamed its output to `*_extracted`, which meant the parser was contributing nothing to the result and a per-line label set to the cost. The trailing `| keep` bounds the counted vector to the number of distinct endpoints — 119 across a measured hour of prod, ceiling `ROUTE_MAP`'s 421 — rather than letting `requestId`, `trace_id` and `span_id` size it by traffic. Each controller's alert then evaluates `sum by (request_endpoint) (sum_over_time(<metric>{environment="$ENV", request_endpoint=~"..."}[10m]))` against Prometheus, which is not metered by bytes read.
 
 **Why it is shaped this way.** Until 2026-09-28 each generated rule ran its own Loki query, and each one selected the entire gp-api stream before narrowing to its slice -- because that is the only shape LogQL offers and, as [Query cost](#query-cost) explains, the narrowing is free rather than cheap. 74 rules therefore each paid for all of gp-api's logs once a minute: **2,690 GB/day measured**, against an allowance of roughly 100x our ~9.5 GB/day ingest. Grafana Cloud began answering Loki queries with HTTP 429, every log-backed rule failed to evaluate, and because `exec_err_state` is `Alerting` all 154 of them fired at once, each naming its own route. Production was healthy throughout.
 
@@ -61,7 +63,7 @@ Two constraints on the recording rules are load-bearing and are asserted in `con
 - **The range vector equals the evaluation interval.** A rule's Loki cost is its window divided by its interval -- how many times a day it re-reads the same bytes. At 1:1 each line is read exactly once, which is the floor. The 10-minute window the alerts want is assembled from ten recorded samples in PromQL, where it costs nothing.
 - **The window ends a minute before now** (`toSeconds > 0`). Log lines reach Loki several seconds after the request they describe, so a window ending at `now` misses the newest lines -- and misses them permanently, because the next evaluation's window starts where this one ended. The wider overlapping window this replaced hid that. The price is 60s of detection latency, paid once rather than per rule.
 
-One consequence to know about. The `max_query_series` cap on a Loki metric query is **500**, and the fan-out moved with the read: a single recording rule now returns one series per erroring route in the whole service rather than per controller. There are 421 routes today. The cap only bites if more than 500 *distinct* endpoints error inside the same one-minute window, which is a total outage rather than a regression -- and a total outage is what the CPU, memory and synthetic-probe rules are for, none of which touch Loki. `controller-alerts.test.ts` fails if the route table alone reaches the cap, so the bound is visible before it is reached.
+One consequence to know about. The `max_query_series` cap on a Loki metric query is **500**, and the fan-out moved with the read: a single recording rule now returns one series per erroring route in the whole service rather than per controller. There are 421 routes today. The cap only bites if more than 500 _distinct_ endpoints error inside the same one-minute window, which is a total outage rather than a regression -- and a total outage is what the CPU, memory and synthetic-probe rules are for, none of which touch Loki. `controller-alerts.test.ts` fails if the route table alone reaches the cap, so the bound is visible before it is reached.
 
 ## Where do alerts show up?
 
@@ -99,13 +101,13 @@ Controllers that aren't assigned to either group still get alerts generated, but
 
 All alerting configuration lives in `deploy/`:
 
-| File                                               | Purpose                                               |
-| -------------------------------------------------- | ----------------------------------------------------- |
-| `deploy/components/alerts.ts`                      | Ownership mapping and global alerts                   |
+| File                                               | Purpose                                                                                                                                                         |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy/components/alerts.ts`                      | Ownership mapping and global alerts                                                                                                                             |
 | `deploy/components/alerting/controller-alerts.ts`  | The two Loki recording rules, and one error count alert per controller reading the metric they write; the Slack body links to the fired route's exception lines |
-| `deploy/components/alerting/alerts.types.ts`       | Type definitions for `Alert` and `SlackGroup`         |
-| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention |
-| `deploy/components/grafana.ts`                     | Converts alerts into Grafana rule groups via Pulumi   |
+| `deploy/components/alerting/alerts.types.ts`       | Type definitions for `Alert` and `SlackGroup`                                                                                                                   |
+| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention                                                                                                           |
+| `deploy/components/grafana.ts`                     | Converts alerts into Grafana rule groups via Pulumi                                                                                                             |
 
 ## How to opt in a controller
 
@@ -177,7 +179,7 @@ Both filters above carry an `or response_statusCode = ""` clause, and it is not 
 
 Two details:
 
-- **Empty string, not `null`.** Loki's `| json` drops a null field, and a label filter reads a missing label as empty, so the empty-string comparison matches whether the label is absent or present-and-blank. A numeric comparison can only ever miss it.
+- **Empty string, not `null`.** A null status never becomes structured metadata at all, and a label filter reads a missing label as empty, so the empty-string comparison matches whether the label is absent or present-and-blank. A numeric comparison can only ever miss it. Verified against prod: over the hour to 2026-09-28 19:19 UTC the filter matches exactly one line, a `POST /v1/ecanvasser/:id/sync` timeout, with and without a parser in the pipeline.
 - **It re-admits no 4xx.** A null status is the _absence_ of one, so the clause cannot overlap with the 429 and 400 vocabulary `SERVER_ERRORS_ONLY` exists to suppress. It is safe on the default filter for the same reason.
 
 When one of these fires, check `responseTimeMs` on the matching lines: a cluster at ~120,000ms is the gateway's idle timeout rather than anything the handler did. The fix for that is to make the endpoint write bytes while it works -- see gp-api `docs/door-knocking.md` § The pack for a worked example.
@@ -243,7 +245,7 @@ The plan includes log queries up to **100x** what we ingest. Ingest is the denom
 
 `grafana.ts` provisions every rule with `execErrState: 'Alerting'`: a rule that cannot evaluate fires. That is deliberate and it stays. The alternative -- a rule that goes quiet when its datasource is unreachable -- is a monitoring system that reports "all clear" precisely when it has stopped looking.
 
-The cost is that a datasource outage fires *everything*, and on 2026-09-28 that meant 154 simultaneous pages each naming a different API route, none of which was broken. The fix for that is not to soften `execErrState`; it is `alerting-rule-evaluations-failing`, which makes the telling **singular**. It reads Grafana Cloud's own evaluation counters on the `grafanacloud-usage` Prometheus datasource rather than anything gp-api emits, specifically so that it survives the failure it reports, and its message says what the situation actually is: alerting is blind, every firing alert is unverified and every silent one unchecked.
+The cost is that a datasource outage fires _everything_, and on 2026-09-28 that meant 154 simultaneous pages each naming a different API route, none of which was broken. The fix for that is not to soften `execErrState`; it is `alerting-rule-evaluations-failing`, which makes the telling **singular**. It reads Grafana Cloud's own evaluation counters on the `grafanacloud-usage` Prometheus datasource rather than anything gp-api emits, specifically so that it survives the failure it reports, and its message says what the situation actually is: alerting is blind, every firing alert is unverified and every silent one unchecked.
 
 When it fires, read it first and the others second.
 

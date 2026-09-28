@@ -147,13 +147,51 @@ const ROUTE_RECORDING_INTERVAL_SECONDS = 60
 // vector, which is the same count without the lag.
 const ROUTE_RECORDING_LAG_SECONDS = 60
 
+// The label this groups by, named once because the `keep` below has to agree
+// with it exactly and a mismatch is silent — `sum by` on a label the vector no
+// longer carries collapses all 421 routes into one unlabelled series, and the
+// alerts, which match on `request_endpoint`, would then find nothing.
+const ROUTE_LABEL = 'request_endpoint'
+
+// WHY THERE IS NO `| json`, AND WHY `keep` IS NOT OPTIONAL.
+//
+// The fields this filter reads are not in the JSON body as far as Loki is
+// concerned. Grafana Cloud promotes OTel log-record attributes to structured
+// metadata, so `request_endpoint`, `response_statusCode` and `responseTimeMs`
+// are already labels on every line before any parser runs. `| json` therefore
+// collided with all three and Loki renamed its output to
+// `response_statusCode_extracted` and friends — meaning the filter was reading
+// the structured metadata all along and the parser contributed nothing to the
+// result. Verified against prod: with and without `| json`, the same 1h window
+// returns the identical series, null-status clause included.
+//
+// What it did contribute is label cardinality. Structured metadata already
+// carries `requestId`, `trace_id`, `span_id` and `request_url`, all unique per
+// request, and every extracted duplicate added another. That label set is the
+// identity of the vector `count_over_time` counts, so the inner vector was
+// roughly one series per log line.
+//
+// `| keep` discards every label but this one, after the filter has used the
+// others. That puts the inner cardinality at the number of distinct endpoints
+// in the window — 119 across a full unfiltered hour of prod, against a ceiling
+// of ROUTE_MAP's 421 plus the handful of no-route sentinels like
+// `POST undefined`. It is bounded by the route table rather than by traffic,
+// which is the property that matters: it cannot grow under load. Confirmed
+// working against our own Grafana Cloud Loki rather than taken from the docs.
+//
+// This is NOT what Bugbot's `max_query_series` reasoning claimed. That cap
+// applies to the series a query RETURNS, and `sum by` already held the result
+// to ~100; the unbounded inner vector was measured passing 30k lines without
+// erroring. The real cost was per-line parsing and label hashing on a query
+// that runs every minute forever, and an inner width set by request volume
+// instead of by anything we control.
 const routeRecordingExpr = (statusFilter: string) =>
   [
-    'sum by (request_endpoint) (count_over_time(',
+    `sum by (${ROUTE_LABEL}) (count_over_time(`,
     `{service_name="gp-api", deployment_environment_name="$ENV"}`,
     `|= "Request completed"`,
-    `| json`,
     `| ${statusFilter}`,
+    `| keep ${ROUTE_LABEL}`,
     `[${ROUTE_RECORDING_WINDOW}]))`,
   ].join(' ')
 

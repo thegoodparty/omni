@@ -14,8 +14,17 @@ configured in `.mcp.json`; required env vars are in `docs/mcp.md`.
 
 That is the entire set you can narrow on. Everything else a log line carries —
 `request_endpoint`, `response_statusCode`, `responseTimeMs`, `exception_type`,
-`service_instance_id`, the controller that served the request — is inside the
-JSON body, reachable with `| json` and **not** a way to read less.
+`service_instance_id`, the controller that served the request — is **not** a
+way to read less.
+
+Those fields are **structured metadata**, not JSON body: Grafana Cloud promotes
+OTel log-record attributes to per-line labels, so they are already there to
+filter on and `| json` is not needed to reach them. Reach for the parser only
+for a field that is genuinely body-only. Worth knowing because a `| json` that
+names one of these collides with the label that already exists and Loki renames
+the parser's output to `response_statusCode_extracted` — so the filter you
+write goes on reading the structured metadata and the parser silently does
+nothing but widen every line's label set.
 
 Grafana Cloud's Loki promotes a fixed list of 17 OTel **resource** attributes to
 stream labels and offers no mechanism to promote anything else, so this list
@@ -45,9 +54,17 @@ Use `count_over_time` to find the shape before pulling lines.
 # How many, and when — before asking for the lines themselves
 sum by (request_endpoint) (count_over_time(
   {service_name="gp-api", deployment_environment_name="prod"}
-    |= "error" | json [5m]
+    |= "error" | keep request_endpoint [5m]
 ))
 ```
+
+`| keep` is doing real work there. Structured metadata carries `requestId`,
+`trace_id` and `span_id`, all unique per request, and they are part of the
+identity of the vector `count_over_time` counts — so without it that inner
+vector is about one series per log line. It costs no extra bytes either way,
+but a bare `count_over_time` on this stream fails outright with `maximum number
+of series (500) reached`, and dropping to just the label you group by is what
+makes the query return at all.
 
 Because the selector cannot get narrower than service plus environment, **the
 time range is the only lever you have.** Three habits follow, and they are the
