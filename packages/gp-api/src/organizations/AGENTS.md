@@ -325,3 +325,24 @@ in `organizations.controller.ts`) previously 500'd the _whole list_ on a
 null external-sourced leaf under `@ResponseSchema` — keep new/changed leaves
 nullable, and remember `@ResponseSchema` silently no-ops without the
 per-controller `@UseInterceptors(ZodResponseInterceptor)`.
+
+## Who can set `overrideDistrictId`
+
+`Organization.overrideDistrictId` names a people-db district and, where it is
+set, it is the only scope every district-derived metric and contact lookup for
+that org reads from (`src/campaigns/AGENTS.md` has the metric-by-metric
+breakdown). It is therefore staff-set, never caller-supplied, and no write
+path takes the id off a user session's request body:
+
+- `PATCH /v1/organizations/admin/:slug` (`AdminOrM2MGuard`) takes a raw id via
+  `AdminPatchOrganizationDto`.
+- `PUT /v1/elected-office/:id/district` (`M2MOnly`) takes a state + L2 district
+  name and resolves the id server-side via `resolveOverrideDistrictId`.
+- `POST /v1/elected-office` (user session) does **not** accept it. When the
+  request carries an `X-Organization-Slug` the new `eo-` org inherits whatever
+  the existing org already holds; with no organization context it is created
+  null. The self-service `PATCH /v1/organizations/:slug` leaves it out of
+  `PatchOrganizationDto` for the same reason.
+
+Adding a write path means resolving the id from something the caller is already
+entitled to, not accepting one.

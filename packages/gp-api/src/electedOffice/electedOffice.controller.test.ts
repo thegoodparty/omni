@@ -1,7 +1,8 @@
 import { useTestService } from '@/test-service'
 import { IncomingRequest } from '@/authentication/authentication.types'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { Campaign, User } from '../generated/prisma'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common'
 import { ElectedOfficeController } from './electedOffice.controller'
 
@@ -262,6 +263,46 @@ describe('ElectedOfficeController', () => {
   })
 
   describe('POST /elected-office', () => {
+    it('ignores overrideDistrictId from a self-service create', async () => {
+      // overrideDistrictId names the people-db district the new org's
+      // district-derived metrics and contact lookups are scoped to, so the
+      // request body is not a source for it. The rest of the create is
+      // unaffected.
+      const result = await service.client.post('/v1/elected-office', {
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+        customPositionName: 'City Council',
+        overrideDistrictId: 'caller-chosen-district',
+      })
+
+      expect(result.status).toBe(200)
+      expect(result.data.termStartDate).toBe('2025-01-01')
+
+      const organization = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${result.data.id}` },
+      })
+      expect(organization?.overrideDistrictId).toBeNull()
+      expect(organization?.customPositionName).toBe('City Council')
+    })
+
+    it('inherits overrideDistrictId from the organization, not the body', async () => {
+      await service.prisma.organization.update({
+        where: { slug: orgSlug },
+        data: { overrideDistrictId: 'staff-set-district' },
+      })
+
+      const result = await createElectedOffice({
+        overrideDistrictId: 'caller-chosen-district',
+      })
+
+      expect(result.status).toBe(200)
+
+      const organization = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${result.data.id}` },
+      })
+      expect(organization?.overrideDistrictId).toBe('staff-set-district')
+    })
+
     it('rejects creating a term-less office already marked onboarding-complete', async () => {
       // Mirrors the PUT guard: a completed term-less placeholder would
       // permanently bypass the serve-onboarding redirect.
@@ -923,6 +964,32 @@ describe('ElectedOfficeController', () => {
           m2mRequest(),
         ),
       ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+  })
+
+  describe('PUT /elected-office/:id/district', () => {
+    it('sets overrideDistrictId on the office organization', async () => {
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+
+      vi.spyOn(
+        service.app.get(OrganizationsService),
+        'resolveOverrideDistrictId',
+      ).mockResolvedValue('resolved-district')
+
+      const controller = service.app.get(ElectedOfficeController)
+      const result = await controller.setDistrict(created.data.id, {
+        state: 'CA',
+        L2DistrictType: 'CITY',
+        L2DistrictName: 'OAKLAND',
+      })
+
+      expect(result.overrideDistrictId).toBe('resolved-district')
+
+      const organization = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${created.data.id}` },
+      })
+      expect(organization?.overrideDistrictId).toBe('resolved-district')
     })
   })
 })
