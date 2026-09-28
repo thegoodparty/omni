@@ -377,7 +377,28 @@ export const GLOBAL_ALERTS: Alert[] = [
     // content, websites) don't page the serve-bugs group.
     expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [5m]))',
     threshold: 0,
-    for: '0m',
+    // One evaluation of grace, because `grafana.ts` sets `execErrState:
+    // 'Alerting'` on every rule it provisions and a `for` of zero makes that
+    // setting page on a single failed query. On 2026-09-28 Loki answered the
+    // alerting engine with `code = Unimplemented desc = unknown service
+    // logproto.Querier` for one evaluation; all 18 Loki-backed prod rules
+    // errored, 17 of them reached only `Pending (Error)` and cleared on the
+    // next evaluation, and this rule — alone in having no grace period —
+    // went straight to `Alerting (Error)` and told @serve-bugs that an SQS
+    // poll job had failed. None had: zero `QueueConsumerService` error lines
+    // in the surrounding six hours.
+    //
+    // The grace period costs this rule no signal, which is what makes it the
+    // right knob rather than a trade. `count_over_time` carries a 5m window,
+    // so a real failure keeps the result above threshold for minutes of
+    // evaluations and pages one minute later than it used to. A datasource
+    // error does not survive the same wait.
+    //
+    // Contrast `people-person-id-repoint-collision` below, which keeps
+    // `for: '0m'` deliberately: it fires on one burst a day from the 04:00
+    // sweep, where a grace period would only delay the page past the
+    // emission that caused it.
+    for: '1m',
     message: [
       'A Serve-related background SQS job has failed in the last 5 minutes.',
       'Click *View in Grafana* to find the failing log lines, then check the associated error message and stack trace to understand what went wrong. Look at the SQS message payload to identify which job failed and whether it can be safely retried.',

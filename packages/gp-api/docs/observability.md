@@ -183,6 +183,21 @@ Key things to know:
 - `notify` is optional. If omitted, the alert still fires but won't mention a Slack group.
 
 - The `for` field is a grace period -- the threshold must be continuously exceeded for that duration before the alert actually fires.
+- **`for: '0m'` also removes the buffer against a datasource error.** `grafana.ts`
+  provisions every rule with `execErrState: 'Alerting'`, so a query that fails is
+  treated as a firing condition. A rule with a grace period absorbs one bad
+  evaluation: it reaches `Pending (Error)` and clears on the next successful one.
+  A rule with zero grace pages on the first. On 2026-09-28 Loki returned
+  `code = Unimplemented desc = unknown service logproto.Querier` for a single
+  evaluation and every Loki-backed prod rule errored; the 17 with a grace period
+  recovered silently, and the one without (`serve-background-job-failed`) paged
+  `@serve-bugs` asserting an SQS poll job had failed when none had. Prefer a
+  grace period of at least one evaluation interval -- a rule whose `expr` uses a
+  range vector of several minutes loses no sensitivity from it, since a real
+  condition stays above threshold across many evaluations while a transient
+  query error does not. `global-alerts.test.ts` enforces this, with an allowlist
+  for the cases where zero is deliberate (a rule fired by a once-daily cron
+  burst, where a grace period only delays the page).
 - `threshold` is compared with `>`, so `threshold: 0` means "fire if the value is greater than 0".
 - **A range vector wider than the fetch window is silently truncated.** The engine only pulls `timeRangeSeconds` of data per evaluation (600s by default), so a `[1h]` vector left at the default sees ten minutes, not an hour. Set `timeRangeSeconds` to at least the widest range vector in `expr`, and make sure any window your `message` quotes is the one that actually applies -- a message promising an hour sends whoever reads it looking through fifty minutes of logs the rule never queried.
 - **Widening `timeRangeSeconds` means slowing `evaluationIntervalSeconds`.** Evaluation defaults to every 60s, and each evaluation is billed for its whole fetch window, so the two together set the rule's cost -- see [Query cost](#query-cost). Grafana evaluates a rule group as a unit, so `grafana.ts` buckets the global alerts into one group per distinct interval; setting the field is all you need to do. Keep `for` a whole multiple of the interval, since `for` is counted in whole evaluations and an interval that does not divide it evenly quietly pushes firing out to the next one.

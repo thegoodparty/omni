@@ -313,6 +313,56 @@ describe('evaluation intervals', () => {
   })
 })
 
+/**
+ * A grace period is the only thing standing between a datasource blip and a
+ * page, because `grafana.ts` provisions every rule with
+ * `execErrState: 'Alerting'` — a query that errors is treated as a firing
+ * condition, estate-wide. With a non-zero `for`, one errored evaluation
+ * reaches `Pending (Error)` and clears on the next successful one. With
+ * `for: '0m'` it goes straight to `Alerting` and notifies.
+ *
+ * That is not hypothetical. On 2026-09-28 Loki answered the alerting engine
+ * with `code = Unimplemented desc = unknown service logproto.Querier` for a
+ * single evaluation. All 18 Loki-backed prod rules errored; the 17 with a
+ * grace period reached only Pending and cleared, and
+ * `serve-background-job-failed` paged @serve-bugs claiming an SQS poll job
+ * had failed. None had.
+ *
+ * So zero grace is an opt-in with a reason, not a default anyone should reach
+ * for absent-mindedly.
+ */
+const ZERO_GRACE_BY_DESIGN = [
+  // Fires on one burst a day from the 04:00 person-id sweep. A grace period
+  // would only delay the page past the emission that caused it, and the
+  // condition it reports waits on a human either way.
+  'people-person-id-repoint-collision',
+]
+
+describe('grace periods', () => {
+  it('gives every alert a grace period unless zero is by design', () => {
+    const offenders = GLOBAL_ALERTS.filter(
+      (alert) =>
+        toSeconds(alert.for.slice(0, -1), alert.for.slice(-1)) === 0 &&
+        !ZERO_GRACE_BY_DESIGN.includes(alert.slug),
+    ).map((alert) => alert.slug)
+
+    expect(offenders).toEqual([])
+  })
+
+  // The allowlist is a record of decisions, so an entry for a rule that no
+  // longer exists (or no longer has a zero `for`) is a stale claim about the
+  // estate rather than a harmless leftover.
+  it('keeps no stale entries in the allowlist', () => {
+    for (const slug of ZERO_GRACE_BY_DESIGN) {
+      const alert = GLOBAL_ALERTS.find((a) => a.slug === slug)
+      expect(alert, slug).toBeDefined()
+      expect(toSeconds(alert!.for.slice(0, -1), alert!.for.slice(-1))).toEqual(
+        0,
+      )
+    }
+  })
+})
+
 describe('geoapify daily budget tiers', () => {
   const tiers = GLOBAL_ALERTS.filter((a) =>
     a.slug.startsWith('geoapify-daily-budget-'),
