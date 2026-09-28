@@ -1,5 +1,9 @@
 """Tests for the governance console snapshot builder (DATA-2546)."""
 
+import importlib.util
+import json
+from pathlib import Path
+
 import governance_console_snapshot as gcs
 
 
@@ -293,9 +297,26 @@ def test_build_snapshot_counts_open_decisions_across_every_queue():
 
 # --- page payload -------------------------------------------------------------
 
+# The page builder is deliberately dependency-free (the republish routine runs it with a
+# bare interpreter), so it lives outside this package and is loaded by path.
+_BUILD = importlib.util.spec_from_file_location(
+    "governance_console_build",
+    Path(__file__).resolve().parents[2] / "surfaces/governance-console/build.py",
+)
+console_build = importlib.util.module_from_spec(_BUILD)
+_BUILD.loader.exec_module(console_build)
+
 
 def test_inline_payload_cannot_close_the_script_block():
-    payload = gcs.inline_payload({"reason": "see </script> in the template"})
+    payload = console_build.inline_payload({"reason": "see </script> in the template"})
 
     assert "</script>" not in payload
     assert "<\\/script>" in payload
+
+
+def test_inline_payload_round_trips_through_the_browser_unescape():
+    doc = {"label": "a </div> and a — dash", "n": 3}
+
+    payload = console_build.inline_payload(doc)
+
+    assert json.loads(payload.replace("<\\/", "</")) == doc

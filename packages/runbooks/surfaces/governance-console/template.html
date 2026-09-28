@@ -1,0 +1,1036 @@
+<meta charset="utf-8" />
+<title>Event Health Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+/>
+<style>
+  /* Layout: a fixed-width operator column. Summary on top, then the queue as a
+     severity-railed list. Shares the explorer's palette because they are two pages
+     over one snapshot and should read as one system. */
+  :root {
+    --bg: #f4f6f7;
+    --surface: #ffffff;
+    --surface-2: #eef1f3;
+    --ink: #14181b;
+    --ink-2: #4b555d;
+    --ink-3: #78848c;
+    --line: #dde3e6;
+    --line-2: #c6d0d5;
+    --accent: #0f5f61;
+    --accent-ink: #ffffff;
+    --good: #1c6b45;
+    --good-bg: #dff0e6;
+    --warn: #8a5a09;
+    --warn-bg: #fbeed3;
+    --crit: #a32c22;
+    --crit-bg: #fadedb;
+    --shadow: 0 1px 2px rgba(20, 24, 27, 0.06), 0 1px 1px rgba(20, 24, 27, 0.04);
+    --sans: 'Public Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+      sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #0f1315;
+      --surface: #171c1f;
+      --surface-2: #1f262a;
+      --ink: #e8edef;
+      --ink-2: #aab6bc;
+      --ink-3: #7c888e;
+      --line: #2a3237;
+      --line-2: #3a454b;
+      --accent: #57bdb6;
+      --accent-ink: #08201f;
+      --good: #7fce9f;
+      --good-bg: #163527;
+      --warn: #e0b253;
+      --warn-bg: #3a2d10;
+      --crit: #f09287;
+      --crit-bg: #401915;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme='dark'] {
+    --bg: #0f1315;
+    --surface: #171c1f;
+    --surface-2: #1f262a;
+    --ink: #e8edef;
+    --ink-2: #aab6bc;
+    --ink-3: #7c888e;
+    --line: #2a3237;
+    --line-2: #3a454b;
+    --accent: #57bdb6;
+    --accent-ink: #08201f;
+    --good: #7fce9f;
+    --good-bg: #163527;
+    --warn: #e0b253;
+    --warn-bg: #3a2d10;
+    --crit: #f09287;
+    --crit-bg: #401915;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 24px 64px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  /* --- header --- */
+
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 16px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .masthead h1 {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .masthead .run {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .masthead .age {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  .lede {
+    margin: 14px 0 0;
+    max-width: 62ch;
+    color: var(--ink-2);
+  }
+
+  /* --- sections --- */
+
+  section {
+    margin-top: 32px;
+  }
+
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .sec-head h2 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+
+  .sec-head .note {
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  /* --- stat tiles --- */
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+
+  .tile {
+    min-width: 0;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+
+  .tile .n {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tile .k {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .tile.is-open .n {
+    color: var(--crit);
+  }
+
+  /* --- status bar --- */
+
+  .statusbar {
+    display: flex;
+    height: 10px;
+    margin-top: 14px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--surface-2);
+  }
+
+  .statusbar span {
+    display: block;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .legend i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 5px;
+    border-radius: 2px;
+    vertical-align: baseline;
+  }
+
+  .legend b {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* --- disclosure --- */
+
+  details.panel {
+    margin-top: 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  details.panel > summary {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  details.panel > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  details.panel > summary::before {
+    content: '\25B8';
+    display: inline-block;
+    width: 14px;
+    color: var(--ink-3);
+  }
+
+  details.panel[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .scroll {
+    overflow-x: auto;
+  }
+
+  /* --- tables --- */
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th {
+    padding: 6px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 6px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+
+  tr:last-child td {
+    border-bottom: 0;
+  }
+
+  td.num {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  td.mono,
+  .mono {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  /* --- changes --- */
+
+  .changes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 10px;
+  }
+
+  .change {
+    min-width: 0;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+
+  .change h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .change .n {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .change ul {
+    margin: 8px 0 0;
+    padding-left: 16px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .change li {
+    overflow-wrap: anywhere;
+  }
+
+  .change .empty {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  /* --- queue --- */
+
+  .queue {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .row {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--line-2);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+
+  .row.sev-crit {
+    border-left-color: var(--crit);
+  }
+
+  .row.sev-warn {
+    border-left-color: var(--warn);
+  }
+
+  .row.sev-low {
+    border-left-color: var(--line-2);
+  }
+
+  .row.is-dismissed {
+    opacity: 0.62;
+  }
+
+  .row > summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 12px;
+    padding: 11px 14px;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .row > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .row > summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+
+  .row .caret {
+    width: 12px;
+    color: var(--ink-3);
+    font-size: 11px;
+  }
+
+  .row[open] .caret {
+    transform: rotate(90deg);
+  }
+
+  .row .title {
+    flex: 1 1 260px;
+    min-width: 0;
+    font-weight: 600;
+  }
+
+  .row.is-dismissed .title {
+    text-decoration: line-through;
+  }
+
+  .row .count {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+
+  .chip {
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+
+  .chip.crit {
+    color: var(--crit);
+    background: var(--crit-bg);
+  }
+
+  .chip.warn {
+    color: var(--warn);
+    background: var(--warn-bg);
+  }
+
+  .chip.low {
+    color: var(--ink-2);
+    background: var(--surface-2);
+  }
+
+  .chip.okr {
+    color: var(--accent);
+    background: var(--surface-2);
+  }
+
+  .body {
+    padding: 0 14px 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .cause-key {
+    margin: 10px 0 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    overflow-wrap: anywhere;
+  }
+
+  .locked,
+  .dismissal {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--ink-2);
+    background: var(--surface-2);
+  }
+
+  .locked {
+    border-left: 3px solid var(--warn);
+  }
+
+  .dismissal {
+    border-left: 3px solid var(--line-2);
+  }
+
+  .evidence {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+
+  /* Scroll rather than wrap: an event name broken over four lines is unreadable, and
+     these tables are the evidence someone rules on. */
+  .evidence table {
+    width: max-content;
+    min-width: 100%;
+    font-size: 12px;
+  }
+
+  /* Prose columns (a judge's reason, a divergence) still wrap, or max-content would
+     run a paragraph off the side of the world. */
+  .evidence td {
+    max-width: 46ch;
+  }
+
+  .evidence td.mono {
+    max-width: none;
+    white-space: nowrap;
+  }
+
+  /* A file path is mono but must wrap: kept on one line it is wide enough to push
+     every other column off a phone, which reads as a row with no evidence at all. */
+  .evidence td.path {
+    max-width: 44ch;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .evidence td,
+  .evidence th {
+    padding: 5px 10px;
+  }
+
+  .empty-queue {
+    padding: 14px;
+    background: var(--surface);
+    border: 1px dashed var(--line-2);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
+  .foot {
+    margin-top: 40px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  .foot code {
+    font-family: var(--mono);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
+  }
+</style>
+
+<div class="wrap" id="app"></div>
+
+<script>
+  const DATA = __DATA__
+
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined && text !== null) node.textContent = String(text)
+    return node
+  }
+
+  const add = (parent, ...kids) => {
+    kids.forEach((k) => k && parent.appendChild(k))
+    return parent
+  }
+
+  // Status colours are semantic, not decorative: a reader should be able to find the
+  // one status that means "code removed but events still arrive" without reading.
+  const STATUS_TONE = {
+    orphaned_firing: 'crit',
+    instrumented_never_observed: 'crit',
+    dormant: 'warn',
+    deprecating: 'warn',
+    code_unknown: 'warn',
+    active: 'good',
+    retired: 'low',
+    system: 'low',
+  }
+
+  // The status vocabulary is the health log's. Two of them read as jargon on a page,
+  // so they get the words the log's own legend uses.
+  const STATUS_LABEL = {
+    instrumented_never_observed: 'never observed',
+    orphaned_firing: 'orphaned, still firing',
+    code_unknown: 'code unknown',
+  }
+
+  const TONE_VAR = {
+    crit: 'var(--crit)',
+    warn: 'var(--warn)',
+    good: 'var(--good)',
+    low: 'var(--line-2)',
+  }
+
+  // Ranks come from analytics_event_health.rank_record. 0-2 is "something is wrong now",
+  // 3-6 is "worth a look", 7+ is the long tail. The queues with no health rank
+  // (proposals, alignment) sort below all of them and read as low.
+  const severity = (rank) => (rank <= 2 ? 'crit' : rank <= 6 ? 'warn' : 'low')
+
+  const QUEUE_META = {
+    flags: {
+      title: 'Flagged, by cause',
+      note: 'one row per reason, not per event',
+      empty: 'Nothing flagged. The catalog is clean this run.',
+    },
+    gaps: {
+      title: 'Instrumentation gaps',
+      note: 'product surfaces with no event, awaiting a ruling',
+      empty: 'No untriaged gaps. Every surface the sweep found has been judged.',
+    },
+    proposals: {
+      title: 'Watchlist proposals',
+      note: 'new events in a watched family, not yet on the list',
+      empty: 'No proposals. Nothing new appeared in a watched family.',
+    },
+    alignment: {
+      title: 'Registry vs semantic layer',
+      note: 'a behavior and its governed metric disagree',
+      empty: 'No findings. The registry and the semantic layer agree.',
+    },
+  }
+
+  const daysAgo = (iso) => {
+    if (!iso) return ''
+    const then = new Date(iso + 'T00:00:00Z')
+    if (Number.isNaN(then.getTime())) return ''
+    const days = Math.floor((Date.now() - then.getTime()) / 86400000)
+    if (days <= 0) return 'today'
+    if (days === 1) return 'yesterday'
+    return days + ' days ago'
+  }
+
+  // --- header -----------------------------------------------------------------
+
+  const renderMasthead = (data) => {
+    const head = el('div', 'masthead')
+    add(
+      head,
+      el('h1', null, 'Event health console'),
+      el('span', 'run', 'run ' + (data.run_date || 'unknown')),
+      el('span', 'age', daysAgo(data.run_date)),
+    )
+    return head
+  }
+
+  // --- overview ---------------------------------------------------------------
+
+  const tile = (n, k, cls) => {
+    const node = el('div', cls ? 'tile ' + cls : 'tile')
+    add(node, el('div', 'n', n), el('div', 'k', k))
+    return node
+  }
+
+  const renderStatusBar = (byStatus) => {
+    const entries = Object.entries(byStatus).sort((a, b) => b[1] - a[1])
+    const total = entries.reduce((sum, [, n]) => sum + n, 0)
+    const bar = el('div', 'statusbar')
+    const legend = el('div', 'legend')
+
+    entries.forEach(([status, n]) => {
+      const tone = STATUS_TONE[status] || 'low'
+      const seg = el('span')
+      seg.style.width = (100 * n) / total + '%'
+      seg.style.background = TONE_VAR[tone]
+      bar.appendChild(seg)
+
+      const item = el('span')
+      const swatch = el('i')
+      swatch.style.background = TONE_VAR[tone]
+      const label = STATUS_LABEL[status] || status
+      add(item, swatch, el('b', null, n), document.createTextNode(' ' + label))
+      legend.appendChild(item)
+    })
+
+    return [bar, legend]
+  }
+
+  const renderAreas = (areas) => {
+    const panel = el('details', 'panel')
+    add(panel, el('summary', null, 'Areas (' + areas.length + ')'))
+
+    const scroll = el('div', 'scroll')
+    const table = el('table')
+    const thead = el('thead')
+    const hrow = el('tr')
+    add(
+      hrow,
+      el('th', null, 'Area'),
+      el('th', null, 'Total'),
+      el('th', null, 'Active'),
+      el('th', null, 'Dormant'),
+      el('th', null, 'Never observed'),
+      el('th', null, 'Orphaned'),
+    )
+    add(thead, hrow)
+
+    const tbody = el('tbody')
+    const sorted = [...areas].sort((a, b) => b.total - a.total)
+    sorted.forEach((area) => {
+      const counts = area.counts || {}
+      const row = el('tr')
+      add(
+        row,
+        el('td', null, area.name),
+        el('td', 'num', area.total),
+        el('td', 'num', counts.active || ''),
+        el('td', 'num', counts.dormant || ''),
+        el('td', 'num', counts.instrumented_never_observed || ''),
+        el('td', 'num', counts.orphaned_firing || ''),
+      )
+      tbody.appendChild(row)
+    })
+
+    add(table, thead, tbody)
+    add(scroll, table)
+    add(panel, scroll)
+    return panel
+  }
+
+  const renderOverview = (overview) => {
+    const section = el('section')
+    const head = el('div', 'sec-head')
+    add(head, el('h2', null, 'Where we are'))
+    add(section, head)
+
+    const tiles = el('div', 'tiles')
+    const totals = overview.totals || {}
+    const coverage = overview.metadata_coverage || {}
+    add(
+      tiles,
+      tile(totals.events ?? 0, 'events in the catalog'),
+      tile(totals.flagged ?? 0, 'events carrying a flag'),
+      tile(totals.open_decisions ?? 0, 'decisions waiting on you', 'is-open'),
+      tile((coverage.described_pct ?? 0) + '%', 'have a description'),
+    )
+    add(section, tiles)
+
+    const byStatus = overview.by_status || {}
+    if (Object.keys(byStatus).length) {
+      renderStatusBar(byStatus).forEach((node) => section.appendChild(node))
+    }
+
+    const areas = overview.by_area || []
+    if (areas.length) add(section, renderAreas(areas))
+
+    return section
+  }
+
+  // --- changes ----------------------------------------------------------------
+
+  const CHANGE_COPY = {
+    new: ['Newly flagged', 'Nothing new this run.'],
+    escalated: ['Got worse', 'Nothing escalated.'],
+    resolved: ['Cleared', 'Nothing cleared.'],
+  }
+
+  const renderChangeCard = (key, events) => {
+    const [heading, emptyText] = CHANGE_COPY[key]
+    const card = el('div', 'change')
+    add(card, el('h3', null, heading), el('div', 'n', events.length))
+
+    if (!events.length) {
+      add(card, el('p', 'empty', emptyText))
+      return card
+    }
+
+    const list = el('ul')
+    events.slice(0, 8).forEach((name) => add(list, el('li', null, name)))
+    add(card, list)
+    if (events.length > 8) {
+      add(card, el('p', 'empty', 'and ' + (events.length - 8) + ' more'))
+    }
+    return card
+  }
+
+  const renderChanges = (changes, hasPrior) => {
+    const section = el('section')
+    const head = el('div', 'sec-head')
+    add(
+      head,
+      el('h2', null, 'Since the last run'),
+      el(
+        'span',
+        'note',
+        hasPrior
+          ? 'against the previous snapshot'
+          : 'first snapshot, so everything reads as new',
+      ),
+    )
+    add(section, head)
+
+    const grid = el('div', 'changes')
+    ;['new', 'escalated', 'resolved'].forEach((key) =>
+      add(grid, renderChangeCard(key, changes[key] || [])),
+    )
+    add(section, grid)
+    return section
+  }
+
+  // --- queue ------------------------------------------------------------------
+
+  // Column order is declared here, not taken from the JSON: the snapshot is written
+  // with sorted keys for a stable diff, which would otherwise put "Elevated" first.
+  const EVIDENCE_ORDER = [
+    'event_type',
+    'status',
+    'event_count_30d',
+    'last_seen_date',
+    'divergence',
+    'okr',
+    'elevated',
+    'instrumented_pr',
+    'location',
+    'surface_type',
+    'rubric_rule',
+    'judge_reason',
+    'family',
+    'first_seen_date',
+    'first_seen',
+    'last_seen',
+  ]
+
+  const EVIDENCE_LABELS = {
+    event_type: 'Event',
+    status: 'Status',
+    event_count_30d: '30d',
+    last_seen_date: 'Last seen',
+    divergence: 'Divergence',
+    instrumented_pr: 'PR',
+    okr: 'OKR',
+    elevated: 'Elevated',
+    location: 'File',
+    surface_type: 'Surface',
+    judge_reason: 'Why the judge flagged it',
+    rubric_rule: 'Rule',
+    first_seen: 'First seen',
+    last_seen: 'Last seen',
+    family: 'Family',
+    first_seen_date: 'First seen',
+  }
+
+  const cell = (key, value) => {
+    if (key === 'elevated') return el('td', null, value ? 'yes' : '')
+    if (key === 'instrumented_pr' && value) {
+      const td = el('td', 'mono')
+      const link = el('a', null, String(value).split('/').pop())
+      link.href = value
+      link.target = '_blank'
+      link.rel = 'noreferrer'
+      add(td, link)
+      return td
+    }
+    if (typeof value === 'number') return el('td', 'num', value)
+    if (key === 'location') return el('td', 'mono path', value ?? '')
+    if (key === 'event_type') return el('td', 'mono', value ?? '')
+    return el('td', null, value === null || value === undefined ? '' : value)
+  }
+
+  const renderEvidence = (rows) => {
+    if (!rows.length) return null
+    const present = Object.keys(rows[0])
+    const ordered = EVIDENCE_ORDER.filter((k) => present.includes(k)).concat(
+      present.filter((k) => !EVIDENCE_ORDER.includes(k)),
+    )
+    const keys = ordered.filter((k) =>
+      rows.some((r) => r[k] !== null && r[k] !== undefined && r[k] !== ''),
+    )
+    if (!keys.length) return null
+
+    const box = el('div', 'evidence')
+    const scroll = el('div', 'scroll')
+    const table = el('table')
+
+    const thead = el('thead')
+    const hrow = el('tr')
+    keys.forEach((k) => add(hrow, el('th', null, EVIDENCE_LABELS[k] || k)))
+    add(thead, hrow)
+
+    const tbody = el('tbody')
+    rows.forEach((row) => {
+      const tr = el('tr')
+      keys.forEach((k) => add(tr, cell(k, row[k])))
+      tbody.appendChild(tr)
+    })
+
+    add(table, thead, tbody)
+    add(scroll, table)
+    add(box, scroll)
+    return box
+  }
+
+  const renderRow = (item) => {
+    const tone = severity(item.rank)
+    const row = el('details', 'row sev-' + tone)
+    if (item.dismissed) row.classList.add('is-dismissed')
+
+    const summary = el('summary')
+    add(
+      summary,
+      el('span', 'caret', '▸'),
+      el('span', 'chip ' + tone, 'rank ' + item.rank),
+      el('span', 'title', item.label),
+      item.elevated && item.elevated.length
+        ? el('span', 'chip okr', item.elevated.length + ' elevated')
+        : null,
+      el('span', 'count', item.count === 1 ? '1 item' : item.count + ' events'),
+    )
+    add(row, summary)
+
+    const body = el('div', 'body')
+
+    if (item.queue === 'flags') {
+      add(body, el('p', 'cause-key', item.id))
+    }
+
+    if (item.dismissed) {
+      add(
+        body,
+        el(
+          'p',
+          'dismissal',
+          'Dismissed: ' + (item.dismissed.reason || 'no reason recorded'),
+        ),
+      )
+    } else if (!item.dismissable) {
+      add(
+        body,
+        el(
+          'p',
+          'locked',
+          item.queue === 'flags'
+            ? 'This cause cannot be dismissed. The loader refuses it and the digest ' +
+                'reports the refusal, so it has to be fixed rather than waved through.'
+            : 'This finding cannot be dismissed. It is ours to fix in the registry.',
+        ),
+      )
+    }
+
+    const evidence = renderEvidence(item.evidence || [])
+    if (evidence) add(body, evidence)
+
+    add(row, body)
+    return row
+  }
+
+  const renderQueue = (queue) => {
+    const meta = QUEUE_META[queue.queue] || {
+      title: queue.queue,
+      note: '',
+      empty: 'Nothing here.',
+    }
+    const section = el('section')
+    const head = el('div', 'sec-head')
+    add(
+      head,
+      el('h2', null, meta.title),
+      el(
+        'span',
+        'note',
+        queue.items.length ? meta.note : '',
+      ),
+    )
+    add(section, head)
+
+    if (!queue.items.length) {
+      add(section, el('div', 'empty-queue', meta.empty))
+      return section
+    }
+
+    const list = el('div', 'queue')
+    queue.items.forEach((item) => add(list, renderRow(item)))
+    add(section, list)
+    return section
+  }
+
+  // --- boot -------------------------------------------------------------------
+
+  const render = () => {
+    const app = document.getElementById('app')
+    const hasPrior = (DATA.changes.still_open || []).length > 0 ||
+      (DATA.changes.resolved || []).length > 0
+
+    add(app, renderMasthead(DATA))
+    add(
+      app,
+      el(
+        'p',
+        'lede',
+        'Every open governance decision in one list, over the snapshot the ' +
+          'twice-weekly run committed. Read-only for now: rulings still go through ' +
+          'Claude Code.',
+      ),
+    )
+    add(app, renderOverview(DATA.overview))
+    add(app, renderChanges(DATA.changes, hasPrior))
+    DATA.queues.forEach((queue) => add(app, renderQueue(queue)))
+
+    const foot = el('div', 'foot')
+    add(
+      foot,
+      el(
+        'p',
+        null,
+        'Built ' +
+          (DATA.generated_at || '') +
+          ' from ' +
+          (DATA.source || '') +
+          '. ' +
+          (DATA.settled || []).length +
+          ' already-judged items are not shown.',
+      ),
+    )
+    add(app, foot)
+  }
+
+  render()
+</script>

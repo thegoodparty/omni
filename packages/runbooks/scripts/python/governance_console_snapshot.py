@@ -275,11 +275,6 @@ def build_snapshot(
     }
 
 
-def inline_payload(doc: Mapping) -> str:
-    """JSON safe to embed in a <script> block. ``</`` would close the block early."""
-    return json.dumps(doc, separators=(",", ":")).replace("</", "<\\/")
-
-
 # --- CLI ----------------------------------------------------------------------
 
 
