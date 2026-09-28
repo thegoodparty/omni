@@ -74,13 +74,13 @@ Controllers that aren't assigned to either group still get alerts generated, but
 
 All alerting configuration lives in `deploy/`:
 
-| File                                               | Purpose                                               |
-| -------------------------------------------------- | ----------------------------------------------------- |
-| `deploy/components/alerts.ts`                      | Ownership mapping and global alerts                   |
+| File                                               | Purpose                                                                                         |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `deploy/components/alerts.ts`                      | Ownership mapping and global alerts                                                             |
 | `deploy/components/alerting/controller-alerts.ts`  | One error count alert per controller; its Slack body links to the fired route's exception lines |
-| `deploy/components/alerting/alerts.types.ts`       | Type definitions for `Alert` and `SlackGroup`         |
-| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention |
-| `deploy/components/grafana.ts`                     | Converts alerts into Grafana rule groups via Pulumi   |
+| `deploy/components/alerting/alerts.types.ts`       | Type definitions for `Alert` and `SlackGroup`                                                   |
+| `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, evaluation caveat, mention                        |
+| `deploy/components/grafana.ts`                     | Converts alerts into Grafana rule groups via Pulumi                                             |
 
 ## How to opt in a controller
 
@@ -145,6 +145,104 @@ This list narrowed in scope once **400 joined the global exclusions**. Door knoc
 The cost: a genuine bug that surfaces as a 4xx on a listed controller no longer pages. Add a controller only when its 4xx vocabulary is deliberate, documented, and **not already excluded globally**. Everything else keeps the `≥ 400`-minus-exclusions rule.
 
 Per-route granularity, ownership, Slack routing, and the rest of the generated machinery are unchanged -- this only swaps the status filter and the wording of the Slack message.
+
+## When a rule fires because it could not run
+
+**A firing is not by itself evidence that the condition was met.** `grafana.ts`
+provisions every rule `execErrState: 'Alerting'`, which is a deliberate
+departure from Grafana's default of `Error`. Under `Error`, a query that fails
+raises a separate, self-describing `DatasourceError` alert. Under `Alerting`,
+the rule's _own_ instance goes to firing — so the notification arrives in the
+rule's own words, describing an outage nobody has measured.
+
+On 2026-09-25 `public-campaigns-lookup-error-ratio` paged with "More than 10% of
+the campaign lookups ... returned a server error" while `GET /v1/public-campaigns`
+served 34×200 and 746×404 and **zero 5xx**. The ratio's numerator was empty, so
+a value above the 10% threshold was arithmetically impossible. The rule was
+holding this, from Grafana Cloud's Loki query path:
+
+```
+rpc error: code = Unimplemented desc = unknown service logproto.Querier
+```
+
+**It is never one rule.** 57 rules carried an `Error` annotation, clustered by
+`activeAt` on four dates — 47 of them within `2026-09-23T12`, matching a
+measured spike in Grafana Cloud's own evaluation-failure metric. All 202
+provisioned rules share the setting, so one query-path failure can page as
+dozens of unrelated outages, each in the vocabulary of whatever it watches.
+
+**Mind the timestamps before blaming a live failure.** That rule's `activeAt`
+was 09-23T12:42:40Z — two days before the page it produced. An `Error`
+annotation persists on the instance, so its presence tells you the rule failed
+_at some point_, not that it failed just now. Check `activeAt` and the
+evaluation-failure metric for the firing window before concluding the two are
+the same event; `repeat_interval` is 2d, so a notification can be a
+continuation of a much older firing.
+
+### How to tell, in about ten seconds
+
+Grafana keeps the reason; the contact point just never shows it. Read the alert
+instance in Grafana:
+
+- An **`Error` annotation** naming a datasource means the query failed. There is
+  no number behind the notification's wording. The alert text is boilerplate.
+  Check its `activeAt` against the firing time — the annotation persists, so it
+  may be describing a failure from days ago.
+- **`value` is empty** and the labels carry `datasource_uid` / `ref_id`. A real
+  breach carries the evaluated value instead.
+- **State reads `Normal (NoData)`** rather than `Alerting`. With
+  `noDataState: 'OK'` a rule whose query returns no series sits here, which is
+  also what an empty ratio numerator looks like.
+- **Several unrelated alerts fired together.** That is the tell for an
+  infrastructure event, not a coincidence.
+
+For whether the alerting engine itself was failing — as opposed to a rule
+holding a stale error — Grafana Cloud meters it independently of the
+annotations, in the `grafanacloud-usage` datasource:
+
+```promql
+sum(grafanacloud_grafana_instance_alerting_rule_evaluation_failures_total:rate5m)
+```
+
+A single failed evaluation is visible in it, so an exact `0` across the firing
+window is a measurement and not missing data. Pair it with
+`...rule_evaluations_total:rate5m` to confirm the engine was evaluating at all.
+
+Then confirm against the data before acting on the rule's wording — for a
+ratio rule, query the numerator and denominator separately over the firing
+window. A `sum by (response_statusCode)` over the route's `Request completed`
+lines settles it, and distinguishes "no errors" from "no traffic", which an
+empty numerator alone does not.
+
+Every provisioned notification body now states this caveat and names the `Error`
+annotation, so a reader is told rather than having to know
+(`EVALUATION_CAVEAT` in `alerting/alert-notification.ts`).
+
+### Why the setting has not simply been changed
+
+Switching to `execErrState: 'Error'` is the real fix and it is **not** a
+one-line change: done alone it would trade a false page for silence. A
+`DatasourceError` instance is independent of the rule's own — per Grafana's
+docs it carries `alertname=DatasourceError`, `datasource_uid` and `rulename`,
+and existing notification policies "may not apply" to it. Our tree's only route
+is `environment != prod -> nowhere`, and Alertmanager reads a missing label as
+the empty string, so a `DatasourceError` that does not inherit
+`environment=prod` matches that route and is delivered **nowhere at all**.
+Running the label shapes through `receiverFor` in
+`alerting/alert-routing.ts` shows exactly that split.
+
+The routing tree is hand-edited in Grafana Cloud rather than provisioned from
+this repo (`checkAlertRouting` only warns on drift), so the two halves have to
+land together:
+
+1. Add a route matching `alertname=~"DatasourceError|DatasourceNoData"` to
+   `dev-alerts`, **above** the `environment != prod` route, and re-snapshot
+   `alerting/alert-routing.policy.json`.
+2. Then flip `execErrState` in `grafana.ts` and drop the caveat.
+
+Until then, two comments in `alerts.ts` that keep queries deliberately cheap so
+they "can't time out into a false page" are working around this setting rather
+than around Loki.
 
 ## No status is also a fault
 

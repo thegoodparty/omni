@@ -115,6 +115,41 @@ describe('buildAlertDescription', () => {
 
     expect(asList).toEqual(asScalar)
   })
+
+  // The 2026-09-25 regression. Every rule is provisioned
+  // `execErrState: 'Alerting'`, so a query that fails fires the rule with the
+  // rule's own words: `public-campaigns-lookup-error-ratio` paged claiming
+  // ">10% of campaign lookups returned a server error" while the route served
+  // zero 5xx and the ratio's numerator was empty. 57 rules held the same
+  // underlying Loki error at once. The body is the only field a contact point
+  // shows, so it is the only place a reader can be told that a firing is not
+  // self-evidently a breach.
+  it('admits that a firing may be an evaluation failure rather than a breach', () => {
+    const description = buildAlertDescription(alert, 'prod')
+
+    expect(description).toContain('execErrState: Alerting')
+    expect(description).toContain('Error')
+  })
+
+  // The caveat is about the provisioning layer, not about any one rule, so it
+  // has to hold for an alert nobody owns and for the generated controller rules
+  // just as much as for a hand-written global one. An author who forgets it is
+  // the failure mode it exists to remove.
+  it('carries the caveat whether or not the alert has an owner', () => {
+    for (const notify of [undefined, 'win-bugs' as const]) {
+      expect(buildAlertDescription({ ...alert, notify }, 'prod')).toContain(
+        'either the condition was met or the rule could not be evaluated',
+      )
+    }
+  })
+
+  // Whoever is paged needs to see which group is being asked to act without
+  // reading past boilerplate first, so the mention stays last in the body.
+  it('leaves the group mention as the last thing in the body', () => {
+    const description = buildAlertDescription(alert, 'prod')
+
+    expect(description.trimEnd().endsWith('<!subteam^S0AE3NTCXM3>')).toBe(true)
+  })
 })
 
 describe('buildKnownCausesAnnotation', () => {
