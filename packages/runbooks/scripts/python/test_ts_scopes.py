@@ -120,3 +120,29 @@ def test_decisive_scope_skips_a_type_body():
     assert decisive != innermost, "decisive=True must skip the type body"
     assert ts.scope_name(code, decisive[0]) == "Registry"
     assert ts.enclosing_scope(code, pos, pairs, decisive=False) == innermost
+
+
+def test_nested_template_interpolation_leaves_braces_balanced():
+    """A nested template inside an interpolation must not end the outer scan.
+
+    `x ${ `b}` } y` — the inner template's text carries a lone `}`. Scanning for the next
+    raw backtick closes the outer literal at the inner one, so that `}` survives unpaired;
+    brace_pairs then invents a pair that can swallow the enclosing component's closing
+    brace. On the pre-fix scanner this fixture blanks to `{`=1 `}`=2.
+    """
+    text = "const a = `x ${ `b}` } y`\nconst B = () => { q() }\n"
+    code = ts.blank_noncode(text)
+    assert len(code) == len(text)
+    assert code.count("{") == code.count("}"), f"unbalanced: {code.splitlines()[0]!r}"
+    pairs = ts.brace_pairs(code)
+    span = ts.enclosing_scope(code, text.index("q()"), pairs)
+    assert ts.scope_name(code, span[0]) == "B"
+
+
+def test_nested_template_interpolation_keeps_its_code_visible():
+    """`${...}` holds real code — a surface can live inside one — so it is not blanked."""
+    text = "const a = `x ${cond ? `inner${val}` : 'no'} y`\n"
+    code = ts.blank_noncode(text)
+    assert "cond" in code and "val" in code
+    assert "inner" not in code          # template TEXT is still blanked
+    assert code.count("{") == code.count("}")

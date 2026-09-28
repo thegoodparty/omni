@@ -32,25 +32,82 @@ _CONTROL_HEAD = re.compile(
 _HEAD_LOOKBACK = 220
 
 
+def _blank_quoted(text: str, out: list, i: int, quote: str) -> int:
+    """Blank a '...' or "..." body. Returns the index past the closing quote."""
+    n = len(text)
+    j = i + 1
+    while j < n:
+        if text[j] == "\\":
+            j += 2
+            continue
+        if text[j] == quote:
+            break
+        j += 1
+    for k in range(i + 1, min(j, n)):
+        if out[k] != "\n":
+            out[k] = " "
+    return j + 1
+
+
+def _blank_template(text: str, out: list, i: int) -> int:
+    """Blank a template literal's text, leaving the code inside `${...}` intact.
+
+    Tracks interpolation depth and recurses, rather than scanning for the next raw
+    backtick. A nested template inside an interpolation — `` `a ${x ? `b${c}` : d} e` `` —
+    otherwise ends the outer scan at its opening backtick, leaving the inner `{`/`}`
+    un-blanked; brace_pairs then invents a pair that can swallow the enclosing component's
+    closing brace and enclosing_scope returns the wrong scope, or None, for a surface that
+    really is inside it.
+    """
+    n = len(text)
+    j = i + 1
+    while j < n:
+        c = text[j]
+        if c == "\\":
+            for k in (j, j + 1):
+                if k < n and out[k] != "\n":
+                    out[k] = " "
+            j += 2
+            continue
+        if c == "`":
+            return j + 1
+        if c == "$" and j + 1 < n and text[j + 1] == "{":
+            # Interpolation: real code, so leave it alone and let nested literals recurse.
+            depth, j = 0, j + 1
+            while j < n:
+                cj = text[j]
+                if cj == "{":
+                    depth += 1
+                elif cj == "}":
+                    depth -= 1
+                    if depth == 0:
+                        j += 1
+                        break
+                elif cj == "`":
+                    j = _blank_template(text, out, j)
+                    continue
+                elif cj in "'\"":
+                    j = _blank_quoted(text, out, j, cj)
+                    continue
+                j += 1
+            continue
+        if out[j] != "\n":
+            out[j] = " "
+        j += 1
+    return n
+
+
 def blank_noncode(text: str) -> str:
     """String/template/comment bodies -> spaces, preserving length and newlines."""
     out = list(text)
     i, n = 0, len(text)
     while i < n:
         c = text[i]
-        if c in "'\"`":
-            quote, j = c, i + 1
-            while j < n:
-                if text[j] == "\\":
-                    j += 2
-                    continue
-                if text[j] == quote:
-                    break
-                j += 1
-            for k in range(i + 1, min(j, n)):
-                if out[k] != "\n":
-                    out[k] = " "
-            i = j + 1
+        if c == "`":
+            i = _blank_template(text, out, i)
+            continue
+        if c in "'\"":
+            i = _blank_quoted(text, out, i, c)
             continue
         if c == "/" and i + 1 < n and text[i + 1] == "/":
             j = text.find("\n", i)
