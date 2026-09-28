@@ -96,6 +96,36 @@ rules hold that together.
 
 `tests/constituentFeedback.routes.test.ts` covers all three.
 
+## The question shapes the script, not just the memo
+
+`communityInputQuestion` is captured in both setup flows and then does two
+jobs. It is denormalized onto each feedback row as `effortQuestion`, so an
+extraction stays readable against the prompt it ran with. And it is sent to
+the Serve draft endpoints (`POST /v1/outreach/serve/door-knocking/draft`,
+`POST /v1/outreach/serve/phone-banking/draft`) so the generated card or
+script asks THAT question rather than a generic one — without it, a compost
+pilot effort shipped an ask reading "what should the council be focusing
+on", which is the opposite of the point.
+
+- **Optional, and Serve-only.** `community_input` is a Serve purpose, so the
+  field is absent from both Win schemas. A Win request is byte-identical to
+  before, pinned by a test that diffs the two prompts.
+- **Sent, not read server-side.** Neither the turf nor the list exists at
+  draft time — both are created at the end of the flow.
+- **Fenced in the prompt**, like every other piece of user text, so a typed
+  question reads as quoted material rather than as instructions.
+- **Precedence is stated explicitly.** The door's listening purpose tells the
+  model the ask IS the general question, and the phone's purpose bans a
+  yes/no question while a real one is often partly yes/no. Both prompts now
+  say the effort's question takes precedence, and the phone's adds that the
+  caller should invite elaboration — otherwise the two instructions simply
+  conflict and which one wins is luck.
+- **The phone defers its draft; the door already did.** Door knocking drafts
+  on arrival at the talking-points step, which is after the question. Phone
+  banking drafted on the purpose pick, which is before it, so for this one
+  purpose the draft moved to the question step's Continue — guarded on
+  `scriptManuallyEdited` so a walkback cannot discard the official's wording.
+
 ## Gotchas
 
 - **Neither capture surface knows its interaction row's id.** The knock

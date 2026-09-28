@@ -550,6 +550,11 @@ export type APIEndpoints = {
     Response: DoorKnockingTalkingPointsDraftResponse
   }
 
+  // `communityInputQuestion` is Serve-only and absent from the Win sibling
+  // above: `community_input` is a Serve purpose, and the question is what the
+  // effort exists to ask, so the card's "ask" is written to put it to the
+  // resident rather than a generic what-matters-to-you question. Sent rather
+  // than read server-side because the turf does not exist at draft time.
   'POST /v1/outreach/serve/door-knocking/draft': {
     Request: {
       purpose: ServeDoorKnockingTalkingPointsPurpose
@@ -557,6 +562,7 @@ export type APIEndpoints = {
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      communityInputQuestion?: string
     }
     Response: DoorKnockingTalkingPointsDraftResponse
   }

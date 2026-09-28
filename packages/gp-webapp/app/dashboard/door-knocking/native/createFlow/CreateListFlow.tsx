@@ -1024,8 +1024,10 @@ export default function CreateListFlow({
       currentDraft?: string
       previousDraft?: string
       instructions?: string
+      communityInputQuestion?: string
     }) => {
-      const body = { ...input, filters: draftFilters }
+      const { communityInputQuestion, ...rest } = input
+      const body = { ...rest, filters: draftFilters }
       // Two endpoints for one call, chosen by the same `serveMode` context the
       // create body below uses — a Serve official's card must never be written
       // by the prompt that says "running for".
@@ -1033,6 +1035,11 @@ export default function CreateListFlow({
         ? clientRequest('POST /v1/outreach/serve/door-knocking/draft', {
             ...body,
             purpose: input.purpose as ServeDoorKnockingPurpose,
+            // Serve only, and destructured out of `body` above so the Win
+            // branch cannot send a field its endpoint does not accept.
+            ...(communityInputQuestion === undefined
+              ? {}
+              : { communityInputQuestion }),
           })
         : clientRequest('POST /v1/outreach/door-knocking/draft', {
             ...body,
@@ -1060,12 +1067,20 @@ export default function CreateListFlow({
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
     const trimmed = instructions.trim()
+    // Read here and passed as a variable, the way `instructions` is: the
+    // question is what a community-input effort exists to ask, so the card's
+    // ask has to be written from it rather than from a generic prompt.
+    const askedQuestion =
+      nextPurpose === COMMUNITY_INPUT_PURPOSE ? question.trim() : ''
     draft.mutate(
       {
         purpose: nextPurpose,
         ...(currentDraft === undefined ? {} : { currentDraft }),
         ...(previousDraft === undefined ? {} : { previousDraft }),
         ...(trimmed === '' ? {} : { instructions: trimmed }),
+        ...(askedQuestion === ''
+          ? {}
+          : { communityInputQuestion: askedQuestion }),
       },
       {
         onSuccess: (generated) => {

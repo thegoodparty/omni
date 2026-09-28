@@ -75,6 +75,23 @@ const draftBody = (overrides: object = {}) => ({
 })
 
 describe('POST /v1/outreach/door-knocking/draft', () => {
+  // `communityInputQuestion` is Serve-only: `community_input` is a Serve
+  // purpose, so the Win schema never declared the field. A Win prompt must be
+  // untouched by it even if a client sends one — Zod strips unknown keys, and
+  // this pins that rather than trusting it.
+  it('ignores a community-input question entirely', async () => {
+    mockPoints()
+    await postDraft(draftBody())
+    const baseline = promptOf('user')
+
+    jsonCompletion.mockClear()
+    mockPoints()
+    await postDraft(draftBody({ communityInputQuestion: 'Would you compost?' }))
+
+    expect(promptOf('user')).toBe(baseline)
+    expect(promptOf('user')).not.toContain('Would you compost?')
+  })
+
   it('returns the three generated lines, named', async () => {
     mockPoints()
 

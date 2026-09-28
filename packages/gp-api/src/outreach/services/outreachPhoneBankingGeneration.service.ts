@@ -54,6 +54,9 @@ interface DraftInput<TPurpose extends string> {
   currentDraft?: string
   previousDraft?: string
   instructions?: string
+  // Serve's community-input purpose only. Absent everywhere else, which is
+  // why the block it produces is conditional rather than a fixed line.
+  communityInputQuestion?: string
 }
 
 // Product/politics prompt copy (CSV phonebank-script-prompts, 2026-08-31),
@@ -508,6 +511,30 @@ const buildInstructionsBlock = <TPurpose extends string>(
   '"""',
 ]
 
+// The question this effort exists to ask, when there is one.
+//
+// Fenced like the instructions block above, and for the same reason: it is
+// typed by a person, so it must read as quoted material rather than as
+// further instructions to the prompt. The rule sits beside the data because
+// the whole point of the community-input purpose is that the call closes on
+// THIS question instead of a generic one.
+const buildQuestionBlock = (question: string): string[] => [
+  'The question this effort is trying to answer:',
+  '"""',
+  question,
+  '"""',
+  // The purpose copy above supplies the "details provided" this fills, but it
+  // also bans a yes/no question — and a real question ("Would you take part
+  // in a compost pilot, and how do you feel about it?") is often partly one.
+  // So the rule is to ask exactly this and invite elaboration, rather than to
+  // choose between the official's words and the purpose's format.
+  'This is the issue the script must raise, and the question it must put to ' +
+    'the constituent, in place of a general one. Keep what it asks exactly, ' +
+    'and follow it by inviting them to say more so the call still opens a ' +
+    'conversation rather than closing on a yes or no. Do not widen it into a ' +
+    'general what-matters-to-you question, and do not answer it yourself.',
+]
+
 // Kept generic (parametrized by voice.subjectFallback/materialsLabel)
 // rather than duplicated per surface — everything but the subject and the
 // materials phrase is identical prose for both surfaces. For Win this must
@@ -593,6 +620,9 @@ export class OutreachPhoneBankingGenerationService {
       `${voice.officeLabel}: ${office || 'local office'}.`,
       voice.purposePrompts[input.purpose],
       `Tone: ${TONE_STYLES[input.tone]}`,
+      ...(input.communityInputQuestion
+        ? buildQuestionBlock(input.communityInputQuestion)
+        : []),
       ...extraContext,
     ]
     // custom's improve path ADAPTS plain prose into You:/Voter: dialogue

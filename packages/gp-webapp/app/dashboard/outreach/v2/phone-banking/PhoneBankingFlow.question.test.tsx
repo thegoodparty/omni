@@ -43,14 +43,58 @@ beforeEach(() => {
     membership: null,
     tcrCompliance: null,
   })
-  api.mock('POST /v1/outreach/serve/phone-banking/draft', {
-    status: 200,
-    data: { draft: 'Hi, this is your council member.' },
+  draftBodies = []
+  api.mock('POST /v1/outreach/serve/phone-banking/draft', ({ body }) => {
+    draftBodies.push(body as Record<string, unknown>)
+    return {
+      status: 200,
+      data: { draft: 'Hi, this is your council member.' },
+    }
   })
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
 })
 
+let draftBodies: Record<string, unknown>[] = []
+
 describe('PhoneBankingFlow community-input question step', () => {
+  // The script is drafted from the question, so it cannot be drafted at the
+  // purpose pick — the question is the NEXT step. Community input defers its
+  // draft to the question's Continue; every other purpose still drafts on
+  // the pick, which is what the second case here pins.
+  it('defers the draft until there is a question to write it from', async () => {
+    renderFlow()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Ask for community input/i }),
+    )
+    await screen.findByLabelText('The question')
+    expect(draftBodies).toHaveLength(0)
+
+    const question = 'Would you take part in a compost pilot?'
+    await userEvent.type(
+      screen.getByPlaceholderText(/compost pilot/i),
+      question,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(draftBodies).toHaveLength(1))
+    expect(draftBodies[0]).toMatchObject({
+      purpose: 'community_input',
+      communityInputQuestion: question,
+    })
+  })
+
+  it('still drafts on the pick for a purpose that asks nothing', async () => {
+    renderFlow()
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/i }),
+    )
+
+    await waitFor(() => expect(draftBodies).toHaveLength(1))
+    expect(draftBodies[0]).not.toHaveProperty('communityInputQuestion')
+  })
+
   it('asks what the effort wants to learn after that purpose is picked', async () => {
     renderFlow()
 

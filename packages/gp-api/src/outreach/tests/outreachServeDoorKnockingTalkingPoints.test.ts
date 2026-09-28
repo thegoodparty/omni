@@ -93,6 +93,45 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     )
   })
 
+  // The community-input question is what the effort exists to ask, so the
+  // card's ask has to be written from it. Without this the ask came back as
+  // the purpose copy's generic "what should the council focus on".
+  it('writes the ask from the community-input question', async () => {
+    mockPoints()
+    const question = 'Would you take part in a compost pilot?'
+
+    const res = await postDraft(draftBody({ communityInputQuestion: question }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const user = promptOf('user')
+    expect(user).toContain(question)
+    // Fenced, so a question someone typed reads as quoted material rather
+    // than as further instructions to the prompt.
+    expect(user).toContain(`"""\n${question}\n"""`)
+    // Precedence is stated, because the listening purpose above it tells the
+    // model to write exactly the general ask this replaces.
+    expect(user).toContain('in place of the general question described above')
+  })
+
+  it('asks nothing extra when no question is given', async () => {
+    mockPoints()
+
+    await postDraft(draftBody())
+
+    expect(promptOf('user')).not.toContain('The question this effort')
+  })
+
+  // Whitespace-only is absent, not a violation — the same transform
+  // `instructions` carries, for the same reason.
+  it('treats a blank question as absent', async () => {
+    mockPoints()
+
+    const res = await postDraft(draftBody({ communityInputQuestion: '   ' }))
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(promptOf('user')).not.toContain('The question this effort')
+  })
+
   // The whole point of a separate Serve rail: this person already holds the
   // office, so nothing may frame the walk as a campaign or an election.
   it('frames the walk as constituent service, never a campaign', async () => {

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
+import { COMMUNITY_INPUT_QUESTION_MAX_LENGTH } from './OutreachPurpose.schema'
 import {
   PhoneBankingPurposeSchema,
   type PhoneBankingPurpose,
@@ -76,6 +77,18 @@ export const ServePhoneBankingScriptDraftRequestSchema = z
       .string()
       .trim()
       .max(PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH)
+      .transform((v) => (v.length === 0 ? undefined : v))
+      .optional(),
+    // What this effort is trying to learn, for the one purpose that asks a
+    // question. Sent rather than read server-side because the list does not
+    // exist yet at draft time — it is created at the end of the flow. Serve
+    // only, since `community_input` is a Serve purpose; optional, so every
+    // other purpose's request is unchanged. Same whitespace-as-absent
+    // transform as `instructions` above, for the same reason.
+    communityInputQuestion: z
+      .string()
+      .trim()
+      .max(COMMUNITY_INPUT_QUESTION_MAX_LENGTH)
       .transform((v) => (v.length === 0 ? undefined : v))
       .optional(),
   })

@@ -525,6 +525,11 @@ export const PhoneBankingFlow = ({
     if (nextPurpose === 'custom' && currentDraft === undefined) return
     const requestId = ++draftRequestRef.current
     const trimmedInstructions = instructionsOverride.trim()
+    // Read here and passed as a variable, the way `instructions` is: the
+    // question is what a community-input effort exists to ask, so the script
+    // has to close on it rather than on a generic issue question.
+    const askedQuestion =
+      nextPurpose === COMMUNITY_INPUT_PURPOSE ? question.trim() : ''
     draftMutate(
       {
         purpose: nextPurpose,
@@ -534,6 +539,9 @@ export const PhoneBankingFlow = ({
         ...(trimmedInstructions === ''
           ? {}
           : { instructions: trimmedInstructions }),
+        ...(askedQuestion === ''
+          ? {}
+          : { communityInputQuestion: askedQuestion }),
       },
       {
         onSuccess: (generated) => {
@@ -564,7 +572,12 @@ export const PhoneBankingFlow = ({
     // earlier community-input pick would sail through as this effort's.
     setQuestion('')
     setStepId(selected === COMMUNITY_INPUT_PURPOSE ? 'question' : 'who')
-    requestDraft(selected, 'warm', undefined, undefined, '')
+    // Every other purpose is fully specified by this pick, so it drafts now.
+    // Community input is not: its question is the next step, and a script
+    // drafted here would be written before the one thing it has to ask.
+    if (selected !== COMMUNITY_INPUT_PURPOSE) {
+      requestDraft(selected, 'warm', undefined, undefined, '')
+    }
   }
 
   const handleToneChange = (nextTone: SocialTone) => {
@@ -729,7 +742,17 @@ export const PhoneBankingFlow = ({
       : stepId === 'question'
         ? {
             label: 'Continue',
-            onClick: () => setStepId('who'),
+            onClick: () => {
+              setStepId('who')
+              // The draft deferred at the purpose pick, now that there is a
+              // question to write it from. Never over an edited script: a
+              // walkback to change the question must not throw away wording
+              // the official has already made theirs — Regenerate is how they
+              // ask for a rewrite.
+              if (!scriptManuallyEdited) {
+                requestDraft(purpose, tone, undefined, undefined, instructions)
+              }
+            },
             // Required by contract, so a blank question would 400 on save
             // several steps later with nothing on screen explaining why.
             disabled: question.trim().length === 0,
