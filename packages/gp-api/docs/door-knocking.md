@@ -937,6 +937,8 @@ server excludes, and the candidate drew over dots that really are there.
 One user hit this six times in 62 seconds — redrawing the boundary, which
 is what the message asks for and what cannot help.
 
+**The knock-time exclusions are fixed too**, and without a format bump: do-not-knock (ADR 0007) and not-a-voter (ADR 0008) ride in as `excludedPersonIds` on the pack request and become the `knockable` plane, a third per-organization dim beside `canvassStatus` and `contactsMade`. It is a MASK and not a filter — `runFilter` and `polygonStats` drop byte-0 people unconditionally, nothing selects it, and it needs no filter-catalog entry, which is the review ADR 0007 deferred. Absent means do not suppress: a plane of yeses would claim every door is open, which is the wrong way to be wrong about somebody who asked not to be knocked.
+
 **Precinct is fixed** (format revision 6): the pack carries a `precinct`
 dim keyed on `encodePrecinctPair`'s `county|precinct`, the same strings
 `VoterFileFilter.precincts` stores. It is the format's first non-u8 plane,
@@ -1459,8 +1461,8 @@ time evaluates the real ranges, so a bucket that is a near-miss for a key gives
 a map whose count disagrees with the list it is previewing — the
 two-denominator failure [ADR 0010](adr/0010-draw-time-address-preview.md)
 forbids. The old buckets did this twice: `age50_64` shaded `50_plus` (every 65+
-door the list would skip) and `age65Plus` had nowhere to map at all, which is
-what the disclosure sentence used to name.
+door the list would skip) and `age65Plus` had nowhere to map at all, so
+neither key narrowed the preview at all.
 
 So contracts' `PackAgeBuckets.ts` **cuts at every boundary either generation
 uses**, and derives the buckets from `AGE_FILTER_KEY_RANGES` rather than
@@ -1600,9 +1602,8 @@ resolving a contacts-made filter for a real query gives up: above it the
 filter cannot be applied at knock time either. Truncating would read the
 dropped people as "0 prior contacts", which is the bucket candidates select
 most and the one answer that must never be invented. Absent, the dim never
-reaches the manifest, and the webapp's existing unpreviewable-filter
-disclosure names the filter it cannot shade — the same path any missing dim
-takes. **An empty array is not the same thing**: it is an organization that
+reaches the manifest and the selection simply does not narrow — the same
+path any missing dim takes. **An empty array is not the same thing**: it is an organization that
 has contacted nobody, whose map genuinely can shade "0 prior contacts" as
 everyone.
 

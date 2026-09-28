@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyLoggedKnocks, runFilter } from './filterEngine'
+import { applyLoggedKnocks, polygonStats, runFilter } from './filterEngine'
 import type { DecodedPack, LoggedKnock } from './packDecoder'
 
 // Two dots, three households, four people. Dot 0 carries households 0 and 1
@@ -110,5 +110,73 @@ describe('applyLoggedKnocks', () => {
 
     expect(result.people).toBe(4)
     expect(result.households).toBe(3)
+  })
+})
+
+describe('the knockable mask', () => {
+  // Do-not-knock (ADR 0007) and not-a-voter (ADR 0008) are suppression, not
+  // criteria: every server-side evaluation drops these people before it
+  // counts anything, and the map was the last surface still drawing them.
+  // So the plane is read here as a mask rather than through `selections` —
+  // nothing selects it and there is no pill to clear.
+  const suppressing = (plane: number[]): DecodedPack => {
+    const decoded = pack()
+    decoded.manifest.dims = [
+      ...decoded.manifest.dims,
+      { key: 'knockable', values: ['No', 'Yes'] },
+    ]
+    decoded.dimPlanes.set('knockable', new Uint8Array(plane))
+    return decoded
+  }
+
+  // The whole ring, so the only thing that can change the counts is the mask.
+  const ring: Array<[number, number]> = [
+    [-88, 41],
+    [-87, 41],
+    [-87, 42],
+    [-88, 42],
+  ]
+
+  it('drops suppressed people from the district counts', () => {
+    // Person 0 is flagged. They share household 0 with person 1, so the
+    // household survives and only the person count moves — which is the
+    // point: a door with somebody else behind it is still a door.
+    const before = runFilter(pack(), new Map())
+    const after = runFilter(suppressing([0, 1, 1, 1]), new Map())
+
+    expect(before.people).toBe(4)
+    expect(after.people).toBe(3)
+    expect(after.households).toBe(3)
+  })
+
+  it('drops a household once every person behind it is suppressed', () => {
+    // Both residents of household 0 flagged. Nobody is left to knock, so the
+    // door goes too, and with it the dot's share of the count.
+    const after = runFilter(suppressing([0, 0, 1, 1]), new Map())
+
+    expect(after.people).toBe(2)
+    expect(after.households).toBe(2)
+    expect(Array.from(after.matchedPerDot)).toEqual([1, 1])
+  })
+
+  it('drops them from a drawn turf as well as the district', () => {
+    // The two counts are read by different surfaces — the who step's total
+    // and the draw step's stops — and a mask applied to one only would put
+    // them back in disagreement.
+    const before = polygonStats(pack(), new Map(), ring)
+    const after = polygonStats(suppressing([0, 0, 1, 1]), new Map(), ring)
+
+    expect(before.people).toBe(4)
+    expect(after.people).toBe(2)
+    expect(after.households).toBe(2)
+    expect(after.stops).toBe(2)
+  })
+
+  it('suppresses nobody when the pack carries no plane', () => {
+    // Absent means gp-api could not answer, and the honest fallback is the
+    // status quo rather than hiding doors on a guess. The walk still drops
+    // these people, because its route was frozen server-side.
+    expect(runFilter(pack(), new Map()).people).toBe(4)
+    expect(polygonStats(pack(), new Map(), ring).people).toBe(4)
   })
 })

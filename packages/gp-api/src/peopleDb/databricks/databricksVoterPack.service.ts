@@ -9,6 +9,7 @@ import csvParser from 'csv-parser'
 import { DoorKnockingPackRequest } from '@goodparty_org/contracts'
 import {
   contactsMadeToBytes,
+  excludedToSet,
   PackEncoder,
   PackRow,
   statusesToBytes,
@@ -94,6 +95,7 @@ export class DatabricksVoterPackService {
     const encoder = new PackEncoder(
       statusesToBytes(request.knockStatuses ?? []),
       contactsMadeToBytes(request.contactsMade),
+      excludedToSet(request.excludedPersonIds),
     )
 
     try {

@@ -189,7 +189,6 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     drawPointCount={3}
     onStartKnocking={onStartKnocking}
     isServeOrg={false}
-    unpreviewableKeys={[]}
     orgSlug="campaign-9"
     turfDrafts={[]}
     draftStats={new Map()}
