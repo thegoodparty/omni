@@ -158,7 +158,7 @@ Soft-delete is **not reversible** through our API. If a user wants to start a fr
 
 ## Models
 
-The model fallback chain is `claude-sonnet-4-6` → `claude-opus-4-7`. Hardcoded in `src/chats/briefing-chats/services/briefing-chats.service.ts` (`BRIEFING_CHAT_MODELS`). Client doesn't pick the model.
+The model fallback chain is `claude-sonnet-4-6` → `claude-opus-4-7`. Hardcoded in `src/chats/briefing-chats/briefingAnnotation.handler.ts` (`BRIEFING_CHAT_MODELS`). Client doesn't pick the model.
 
 ## Example consumer (vanilla fetch + SSE parse)
 

@@ -110,10 +110,15 @@ to rendering the partial locally.
 `loadContext / buildSystemPrompt / buildTools`. Handlers register through the
 `CHAT_SCOPE_HANDLERS` DI token — adding a scope needs no controller/service
 change. `ChatScopeRegistry` **fails closed**: any `isSensitive` scope must use
-only `claude`-routed models, so tool outputs never leave Anthropic. Today
-**`chief_of_staff`, `campaign_assistant` and `ordinance_flow` are registered**;
-`briefing_annotation` exists as a `ChatScope` enum value but briefing chat still
-runs through its own dedicated controller/service. Handlers may also declare an
+only `claude`-routed models, so tool outputs never leave Anthropic. **All four
+scopes are registered** — `chief_of_staff`, `campaign_assistant`,
+`ordinance_flow` and `briefing_annotation`. Briefing chat keeps its own
+`:annotationId` routes, but its context, prompt and tools come from
+`BriefingAnnotationHandler`, which `BriefingChatsService` builds once and the
+module republishes for the registry. Its `resolveConversation` rejects: a
+briefing conversation is created with its `Annotation` in one transaction
+(`POST /v1/briefing-chats`), so the generic create path cannot produce a usable
+one. Handlers may also declare an
 optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8).
 
 **The session model is shared, and stays that way.** `GeneralChatsService.

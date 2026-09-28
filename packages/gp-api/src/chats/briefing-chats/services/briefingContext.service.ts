@@ -112,6 +112,26 @@ export class BriefingContextService extends createPrismaBase(
     }
   }
 
+  // The scope-handler entry: the shared chat interface keys on a
+  // conversationId, briefing chat on an annotationId. Annotation
+  // .chatConversationId is @unique, so this resolves to at most one annotation.
+  async loadContextByConversation(
+    conversationId: string,
+    userId: number,
+  ): Promise<BriefingContextResult> {
+    const annotation = await this.findFirst({
+      where: { chatConversationId: conversationId, authorUserId: userId },
+    })
+    if (!annotation) {
+      this.logger.warn(
+        { conversationId, userId },
+        'briefing context rejected: no annotation for conversation',
+      )
+      throw new NotFoundException('Annotation not found')
+    }
+    return this.loadContext(annotation.id, userId)
+  }
+
   private async loadUser(userId: number): Promise<BriefingContextUser | null> {
     const u = await this.client.user.findUnique({
       where: { id: userId },

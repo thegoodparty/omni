@@ -123,7 +123,8 @@ to read the verdict: `packages/gp-api/src/chats/evals/judge/README.md`.
   for every background run.
 - **Manifest** — the S3-published definition of an experiment.
 - **Chat scope** — the interactive-side abstraction (`ChatScopeHandler`) for a kind
-  of chat; today only `chief_of_staff` is registered.
+  of chat; `chief_of_staff`, `campaign_assistant`, `ordinance_flow` and
+  `briefing_annotation` are registered.
 
 ## Pointers
 
