@@ -96,6 +96,21 @@ const criterionValues = (
   return Array.isArray(value) ? value : []
 }
 
+// A saved list's precinct pairs, as the encoded `county|precinct` strings the
+// pack's precinct dim uses for its own vocabulary.
+//
+// Separate from `savedListUnshadeableCriteria`, which answers the WIRE
+// question — what to send gp-api — and hands back an untyped bag because the
+// three clauses in it have three different shapes. This answers the MAP's
+// question, and the map needs a `string[]` it can match against `dim.values`
+// without a cast.
+export const savedListPrecincts = (
+  list: SegmentResponse | undefined,
+): string[] =>
+  criterionValues(list, 'precincts').filter(
+    (value): value is string => typeof value === 'string',
+  )
+
 // A saved list's own selections, as the boolean option keys the pack preview
 // speaks. The backend stores income and language as string arrays rather than
 // booleans, so both have to be re-expanded or a scoped preview silently
