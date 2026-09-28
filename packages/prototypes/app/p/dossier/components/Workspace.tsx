@@ -23,7 +23,18 @@ export const Workspace = (): React.JSX.Element => {
   const [played, setPlayed] = useState<string[]>([])
   const [outreachSent, setOutreachSent] = useState(false)
   const [sending, setSending] = useState(false)
+  const outreachTimer = useRef<number | null>(null)
   const { turns, busy, say, play, reset } = useConversation()
+
+  // A pending send must not outlive the component either.
+  useEffect(
+    () => () => {
+      if (outreachTimer.current !== null) {
+        window.clearTimeout(outreachTimer.current)
+      }
+    },
+    [],
+  )
 
   // The opening turn, once.
   const opened = useRef(false)
@@ -70,7 +81,8 @@ export const Workspace = (): React.JSX.Element => {
   const sendOutreach = useCallback((): void => {
     if (outreachSent || sending) return
     setSending(true)
-    window.setTimeout(() => {
+    outreachTimer.current = window.setTimeout(() => {
+      outreachTimer.current = null
       setSending(false)
       setOutreachSent(true)
       setSections((prev) =>
@@ -90,6 +102,14 @@ export const Workspace = (): React.JSX.Element => {
   }, [outreachSent, sending, play])
 
   const resetAll = useCallback((): void => {
+    // The send lands on a timer, and its callback writes sections and
+    // outreachSent directly rather than through play(), so the generation
+    // guard does not cover it. Without this the callback fires into the fresh
+    // conversation and re-sends outreach nobody asked for.
+    if (outreachTimer.current !== null) {
+      window.clearTimeout(outreachTimer.current)
+      outreachTimer.current = null
+    }
     reset()
     setSections(INITIAL_SECTIONS)
     setPlayed([])
