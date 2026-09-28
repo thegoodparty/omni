@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { subHours } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { setTimeout as sleep } from 'timers/promises'
 import {
@@ -34,9 +35,24 @@ import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 // handled message (nightly10DlcReport pattern), so exactly one replica scans.
 const CV_STATUS_SCAN_CRON = '0 8,20 * * *'
 
+// The fresh-submission fast poll: CV usually approves within hours of
+// submit_cv and emails/texts the PIN immediately, but the twice-daily scan
+// meant the "your PIN is on the way" HubSpot notice could lag ~12h — often
+// firing after the candidate had already entered the PIN. Polling only the
+// records submitted in the last FRESH_WINDOW_HOURS (a handful at any time,
+// FRESH_SCAN_RECORD_CAP as the runaway backstop) every 30 minutes stays
+// within spitting distance of the vendor-agreed budget; a slot overlapping
+// a running full scan can transiently reach 2 calls/min, bounded by the cap.
+const FRESH_CV_POLL_CRON = '9,39 * * * *'
+const FRESH_WINDOW_HOURS = 48
+const FRESH_SCAN_RECORD_CAP = 15
+
 // ET date-hour of the cron slot — both the FIFO deduplicationId suffix and
 // the log correlation key.
 const SCAN_SLOT_FORMAT = 'yyyy-MM-dd-HH'
+
+// The fresh poll fires twice an hour, so its slot key needs the minute.
+const FRESH_SLOT_FORMAT = 'yyyy-MM-dd-HH-mm'
 
 // Peerly's requested absolute rate limit for retrieve_cv: 1 call/minute
 // regardless of identity (60 identities take 60 minutes). Env-overridable so
@@ -124,6 +140,39 @@ export class CvStatusPollService extends createPrismaBase(
     }
   }
 
+  @Cron(FRESH_CV_POLL_CRON, {
+    name: 'cvStatusPollFreshScan',
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async triggerFreshScan() {
+    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+      return
+    }
+    const scanKey = formatInTimeZone(
+      new Date(),
+      EASTERN_TIMEZONE,
+      FRESH_SLOT_FORMAT,
+    )
+    try {
+      await this.queueService.sendMessage(
+        {
+          type: QueueType.CV_STATUS_POLL,
+          data: { scanKey, fresh: true },
+        },
+        MessageGroup.cvStatusPoll,
+        {
+          deduplicationId: `cvStatusPollFresh-${scanKey}`,
+          throwOnError: true,
+        },
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, scanKey },
+        '[CV fresh poll] Failed to enqueue fresh scan message',
+      )
+    }
+  }
+
   // Called by the queue consumer. The paced scan (~1 minute per record)
   // cannot be awaited here: it would outlive the SQS visibility timeout
   // (300s, deploy/index.ts) and redeliver mid-run, spawning a duplicate
@@ -131,11 +180,77 @@ export class CvStatusPollService extends createPrismaBase(
   // remove. So the handler acks immediately and the scan runs detached; a
   // process restart mid-scan leaves the tail for the next slot (records are
   // polled oldest-touched first, so the tail is not starved).
-  handleCvStatusPoll({ scanKey }: CvStatusPollMessage): boolean {
-    void this.runScan(scanKey).catch((err: Error) =>
+  handleCvStatusPoll({ scanKey, fresh }: CvStatusPollMessage): boolean {
+    const scan = fresh ? this.runFreshScan(scanKey) : this.runScan(scanKey)
+    void scan.catch((err: Error) =>
       this.logger.error({ err, scanKey }, '[CV status scan] Scan failed'),
     )
     return true
+  }
+
+  // The fast-lane counterpart of runScan: same per-record pipeline
+  // (pollCvRecord → applyCvDetection → status persist), same pacing, but
+  // scoped to recent submissions that have no PIN detected yet — the window
+  // where a prompt CompliancePinSent actually changes what the candidate
+  // gets told. Everything older stays on the twice-daily scan's budget.
+  async runFreshScan(scanKey: string) {
+    const freshCandidates: RecordWithCampaignUser[] = await this.model.findMany(
+      {
+        where: {
+          campaign: scannableCampaign,
+          peerlyIdentityId: { not: null },
+          pinSentDetectedAt: null,
+          peerlySubmissionStartedAt: {
+            gte: subHours(new Date(), FRESH_WINDOW_HOURS),
+          },
+          status: {
+            in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+          },
+          OR: [
+            { peerlyCvStatus: null },
+            {
+              peerlyCvStatus: {
+                in: [
+                  PeerlyCvVerificationStatus.REQUESTED,
+                  PeerlyCvVerificationStatus.IN_REVIEW,
+                  PeerlyCvVerificationStatus.APPROVED,
+                ],
+              },
+            },
+          ],
+        },
+        include: { campaign: { include: { user: true } } },
+        orderBy: { updatedAt: Prisma.SortOrder.asc },
+      },
+    )
+    if (freshCandidates.length > FRESH_SCAN_RECORD_CAP) {
+      this.logger.warn(
+        {
+          total: freshCandidates.length,
+          polled: FRESH_SCAN_RECORD_CAP,
+          scanKey,
+        },
+        '[CV fresh poll] Fresh backlog exceeds per-scan cap',
+      )
+    }
+    for (const record of freshCandidates.slice(0, FRESH_SCAN_RECORD_CAP)) {
+      try {
+        await this.pollCvRecord(record)
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id, scanKey },
+          '[CV fresh poll] CV poll failed for record',
+        )
+      }
+      await sleep(RETRIEVE_CV_SPACING_MS)
+    }
+    this.logger.info(
+      {
+        scanKey,
+        freshPolled: Math.min(freshCandidates.length, FRESH_SCAN_RECORD_CAP),
+      },
+      '[CV fresh poll] Fresh scan complete',
+    )
   }
 
   async runScan(scanKey: string) {
