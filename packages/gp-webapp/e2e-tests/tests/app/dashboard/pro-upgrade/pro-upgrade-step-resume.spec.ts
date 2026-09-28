@@ -5,6 +5,7 @@ import {
 } from 'src/helpers/navigation.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import {
+  pinPrePaymentWizard,
   seedEinAndFiled,
   seedFilingComplete,
 } from 'src/helpers/pro-upgrade.helper'
@@ -35,6 +36,7 @@ type CampaignWizardState = {
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
+  await pinPrePaymentWizard(page)
 })
 
 test.describe('pro-upgrade step derivation & resume', () => {

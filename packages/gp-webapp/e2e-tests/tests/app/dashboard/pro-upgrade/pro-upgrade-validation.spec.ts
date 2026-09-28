@@ -5,6 +5,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import {
+  pinPrePaymentWizard,
   seedEinAndFiled,
   seedFilingComplete,
 } from 'src/helpers/pro-upgrade.helper'
@@ -37,6 +38,7 @@ type CampaignEinState = {
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
+  await pinPrePaymentWizard(page)
 })
 
 test.describe('pro-upgrade front-end validation gates', () => {

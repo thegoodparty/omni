@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
 import { addYears, format } from 'date-fns'
 import { eventually } from 'tests/utils/eventually'
+import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
 // Seed helpers for the pre-payment Pro-upgrade wizard. These write the same
 // canonical state the wizard steps persist, hitting the same gp-api endpoints,
@@ -10,6 +11,31 @@ import { eventually } from 'tests/utils/eventually'
 //
 // Live in src/helpers/ (not app/) per e2e-tests/CLAUDE.md: this dir is a
 // separate workspace with no Next runtime, so it must not import app code.
+
+// Pin the wizard these specs assert to the one the flag is off for.
+//
+// `outreach-pro-gating-v2` selects a DIFFERENT wizard, not a variation of this
+// one: `deriveProUpgradeStep` short-circuits to `guidance` on its first line
+// when `purchaseOnly` is true, and filing details and the candidate profile
+// move behind payment into campaign verification. So with the flag on, every
+// step this file seeds toward is unreachable and the dashboard's Get Pro
+// button is a membership banner instead. The specs are about the value-prop
+// order, so they say which order they mean.
+//
+// Every spec in tests/app/dashboard/pro-upgrade calls this. They read the live
+// dev rollout until they do, which is how all five went red at once on
+// 2026-09-28 when the flag reached 100% — a flag move on another team's
+// schedule stopped the release train, because nothing between it and these
+// assertions said which wizard was under test. outreach-hub.spec.ts pins the
+// same flag on both sides and carries the rule this follows: force the flag,
+// don't depend on Amplitude.
+//
+// This does NOT cover the purchase-only wizard, which is what candidates now
+// get. That coverage is the rollout's to add and is tracked separately; it
+// would be a different set of assertions, not this set with the pin flipped.
+export const pinPrePaymentWizard = async (page: Page): Promise<void> => {
+  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'off' })
+}
 
 // A shape-valid, sanity-passing EIN (prefix 47 is an IRS-issued prefix; not a
 // placeholder / all-same-digit value), so `checkEinSanity` treats it as a real

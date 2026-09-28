@@ -5,6 +5,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
+import { pinPrePaymentWizard } from 'src/helpers/pro-upgrade.helper'
 
 // The "not yet filed" dead-end (FilingStatusStep → FilingInstructionsStep)
 // hits no Stripe/webhook, so it runs on every PR preview (not @dev-only). The
@@ -14,6 +15,7 @@ import { waitForDashboardReady } from 'src/helpers/dashboard'
 test.describe('Pro upgrade — not-yet-filed dead-end', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    await pinPrePaymentWizard(page)
   })
 
   test('routes "No, not yet" to filing-instructions, emails it, and exits to dashboard', async ({

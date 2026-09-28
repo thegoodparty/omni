@@ -5,6 +5,7 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
+import { pinPrePaymentWizard } from 'src/helpers/pro-upgrade.helper'
 
 // Scoped to non-Pro (read-only cached user, no paid user minted); the
 // Pro/banner-hidden inverse is asserted in the Pro happy-path spec, per
@@ -12,6 +13,7 @@ import { waitForDashboardReady } from 'src/helpers/dashboard'
 test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    await pinPrePaymentWizard(page)
   })
 
   test('shows the Get Pro banner and routes locked items into the wizard', async ({

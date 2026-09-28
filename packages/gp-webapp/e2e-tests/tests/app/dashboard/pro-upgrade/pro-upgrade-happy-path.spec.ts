@@ -7,6 +7,7 @@ import {
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
+import { pinPrePaymentWizard } from 'src/helpers/pro-upgrade.helper'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
 // funnel through an embedded Stripe subscription to Pro, then lands on the
@@ -36,6 +37,7 @@ type TcrComplianceMine = { status?: string | null }
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
+  await pinPrePaymentWizard(page)
 })
 
 test('filed candidate upgrades to Pro and reaches the post-payment PIN state @dev-only', async ({
