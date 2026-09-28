@@ -67,7 +67,11 @@ export class OutreachProposalService {
     // the whole tenancy boundary — the body must not be able to hang this
     // send off someone else's.
     const priority = await this.priorities.findFirst({
-      where: { id: input.priorityId, electedOfficeId: electedOffice.id },
+      where: {
+        id: input.priorityId,
+        electedOfficeId: electedOffice.id,
+        archivedAt: null,
+      },
       select: { id: true },
     })
     if (!priority) {

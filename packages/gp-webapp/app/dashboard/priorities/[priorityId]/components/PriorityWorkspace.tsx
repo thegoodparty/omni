@@ -38,6 +38,7 @@ import {
   parseStatusToolResult,
   parseStatusUpdate,
 } from '../data/statusUpdates'
+import { priorityToolLabel } from '../data/toolLabels'
 import { PriorityStatusRail } from './PriorityStatusRail'
 import {
   TurnBlocks,
@@ -118,7 +119,7 @@ export const PriorityWorkspace = ({
     sending,
     send: sendTurn,
   } = useStreamingTurn(priorityFlowChatApi, {
-    toolLabel: () => null,
+    toolLabel: priorityToolLabel,
     onTurnStart: () => {
       setStreamError(null)
       setLiveExtras([])
