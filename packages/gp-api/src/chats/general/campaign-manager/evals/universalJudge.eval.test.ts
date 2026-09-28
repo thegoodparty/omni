@@ -2,7 +2,8 @@
  * The evergreen universal-judge bench, run against the Campaign Manager
  * through Braintrust.
  *
- * Deliberately untracked. An untracked file survives `git checkout`, so the
+ * Committed so CI can run it. To compare two commits on a laptop instead,
+ * keep a copy untracked: an untracked file survives `git checkout`, so the
  * same bench and the same judge run against both commits under comparison
  * without either tree carrying the pilot.
  *
@@ -16,6 +17,7 @@
  */
 import path from 'node:path'
 import { execSync } from 'node:child_process'
+import { appendFileSync, writeFileSync } from 'node:fs'
 import { describe, it } from 'vitest'
 import { config as loadEnv } from 'dotenv'
 
@@ -25,7 +27,11 @@ import { config as loadEnv } from 'dotenv'
 loadEnv({ path: path.resolve(process.cwd(), '.env.test') })
 loadEnv({ path: path.resolve(process.cwd(), '.env'), override: true })
 
-import { Eval } from 'braintrust'
+import {
+  Eval,
+  type ExperimentSummary,
+  type ScoreSummary,
+} from 'braintrust'
 import { ForbiddenException } from '@nestjs/common'
 import { z } from 'zod'
 import type { Organization } from '../../../../generated/prisma'
@@ -520,11 +526,91 @@ const runBench = () =>
 const RUN = process.env.RUN_LLM_EVALS === '1'
 const d = RUN ? describe : describe.skip
 
+const pct = (n: number): string => `${(n * 100).toFixed(1)}%`
+const pts = (n: number | undefined): string =>
+  n === undefined ? '-' : n === 0 ? 'flat' : `${n > 0 ? '+' : ''}${(n * 100).toFixed(1)} pts`
+
+// Renders the experiment as markdown for the GitHub Actions job summary, so
+// the result is readable on the run page without a Braintrust account. The
+// numbers are the SDK's own summary object, not scraped stdout.
+const renderReport = (summary: ExperimentSummary, sha: string): string => {
+  // The record key is the score name; fall back to it so a missing `name`
+  // cannot quietly blank the table.
+  const all: ScoreSummary[] = Object.entries(summary.scores).map(
+    ([key, sc]) => ({ ...sc, name: sc.name ?? key }),
+  )
+  const overall = all.find((sc) => sc.name === 'overall')
+  const dims = all
+    .filter((sc) => sc.name !== 'overall' && sc.name !== 'judge_parse_failed')
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const parseFailed = all.find((sc) => sc.name === 'judge_parse_failed')
+
+  const row = (sc: ScoreSummary): string =>
+    `| ${sc.name} | ${pct(sc.score)} | ${pts(sc.diff)} | ${sc.improvements || '-'} | ${sc.regressions || '-'} |`
+
+  const lines = [
+    '## Universal judge bench',
+    '',
+    `Commit \`${sha}\`. Experiment \`${summary.experimentName}\`` +
+      (summary.experimentUrl ? ` ([open in Braintrust](${summary.experimentUrl}))` : ''),
+    '',
+    summary.comparisonExperimentName
+      ? `Compared against baseline \`${summary.comparisonExperimentName}\`.`
+      : 'No baseline. This is the first experiment in the project.',
+    '',
+    '| Dimension | Score | Change | Improved | Regressed |',
+    '| --- | ---: | ---: | ---: | ---: |',
+    ...(overall ? [row(overall).replace('| overall |', '| **overall** |')] : []),
+    ...dims.map(row),
+    '',
+  ]
+
+  if (parseFailed && parseFailed.score > 0) {
+    lines.push(
+      `> The judge returned unparseable output on ${pct(parseFailed.score)} of cases.`,
+      '> Treat the scores above as incomplete.',
+      '',
+    )
+  }
+
+  lines.push(
+    '<details><summary>How to read this</summary>',
+    '',
+    'Each case is scored on the dimensions it names, not on one aggregate, so a',
+    'change should move the dimension it is about and leave the others flat. A',
+    'dimension that stays flat is a result, not a gap.',
+    '',
+    'One run per case. A single case flipping moves a dimension that only one or',
+    'two cases score by a large amount, so direction is meaningful here and',
+    'magnitude is not. Repeat runs before treating any figure as settled.',
+    '',
+    'Braintrust makes the most recent run the comparison and the previous one the',
+    'baseline. Dispatching the older commit second reads as a regression. Set the',
+    'baseline deliberately when reading the Braintrust UI.',
+    '',
+    '</details>',
+    '',
+  )
+  return lines.join('\n')
+}
+
 d('campaign manager: universal judge evergreen bench', () => {
   it(
     'runs the bench and pushes the experiment to Braintrust',
     async () => {
-      await runBench()
+      const { summary } = await runBench()
+      const report = renderReport(summary, headSha)
+
+      // On a runner this lands on the run page. Locally it is a file to open.
+      const stepSummary = process.env.GITHUB_STEP_SUMMARY
+      if (stepSummary) {
+        appendFileSync(stepSummary, report)
+      } else {
+        const out = `/tmp/bench-summary-${headSha}.md`
+        writeFileSync(out, report)
+        // vitest hides console output from passing tests, so say it via the path.
+        writeFileSync('/tmp/bench-summary-latest.txt', out)
+      }
     },
     20 * 60 * 1000,
   )

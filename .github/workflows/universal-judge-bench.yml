@@ -120,3 +120,19 @@ jobs:
           export BRAINTRUST_API_KEY
           npx vitest run --config vitest.nodb.config.ts \
             src/chats/general/campaign-manager/evals/universalJudge.eval.test.ts
+
+          # The eval writes its own scored report to the job summary. The
+          # wiring output goes underneath it, so a reader can see the bench
+          # drove real code before deciding whether to believe the scores.
+          WIRING="/tmp/wiring-$(git rev-parse --short HEAD).txt"
+          if [ -f "$WIRING" ]; then
+            {
+              echo '<details><summary>Wiring check: what the real handler produced at this commit</summary>'
+              echo
+              echo '```'
+              cat "$WIRING"
+              echo '```'
+              echo
+              echo '</details>'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
