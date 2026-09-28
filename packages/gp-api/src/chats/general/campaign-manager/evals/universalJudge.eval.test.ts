@@ -30,6 +30,7 @@ loadEnv({ path: path.resolve(process.cwd(), '.env'), override: true })
 import {
   Eval,
   type ExperimentSummary,
+  type MetricSummary,
   type ScoreSummary,
 } from 'braintrust'
 import { ForbiddenException } from '@nestjs/common'
@@ -526,67 +527,107 @@ const runBench = () =>
 const RUN = process.env.RUN_LLM_EVALS === '1'
 const d = RUN ? describe : describe.skip
 
-const pct = (n: number): string => `${(n * 100).toFixed(1)}%`
-const pts = (n: number | undefined): string =>
-  n === undefined ? '-' : n === 0 ? 'flat' : `${n > 0 ? '+' : ''}${(n * 100).toFixed(1)} pts`
+const pct = (n: number): string => `${(n * 100).toFixed(2)}%`
+const signed = (n: number, suffix: string): string =>
+  `${n > 0 ? '+' : ''}${n.toFixed(2)}${suffix}`
 
-// Renders the experiment as markdown for the GitHub Actions job summary, so
-// the result is readable on the run page without a Braintrust account. The
-// numbers are the SDK's own summary object, not scraped stdout.
+// Transcribes Braintrust's own ExperimentSummary into the job summary. This is
+// the same object the SDK's default reporter prints the console table from, so
+// there is one source of truth rather than a second opinion about the run.
+//
+// Every score and every metric Braintrust returns is listed, in Braintrust's
+// naming and its alphabetical order. Nothing is filtered or reordered, because
+// a report that silently drops a row is worse than no report. The raw payload
+// is attached underneath so any row can be checked against it.
+//
+// The only editorial content is the "How to read this" note, which is labelled
+// as ours and contains no numbers.
 const renderReport = (summary: ExperimentSummary, sha: string): string => {
-  // The record key is the score name; fall back to it so a missing `name`
-  // cannot quietly blank the table.
-  const all: ScoreSummary[] = Object.entries(summary.scores).map(
+  const scores: ScoreSummary[] = Object.entries(summary.scores).map(
     ([key, sc]) => ({ ...sc, name: sc.name ?? key }),
   )
-  const overall = all.find((sc) => sc.name === 'overall')
-  const dims = all
-    .filter((sc) => sc.name !== 'overall' && sc.name !== 'judge_parse_failed')
-    .sort((a, b) => a.name.localeCompare(b.name))
-  const parseFailed = all.find((sc) => sc.name === 'judge_parse_failed')
+  const metrics: MetricSummary[] = Object.entries(summary.metrics ?? {}).map(
+    ([key, m]) => ({ ...m, name: m.name ?? key }),
+  )
+  const byName = <T extends { name: string }>(a: T, b: T): number =>
+    a.name.localeCompare(b.name)
 
-  const row = (sc: ScoreSummary): string =>
-    `| ${sc.name} | ${pct(sc.score)} | ${pts(sc.diff)} | ${sc.improvements || '-'} | ${sc.regressions || '-'} |`
+  const counts = (o: { improvements: number; regressions: number }): string =>
+    `| ${o.improvements || '-'} | ${o.regressions || '-'} |`
 
   const lines = [
     '## Universal judge bench',
     '',
-    `Commit \`${sha}\`. Experiment \`${summary.experimentName}\`` +
-      (summary.experimentUrl ? ` ([open in Braintrust](${summary.experimentUrl}))` : ''),
+    `Commit \`${sha}\`. Experiment \`${summary.experimentName}\` in project ` +
+      `\`${summary.projectName}\`` +
+      (summary.experimentUrl
+        ? `. [Open in Braintrust](${summary.experimentUrl})`
+        : '.'),
     '',
     summary.comparisonExperimentName
-      ? `Compared against baseline \`${summary.comparisonExperimentName}\`.`
+      ? `Baseline \`${summary.comparisonExperimentName}\` <- comparison \`${summary.experimentName}\`.`
       : 'No baseline. This is the first experiment in the project.',
     '',
-    '| Dimension | Score | Change | Improved | Regressed |',
+    '### Scores',
+    '',
+    '| Name | Value | Change | Improvements | Regressions |',
     '| --- | ---: | ---: | ---: | ---: |',
-    ...(overall ? [row(overall).replace('| overall |', '| **overall** |')] : []),
-    ...dims.map(row),
+    ...scores
+      .sort(byName)
+      .map(
+        (sc) =>
+          `| ${sc.name} | ${pct(sc.score)} | ` +
+          `${sc.diff === undefined ? '-' : signed(sc.diff * 100, '%')} ` +
+          counts(sc),
+      ),
     '',
   ]
 
-  if (parseFailed && parseFailed.score > 0) {
+  if (metrics.length > 0) {
     lines.push(
-      `> The judge returned unparseable output on ${pct(parseFailed.score)} of cases.`,
-      '> Treat the scores above as incomplete.',
+      '### Metrics',
+      '',
+      '| Name | Value | Change | Improvements | Regressions |',
+      '| --- | ---: | ---: | ---: | ---: |',
+      ...metrics
+        .sort(byName)
+        .map(
+          (m) =>
+            `| ${m.name} | ${m.metric.toFixed(2)}${m.unit} | ` +
+            `${m.diff === undefined ? '-' : signed(m.diff * 100, '%')} ` +
+            counts(m),
+        ),
       '',
     )
   }
 
   lines.push(
-    '<details><summary>How to read this</summary>',
+    '<details><summary>How to read this (our note, not Braintrust\'s)</summary>',
     '',
-    'Each case is scored on the dimensions it names, not on one aggregate, so a',
-    'change should move the dimension it is about and leave the others flat. A',
-    'dimension that stays flat is a result, not a gap.',
+    'Each case is scored on the dimensions it names rather than on one',
+    'aggregate, so a change should move the dimension it is about and leave the',
+    'others flat. A flat dimension is a result, not a gap.',
     '',
     'One run per case. A single case flipping moves a dimension that only one or',
-    'two cases score by a large amount, so direction is meaningful here and',
+    'two cases score by a large amount, so the direction is meaningful and the',
     'magnitude is not. Repeat runs before treating any figure as settled.',
     '',
-    'Braintrust makes the most recent run the comparison and the previous one the',
-    'baseline. Dispatching the older commit second reads as a regression. Set the',
-    'baseline deliberately when reading the Braintrust UI.',
+    'Braintrust makes the most recent run the comparison and the previous one',
+    'the baseline, whatever the two commits are. Dispatching the older commit',
+    'second reads as a regression. Check the baseline named above before',
+    'drawing a conclusion from Change.',
+    '',
+    'A non-zero `judge_parse_failed` means the judge returned output the bench',
+    'could not read on that share of cases, and the other scores are incomplete',
+    'by that much.',
+    '',
+    '</details>',
+    '',
+    '<details><summary>Raw Braintrust summary</summary>',
+    '',
+    '```json',
+    JSON.stringify(summary, null, 2),
+    '```',
     '',
     '</details>',
     '',
