@@ -317,8 +317,7 @@ resource "aws_iam_role_policy" "autopilot_bot_self_invoke" {
 # (already in the Lambda runtime) and stdlib live in autopilot/lambda/ — the
 # conductor is deliberately dependency-light (see handler.py's module
 # docstring) — so a plain recursive zip of the source directory is sufficient;
-# no build step (pip install into a staging dir, a la campaign_plan_lambda's
-# build.sh) is needed.
+# no build step (pip install into a staging dir) is needed.
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../../../autopilot/lambda"

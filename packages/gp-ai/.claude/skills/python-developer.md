@@ -10,7 +10,7 @@ You are writing Python in `gp-ai`. Read this before you `uv add` anything or run
 - This is a **`uv` workspace**, not a collection of independent projects.
 - One root `pyproject.toml`, one `uv.lock`, one `.venv/` at the repo root.
 - Workspace members are listed under `[tool.uv.workspace] members` in the root `pyproject.toml`. Today: `shared`, `serve/v1_pipeline`, `hubspot_ddhq_match`, `clickup_bot`, `engineer_agent`, `pmf_engine`, `broker`.
-- Other directories (e.g. `campaign_plan_lambda/`, `infrastructure/`, `api/`) are part of the repo but **not** workspace members. Their deps come from the root project's `dependencies` (or for `campaign_plan_lambda`, from the `[dependency-groups] campaign-plan-lambda` group).
+- Other directories (e.g. `ai_generated_campaign_plan/`, `infrastructure/`, `api/`) are part of the repo but **not** workspace members. Their deps come from the root project's `dependencies`.
 - Runtime Python is **3.13** (`.python-version`). Code-floor is 3.11 (ruff `target-version`, mypy `python_version`). Don't use 3.12+-only syntax until the targets are bumped.
 
 ## Decision tree
