@@ -1639,6 +1639,11 @@ export class ContactsService {
       filters,
       idOverrides,
       contactsMadeIdOverrides,
+      // Read straight off the row rather than through `segmentToSearch`,
+      // which would re-fetch the filter this method already holds. The
+      // universe branch above passes none, correctly: it has no saved row
+      // and so no stored search.
+      filter.search ?? undefined,
     )
     return { ...aggregates, outreachHistory }
   }
@@ -1691,6 +1696,13 @@ export class ContactsService {
     baseFilters: FilterObject,
     idOverrides?: IdOverrides,
     contactsMadeIdOverrides?: IdOverrides,
+    // The list's own stored search. Every path that MATERIALISES people
+    // applies it — `findContactsForFilter`, `countSegment`,
+    // `phoneBankingList.create` — so aggregates computed without it
+    // describe a list nobody will ever be sent to. A list saved from a CRM
+    // search priced high and sent narrow on SMS, robocall and phone banking
+    // alike, because all three read the reachability leaf below.
+    search?: string,
   ): Promise<
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
@@ -1701,6 +1713,7 @@ export class ContactsService {
           AggregatesDTO.create({
             ...districtParams,
             filters: baseFilters,
+            search,
             idOverrides,
             contactsMadeIdOverrides,
           }),

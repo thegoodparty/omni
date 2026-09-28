@@ -45,6 +45,48 @@ describe('GET /v1/contacts/list-detail reachability', () => {
         ...aggregates,
       })
 
+  // ENG-10518: a list saved out of a CRM search carries that search, and
+  // every path that materialises its people re-applies it —
+  // `findContactsForFilter`, `countSegment`, `phoneBankingList.create`.
+  // These aggregates did not, so the list PRICED against a bigger
+  // population than it SENDS to, on SMS, robocall and phone banking alike.
+  it('applies a saved list’s own stored search to its aggregates', async () => {
+    const slug = await setupOrg('search')
+    const filter = await service.prisma.voterFileFilter.create({
+      data: {
+        organizationSlug: slug,
+        name: 'Saved from a search',
+        search: 'elm',
+      },
+    })
+    const spy = mockAggregates({})
+
+    const response = await service.client.get('/v1/contacts/list-detail', {
+      params: { segment: String(filter.id) },
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
+
+    expect(response.status).toBe(200)
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ search: 'elm' }))
+  })
+
+  // The universe row has no saved row behind it, so there is no stored
+  // search to carry — and passing one would narrow the whole district by a
+  // string nobody typed here.
+  it('sends no search for the unfiltered universe row', async () => {
+    const slug = await setupOrg('universe')
+    const spy = mockAggregates({})
+
+    const response = await service.client.get('/v1/contacts/list-detail', {
+      headers: { [ORG_SLUG_HEADER]: slug },
+    })
+
+    expect(response.status).toBe(200)
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ search: undefined }),
+    )
+  })
+
   it('maps robocall from the landline count and phoneBanking from the any-phone count', async () => {
     const slug = await setupOrg('mapping')
     const spy = mockAggregates({})
