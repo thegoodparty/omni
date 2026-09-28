@@ -7,40 +7,29 @@ import { OUTREACH_PLAN, PAST_OUTREACH } from '../data'
 const CARD_FRAME =
   'border-border bg-card rounded-xl border p-4 flex flex-col gap-3'
 
+/**
+ * The conversational beat that hands you the file. The count and the progress
+ * live in the rail now, which is always on screen, so repeating them here put
+ * two progress bars in one viewport.
+ */
 export const FileCard = ({
   note,
-  settled,
-  total,
   onOpen,
 }: {
   note: string
-  settled: number
-  total: number
   onOpen: () => void
-}): React.JSX.Element => {
-  const pct = total > 0 ? Math.round((settled / total) * 100) : 0
-  return (
-    <div className={CARD_FRAME}>
-      <div className="flex items-center gap-2">
-        <FolderOpen className="size-4 text-primary" />
-        <span className="text-foreground font-medium">Maple Ave file</span>
-      </div>
-      <p className="text-muted-foreground text-sm">
-        {settled} of {total} sections settled
-      </p>
-      <div className="bg-muted h-1.5 w-full rounded-full">
-        <div
-          className="bg-primary h-1.5 rounded-full"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <p className="text-muted-foreground text-sm">{note}</p>
-      <Button size="medium" onClick={onOpen}>
-        Open the file
-      </Button>
+}): React.JSX.Element => (
+  <div className={CARD_FRAME}>
+    <div className="flex items-center gap-2">
+      <FolderOpen className="size-4 text-primary" />
+      <span className="text-foreground font-medium">Maple Ave file</span>
     </div>
-  )
-}
+    <p className="text-muted-foreground text-sm">{note}</p>
+    <Button size="medium" onClick={onOpen} className="self-start">
+      Open the file
+    </Button>
+  </div>
+)
 
 export const PastOutreachCard = (): React.JSX.Element => {
   return (

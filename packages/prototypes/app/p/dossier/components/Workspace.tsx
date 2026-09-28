@@ -23,6 +23,9 @@ export const Workspace = (): React.JSX.Element => {
   const [played, setPlayed] = useState<string[]>([])
   const [outreachSent, setOutreachSent] = useState(false)
   const [sending, setSending] = useState(false)
+  // Set when the file is opened from a rail row rather than from the header,
+  // so the deep view lands on the section you pointed at.
+  const [focusSection, setFocusSection] = useState<string | null>(null)
   const outreachTimer = useRef<number | null>(null)
   const { turns, busy, say, play, reset } = useConversation()
 
@@ -142,20 +145,32 @@ export const Workspace = (): React.JSX.Element => {
       sections={sections}
       settledCount={settledCount}
       busy={busy}
+      focusSection={focusSection}
       onMarkSettled={markSettled}
-      onBackToChat={() => setMode('chat')}
+      onBackToChat={() => {
+        setFocusSection(null)
+        setMode('chat')
+      }}
     />
   ) : (
     <ChatView
       turns={turns}
       busy={busy}
       suggestions={suggestions}
+      sections={sections}
       settledCount={settledCount}
       totalSections={sections.length}
       outreachSent={outreachSent}
       sending={sending}
       onSuggest={runBeat}
-      onOpenFile={() => setMode('file')}
+      onOpenFile={() => {
+        setFocusSection(null)
+        setMode('file')
+      }}
+      onOpenSection={(id: string) => {
+        setFocusSection(id)
+        setMode('file')
+      }}
       onSendOutreach={sendOutreach}
       onReset={resetAll}
     />

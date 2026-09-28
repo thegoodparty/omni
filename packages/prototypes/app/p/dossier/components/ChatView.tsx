@@ -5,19 +5,22 @@ import { Button } from '@goodparty_org/styleguide'
 import { Check, FolderOpen, Loader2, Send } from 'lucide-react'
 import type { Beat } from '../script'
 import type { LiveTool, Turn } from '../hooks/useConversation'
-import { PRIORITY } from '../data'
+import { PRIORITY, type Section } from '../data'
 import { FileCard, OutreachCard, PastOutreachCard } from './Cards'
+import { FileRail } from './FileRail'
 
 type ChatViewProps = {
   turns: Turn[]
   busy: boolean
   suggestions: Beat[]
+  sections: Section[]
   settledCount: number
   totalSections: number
   outreachSent: boolean
   sending: boolean
   onSuggest: (beat: Beat) => void
   onOpenFile: () => void
+  onOpenSection: (id: string) => void
   onSendOutreach: () => void
   onReset: () => void
 }
@@ -53,16 +56,12 @@ const ThinkingDots = () => (
 
 const AgentCard = ({
   turn,
-  settledCount,
-  totalSections,
   outreachSent,
   sending,
   onOpenFile,
   onSendOutreach,
 }: {
   turn: Extract<Turn, { role: 'agent' }>
-  settledCount: number
-  totalSections: number
   outreachSent: boolean
   sending: boolean
   onOpenFile: () => void
@@ -71,14 +70,7 @@ const AgentCard = ({
   if (turn.phase !== 'done') return null
   const card = turn.card
   if (card.kind === 'file') {
-    return (
-      <FileCard
-        note={card.note}
-        settled={settledCount}
-        total={totalSections}
-        onOpen={onOpenFile}
-      />
-    )
+    return <FileCard note={card.note} onOpen={onOpenFile} />
   }
   if (card.kind === 'past-outreach') {
     return <PastOutreachCard />
@@ -99,12 +91,14 @@ export const ChatView = ({
   turns,
   busy,
   suggestions,
+  sections,
   settledCount,
   totalSections,
   outreachSent,
   sending,
   onSuggest,
   onOpenFile,
+  onOpenSection,
   onSendOutreach,
   onReset,
 }: ChatViewProps) => {
@@ -142,109 +136,121 @@ export const ChatView = ({
         </Button>
       </div>
 
-      <div className="mx-auto flex max-w-2xl flex-col gap-4">
-        {turns.map((turn) => {
-          if (turn.role === 'user') {
-            return (
-              <div
-                key={turn.id}
-                className="ml-auto max-w-[85%] rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground"
-              >
-                {turn.text}
-              </div>
-            )
-          }
+      {/* The rail keeps the whole path on screen while you talk. The
+          conversation stays the wide column; the file is the reference beside
+          it, and any row in it is a way into the full view. */}
+      <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-6">
+          <div className="flex flex-col gap-4">
+            {turns.map((turn) => {
+              if (turn.role === 'user') {
+                return (
+                  <div
+                    key={turn.id}
+                    className="ml-auto max-w-[85%] rounded-2xl bg-primary px-4 py-2.5 text-primary-foreground"
+                  >
+                    {turn.text}
+                  </div>
+                )
+              }
 
-          const paragraphs = turn.text.slice(0, turn.revealed).split('\n\n')
+              const paragraphs = turn.text.slice(0, turn.revealed).split('\n\n')
 
-          return (
-            <div key={turn.id} className="w-full">
-              {turn.tools.length > 0 ? (
-                <div className="mb-2 flex flex-wrap gap-2">
-                  {turn.tools.map((tool) => (
-                    <ToolPill key={tool.name} tool={tool} />
-                  ))}
+              return (
+                <div key={turn.id} className="w-full">
+                  {turn.tools.length > 0 ? (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {turn.tools.map((tool) => (
+                        <ToolPill key={tool.name} tool={tool} />
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {turn.phase === 'thinking' ? (
+                    <ThinkingDots />
+                  ) : (
+                    <div className="space-y-3">
+                      {paragraphs.map((para, i) => (
+                        <p
+                          key={i}
+                          className="text-sm leading-relaxed text-foreground"
+                        >
+                          {para}
+                          {turn.phase === 'streaming' &&
+                          i === paragraphs.length - 1 ? (
+                            <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-foreground align-middle" />
+                          ) : null}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-3">
+                    <AgentCard
+                      turn={turn}
+                      outreachSent={outreachSent}
+                      sending={sending}
+                      onOpenFile={onOpenFile}
+                      onSendOutreach={onSendOutreach}
+                    />
+                  </div>
                 </div>
-              ) : null}
-
-              {turn.phase === 'thinking' ? (
-                <ThinkingDots />
-              ) : (
-                <div className="space-y-3">
-                  {paragraphs.map((para, i) => (
-                    <p
-                      key={i}
-                      className="text-sm leading-relaxed text-foreground"
-                    >
-                      {para}
-                      {turn.phase === 'streaming' &&
-                      i === paragraphs.length - 1 ? (
-                        <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-foreground align-middle" />
-                      ) : null}
-                    </p>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-3">
-                <AgentCard
-                  turn={turn}
-                  settledCount={settledCount}
-                  totalSections={totalSections}
-                  outreachSent={outreachSent}
-                  sending={sending}
-                  onOpenFile={onOpenFile}
-                  onSendOutreach={onSendOutreach}
-                />
-              </div>
-            </div>
-          )
-        })}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="mx-auto max-w-2xl space-y-4">
-        {suggestions.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {suggestions.map((beat) => (
-              <Button
-                key={beat.id}
-                variant="outline"
-                size="medium"
-                disabled={busy}
-                onClick={() => onSuggest(beat)}
-                className="h-auto whitespace-normal py-2 text-left"
-              >
-                {beat.prompt}
-              </Button>
-            ))}
+              )
+            })}
+            <div ref={bottomRef} />
           </div>
-        ) : (
-          <div className="flex items-center gap-3">
-            <p className="text-sm text-muted-foreground">
-              That is the thread played out.
-            </p>
-            <Button
-              variant="ghost"
-              size="small"
-              disabled={busy}
-              onClick={onReset}
+
+          <div className="space-y-4">
+            {suggestions.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((beat) => (
+                  <Button
+                    key={beat.id}
+                    variant="outline"
+                    size="medium"
+                    disabled={busy}
+                    onClick={() => onSuggest(beat)}
+                    className="h-auto whitespace-normal py-2 text-left"
+                  >
+                    {beat.prompt}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-muted-foreground">
+                  That is the thread played out.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  disabled={busy}
+                  onClick={onReset}
+                >
+                  Start over
+                </Button>
+              </div>
+            )}
+
+            <div
+              className={`flex items-center gap-3 rounded-full border border-border px-4 py-2.5 ${busy ? 'opacity-60' : ''}`}
             >
-              Start over
-            </Button>
+              <span className="flex-1 text-sm text-muted-foreground">
+                Ask me anything about this priority...
+              </span>
+              <Button size="small" icon={<Send />} disabled={busy}>
+                Send
+              </Button>
+            </div>
           </div>
-        )}
-
-        <div
-          className={`flex items-center gap-3 rounded-full border border-border px-4 py-2.5 ${busy ? 'opacity-60' : ''}`}
-        >
-          <span className="flex-1 text-sm text-muted-foreground">
-            Ask me anything about this priority...
-          </span>
-          <Button size="small" icon={<Send />} disabled={busy}>
-            Send
-          </Button>
         </div>
+
+        <FileRail
+          sections={sections}
+          settledCount={settledCount}
+          onOpenSection={onOpenSection}
+          onOpenFile={onOpenFile}
+        />
       </div>
     </div>
   )
