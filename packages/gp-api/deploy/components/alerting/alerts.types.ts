@@ -82,6 +82,58 @@ export type KnownCause = {
   ticket?: string
 }
 
+/**
+ * A Loki recording rule: one query that reads a log stream on a schedule and
+ * writes the result into Prometheus as a metric.
+ *
+ * WHY THIS TYPE EXISTS AT ALL. Loki bills the bytes a query decompresses, and
+ * only the stream selector and the fetch window decide that number — so N alert
+ * rules that each select `{service_name="gp-api"}` and then filter to their own
+ * slice each pay for the whole stream. On 2026-09-17 the number of alert-owning
+ * controllers went from 6 to 74 in one commit, every one of them re-reading all
+ * of gp-api's prod logs once a minute, and eleven days later Grafana Cloud
+ * started answering our Loki queries with HTTP 429. Measured at the time: 2,690
+ * GB/day from the generated route rules alone, against an allowance of roughly
+ * 100x our ~9.5 GB/day ingest.
+ *
+ * A recording rule inverts that. It reads the stream ONCE per interval, splits
+ * the result with `sum by (...)`, and the alert rules then evaluate against the
+ * recorded Prometheus metric — which is not metered by bytes. Cost becomes
+ * proportional to ingest and INDEPENDENT OF RULE COUNT, which is the property
+ * that makes it safe for anyone to keep adding alerts. That is the whole point:
+ * the fix is not "fewer alerts", it is "alerts that do not each pay for the
+ * stream".
+ *
+ * These are Grafana-managed recording rules (`grafana.alerting.v0alpha1
+ * .RecordingRule`), not Loki-ruler rules. The Loki ruler would need a
+ * `remote_write` block in the Loki server config to get its samples into
+ * Prometheus, and on Grafana Cloud that config is not ours to set.
+ */
+export type RecordingRule = {
+  /** Unique slug. Used for the Pulumi resource name and the Grafana uid. */
+  slug: string
+  /** The human-readable title shown in Grafana. */
+  name: string
+  /**
+   * The Prometheus metric the result is written to. Colons are conventional
+   * for a recorded series and are what tells a reader this is not something an
+   * application emitted.
+   */
+  metric: string
+  /** The LogQL query. Use `$ENV` for the environment name. */
+  expr: string
+  /**
+   * The fetch window, as an offset pair of seconds before now. `to` is
+   * deliberately non-zero on the route rules: see ROUTE_RECORDING_LAG in
+   * controller-alerts.ts for why a recording rule must not read up to the
+   * present moment.
+   */
+  fromSeconds: number
+  toSeconds: number
+  /** How often the rule runs. */
+  intervalSeconds: number
+}
+
 export type Alert = {
   /** A unique slug for the alert. Used internally for resource naming. */
   slug: string
@@ -90,18 +142,36 @@ export type Alert = {
   /**
    * The type of datasource the query targets.
    *
-   * - `log`: A LogQL metric query against Loki.
-   * - `metric`: A PromQL query against Prometheus.
+   * - `log`: A LogQL metric query against Loki. **Metered by bytes scanned** —
+   *   read `docs/observability.md` before adding one, and check whether a
+   *   recording rule should read the stream instead.
+   * - `metric`: A PromQL query against Prometheus, including the metrics our
+   *   own recording rules write.
+   * - `usage`: A PromQL query against `grafanacloud-usage`, which carries
+   *   Grafana Cloud's own billing and alerting-health metrics rather than
+   *   anything gp-api emits. Deliberately a separate datasource from `metric`
+   *   so that a rule watching our Loki spend, or watching whether alerting
+   *   works at all, does not depend on the thing it is watching.
    *
    * All use `$ENV` as a placeholder for the environment name (e.g. "prod").
    */
-  type: 'log' | 'metric'
+  type: 'log' | 'metric' | 'usage'
   /**
    * The query expression. Use `$ENV` for the environment name.
    *
    * Log (LogQL) examples:
-   *   'count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | json | response_statusCode >= 500 [5m])'
+   *   'count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | response_statusCode >= 500 [5m])'
    *   'absent_over_time({service_name="gp-api", deployment_environment_name="$ENV"} [5m])'
+   *
+   * No `| json` in that first example, deliberately. Grafana Cloud promotes
+   * OTel log-record attributes to structured metadata, so `request_endpoint`,
+   * `response_statusCode` and `responseTimeMs` are already labels: a parser
+   * naming them collides and Loki renames its output to `*_extracted`, so the
+   * filter reads the structured metadata either way and the parser only
+   * widens each line's label set. If a query groups the result, add
+   * `| keep <the labels you group by>` before the range — structured metadata
+   * carries `requestId` and `trace_id`, so without it the counted vector is
+   * one series per log line. See controller-alerts.ts ROUTE_RECORDING_RULES.
    *
    * Metric (PromQL) examples:
    *   'avg(process_cpu_utilization{service_name="gp-api", deployment_environment_name="$ENV"}) * 100'
