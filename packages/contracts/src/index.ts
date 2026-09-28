@@ -678,6 +678,8 @@ export {
   type PriorityStatus,
 } from './priorities/PriorityStatus.schema'
 
+export { mintProposalKey } from './chats/proposalKey'
+
 export {
   CHAT_CARD_KINDS,
   PROPOSAL_CHANNELS,
@@ -744,6 +746,7 @@ export {
   type ChatAnchorSnapshot,
   CommunityIssueChatAnchorSchema,
   OrdinanceChatAnchorSchema,
+  PriorityChatAnchorSchema,
   ChatAnchorSchema,
   type ChatAnchor,
   CreateChatRequestSchema,

@@ -34,7 +34,9 @@ export type ChatAnchorSnapshot = z.infer<typeof ChatAnchorSnapshotSchema>
 // scope adds its own variant without loosening the others. community_issue
 // anchors a Chief of Staff chat to an issue; ordinance anchors an
 // ordinance_flow chat to one (ordinance, step) so reopening a step resumes its
-// own thread.
+// own thread. priority carries no step: a priority is ONE conversation for the
+// life of the priority, and the seven steps are state on the record, not
+// separate threads.
 export const CommunityIssueChatAnchorSchema = z.object({
   resourceType: z.literal('community_issue'),
   resourceId: z.string(),
@@ -50,9 +52,17 @@ export const OrdinanceChatAnchorSchema = z.object({
   step: OrdinanceFlowStepSchema,
 })
 
+export const PriorityChatAnchorSchema = z.object({
+  resourceType: z.literal('priority'),
+  resourceId: z.string(),
+  url: z.string(),
+  snapshot: ChatAnchorSnapshotSchema,
+})
+
 export const ChatAnchorSchema = z.discriminatedUnion('resourceType', [
   CommunityIssueChatAnchorSchema,
   OrdinanceChatAnchorSchema,
+  PriorityChatAnchorSchema,
 ])
 export type ChatAnchor = z.infer<typeof ChatAnchorSchema>
 
