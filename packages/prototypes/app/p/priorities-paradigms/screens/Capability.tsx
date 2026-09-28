@@ -16,6 +16,7 @@ import {
   type ChatTurn,
   type Priority,
 } from '../data'
+import { CAPABILITY_PROMPTS, FOLLOW_UPS, type FollowUp } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
 
 const CARD_LABEL: Record<CapabilityCardKind, string> = {
@@ -25,32 +26,73 @@ const CARD_LABEL: Record<CapabilityCardKind, string> = {
   constraint: 'Screened the constraints',
 }
 
-type Chip = {
-  prompt: string
-  reply: string
+type CardLike = { label: string; title: string; lines: string[] }
+
+type LocalTurn = {
+  id: string
+  role: 'user' | 'agent'
+  text: string
+  card?: CardLike
 }
 
-const CHIPS: Chip[] = [
-  {
-    prompt: 'What should I do about Maple Ave?',
-    reply:
-      'The cheapest next step is finding out who sets the calming standard on that stretch, the county may own it instead of the city. Ask your attorney and I will price the routes that survive the answer.',
-  },
-  {
-    prompt: 'What is my council hearing about most?',
-    reply:
-      'The Lincoln Park splash pad, it cleared committee Tuesday and residents are asking. Maple Ave complaints are picking up too, and the canopy ordinance is quieter but still sitting with the city attorney.',
-  },
-  {
-    prompt: 'Draft an update on the splash pad',
-    reply:
-      'Already done, it has been sitting in your review queue since Tuesday, written in your voice. Want me to bring it up here so you can send it?',
-  },
-]
+type IndexEntry = { method: string | null; nextActionLabel: string }
 
-const CapabilityCard = ({ card }: { card: NonNullable<ChatTurn['card']> }) => (
+const seedTurns = (): LocalTurn[] =>
+  CONVERSATION.map((turn: ChatTurn) => ({
+    id: turn.id,
+    role: turn.role,
+    text: turn.text,
+    card: turn.card
+      ? {
+          label: CARD_LABEL[turn.card.kind],
+          title: turn.card.title,
+          lines: turn.card.lines,
+        }
+      : undefined,
+  }))
+
+const seedIndex = (): Record<string, IndexEntry> =>
+  Object.fromEntries(
+    PRIORITIES.map((priority: Priority) => [
+      priority.id,
+      { method: priority.method, nextActionLabel: priority.nextAction.label },
+    ]),
+  )
+
+const deriveNextAction = (fill: { id: string; body: string }): string => {
+  const firstSentence = fill.body.split('.')[0]?.trim() ?? fill.body
+  const words = firstSentence.split(' ')
+  const short = words.slice(0, 6).join(' ')
+  return words.length > 6 ? `${short}...` : short
+}
+
+const applyFills = (
+  fu: FollowUp,
+  prevIndex: Record<string, IndexEntry>,
+): { next: Record<string, IndexEntry>; changed: boolean } => {
+  const maple = prevIndex.maple
+  if (!fu.fills || fu.fills.length === 0 || !maple) {
+    return { next: prevIndex, changed: false }
+  }
+  let nextMaple: IndexEntry = { ...maple }
+  for (const fill of fu.fills) {
+    if (fill.id === 'method') {
+      nextMaple = { ...nextMaple, method: 'Staff direction, then grant' }
+    } else if (fill.id === 'plan') {
+      nextMaple = {
+        ...nextMaple,
+        nextActionLabel: 'Ask the manager to direct the study',
+      }
+    } else {
+      nextMaple = { ...nextMaple, nextActionLabel: deriveNextAction(fill) }
+    }
+  }
+  return { next: { ...prevIndex, maple: nextMaple }, changed: true }
+}
+
+const CapabilityCard = ({ card }: { card: CardLike }) => (
   <div className="border-border bg-card rounded-lg border p-3">
-    <p className="text-muted-foreground text-xs">{CARD_LABEL[card.kind]}</p>
+    <p className="text-muted-foreground text-xs">{card.label}</p>
     <p className="mt-1 text-sm font-medium">{card.title}</p>
     <ul className="text-muted-foreground mt-2 list-disc space-y-0.5 pl-4 text-sm">
       {card.lines.map((line: string) => (
@@ -60,31 +102,81 @@ const CapabilityCard = ({ card }: { card: NonNullable<ChatTurn['card']> }) => (
   </div>
 )
 
-const PriorityRow = ({ priority }: { priority: Priority }) => (
-  <div className="py-3 first:pt-0 last:pb-0">
+const PriorityRow = ({
+  priority,
+  method,
+  nextActionLabel,
+  isChanged,
+}: {
+  priority: Priority
+  method: string | null
+  nextActionLabel: string
+  isChanged: boolean
+}) => (
+  <div
+    className={`rounded-md py-3 first:pt-0 last:pb-0 ${
+      isChanged ? 'ring-1 ring-primary/40' : ''
+    }`}
+  >
     <p className="text-sm font-medium">{priority.short}</p>
     <p className="text-muted-foreground mt-0.5 text-xs">
       {priority.sourceLabel}
     </p>
     <p className="text-muted-foreground mt-0.5 text-xs">
-      {priority.method ?? 'No method chosen yet'}
+      {method ?? 'No method chosen yet'}
     </p>
     <p className="text-muted-foreground mt-1 truncate text-xs">
-      {priority.nextAction.label}
+      {nextActionLabel}
     </p>
   </div>
 )
 
 export const Capability = () => {
-  const [turns, setTurns] = useState<ChatTurn[]>(CONVERSATION)
+  const [turns, setTurns] = useState<LocalTurn[]>(seedTurns)
+  const [indexState, setIndexState] =
+    useState<Record<string, IndexEntry>>(seedIndex)
+  const [changedId, setChangedId] = useState<string | null>(null)
+  const [updateCount, setUpdateCount] = useState(0)
+  const [playedPrompts, setPlayedPrompts] = useState<Set<number>>(new Set())
+  const [followUpIndex, setFollowUpIndex] = useState(0)
 
-  const handleChip = (chip: Chip): void => {
-    const nextIndex: number = turns.length
-    setTurns((prev: ChatTurn[]) => [
+  const handlePlay = (fu: FollowUp): void => {
+    const base = turns.length
+    setTurns((prev: LocalTurn[]) => [
       ...prev,
-      { id: `local-${nextIndex}`, role: 'user', text: chip.prompt },
-      { id: `local-${nextIndex + 1}`, role: 'agent', text: chip.reply },
+      { id: `local-${base}`, role: 'user', text: fu.user },
+      { id: `local-${base + 1}`, role: 'agent', text: fu.agent, card: fu.card },
     ])
+    const { next, changed } = applyFills(fu, indexState)
+    setIndexState(next)
+    setChangedId(changed ? 'maple' : null)
+    if (changed) setUpdateCount((count: number) => count + 1)
+  }
+
+  const remainingPrompts = CAPABILITY_PROMPTS.map(
+    (fu: FollowUp, i: number) => ({ fu, i }),
+  ).filter(({ i }: { i: number }) => !playedPrompts.has(i))
+
+  const nextFollowUp: FollowUp | undefined =
+    remainingPrompts.length === 0 ? FOLLOW_UPS[followUpIndex] : undefined
+
+  const handlePromptClick = (fu: FollowUp, i: number): void => {
+    setPlayedPrompts((prev: Set<number>) => new Set(prev).add(i))
+    handlePlay(fu)
+  }
+
+  const handleFollowUpClick = (fu: FollowUp): void => {
+    setFollowUpIndex((i: number) => i + 1)
+    handlePlay(fu)
+  }
+
+  const handleStartOver = (): void => {
+    setTurns(seedTurns())
+    setIndexState(seedIndex())
+    setPlayedPrompts(new Set())
+    setFollowUpIndex(0)
+    setChangedId(null)
+    setUpdateCount(0)
   }
 
   return (
@@ -104,7 +196,7 @@ export const Capability = () => {
       <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
         <div className="space-y-4">
           <div className="space-y-4">
-            {turns.map((turn: ChatTurn) =>
+            {turns.map((turn: LocalTurn) =>
               turn.role === 'agent' ? (
                 <div
                   key={turn.id}
@@ -125,22 +217,41 @@ export const Capability = () => {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {CHIPS.map((chip: Chip) => (
-              <Button
-                key={chip.prompt}
-                variant="outline"
-                size="small"
-                onClick={() => handleChip(chip)}
-              >
-                {chip.prompt}
-              </Button>
-            ))}
+            {remainingPrompts.length > 0
+              ? remainingPrompts.map(
+                  ({ fu, i }: { fu: FollowUp; i: number }) => (
+                    <Button
+                      key={fu.user}
+                      variant="outline"
+                      size="small"
+                      onClick={() => handlePromptClick(fu, i)}
+                    >
+                      {fu.user}
+                    </Button>
+                  ),
+                )
+              : nextFollowUp && (
+                  <Button
+                    key={nextFollowUp.user}
+                    variant="outline"
+                    size="small"
+                    onClick={() => handleFollowUpClick(nextFollowUp)}
+                  >
+                    {nextFollowUp.user}
+                  </Button>
+                )}
+          </div>
+
+          <div>
+            <Button variant="ghost" size="small" onClick={handleStartOver}>
+              Start over
+            </Button>
           </div>
 
           <div className="border-border flex items-center gap-2 rounded-lg border p-2">
             <input
               type="text"
-              placeholder="Ask me anything"
+              placeholder="Or type your own..."
               className="placeholder:text-muted-foreground text-foreground flex-1 bg-transparent px-2 py-1.5 text-sm outline-none"
             />
             <Button size="small">Send</Button>
@@ -155,12 +266,27 @@ export const Capability = () => {
             <CardDescription>
               Maintained as we talk. Nothing to fill in here.
             </CardDescription>
+            <p className="text-muted-foreground text-xs">
+              Updated by our conversation {updateCount}{' '}
+              {updateCount === 1 ? 'time' : 'times'}.
+            </p>
           </CardHeader>
           <CardContent>
             <div className="divide-border divide-y">
-              {PRIORITIES.map((priority: Priority) => (
-                <PriorityRow key={priority.id} priority={priority} />
-              ))}
+              {PRIORITIES.map((priority: Priority) => {
+                const entry = indexState[priority.id]
+                return (
+                  <PriorityRow
+                    key={priority.id}
+                    priority={priority}
+                    method={entry ? entry.method : priority.method}
+                    nextActionLabel={
+                      entry ? entry.nextActionLabel : priority.nextAction.label
+                    }
+                    isChanged={changedId === priority.id}
+                  />
+                )
+              })}
             </div>
             <p className="text-muted-foreground mt-4 text-xs">
               Ask me to add, change, or drop any of these.

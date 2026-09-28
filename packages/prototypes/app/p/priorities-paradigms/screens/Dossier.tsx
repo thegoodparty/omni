@@ -20,6 +20,7 @@ import {
   type DossierSection,
   type SectionState,
 } from '../data'
+import { FOLLOW_UPS } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
 
 const CHIP_CLASS: Record<SectionState, string> = {
@@ -34,6 +35,11 @@ export const Dossier = () => {
   const [sections, setSections] = useState<DossierSection[]>(MAPLE.sections)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [flagged, setFlagged] = useState<boolean>(false)
+  const [preFlagSections, setPreFlagSections] = useState<
+    DossierSection[] | null
+  >(null)
+  const [playedCount, setPlayedCount] = useState<number>(0)
+  const [justFilledIds, setJustFilledIds] = useState<string[]>([])
 
   const settledCount = sections.filter(
     (section: DossierSection) => section.state === 'confirmed',
@@ -43,12 +49,31 @@ export const Dossier = () => {
     (section: DossierSection) => section.id === selectedId,
   )
 
+  const playedFollowUps = FOLLOW_UPS.slice(0, playedCount)
+  const nextFollowUp = FOLLOW_UPS[playedCount]
+
+  const clearRing = () => {
+    if (justFilledIds.length > 0) {
+      setJustFilledIds([])
+    }
+  }
+
+  const selectSection = (id: string | null) => {
+    clearRing()
+    setSelectedId(id)
+  }
+
   const toggleFlag = () => {
+    clearRing()
     if (flagged) {
-      setSections(MAPLE.sections)
+      if (preFlagSections) {
+        setSections(preFlagSections)
+      }
+      setPreFlagSections(null)
       setFlagged(false)
       return
     }
+    setPreFlagSections(sections)
     const problem = sections.find(
       (section: DossierSection) => section.id === 'problem',
     )
@@ -65,6 +90,34 @@ export const Dossier = () => {
       }),
     )
     setFlagged(true)
+  }
+
+  const playFollowUp = () => {
+    if (!nextFollowUp) {
+      return
+    }
+    const fills = nextFollowUp.fills ?? []
+    if (fills.length > 0) {
+      setSections((prev) =>
+        prev.map((section: DossierSection) => {
+          const fill = fills.find(
+            (candidate: { id: string; body: string }) =>
+              candidate.id === section.id,
+          )
+          return fill
+            ? {
+                ...section,
+                body: fill.body,
+                state: 'confirmed' as SectionState,
+              }
+            : section
+        }),
+      )
+      setJustFilledIds(fills.map((fill: { id: string }) => fill.id))
+    } else {
+      setJustFilledIds([])
+    }
+    setPlayedCount((count) => count + 1)
   }
 
   return (
@@ -115,9 +168,54 @@ export const Dossier = () => {
               </div>
             ),
           )}
+          {playedFollowUps.map((followUp, index) => (
+            <div key={`follow-up-${index}`} className="space-y-2">
+              <div className="ml-auto max-w-[85%] rounded-lg bg-primary p-3 text-primary-foreground">
+                <p className="text-sm">{followUp.user}</p>
+              </div>
+              <div className="rounded-lg bg-muted p-4">
+                <p className="text-sm">{followUp.agent}</p>
+              </div>
+              {followUp.card ? (
+                <div className="border-border bg-card rounded-lg border p-3">
+                  <p className="text-muted-foreground text-xs">
+                    {followUp.card.label}
+                  </p>
+                  <p className="text-sm font-medium">{followUp.card.title}</p>
+                  <ul className="mt-2 space-y-1">
+                    {followUp.card.lines.map(
+                      (line: string, lineIndex: number) => (
+                        <li
+                          key={lineIndex}
+                          className="text-muted-foreground flex gap-2 text-sm"
+                        >
+                          <span aria-hidden>&bull;</span>
+                          <span>{line}</span>
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {nextFollowUp ? (
+            <Button
+              variant="outline"
+              onClick={playFollowUp}
+              className="h-auto w-full whitespace-normal py-2 text-left"
+            >
+              {nextFollowUp.user}
+            </Button>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              That is the file filled in. Press &apos;Something changed about
+              the problem&apos; to see what happens when one answer moves.
+            </p>
+          )}
           <div className="border-border flex items-center gap-2 rounded-lg border p-3">
             <span className="text-muted-foreground flex-1 text-sm">
-              Ask me anything about this priority...
+              Or type your own...
             </span>
             <Button size="small">
               <Send className="size-4" aria-hidden />
@@ -176,7 +274,7 @@ export const Dossier = () => {
                   <Button
                     variant="ghost"
                     size="small"
-                    onClick={() => setSelectedId(null)}
+                    onClick={() => selectSection(null)}
                   >
                     Back to list
                   </Button>
@@ -187,8 +285,12 @@ export const Dossier = () => {
                     <button
                       key={section.id}
                       type="button"
-                      onClick={() => setSelectedId(section.id)}
-                      className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/40"
+                      onClick={() => selectSection(section.id)}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-muted/40',
+                        justFilledIds.includes(section.id) &&
+                          'ring-1 ring-primary/40',
+                      )}
                     >
                       <span
                         className={cn(

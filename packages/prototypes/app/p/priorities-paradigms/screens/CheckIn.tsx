@@ -13,33 +13,45 @@ import {
 } from '@goodparty_org/styleguide'
 import { Check } from 'lucide-react'
 import { MAPLE, type Session } from '../data'
+import { LATER_SESSIONS } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
 
 type ClosedSession = Session & { resolved: string }
 
-// The live check-in never changes identity, so it is a module constant rather
-// than state. Cast because the fixture array is not a tuple.
-const live = MAPLE.sessions[0] as Session
+// The standing queue: today's live session, then the two later check-ins the
+// flow scripts. Order never changes, so this is a module constant.
+const QUEUE: Session[] = [MAPLE.sessions[0] as Session, ...LATER_SESSIONS]
+const INITIAL_HISTORY: Session[] = MAPLE.sessions.slice(1)
 
 export const CheckIn = () => {
+  const [index, setIndex] = useState<number>(0)
   const [chosen, setChosen] = useState<string | null>(null)
-  const [closedOut, setClosedOut] = useState<boolean>(false)
-  const [history, setHistory] = useState<Session[]>(MAPLE.sessions.slice(1))
+  const [history, setHistory] = useState<Session[]>(INITIAL_HISTORY)
+
+  const live = QUEUE[index]
+  const total = QUEUE.length
+  const position = Math.min(index + 1, total)
+  const checkIns = history.length
+  const decisions = history.filter((session: Session) =>
+    Boolean(session.resolved),
+  ).length
 
   const handleChoose = (label: string): void => {
     setChosen(label)
   }
 
   const handleCloseOut = (): void => {
-    if (!chosen) return
-    const closed: ClosedSession = {
-      id: `${live.id}-closed`,
-      date: '28 September',
-      age: 'just now',
-      resolved: chosen,
-    }
+    if (!live || !chosen) return
+    const closed: ClosedSession = { ...live, resolved: chosen }
     setHistory((prev: Session[]) => [closed, ...prev])
-    setClosedOut(true)
+    setIndex((prev: number) => prev + 1)
+    setChosen(null)
+  }
+
+  const handleStartOver = (): void => {
+    setIndex(0)
+    setChosen(null)
+    setHistory(INITIAL_HISTORY)
   }
 
   return (
@@ -53,15 +65,21 @@ export const CheckIn = () => {
 
       <div className="space-y-1">
         <h2 className="text-lg font-medium">{MAPLE.title}</h2>
+        <p className="text-muted-foreground text-xs">
+          Check-in {position} of {total}
+        </p>
         <p className="text-muted-foreground text-sm">
           {MAPLE.sourceLabel} · Private · Last worked 6 days ago
         </p>
       </div>
 
-      {!closedOut ? (
+      {live ? (
         <Card className="border-primary/30 shadow-sm">
           <CardHeader className="space-y-1">
             <p className="text-muted-foreground text-right text-xs">
+              {index > 0 ? (
+                <span className="text-muted-foreground">Next check-in · </span>
+              ) : null}
               {live.date}
             </p>
             <CardTitle className="sr-only">Live check-in</CardTitle>
@@ -138,6 +156,14 @@ export const CheckIn = () => {
               I will open the next check-in when the responses land.
             </CardDescription>
           </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-muted-foreground text-sm">
+              {checkIns} check-ins so far. {decisions} decisions, no wizard.
+            </p>
+            <Button variant="ghost" size="small" onClick={handleStartOver}>
+              Start over
+            </Button>
+          </CardContent>
         </Card>
       )}
 
