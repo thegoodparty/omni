@@ -1396,6 +1396,7 @@ export const SmsFlow = ({
               setPhoneListError(false)
             }}
             universeName={audience.universeName}
+            universeListId={audience.universeListId}
             universeCount={audience.universeCount}
             universeLoading={audience.universeLoading}
             onSelectUniverse={audience.selectUniverse}

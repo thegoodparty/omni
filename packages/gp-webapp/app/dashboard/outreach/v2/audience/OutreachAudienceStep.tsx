@@ -79,6 +79,11 @@ interface OutreachAudienceStepProps {
   // audience, which is also the name of the saved list it resolves to, so
   // `selectedId` alone tells us whether it is the current selection.
   universeName: string
+  // Which saved list IS the universe, resolved by the hook from its criteria
+  // rather than from its name — a candidate may legitimately name a filtered
+  // list "All voters", and matching on that would point this row at a
+  // narrower audience than it promises.
+  universeListId: number | null
   universeCount: number | null
   universeLoading: boolean
   // Resolves the row to a real saved list and returns its id; this step then
@@ -171,6 +176,7 @@ export const OutreachAudienceStep = ({
   selectedId,
   onSelect,
   universeName,
+  universeListId,
   universeCount,
   universeLoading,
   onSelectUniverse,
@@ -221,18 +227,15 @@ export const OutreachAudienceStep = ({
   // the picker's own root div — and scroll works.
   const pickerRootRef = useRef<HTMLDivElement | null>(null)
   const active = lists.find((l) => l.id === selectedId) ?? null
-  // The universe row resolves to a real saved list carrying `universeName`,
-  // so its presence is what tells us whether it still has to be created, and
-  // the ordinary selection is what tells us whether it is picked.
-  const universeList = lists.find((l) => l.name === universeName) ?? null
-  const universeResolved = universeList !== null
-  const universeListId = universeList?.id ?? 0
-  const universeSelected = universeResolved && universeList.id === selectedId
+  // Both derived from the hook's resolved id, so this step cannot disagree
+  // with the hook about which row is the universe.
+  const universeResolved = universeListId !== null
+  const universeSelected = universeResolved && universeListId === selectedId
   // Derived once and read by BOTH the empty state and the rows below, so the
   // two cannot disagree: the universe has its own row at the top, so an org
   // whose only saved list IS the universe list has no ordinary rows to show
   // and does still owe the empty-state line.
-  const otherLists = lists.filter((list) => list.name !== universeName)
+  const otherLists = lists.filter((list) => list.id !== universeListId)
   // The three nouns this step states itself, rather than reading from `copy`:
   // a surface's OutreachAudienceCopy covers the titles and bodies, but these
   // sit inside shared controls. Serve never says "voter", so they key off the
@@ -525,7 +528,7 @@ export const OutreachAudienceStep = ({
                 disabled={universePending}
                 onClick={() => {
                   setOpen(false)
-                  if (universeResolved) {
+                  if (universeListId !== null) {
                     onSelect(universeListId)
                     return
                   }

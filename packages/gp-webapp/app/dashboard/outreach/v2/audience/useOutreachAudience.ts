@@ -14,6 +14,7 @@ import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
+import { isUniverseList } from './universeList.util'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/outreach/util/autoVoterFilterName.util'
 import type {
   SegmentResponse,
@@ -128,6 +129,12 @@ export interface OutreachAudience {
   // missing. Its name is the CRM's own label, so the two surfaces cannot
   // drift apart.
   universeName: string
+  // The saved list that IS the universe, or null when the org has none yet.
+  // Resolved by its CRITERIA, never by its name: a candidate is free to call
+  // a filtered list "All voters", and reusing that would select a narrower
+  // audience than the row promises. Exposed so the step and this hook cannot
+  // disagree about which row is the universe.
+  universeListId: number | null
   // Counted from `GET /v1/contacts/list-detail` with NO segment, which is
   // exactly what the CRM's universe row reads, so the number on the row is
   // the same number the contacts tab shows.
@@ -346,6 +353,11 @@ export const useOutreachAudience = ({
   // created here is the one the contacts tab already talks about.
   const universeName = getContactsLabels(!isElectedOfficial).allContactsTitle
 
+  // Our label AND no criteria — see `universeList.util.ts` for why either
+  // test alone is wrong in a different direction.
+  const universeList =
+    lists.find((l) => isUniverseList(l, universeName)) ?? null
+
   // Omitted segment = the whole unfiltered district (ENG-10778), the same
   // read the CRM's universe row makes. Only needed until the row resolves to
   // a real list, after which the ordinary reachability query answers.
@@ -367,8 +379,11 @@ export const useOutreachAudience = ({
   const universeMutation = useMutation({
     mutationFn: async (): Promise<SegmentResponse> => {
       // Reuse before create, so tapping the row twice — or on a later visit —
-      // cannot litter the org with duplicate all-constituents lists.
-      const existing = listsRef.current.find((l) => l.name === universeName)
+      // cannot litter the org with duplicate all-constituents lists. Matched
+      // on criteria rather than name; see `isCriteriaFree`.
+      const existing = listsRef.current.find((l) =>
+        isUniverseList(l, universeName),
+      )
       if (existing) return existing
       // No criteria at all: ENG-10960 established that the backend accepts a
       // criteria-free saved filter, and that is precisely "everyone".
@@ -841,6 +856,7 @@ export const useOutreachAudience = ({
     builderZeroMatch,
     onSelect: selectList,
     universeName,
+    universeListId: universeList?.id ?? null,
     universeCount: universeQuery.data ?? null,
     universeLoading: universeQuery.isFetching,
     selectUniverse: async () => {

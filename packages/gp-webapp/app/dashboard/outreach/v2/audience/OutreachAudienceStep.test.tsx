@@ -54,6 +54,7 @@ const baseProps = () => ({
   onSelect: vi.fn(),
   onStartBuilder: vi.fn(),
   universeName: 'All voters',
+  universeListId: null,
   universeCount: 12_000,
   universeLoading: false,
   onSelectUniverse: vi.fn(async () => 99),
@@ -147,6 +148,7 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
       <OutreachAudienceStep
         {...props}
         lists={[{ id: 77, name: 'All voters' } as never]}
+        universeListId={77}
       />,
     )
     await openPicker()
@@ -165,6 +167,7 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
       <OutreachAudienceStep
         {...baseProps()}
         lists={[{ id: 77, name: 'All voters' } as never]}
+        universeListId={77}
       />,
     )
     await openPicker()
@@ -180,6 +183,7 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
           { id: 77, name: 'All voters' } as never,
           { id: 78, name: 'Ward 3' } as never,
         ]}
+        universeListId={77}
       />,
     )
     await openPicker()
@@ -198,6 +202,7 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
           { id: 77, name: 'All voters' } as never,
           { id: 78, name: 'Ward 3' } as never,
         ]}
+        universeListId={77}
       />,
     )
     await openPicker()
