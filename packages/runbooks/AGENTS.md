@@ -45,6 +45,19 @@ The one exception is the sheet's `README` tab: a hand-maintained column dictiona
 
 There is a second consumer surface beside the sheet: the analytics-event explorer, a browsable page over the same data (DATA-2506). `scripts/python/event_explorer_snapshot.py` builds its one JSON from `event_state_assembler.assemble()` rather than from the sheet, so the page and the sheet cannot disagree and no Google identity is needed. The scheduled workflow runs it and commits the result; a scheduled cloud routine rebuilds the standalone page from that commit and republishes the shared artifact, which is the only thing that makes the live page move. Page detail, including its own tracking and feedback, is in `packages/prototypes/app/p/analytics-event-explorer/README.md`.
 
+A third surface sits beside those two, for the operator rather than the consumer: the
+event health console in `surfaces/governance-console/` (DATA-2546). It shows the catalog
+rollup, what changed since the previous run, and every open decision from all four
+governance queues in one ranked list, with the flagged set grouped by cause rather than
+by event. `scripts/python/governance_console_snapshot.py` builds its one JSON from the
+health report, `instrumentation_gaps.json` and the explorer snapshot, which is why it
+has to run inside the governance job after the health step: the report is gitignored and
+exists only during a run. The page is read-only in phase 1; rulings still go through
+`/triage-instrumentation-gaps`. `surfaces/` is where operator pages built from committed
+governance data live; its `build.py` must stay dependency-free because the republish
+routine runs it with a bare interpreter. Detail in
+`surfaces/governance-console/README.md`.
+
 Questions are not intaken from the spreadsheet. The source of truth is the ClickUp Analytics Questions list: `scripts/python/question_intake.py` reads accepted questions into `scripts/python/monitored_events.yaml`, and `event_state_gsheet.py writeback-questions` pushes each question's answer state and last-checked date back onto its ClickUp task. See `books/refresh-event-state-surface.md`.
 
 ## Used by the delegate worker
