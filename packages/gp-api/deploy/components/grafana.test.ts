@@ -77,6 +77,17 @@ describe('the recording rule window', () => {
     const block = /relative_time_range:\s*\{([^}]*)\}/.exec(source)
 
     expect(block, 'no relative_time_range found in grafana.ts').not.toBeNull()
-    expect(block?.[1]).not.toMatch(/`/)
+
+    // Any quote, not just a backtick. The bug shipped as `${n}s`, but '120s'
+    // and "120s" fail Grafana identically, and a guard that bans one spelling
+    // of a mistake is not a guard against the mistake.
+    expect(block?.[1]).not.toMatch(/['"`]/)
+
+    // And the values are what they claim to be: a bare identifier or number
+    // on each side, so a future `String(n)` or `n + 's'` cannot slip past a
+    // quote check that has nothing to match on.
+    expect(block?.[1]).toMatch(
+      /^\s*from:\s*[A-Za-z0-9_.]+,\s*to:\s*[A-Za-z0-9_.]+,?\s*$/,
+    )
   })
 })
