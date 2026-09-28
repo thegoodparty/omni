@@ -190,6 +190,20 @@ replicas' independent `@Interval` timers):
 - **Demand-driven reads are unchanged** and outside the scan's budget:
   `resolvePeerlyCvState` at `awaiting_pin` (PIN screen / agent poll), the
   admin PIN-resend pre-check, and the pre-submit existence check.
+- **The fresh-submission fast poll (`runFreshScan`)** closes the notice gap
+  the twice-daily cadence opened: CV usually approves within hours of
+  `submit_cv`, so the "your PIN is on the way" HubSpot notice
+  (`CompliancePinSent` via `applyCvDetection`) could lag ~12h — often firing
+  only when the candidate entered the PIN. A second cron
+  (`@Cron('9,39 * * * *')` ET, prod-only, minute-keyed FIFO dedup
+  `cvStatusPollFresh-<yyyy-MM-dd-HH-mm>`, same detached handler routed by the
+  message's `fresh` flag) polls only records with
+  `peerlySubmissionStartedAt` in the last 48h and `pinSentDetectedAt` null,
+  through the same per-record pipeline and 60s spacing. The set is a handful
+  of records at any time (capped at 15 as a runaway backstop), so the extra
+  vendor load is tens of calls/day; a slot overlapping a running full scan
+  can transiently reach 2 calls/min, bounded by that cap. Older in-flight
+  records stay on the twice-daily budget.
 - The PIN-entry path (`retrieveCampaignVerifyToken`) stamps
   `peerlyCvStatus = VERIFIED` directly on a successful verify, so
   `sweepUnsubmittedUsecases` doesn't wait up to 12h for the next scan — and
