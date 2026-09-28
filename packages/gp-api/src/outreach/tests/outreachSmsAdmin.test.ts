@@ -144,6 +144,7 @@ const seedOutreach = (
     deniedAt: Date | null
     script: string
     stripeCheckoutSessionId: string | null
+    freePurchaseSessionId: string | null
     date: Date
     scheduledLocalTime: string | null
   }> = {},
@@ -163,6 +164,9 @@ const seedOutreach = (
       scheduledLocalDate: SEND_LOCAL_DATE,
       textCount: 1200,
       billableTextCount: 1200,
+      // A row only reaches this console through a settled purchase, and
+      // approve refuses one that carries neither funding marker.
+      stripeCheckoutSessionId: 'cs_test_seed',
       ...overrides,
     },
   })
@@ -537,6 +541,43 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       )
       expect(res.status).toBe(HttpStatus.BAD_REQUEST)
       expect(requestCanvassers).not.toHaveBeenCalled()
+    })
+
+    it('400s a row carrying no record of a completed purchase', async () => {
+      const row = await seedOutreach({ stripeCheckoutSessionId: null })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(JSON.stringify(res.data)).toContain('no completed purchase')
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      const untouched = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(untouched.approvedAt).toBeNull()
+    })
+
+    it('approves a send the free-texts offer covered', async () => {
+      const row = await seedOutreach({
+        stripeCheckoutSessionId: null,
+        freePurchaseSessionId: 'free_confirmed_1700000000000',
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledTimes(1)
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.approvedAt).not.toBeNull()
+      expect(updated.canvassRequestedAt).not.toBeNull()
     })
 
     it('409s a second approve', async () => {

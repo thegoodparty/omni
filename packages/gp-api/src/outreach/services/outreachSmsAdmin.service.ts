@@ -373,6 +373,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         'Only scheduled SMS campaigns can be approved',
       )
     }
+    // Approval is what books canvassers, which is the vendor spend. A
+    // scheduled p2p row reaches this console only through a settled
+    // purchase: a paid checkout stamps stripeCheckoutSessionId, a
+    // zero-amount redemption stamps freePurchaseSessionId. Neither present
+    // means nothing funded the send, so it is refused rather than read as
+    // "free" — which is what the absence of a Stripe session used to mean
+    // on its own.
+    if (!row.stripeCheckoutSessionId && !row.freePurchaseSessionId) {
+      throw new BadRequestException(
+        'This campaign has no completed purchase on record',
+      )
+    }
 
     const claimed = await this.model.updateMany({
       where: {
