@@ -362,10 +362,19 @@ jobs:
       - name: Check every terraform root is deployed
         run: bash packages/gp-ai/infrastructure/scripts/ci-check-root-coverage.sh
 
+      # The plan role, not `vars.AWS_ROLE_ARN`. That variable is the shared
+      # deploy role, which carries AdministratorAccess and is assumable from
+      # `refs/pull/N/merge`, so every infra PR ran PR-authored Terraform with
+      # admin. This role can read the dev state it plans against and little
+      # else: no Pulumi state, no SSM parameters, and no secret value except
+      # AI_SECRETS_DEV, which `dev/shared-infra` and the `autopilot-bot`
+      # module read through a data source at plan time.
+      #
+      # Step 5 of docs/deploy-role-trust.md in thegoodparty/ops.
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::333022194791:role/github-actions-pulumi-plan
           aws-region: ${{ env.AWS_REGION }}
 
       # 1.15.x, not 1.9.x: the S3 backends set `use_lockfile = true`, which needs
@@ -567,6 +576,13 @@ jobs:
       # YAML) — everything (the resource -> IAM action/ARN table, batching,
       # the fail-open bootstrap rule) lives in the two scripts.
       - name: Simulate apply-time IAM permissions
+        env:
+          # The job no longer assumes the deploy role, and the script defaults
+          # the simulated principal to whoever is calling. Without this it
+          # would simulate the plan role and report an apply-time gap for
+          # every change, which is true and useless: the plan role is not the
+          # principal that applies. Name the role the release train uses.
+          DEPLOY_ROLE_ARN: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
         run: bash packages/gp-ai/infrastructure/scripts/ci-simulate-apply-perms.sh
 
   # Stable aggregation gate. Branch protection and the release train want one name
