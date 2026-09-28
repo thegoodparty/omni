@@ -222,7 +222,11 @@ export interface LlmStreamOptions {
   userId?: string
   retries?: number
   abortSignal?: AbortSignal
-  onToolCallStart?: (event: { name: string; input: unknown }) => void
+  onToolCallStart?: (event: {
+    name: string
+    input: unknown
+    toolCallId: string
+  }) => void
   onToolCallEnd?: (event: {
     name: string
     input: unknown
@@ -649,6 +653,7 @@ export class LlmService {
                   onToolCallStart?.({
                     name: chunk.toolName,
                     input: chunk.input,
+                    toolCallId: chunk.toolCallId,
                   })
                 } else if (
                   chunk.type === 'tool-result' &&
@@ -688,7 +693,11 @@ export class LlmService {
   private buildToolSet(
     tools: Record<string, LlmTool>,
     hooks: {
-      onToolCallStart?: (event: { name: string; input: unknown }) => void
+      onToolCallStart?: (event: {
+        name: string
+        input: unknown
+        toolCallId: string
+      }) => void
       onToolCallEnd?: (event: {
         name: string
         input: unknown
@@ -707,8 +716,8 @@ export class LlmService {
       set[name] = tool<unknown, unknown>({
         description: t.description,
         inputSchema: t.inputSchema,
-        execute: async (input) => {
-          hooks.onToolCallStart?.({ name, input })
+        execute: async (input, { toolCallId }) => {
+          hooks.onToolCallStart?.({ name, input, toolCallId })
           try {
             const result = await t.execute(input)
             this.logger.info(

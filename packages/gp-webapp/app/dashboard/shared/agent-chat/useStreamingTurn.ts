@@ -304,6 +304,9 @@ export function useStreamingTurn(
               kind: 'tool',
               toolName: event.toolName,
               payload: event.args,
+              ...(event.toolCallId !== undefined && {
+                toolCallId: event.toolCallId,
+              }),
             })
           }
           if (event.type === 'citation') {

@@ -117,6 +117,10 @@ export const ChatMessageSegmentSchema = z.object({
   // Structured tool-call arguments for widget-rendering tools (e.g.
   // ask_clarify_question), so the client can replay the widget on reload.
   payload: z.unknown().nullable().optional(),
+  // The provider's id for this tool call. Persisted because a card's outreach
+  // id is derived from it, so the browser has to arrive at the same value on
+  // a reload as it did while the turn was streaming.
+  toolCallId: z.string().nullable().optional(),
 })
 export type ChatMessageSegment = z.infer<typeof ChatMessageSegmentSchema>
 

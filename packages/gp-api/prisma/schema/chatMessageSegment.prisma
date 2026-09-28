@@ -13,6 +13,11 @@ model ChatMessageSegment {
   text     String? @db.Text
   toolName String? @map("tool_name")
 
+  /// The provider's id for this tool call. Persisted because a chat card's
+  /// outreach id is derived from it, so a reload has to arrive at the same
+  /// value the live stream did.
+  toolCallId String? @map("tool_call_id")
+
   /// Structured tool-call arguments, so widget-rendering tool calls (e.g.
   /// ask_clarify_question) can replay from the transcript on reload. Null for
   /// text segments and tool calls with no displayable payload.

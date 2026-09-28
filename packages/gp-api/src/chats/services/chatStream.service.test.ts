@@ -238,7 +238,11 @@ const consumeScriptItem = async (
   if (item.kind === 'toolCall') {
     const id = `call-${toolCallIds.length + 1}`
     toolCallIds.push(id)
-    options.onToolCallStart?.({ name: item.name, input: item.input })
+    options.onToolCallStart?.({
+      name: item.name,
+      input: item.input,
+      toolCallId: `test-${item.name}`,
+    })
     options.onToolCallEnd?.({
       name: item.name,
       input: item.input,
