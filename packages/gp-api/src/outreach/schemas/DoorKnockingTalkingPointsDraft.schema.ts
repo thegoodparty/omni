@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  COMMUNITY_INPUT_PURPOSE,
   COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
   DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
   DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
@@ -101,6 +102,22 @@ export const ServeDoorKnockingTalkingPointsDraftRequestSchema = z
       .optional(),
   })
   .refine(exclusive, bothDraftsRefinement)
+  // One-way: the question belongs to the purpose that asks one, so it is
+  // refused on any other rather than accepted and folded into that purpose's
+  // ask — which is what it did, turning an explain-a-decision card into a
+  // compost-pilot one. Not required in the other direction: the card can be
+  // drafted or improved before a question exists, and the CREATE schema is
+  // where the question is actually mandatory.
+  .refine(
+    (v) =>
+      v.communityInputQuestion === undefined ||
+      v.purpose === COMMUNITY_INPUT_PURPOSE,
+    {
+      message:
+        'communityInputQuestion is only valid with the community_input purpose',
+      path: ['communityInputQuestion'],
+    },
+  )
 
 export type ServeDoorKnockingTalkingPointsDraftRequest = z.infer<
   typeof ServeDoorKnockingTalkingPointsDraftRequestSchema

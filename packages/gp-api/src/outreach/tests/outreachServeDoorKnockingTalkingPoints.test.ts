@@ -113,6 +113,24 @@ describe('POST /v1/outreach/serve/door-knocking/draft', () => {
     expect(user).toContain('in place of the general question described above')
   })
 
+  // Found on the deployed preview: an explain-a-decision card came back
+  // asking about the compost pilot, because the field was accepted on every
+  // purpose and folded into whichever ask was being written. The client never
+  // sends that pair, so the schema is what has to refuse it.
+  it('refuses a question on a purpose that asks none', async () => {
+    mockPoints()
+
+    const res = await postDraft(
+      draftBody({
+        purpose: 'explain_decision',
+        communityInputQuestion: 'Would you take part in a compost pilot?',
+      }),
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
   it('asks nothing extra when no question is given', async () => {
     mockPoints()
 

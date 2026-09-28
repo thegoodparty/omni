@@ -130,6 +130,21 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     expect(userPrompt).toContain('inviting them to say more')
   })
 
+  // Same leak the door had: the field was accepted on every purpose, so an
+  // event-invite script could be written around a community-input question.
+  it('refuses a question on a purpose that asks none', async () => {
+    mockDraft('You: Hi.')
+
+    const res = await postDraft({
+      purpose: 'event_invite',
+      tone: 'warm',
+      communityInputQuestion: 'Would you take part in a compost pilot?',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
   it('asks nothing extra when no question is given', async () => {
     mockDraft('You: Hi.')
 

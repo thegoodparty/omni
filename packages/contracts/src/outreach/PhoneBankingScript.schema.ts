@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
-import { COMMUNITY_INPUT_QUESTION_MAX_LENGTH } from './OutreachPurpose.schema'
+import {
+  COMMUNITY_INPUT_PURPOSE,
+  COMMUNITY_INPUT_QUESTION_MAX_LENGTH,
+} from './OutreachPurpose.schema'
 import {
   PhoneBankingPurposeSchema,
   type PhoneBankingPurpose,
@@ -97,6 +100,19 @@ export const ServePhoneBankingScriptDraftRequestSchema = z
     {
       message: 'currentDraft and previousDraft are mutually exclusive',
       path: ['previousDraft'],
+    },
+  )
+  // One-way, for the reason the door's sibling states: the question belongs
+  // to the purpose that asks one, and folding it into any other purpose's
+  // script writes a call about something the effort is not about.
+  .refine(
+    (v) =>
+      v.communityInputQuestion === undefined ||
+      v.purpose === COMMUNITY_INPUT_PURPOSE,
+    {
+      message:
+        'communityInputQuestion is only valid with the community_input purpose',
+      path: ['communityInputQuestion'],
     },
   )
 export type ServePhoneBankingScriptDraftRequest = z.infer<
