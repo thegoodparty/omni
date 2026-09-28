@@ -70,10 +70,21 @@ export const Workspace = (): React.JSX.Element => {
     (id: string): void => {
       const target = sections.find((s) => s.id === id)
       if (!target || target.state === 'settled') return
-      setSections((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, state: 'settled' } : s)),
+      const after = sections.map((s) =>
+        s.id === id ? { ...s, state: 'settled' as const } : s,
       )
-      void play({ text: settledAck(target.label), immediate: true })
+      setSections(after)
+      // The acknowledgement reads off the state AFTER this settlement, so it
+      // stays true whichever section was marked and however many are left.
+      const open = after.filter((s) => s.state !== 'settled')
+      void play({
+        text: settledAck(
+          target.label,
+          open.length,
+          open.some((s) => s.id === 'authority'),
+        ),
+        immediate: true,
+      })
     },
     [sections, play],
   )

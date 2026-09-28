@@ -120,9 +120,23 @@ export const BEATS: Beat[] = [
   },
 ]
 
-/** Fired when the user marks a section settled from inside the file. */
-export const settledAck = (label: string): string =>
-  `Noted, I have marked "${label}" settled. That leaves authority as the only thing blocking you.`
+/**
+ * Fired when the user marks a section settled from inside the file. The
+ * closing clause has to read off the real state: a canned "that leaves
+ * authority" every time is the exact tell this prototype exists to avoid.
+ */
+export const settledAck = (
+  label: string,
+  openCount: number,
+  authorityOpen: boolean,
+): string => {
+  const head = `Noted, I have marked "${label}" settled.`
+  if (openCount === 0) return `${head} That is the whole file settled.`
+  const left = `${openCount} section${openCount === 1 ? '' : 's'} still open`
+  return authorityOpen
+    ? `${head} ${left}, and authority is the one gating the rest of them.`
+    : `${head} ${left}.`
+}
 
 /** Fired when the outreach is sent. */
 export const SENT_ACK =
