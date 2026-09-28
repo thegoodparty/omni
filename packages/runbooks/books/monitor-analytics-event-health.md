@@ -21,7 +21,7 @@ runs and for the stage-2 code investigation, which is agent work the schedule ca
   `thegoodparty/gp-data-platform`, in 1Password under `Product-Analytics` / "GP Data
   Platform Read Token". `sem_anchors.py` uses it to read that repo's `sem_*.yml` over the
   GitHub API — the semantic layer this monitor derives its OKR watch set from. Without
-  it, every OKR dormancy check (the latch, the path-qualified legs, the registry
+  it, every OKR dormancy check (the latch, the qualified legs, the registry
   alignment check) disables itself for the run, and the digest says so with a red "OKR
   dormancy checks degraded" line rather than failing. A laptop run without the token
   now reads the sem files through the reviewer's own `gh` auth first, so it degrades
@@ -139,6 +139,8 @@ the canary (DATA-2427).
 
 ### Rank 0 — counter blind spot (DATA-2106)
 
+These render in their own digest section and are kept out of the triage queue and the Slack post: a bug in our counter should not compete for attention with a product finding.
+
 A rank-0 flag is a contradiction: the provenance CSV says zero call sites, but the event is
 firing normally. A client event cannot fire without a call site, so the call-site counter is
 blind to how the reference is written — not the event dead. Fix the counter, not the event:
@@ -242,6 +244,40 @@ The committed durable artifacts are the longitudinal log and the diff state. The
 report (`--json`) and the remediation payloads are gitignored transients. Route rank-1/2
 flags + their stage-2 verdicts to Eng/PM.
 
+### How to read the digest
+
+**Flagged (by cause)** is the queue. One line per reason events were flagged, with the
+event names under it, worst rank first. The unit is the decision, not the event: a deploy
+that stranded twenty-two name constants is one ruling ("retire them or re-point them"), and
+counting it as twenty-two made a week's queue look unworkable when it was eight or nine
+calls. Events elevated as OKR-adjacent are named on the cause line as well, so one is never
+legible only as part of a count.
+
+**Per-event detail** is the same flags, one row each, folded into a `<details>` block. This
+file is the longitudinal record, so every row a pass produced stays in it and a flag can
+still be traced across weeks.
+
+**Counter blind spots** sit in their own section, below the queue and outside it. They are
+our call-site counter failing to see a reference, not a product finding, and they are not
+posted to Slack. Fix the counter (see Rank 0 below).
+
+A cause someone has ruled on is struck through and still counted, never removed. Dismiss
+one by adding a `cause:` row to `dismissed:` in `monitored_events.yaml`:
+
+```yaml
+dismissed:
+  - {cause: "call_site_removed@2026-09-01", reason: "retired with the outreach v2 cutover", date: "2026-09-25"}
+```
+
+The cause string is the one the digest prints after `@`, or the bare key for a cause with
+no qualifier (`orphaned_firing`, `never_observed`). Everything the dismissal covers stays
+in the JSON report and keeps its place in the count, so a cluster that keeps growing after
+it was waved through is still visible.
+
+`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed. The loader refuses
+those two keys and the digest prints a "Dismissal refused" line naming the row, so the
+findings under them stay live whatever the config says.
+
 ### Post the digest to Slack (`--slack`, DATA-2057 + DATA-2174)
 
 Pass `--slack` to also push a priority-tiered digest to the analytics event-lifecycle Slack
@@ -263,6 +299,21 @@ DATA-2174 happened). An event is OKR-anchored when the governed metric declares 
 in gp-data-platform's `sem_*.yml`. Nothing in this repo declares it. The red-persistence
 rule and the rules-tier judge key off the `okr` field the monitor derives from that
 declaration each run.
+
+A declared leg can be **narrower than its event**, and then it is watched as its own
+series under a qualified key rather than as the whole event:
+
+- `path:` — one page-path slice of a site-wide event, `Viewed[path=/dashboard]`.
+- `excluding:` — one event minus the property values the metric does not count,
+  `Voter Outreach - Campaign Completed[excluding method=manual]`.
+
+Either way the whole event keeps its own catalog row and its own weekly series; the
+qualified key is an additional series, and only it carries the `okr` marker. This matters
+because a whole-event watch reads healthy off traffic the metric never counted: the shared
+outreach terminal kept its counts up on the self-report path after the in-product send
+stopped firing on 2026-09-08, so watching the event would have said nothing. Qualified
+legs have no Amplitude catalog record, so they are judged from their own weekly rows and,
+when latched, appear in the digest as a synthesized `okr_anchor_dormant` row.
 
 The `<!here>` mention on a red section can be overridden with `SLACK_EVENT_ALERT_MENTION`
 (e.g. a subteam handle) so paging doesn't always go to the whole channel. The post happens

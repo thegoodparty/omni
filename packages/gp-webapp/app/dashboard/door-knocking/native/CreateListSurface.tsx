@@ -268,8 +268,7 @@ export interface CreateListSurfaceProps {
   onRestartDrawing: () => void
   // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
   // suggestion. From the pack, which is the orchestrator's.
-  drawnStops: Array<[number, number]> | null
-  onListCreated: (turf: DoorKnockingTurf) => void
+  onStartKnocking: (turf: DoorKnockingTurf) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
@@ -318,10 +317,6 @@ export interface CreateListSurfaceProps {
   // A draft missing from the map has no answer yet and prints as such.
   draftStats: Map<string, PolygonStats>
   onSelectDraft: (clientId: string) => void
-  onUpdateDraft: (
-    clientId: string,
-    patch: Partial<Omit<TurfDraft, 'clientId'>>,
-  ) => void
   onRemoveDraft: (clientId: string) => void
   // The same pair for a recommendation carried in on `?recommended=`.
   preselectedRecommendedVariant?: RecommendedListVariant
@@ -344,8 +339,7 @@ export default function CreateListSurface({
   drawFullScreen,
   onDrawFullScreenChange,
   onRestartDrawing,
-  drawnStops,
-  onListCreated,
+  onStartKnocking,
   isServeOrg,
   precincts,
   onPrecinctsChange,
@@ -359,7 +353,6 @@ export default function CreateListSurface({
   turfDrafts,
   draftStats,
   onSelectDraft,
-  onUpdateDraft,
   onRemoveDraft,
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
@@ -544,8 +537,7 @@ export default function CreateListSurface({
       drawFullScreen={drawFullScreen}
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}
-      drawnStops={drawnStops}
-      onListCreated={onListCreated}
+      onStartKnocking={onStartKnocking}
       isServeOrg={isServeOrg}
       unpreviewableKeys={unpreviewableKeys}
       orgSlug={orgSlug}
@@ -559,7 +551,6 @@ export default function CreateListSurface({
       turfDrafts={turfDrafts}
       draftStats={draftStats}
       onSelectDraft={onSelectDraft}
-      onUpdateDraft={onUpdateDraft}
       onRemoveDraft={onRemoveDraft}
     />
   )

@@ -130,52 +130,78 @@ def _sql_quote(value: str) -> str:
     return f"'{escaped}'"
 
 
-def build_path_weekly_sql(legs: Sequence[Any]) -> str:
-    """Weekly counts for path-qualified legs, or "" when there are none.
+_PROPERTY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-    A separate query from WEEKLY_SQL because the site-wide page event is 4.46M rows and
-    only its '/dashboard' slice is the instrument; grouping the whole event would drown
-    the signal it exists to watch.
+
+def _leg_predicate(leg: Any) -> str:
+    """SQL that is true for exactly the rows this leg counts.
+
+    The exclusion mirrors `is_outreach_activation_event` in gp-data-platform: a coalesce
+    around the property, so a row that predates the property passes. Written as `not in`
+    rather than `<>` because a bare inequality is NULL for an absent property and would
+    silently drop the legacy leg the metric does count.
     """
-    pathed = [leg for leg in legs if leg.path]
-    if not pathed:
+    parts = [f"event_type = {_sql_quote(leg.event)}"]
+    if leg.path:
+        parts.append(f"event_properties:path::string = {_sql_quote(leg.path)}")
+    for prop, values in leg.excluding:
+        if not _PROPERTY_RE.match(prop):
+            # Declared upstream, so this is a governance error rather than user input,
+            # but it reaches us as another repo's YAML and must not be interpolated.
+            raise ValueError(
+                f"{leg.event}: excluding property {prop!r} is not a plain identifier"
+            )
+        excluded = ", ".join(_sql_quote(value) for value in values)
+        parts.append(f"coalesce(event_properties:{prop}::string, '') not in ({excluded})")
+    return "(" + " and ".join(parts) + ")"
+
+
+def build_qualified_weekly_sql(legs: Sequence[Any]) -> str:
+    """Weekly counts for qualified legs, or "" when there are none.
+
+    Replaces the path-only query. A separate query from WEEKLY_SQL because a qualified
+    leg is narrower than its event: the site-wide page event is 4.46M rows and only its
+    '/dashboard' slice is the instrument, and the shared outreach terminal covers three
+    moments of which the metric counts two. Grouping the whole event drowns the signal
+    the watch exists for — and for the outreach leg it hid the real thing, because the
+    self-report path kept the bare event's counts up after the in-product send died.
+
+    The leg key is selected as a literal rather than derived from a grouping column, so
+    one query serves any qualifier. A row matching two legs is counted under the first;
+    overlapping legs are a semantic-layer authoring problem, not something to split here.
+    """
+    qualified = [leg for leg in legs if leg.qualified]
+    if not qualified:
         return ""
-    predicates = " or ".join(
-        f"(event_type = {_sql_quote(leg.event)} "
-        f"and event_properties:path::string = {_sql_quote(leg.path)})"
-        for leg in pathed
+    predicates = [_leg_predicate(leg) for leg in qualified]
+    branches = "\n              ".join(
+        f"when {predicate} then {_sql_quote(leg.key)}"
+        for leg, predicate in zip(qualified, predicates)
     )
     return f"""
-select event_type,
-       event_properties:path::string as page_path,
-       date_trunc('week', cast(event_time as date)) as week_start,
-       count(*) as n
-from {STREAM_TABLE}
-where cast(event_time as date) >= date_sub(current_date(), 63)
-  and ({predicates})
-group by event_type, event_properties:path::string,
-         date_trunc('week', cast(event_time as date))
+select leg_key as event_type, week_start, count(*) as n
+from (
+  select case
+              {branches}
+         end as leg_key,
+         date_trunc('week', cast(event_time as date)) as week_start
+  from {STREAM_TABLE}
+  where cast(event_time as date) >= date_sub(current_date(), 63)
+    and ({" or ".join(predicates)})
+)
+where leg_key is not null
+group by leg_key, week_start
 """
 
 
-def key_path_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict]:
-    """Rewrite path-qualified rows onto their leg key so they flow through
-    ``weekly_series`` and ``detect_anomaly`` with no special-casing downstream."""
-    return [
-        {
-            "event_type": sem_anchors.Leg(row["event_type"], row["page_path"]).key,
-            "week_start": row["week_start"],
-            "n": row["n"],
-        }
-        for row in rows
-    ]
-
-
-def fetch_path_weekly(run_query: Callable[[str], Any], legs: Sequence[Any]) -> list[dict]:
-    sql = build_path_weekly_sql(legs)
+def fetch_qualified_weekly(run_query: Callable[[str], Any], legs: Sequence[Any]) -> list[dict]:
+    sql = build_qualified_weekly_sql(legs)
     if not sql:
         return []
-    return key_path_rows(_records_from_df(run_query(sql)))
+    return [
+        {"event_type": row["event_type"], "week_start": row["week_start"], "n": row["n"]}
+        for row in _records_from_df(run_query(sql))
+    ]
 
 
 # Provenance CSV column carrying the code-removed date (empty = code still present).
@@ -405,6 +431,28 @@ def call_site_removal_straddles_window(record: Mapping[str, Any]) -> bool:
     return last_seen <= removed + timedelta(days=ORPHAN_GRACE_DAYS)
 
 
+def is_counter_blind_spot(record: Mapping[str, Any]) -> bool:
+    """DATA-2106 canary: the code axis says gone while the data axis says alive.
+
+    A client event firing normally (active, no anomaly) with zero counted call sites is a
+    contradiction. The counter is blind -- an aliased or Prettier-wrapped reference it
+    cannot see -- not the event dead, so this is a tooling alert and never the rank-2
+    retirement path. An anomaly drop alongside the zero is instead the signature of a
+    genuine recent removal (counts draining after the call site went away) and falls
+    through to rank 2.
+
+    Its own predicate because the digest routes these out of the triage queue: a bug in
+    our counter is not a product instrumentation finding, and ranking it alongside one
+    spends the attention of the single person who reads this.
+    """
+    return (
+        record.get("call_site_count") == 0
+        and record["status"] == "active"
+        and not record["anomaly"]
+        and not call_site_removal_straddles_window(record)
+    )
+
+
 def rank_record(record: Mapping[str, Any]) -> int:
     """Digest severity rank (0 = highest). 99 = not flagged."""
     status, elevated, anomaly = record["status"], record["elevated"], record["anomaly"]
@@ -414,18 +462,7 @@ def rank_record(record: Mapping[str, Any]) -> int:
     # this means "a number the company steers by is wrong right now".
     if record.get("latched"):
         return 0
-    # DATA-2106 canary: a client event firing normally (active, no anomaly) with zero counted
-    # call sites is a contradiction -- the data axis says alive, the code axis says gone. The
-    # counter is blind (an aliased or Prettier-wrapped reference it cannot see), not the
-    # event dead: a tooling alert, never the rank-2 retirement path. An anomaly drop
-    # alongside the zero is instead the signature of a genuine recent removal (counts
-    # draining after the call site went away) and falls through to rank 2 below.
-    if (
-        record.get("call_site_count") == 0
-        and status == "active"
-        and not anomaly
-        and not call_site_removal_straddles_window(record)
-    ):
+    if is_counter_blind_spot(record):
         return 0
     if status == "orphaned_firing" or div.endswith("still firing"):
         return 1
@@ -453,6 +490,80 @@ def rank_record(record: Mapping[str, Any]) -> int:
     if status == "dormant":
         return 8
     return 99
+
+
+# One finding per CAUSE, not per event. The queue is read by one person, and counting
+# events made a single deploy look like 22 decisions: the 2026-09-01 removal alone was a
+# quarter of a 118-item queue. A cause is what someone actually rules on ("these lost
+# their call sites in that deploy: retire them or re-point them"), so it is also the unit
+# a dismissal can close (see ``load_cause_dismissals``).
+CAUSE_LABELS = {
+    "okr_anchor_dormant": "OKR anchor dormant",
+    "counter_blind_spot": "counter blind spot (our counter, not the product)",
+    "orphaned_firing": "declared not-in-use, still firing",
+    "call_site_removed": "call sites removed",
+    "anomaly_drop": "anomaly drop",
+    "intent_divergence": "intent divergence",
+    "dormant_elevated": "dormant, elevated",
+    "never_observed": "instrumented, never observed",
+    "dormant": "dormant",
+}
+
+_RANK_CAUSE = {
+    1: "orphaned_firing",
+    3: "anomaly_drop",
+    4: "anomaly_drop",
+    5: "intent_divergence",
+    6: "dormant_elevated",
+    7: "never_observed",
+    8: "dormant",
+}
+
+
+def cause_key(record: Mapping[str, Any]) -> str:
+    """Stable identity of WHY a record is flagged, shared by grouping and dismissal.
+
+    Rank 2 carries the removal date, because two deploys that each stranded a batch of
+    name constants are two decisions, not one. Everything else groups on the rank alone.
+    """
+    if record.get("latched"):
+        return "okr_anchor_dormant"
+    if is_counter_blind_spot(record):
+        return "counter_blind_spot"
+    if record["rank"] == 2:
+        return f"call_site_removed@{record.get('call_site_retired_date') or 'unknown'}"
+    return _RANK_CAUSE.get(record["rank"], "dormant")
+
+
+def cause_label(cause: str) -> str:
+    base, _, qualifier = cause.partition("@")
+    label = CAUSE_LABELS.get(base, base)
+    return f"{label} on {qualifier}" if qualifier else label
+
+
+def cluster_flagged(records: Sequence[Mapping[str, Any]]) -> list[dict]:
+    """Group flagged records by cause, worst rank first, biggest cluster first within it.
+
+    ``elevated`` is kept separate rather than folded into the count: an OKR-adjacent event
+    must never be legible only as part of a number.
+    """
+    groups: dict[str, dict] = {}
+    for record in records:
+        cause = cause_key(record)
+        group = groups.setdefault(
+            cause,
+            {"cause": cause, "label": cause_label(cause), "rank": record["rank"],
+             "events": [], "elevated": []},
+        )
+        group["rank"] = min(group["rank"], record["rank"])
+        group["events"].append(record["event_type"])
+        if record["elevated"]:
+            group["elevated"].append(record["event_type"])
+    for group in groups.values():
+        group["events"].sort()
+        group["elevated"].sort()
+        group["count"] = len(group["events"])
+    return sorted(groups.values(), key=lambda g: (g["rank"], -g["count"], g["cause"]))
 
 
 def weekly_series(
@@ -762,19 +873,36 @@ def _proposal_yaml_row(proposal: Mapping[str, Any]) -> str:
     )
 
 
+def _cluster_dismissed(group: Mapping[str, Any], records: Sequence[Mapping[str, Any]]) -> str:
+    """The dismissal reason for a cluster, or "" when it is live."""
+    for record in records:
+        if cause_key(record) == group["cause"] and record.get("dismissed_cause") is not None:
+            return str(record["dismissed_cause"]) or "no reason recorded"
+    return ""
+
+
 def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[str]]) -> str:
     """Render one dated markdown digest section to append to the log."""
     sc = result["status_counts"]
     flagged = result["flagged"]
     priority = [r for r in flagged if r["rank"] <= PRIORITY_RANK_MAX]
     tail = [r for r in flagged if r["rank"] > PRIORITY_RANK_MAX]
+    # A counter blind spot is our own tooling reporting itself; it is not a product
+    # finding and is counted apart from the queue so the headline number is the number
+    # of decisions waiting.
+    canary_ids = {id(r) for r in priority if is_counter_blind_spot(r) and not r.get("latched")}
+    canaries = [r for r in priority if id(r) in canary_ids]
+    actionable = [r for r in priority if id(r) not in canary_ids]
+    clusters = cluster_flagged(actionable)
+    canary_note = f", {len(canaries)} counter blind spot(s)" if canaries else ""
     lines = [
         f"## {result['run_date']}",
         "",
         f"Basis: {result['current_week_basis']}. "
         f"{result['total_events']} events — "
         + ", ".join(f"{k} {v}" for k, v in sorted(sc.items(), key=lambda x: -x[1]))
-        + f". {len(flagged)} flagged ({len(priority)} priority, {len(tail)} dormant tail).",
+        + f". {len(flagged)} flagged ({len(actionable)} priority in {len(clusters)} "
+        f"cause(s){canary_note}, {len(tail)} dormant tail).",
     ]
     latched = {k: v for k, v in (result.get("latches") or {}).items() if v.get("latched")}
     if latched:
@@ -797,6 +925,9 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
             "Clears on recovery, or when the metric's `anchored_on` changes in the "
             "semantic layer. There is no dismiss path."
         )
+    for problem in result.get("dismissal_problems") or []:
+        lines.append("")
+        lines.append(f"> **Dismissal refused.** {problem}")
     # The guard disabling itself must be as loud as the thing it guards against.
     for problem in result.get("anchor_problems") or []:
         lines.append("")
@@ -812,16 +943,52 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 
     lines.extend(aa.render_section(result.get("anchor_alignment") or []))
     lines.append("")
-    lines.append("### Flagged (ranked)")
+    lines.append("### Flagged (by cause)")
     lines.append("")
-    lines.append("| rank | event | status | elev | evidence | divergence |")
-    lines.append("| --- | --- | --- | --- | --- | --- |")
+    live = [g for g in clusters if not _cluster_dismissed(g, actionable)]
+    if not live:
+        lines.append("Nothing to decide.")
+    for group in live:
+        note = f" · elevated: {', '.join(group['elevated'])}" if group["elevated"] else ""
+        lines.append(f"- **{group['label']}** — {group['count']} event(s){note}")
+        lines.append(f"  {' · '.join(group['events'])}")
+    for group in clusters:
+        reason = _cluster_dismissed(group, actionable)
+        if reason:
+            lines.append(
+                f"- ~~{group['label']}~~ — {group['count']} event(s), dismissed: {reason}"
+            )
+
+    # The per-event detail stays, collapsed. This file is the longitudinal record and a
+    # flag has to be traceable across passes; what it must not do is present one deploy
+    # as twenty-two decisions in the part people read.
+    lines += [
+        "",
+        f"<details><summary>Per-event detail ({len(priority)})</summary>",
+        "",
+        "| rank | event | status | elev | evidence | divergence |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
     for r in priority:
         elev = "yes" if r["elevated"] else ""
         lines.append(
             f"| {r['rank']} {_record_rank_label(r)} | {r['event_type']} | "
             f"{r['status']} | {elev} | {_evidence(r)} | {r['divergence'] or ''} |"
         )
+    lines += ["", "</details>"]
+
+    if canaries:
+        lines += [
+            "",
+            "### Counter blind spots (our tooling, not the product)",
+            "",
+            f"{len(canaries)} event(s) fire normally with zero counted call sites. That is "
+            "the call-site counter failing to see an aliased or wrapped reference, not an "
+            "instrumentation problem: fix the counter. Kept out of the triage queue above "
+            "so it does not compete with product findings.",
+            "",
+            " · ".join(r["event_type"] for r in canaries),
+        ]
     if tail:
         names = " · ".join(r["event_type"] for r in tail)
         lines += [
@@ -921,6 +1088,51 @@ def load_monitored_events(path: Path = WATCHLIST) -> tuple[list[str], list[str],
     return families, events, dismissed
 
 
+# Causes no dismissal may ever silence. A latched OKR anchor means a number the company
+# steers by is wrong right now; it clears on recovery or on an upstream `anchored_on`
+# change, and nothing else. A counter blind spot is our own tooling and is already held
+# out of the Slack post, so a dismissal would only make a future change to that
+# suppression silently dangerous. Enforced here rather than stated in the runbook,
+# because a rule that lives only in prose is one YAML edit away from being ignored.
+UNDISMISSABLE_CAUSES = frozenset({"okr_anchor_dormant", "counter_blind_spot"})
+
+
+def load_cause_dismissals(path: Path = WATCHLIST) -> tuple[dict[str, str], list[str]]:
+    """Read ``dismissed:`` rows carrying a ``cause:`` -> ``({cause_key: reason}, problems)``.
+
+    A cause dismissal closes a whole cluster with one decision, which is the point: a
+    deploy that stranded 22 name constants is one ruling, not 22. Rows with ``event:``
+    are proposal-queue rejections and rows with ``metric:`` are Queue C alignment
+    dismissals; neither is read here.
+
+    A dismissed cause is silenced, never deleted: the records keep their place in the
+    JSON report and the digest prints the cause with its current member count, so a
+    cluster that keeps growing after someone waved it through stays visible.
+
+    A row naming an undismissable cause is refused and reported rather than raised: the
+    weekly digest is more valuable degraded than not posted at all, and the safe
+    direction for this particular mistake is that the alert keeps firing. The problem
+    reaches the digest, so nobody is left believing a dismissal took effect.
+    """
+    if not path.exists():
+        return {}, []
+    doc = yaml.safe_load(path.read_text()) or {}
+    dismissals: dict[str, str] = {}
+    problems: list[str] = []
+    for row in (doc.get("dismissed", []) or []):
+        cause = row.get("cause")
+        if not cause:
+            continue
+        if cause in UNDISMISSABLE_CAUSES:
+            problems.append(
+                f"`{cause}` cannot be dismissed; the row in {path.name} was ignored and "
+                "every finding under that cause is still live."
+            )
+            continue
+        dismissals[cause] = str(row.get("reason") or "")
+    return dismissals, problems
+
+
 def load_code_axis(csv_path: Path = CODE_CSV) -> dict[str, dict]:
     """Read the committed provenance CSV into ``{event_type: row}`` (the code axis)."""
     with open(csv_path, newline="") as fh:
@@ -987,9 +1199,10 @@ def load_prior_anomalous(path: Path | None) -> set[str] | None:
     return set(anomalous) if isinstance(anomalous, list) else None
 
 
-# Status carried by a latched anchor leg the catalog has no row for. A path-qualified
-# slice of an event is an instrument in its own right, but not something Amplitude counts
-# as an event, so none of the SOP statuses fit it.
+# Status carried by a latched anchor leg the catalog has no row for. A qualified slice of
+# an event — one page path, or one event minus an excluded property value — is an
+# instrument in its own right, but not something Amplitude counts as an event, so none of
+# the SOP statuses fit it.
 LATCHED_STATUS = "okr_anchor_dormant"
 
 
@@ -998,8 +1211,9 @@ def _latched_leg_record(
 ) -> dict:
     """A flagged row for a latched leg that ``reconcile`` never built a record for.
 
-    ``reconcile`` builds records from the catalog, so a path-qualified leg
-    (``Viewed[path=/dashboard]``) has none — and a latch that reaches no consumer is the
+    ``reconcile`` builds records from the catalog, so a qualified leg
+    (``Viewed[path=/dashboard]``, ``Voter Outreach - Campaign Completed[excluding
+    method=manual]``) has none — and a latch that reaches no consumer is the
     same silent failure this ticket exists to remove. The shape mirrors a reconcile record
     key for key so the digest table, ``digest_triage`` and the state diff need no special
     case for it.
@@ -1083,16 +1297,16 @@ def run_monitor(
     # the declaration omits is the exact shape of a case 3 finding, and with no rows of
     # its own it can never read live, so the check would be blind to the thing it exists
     # to catch. Only the query widens: the latch and watched_by_key stay on declared legs.
-    path_legs = {leg.key: leg for leg in watched_legs if leg.path}
+    qualified_legs = {leg.key: leg for leg in watched_legs if leg.qualified}
     for behavior in behaviors:
         for surface in behavior.get("surfaces") or []:
             if surface.get("instrumented_by") and surface.get("page_path"):
                 leg = sem_anchors.Leg(surface["instrumented_by"], surface["page_path"])
-                path_legs.setdefault(leg.key, leg)
+                qualified_legs.setdefault(leg.key, leg)
 
     catalog = fetch_catalog(run_query)
-    weekly = fetch_weekly(run_query) + fetch_path_weekly(
-        run_query, list(path_legs.values()))
+    weekly = fetch_weekly(run_query) + fetch_qualified_weekly(
+        run_query, list(qualified_legs.values()))
     code = load_code_axis(csv_path)
     watched_families, watchlist_events, dismissed_events = load_monitored_events(watchlist_path)
     result = reconcile(
@@ -1197,6 +1411,17 @@ def run_monitor(
             result["flagged"].append(record)
     result["flagged"].sort(key=lambda r: (r["rank"], -r["event_count_30d"]))
 
+    # Stamp dismissed causes rather than dropping the records: the digest still counts
+    # them and the report still carries them, so a waved-through cluster that grows is
+    # not a cluster that disappeared.
+    dismissed_causes, dismissal_problems = load_cause_dismissals(watchlist_path)
+    for record in result["flagged"]:
+        reason = dismissed_causes.get(cause_key(record))
+        if reason is not None:
+            record["dismissed_cause"] = reason
+    result["dismissed_causes"] = dismissed_causes
+    result["dismissal_problems"] = dismissal_problems
+
     changes = diff_flagged(result["flagged"], load_prior_state(state_path))
     return result, changes
 
@@ -1238,6 +1463,18 @@ def build_slack_triage(
         prior_state=load_prior_state(state_path),
         prior_anomalous=prior_anomalous,
     )
+    # A counter blind spot is a bug in our call-site counter and a dismissed cause has
+    # already been ruled on. Neither is a decision for the person reading the post, and
+    # both crowd out the ones that are. Filtered after build_items, not before: items are
+    # also minted from the transition lists, so suppressing them in `flagged` alone would
+    # let a newly-flagged canary through the other door. They stay in the digest and in
+    # the JSON report, which is where the audit trail belongs.
+    suppressed = {
+        r["event_type"] for r in result["flagged"]
+        if (is_counter_blind_spot(r) and not r.get("latched"))
+        or r.get("dismissed_cause") is not None
+    }
+    items = [item for item in items if item["event_type"] not in suppressed]
     triage = dt.run_triage(items, api_key=os.environ.get("ANTHROPIC_API_KEY"))
     # An expired token is the single most likely way the OKR dormancy checks stop
     # working, and it produces no other symptom, so it posts as red rather than as a

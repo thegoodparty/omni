@@ -349,7 +349,13 @@ used to resolve through `doorKnockingRouteId` and the route's own `@unique`
 `DoorKnockingTurfCountsService.forRoutes`, the same aggregate
 `GET /v1/door-knocking/turfs` uses, so doors are addresses paired with their
 stop, people exclude ADR 0007 / ADR 0008 residents, and logged is the subset of
-those people with a recorded status. Deriving any of the three here instead
+those people with a recorded status. **A fourth figure, `stopCount`, rides the
+turf** (not this block): a stop is a COORDINATE with addresses behind it, so a
+multi-unit building is one stop with many doors, and the two are different
+numbers wherever a card prints both. It is counted over the same targets as the
+doors rather than as a `_count` on the turf's stop rows, so the pair can never
+disagree about which stops the list actually reaches, and the routes test
+asserts it against the route payload's own stop count. Deriving any of the three here instead
 would put a second denominator on a second surface for one quantity, which is
 the failure ADR 0010 wrote the standing rule against — and the counts service's
 own header explains why its door key is a `(stopId, addressKey)` pair rather

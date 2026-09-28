@@ -344,6 +344,13 @@ dumper.
 - `declared_leg_unmonitored`: add a surface to the behavior that points at the metric, or
   an `events:` row if no behavior owns the question, in the exact row shape Queue B's
   accept uses. Same `page_path` rule.
+
+A finding's `event_key` may carry an `excluding` qualifier
+(`Voter Outreach - Campaign Completed[excluding method=manual]`). That is a scope rule the
+metric applies over one event, not a second call site, so **never mirror it onto a
+surface**: the surface names the bare event and the two still match. `suggested` never
+carries one, for the same reason. If the exclusion itself looks wrong, that is an
+`anchored_on` change in gp-data-platform, which is case 2.
 - `metric_undeclared`: either the pointer is misspelled (fix it against the sem file's
   `name:` values) or the metric is not governed yet. In the second case remove the
   pointer and tell the reviewer the metric is not an OKR until it is declared. Do not
@@ -402,6 +409,33 @@ site, do not trust the count.
   heading; that is its home when no ticket is filed.
 
 Never decide a case 3 yourself.
+
+## Settle a whole cause (digest queue)
+
+The digest's **Flagged (by cause)** section groups flags by the reason they fired, so one
+deploy that stranded twenty-two name constants is one ruling rather than twenty-two. When
+the reviewer settles a cause rather than an event, append a `cause:` row to `dismissed:`
+in `monitored_events.yaml`:
+
+```yaml
+- {cause: "<cause key>", reason: "<reason>", date: "<run_date>"}
+```
+
+The cause key is the string the digest prints for that line, qualifier included
+(`call_site_removed@2026-09-01`), or the bare key where there is none (`orphaned_firing`,
+`never_observed`, `intent_divergence`, `dormant_elevated`, `anomaly_drop`).
+
+Rules:
+
+- **Check membership first** — skip if the same `cause` is already in `dismissed:`.
+- **`okr_anchor_dormant` and `counter_blind_spot` cannot be dismissed.** The loader
+  refuses both and the digest prints "Dismissal refused" naming the row, so a dismissal
+  written anyway does nothing except tell on itself. A latched OKR anchor clears on
+  recovery or when the metric's `anchored_on` changes upstream; a counter blind spot is
+  fixed in `count_call_sites` in the provenance backfill.
+- A dismissed cause stays in the digest struck through, with its current member count, and
+  stays whole in the JSON report. It is silenced, not deleted, so a cluster that keeps
+  growing after it was settled is still visible.
 
 ## Diagnose — red/yellow health items
 

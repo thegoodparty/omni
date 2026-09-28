@@ -23,6 +23,7 @@ from typing import Any
 
 import yaml
 
+import sem_anchors
 from behavior_registry import metric_list, surface_key
 
 _LIVE = frozenset({"active"})
@@ -31,23 +32,25 @@ LIVE_WINDOW_DAYS = 30
 
 
 def _live(key: str, records_by_type, series, today) -> bool:
-    """A bare event is live when health called it active. A path leg has no catalog
+    """A bare event is live when health called it active. A qualified leg has no catalog
     record, so its own weekly rows are the only honest source."""
-    if "[path=" in key:
+    if sem_anchors.is_qualified_key(key):
         cutoff = today - timedelta(days=LIVE_WINDOW_DAYS)
         return any(n > 0 for week_start, n in series.get(key, ()) if week_start >= cutoff)
     return (records_by_type.get(key) or {}).get("status") in _LIVE
 
 
 def _dead_leg_evidence(leg, records_by_type, code, latches, series, today) -> dict | None:
-    # A path leg is judged from its own weekly rows: the site-wide event's record reads
-    # active whenever any other page still fires it, which would hide a dead slice.
+    # A qualified leg is judged from its own weekly rows: the whole event's record reads
+    # active whenever any other page — or any excluded property value — still fires it,
+    # which would hide a dead slice. That is how the outreach terminal read healthy for
+    # weeks after the in-product send died and only the self-report path was left.
     retired = (code.get(leg.event) or {}).get("retired_date") or None
     latched = bool((latches.get(leg.key) or {}).get("latched"))
-    if "[path=" in leg.key:
-        # A path slice is judged from its own rows, not the bare event's catalog record:
-        # a retired_date on the bare event does not make a still-firing slice dead. Only
-        # a latch, or rows that are missing or gone quiet, can.
+    if leg.qualified:
+        # Judged from its own rows, not the whole event's catalog record: a retired_date
+        # on the event does not make a still-firing slice dead. Only a latch, or rows
+        # that are missing or gone quiet, can.
         rows = series.get(leg.key, ())
         if not latched and (
                 not rows or _live(leg.key, records_by_type, series, today)):
@@ -147,8 +150,12 @@ def align(
             live_legs = [leg for leg in legs if leg.watched]
             if not live_legs:
                 continue  # anchor_problems already reports an all-historical metric
-            live_keys = {leg.key for leg in live_legs}
-            hist_keys = {leg.key for leg in legs if not leg.watched}
+            # Registry keys, not series keys. An exclusion narrows what the metric
+            # counts over one event; it does not change which call site instruments the
+            # behavior, so a surface naming the bare event still matches the leg. A path
+            # is the other way round: the slice IS the instrument, so it must match.
+            live_keys = {leg.registry_key for leg in live_legs}
+            hist_keys = {leg.registry_key for leg in legs if not leg.watched}
             surfaces = [s for s in (b.get("surfaces") or []) if surface_key(s)]
             live_undeclared = [
                 s for s in surfaces
@@ -206,14 +213,14 @@ def align(
                                   "the behavior overclaims.")))
 
             for leg in live_legs:
-                if leg.key not in monitored:
-                    if (metric, leg.key) in seen_unmonitored:
+                if leg.registry_key not in monitored:
+                    if (metric, leg.registry_key) in seen_unmonitored:
                         continue
-                    seen_unmonitored.add((metric, leg.key))
+                    seen_unmonitored.add((metric, leg.registry_key))
                     findings.append(_finding(
                         1, "declared_leg_unmonitored", metric=metric, behavior_id=bid,
-                        event_key=leg.key, suggested=leg.key,
-                        headline=(f"'{metric}' declares {leg.key}, but no behavior surface "
+                        event_key=leg.registry_key, suggested=leg.registry_key,
+                        headline=(f"'{metric}' declares {leg.registry_key}, but no behavior surface "
                                   "or watchlist row names it. Add it to the behavior that "
                                   "answers this metric.")))
 

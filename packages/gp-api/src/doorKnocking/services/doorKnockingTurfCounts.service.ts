@@ -3,6 +3,11 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { DoorKnockingStatusService } from './doorKnockingStatus.service'
 
 export type DoorKnockingTurfCounts = {
+  // Doors are not stops, and both are printed. A multi-unit building is one
+  // stop with many doors behind it, so a turf's card can say "29 stops, 57
+  // people" and mean three different quantities from the same list. Stops
+  // is the router's own unit and the one the 150 cap is stated in.
+  stopCount: number
   doorCount: number
   knockedDoorCount: number
   peopleCount: number
@@ -73,6 +78,7 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
         this.status.notAVoterReasons(organizationSlug, personIds),
       ])
 
+    const stops = new Map<number, Set<number>>()
     const doors = new Map<number, Set<string>>()
     // Doors with somebody behind them worth knocking, and doors where somebody
     // behind them has been written down. Both are keyed by the same door key
@@ -82,6 +88,7 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
     const people = new Map<number, number>()
     const logged = new Map<number, number>()
     for (const turfId of turfIds) {
+      stops.set(turfId, new Set())
       doors.set(turfId, new Set())
       knockableDoors.set(turfId, new Set())
       loggedDoors.set(turfId, new Set())
@@ -92,6 +99,7 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
     for (const target of targets) {
       const turfId = target.stop.doorKnockingTurfId
       const door = doorKey(target.doorKnockingStopId, target.addressKey)
+      stops.get(turfId)?.add(target.doorKnockingStopId)
       doors.get(turfId)?.add(door)
 
       // The walk's `isKnockable`: ADR 0007 do-not-knock and ADR 0008
@@ -136,6 +144,10 @@ export class DoorKnockingTurfCountsService extends createPrismaBase(
         return [
           turfId,
           {
+            // Counted over the same targets as the doors rather than as a
+            // `_count` on the turf's stop rows, so the two figures can never
+            // disagree about which stops this list actually reaches.
+            stopCount: (stops.get(turfId) ?? new Set()).size,
             doorCount: all.size,
             knockedDoorCount,
             peopleCount: people.get(turfId) ?? 0,

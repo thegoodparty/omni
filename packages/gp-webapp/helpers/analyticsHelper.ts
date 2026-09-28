@@ -666,6 +666,10 @@ export const EVENTS = {
     // point (useOutreachAudience.ts).
     RecommendedList: {
       Accepted: 'Voter Outreach - Recommended List Accepted',
+      // The save that Accepted reports on can fail. Without the twin, the
+      // accept count is a success count with no denominator, so a rise in
+      // failures reads as a fall in interest.
+      Failed: 'Voter Outreach - Recommended List Failed',
     },
     // outreach-pro-gating-v2: the saved draft a gated candidate keeps.
     // Every event carries `channel` (the gate's `GateChannel`); `Resumed`
@@ -682,6 +686,17 @@ export const EVENTS = {
       BannerViewed: 'Outreach - Gate Banner Viewed',
       ExplainerViewed: 'Outreach - Gate Explainer Viewed',
       ExplainerCta: 'Outreach - Gate Explainer: Click CTA',
+    },
+    // Per-stage drop-off across the v2 channel wizards, fired by
+    // OutreachFlowShell rather than by each flow: the stage is a property
+    // (`channel`, `step`), not a separate event, matching the shared
+    // 'Voter Outreach - Campaign Scheduled' terminal. StepViewed re-fires on
+    // Back re-entry; StepCompleted names the step the user just left, so it
+    // fires only on a forward move. The gate sub-flow and the success screen
+    // are deliberately untracked here — they are not stages of this funnel.
+    Flow: {
+      StepViewed: 'Voter Outreach - Flow Step Viewed',
+      StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },

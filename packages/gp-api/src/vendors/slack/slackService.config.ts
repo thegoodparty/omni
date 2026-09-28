@@ -38,7 +38,10 @@ export const SLACK_CHANNEL_IDS = {
     channelToken: process.env.SLACK_CAS_CLICKUP_TASKS_CHANNEL_TOKEN,
   },
   [SlackChannel.sharedGoodpartyPeerly10Dlc]: {
-    channelId: process.env.SLACK_SHARED_PEERLY_10DLC_CHANNEL_ID,
-    channelToken: process.env.SLACK_SHARED_PEERLY_10DLC_CHANNEL_TOKEN,
+    // Slack Connect channel owned by Peerly — an incoming webhook can't be
+    // created for it, so this channel posts via the Web API instead. The env
+    // var must hold the real channel ID (C…), and the goodparty app must be
+    // a member of the channel for chat.postMessage to land.
+    apiChannelId: process.env.SLACK_SHARED_PEERLY_10DLC_CHANNEL_ID,
   },
 }

@@ -13,6 +13,15 @@ name: Verify Vercel registrar token
 # The token is read from Secrets Manager, masked immediately, and never
 # printed. The registrar probe deliberately targets a domain we do not own, so
 # a real auth code is never requested or returned.
+#
+# Deliberately no `pull_request` trigger, though it had one so that edits here
+# could be exercised before merging. The handling below is careful, but on a
+# pull request the job definition is whatever the branch says it is, so that
+# care is not a property of the run. `vars.AWS_ROLE_ARN` grants Secrets
+# Manager broadly, and a job that reads a production secret should not be
+# reachable from an event that also supplies its own body. Test an edit by
+# dispatching it against `main` after it merges; the weekly schedule catches
+# anything missed.
 
 permissions:
   contents: read
@@ -30,13 +39,6 @@ on:
     # Weekly. The failure mode is someone's Vercel team role changing, which
     # has nothing to do with our deploys, so there is no event to hook onto.
     - cron: '0 14 * * 1'
-  pull_request:
-    # `workflow_dispatch` only becomes available once a workflow is on the
-    # default branch, so without this a change here could not be exercised
-    # until after it merged. Scoped to this file so it does not run on every
-    # PR in the repo.
-    paths:
-      - .github/workflows/verify-vercel-registrar-token.yml
 
 jobs:
   verify:

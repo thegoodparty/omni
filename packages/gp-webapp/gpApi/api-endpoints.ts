@@ -1,6 +1,7 @@
 import type {
   CreateDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
+  BuildDoorKnockingRoute,
   DoorKnockingArchiveRequest,
   DoorKnockingAudienceCheckResponse,
   DoorKnockingRoutePayload,
@@ -1483,6 +1484,17 @@ export type APIEndpoints = {
   // renders forward.
   'POST /v1/door-knocking/turfs/:id/complete': {
     Request: {}
+    Response: DoorKnockingTurf
+  }
+  // Buys the turf's Geoapify route — the walk ORDER for doors that were
+  // already frozen when the turf was drawn. The only paid call the feature
+  // makes from the client now that creating a campaign does not.
+  //
+  // Idempotent: a turf that already has a route gets that route back and
+  // nothing is bought. The client's own guard is the button being disabled
+  // while this is in flight.
+  'POST /v1/door-knocking/turfs/:id/route': {
+    Request: BuildDoorKnockingRoute
     Response: DoorKnockingTurf
   }
   // A body rather than an archive/unarchive pair, matching the route: restore

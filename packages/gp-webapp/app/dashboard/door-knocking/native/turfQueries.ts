@@ -133,11 +133,16 @@ export const addressPreviewQueryOptions = (
 export const MAX_TURF_NAME_LENGTH = 120
 
 // The Lovable palette: distinct, map-legible turf colors.
+//
+// SEVEN, not eight. Red left because the drawing panel reddens a card that
+// cannot be saved, and a turf cut in red sat under that treatment wearing
+// the same hue — a red dot, a red border and a red line about a problem,
+// where two of the three were the candidate's own choice. An error colour
+// has to mean one thing.
 export const TURF_COLORS = [
   '#2563eb',
   '#16a34a',
   '#d97706',
-  '#dc2626',
   '#7c3aed',
   '#0d9488',
   '#db2777',
@@ -149,28 +154,32 @@ export const TURF_COLORS = [
 // they paint with, so choosing a list colour by keyboard or screen reader meant
 // hearing "Turf color number two five six three e b" eight times. The name is
 // also what the two pickers have to agree on — the create flow and the edit
-// dialog draw the same eight swatches — so it lives beside the palette.
+// dialog draw the same swatches — so it lives beside the palette.
 const TURF_COLOR_NAMES: Record<string, string> = {
   '#2563eb': 'Blue',
   '#16a34a': 'Green',
   '#d97706': 'Amber',
-  '#dc2626': 'Red',
   '#7c3aed': 'Purple',
   '#0d9488': 'Teal',
   '#db2777': 'Pink',
   '#0891b2': 'Cyan',
-  // Off the palette, still named. Lime sat one slot from Green and the two
-  // read as the same colour in a row of eight swatches and as the same ring
-  // on a map. Cyan took the slot because the only real hue gaps left in the
+  // Off the palette, still named. Red is the error colour on the drawing
+  // panel and cannot also be a turf's own; turfs cut in it before it left
+  // keep it, and the label is what stops one announcing itself as "hash
+  // d c two six two six".
+  '#dc2626': 'Red',
+  // Lime is off it for a different reason: it sat one slot from Green and
+  // the two read as the same colour in a row of swatches and as the same
+  // ring on a map. Cyan took the slot because the only real hue gaps left in the
   // set are teal-to-blue and purple-to-pink, and the first has the clearer
   // margin: cyan is a light blue-cyan against teal's dark green-cyan, where
   // a magenta would sit between two brights. Turfs cut in lime before the
   // swap keep it — the label is what stops such a turf announcing itself as
   // "six five a three zero d".
   //
-  // Eight maximally distinct hues is genuinely hard, and this is the second
-  // attempt at the eighth. If cyan reads as teal in use, the honest fix is
-  // SEVEN colours rather than a third hue nobody can name.
+  // Eight maximally distinct hues was genuinely hard, and cyan was the
+  // second attempt at the eighth. Dropping red settled it at seven, which
+  // is what that attempt kept pointing at.
   '#65a30d': 'Lime',
 }
 

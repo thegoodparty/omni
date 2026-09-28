@@ -35,7 +35,10 @@ import InviteMemberDialog from 'app/dashboard/team/components/InviteMemberDialog
 import { volunteerAssignmentsQueryKey } from 'app/volunteer/components/AssignmentsPage'
 import { OutreachAssignModal, initialsFor } from './OutreachAssignModal'
 
-const outreachAssigneesQueryKey = (outreachId: number) => [
+// Exported so the turf-level menu on the campaign details view reads the
+// same cache: two surfaces asking who is assigned to one envelope must not
+// each keep their own answer.
+export const outreachAssigneesQueryKey = (outreachId: number) => [
   'outreach-assignees',
   outreachId,
 ]

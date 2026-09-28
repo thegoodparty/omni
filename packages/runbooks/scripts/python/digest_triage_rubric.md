@@ -12,12 +12,15 @@ OKR-anchored break.
 An OKR-anchored event (an event the semantic layer's `anchored_on` declares,
 carried as the item's `okr` field) showing a breaking
 signal: anomaly drop, newly or persistently dormant, orphaned_firing, call
-site removed while the name constant remains, counter blind spot, or
-instrumented-never-observed. A broken anchor means the OKR metric built on
+site removed while the name constant remains, or
+instrumented-never-observed. A counter blind spot is NOT among them: it is
+our call-site counter failing to see a reference, and the monitor holds it
+out of the item list entirely (it renders in its own digest section). A
+latched OKR anchor still arrives here and is still red. A broken anchor means the OKR metric built on
 it is silently wrong — the case study is `Dashboard - Candidate Dashboard
 Viewed` going quiet while the Active Candidates OKR read zero for a month.
-Also red: a rank ≤ 2 transition (counter blind spot / orphaned firing /
-call-site removed) on any watchlist event.
+Also red: a rank ≤ 2 transition (orphaned firing / call-site removed) on
+any watchlist event.
 Red items repeat in every digest until resolved. That is intentional.
 
 ### 🟡 yellow — worth watching
