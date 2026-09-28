@@ -11,6 +11,8 @@ import { CampaignManagerModule } from './campaign-manager/campaign-manager.modul
 import { CampaignManagerHandler } from './campaign-manager/campaignManager.handler'
 import { OrdinanceFlowModule } from './ordinance-flow/ordinance-flow.module'
 import { OrdinanceFlowHandler } from './ordinance-flow/ordinanceFlow.handler'
+import { PriorityFlowModule } from './priority-flow/priority-flow.module'
+import { PriorityFlowHandler } from './priority-flow/priorityFlow.handler'
 import { CHAT_SCOPE_HANDLERS } from './types/chatScopeHandler'
 
 // Scope-generic chat backend. New scopes register a handler here (collected
@@ -24,6 +26,7 @@ import { CHAT_SCOPE_HANDLERS } from './types/chatScopeHandler'
     ChiefOfStaffModule,
     CampaignManagerModule,
     OrdinanceFlowModule,
+    PriorityFlowModule,
   ],
   controllers: [GeneralChatsController],
   providers: [
@@ -36,11 +39,13 @@ import { CHAT_SCOPE_HANDLERS } from './types/chatScopeHandler'
         chiefOfStaff: ChiefOfStaffHandler,
         campaignManager: CampaignManagerHandler,
         ordinanceFlow: OrdinanceFlowHandler,
-      ) => [chiefOfStaff, campaignManager, ordinanceFlow],
+        priorityFlow: PriorityFlowHandler,
+      ) => [chiefOfStaff, campaignManager, ordinanceFlow, priorityFlow],
       inject: [
         ChiefOfStaffHandler,
         CampaignManagerHandler,
         OrdinanceFlowHandler,
+        PriorityFlowHandler,
       ],
     },
   ],

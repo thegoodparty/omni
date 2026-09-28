@@ -493,7 +493,18 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-25: 586 -> 585. The daily door-knocking campaign allowance was
 // removed, and DoorKnockingDailyLimitDialog went with it — the only thing it
 // ever rendered was that refusal.
-const BASELINE = 585
+// 2026-09-28: 585 -> 593 for the Serve Priorities chat. The priority detail
+// view is a live agent conversation, so its orchestrator, status rail, inline
+// turn blocks and status marker all hold streaming state (SSE segments, a
+// status that moves mid-turn, an open step) and cannot render on the server.
+// The list hub owns lane filtering and optimistic insert/remove; the add form
+// is controlled. The three `*-api.ts` files are not components — the directive
+// marks them browser-only because they call `clientRequest`, which reads the
+// org-slug cookie, and that is what stops a server component importing them by
+// accident (same pattern as `ordinances/data/ordinances-api.ts`). The chat
+// cards under `[priorityId]/cards/` deliberately carry NO directive: they
+// inherit the boundary from the chat that mounts them.
+const BASELINE = 593
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

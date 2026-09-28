@@ -15,6 +15,7 @@ import {
 import {
   Priority as PriorityDto,
   PrioritySchema,
+  parsePriorityStatus,
 } from '@goodparty_org/contracts'
 import { parseISO } from 'date-fns'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -31,6 +32,7 @@ import {
   PriorityIdParamDto,
   UpdatePriorityDto,
 } from './schemas/priority.schema'
+import { PriorityStatusResponseSchema } from './schemas/priorityStatus.schema'
 import { PrioritiesService } from './services/priorities.service'
 
 const toApi = (record: Priority): PriorityDto => ({
@@ -41,6 +43,8 @@ const toApi = (record: Priority): PriorityDto => ({
   source: record.source,
   sourceCampaignPositionId: record.sourceCampaignPositionId,
   targetDate: toDateOnlyString(record.targetDate) ?? null,
+  currentStep: record.currentStep,
+  nextAction: record.nextAction,
   createdAt: record.createdAt.toISOString(),
   updatedAt: record.updatedAt.toISOString(),
 })
@@ -58,6 +62,25 @@ export class PrioritiesController {
   async list(@ReqElectedOffice() electedOffice: ElectedOffice) {
     const priorities = await this.prioritiesService.listActive(electedOffice.id)
     return priorities.map(toApi)
+  }
+
+  @Get(':id/status')
+  @ResponseSchema(PriorityStatusResponseSchema)
+  async status(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { id }: PriorityIdParamDto,
+  ) {
+    const priority = await this.prioritiesService.findFirst({
+      where: { id, electedOfficeId: electedOffice.id, archivedAt: null },
+    })
+    if (!priority) {
+      throw new NotFoundException('Priority not found')
+    }
+    return {
+      status: parsePriorityStatus(priority.status),
+      currentStep: priority.currentStep,
+      nextAction: priority.nextAction,
+    }
   }
 
   @Post()
