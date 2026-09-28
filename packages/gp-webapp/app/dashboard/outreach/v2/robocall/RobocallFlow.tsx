@@ -832,6 +832,13 @@ export const RobocallFlow = ({
             listsLoading={audience.listsLoading}
             selectedId={audience.selectedListId}
             onSelect={audience.onSelect}
+            universeName={audience.universeName}
+            universeCount={audience.universeCount}
+            universeLoading={audience.universeLoading}
+            onSelectUniverse={() => {
+              void audience.selectUniverse()
+            }}
+            universePending={audience.universePending}
             onStartBuilder={audience.startBuilder}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}

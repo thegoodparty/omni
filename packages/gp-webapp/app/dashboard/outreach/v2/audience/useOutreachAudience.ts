@@ -13,6 +13,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
+import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/outreach/util/autoVoterFilterName.util'
 import type {
   SegmentResponse,
@@ -122,6 +123,23 @@ export interface OutreachAudience {
   // Settled-zero: the only count state that should block advancing.
   builderZeroMatch: boolean
   onSelect: (id: number) => void
+  // The whole constituency, offered as a row of its own — the audience the
+  // CRM lists index has always shown first, which every outreach picker was
+  // missing. Its name is the CRM's own label, so the two surfaces cannot
+  // drift apart.
+  universeName: string
+  // Counted from `GET /v1/contacts/list-detail` with NO segment, which is
+  // exactly what the CRM's universe row reads, so the number on the row is
+  // the same number the contacts tab shows.
+  universeCount: number | null
+  universeLoading: boolean
+  // Resolves the row to a REAL criteria-free saved list — reused when the org
+  // already has one, created when it does not — and selects it. Doing it here
+  // rather than at Continue is what keeps every flow unchanged: from the
+  // moment it resolves, this is an ordinary selected list, so the counts, the
+  // create payload and all three flows' Continue gates need no special case.
+  selectUniverse: () => Promise<void>
+  universePending: boolean
   startBuilder: () => void
   // Persist the built filters as a saved list (overlay-free), refresh the
   // picker, and return the created row so the flow can select it.
@@ -320,6 +338,49 @@ export const useOutreachAudience = ({
   })
   const lists = useMemo(() => listsQuery.data ?? [], [listsQuery.data])
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null
+
+  // The universe row's name is the CRM's own label for the same audience, so
+  // "All voters" on Win and "All constituents" on Serve — and so a list
+  // created here is the one the contacts tab already talks about.
+  const universeName = getContactsLabels(!isElectedOfficial).allContactsTitle
+
+  // Omitted segment = the whole unfiltered district (ENG-10778), the same
+  // read the CRM's universe row makes. Only needed until the row resolves to
+  // a real list, after which the ordinary reachability query answers.
+  const universeQuery = useQuery({
+    queryKey: ['outreach-audience-universe', orgSlug, reachabilityKey],
+    queryFn: async ({ signal }) => {
+      const { data } = await clientRequest(
+        'GET /v1/contacts/list-detail',
+        {},
+        { signal },
+      )
+      return data.reachability[reachabilityKey]
+    },
+    enabled: open,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+
+  const universeMutation = useMutation({
+    mutationFn: async (): Promise<SegmentResponse> => {
+      // Reuse before create, so tapping the row twice — or on a later visit —
+      // cannot litter the org with duplicate all-constituents lists.
+      const existing = listsRef.current.find((l) => l.name === universeName)
+      if (existing) return existing
+      // No criteria at all: ENG-10960 established that the backend accepts a
+      // criteria-free saved filter, and that is precisely "everyone".
+      const { data } = await clientRequest(
+        'POST /v1/voters/voter-file/filter',
+        { name: universeName },
+      )
+      await queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
+      })
+      return data as SegmentResponse
+    },
+    onSuccess: (list) => setSelectedListId(list.id),
+  })
   // Read by `reset` through refs so a lists refetch (staleTime 0, window
   // focus) never changes reset's identity: the flows key their open-time
   // reset effect on it, and a new identity would wipe the flow mid-edit.
@@ -778,6 +839,13 @@ export const useOutreachAudience = ({
     builderCountErrorMessage: builderCountResult.errorMessage,
     builderZeroMatch,
     onSelect: selectList,
+    universeName,
+    universeCount: universeQuery.data ?? null,
+    universeLoading: universeQuery.isFetching,
+    selectUniverse: async () => {
+      await universeMutation.mutateAsync()
+    },
+    universePending: universeMutation.isPending,
     startBuilder,
     selectedRecommendation,
     selectRecommendation,

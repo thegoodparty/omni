@@ -53,6 +53,11 @@ const baseProps = () => ({
   selectedId: null,
   onSelect: vi.fn(),
   onStartBuilder: vi.fn(),
+  universeName: 'All voters',
+  universeCount: 12_000,
+  universeLoading: false,
+  onSelectUniverse: vi.fn(),
+  universePending: false,
   recommendations: [] as RecommendedList[],
   recommendationsLoading: false,
   recommendationsError: false,
@@ -84,6 +89,74 @@ const baseProps = () => ({
   builderCounting: false,
   builderCapError: false,
   builderCountErrorMessage: undefined,
+})
+
+// Every audience picker owes the candidate their whole constituency, the way
+// the CRM lists index has always offered it. This step was the one surface
+// that did not, which is the deviation these cover.
+describe('OutreachAudienceStep — the whole-constituency row', () => {
+  const openPicker = async () => {
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Choose a voter list/i }),
+    )
+  }
+
+  it('offers the universe with its count', async () => {
+    render(<OutreachAudienceStep {...baseProps()} />)
+    await openPicker()
+
+    expect(await screen.findByText('All voters')).toBeVisible()
+    expect(screen.getByText(/12,000/)).toBeVisible()
+  })
+
+  // Nothing is saved until it is picked, so the first pick is what resolves it
+  // to a real list — that is what every downstream step reads.
+  it('resolves it on pick when the org has no such list yet', async () => {
+    const props = baseProps()
+    render(<OutreachAudienceStep {...props} />)
+    await openPicker()
+
+    await userEvent.click(await screen.findByText('All voters'))
+
+    expect(props.onSelectUniverse).toHaveBeenCalledTimes(1)
+    expect(props.onSelect).not.toHaveBeenCalled()
+  })
+
+  // Once resolved it is an ordinary saved list, so picking it again must
+  // select that row rather than create a second one.
+  it('selects the existing list instead of creating another', async () => {
+    const props = baseProps()
+    render(
+      <OutreachAudienceStep
+        {...props}
+        lists={[{ id: 77, name: 'All voters' } as never]}
+      />,
+    )
+    await openPicker()
+
+    await userEvent.click(await screen.findByText('All voters'))
+
+    expect(props.onSelect).toHaveBeenCalledWith(77)
+    expect(props.onSelectUniverse).not.toHaveBeenCalled()
+  })
+
+  // It is rendered as its own row at the top, so leaving it in the ordinary
+  // rows too would read as two different audiences.
+  it('does not also list it among the saved lists', async () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        lists={[
+          { id: 77, name: 'All voters' } as never,
+          { id: 78, name: 'Ward 3' } as never,
+        ]}
+      />,
+    )
+    await openPicker()
+
+    expect(await screen.findByText('Ward 3')).toBeVisible()
+    expect(screen.getAllByText('All voters')).toHaveLength(1)
+  })
 })
 
 describe('OutreachAudienceStep — recommended lists', () => {

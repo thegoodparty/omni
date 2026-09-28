@@ -75,6 +75,14 @@ interface OutreachAudienceStepProps {
   listsLoading: boolean
   selectedId: number | null
   onSelect: (id: number) => void
+  // The whole-constituency row. Its name is the CRM's label for the same
+  // audience, which is also the name of the saved list it resolves to, so
+  // `selectedId` alone tells us whether it is the current selection.
+  universeName: string
+  universeCount: number | null
+  universeLoading: boolean
+  onSelectUniverse: () => void
+  universePending: boolean
   onStartBuilder: () => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
   // "All lists" in picker mode only.
@@ -159,6 +167,11 @@ export const OutreachAudienceStep = ({
   listsLoading,
   selectedId,
   onSelect,
+  universeName,
+  universeCount,
+  universeLoading,
+  onSelectUniverse,
+  universePending,
   onStartBuilder,
   recommendations,
   recommendationsLoading,
@@ -205,6 +218,13 @@ export const OutreachAudienceStep = ({
   // the picker's own root div — and scroll works.
   const pickerRootRef = useRef<HTMLDivElement | null>(null)
   const active = lists.find((l) => l.id === selectedId) ?? null
+  // The universe row resolves to a real saved list carrying `universeName`,
+  // so its presence is what tells us whether it still has to be created, and
+  // the ordinary selection is what tells us whether it is picked.
+  const universeList = lists.find((l) => l.name === universeName) ?? null
+  const universeResolved = universeList !== null
+  const universeListId = universeList?.id ?? 0
+  const universeSelected = universeResolved && universeList.id === selectedId
   // The three nouns this step states itself, rather than reading from `copy`:
   // a surface's OutreachAudienceCopy covers the titles and bodies, but these
   // sit inside shared controls. Serve never says "voter", so they key off the
@@ -489,6 +509,44 @@ export const OutreachAudienceStep = ({
             className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
           >
             <div className="divide-y divide-border">
+              {/* First, as on the CRM lists index. Every audience picker owes
+                  the candidate the option of their whole constituency, and
+                  this was the one surface that did not offer it. */}
+              <button
+                type="button"
+                disabled={universePending}
+                onClick={() => {
+                  if (universeResolved) {
+                    onSelect(universeListId)
+                    setOpen(false)
+                    return
+                  }
+                  onSelectUniverse()
+                  setOpen(false)
+                }}
+                className={cn(
+                  'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted disabled:opacity-60',
+                  universeSelected && 'bg-muted',
+                )}
+              >
+                <span className="min-w-0">
+                  <span className="block font-medium text-foreground">
+                    {universeName}
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    {universeLoading || universeCount === null
+                      ? 'Counting…'
+                      : `${copy.reachVerb} ${universeCount.toLocaleString()} ${copy.reachNoun}`}
+                  </span>
+                </span>
+                {universePending ? (
+                  <Loader2Icon className="size-5 shrink-0 animate-spin text-primary" />
+                ) : (
+                  universeSelected && (
+                    <CheckIcon className="size-5 shrink-0 text-primary" />
+                  )
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -514,30 +572,32 @@ export const OutreachAudienceStep = ({
                   No saved lists yet.
                 </p>
               )}
-              {lists.map((list) => {
-                const on = list.id === selectedId
-                return (
-                  <button
-                    key={list.id}
-                    type="button"
-                    onClick={() => {
-                      onSelect(list.id)
-                      setOpen(false)
-                    }}
-                    className={cn(
-                      'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
-                      on && 'bg-muted',
-                    )}
-                  >
-                    <span className="block min-w-0 truncate font-medium text-foreground">
-                      {list.name ?? `List ${list.id}`}
-                    </span>
-                    {on && (
-                      <CheckIcon className="size-5 shrink-0 text-primary" />
-                    )}
-                  </button>
-                )
-              })}
+              {lists
+                .filter((list) => list.name !== universeName)
+                .map((list) => {
+                  const on = list.id === selectedId
+                  return (
+                    <button
+                      key={list.id}
+                      type="button"
+                      onClick={() => {
+                        onSelect(list.id)
+                        setOpen(false)
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
+                        on && 'bg-muted',
+                      )}
+                    >
+                      <span className="block min-w-0 truncate font-medium text-foreground">
+                        {list.name ?? `List ${list.id}`}
+                      </span>
+                      {on && (
+                        <CheckIcon className="size-5 shrink-0 text-primary" />
+                      )}
+                    </button>
+                  )
+                })}
             </div>
           </PopoverContent>
         </Popover>
