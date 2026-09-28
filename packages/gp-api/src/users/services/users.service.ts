@@ -45,6 +45,8 @@ import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
 import { UserAvatarService } from './userAvatar.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
+import { CronLockService } from '@/cron/services/cronLock.service'
+import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 
 /** Result of resolving a gp-api Clerk user by email for impersonation actor.sub. */
 export type ResolvedActorIdentity =
@@ -54,6 +56,12 @@ export type ResolvedActorIdentity =
 const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
 const CLERK_PAGE_SIZE = 500
+
+const TEST_USER_SWEEP_CRON = '37 */6 * * *'
+const TEST_USER_SWEEP_JOB = 'testUserSweep'
+
+// The long-lived deploys: exactly one gp-api per Clerk instance.
+const SWEEP_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
 
 const SIGN_IN_LINK_TTL_SECONDS = 3600
 
@@ -79,6 +87,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     private readonly clerkClient: ClerkClient,
     private readonly userAvatar: UserAvatarService,
     private readonly marketingRevalidation: MarketingRevalidationService,
+    private readonly cronLock: CronLockService,
   ) {
     super()
   }
@@ -1016,10 +1025,46 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }
 
   /**
-   * Regularly deletes old e2e test users that were created more than 24 hours
-   * ago. Cleans out users from both the postgres db and from Clerk.
+   * Six-hourly sweep of stale e2e and fixture users.
+   *
+   * Runs only on the long-lived dev and prod deploys. Every ephemeral
+   * PR-preview stack and every local gp-api holds the same dev Clerk secret,
+   * so ungated this had one full-catalog sweep per open PR firing on the same
+   * instant against a single shared 100 req/10s Backend API budget. Clerk
+   * answers that with 429s, which gp-api surfaces as bare 401s on e2e setup.
+   * Allowlisted rather than `!== 'preview'` so an absent or unexpected value
+   * fails closed: a skipped sweep is recoverable, a stampede is not.
    */
-  @Cron('0 */6 * * *')
+  @Cron(TEST_USER_SWEEP_CRON, {
+    name: TEST_USER_SWEEP_JOB,
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async sweepTestUsers() {
+    const environment = process.env.OTEL_SERVICE_ENVIRONMENT ?? ''
+    if (!SWEEP_DEPLOY_ENVIRONMENTS.has(environment)) {
+      return
+    }
+
+    // Prod runs two replicas, which fire this cron on the same instant
+    // against the same Clerk instance. Hourly and not daily: a daily claim
+    // would throttle a six-hourly job to one pass per UTC day.
+    const now = new Date()
+    if (!(await this.cronLock.tryClaimHourlyRun(TEST_USER_SWEEP_JOB, now))) {
+      return
+    }
+
+    try {
+      await this.deleteTestUsers()
+    } finally {
+      await this.cronLock.markHourlyCompleted(TEST_USER_SWEEP_JOB, now)
+    }
+  }
+
+  /**
+   * Deletes old e2e test users that were created more than 24 hours ago.
+   * Cleans out users from both the postgres db and from Clerk. Scheduled by
+   * {@link sweepTestUsers}, which owns the environment gate and the lock.
+   */
   async deleteTestUsers() {
     try {
       const cutoff = subHours(new Date(), 24)
