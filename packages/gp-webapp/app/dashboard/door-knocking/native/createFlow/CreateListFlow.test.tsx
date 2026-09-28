@@ -560,6 +560,43 @@ describe('CreateListFlow', () => {
     )
   })
 
+  // The one path that can put an over-cap turf on this step. The cap was
+  // answered on the drawing surface and the candidate was told there — then
+  // they stepped back to the who step and widened the audience, which
+  // rewrites every committed turf's stop count. This is the press that pays
+  // for the route, so it asks again rather than trusting what it was handed.
+  it('refuses to create a campaign holding a turf over the stop cap', () => {
+    const props = {
+      draftStats: new Map([
+        [
+          DRAFT.clientId,
+          {
+            stops: 214,
+            people: 430,
+            households: 190,
+            partyMix: [],
+            ageMix: [],
+          },
+        ],
+      ]),
+    }
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props)
+
+    // Disabled rather than refusing, because the card beside it already
+    // names which turf and why — a refusal would be a second explanation
+    // of a problem that is on screen before the press is reached.
+    expect(
+      screen.getByRole('button', { name: 'Create campaign' }),
+    ).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Over 150 stops. Draw this one smaller.',
+    )
+  })
+
   // An audience cut by hand used to be filed here, from a step that named it
   // and ended the flow. Door knocking has no ending that skips the boundary and
   // the route, so the who step writes nothing at all: the list is minted lazily
