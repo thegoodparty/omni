@@ -18,6 +18,7 @@ import { ForwardEmailModule } from '../vendors/forwardEmail/forwardEmail.module'
 import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { AnalyticsModule } from 'src/analytics/analytics.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { WebsiteContactFormRateLimitGuard } from './guards/websiteContactFormRateLimit.guard'
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { ClerkModule } from '@/vendors/clerk/clerk.module'
     WebsitesService,
     WebsiteContactsService,
     WebsiteViewsService,
+    WebsiteContactFormRateLimitGuard,
   ],
   exports: [DomainsService, WebsitesService],
 })

@@ -57,3 +57,4 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 - `WebsiteView` uses a localStorage-issued visitor UUID; treat it as advisory, not authoritative analytics.
 - Public-facing endpoints use `@PublicAccess()` and `@UseCampaign()` together — don't drop one when refactoring or you'll either expose admin data or 401 the public site.
 - Contact form submissions are write-only from the public site; the admin-side read goes through a separate authenticated endpoint with `GetWebsiteContactsSchema`.
+- `POST :vanityPath/contact-form` is metered by `WebsiteContactFormRateLimitGuard` (5 per 60s per IP, in-memory and therefore per replica), and `name`/`message` are length-capped in `ContactForm.schema.ts`. Candidate sites call the route through their own Next route handler, which does not forward the visitor's address, so those submissions share one bucket — raise the capacity or forward the address before treating the per-IP number as per-visitor.

@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   UsePipes,
+  UseGuards,
   UseInterceptors,
   ForbiddenException,
   Query,
@@ -55,6 +56,7 @@ import {
 } from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
+import { WebsiteContactFormRateLimitGuard } from '../guards/websiteContactFormRateLimit.guard'
 import {
   hasRenderableName,
   isBioPublishable,
@@ -512,6 +514,7 @@ export class WebsitesController {
 
   @Post(':vanityPath/contact-form')
   @PublicAccess()
+  @UseGuards(WebsiteContactFormRateLimitGuard)
   async contactForm(
     @Param('vanityPath') vanityPath: string,
     @Body() body: ContactFormSchema,
