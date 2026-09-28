@@ -481,6 +481,46 @@ export const GLOBAL_ALERTS: Alert[] = [
     notify: 'win-bugs',
   },
   {
+    slug: 'callhub-account-low-balance',
+    name: '[Win] CallHub account balance exhausted',
+    type: 'log',
+    // CallHub is PREPAID, and nothing in gp-api can read the balance — there is
+    // no balance endpoint in the client and the figure lives in CallHub's own
+    // billing console. So the only moment the account's exhaustion becomes
+    // observable is when CallHub starts answering 400 to the calls that spend
+    // it, which is what this rule watches for.
+    //
+    // Before it existed, an empty account was first discovered by a candidate
+    // getting a 502 on the compose screen: on 2026-09-27 the balance ran out at
+    // 20:04Z, eight number rentals failed across two candidates, and a
+    // voice-broadcast launch failed and (under the old permanent
+    // classification) voided outreachId 83797's Stripe hold. Only the generated
+    // route alert fired, which named the endpoint and not the reason.
+    //
+    // Keyed to the single line handleApiError logs whenever it recognizes a
+    // low-balance body, so it covers every CallHub call site at once — rental,
+    // launch, and anything added later — rather than one endpoint's rule.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "CRITICAL CallHub account balance exhausted"',
+      '[1h]))',
+    ].join(' '),
+    threshold: 0,
+    for: '5m',
+    // A [1h] vector needs a fetch window to match: on the default 600s the
+    // engine would see ten minutes and the message would promise an hour. 1h at
+    // the default 60s interval is 60 re-reads/day, inside the ceiling
+    // global-alerts.test.ts enforces.
+    timeRangeSeconds: 3600,
+    message: [
+      'CallHub rejected a request for lack of credits in the last hour — the prepaid CallHub account is out of balance. This is an operational condition with a remedy, not a code fault: top the account up in CallHub’s billing console.',
+      'While it is empty, robocall number rental answers 502 on the compose screen and voice-broadcast launches cannot dial. Launch failures are now classified TRANSIENT, so the send sweep leaves each run `authorized` and relaunches it once credits return — no hold is voided. That self-healing is bounded by the Stripe hold window: a hold that lapses first lands the run in `hold_failed` and asks the candidate to re-authorize, so topping up promptly is what keeps paid runs whole.',
+      'Click *View in Grafana* for the log lines. Check for `CRITICAL robocall` alongside this alert: a run that was voided rather than retried means the classification regressed, and the run needs manual recovery.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
     type: 'log',

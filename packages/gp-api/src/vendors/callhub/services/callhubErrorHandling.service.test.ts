@@ -117,4 +117,72 @@ describe('CallhubErrorHandlingService', () => {
       },
     )
   })
+
+  // An exhausted prepaid balance is the one 400 that is not a property of the
+  // request: the same call succeeds once the account is topped up. Classifying
+  // it permanent voided outreachId 83797's Stripe hold on 2026-09-27 and threw
+  // away a compliance-passed, paid-for robocall run over a billing state that
+  // cleared ~5h later. Both bodies below are the verbatim prod responses.
+  describe('low account balance is transient, not permanent', () => {
+    const throwFrom = (data: Record<string, unknown>): unknown => {
+      try {
+        service.handleApiError({
+          error: axiosError(400, data),
+          logger: createMockLogger(),
+        })
+      } catch (e) {
+        return e
+      }
+    }
+
+    // POST /v1/numbers/rent/ — nests the message under data.error, wrapped in
+    // billing-link HTML.
+    it('treats the number-rental low-credit 400 as transient', () => {
+      const thrown = throwFrom({
+        data: {
+          error:
+            'Error: You do not have enough credits to buy this number. ' +
+            'Please <a href="/billing/" class="open-recharge-modal">add ' +
+            'credits</a> to your account now.',
+        },
+      })
+      expect(thrown).toBeInstanceOf(BadGatewayException)
+      expect(thrown).not.toBeInstanceOf(CallhubPermanentError)
+    })
+
+    // PUT /v1/voice_broadcasts/<pk>/ — a bare DRF detail code. This is the one
+    // that reached reconcileDialing and voided the hold.
+    it('treats the voice-broadcast launch low_credit 400 as transient', () => {
+      const thrown = throwFrom({ detail: 'low_credit' })
+      expect(thrown).toBeInstanceOf(BadGatewayException)
+      expect(thrown).not.toBeInstanceOf(CallhubPermanentError)
+    })
+
+    it('logs a CRITICAL line the balance alert can key off', () => {
+      const logger = createMockLogger()
+      try {
+        service.handleApiError({
+          error: axiosError(400, { detail: 'low_credit' }),
+          logger,
+        })
+      } catch {
+        // expected
+      }
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.stringContaining('CRITICAL CallHub account balance exhausted'),
+      )
+    })
+
+    // The guard must not swallow the permanence of a genuinely bad request:
+    // a 400 that is not about the balance still fails the run permanently.
+    it('leaves an unrelated 400 permanent', () => {
+      const thrown = throwFrom({
+        data: {
+          error: 'We are currently unable to offer your requested numbers',
+        },
+      })
+      expect(thrown).toBeInstanceOf(CallhubPermanentError)
+    })
+  })
 })
