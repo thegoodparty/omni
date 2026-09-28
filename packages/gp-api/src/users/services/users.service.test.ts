@@ -2560,21 +2560,26 @@ describe('UsersService', () => {
       expect(sweep).toHaveBeenCalledTimes(1)
     })
 
-    it('seals the claim when the pass throws', async () => {
+    it('seals the claim it took, even when the pass throws', async () => {
       vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
       vi.spyOn(usersService, 'deleteTestUsers').mockRejectedValue(
         new Error('boom'),
       )
-      const markHourlyCompleted = vi.spyOn(
-        service.app.get(CronLockService),
-        'markHourlyCompleted',
-      )
+      const cronLock = service.app.get(CronLockService)
+      const tryClaimHourlyRun = vi.spyOn(cronLock, 'tryClaimHourlyRun')
+      const markHourlyCompleted = vi.spyOn(cronLock, 'markHourlyCompleted')
 
       await expect(usersService.sweepTestUsers()).rejects.toThrow('boom')
 
+      // markHourlyCompleted derives its WHERE clause from getUtcHourStart(now),
+      // so sealing with a fresh `new Date()` would miss the claimed row
+      // whenever the pass crosses a UTC hour boundary. Assert the same pinned
+      // instant reaches both calls rather than merely that a Date did.
+      const claimedAt = tryClaimHourlyRun.mock.calls[0]?.[1]
+      expect(claimedAt).toBeInstanceOf(Date)
       expect(markHourlyCompleted).toHaveBeenCalledWith(
         'testUserSweep',
-        expect.any(Date),
+        claimedAt,
       )
     })
   })
