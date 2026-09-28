@@ -33,11 +33,13 @@ export const TEST_CLERK_ID = 'user_test_123'
 // the cascade that `pendingReset` guards against.
 const RESET_TIMEOUT_MS = 30_000
 
-// The drop below is the only thing that keeps a shared server from
-// accumulating one database per suite, so it must not be the hook that gets
-// cut off. vitest's 10s default already trips under a full-suite run on a
-// contended machine, and a tripped afterAll leaks the clone it was dropping.
-const DROP_TIMEOUT_MS = 60_000
+// Both the clone in beforeAll and the drop in afterAll contend with every
+// other run on a shared server, and a tripped afterAll leaks the clone it was
+// dropping — the one thing that keeps that server from accumulating a
+// database per suite. vitest's 10s default already trips on a contended
+// machine during a full-suite run. This is a ceiling for pathology, not a
+// budget.
+const HOOK_TIMEOUT_MS = 60_000
 
 /**
  * Empty every table, then seed the one user the suite authenticates as.
@@ -278,7 +280,7 @@ export const useTestService = (): TestServiceContext => {
         SELECT tablename FROM pg_tables WHERE schemaname = 'public'
       `
     ).map(({ tablename }) => tablename)
-  }, 25_000)
+  }, HOOK_TIMEOUT_MS)
 
   beforeEach(async () => {
     const reset = pendingReset
@@ -310,7 +312,7 @@ export const useTestService = (): TestServiceContext => {
     } finally {
       await admin.end()
     }
-  }, DROP_TIMEOUT_MS)
+  }, HOOK_TIMEOUT_MS)
 
   // Return the context object
   // Note: This object is returned immediately, but the actual values
