@@ -60,6 +60,7 @@ const baseProps = () => ({
   onSelectUniverse: vi.fn(async () => 99),
   universePending: false,
   universeError: false,
+  onClearUniverseError: vi.fn(),
   recommendations: [] as RecommendedList[],
   recommendationsLoading: false,
   recommendationsError: false,
@@ -171,6 +172,19 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
     await openPicker()
 
     expect(await screen.findByTestId('universe-create-error')).toBeVisible()
+  })
+
+  // React Query holds a mutation's error until it is reset, and the banner
+  // lives inside the picker — so without a clear on open, one failed create
+  // reads as failed on every reopen for the rest of the session.
+  it('clears a previous failure when the picker is reopened', async () => {
+    const props = baseProps()
+    render(<OutreachAudienceStep {...props} universeError />)
+
+    expect(props.onClearUniverseError).not.toHaveBeenCalled()
+    await openPicker()
+
+    expect(props.onClearUniverseError).toHaveBeenCalledTimes(1)
   })
 
   // A failed create must not select a list that does not exist.

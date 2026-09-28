@@ -153,6 +153,11 @@ export interface OutreachAudience {
   // without this the row's failure is a silent no-op, since nothing else on
   // the step knows the create was even attempted.
   universeError: boolean
+  // React Query keeps a mutation's error until it is reset or retried, and
+  // the banner it drives lives inside the picker — so without this a failed
+  // create still reads as failed every time the picker is reopened, for the
+  // rest of the session. Same reason `clearCreateError` exists above.
+  clearUniverseError: () => void
   startBuilder: () => void
   // Persist the built filters as a saved list (overlay-free), refresh the
   // picker, and return the created row so the flow can select it.
@@ -874,6 +879,7 @@ export const useOutreachAudience = ({
     },
     universePending: universeMutation.isPending,
     universeError: universeMutation.isError,
+    clearUniverseError: universeMutation.reset,
     startBuilder,
     selectedRecommendation,
     selectRecommendation,

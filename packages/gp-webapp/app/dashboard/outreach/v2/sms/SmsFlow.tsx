@@ -1402,6 +1402,7 @@ export const SmsFlow = ({
             onSelectUniverse={audience.selectUniverse}
             universePending={audience.universePending}
             universeError={audience.universeError}
+            onClearUniverseError={audience.clearUniverseError}
             onStartBuilder={() => {
               setPhoneListError(false)
               audience.startBuilder()
