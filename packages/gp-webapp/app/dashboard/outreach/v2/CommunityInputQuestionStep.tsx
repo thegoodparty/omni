@@ -10,8 +10,12 @@ import { Textarea } from '@styleguide'
 // second one on the screen.
 const SERVE_QUESTION_COPY = {
   label: 'The question',
+  // Shows the shape of a useful answer rather than restating the question:
+  // an issue plus a position to learn about, which is what the extraction
+  // downstream is looking for.
   placeholder:
-    'Would you take part in a compost pilot, and how do you feel about it?',
+    'Describe an issue and a position that you want to learn more about, ' +
+    'like "How do you feel about energy costs in your area?"',
 }
 
 interface CommunityInputQuestionStepProps {

@@ -356,7 +356,7 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
       await screen.findByRole('button', { name: "Edit this call's outcome" }),
     )
 
-    expect(screen.getByPlaceholderText(/Say it out loud/i)).toHaveValue('')
+    expect(screen.getByPlaceholderText(/issues and positions/i)).toHaveValue('')
   })
 
   // `spoken` is what decides `captureMethod`, and it is sticky: a first memo
@@ -373,7 +373,7 @@ describe('PhoneBankingOutcomeForm issue capture', () => {
       await screen.findByRole('button', { name: "Edit this call's outcome" }),
     )
 
-    fireEvent.change(screen.getByPlaceholderText(/Say it out loud/i), {
+    fireEvent.change(screen.getByPlaceholderText(/issues and positions/i), {
       target: { value: 'Typed this one out instead.' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))

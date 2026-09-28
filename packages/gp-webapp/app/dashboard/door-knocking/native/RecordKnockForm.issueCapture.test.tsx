@@ -256,6 +256,27 @@ describe('RecordKnockForm issue capture', () => {
     expect(await screen.findByText('Is this right?')).toBeVisible()
   })
 
+  // The placeholder promises an extraction, so it may only appear where one
+  // actually happens. This field renders on the Win surface too.
+  it('asks for issues and positions only where capture can fire', async () => {
+    renderForm()
+    answer('Did they answer?', 'Answered')
+    answer('Did they engage?', 'Engaged')
+    answer('Do they need follow-up?', 'Yes')
+
+    expect(screen.getByPlaceholderText(/issues and positions/i)).toBeVisible()
+  })
+
+  // A not-home door still takes a note, but capture never fires there, so the
+  // field must not promise one.
+  it('keeps the plain note prompt where capture cannot fire', async () => {
+    renderForm()
+    answer('Did they answer?', 'Not home')
+
+    expect(screen.getByPlaceholderText(/We'll clean it up/i)).toBeVisible()
+    expect(screen.queryByPlaceholderText(/issues and positions/i)).toBeNull()
+  })
+
   it('does not capture when the flag is off', async () => {
     vi.mocked(useServeIssueCaptureFlag).mockReturnValue({
       ready: true,

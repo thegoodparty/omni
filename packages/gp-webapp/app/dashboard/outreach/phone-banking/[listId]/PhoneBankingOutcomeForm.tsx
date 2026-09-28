@@ -506,7 +506,10 @@ export default function PhoneBankingOutcomeForm({
             <Textarea
               value={memo}
               maxLength={CONSTITUENT_FEEDBACK_TRANSCRIPT_MAX_LENGTH}
-              placeholder="Say it out loud. We'll clean it up."
+              // Names what to record, not just how: the extraction reads
+              // for an issue and a position, so the prompt asks for those
+              // rather than leaving the caller to guess what is useful.
+              placeholder="Record the issues and positions this person cares most about. Say it out loud, we'll clean it up"
               rows={3}
               className="min-h-20 pr-12"
               onChange={(e) => setMemo(e.target.value)}

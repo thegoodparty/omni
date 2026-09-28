@@ -71,10 +71,7 @@ describe('PhoneBankingFlow community-input question step', () => {
     expect(draftBodies).toHaveLength(0)
 
     const question = 'Would you take part in a compost pilot?'
-    await userEvent.type(
-      screen.getByPlaceholderText(/compost pilot/i),
-      question,
-    )
+    await userEvent.type(screen.getByLabelText('The question'), question)
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(draftBodies).toHaveLength(1))
@@ -119,7 +116,7 @@ describe('PhoneBankingFlow community-input question step', () => {
     expect(cta).toBeDisabled()
 
     await userEvent.type(
-      screen.getByPlaceholderText(/compost pilot/i),
+      screen.getByLabelText('The question'),
       'Would you take part in a compost pilot?',
     )
 
@@ -135,7 +132,7 @@ describe('PhoneBankingFlow community-input question step', () => {
       await screen.findByRole('button', { name: /Ask for community input/i }),
     )
     await userEvent.type(
-      await screen.findByPlaceholderText(/compost pilot/i),
+      await screen.findByLabelText('The question'),
       'Would you take part in a compost pilot?',
     )
 

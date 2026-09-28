@@ -39,6 +39,19 @@ import {
 // over-long note is trimmed in the field rather than 400'd on save.
 const NOTE_MAX_LENGTH = 2_000
 
+// Mode-keyed rather than renamed, per `docs/product-vocabulary.md`: this
+// field renders on the Win surface too, where the note is just a note. Only a
+// Serve door with capture on has an extraction to promise, so only it names
+// the issue and the position the extraction reads for — promising that on a
+// Win door, or on a Serve door where capture cannot fire, would be a claim
+// the product does not keep.
+const NOTE_PLACEHOLDER = {
+  win: "What did they say? We'll clean it up.",
+  serveCapture:
+    'Record the issues and positions this person cares most about. ' +
+    "Say it out loud, we'll clean it up",
+}
+
 // The canvas's own `pill` helper in `renderPanel`: 34px tall, 12px of side
 // padding, 14px at weight 500, fully round, `tertiary-dark` on
 // `tertiary-foreground` when it is the chosen answer and a plain border when it
@@ -283,6 +296,10 @@ export default function RecordKnockForm({
 
   const opened = outcome === 'answered'
   const engaged = opened && engagement === 'answered'
+  // The render-time twin of the condition `record`'s onSuccess snapshots: it
+  // decides what the field ASKS for, where the snapshot decides what was
+  // asked for. Same three facts, so the promise and the behavior agree.
+  const capturesIssues = captureEnabled && serveMode && engaged
   // The outcome the contract gets: step two replaces step one's `answered`,
   // which was only ever the branch into it.
   const finalOutcome = opened ? engagement : outcome
@@ -461,7 +478,11 @@ export default function RecordKnockForm({
               // down and promises the tidying-up, which is what gets a sentence
               // typed one-handed at a door; "Notes (optional)" only named the
               // field and told the canvasser they could skip it.
-              placeholder="What did they say? We'll clean it up."
+              placeholder={
+                capturesIssues
+                  ? NOTE_PLACEHOLDER.serveCapture
+                  : NOTE_PLACEHOLDER.win
+              }
               rows={3}
               className="min-h-20 pr-12"
               onChange={(e) => setNote(e.target.value)}
