@@ -604,9 +604,13 @@ export const createGrafanaResources = async ({
               refId: 'A',
             },
             datasource_uid: LOKI_DATASOURCE_UID,
+            // Integers, not duration strings. Grafana parses this blob into
+            // a struct whose fields are seconds-as-int; a string lands as 0,
+            // which silently collapses the window onto `now` and drops every
+            // log line that arrived late.
             relative_time_range: {
-              from: `${rule.fromSeconds}s`,
-              to: `${rule.toSeconds}s`,
+              from: rule.fromSeconds,
+              to: rule.toSeconds,
             },
             query_type: 'instant',
             // Marks which expression is the rule's output. Without it the rule
