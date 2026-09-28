@@ -34,6 +34,14 @@ enum OutreachStatus {
 
 model Outreach {
   id                                Int                                @id @default(autoincrement())
+  // Minted server-side when an agent proposes outreach in a chat, and carried
+  // onto the row the official creates from that proposal. It is what lets the
+  // chat card resolve "has this proposal been sent?" without mutating chat
+  // history. Unique so a double-click cannot mint two sends.
+  proposalKey                       String?                            @unique @map("proposal_key")
+  // The priority this outreach belongs to, when it came out of one.
+  priorityId                        String?                            @map("priority_id")
+  priority                          Priority?                          @relation(fields: [priorityId], references: [id], onDelete: SetNull)
   createdAt                         DateTime                           @default(now())
   updatedAt                         DateTime                           @updatedAt
   // Nullable so a Serve elected-office org (no campaign row) can persist an
