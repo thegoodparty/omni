@@ -9,11 +9,31 @@ Ticket: DATA-2546. Subtask DATA-2547 adds the sitemap view.
 Design doc: `docs/superpowers/specs/2026-09-28-event-health-console-design.md`
 (gitignored, local only).
 
-## Read-only, for now
+## How you act on a row
 
-This is phase 1. The page shows the queue; rulings still go through Claude Code and
-`/triage-instrumentation-gaps`. Phase 2 adds the judgment buttons and the one-line
-handoff, which is the part that actually stops the digest re-raising things.
+Rule on a row with the buttons: dismiss with a reason, ticket it, look into it, or
+reviewed. The judgment is recorded the moment you click, in this browser, keyed by the
+run it was made against. Nothing is submitted, and a half-finished session loses
+nothing.
+
+When you are done, the bar at the bottom holds the batch. Copy it, paste it into Claude
+Code, and it writes each judgment to the file its queue owns, files the tickets, and
+opens one PR. The next scheduled run reads those files and stops raising what you
+settled.
+
+The failure mode is deliberately visible: if you never paste the handoff, nothing
+happened, and Thursday's digest says so. A background sync would fail more quietly.
+
+**`Reviewed, fine` on a flag has nowhere to land yet.** The other three verdicts write
+to files that already exist and are already read back. Per-event review needs
+`analytics_event_health_dispositions.json`, which is the one genuinely new mechanism in
+this ticket and is not built. Until it is, a reviewed flag is a note in the handoff and
+the digest will raise it again.
+
+Judgments live in `localStorage`, so they are per-browser and can be lost by clearing
+site data. That is deliberate for now: the artifact database only exists on a published
+page, and this one is still local. Publishing upgrades the store without changing how
+the page feels.
 
 ## Rebuilding it
 

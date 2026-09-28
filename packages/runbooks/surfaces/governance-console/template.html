@@ -547,6 +547,146 @@
     color: var(--ink-3);
   }
 
+  /* --- judgments --- */
+
+  .verdicts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .verdicts button {
+    padding: 5px 11px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .verdicts button:hover {
+    color: var(--ink);
+    border-color: var(--ink-3);
+  }
+
+  .verdicts button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  .verdicts button[aria-pressed='true'] {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .verdicts .clear {
+    margin-left: auto;
+    font-weight: 400;
+    color: var(--ink-3);
+    background: none;
+    border-color: transparent;
+  }
+
+  .reason {
+    width: 100%;
+    margin-top: 8px;
+    padding: 7px 9px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+  }
+
+  .reason:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  .row.is-judged {
+    border-left-color: var(--accent);
+  }
+
+  .chip.verdict {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+
+  /* --- handoff bar --- */
+
+  .handoff {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    margin-top: 32px;
+    padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .handoff .tally {
+    font-weight: 600;
+  }
+
+  .handoff .hint {
+    flex: 1 1 240px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  .handoff button {
+    padding: 7px 14px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .handoff button:disabled {
+    color: var(--ink-3);
+    background: var(--surface-2);
+    border-color: var(--line-2);
+    cursor: default;
+  }
+
+  .handoff button.ghost {
+    color: var(--ink-2);
+    background: none;
+    border-color: var(--line-2);
+  }
+
+  .handoff textarea {
+    width: 100%;
+    min-height: 160px;
+    padding: 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    resize: vertical;
+  }
+
   .foot {
     margin-top: 40px;
     padding-top: 14px;
@@ -908,6 +1048,126 @@
     return box
   }
 
+  // --- judgment store ---------------------------------------------------------
+  //
+  // Judgments live in this browser, keyed by the run they were made against, until the
+  // handoff carries them to Claude Code. Every read and write is guarded: a private
+  // window, blocked site data or a thumbnail capture can make storage throw, and the
+  // page has to work anyway. Losing a judgment costs one re-click; a page that refuses
+  // to render costs the whole session.
+  const STORE_KEY = 'gp-event-health-console:' + (DATA.run_date || 'unknown')
+
+  const VERDICTS = [
+    ['dismissed', 'Dismiss', 'silence this, with a reason'],
+    ['ticketed', 'Ticket it', 'real work, file it'],
+    ['investigate', 'Look into it', 'needs digging before a call'],
+    ['reviewed', 'Reviewed, fine', 'looked, nothing to do'],
+  ]
+
+  const loadJudgments = () => {
+    try {
+      return JSON.parse(window.localStorage.getItem(STORE_KEY) || '{}')
+    } catch (err) {
+      return {}
+    }
+  }
+
+  const judgments = loadJudgments()
+
+  const saveJudgments = () => {
+    try {
+      window.localStorage.setItem(STORE_KEY, JSON.stringify(judgments))
+      return true
+    } catch (err) {
+      return false
+    }
+  }
+
+  const keyOf = (item) => item.queue + '\u0000' + item.id
+
+  let onJudgmentChange = () => {}
+
+  const renderVerdicts = (item, row, summary) => {
+    const key = keyOf(item)
+    const bar = el('div', 'verdicts')
+    const reason = el('input', 'reason')
+    reason.type = 'text'
+    reason.id = 'reason-' + key.replace(/[^A-Za-z0-9_-]/g, '-')
+    reason.placeholder = 'Why (goes into the record, so write it for next quarter you)'
+    reason.value = (judgments[key] && judgments[key].reason) || ''
+
+    const chip = el('span', 'chip verdict')
+    chip.hidden = true
+    summary.appendChild(chip)
+
+    const paint = () => {
+      const current = judgments[key]
+      bar.querySelectorAll('button[data-verdict]').forEach((btn) => {
+        btn.setAttribute(
+          'aria-pressed',
+          current && current.verdict === btn.dataset.verdict ? 'true' : 'false',
+        )
+      })
+      row.classList.toggle('is-judged', Boolean(current))
+      chip.hidden = !current
+      if (current) chip.textContent = current.verdict
+      reason.hidden = !current
+      clear.hidden = !current
+    }
+
+    const set = (verdict) => {
+      if (judgments[key] && judgments[key].verdict === verdict) {
+        delete judgments[key]
+      } else {
+        judgments[key] = {
+          queue: item.queue,
+          id: item.id,
+          label: item.label,
+          verdict,
+          reason: reason.value.trim(),
+          decided_at: new Date().toISOString(),
+        }
+      }
+      saveJudgments()
+      paint()
+      onJudgmentChange()
+    }
+
+    VERDICTS.forEach(([verdict, label, title]) => {
+      // A cause the loader refuses cannot be dismissed from here either. Offering the
+      // button would produce a YAML row that silences nothing and reports itself.
+      if (verdict === 'dismissed' && !item.dismissable) return
+      const btn = el('button', null, label)
+      btn.type = 'button'
+      btn.title = title
+      btn.dataset.verdict = verdict
+      btn.setAttribute('aria-pressed', 'false')
+      btn.addEventListener('click', () => set(verdict))
+      bar.appendChild(btn)
+    })
+
+    const clear = el('button', 'clear', 'clear')
+    clear.type = 'button'
+    clear.addEventListener('click', () => {
+      delete judgments[key]
+      reason.value = ''
+      saveJudgments()
+      paint()
+      onJudgmentChange()
+    })
+    bar.appendChild(clear)
+
+    reason.addEventListener('input', () => {
+      if (!judgments[key]) return
+      judgments[key].reason = reason.value.trim()
+      saveJudgments()
+      onJudgmentChange()
+    })
+
+    paint()
+    return [bar, reason]
+  }
+
   const renderRow = (item) => {
     const tone = severity(item.rank)
     const row = el('details', 'row sev-' + tone)
@@ -958,6 +1218,8 @@
     const evidence = renderEvidence(item.evidence || [])
     if (evidence) add(body, evidence)
 
+    renderVerdicts(item, row, summary).forEach((node) => body.appendChild(node))
+
     add(row, body)
     return row
   }
@@ -992,6 +1254,89 @@
     return section
   }
 
+  // --- handoff ----------------------------------------------------------------
+
+  // Plain text on purpose. It is read by a person before it is read by Claude, and a
+  // wall of JSON is not reviewable. The run date is on it because a judgment is made
+  // against a run: if a newer one has landed by the time this is applied, membership
+  // may have moved and the apply step has to re-check rather than assume.
+  const buildHandoff = () => {
+    const rows = Object.values(judgments)
+    const lines = [
+      'DATA-2546 triage handoff',
+      'run: ' + (DATA.run_date || 'unknown'),
+      'judgments: ' + rows.length,
+      '',
+    ]
+    const order = ['dismissed', 'ticketed', 'investigate', 'reviewed']
+    rows
+      .sort(
+        (a, b) =>
+          order.indexOf(a.verdict) - order.indexOf(b.verdict) ||
+          a.queue.localeCompare(b.queue) ||
+          a.id.localeCompare(b.id),
+      )
+      .forEach((row) => {
+        lines.push(row.verdict + '  ' + row.queue + '  ' + row.id)
+        lines.push('  ' + (row.reason || '(no reason given)'))
+      })
+    return lines.join('\n')
+  }
+
+  const renderHandoff = () => {
+    const bar = el('div', 'handoff')
+    const tally = el('span', 'tally')
+    const hint = el('span', 'hint')
+    const copy = el('button', null, 'Copy handoff')
+    const show = el('button', 'ghost', 'Show')
+    const box = el('textarea')
+
+    copy.type = 'button'
+    show.type = 'button'
+    box.readOnly = true
+    box.id = 'handoff-text'
+    box.hidden = true
+
+    const refresh = () => {
+      const n = Object.keys(judgments).length
+      tally.textContent = n === 1 ? '1 judgment' : n + ' judgments'
+      hint.textContent = n
+        ? 'Paste this into Claude Code. It writes each one to the file its queue owns, files the tickets, and opens one PR.'
+        : 'Rule on a row above and it collects here. Nothing leaves this browser until you copy it.'
+      copy.disabled = !n
+      show.disabled = !n
+      if (!n) box.hidden = true
+      box.value = buildHandoff()
+    }
+
+    copy.addEventListener('click', () => {
+      const text = buildHandoff()
+      const fallback = () => {
+        box.hidden = false
+        box.focus()
+        box.select()
+        copy.textContent = 'Select and copy'
+      }
+      if (!navigator.clipboard || !navigator.clipboard.writeText) return fallback()
+      navigator.clipboard.writeText(text).then(() => {
+        copy.textContent = 'Copied'
+        window.setTimeout(() => {
+          copy.textContent = 'Copy handoff'
+        }, 1600)
+      }, fallback)
+    })
+
+    show.addEventListener('click', () => {
+      box.hidden = !box.hidden
+      show.textContent = box.hidden ? 'Show' : 'Hide'
+    })
+
+    add(bar, tally, hint, show, copy, box)
+    onJudgmentChange = refresh
+    refresh()
+    return bar
+  }
+
   // --- boot -------------------------------------------------------------------
 
   const render = () => {
@@ -1006,13 +1351,14 @@
         'p',
         'lede',
         'Every open governance decision in one list, over the snapshot the ' +
-          'twice-weekly run committed. Read-only for now: rulings still go through ' +
-          'Claude Code.',
+          'twice-weekly run committed. Rule on the rows, then copy the handoff at the ' +
+          'bottom into Claude Code and it writes them where the next run will read them.',
       ),
     )
     add(app, renderOverview(DATA.overview))
     add(app, renderChanges(DATA.changes, hasPrior))
     DATA.queues.forEach((queue) => add(app, renderQueue(queue)))
+    add(app, renderHandoff())
 
     const foot = el('div', 'foot')
     add(
