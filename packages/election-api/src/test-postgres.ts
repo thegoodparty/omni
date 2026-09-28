@@ -30,6 +30,15 @@ export const startTestPostgres = (): Promise<StartedPostgreSqlContainer> =>
     .withReuse()
     .start()
 
+// Caps Prisma's pool per worker, which otherwise sizes itself to
+// cores * 2 + 1. A worker issues one query at a time, so a small pool costs
+// nothing, and one server now serves every checkout on the machine and both
+// packages — an uncapped pool lets concurrent runs exhaust max_connections.
+// os.cpus() inside a container often reports the host's core count rather
+// than the task's, so the uncapped number is not even bounded by the vCPUs
+// the task was given.
+export const TEST_POOL_LIMIT = 5
+
 export const loadMigrationsSql = (): string =>
   glob(`${__dirname}/../prisma/schema/migrations/*/*.sql`)
     // fast-glob does not guarantee order; migrations are timestamp-prefixed and

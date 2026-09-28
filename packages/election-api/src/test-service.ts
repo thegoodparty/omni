@@ -7,6 +7,7 @@ import { bootstrap } from './app'
 import { PrismaService } from './prisma/prisma.service'
 import {
   TEMPLATE_LOCK_KEY,
+  TEST_POOL_LIMIT,
   templateDbName,
   testPostgresUri,
   withDatabase,
@@ -96,7 +97,8 @@ export const useTestService = (): TestServiceContext => {
       await admin.end()
     }
 
-    const databaseUrl = withDatabase(baseConnectionUri, uniqueDbName)
+    const cloneUri = withDatabase(baseConnectionUri, uniqueDbName)
+    const databaseUrl = `${cloneUri}?connection_limit=${TEST_POOL_LIMIT}`
 
     // DB SAFETY: verify (and print) that Prisma will only ever point at a local
     // host before we hand the URL to the app. Fail loudly otherwise.
