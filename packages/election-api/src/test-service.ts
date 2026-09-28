@@ -12,6 +12,12 @@ import {
   withDatabase,
 } from './test-postgres'
 
+// The drop below is the only thing that keeps a shared server from
+// accumulating one database per suite, so it must not be the hook that gets
+// cut off. vitest's 10s default already trips under a full-suite run on a
+// contended machine, and a tripped afterAll leaks the clone it was dropping.
+const DROP_TIMEOUT_MS = 60_000
+
 export type TestServiceContext = {
   /**
    * An Axios client targeting the booted test service (base URL includes the
@@ -165,7 +171,7 @@ export const useTestService = (): TestServiceContext => {
     } finally {
       await admin.end()
     }
-  })
+  }, DROP_TIMEOUT_MS)
 
   return {
     get client() {
