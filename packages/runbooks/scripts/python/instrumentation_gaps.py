@@ -234,7 +234,17 @@ def _local_decl_block(code: str, ident: str, pairs) -> tuple[int, int] | None:
     )
     if not m:
         return None
-    after = [p for p in pairs if p[0] >= m.start()]
+    # Start looking for the body brace AFTER the parameter list. `const onSend = ({ id }:
+    # Args) => {...}` opens a brace for the destructured params first, and taking that one
+    # scopes the tracking check to the parameter list — so a handler that does fire an event
+    # reads as untracked and false-alarms.
+    body_from = m.start()
+    arrow = code.find("=>", m.start())
+    params = code.find(")", m.start())
+    for marker in (arrow, params):
+        if marker != -1 and code.count("\n", m.start(), marker) <= _DECL_MAX_LINES_TO_BRACE:
+            body_from = max(body_from, marker)
+    after = [p for p in pairs if p[0] >= body_from]
     if not after:
         return None
     open_idx, close_idx = min(after, key=lambda p: p[0])
@@ -781,6 +791,11 @@ def build_prior_rulings(
     rulings: dict[str, dict] = {}
     for gid, entry in closed.items():
         if entry.get("resolved_cause") != "resplit":
+            continue
+        if state[gid].get("disposition") in _CLOSED:
+            # Closed on an earlier run, so its successors already received this ruling.
+            # Re-emitting it every run keeps an ancient predecessor's reason alive and can
+            # attach it to a surface that only appeared at this location months later.
             continue
         source = state[gid]
         ruling = {

@@ -1765,3 +1765,38 @@ def test_a_second_collision_on_one_line_gets_an_ordinal():
     assert len(ids) == 3
     assert len(set(ids)) == 3, f"duplicate ids: {ids}"
     assert any(i.endswith(".2") for i in ids), f"ordinal tiebreak never fired: {ids}"
+
+
+def test_handler_with_destructured_params_sees_its_own_tracking():
+    # `const onSend = ({ id }: Args) => {...}` opens a brace for the destructured params
+    # before the body. Picking that one scopes the tracking check to the parameter list, so
+    # a handler that DOES fire an event reads as untracked and false-alarms.
+    text = (
+        "const Comp = () => {\n"
+        "  const onSend = ({ id }: Args) => { trackEvent('Sent', {}) }\n"
+        "  return <form onSubmit={onSend} />\n"
+        "}\n"
+    )
+    surface = next(
+        s for s in ig.detect_surfaces_in_file("a/C.tsx", text, "webapp")
+        if s["surface_type"] == "form_submit"
+    )
+    assert surface["scope_kind"] == "handler"
+    assert surface["has_tracking"] is True
+
+
+def test_prior_rulings_are_not_regenerated_for_an_already_closed_entry():
+    # An entry closed as resplit on an earlier run already handed its ruling to the
+    # successors that existed then. Re-emitting every run keeps an ancient predecessor's
+    # reason alive and can attach it to a surface that only appeared months later.
+    state = {
+        "a/B.tsx#form_submit": _entry(
+            "a/B.tsx#form_submit", disposition="retired",
+            resolved_cause="resplit", resolved_at="2026-09-01",
+        )
+    }
+    surfaces = [
+        {"id": "a/B.tsx#form_submit#Alpha", "location": "a/B.tsx", "surface_type": "form_submit"},
+        {"id": "a/B.tsx#form_submit#Beta", "location": "a/B.tsx", "surface_type": "form_submit"},
+    ]
+    assert ig.build_prior_rulings(state, surfaces, set(), date(2026, 9, 28)) == {}
