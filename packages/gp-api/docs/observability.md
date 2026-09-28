@@ -12,7 +12,7 @@ Each controller gets one rule covering every endpoint on it:
 
 - **Error count**: Fires when any requests return error status codes (≥ 400, excluding 400/401/403/404/409/498) **or no status at all** within a 10-minute window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
 
-The rule groups by `request_endpoint` and matches its controller's routes with an anchored alternation, so Grafana raises a separate alert instance per failing endpoint and the notification names the one that broke. Paging granularity is per endpoint; the _rule_ is per controller, because Loki bills the bytes a query decompresses and only the stream selector and time range decide that. A rule per endpoint re-read the whole gp-api stream once per endpoint per minute and cost the same as reading everything -- see [Query cost](#query-cost).
+**These rules do not query Loki.** Two recording rules do that on their behalf -- see [Route alerting reads a recorded metric](#route-alerting-reads-a-recorded-metric). Each controller's rule is a PromQL selection over the metric they write, grouped by `request_endpoint` and narrowed to its own routes with an anchored alternation, so Grafana still raises a separate alert instance per failing endpoint and the notification still names the one that broke. Paging granularity is per endpoint; the _rule_ is per controller.
 
 These are generated automatically from the controllers in the codebase -- you don't write them by hand. **All controller alerts are disabled by default** and require explicit opt-in via the ownership mapping (see [Ownership](#ownership) below).
 
@@ -27,6 +27,9 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **Geoapify daily credit budget** at 60 / 80 / 90 / 95% consumed over 24h -- four rules generated from `alerting/geoapify-budget-alerts.ts`, escalating as the whole account approaches the wall. The ceiling above measures the _rate_ of a runaway; these measure how much of the _pool_ is left, which is what decides whether the next knock gets a route at all. **Their denominator is a hand-maintained constant** (`GEOAPIFY_DAILY_CREDIT_POOL`), because the allowance lives in Geoapify's billing console and nothing in gp-api can read it -- if all four fire at once, suspect the constant before the spend.
 - **Public campaign lookup failing** (>10% of resolvable `GET /v1/public-campaigns` lookups returning 5xx over 10 min) -- a rate-based rule for a route the generated one can't serve. See [High-volume routes](#high-volume-routes-prefer-a-ratio).
 - **Door-knocking pack build failed mid-response** -- `GET /v1/door-knocking/pack` streams, so it commits a 200 before it starts building and a later failure cannot be a status code. The generated route alert is structurally blind to it; this log-line rule is the only signal. See gp-api `docs/door-knocking.md` § The pack.
+- **Loki query budget half spent / nearly spent** (50% and 80% of the included 100x-ingest allowance, hour-averaged) -- so the vendor is never again the first to tell us we are over. Both carry the per-rule attribution query in their notification, because "we are over budget" without "and this rule is why" is a puzzle rather than an alert.
+- **Loki active stream count approaching the cap** (80% of `max_global_streams_per_user`) -- past the cap Loki rejects writes for new streams and logs are dropped, not queued. Measured against the live limit rather than a constant, since the limit is Grafana's to raise.
+- **Alert rule evaluations are failing** (>20% of evaluations erroring for 5 minutes) -- the rule that says *alerting itself is blind*. See [When alerting cannot check](#when-alerting-cannot-check).
 
 This list previously included a **Slow Prisma connection acquisitions** rule. No such rule exists in `GLOBAL_ALERTS`, and it never did — the entry described an intent, not a deployment. The underlying metrics are real and emitted by the span processor in `src/otel.ts`: `prisma.connection.duration` (histogram, ms) and `prisma.connection.slow` (counter, acquisitions over 150ms). They are queryable in Explore and worth a rule; they simply do not page today.
 
@@ -37,6 +40,28 @@ This list previously included a **Slow Prisma connection acquisitions** rule. No
 **It is enabled in prod only.** Check executions bill against a single account-wide allowance (100,000/month) that every environment shares, and three probes a minute is 129,600/month per environment. Dev's copy was ~43% of our synthetic monitoring volume and bought nothing, because probe failures raise an alert whose `environment` label sends it to the `nowhere` contact point (see [Ownership](#ownership)). The dev check stays provisioned but disabled, so re-enabling it is a one-line change if dev alerting ever gets a real destination.
 
 The allowance is shared and account-wide, so this is the one alerting knob where **adding a check in any environment can put a different team's checks into overage**. Budget before adding probes or raising frequency: prod's three probes are 129,600/month against the 100,000 included.
+
+## Route alerting reads a recorded metric
+
+A recording rule runs a query on a schedule and writes its result into Prometheus as a metric. `ROUTE_RECORDING_RULES` in `deploy/components/alerting/controller-alerts.ts` declares two of them:
+
+| Metric | Counts |
+| ------------------------------------ | ---------------------------------------------- |
+| `gp_api:route_errors:count1m`        | the default filter (≥ 400 minus exclusions, or null) |
+| `gp_api:route_server_errors:count1m` | the `SERVER_ERRORS_ONLY` filter (≥ 500, or null) |
+
+Both are `sum by (request_endpoint) (count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | json | <filter> [1m]))`, evaluated every 60 seconds. Each controller's alert then evaluates `sum by (request_endpoint) (sum_over_time(<metric>{environment="$ENV", request_endpoint=~"..."}[10m]))` against Prometheus, which is not metered by bytes read.
+
+**Why it is shaped this way.** Until 2026-09-28 each generated rule ran its own Loki query, and each one selected the entire gp-api stream before narrowing to its slice -- because that is the only shape LogQL offers and, as [Query cost](#query-cost) explains, the narrowing is free rather than cheap. 74 rules therefore each paid for all of gp-api's logs once a minute: **2,690 GB/day measured**, against an allowance of roughly 100x our ~9.5 GB/day ingest. Grafana Cloud began answering Loki queries with HTTP 429, every log-backed rule failed to evaluate, and because `exec_err_state` is `Alerting` all 154 of them fired at once, each naming its own route. Production was healthy throughout.
+
+The property that matters is not that there are now two queries instead of 74. It is that **the cost of alerting is now proportional to ingest and independent of rule count**, so adding an alert is free and nobody has to budget for one.
+
+Two constraints on the recording rules are load-bearing and are asserted in `controller-alerts.test.ts`:
+
+- **The range vector equals the evaluation interval.** A rule's Loki cost is its window divided by its interval -- how many times a day it re-reads the same bytes. At 1:1 each line is read exactly once, which is the floor. The 10-minute window the alerts want is assembled from ten recorded samples in PromQL, where it costs nothing.
+- **The window ends a minute before now** (`toSeconds > 0`). Log lines reach Loki several seconds after the request they describe, so a window ending at `now` misses the newest lines -- and misses them permanently, because the next evaluation's window starts where this one ended. The wider overlapping window this replaced hid that. The price is 60s of detection latency, paid once rather than per rule.
+
+One consequence to know about. The `max_query_series` cap on a Loki metric query is **500**, and the fan-out moved with the read: a single recording rule now returns one series per erroring route in the whole service rather than per controller. There are 421 routes today. The cap only bites if more than 500 *distinct* endpoints error inside the same one-minute window, which is a total outage rather than a regression -- and a total outage is what the CPU, memory and synthetic-probe rules are for, none of which touch Loki. `controller-alerts.test.ts` fails if the route table alone reaches the cap, so the bound is visible before it is reached.
 
 ## Where do alerts show up?
 
@@ -77,7 +102,7 @@ All alerting configuration lives in `deploy/`:
 | File                                               | Purpose                                               |
 | -------------------------------------------------- | ----------------------------------------------------- |
 | `deploy/components/alerts.ts`                      | Ownership mapping and global alerts                   |
-| `deploy/components/alerting/controller-alerts.ts`  | One error count alert per controller; its Slack body links to the fired route's exception lines |
+| `deploy/components/alerting/controller-alerts.ts`  | The two Loki recording rules, and one error count alert per controller reading the metric they write; the Slack body links to the fired route's exception lines |
 | `deploy/components/alerting/alerts.types.ts`       | Type definitions for `Alert` and `SlackGroup`         |
 | `deploy/components/alerting/alert-notification.ts` | Notification title and body: environment tag, mention |
 | `deploy/components/grafana.ts`                     | Converts alerts into Grafana rule groups via Pulumi   |
@@ -179,7 +204,7 @@ See the inline documentation on alert entries for more details and references to
 Key things to know:
 
 - Use `$ENV` in your expression -- it gets replaced with the environment name (`prod`) at deploy time.
-- `type: 'log'` queries go to Loki (structured logs). `type: 'metric'` queries go to Prometheus.
+- `type: 'log'` queries go to Loki (structured logs) and are **metered by bytes scanned** -- read [Query cost](#query-cost) first. `type: 'metric'` queries go to Prometheus, including metrics our own recording rules write. `type: 'usage'` goes to `grafanacloud-usage`, which carries Grafana Cloud's billing and alerting-health metrics; use it for a rule that must not depend on the system it is watching.
 - `notify` is optional. If omitted, the alert still fires but won't mention a Slack group.
 
 - The `for` field is a grace period -- the threshold must be continuously exceeded for that duration before the alert actually fires.
@@ -195,7 +220,7 @@ Prod runs more than one task (`desiredCount` in `deploy/components/service.ts`).
 
 The distortion is not marginal. On `person_profile_completion_request_event_count_total` the raw series read `1..3` across a 24h window while `increase()[24h]` over the same window returned **1702**. A ratio alert with a `> 20` volume floor — a floor that existed specifically to stop it firing on a handful of samples — was cleared by that inflation and fired on four real submissions.
 
-`src/otel.ts` now sets `service.instance.id` on the resource, which gives each task its own series and makes the counters addable again. Two things follow:
+`src/otel.ts` now sets `service.instance.id` on the metric and trace resource, which gives each task its own series and makes the counters addable again. The log resource deliberately omits it -- Loki would promote it to a stream label -- and carries the value in the JSON body as `service_instance_id` instead. Two things follow:
 
 - **Do not add a rule that depends on counter magnitude without checking the series first.** Query the bare metric over your window and look at the values. If a `sum(increase(...))` is orders of magnitude above what the raw series plausibly accumulated, identity is missing somewhere and the number is an artifact.
 - **Counting log lines is the ground truth when magnitude matters.** `sum(count_over_time({...} |= "..." [24h]))` cannot be inflated this way. It costs Loki bytes (see below), so it is a verification tool rather than a default, but it is what settles a disagreement between a counter and reality.
@@ -204,20 +229,22 @@ The distortion is not marginal. On `person_profile_completion_request_event_coun
 
 ## Query cost
 
-Loki bills the bytes a query **decompresses**, and only two things decide that: the stream selector inside `{...}` and the time range. Every stage after the `}` -- line filters, `| json`, label filters, structured-metadata filters -- runs on data that has already been read and paid for. They make a query faster and more precise. They do not make it cheaper.
+The general model -- what Loki bills, why a line filter does not make a query cheaper, and how to bound an ad-hoc query -- lives in `docs/observability.md`. Read it before writing any `type: 'log'` rule. What follows is only the part specific to **alert rules**, which spend that budget on a schedule rather than when a human types something.
 
-Two consequences worth internalising before you add a rule:
+**A rule's cost is its fetch window divided by its evaluation interval** -- the number of times a day it re-reads the same logs, and the only thing about a rule that its bill is proportional to. Evaluation defaults to every 60s, so a 6h `timeRangeSeconds` left on that default re-reads the same six hours 1,440 times a day. Widening `timeRangeSeconds` is not free the way widening a range vector in an ad-hoc query is; pair a wide window with a slower `evaluationIntervalSeconds`. A rule whose window is measured in hours does not need minute-resolution evaluation. `global-alerts.test.ts` caps this ratio, so a wide window paired with a fast interval fails the suite.
 
-- **Narrowing by a log field is free, not cheap.** `| request_endpoint = "GET /v1/contacts/:id"` costs the same as reading every gp-api log line in the window. The only way to genuinely read less is a narrower stream selector or a shorter window.
-- **A rule's cost is its fetch window divided by its evaluation interval** -- the number of times a day it re-reads the same logs, and the only thing about a rule that its bill is proportional to. Evaluation defaults to every 60s, so a 6h `timeRangeSeconds` left on that default re-reads the same six hours 1,440 times a day. Widening `timeRangeSeconds` is not free the way widening a range vector in an ad-hoc query is; pair a wide window with a slower `evaluationIntervalSeconds`. A rule whose window is measured in hours does not need minute-resolution evaluation. `global-alerts.test.ts` caps this ratio, so a wide window paired with a fast interval fails the suite.
+**Before adding a `type: 'log'` rule, ask whether a recording rule should read the stream instead.** Several rules that differ only in a filter are the case that matters: each one pays for the whole stream to look at its slice, and the pile of them is what produced the 2026-09-28 overage. One recording rule reading the stream and `sum by`-ing the dimension costs one read regardless of how many alerts consume it -- see [Route alerting reads a recorded metric](#route-alerting-reads-a-recorded-metric) for the worked example. If instead your rule is genuinely one of a kind, a single Loki query is fine and moving it to a recording rule saves nothing.
 
-So when several rules would differ only in a filter, write one rule that groups by that field instead. Grafana raises one alert instance per returned series, so per-dimension paging survives -- set `summaryDetail` to a `{{ $labels.<field> }}` template so the notification still names the dimension that fired. That is exactly what the generated controller alerts do with `request_endpoint`.
+Where a Loki rule is the right answer, `summaryDetail` set to a `{{ $labels.<field> }}` template keeps per-dimension paging: Grafana raises one alert instance per returned series either way.
 
-The Grafana Cloud plan includes log queries up to **100x** what we ingest. Ingest is the denominator, so cutting log volume also cuts the free query budget -- reducing ingest is not a fix for a query overage. Current usage is in the `grafanacloud-usage` datasource (`grafanacloud_org_logs_query_usage` against `grafanacloud_org_logs_usage`), and per-rule attribution is in the `grafanacloud-usage-insights` Loki datasource:
+The plan includes log queries up to **100x** what we ingest. Ingest is the denominator, so cutting log volume also cuts the free query budget -- reducing ingest is not a fix for a query overage. Two rules now watch this (`loki-query-budget-half`, `loki-query-budget-critical`) and their notifications carry the per-rule attribution query, so the spend is self-reporting rather than something to go looking for. The datasources are in `docs/observability.md`.
 
-```logql
-topk(10, sum by (rule_name) (sum_over_time(
-  {instance_type="logs"} | logfmt | __error__="" | source="grafana-alert"
-  | unwrap total_bytes [24h]
-)))
-```
+## When alerting cannot check
+
+`grafana.ts` provisions every rule with `execErrState: 'Alerting'`: a rule that cannot evaluate fires. That is deliberate and it stays. The alternative -- a rule that goes quiet when its datasource is unreachable -- is a monitoring system that reports "all clear" precisely when it has stopped looking.
+
+The cost is that a datasource outage fires *everything*, and on 2026-09-28 that meant 154 simultaneous pages each naming a different API route, none of which was broken. The fix for that is not to soften `execErrState`; it is `alerting-rule-evaluations-failing`, which makes the telling **singular**. It reads Grafana Cloud's own evaluation counters on the `grafanacloud-usage` Prometheus datasource rather than anything gp-api emits, specifically so that it survives the failure it reports, and its message says what the situation actually is: alerting is blind, every firing alert is unverified and every silent one unchecked.
+
+When it fires, read it first and the others second.
+
+**Its routing is the part this repo cannot express.** Like `alert-notification-delivery-failing`, it must reach Slack by a path that does not depend on what broke -- in particular not through the `gpbot-alert-filter` contact point, which runs a Loki query per alert and therefore fails in exactly the scenario this rule exists to announce. The notification policy tree is hand-maintained in Grafana Cloud and is not provisioned here, so that is an ops step, not a code one.

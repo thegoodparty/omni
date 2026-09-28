@@ -38,9 +38,7 @@ const TIERS = [60, 80, 90, 95] as const
  * Reads the `DoorKnockingSpend` log line rather than
  * `geoapify_credits_total`, for the reason the 6h ceiling gives
  * and one more. The log is exact and survives the counter reset every deploy
- * causes; and `otel.ts` sets no `service.instance.id`, so every replica exports
- * that counter under one series identity and `increase()` over interleaved
- * cumulative streams is not a number worth paging on.
+ * causes, which `increase()` over a cumulative counter does not.
  *
  * 24h, matching how Geoapify meters. Rolling rather than calendar-aligned
  * because LogQL has no calendar, which makes this a slight over-estimate of
