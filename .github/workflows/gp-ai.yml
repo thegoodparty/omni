@@ -575,14 +575,15 @@ jobs:
       # No logic here on purpose (see repo convention: nothing computed in
       # YAML) — everything (the resource -> IAM action/ARN table, batching,
       # the fail-open bootstrap rule) lives in the two scripts.
+      # Unaffected by the role change above, which is worth stating because it
+      # looks like it should be. The script names the simulated principal
+      # itself: `simulate_apply_perms.py` builds
+      # `arn:aws:iam::<account>:role/github-actions-pulumi-deploy` from
+      # `sts:GetCallerIdentity`'s **account**, not from the calling role, so
+      # it still asks "could the deploy role apply this?" while running as the
+      # plan role. What the plan role does need, and has, is
+      # `sts:GetCallerIdentity` and `iam:SimulatePrincipalPolicy`.
       - name: Simulate apply-time IAM permissions
-        env:
-          # The job no longer assumes the deploy role, and the script defaults
-          # the simulated principal to whoever is calling. Without this it
-          # would simulate the plan role and report an apply-time gap for
-          # every change, which is true and useless: the plan role is not the
-          # principal that applies. Name the role the release train uses.
-          DEPLOY_ROLE_ARN: arn:aws:iam::333022194791:role/github-actions-pulumi-deploy
         run: bash packages/gp-ai/infrastructure/scripts/ci-simulate-apply-perms.sh
 
   # Stable aggregation gate. Branch protection and the release train want one name
