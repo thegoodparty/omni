@@ -40,10 +40,8 @@ import {
 } from './turfDrafts'
 import { StartKnockingDialog } from './StartKnockingDialog'
 import { DoorKnockingSurface } from './doorKnockingSurface'
-import {
-  HARD_STOP_LIMIT,
-  type CreateFlowStep,
-} from './createFlow/CreateListFlow'
+import { type CreateFlowStep } from './createFlow/CreateListFlow'
+import { HARD_STOP_LIMIT } from './createFlow/stopCap'
 import {
   filtersToDimSelections,
   unpreviewableFilterKeys,
@@ -1571,11 +1569,6 @@ export default function NativeDoorKnockingPage({
                   updateDraft(activeDraft.clientId, { assigneeId })
                 }}
                 onSave={() => closeDrawing()}
-                // The cap is about the shape being drawn RIGHT NOW: a
-                // committed turf was under it when it committed, and the one
-                // in progress is what can still be fixed. Deliberately not
-                // also gated on having a turf — see the panel's footer.
-                saveDisabled={(turfStats?.stops ?? 0) > HARD_STOP_LIMIT}
                 onCancel={cancelDrawing}
                 dirty={sessionDirty}
                 onMapControlsOffsetChange={setMapControlsOffset}

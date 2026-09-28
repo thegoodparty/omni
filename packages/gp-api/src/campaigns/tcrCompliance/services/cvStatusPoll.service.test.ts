@@ -139,6 +139,49 @@ describe('CvStatusPollService', () => {
     })
   })
 
+  describe('triggerFreshScan', () => {
+    it('does nothing outside prod so dev/qa never call Peerly', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+
+      await service.triggerFreshScan()
+
+      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('enqueues once with a minute-keyed FIFO deduplicationId in prod', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-09-28T13:39:00Z'))
+      const scanKey = formatInTimeZone(
+        new Date(),
+        EASTERN_TIMEZONE,
+        'yyyy-MM-dd-HH-mm',
+      )
+
+      await service.triggerFreshScan()
+      vi.useRealTimers()
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledExactlyOnceWith(
+        {
+          type: QueueType.CV_STATUS_POLL,
+          data: { scanKey, fresh: true },
+        },
+        MessageGroup.cvStatusPoll,
+        {
+          deduplicationId: `cvStatusPollFresh-${scanKey}`,
+          throwOnError: true,
+        },
+      )
+    })
+
+    it('logs but does not throw when the enqueue fails', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      mockQueue.sendMessage.mockRejectedValueOnce(new Error('sqs down'))
+
+      await expect(service.triggerFreshScan()).resolves.toBeUndefined()
+    })
+  })
+
   describe('handleCvStatusPoll', () => {
     it('acks immediately and runs the scan detached', () => {
       const runScan = vi.spyOn(service, 'runScan').mockResolvedValue(undefined)
@@ -147,6 +190,22 @@ describe('CvStatusPollService', () => {
 
       expect(result).toBe(true)
       expect(runScan).toHaveBeenCalledWith('2026-08-17-08')
+    })
+
+    it('routes a fresh message to the fresh scan, not the full scan', () => {
+      const runScan = vi.spyOn(service, 'runScan').mockResolvedValue(undefined)
+      const runFreshScan = vi
+        .spyOn(service, 'runFreshScan')
+        .mockResolvedValue(undefined)
+
+      const result = service.handleCvStatusPoll({
+        scanKey: '2026-09-28-13-39',
+        fresh: true,
+      })
+
+      expect(result).toBe(true)
+      expect(runFreshScan).toHaveBeenCalledWith('2026-09-28-13-39')
+      expect(runScan).not.toHaveBeenCalled()
     })
 
     it('still acks when the detached scan rejects', async () => {
@@ -390,6 +449,102 @@ describe('CvStatusPollService', () => {
       expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(
         300,
       )
+    })
+  })
+
+  describe('runFreshScan', () => {
+    it('polls only fresh, undetected submissions', async () => {
+      await service.runFreshScan('slot')
+
+      const [freshCall] = mockModel.findMany.mock.calls[0] as [
+        {
+          where: {
+            peerlyIdentityId: object
+            pinSentDetectedAt: null
+            peerlySubmissionStartedAt: { gte: Date }
+            status: object
+            OR: object[]
+            campaign: { isPro: boolean }
+          }
+        },
+      ]
+      expect(freshCall.where.peerlyIdentityId).toEqual({ not: null })
+      expect(freshCall.where.pinSentDetectedAt).toBeNull()
+      expect(freshCall.where.peerlySubmissionStartedAt.gte).toBeInstanceOf(Date)
+      expect(freshCall.where.status).toEqual({
+        in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+      })
+      expect(freshCall.where.OR).toEqual([
+        { peerlyCvStatus: null },
+        {
+          peerlyCvStatus: {
+            in: [
+              PeerlyCvVerificationStatus.REQUESTED,
+              PeerlyCvVerificationStatus.IN_REVIEW,
+              PeerlyCvVerificationStatus.APPROVED,
+            ],
+          },
+        },
+      ])
+      expect(freshCall.where.campaign.isPro).toBe(true)
+    })
+
+    it('runs the same per-record pipeline as the full scan', async () => {
+      const record = scanRecord('tcr-a', 1)
+      mockModel.findMany.mockResolvedValueOnce([record])
+      const details = {
+        status: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: { method: 'email', destination: 'a@b.com' },
+      }
+      mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce(details)
+
+      await service.runFreshScan('slot')
+
+      expect(mockTcr.applyCvDetection).toHaveBeenCalledExactlyOnceWith(
+        record,
+        record.campaign,
+        details,
+      )
+      expect(mockModel.update).toHaveBeenCalledWith({
+        where: { id: 'tcr-a' },
+        data: {
+          peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+          peerlyCvStatusChangedAt: expect.any(Date),
+        },
+      })
+    })
+
+    it("one record's Peerly error does not stop the next record's poll", async () => {
+      const a = scanRecord('tcr-a', 1)
+      const b = scanRecord('tcr-b', 2)
+      mockModel.findMany.mockResolvedValueOnce([a, b])
+      mockPeerly.retrieveCampaignVerifyDetails
+        .mockRejectedValueOnce(new Error('peerly down'))
+        .mockResolvedValueOnce({
+          status: PeerlyCvVerificationStatus.REQUESTED,
+          pinDelivery: null,
+        })
+
+      await service.runFreshScan('slot')
+
+      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 'tcr-b' },
+        data: {
+          peerlyCvStatus: PeerlyCvVerificationStatus.REQUESTED,
+          peerlyCvStatusChangedAt: expect.any(Date),
+        },
+      })
+    })
+
+    it('caps a runaway fresh backlog at 15 polled records', async () => {
+      const records = Array.from({ length: 16 }, (_, i) =>
+        scanRecord(`tcr-${i}`, i),
+      )
+      mockModel.findMany.mockResolvedValueOnce(records)
+
+      await service.runFreshScan('slot')
+
+      expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(15)
     })
   })
 

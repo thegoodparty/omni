@@ -190,6 +190,20 @@ replicas' independent `@Interval` timers):
 - **Demand-driven reads are unchanged** and outside the scan's budget:
   `resolvePeerlyCvState` at `awaiting_pin` (PIN screen / agent poll), the
   admin PIN-resend pre-check, and the pre-submit existence check.
+- **The fresh-submission fast poll (`runFreshScan`)** closes the notice gap
+  the twice-daily cadence opened: CV usually approves within hours of
+  `submit_cv`, so the "your PIN is on the way" HubSpot notice
+  (`CompliancePinSent` via `applyCvDetection`) could lag ~12h — often firing
+  only when the candidate entered the PIN. A second cron
+  (`@Cron('9,39 * * * *')` ET, prod-only, minute-keyed FIFO dedup
+  `cvStatusPollFresh-<yyyy-MM-dd-HH-mm>`, same detached handler routed by the
+  message's `fresh` flag) polls only records with
+  `peerlySubmissionStartedAt` in the last 48h and `pinSentDetectedAt` null,
+  through the same per-record pipeline and 60s spacing. The set is a handful
+  of records at any time (capped at 15 as a runaway backstop), so the extra
+  vendor load is tens of calls/day; a slot overlapping a running full scan
+  can transiently reach 2 calls/min, bounded by that cap. Older in-flight
+  records stay on the twice-daily budget.
 - The PIN-entry path (`retrieveCampaignVerifyToken`) stamps
   `peerlyCvStatus = VERIFIED` directly on a successful verify, so
   `sweepUnsubmittedUsecases` doesn't wait up to 12h for the next scan — and
@@ -349,22 +363,30 @@ directly into the shared Slack Connect channel
   more than 3 business days (CV token attached, `/approve` called, waiting
   on Peerly's own finalize confirmation).
 
-Business-day math (`date-fns` `differenceInBusinessDays`, never calendar
-days — a Friday stall must not read as escalatable by Monday) can't live in
-the Prisma `where` clause, so `handleNightlyReport` fetches every
-currently-`IN_REVIEW` / currently-`waiting_to_finalize` candidate (same
-in-flight population the CV status scan polls) and applies the
-
-> 3-business-day floor in code.
+**The vendor posts fire from their own job, not the midnight report:**
+`triggerVendorEscalations` (`@Cron('0 11 * * 1-5')` ET, prod-only,
+date-keyed FIFO dedup like the report's cron) →
+`QueueType.PEERLY_VENDOR_ESCALATION` → `handleVendorEscalations`. Each
+message is prefixed `<!here>`, and that pairing is deliberate: the ping
+lands in Peerly's business hours, weekdays at 11am ET — don't move the
+posting back onto the midnight report, and don't drop the schedule while
+keeping the @here. The handler re-fetches the case-2/3b populations with
+fresh state (a record the 8am CV scan already moved must not ping) through
+`inReviewStallWhere`/`waitingToFinalizeStallWhere`, the same builders the
+report's mirror sections read, and applies the business-day floor in code
+(`date-fns` `differenceInBusinessDays`, never calendar days — a Friday
+stall must not read as escalatable by Monday; the math can't live in a
+Prisma `where` clause).
 
 **Once-only per stall**, mirroring the `pinSentDetectedAt` claim/rollback
 pattern: an atomic `updateMany WHERE cvInReviewEscalatedAt IS NULL` (resp.
 `finalizeStalledEscalatedAt`) claims the record _before_ the Slack post; only
 a claim count of 1 posts. `SlackService.message` swallows delivery errors
 and resolves `undefined` — a failed post rolls the claim back (scoped to the
-exact timestamp written) so the next nightly run retries. Escalation runs
-_after_ the internal report posts, so a first-night detection can render as
-"escalation pending" in the mirror section before the claim lands.
+exact timestamp written) so the next weekday run retries; the handler always
+acks its SQS message. A record the midnight report detects renders
+"escalation pending" in the mirror section until the next weekday 11am run
+claims it.
 
 **Reset on progress:** the CV status scan's persist writes
 (`CvStatusPollService`) that advance `peerlyCvStatus`/`peerlyProfileStatus`
@@ -378,12 +400,6 @@ clears `cvInReviewEscalatedAt` the same way.
 identity ID, committee name, which state it's stuck in, and since-when
 (date + business-day count) — never the candidate's email/phone, no
 internal campaign IDs, no gp-admin links.
-
-**Direct ping to the Peerly contact (ENG-10967).** Both messages are prefixed
-with `<@SLACK_PEERLY_CONTACT_MEMBER_ID>` when that env var is set
-(`peerlyContactMention()`); unset (dev/preview, where the real contact's
-member ID isn't configured) it renders as before — no mention, no crash.
-Never hardcode a real person's Slack member ID; env var only.
 
 **The shared channel posts via the Web API, not a webhook.** It is a Slack
 Connect channel owned by Peerly, and an incoming webhook cannot be created

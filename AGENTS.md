@@ -144,6 +144,18 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
 - **Commits/PRs:** explain _why_, not _what_, in PR bodies. No "test plan" section.
   No `Co-Authored-By: Claude` and no "Created by Claude" footers. Never commit when
   lint/verify is failing for code you touched.
+- **A PR is not delivered until its checks are green.** Opening one and
+  reporting "CI is pending" is an unfinished turn, not a status update. Open
+  PRs through the `ship-pr` skill, whose last phase already requires every
+  non-skipped check to be green; if you open one directly, arm a watch on
+  `gh pr checks` before you stop. Make that watch emit on **failure** and on
+  all-checks-complete, not only on success, because silence from a
+  success-only filter looks exactly like still running.
+- **Clear a red check, never re-run it.** First establish whether `main` is
+  green and whether your diff could plausibly cause the failure; say which.
+  A failure your change did not cause is still yours to clear before merging,
+  but by fixing the cause. A re-run that goes green has told you the test is
+  flaky and nothing else, and it leaves the flake for the next person.
 
 ## Branches and deploys
 

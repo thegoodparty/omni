@@ -17,6 +17,7 @@ import type { PolygonStats } from '../filterEngine'
 import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
 import type { TeamOption } from '../useTeamOptions'
 import { DraftCounts } from './draftCounts'
+import { overStopCap } from './stopCap'
 import { TurfCard } from './TurfCard'
 
 interface TurfPanelProps {
@@ -56,10 +57,9 @@ interface TurfPanelProps {
   // `pendingName` until a third corner commits a draft to stamp it onto.
   onRename: (name: string) => void
   onAssign: (assigneeId: number | null) => void
-  // Keep what this drawing session did, and hand back to the step. Blocked
-  // only by a shape that will not route.
+  // Keep what this drawing session did, and hand back to the step. Never
+  // blocked: a turf that cannot be saved is refused per card, below.
   onSave: () => void
-  saveDisabled: boolean
   // Put the campaign's turfs back the way they were when the surface opened.
   onCancel: () => void
   // Whether that restore would change anything, so Cancel asks first only
@@ -139,7 +139,6 @@ export const TurfPanel = ({
   onRename,
   onAssign,
   onSave,
-  saveDisabled,
   onCancel,
   dirty,
   onMapControlsOffsetChange,
@@ -219,6 +218,14 @@ export const TurfPanel = ({
     if (!isDrawnTurf(draft)) {
       return unnamed ? 'Draw and name this turf' : 'Draw this turf'
     }
+    // Before the name, because a boundary that will not route is the
+    // problem the candidate is least likely to have anticipated and the
+    // only one of the four that needs the map to fix. Checked per turf
+    // rather than against the shape under the cursor: a turf goes on
+    // holding whatever it was cut to after the cursor moves off it, and
+    // that shape is what the paid press sends.
+    const overCap = overStopCap(draftStats.get(draft.clientId))
+    if (overCap) return overCap
     if (unnamed) return 'Name this turf'
     if ((nameCounts.get(nameKey(draft.name)) ?? 0) > 1) {
       return 'Two turfs have this name. Change one.'
@@ -360,6 +367,14 @@ export const TurfPanel = ({
                 // drawn, and a red card would be scolding somebody for not
                 // having finished yet.
                 const unfinished = !isDrawnTurf(draft) && !selected
+                // Same rule, applied to the cap. The turf under the cursor
+                // already has the map saying it: the count pill goes red
+                // and so does the boundary. A card the cursor has LEFT has
+                // none of that, which is exactly how a 214-stop turf sat
+                // quietly in this list until the server refused it.
+                const strandedOverCap =
+                  !selected &&
+                  overStopCap(draftStats.get(draft.clientId)) !== null
                 // `block` on the `li` is not decoration. `app/globals.css`
                 // forces `display: flex` on every `li` under a `[data-slot]`
                 // ancestor, and this panel has one — which shrinks a single
@@ -393,7 +408,9 @@ export const TurfPanel = ({
                       onAssign={onAssign}
                       onRename={onRename}
                       error={
-                        attemptedSave || unfinished ? problemWith(draft) : null
+                        attemptedSave || unfinished || strandedOverCap
+                          ? problemWith(draft)
+                          : null
                       }
                     />
                   </li>
@@ -449,7 +466,6 @@ export const TurfPanel = ({
         <Button
           type="button"
           className="flex-1"
-          disabled={saveDisabled}
           onClick={() => {
             // Refused rather than disabled. A dead Save button says a turf
             // is wrong without saying which one or why, and the answer is

@@ -87,10 +87,9 @@ import { COMMUNITY_INPUT_PURPOSE } from '@goodparty_org/contracts'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
-export type { CreateFlowStep } from './createFlowSteps'
+import { overStopCap } from './stopCap'
 
-// Hard cap on stops per list — anything over this can't route.
-export const HARD_STOP_LIMIT = 150
+export type { CreateFlowStep } from './createFlowSteps'
 
 // The canvas emits an OPEN ring — the vertices as placed, first corner not
 // repeated at the end — and `GeoJsonPolygonSchema` requires a closed one.
@@ -443,6 +442,18 @@ export default function CreateListFlow({
   const drawnDrafts = useMemo(
     () => turfDrafts.filter(isDrawnTurf),
     [turfDrafts],
+  )
+  // Re-asked HERE rather than trusted from the drawing surface, which is
+  // where the candidate was last told. Stepping back to the who step and
+  // widening the audience rewrites every committed turf's stop count, so a
+  // shape that was under the cap when it was cut is not necessarily under
+  // it now — and this is the press that pays for the route.
+  const overCapDrafts = useMemo(
+    () =>
+      drawnDrafts.filter(
+        (draft) => overStopCap(draftStats.get(draft.clientId)) !== null,
+      ),
+    [drawnDrafts, draftStats],
   )
 
   // For the talking-points step's composed sections only: the identity clause
@@ -1610,10 +1621,15 @@ export default function CreateListFlow({
                           label: save.isPending
                             ? 'Creating campaign'
                             : 'Create campaign',
-                          // One turf is the whole requirement: a campaign with
-                          // no boundary has nothing in it, and the per-turf
-                          // validity was settled when each was committed.
-                          disabled: save.isPending || drawnDrafts.length === 0,
+                          // A campaign with no boundary has nothing in it,
+                          // and a turf over the stop cap cannot be routed —
+                          // the card above says which one and why, so this
+                          // is disabled rather than refusing into a second
+                          // explanation of a problem already on screen.
+                          disabled:
+                            save.isPending ||
+                            drawnDrafts.length === 0 ||
+                            overCapDrafts.length > 0,
                           loading: save.isPending,
                           onClick: () => {
                             if (gate.requirement !== null) {

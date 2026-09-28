@@ -49,7 +49,6 @@ const baseProps = {
   onPickColor: vi.fn(),
   onAssign: vi.fn(),
   onSave: vi.fn(),
-  saveDisabled: false,
   onCancel: vi.fn(),
   dirty: false,
   onMapControlsOffsetChange: vi.fn(),
@@ -533,7 +532,7 @@ describe('TurfPanel', () => {
     expect(onSave).toHaveBeenCalledTimes(1)
   })
 
-  it('gates Save only on a shape that will not route', () => {
+  it('never disables Save, and lets a clean campaign through', () => {
     // Deliberately NOT gated on having a turf, nor on the empty state.
     // Leaving a surface you are standing on is never the thing to block: a
     // candidate who opened the map and decided not to cut anything hands
@@ -545,10 +544,65 @@ describe('TurfPanel', () => {
     )
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
 
-    rerender(<TurfPanel {...baseProps} saveDisabled onSave={onSave} />)
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
-
     rerender(<TurfPanel {...baseProps} onSave={onSave} />)
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSave).toHaveBeenCalled()
+  })
+
+  it('refuses a turf over the stop cap the cursor has moved off', () => {
+    // The bug: the cap was checked against the shape being drawn RIGHT
+    // NOW, so cutting a 214-stop turf and then selecting a small one put
+    // Save back in reach and left the server to refuse the first one,
+    // quoting a number that had never been on screen.
+    //
+    // The card reddens without waiting for the press, for the same reason
+    // a stranded shapeless card does: the red count pill and the red
+    // boundary are the MAP's feedback on the shape under the cursor, and
+    // this turf no longer has the cursor.
+    const onSave = vi.fn()
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[
+          draft({ clientId: 'draft-1', name: 'Riverside' }),
+          draft({ clientId: 'draft-2', name: 'Elm' }),
+        ]}
+        active={draft({ clientId: 'draft-2', name: 'Elm' })}
+        draftStats={
+          new Map([
+            ['draft-1', stats(430, 214)],
+            ['draft-2', stats(60, 40)],
+          ])
+        }
+        onSave={onSave}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Over 150 stops. Draw this one smaller.',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(onSave).not.toHaveBeenCalled()
+  })
+
+  it('does not hold a press on a turf the pack has not answered for', () => {
+    // A draft with no stats entry is one whose count is unknown, not one
+    // that is over the cap: the audience changed and the cache cleared, or
+    // the pack is still decoding. Refusing here would trap a candidate
+    // behind an answer nobody has yet.
+    const onSave = vi.fn()
+    render(
+      <TurfPanel
+        {...baseProps}
+        drafts={[draft({ clientId: 'draft-9', name: 'Riverside' })]}
+        active={draft({ clientId: 'draft-9', name: 'Riverside' })}
+        draftStats={new Map()}
+        onSave={onSave}
+      />,
+    )
+
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(onSave).toHaveBeenCalled()
   })

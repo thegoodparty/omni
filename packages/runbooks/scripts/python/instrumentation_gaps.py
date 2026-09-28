@@ -30,6 +30,7 @@ import json
 import os
 import re
 import sys
+from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
 from pathlib import Path
@@ -38,6 +39,8 @@ import yaml
 from pydantic import BaseModel, Field
 
 import llm_judge
+import ts_imports
+import ts_scopes
 
 class CorruptStateError(Exception):
     """The on-disk state file exists but is not a readable JSON object. Distinct from a
@@ -55,6 +58,10 @@ DEFAULT_LOG = DATA_DIR / "instrumentation-gaps-log.md"
 # that file is a flat map keyed by gap id and load_state rejects anything else. Same shape of
 # small companion file as amplitude_event_provenance_state.json.
 DEFAULT_RUN_STATE = DATA_DIR / "instrumentation_gaps_run_state.json"
+# Successor-id -> a resplit predecessor's ruling (DATA-2539). A sibling file, not a key inside
+# instrumentation_gaps.json, for the same reason as DEFAULT_RUN_STATE: it can outlive the run
+# that computed it, since a successor id may not enter state until a later, judge-capped run.
+DEFAULT_PRIOR_RULINGS = DATA_DIR / "instrumentation_gaps_prior_rulings.json"
 
 JUDGE_OK_STATUSES = llm_judge.OK_STATUSES
 NO_JUDGE_STATUS = "skipped: --no-judge"
@@ -121,12 +128,25 @@ def load_rubric(path: Path = DEFAULT_RUBRIC_PATH) -> str:
     return path.read_text()
 
 
+# The roots walked when the config predates scan_roots. Keeps an old checkout scanning what
+# it always scanned instead of silently scanning nothing.
+_DEFAULT_SCAN_ROOTS = (
+    {"path": "packages/gp-webapp", "detectors": "webapp"},
+    {"path": "packages/gp-api/src", "detectors": "api"},
+)
+
+
 def load_gap_config(path: Path = CONFIG_PATH) -> dict:
-    """Read the exclusion config. Missing file -> empty excludes (scan everything)."""
-    if not path.exists():
-        return {"exclude_globs": []}
-    doc = yaml.safe_load(path.read_text()) or {}
-    return {"exclude_globs": list(doc.get("exclude_globs", []) or [])}
+    """Read the exclusion config and the scan roots. Missing file -> empty excludes and the
+    default roots (scan everything we have always scanned)."""
+    doc = {}
+    if path.exists():
+        doc = yaml.safe_load(path.read_text()) or {}
+    roots = list(doc.get("scan_roots") or []) or [dict(r) for r in _DEFAULT_SCAN_ROOTS]
+    return {
+        "exclude_globs": list(doc.get("exclude_globs", []) or []),
+        "scan_roots": roots,
+    }
 
 
 def is_excluded(rel_path: str, exclude_globs: Sequence[str]) -> bool:
@@ -184,28 +204,204 @@ _DETECTOR_PATTERN: dict[str, re.Pattern[str]] = {
     name: pat for name, pat in (*_WEBAPP_DETECTORS, *_API_DETECTORS)
 }
 
+# Keyed by the scan root's `detectors` name (config-driven, DATA-2539) rather than a path
+# prefix — with configurable roots a path prefix can no longer decide which set applies.
+_DETECTOR_SETS = {"webapp": _WEBAPP_DETECTORS, "api": _API_DETECTORS}
 
-def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
-    """Run the path-appropriate detectors over one file's text. One surface per matched
-    detector type (not per match) — the coarse unit here is 'this file has a wizard', which
-    the judgment pass later refines. In-file surfaces have no URL, so they key on
-    path#surface_type (the spec's path-plus-symbol fallback)."""
-    if rel_path.startswith("packages/gp-webapp/"):
-        detectors = _WEBAPP_DETECTORS
-    elif rel_path.startswith("packages/gp-api/"):
-        detectors = _API_DETECTORS
-    else:
+
+# Detectors that get one candidate per match. cta is excluded deliberately: it is 74 of the
+# 110 surfaces the old file-level filter discarded and it ranks lowest in the rubric, so
+# per-match cta would add ~200 low-value candidates to every judge batch for decisions nobody
+# acts on. route has no in-file match to key on at all. wizard_stage is excluded too: a
+# wizard's N `currentStep` references are one wizard, not N surfaces — per-match detection
+# measured 95 of 138 line-keyed ids and 9 of 17 duplicate ids, all for the same underlying
+# surface. It still gets a scope-level (not file-level) tracking check — see the non-per-match
+# branch below.
+_PER_MATCH_TYPES = frozenset(
+    {"form_submit", "api_job", "api_webhook", "api_status"}
+)
+# `onSubmit={handleThing}` and `onSubmit={(e) => ...}`
+_PROP_IDENT = re.compile(r"=\{\s*([A-Za-z_$][\w$]*)\s*\}")
+_PROP_INLINE = re.compile(r"=\{\s*(?:async\s*)?\(")
+_DECL_MAX_LINES_TO_BRACE = 2
+
+
+def _local_decl_block(code: str, ident: str, pairs) -> tuple[int, int] | None:
+    """Span of `const ident = ...` / `function ident(...)` declared in this same file, or None
+    when the name comes from props, an import or a hook."""
+    m = re.search(
+        rf"^[ \t]*(?:export\s+)?(?:const|let|function)\s+{re.escape(ident)}\b", code, re.M
+    )
+    if not m:
+        return None
+    # Start looking for the body brace AFTER the parameter list. `const onSend = ({ id }:
+    # Args) => {...}` opens a brace for the destructured params first, and taking that one
+    # scopes the tracking check to the parameter list — so a handler that does fire an event
+    # reads as untracked and false-alarms.
+    body_from = m.start()
+    arrow = code.find("=>", m.start())
+    params = code.find(")", m.start())
+    for marker in (arrow, params):
+        if marker != -1 and code.count("\n", m.start(), marker) <= _DECL_MAX_LINES_TO_BRACE:
+            body_from = max(body_from, marker)
+    after = [p for p in pairs if p[0] >= body_from]
+    if not after:
+        return None
+    open_idx, close_idx = min(after, key=lambda p: p[0])
+    if code.count("\n", m.start(), open_idx) > _DECL_MAX_LINES_TO_BRACE:
+        return None
+    return (m.start(), close_idx + 1)
+
+
+def surface_scope(code: str, text: str, match_start: int, pairs):
+    """(span, name, kind) for one surface. Most specific scope first.
+
+    1. `handler` — the named handler the prop references, wherever it is declared in this file.
+    2. `inline` — the arrow written inline in the prop.
+    3. `component` — the enclosing component.
+
+    Step 1 is not an optimization, it is the whole fix. ChiefOfStaffChatBody.tsx is one
+    component spanning all 1,327 lines; it fires 8 events between lines 293 and 804 and its
+    chat submit at 1272 fires nothing. Scoped to the component the submit reads as tracked and
+    the sweep stays silent — the exact cosmetic outcome DATA-2539 warns about. Scoped to
+    `onSend` (declared at 895) it reads correctly as a gap."""
+    tail = text[match_start : match_start + 120]
+    ident = _PROP_IDENT.search(tail)
+    if ident:
+        span = _local_decl_block(code, ident.group(1), pairs)
+        if span:
+            return span, ident.group(1), "handler"
+    if _PROP_INLINE.search(tail):
+        after = [p for p in pairs if p[0] >= match_start]
+        if after:
+            open_idx, close_idx = min(after, key=lambda p: p[0])
+            outer = ts_scopes.enclosing_scope(code, match_start, pairs)
+            name = ts_scopes.scope_name(code, outer[0]) if outer else None
+            return (open_idx, close_idx + 1), name, "inline"
+    span = ts_scopes.enclosing_scope(code, match_start, pairs)
+    if span:
+        return span, ts_scopes.scope_name(code, span[0]), "component"
+    return None, None, "none"
+
+
+def _in_type_declaration(code: str, pos: int, pairs) -> bool:
+    """True when the match sits inside an interface/type/enum body rather than code. Drops
+    `currentStep?: string` without dropping the components that reference currentStep."""
+    span = ts_scopes.enclosing_scope(code, pos, pairs, decisive=False)
+    return span is not None and ts_scopes.scope_kind(code, span[0]) == "type"
+
+
+def surface_id(
+    rel_path: str, surface_type: str, text: str, match_start: int, match_count: int,
+    scope_name: str | None,
+) -> str:
+    """A single match keeps the historic `path#type` id, named scope or not — nothing needs
+    disambiguating, and this is what lets existing state entries in single-match files survive
+    with their human rulings. Appending the scope name unconditionally would rename every
+    entry and discard all 38 rulings instead of 21."""
+    if match_count == 1:
+        return f"{rel_path}#{surface_type}"
+    if scope_name:
+        return f"{rel_path}#{surface_type}#{scope_name}"
+    return f"{rel_path}#{surface_type}#L{text.count(chr(10), 0, match_start) + 1}"
+
+
+def detect_surfaces_in_file(rel_path: str, text: str, detector_set: str) -> list[dict]:
+    """Run one detector set over a file's text. The caller resolves which set from the scan
+    root the file came from — a path prefix cannot, now that roots are configurable.
+
+    Per-match types (_PER_MATCH_TYPES) get one candidate per match, each scoped to its own
+    handler/inline/component span so a file that tracks some things doesn't hide an untracked
+    one (DATA-2539). Other types (cta, and anything outside _PER_MATCH_TYPES) keep the old
+    coarse per-file unit — 'this file has buttons' — which the judgment pass refines."""
+    detectors = _DETECTOR_SETS.get(detector_set)
+    if not detectors:
         return []
+    code = ts_scopes.blank_noncode(text)
+    pairs = ts_scopes.brace_pairs(code)
     out: list[dict] = []
     for surface_type, pattern in detectors:
-        if pattern.search(text):
-            out.append(
-                {
-                    "id": f"{rel_path}#{surface_type}",
-                    "surface_type": surface_type,
-                    "location": rel_path,
-                }
+        matches = list(pattern.finditer(text))
+        if surface_type == "wizard_stage":
+            matches = [m for m in matches if not _in_type_declaration(code, m.start(), pairs)]
+        if not matches:
+            continue
+        if surface_type == "wizard_stage":
+            # One surface per file: a wizard's N `currentStep` references are one wizard, not
+            # N surfaces. Measured: per-match wizard produced 95 of 138 line-keyed ids and 9
+            # of 17 duplicate ids, all for the same underlying surface.
+            # has_tracking is still scope-scoped, not file-scoped — the union of this
+            # surface's own match scopes, which is strictly tighter than the whole file.
+            spans = [
+                span for span in (
+                    ts_scopes.enclosing_scope(code, m.start(), pairs) for m in matches
+                ) if span is not None
+            ]
+            out.append({
+                "id": f"{rel_path}#{surface_type}",
+                "surface_type": surface_type,
+                "location": rel_path,
+                "match_start": matches[0].start(),
+                "has_tracking": any(
+                    _TRACKING_RE.search(text[a:b]) is not None for a, b in spans
+                ),
+                "scope": spans[0] if spans else None,
+            })
+            continue
+        if surface_type not in _PER_MATCH_TYPES:
+            # Coarse unit: "this file has buttons" (cta). Unlike wizard_stage above, this
+            # stays a genuinely file-level question — no has_tracking key here, so find_gaps
+            # falls back to the whole-file files_with_tracking set, exactly the old behavior.
+            out.append({
+                "id": f"{rel_path}#{surface_type}",
+                "surface_type": surface_type,
+                "location": rel_path,
+                "match_start": matches[0].start(),
+                "scope": None,
+            })
+            continue
+        seen: set[str] = set()
+        for m in matches:
+            span, name, scope_kind = surface_scope(code, text, m.start(), pairs)
+            # Fail toward noise: an unresolved scope yields a candidate the judge can rule on.
+            # A line-window fallback would read a neighbour's trackEvent and silently drop a
+            # real gap, which is the failure this ticket exists to remove.
+            has_tracking = span is not None and (
+                _TRACKING_RE.search(text[span[0] : span[1]]) is not None
             )
+            # The id names the surface's enclosing COMPONENT, never the handler identifier —
+            # two untracked submits in the same component (e.g. `onSend` and `onSave`, each
+            # its own named handler) must still collide down to a line key rather than mint
+            # two same-looking-but-different ids from handler names a reviewer never sees in
+            # the digest. Only the handler branch needs recomputing: inline/component already
+            # name the enclosing scope.
+            if scope_kind == "handler":
+                outer = ts_scopes.enclosing_scope(code, m.start(), pairs)
+                id_name = ts_scopes.scope_name(code, outer[0]) if outer else None
+            else:
+                id_name = name
+            gid = surface_id(rel_path, surface_type, text, m.start(), len(matches), id_name)
+            if gid in seen:
+                # Two matches resolving to one scope. Fall to the line key rather than
+                # silently dropping the second surface.
+                line_key = f"{rel_path}#{surface_type}#L{text.count(chr(10), 0, m.start()) + 1}"
+                gid = line_key
+                # Two matches on ONE line collide again; an ordinal is the last tiebreak.
+                # Without it the second surface silently overwrites the first in state.
+                n = 2
+                while gid in seen:
+                    gid = f"{line_key}.{n}"
+                    n += 1
+            seen.add(gid)
+            out.append({
+                "id": gid,
+                "surface_type": surface_type,
+                "location": rel_path,
+                "match_start": m.start(),
+                "has_tracking": has_tracking,
+                "scope": span,
+                "scope_kind": scope_kind,
+            })
     return out
 
 
@@ -226,6 +422,23 @@ def extract_context(
     return "\n".join(lines[:max_lines]).strip("\n")
 
 
+def extract_context_at(
+    text: str, match_start: int, scope: tuple[int, int] | None = None, max_lines: int = 40
+) -> str:
+    """A bounded snippet centered on one surface, preferring its resolved scope when that
+    fits. The old windowing centered on the file's *first* match of the detector pattern,
+    which for a per-match candidate is a different surface entirely — the judge was ruling on
+    code it could not see."""
+    if scope is not None:
+        block = text[scope[0] : scope[1]]
+        if block.count("\n") < max_lines:
+            return block.strip("\n")
+    lines = text.splitlines()
+    hit = text.count("\n", 0, match_start)
+    start = max(0, hit - max_lines // 2)
+    return "\n".join(lines[start : start + max_lines]).strip("\n")
+
+
 # --- call-site diff -----------------------------------------------------------
 
 _TRACKING_RE = re.compile(r"\btrackEvent\s*\(|\bAnalyticsService\b|\.track\(")
@@ -236,9 +449,38 @@ def has_tracking_call(text: str) -> bool:
     return _TRACKING_RE.search(text) is not None
 
 
+def hook_fires_events(
+    rel_path: str, text: str, files_with_tracking: set[str], exists
+) -> bool:
+    """Whether any `use*` hook this file imports fires events one hop away.
+
+    Only the hook edge is followed. Measured on 2026-09-25: hook imports flag 8 of 259 gap
+    files and caught both of that day's false alarms, while following every relative import
+    flags 62 and is mostly a parent importing an unrelated tracked child, which says nothing
+    about the parent's own surface."""
+    for name, spec in ts_imports.parse_relative_imports(text):
+        if not ts_imports.is_hook_name(name):
+            continue
+        target = ts_imports.resolve_import(rel_path, spec, exists)
+        if target is not None and target in files_with_tracking:
+            return True
+    return False
+
+
 def find_gaps(surfaces: Sequence[dict], files_with_tracking: set[str]) -> list[dict]:
-    """A candidate surface whose file fires no event is a candidate gap (file-level, Phase 1)."""
-    return [s for s in surfaces if s["location"] not in files_with_tracking]
+    """A candidate surface with no tracking call in its own scope is a candidate gap.
+
+    Per-match surfaces carry a scope-level `has_tracking` decided at detection time. cta and
+    route have no handler to scope to and fall back to the file-level set, which is the old
+    behavior for exactly the two types where it is still the right question."""
+    out: list[dict] = []
+    for s in surfaces:
+        if "has_tracking" in s:
+            if not s["has_tracking"]:
+                out.append(s)
+        elif s["location"] not in files_with_tracking:
+            out.append(s)
+    return out
 
 
 # --- ranking (heuristic; replaced/augmented by the LLM judge in Phase 2) ------
@@ -294,6 +536,9 @@ _JUDGE_INSTRUCTIONS = (
     "toggle open/close). For each candidate name the rubric_rule that applies, the "
     "dashboard_question the missing event would answer, a rank 0-5 (0 = highest priority, "
     "e.g. a URL-stable multi-step flow stage; higher = lower value), and a one-line reason. "
+    "When tracked_in_hook is true, a React hook this file imports does fire events, so the "
+    "surface may already be instrumented one hop away and the snippet cannot show it; weigh "
+    "that as evidence, not as a verdict. "
     "Copy each id verbatim. Return exactly one verdict per candidate via the tool."
 )
 
@@ -311,6 +556,7 @@ def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
             "surface_type": c["surface_type"],
             "location": c["location"],
             "snippet": c.get("snippet", ""),
+            "tracked_in_hook": c.get("tracked_in_hook", False),
         }
         for c in candidates
     ]
@@ -403,11 +649,17 @@ def merge_judged_state(
     verdicts: Mapping[str, dict],
     candidates_by_id: Mapping[str, dict],
     today: date,
+    prior_rulings: Mapping[str, dict] | None = None,
 ) -> dict[str, dict]:
     """Fold judge-confirmed gaps into the disposition state. Only is_gap=true verdicts
     create or refresh entries; is_gap=false is dropped and never added. Human decisions
     (disposition, reason) and first_seen are preserved; the judge's reason is stored as
-    judge_reason so it never clobbers the human field. Prior ids absent this run are kept."""
+    judge_reason so it never clobbers the human field. Prior ids absent this run are kept.
+
+    prior_rulings (id-scheme migration, DATA-2539): a successor id that first enters state
+    here and matches a resplit predecessor's ruling gets that ruling attached as `prior_ruling`
+    context — never on refresh of an entry that already exists, since it records what a human
+    decided about the *predecessor* surface, not a live fact about this one."""
     iso = today.isoformat()
     out: dict[str, dict] = {k: dict(v) for k, v in prior.items()}
     for gid, verdict in verdicts.items():
@@ -431,6 +683,9 @@ def merge_judged_state(
                 "last_seen": iso,
                 **judged,
             }
+            ruling = (prior_rulings or {}).get(gid)
+            if ruling:
+                out[gid]["prior_ruling"] = ruling
             continue
         entry = out[gid]
         entry["last_seen"] = iso
@@ -441,6 +696,122 @@ def merge_judged_state(
     return out
 
 
+_CLOSED = {"resolved", "retired"}
+# Below this fraction of the previous run's surface count, the scan is not believed and
+# nothing is closed. A broken glob or a fat-fingered detector regex would otherwise retire
+# the entire backlog in one unattended run, and closing is the one operation here that
+# removes work from a human's queue.
+_COLLAPSE_FLOOR = 0.5
+
+
+def scan_is_believable(prior_count, surface_count: int) -> bool:
+    """Whether a scan returned enough surfaces to trust its conclusions.
+
+    Single-sourced deliberately: this is the guard that stops an unattended run from closing
+    a human's triage queue off a broken glob or a fat-fingered detector regex. It was briefly
+    duplicated between run_sweep and main, which is how a guard like this quietly stops
+    working — one copy gets edited, the other does not.
+
+    No baseline (first run, or a reset/corrupt run-state file) means nothing to compare
+    against, so the scan is believed. That matches load_run_state's never-raise contract:
+    a missing counter costs one under-protected run, whereas raising would cost the whole
+    cron."""
+    if not isinstance(prior_count, int) or isinstance(prior_count, bool) or prior_count <= 0:
+        return True
+    return surface_count >= prior_count * _COLLAPSE_FLOOR
+
+
+def close_resolved_entries(
+    state: Mapping[str, dict],
+    surfaces: Sequence[Mapping],
+    gap_ids: set[str],
+    today: date,
+) -> tuple[dict[str, dict], int]:
+    """Close entries that stopped being gaps. Returns (new_state, closed_count).
+
+    `resolved` when the surface is still detected but no longer reads as untracked — someone
+    instrumented it, which is the one outcome this whole loop exists to produce and which had
+    no way to be recorded. Otherwise `retired`, split into two causes: `resplit` when the id
+    is gone but the file still offers surfaces of that (location, surface_type) — the id
+    changed shape (e.g. an added ordinal/component suffix disambiguating multiple matches per
+    file) but the surface itself is still alive; `surface_gone` when it genuinely is not.
+    Distinguishing the two here, from the same surface list the rest of the sweep already
+    scanned, means an id-scheme change never has to be paired with a one-shot migration
+    script that must run before the cron does — the result is correct regardless of run order.
+
+    Applies to accepted and dismissed entries too. Nothing is deleted and no human field is
+    touched: reason, first_seen and ticket_url survive, so a closed row is still the audit
+    trail of what someone decided and why."""
+    out = {k: dict(v) for k, v in state.items()}
+    surface_ids = {s["id"] for s in surfaces}
+    live_by_loc_type: dict[tuple[str, str], int] = {}
+    for s in surfaces:
+        key = (s.get("location", ""), s.get("surface_type", ""))
+        live_by_loc_type[key] = live_by_loc_type.get(key, 0) + 1
+    closed = 0
+    iso = today.isoformat()
+    for gid, entry in out.items():
+        if entry.get("disposition") in _CLOSED or gid in gap_ids:
+            continue
+        if gid in surface_ids:
+            disposition, cause = "resolved", "instrumented"
+        elif live_by_loc_type.get(
+            (entry.get("location", ""), entry.get("surface_type", "")), 0
+        ):
+            disposition, cause = "retired", "resplit"
+        else:
+            disposition, cause = "retired", "surface_gone"
+        entry["disposition"] = disposition
+        entry["resolved_cause"] = cause
+        entry["resolved_at"] = iso
+        closed += 1
+    return out, closed
+
+
+def build_prior_rulings(
+    state: Mapping[str, dict], surfaces: Sequence[Mapping], gap_ids: set[str], today: date,
+) -> dict[str, dict]:
+    """{successor_id: ruling} for every live surface sharing (location, surface_type) with an
+    entry this run closes as `resplit` (DATA-2539 id-scheme migration).
+
+    Reuses close_resolved_entries's own resplit test rather than re-deriving it, so the two
+    can never drift apart — a fork here would mean a successor could get a ruling attached
+    for an id the closer doesn't actually consider resplit, or vice versa.
+
+    Every live sibling at that (location, surface_type) gets the ruling, regardless of the
+    predecessor's own disposition: a `new` predecessor (never actually ruled on) still yields
+    one, just an uninformative one (empty reason) — that is itself honest context (the
+    predecessor was untriaged), not a case to special-case away. Pure: takes this run's already
+    -scanned surfaces, does no IO."""
+    closed, _ = close_resolved_entries(state, surfaces, gap_ids, today)
+    by_loc_type: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for s in surfaces:
+        by_loc_type[(s.get("location", ""), s.get("surface_type", ""))].append(s["id"])
+
+    rulings: dict[str, dict] = {}
+    for gid, entry in closed.items():
+        if entry.get("resolved_cause") != "resplit":
+            continue
+        if state[gid].get("disposition") in _CLOSED:
+            # Closed on an earlier run, so its successors already received this ruling.
+            # Re-emitting it every run keeps an ancient predecessor's reason alive and can
+            # attach it to a surface that only appeared at this location months later.
+            continue
+        source = state[gid]
+        ruling = {
+            "id": gid,
+            "disposition": source.get("disposition", "new"),
+            "reason": source.get("reason", ""),
+            "ruled_on": source.get("last_seen", ""),
+        }
+        key = (entry.get("location", ""), entry.get("surface_type", ""))
+        for child_id in by_loc_type.get(key, []):
+            if child_id == gid:
+                continue  # resplit means gid itself isn't live; guard anyway
+            rulings[child_id] = ruling
+    return rulings
+
+
 def is_visible(entry: Mapping) -> bool:
     """The digest shows only untriaged (`new`) gaps. open collapses to a count line;
     accepted/dismissed are suppressed."""
@@ -448,7 +819,9 @@ def is_visible(entry: Mapping) -> bool:
 
 
 def coverage_stats(state: Mapping[str, dict]) -> dict:
-    counts = {"new": 0, "open": 0, "accepted": 0, "dismissed": 0}
+    counts = {
+        "new": 0, "open": 0, "accepted": 0, "dismissed": 0, "resolved": 0, "retired": 0,
+    }
     for entry in state.values():
         d = entry.get("disposition", "new")
         if d in counts:
@@ -500,6 +873,8 @@ def build_slack_payload(
     feedback_url: str | None,
     top_n: int = 10,
     judge_consecutive_failures: int = 0,
+    surfaces_enumerated: int = 0,
+    suppressed_by_tracking: int = 0,
 ) -> dict:
     """Run-data the health step reads to fold the gaps into its Slack post. The digest is
     delta-led (like the health monitor's new/escalated/resolved), so the Slack signal is
@@ -525,6 +900,8 @@ def build_slack_payload(
         "new_count": len(new_gaps_this_run),
         "pending_count": pending_count,
         "judge_consecutive_failures": judge_consecutive_failures,
+        "surfaces_enumerated": surfaces_enumerated,
+        "suppressed_by_tracking": suppressed_by_tracking,
         "new_gaps": new_gaps,
         "browse_url": browse_url,
         "feedback_url": feedback_url,
@@ -538,6 +915,8 @@ def render_gap_section(
     *,
     judgment_status: str = "ok",
     pending_count: int = 0,
+    surfaces_enumerated: int = 0,
+    suppressed_by_tracking: int = 0,
 ) -> str:
     """One dated markdown section: coverage line, ranked new-gaps table (with the rubric
     rule and dashboard question from the judge), and a graceful judgment-status line when
@@ -553,7 +932,13 @@ def render_gap_section(
         "### Potential instrumentation gaps",
         "",
         f"Coverage: {cov['tracked_gaps']} tracked — {cov['new']} new, {cov['open']} open, "
-        f"{cov['accepted']} accepted, {cov['dismissed']} dismissed.",
+        f"{cov['accepted']} accepted, {cov['dismissed']} dismissed, "
+        f"{cov['resolved']} resolved, {cov['retired']} retired.",
+        # The original 2026-07-20 design called for this line and it was never built: without
+        # it, a quiet queue (no new gaps) reads identically whether the sweep saw everything
+        # and found nothing, or silently scanned zero surfaces.
+        f"Scan: {surfaces_enumerated} surfaces enumerated, {suppressed_by_tracking} "
+        f"already tracked, {surfaces_enumerated - suppressed_by_tracking} candidates.",
         "",
     ]
     if not visible:
@@ -584,8 +969,6 @@ def render_gap_section(
 
 # --- IO + CLI -----------------------------------------------------------------
 
-_WEBAPP_ROOT = "packages/gp-webapp"
-_API_ROOT = "packages/gp-api/src"
 _SCAN_SUFFIXES = (".ts", ".tsx")
 
 
@@ -622,12 +1005,19 @@ def load_run_state(path: Path | None) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def next_run_state(prior: Mapping, judgment_status: str, today: date) -> dict:
+def next_run_state(
+    prior: Mapping, judgment_status: str, today: date, surface_count: int | None = None,
+) -> dict:
     """Advance the judge-failure streak for this run's status.
 
     A failure increments and an ok resets and stamps last_ok. Everything in JUDGE_STREAK_HOLD
     holds the current value: those runs are evidence of neither health nor failure, so they
-    must neither clear a real streak nor invent one."""
+    must neither clear a real streak nor invent one.
+
+    surface_count carries this run's scanned-surface total forward, so the next run's collapse
+    guard has something to compare against. Callers must omit it (leaving the prior count
+    untouched) whenever this run's scan wasn't believed — otherwise a collapsed count becomes
+    the new baseline and the guard can never fire again."""
     out = dict(prior)
     raw = out.get("judge_consecutive_failures", 0)
     streak = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0 else 0
@@ -638,6 +1028,8 @@ def next_run_state(prior: Mapping, judgment_status: str, today: date) -> dict:
         out["judge_consecutive_failures"] = streak
     else:
         out["judge_consecutive_failures"] = streak + 1
+    if surface_count is not None:
+        out["surface_count"] = surface_count
     return out
 
 
@@ -661,27 +1053,46 @@ def _iter_files(repo_root: Path, sub: str, exclude_globs: Sequence[str]):
         yield rel, p
 
 
-def scan_repo(repo_root: Path, exclude_globs: Sequence[str]) -> tuple[list[dict], set[str]]:
-    """Walk gp-webapp + gp-api, returning all candidate surfaces (each with a bounded code
-    snippet for the judge) and the set of files that fire at least one event."""
+def scan_repo(
+    repo_root: Path, exclude_globs: Sequence[str], scan_roots: Sequence[Mapping] | None = None
+) -> tuple[list[dict], set[str]]:
+    """Walk each configured scan root, returning all candidate surfaces (each with a bounded
+    code snippet for the judge) and the set of files that fire at least one event."""
+    roots = list(scan_roots or _DEFAULT_SCAN_ROOTS)
     surfaces: list[dict] = []
     files_with_tracking: set[str] = set()
     page_texts: dict[str, str] = {}
-    for sub in (_WEBAPP_ROOT, _API_ROOT):
-        for rel, path in _iter_files(repo_root, sub, exclude_globs):
+    # Only kept for files that produced a has_tracking-bearing surface, since that's the
+    # only case the second pass below needs a file's text for.
+    texts: dict[str, str] = {}
+    for root in roots:
+        for rel, path in _iter_files(repo_root, root["path"], exclude_globs):
             text = path.read_text(errors="replace")
             if has_tracking_call(text):
                 files_with_tracking.add(rel)
             if rel.endswith("/page.tsx"):
                 page_texts[rel] = text
-            for surface in detect_surfaces_in_file(rel, text):
-                pat = _DETECTOR_PATTERN.get(surface["surface_type"])
-                surface["snippet"] = extract_context(text, pat)
+            for surface in detect_surfaces_in_file(rel, text, root["detectors"]):
+                surface["snippet"] = extract_context_at(
+                    text, surface["match_start"], surface.get("scope")
+                )
+                surface.pop("scope", None)  # offsets are per-file; never persisted to state
                 surfaces.append(surface)
+                if "has_tracking" in surface:
+                    texts[rel] = text
     routes = enumerate_route_surfaces(list(page_texts), exclude_globs)
     for r in routes:
         r["snippet"] = extract_context(page_texts.get(r["location"], ""), None)
     surfaces.extend(routes)
+
+    # Second pass: the hint needs the full tracking set, which only exists after the walk.
+    exists = lambda rel: (repo_root / rel).exists()
+    for surface in surfaces:
+        if "has_tracking" not in surface:
+            continue  # cta/route carry no hint — they have no handler to lift
+        surface["tracked_in_hook"] = hook_fires_events(
+            surface["location"], texts[surface["location"]], files_with_tracking, exists
+        )
     return surfaces, files_with_tracking
 
 
@@ -697,18 +1108,29 @@ def run_sweep(
     rubric_path: Path = DEFAULT_RUBRIC_PATH,
     client_factory=None,
     enable_judge: bool = True,
-) -> tuple[dict, list[dict], str, int]:
-    """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps.
-    Returns (new_state, gaps, judgment_status, pending_count). Judgment is graceful: when it
-    does not return 'ok', no new entries are added and pending_count reports the candidates
-    that went un-judged. client_factory defaults to None (resolved here, not at def time) so
-    that callers like main() which never pass it still pick up a test's monkeypatched
-    make_anthropic_client instead of a frozen reference to the original."""
+    run_state_path: Path | None = None,
+    prior_rulings_path: Path | None = None,
+) -> tuple[dict, list[dict], str, int, int, int, int, dict]:
+    """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps →
+    close entries that stopped being gaps. Returns (new_state, gaps, judgment_status,
+    pending_count, closed_count, surfaces_enumerated, suppressed_by_tracking,
+    prior_rulings). Judgment is graceful: when it does not return 'ok', no new entries are
+    added and pending_count reports the candidates that went un-judged. client_factory
+    defaults to None (resolved here, not at def time) so that callers like main() which never
+    pass it still pick up a test's monkeypatched make_anthropic_client instead of a frozen
+    reference to the original.
+
+    prior_rulings_path (DATA-2539): a successor id can first enter state on a *later* run than
+    the one that closes its predecessor as resplit (the judge caps candidates per run), so the
+    mapping is persisted between runs via load_run_state's never-raise contract rather than
+    recomputed from scratch each time. Already-recorded rulings win over a fresh recompute —
+    once captured, a ruling must not shift out from under an id that already carries it."""
     client_factory = client_factory or make_anthropic_client
     cfg = load_gap_config(config_path)
     prior = load_state(state_path)
-    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
+    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"], cfg["scan_roots"])
     gaps = find_gaps(surfaces, tracked)
+    gap_ids = {g["id"] for g in gaps}
     candidates = select_candidates(gaps, prior, limit)
     candidates_by_id = {c["id"]: c for c in candidates}
     if enable_judge:
@@ -718,9 +1140,38 @@ def run_sweep(
         )
     else:
         verdicts, status = {}, NO_JUDGE_STATUS
-    new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
+    recorded_rulings = load_run_state(prior_rulings_path)
+    fresh_rulings = build_prior_rulings(prior, surfaces, gap_ids, today)
+    merged_rulings = {**fresh_rulings, **recorded_rulings}
+    new_state = merge_judged_state(
+        prior, verdicts, candidates_by_id, today, prior_rulings=merged_rulings
+    )
     pending = 0 if status in JUDGE_OK_STATUSES else len(candidates)
-    return new_state, gaps, status, pending
+
+    prior_count = load_run_state(run_state_path).get("surface_count")
+    believable = scan_is_believable(prior_count, len(surfaces))
+    if believable:
+        new_state, closed = close_resolved_entries(new_state, surfaces, gap_ids, today)
+    else:
+        closed = 0
+        print(
+            f"gap-sweep: scan returned {len(surfaces)} surfaces against a previous "
+            f"{prior_count}; closing skipped and state left as-is.",
+            file=sys.stderr,
+        )
+
+    return (
+        new_state, gaps, status, pending, closed,
+        len(surfaces),                    # surfaces_enumerated
+        # Every surface that did not survive into `gaps`, whichever check dropped it — the
+        # per-scope one for handlers and wizards, the file-level one for cta and route.
+        # Counting only `has_tracking` (the scope-level check) undercounts suppression by
+        # however many cta/route surfaces find_gaps drops at the file level, and overstates
+        # candidates by the same amount — exactly backwards for a line whose job is letting
+        # a reader tell a quiet queue from a blind one.
+        len(surfaces) - len(gaps),        # suppressed_by_tracking
+        merged_rulings,
+    )
 
 
 def render_seed_artifact(state: Mapping[str, dict]) -> str:
@@ -788,7 +1239,7 @@ def run_seed(
     confirmed gaps as `new`. Graceful like run_sweep — never raises on judgment issues."""
     cfg = load_gap_config(config_path)
     prior = load_state(state_path)
-    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
+    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"], cfg["scan_roots"])
     gaps = find_gaps(surfaces, tracked)
     candidates = select_candidates(gaps, prior, limit=None)
     candidates_by_id = {c["id"]: c for c in candidates}
@@ -887,6 +1338,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
     parser.add_argument("--run-state", type=Path, default=DEFAULT_RUN_STATE,
                         help="run-level counters (judge-failure streak) carried between runs")
+    parser.add_argument("--prior-rulings", type=Path, default=DEFAULT_PRIOR_RULINGS,
+                        help="successor-id -> resplit predecessor's ruling, carried between "
+                             "runs (DATA-2539)")
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--json", type=Path, help="also write the full state JSON here")
@@ -998,9 +1452,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"applied {applied} / skipped {skipped} (unknown ids or invalid dispositions)")
         return 0
 
-    if not (repo_root / _WEBAPP_ROOT).exists() and not (repo_root / _API_ROOT).exists():
+    try:
+        cfg_roots = load_gap_config(args.config)["scan_roots"]
+    except Exception:  # noqa: BLE001 — a bad config must degrade, not crash the cron
+        # The sweep below calls load_gap_config inside its own try/except and will report
+        # the real error there. This pre-check only warns about missing roots.
+        cfg_roots = []
+    if cfg_roots and not any((repo_root / r["path"]).exists() for r in cfg_roots):
         print(
-            f"gap-sweep: neither scan root found under {repo_root}; nothing to scan.",
+            f"gap-sweep: no configured scan root found under {repo_root}; nothing to scan.",
             file=sys.stderr,
         )
 
@@ -1031,10 +1491,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Graceful-skip contract: a scan/walk failure must never fail the governance run.
     try:
-        new_state, _gaps, judgment_status, pending = run_sweep(
+        (
+            new_state, _gaps, judgment_status, pending, _closed, surfaces_enumerated,
+            suppressed_by_tracking, prior_rulings,
+        ) = run_sweep(
             repo_root, args.config, args.state, today,
             api_key=api_key, model=args.model, limit=args.limit,
             rubric_path=args.rubric, enable_judge=not args.no_judge,
+            run_state_path=args.run_state,
+            prior_rulings_path=args.prior_rulings,
         )
     except CorruptStateError as exc:
         print(
@@ -1047,12 +1512,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"gap-sweep: scan failed ({exc}); skipping this run, state untouched.", file=sys.stderr)
         return 0
 
-    run_state = next_run_state(load_run_state(args.run_state), judgment_status, today)
+    prior_run_state = load_run_state(args.run_state)
+    prior_surface_count = prior_run_state.get("surface_count")
+    # Mirrors run_sweep's own collapse guard: if this run's scan wasn't believed (and so
+    # closing was skipped), the collapsed count must not overwrite the recorded baseline —
+    # otherwise the guard could never fire again on the next run.
+    scan_believable = scan_is_believable(prior_surface_count, surfaces_enumerated)
+    run_state = next_run_state(
+        prior_run_state, judgment_status, today,
+        surface_count=surfaces_enumerated if scan_believable else None,
+    )
     streak = run_state["judge_consecutive_failures"]
 
     section = render_gap_section(
         new_state, today.isoformat(),
         judgment_status=judgment_status, pending_count=pending,
+        surfaces_enumerated=surfaces_enumerated, suppressed_by_tracking=suppressed_by_tracking,
     )
     if judgment_status not in JUDGE_OK_STATUSES:
         streak_note = f", {streak} consecutive runs" if streak > 1 else ""
@@ -1063,6 +1538,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         prepend_log(args.log, section)
     _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")
     _atomic_write(args.run_state, json.dumps(run_state, indent=2, sort_keys=True) + "\n")
+    _atomic_write(args.prior_rulings, json.dumps(prior_rulings, indent=2, sort_keys=True) + "\n")
     if args.json:
         args.json.write_text(json.dumps(new_state, indent=2, sort_keys=True) + "\n")
     if args.slack_out:
@@ -1070,6 +1546,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             new_state, today.isoformat(), judgment_status, pending,
             browse_url=gaps_browse_url(), feedback_url=gaps_feedback_url(),
             judge_consecutive_failures=streak,
+            surfaces_enumerated=surfaces_enumerated, suppressed_by_tracking=suppressed_by_tracking,
         )
         args.slack_out.parent.mkdir(parents=True, exist_ok=True)
         args.slack_out.write_text(json.dumps(payload, indent=2) + "\n")

@@ -1,12 +1,24 @@
 import { NestFastifyApplication } from '@nestjs/platform-fastify'
-import { StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import axios, { AxiosInstance } from 'axios'
 import { randomBytes } from 'crypto'
 import { Client } from 'pg'
 import { afterAll, beforeAll, beforeEach } from 'vitest'
 import { bootstrap } from './app'
 import { PrismaService } from './prisma/prisma.service'
-import { TEMPLATE_DB, startTestPostgres } from './test-postgres'
+import {
+  LOOPBACK_HOSTS,
+  TEMPLATE_LOCK_KEY,
+  TEST_POOL_LIMIT,
+  templateDbName,
+  testPostgresUri,
+  withDatabase,
+} from './test-postgres'
+
+// The drop below is the only thing that keeps a shared server from
+// accumulating one database per suite, so it must not be the hook that gets
+// cut off. vitest's 10s default already trips under a full-suite run on a
+// contended machine, and a tripped afterAll leaks the clone it was dropping.
+const DROP_TIMEOUT_MS = 60_000
 
 export type TestServiceContext = {
   /**
@@ -34,7 +46,7 @@ export type TestServiceContext = {
  * Integration harness for election-api, mirroring gp-api's `useTestService`.
  *
  * Boots the real Nest Fastify app (same `bootstrap` as production) against a
- * throwaway Postgres testcontainer, so tests exercise the genuine Prisma
+ * throwaway Postgres database, so tests exercise the genuine Prisma
  * queries — including the PII `omit`/column-allowlist behaviour on the
  * M2M-protected persons/officeholders endpoints — over real HTTP. `client`
  * sends a Bearer token (Clerk verify is stubbed in test-setup.ts) so it clears
@@ -57,33 +69,44 @@ export const useTestService = (): TestServiceContext => {
   let app: NestFastifyApplication
   let client: AxiosInstance
   let unauthedClient: AxiosInstance
+  let baseConnectionUri: string
+  let uniqueDbName: string
 
   beforeAll(async () => {
-    const container: StartedPostgreSqlContainer = await startTestPostgres()
-    const baseConnectionUri = container.getConnectionUri()
+    baseConnectionUri = await testPostgresUri()
 
-    // Unique DB per suite keeps suites isolated on the one shared container.
-    const uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
+    // Unique DB per suite keeps suites isolated on the one shared server.
+    uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
 
     // Clone the schema template that globalSetup built once, rather than
     // replaying every migration here. The copy is a near-instant Postgres
     // operation, which keeps suites off a per-suite migration replay.
+    //
+    // Held in shared mode against globalSetup's exclusive lock, so a clone
+    // can never read a template that is still being built.
     const admin = new Client({ connectionString: baseConnectionUri })
     await admin.connect()
-    await admin.query(`CREATE DATABASE ${uniqueDbName} TEMPLATE ${TEMPLATE_DB}`)
-    await admin.end()
+    try {
+      await admin.query(`SELECT pg_advisory_lock_shared(${TEMPLATE_LOCK_KEY})`)
+      await admin.query(
+        `CREATE DATABASE ${uniqueDbName} TEMPLATE ${templateDbName()}`,
+      )
+    } finally {
+      await admin.query(
+        `SELECT pg_advisory_unlock_shared(${TEMPLATE_LOCK_KEY})`,
+      )
+      await admin.end()
+    }
 
-    const databaseUrl = baseConnectionUri.replace(
-      '/postgres',
-      `/${uniqueDbName}`,
-    )
+    const cloneUri = withDatabase(baseConnectionUri, uniqueDbName)
+    const databaseUrl = `${cloneUri}?connection_limit=${TEST_POOL_LIMIT}`
 
     // DB SAFETY: verify (and print) that Prisma will only ever point at a local
     // host before we hand the URL to the app. Fail loudly otherwise.
     const host = new URL(databaseUrl).hostname
     // eslint-disable-next-line no-console
     console.log(`[election-api integration] DATABASE_URL host=${host}`)
-    if (host !== 'localhost' && host !== '127.0.0.1') {
+    if (!LOOPBACK_HOSTS.includes(host)) {
       throw new Error(
         `Refusing to boot the harness against a non-local database (host=${host}).`,
       )
@@ -139,7 +162,19 @@ export const useTestService = (): TestServiceContext => {
     if (app) {
       await app.close()
     }
-  })
+
+    // Drop this suite's clone. Nothing else does, so a reused server
+    // otherwise carries every database every suite ever created. FORCE covers
+    // any connection app.close() left behind.
+    if (!baseConnectionUri) return
+    const admin = new Client({ connectionString: baseConnectionUri })
+    await admin.connect()
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS ${uniqueDbName} WITH (FORCE)`)
+    } finally {
+      await admin.end()
+    }
+  }, DROP_TIMEOUT_MS)
 
   return {
     get client() {

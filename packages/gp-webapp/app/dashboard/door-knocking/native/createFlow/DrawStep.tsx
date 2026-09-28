@@ -1,5 +1,6 @@
 import { geoapifyStaticUrl } from './geoapifyStaticUrl'
 import { DraftCounts } from './draftCounts'
+import { overStopCap } from './stopCap'
 import { TurfCard } from './TurfCard'
 import type { PolygonStats } from '../filterEngine'
 import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
@@ -136,6 +137,12 @@ export const DrawStep = ({
               team={team}
               onEdit={(origin) => onEditDraft(draft.clientId, origin)}
               onRemove={() => onRemoveDraft(draft.clientId)}
+              // Unconditional, unlike the drawing panel's, which waits for
+              // a press. By the time a turf is on this step it is
+              // committed, and the only way it lands over the cap here is
+              // a widened audience — so the candidate needs to know before
+              // reaching for the press, not because of reaching for it.
+              error={overStopCap(draftStats.get(draft.clientId))}
             />
           ))}
         </div>

@@ -127,7 +127,10 @@ const campaignState = vi.hoisted(() => {
     isPro: true,
     hasFreeTextsOffer: true,
     ownerName: 'Jane Doe',
-    details: { normalizedOffice: 'City Council' },
+    positionName: undefined as string | undefined,
+    details: { normalizedOffice: 'City Council' } as {
+      normalizedOffice?: string
+    },
   })
   return { base, campaign: base() }
 })
@@ -451,6 +454,66 @@ describe('SmsFlow', () => {
       await screen.findByText(/this is Jared, candidate for City Council\./),
     ).toBeInTheDocument()
     expect(screen.queryByText(/this is Jane/)).not.toBeInTheDocument()
+  })
+
+  it('resolves the intro office from positionName when normalizedOffice is empty', async () => {
+    // normalizedOffice is empty for org-era onboardings; positionName (the
+    // org's elections-DB position, on campaigns/mine) is the reliable source
+    // — without it the intro reads "candidate for local office".
+    campaignState.campaign = {
+      ...campaignState.base(),
+      positionName: 'Mayor',
+      details: {},
+    }
+    mockDraft()
+    openFlow()
+
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+    await userEvent.click(screen.getByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await screen.findByText('When do you want to send it?')
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/this is Jane, candidate for Mayor\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/local office/)).not.toBeInTheDocument()
+  })
+
+  it('falls back to normalizedOffice when positionName is empty', async () => {
+    // resolvePositionContext passes customPositionName through `??`, so an
+    // empty-string positionName can reach the client and must not mask a
+    // populated normalizedOffice.
+    campaignState.campaign = {
+      ...campaignState.base(),
+      positionName: '',
+    }
+    mockDraft()
+    openFlow()
+
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+    await userEvent.click(screen.getByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await screen.findByText('When do you want to send it?')
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/this is Jane, candidate for City Council\./),
+    ).toBeInTheDocument()
   })
 
   // The hub's `?compose=text` deep link seeds these. A preset message is one

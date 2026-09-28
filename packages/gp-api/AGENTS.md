@@ -74,6 +74,18 @@ does, because Postgres refuses to copy a database while any session is connected
 to it. `globalSetup` also sweeps abandoned scratch databases, superseded
 templates, and clones left behind by killed runs.
 
+Set `OMNI_TEST_POSTGRES_URL` to run these suites against a Postgres the
+harness did not start — that is how a sandbox with no Docker socket (an ECS
+Fargate task with a Postgres sidecar) runs them at all, since testcontainers
+cannot start anything there. It must be a loopback host and its maintenance
+database must be named `postgres`, because every per-database URL is derived
+by swapping that suffix; anything else throws rather than quietly falling back
+to a container. Start that server with the same flags `test-postgres.ts` sets
+(`fsync`/`synchronous_commit`/`full_page_writes` off, a raised
+`max_connections`) — the harness cannot set them on a server it did not start,
+and the sweep's `pg_stat_file()` needs superuser, so it has to be a server we
+own rather than a managed cluster. Unset, nothing changes.
+
 Two things about that container and the per-test reset are load-bearing, not
 incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
 because TRUNCATE's commit syncs a new relation file per table and the defaults

@@ -147,10 +147,9 @@ const NON_PROD_BYPASS_CV_TOKEN = 'non-prod-bypass-cv-token'
 
 // Unset in every environment today — Ops has not yet created the PIN-sent
 // single-send email asset in HubSpot (ENG-11034). Read live rather than
-// cached at module load, mirroring SLACK_PEERLY_CONTACT_MEMBER_ID, so a
-// prod cutover needs no redeploy and tests can stub it per-case. Until it's
-// set, the existing Segment-event -> HubSpot workflow email path is
-// unchanged.
+// cached at module load, so a prod cutover needs no redeploy and tests can
+// stub it per-case. Until it's set, the existing Segment-event -> HubSpot
+// workflow email path is unchanged.
 const getPinSentSingleSendEmailId = (): number | null => {
   const raw = process.env.HUBSPOT_PIN_SENT_EMAIL_ID
   const emailId = raw ? Number(raw) : NaN
