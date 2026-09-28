@@ -1398,9 +1398,7 @@ export const SmsFlow = ({
             universeName={audience.universeName}
             universeCount={audience.universeCount}
             universeLoading={audience.universeLoading}
-            onSelectUniverse={() => {
-              void audience.selectUniverse()
-            }}
+            onSelectUniverse={audience.selectUniverse}
             universePending={audience.universePending}
             onStartBuilder={() => {
               setPhoneListError(false)

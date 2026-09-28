@@ -835,9 +835,7 @@ export const RobocallFlow = ({
             universeName={audience.universeName}
             universeCount={audience.universeCount}
             universeLoading={audience.universeLoading}
-            onSelectUniverse={() => {
-              void audience.selectUniverse()
-            }}
+            onSelectUniverse={audience.selectUniverse}
             universePending={audience.universePending}
             onStartBuilder={audience.startBuilder}
             recommendations={audience.recommendations}

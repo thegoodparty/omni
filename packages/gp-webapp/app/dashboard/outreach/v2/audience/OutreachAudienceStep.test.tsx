@@ -56,7 +56,7 @@ const baseProps = () => ({
   universeName: 'All voters',
   universeCount: 12_000,
   universeLoading: false,
-  onSelectUniverse: vi.fn(),
+  onSelectUniverse: vi.fn(async () => 99),
   universePending: false,
   recommendations: [] as RecommendedList[],
   recommendationsLoading: false,
@@ -109,9 +109,11 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
     expect(screen.getByText(/12,000/)).toBeVisible()
   })
 
-  // Nothing is saved until it is picked, so the first pick is what resolves it
-  // to a real list — that is what every downstream step reads.
-  it('resolves it on pick when the org has no such list yet', async () => {
+  // Nothing is saved until it is picked, so the first pick resolves it to a
+  // real list AND selects it through `onSelect` — the same path every other
+  // row takes, which is what clears a pressed recommendation and runs each
+  // flow's own audience-change side effects.
+  it('resolves it on pick and selects it through onSelect', async () => {
     const props = baseProps()
     render(<OutreachAudienceStep {...props} />)
     await openPicker()
@@ -119,7 +121,22 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
     await userEvent.click(await screen.findByText('All voters'))
 
     expect(props.onSelectUniverse).toHaveBeenCalledTimes(1)
-    expect(props.onSelect).not.toHaveBeenCalled()
+    await waitFor(() => expect(props.onSelect).toHaveBeenCalledWith(99))
+  })
+
+  // A failed create must not select a list that does not exist.
+  it('selects nothing when resolving it fails', async () => {
+    const props = {
+      ...baseProps(),
+      onSelectUniverse: vi.fn(async () => null),
+    }
+    render(<OutreachAudienceStep {...props} />)
+    await openPicker()
+
+    await userEvent.click(await screen.findByText('All voters'))
+
+    expect(props.onSelectUniverse).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(props.onSelect).not.toHaveBeenCalled())
   })
 
   // Once resolved it is an ordinary saved list, so picking it again must

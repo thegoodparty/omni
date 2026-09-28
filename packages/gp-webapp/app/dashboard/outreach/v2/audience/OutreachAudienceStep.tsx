@@ -81,7 +81,10 @@ interface OutreachAudienceStepProps {
   universeName: string
   universeCount: number | null
   universeLoading: boolean
-  onSelectUniverse: () => void
+  // Resolves the row to a real saved list and returns its id; this step then
+  // selects it through `onSelect`, so the universe goes down the exact path
+  // every other row does.
+  onSelectUniverse: () => Promise<number | null>
   universePending: boolean
   onStartBuilder: () => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
@@ -516,13 +519,19 @@ export const OutreachAudienceStep = ({
                 type="button"
                 disabled={universePending}
                 onClick={() => {
+                  setOpen(false)
                   if (universeResolved) {
                     onSelect(universeListId)
-                    setOpen(false)
                     return
                   }
-                  onSelectUniverse()
-                  setOpen(false)
+                  // Selected through `onSelect` rather than inside the hook,
+                  // so picking the universe clears a pressed recommendation
+                  // and runs each flow's own audience-change side effects —
+                  // SmsFlow's stale phone-list token above all. Bypassing it
+                  // let a carried-in card be saved instead of everyone.
+                  void onSelectUniverse().then((id) => {
+                    if (id !== null) onSelect(id)
+                  })
                 }}
                 className={cn(
                   'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted disabled:opacity-60',

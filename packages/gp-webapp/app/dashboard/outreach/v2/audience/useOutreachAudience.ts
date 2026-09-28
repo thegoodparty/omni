@@ -134,11 +134,13 @@ export interface OutreachAudience {
   universeCount: number | null
   universeLoading: boolean
   // Resolves the row to a REAL criteria-free saved list — reused when the org
-  // already has one, created when it does not — and selects it. Doing it here
-  // rather than at Continue is what keeps every flow unchanged: from the
-  // moment it resolves, this is an ordinary selected list, so the counts, the
-  // create payload and all three flows' Continue gates need no special case.
-  selectUniverse: () => Promise<void>
+  // already has one, created when it does not — and RETURNS its id without
+  // selecting it. Selecting is the caller's job, through the same `onSelect`
+  // every other row goes through: that is what clears a pressed
+  // recommendation (`selectList`) and runs each flow's own side effects (see
+  // the note above `seedBuilderFromRecommendation`, and SmsFlow clearing a
+  // stale phone-list token). Null when the create failed.
+  selectUniverse: () => Promise<number | null>
   universePending: boolean
   startBuilder: () => void
   // Persist the built filters as a saved list (overlay-free), refresh the
@@ -379,7 +381,6 @@ export const useOutreachAudience = ({
       })
       return data as SegmentResponse
     },
-    onSuccess: (list) => setSelectedListId(list.id),
   })
   // Read by `reset` through refs so a lists refetch (staleTime 0, window
   // focus) never changes reset's identity: the flows key their open-time
@@ -843,7 +844,13 @@ export const useOutreachAudience = ({
     universeCount: universeQuery.data ?? null,
     universeLoading: universeQuery.isFetching,
     selectUniverse: async () => {
-      await universeMutation.mutateAsync()
+      try {
+        return (await universeMutation.mutateAsync()).id
+      } catch {
+        // The mutation's own error state is what the row reads; a failed
+        // create must not leave an unhandled rejection behind it.
+        return null
+      }
     },
     universePending: universeMutation.isPending,
     startBuilder,
