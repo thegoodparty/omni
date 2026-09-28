@@ -19,6 +19,7 @@ import { QueueProducerModule } from '../queue/producer/queueProducer.module'
 import { AnalyticsModule } from 'src/analytics/analytics.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { WebsiteContactFormRateLimitGuard } from './guards/websiteContactFormRateLimit.guard'
+import { WebsiteTrackViewRateLimitGuard } from './guards/websiteTrackViewRateLimit.guard'
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { WebsiteContactFormRateLimitGuard } from './guards/websiteContactFormRat
     WebsiteContactsService,
     WebsiteViewsService,
     WebsiteContactFormRateLimitGuard,
+    WebsiteTrackViewRateLimitGuard,
   ],
   exports: [DomainsService, WebsitesService],
 })
