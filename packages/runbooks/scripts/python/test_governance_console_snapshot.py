@@ -136,6 +136,106 @@ def test_build_flag_queue_evidence_carries_what_a_ruling_needs():
     }]
 
 
+# --- recommendations ----------------------------------------------------------
+
+
+def test_stranded_call_sites_recommend_a_govern_write_not_an_investigation():
+    report = {"flagged": [
+        _record(event_type="A", rank=2, status="dormant",
+                call_site_count=0, call_site_retired_date="2026-09-01"),
+    ], "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+
+    assert item["recommended"] == "govern"
+    assert "retirement stamp" in item["recommendation_reason"]
+
+
+def test_orphaned_firing_recommends_looking_because_it_points_both_ways():
+    report = {"flagged": [
+        _record(event_type="A", rank=1, status="orphaned_firing",
+                divergence="declared not-in-use but still firing"),
+    ], "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+
+    assert item["recommended"] == "investigate"
+
+
+def test_the_judgment_causes_get_no_recommendation():
+    report = {"flagged": [
+        _record(event_type="A", rank=7, status="instrumented_never_observed"),
+        _record(event_type="B", rank=8, status="dormant"),
+        _record(event_type="C", rank=6, status="dormant", elevated=True),
+    ], "dismissed_causes": {}}
+
+    queue = gcs.build_flag_queue(report)
+
+    assert [item["recommended"] for item in queue] == ["", "", ""]
+
+
+def test_an_undismissable_cause_is_not_offered_the_dismiss_verb():
+    report = {"flagged": [
+        _record(event_type="Counter", rank=0, status="active",
+                call_site_count=0, event_count_30d=1471),
+    ], "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+
+    assert "dismiss" not in item["verbs"]
+    assert set(item["verbs"]) == {"govern", "ticket", "investigate"}
+    assert item["recommended"] == "ticket"
+
+
+def test_gap_verbs_are_the_literals_the_gap_parser_validates():
+    gaps = {"a#b": {"id": "a#b", "disposition": "new", "rank": 0,
+                    "dashboard_question": "q", "location": "a", "surface_type": "b",
+                    "judge_reason": "submit handler with no track call", "reason": ""}}
+
+    [item] = gcs.build_gap_queue(gaps)
+
+    assert set(item["verbs"]) == {"accept", "dismiss", "defer"}
+    assert item["recommended"] == "accept"
+    assert item["recommendation_reason"] == "submit handler with no track call"
+
+
+def test_a_prior_ruling_overrides_the_judge_and_says_so():
+    gaps = {"a#b": {
+        "id": "a#b", "disposition": "new", "rank": 0, "dashboard_question": "q",
+        "location": "a", "surface_type": "b", "judge_reason": "j", "reason": "",
+        "prior_ruling": {"id": "a#old", "disposition": "dismissed",
+                         "reason": "belongs in Grafana", "ruled_on": "2026-08-06"},
+    }}
+
+    [item] = gcs.build_gap_queue(gaps)
+
+    assert item["recommended"] == "dismiss"
+    assert "2026-08-06" in item["recommendation_reason"]
+    assert "belongs in Grafana" in item["recommendation_reason"]
+
+
+def test_alignment_case_1_is_omnis_to_fix_and_cannot_be_dismissed():
+    report = {"anchor_alignment": [
+        {"key": "k", "case": 1, "metric": "win_activated_users", "summary": "s"},
+    ]}
+
+    [item] = gcs.build_alignment_queue(report)
+
+    assert item["recommended"] == "fix_omni"
+    assert "dismiss" not in item["verbs"]
+
+
+def test_alignment_case_2_drafts_upstream_rather_than_editing_here():
+    report = {"anchor_alignment": [
+        {"key": "k", "case": 2, "metric": "win_activated_users", "summary": "s"},
+    ]}
+
+    [item] = gcs.build_alignment_queue(report)
+
+    assert item["recommended"] == "draft_upstream"
+    assert "dismiss" in item["verbs"]
+
+
 # --- changes ------------------------------------------------------------------
 
 

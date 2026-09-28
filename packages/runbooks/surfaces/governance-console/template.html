@@ -549,6 +549,46 @@
 
   /* --- judgments --- */
 
+  .judgment {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+  }
+
+  .recommend {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .recommend b {
+    color: var(--ink);
+  }
+
+  .verdicts button.is-suggested {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  .approve-all {
+    margin-left: auto;
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    background: none;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .approve-all:disabled {
+    color: var(--ink-3);
+    border-color: var(--line-2);
+    cursor: default;
+  }
+
   .verdicts {
     display: flex;
     flex-wrap: wrap;
@@ -1057,12 +1097,8 @@
   // to render costs the whole session.
   const STORE_KEY = 'gp-event-health-console:' + (DATA.run_date || 'unknown')
 
-  const VERDICTS = [
-    ['dismissed', 'Dismiss', 'silence this, with a reason'],
-    ['ticketed', 'Ticket it', 'real work, file it'],
-    ['investigate', 'Look into it', 'needs digging before a call'],
-    ['reviewed', 'Reviewed, fine', 'looked, nothing to do'],
-  ]
+  // Verbs come from the snapshot, per queue, because each queue's file takes its own
+  // vocabulary and a shared one would have to be translated on the way back in.
 
   const loadJudgments = () => {
     try {
@@ -1087,8 +1123,25 @@
 
   let onJudgmentChange = () => {}
 
+  // Every row's setter, so "approve all recommended" can drive the same path a click
+  // does rather than writing to the store behind the UI's back.
+  const setters = []
+
   const renderVerdicts = (item, row, summary) => {
     const key = keyOf(item)
+    const verbs = item.verbs || {}
+    const block = el('div', 'judgment')
+
+    if (item.recommended && verbs[item.recommended]) {
+      const rec = el('p', 'recommend')
+      add(
+        rec,
+        el('b', null, 'Suggested: ' + verbs[item.recommended]),
+        document.createTextNode(' ' + (item.recommendation_reason || '')),
+      )
+      add(block, rec)
+    }
+
     const bar = el('div', 'verdicts')
     const reason = el('input', 'reason')
     reason.type = 'text'
@@ -1110,13 +1163,14 @@
       })
       row.classList.toggle('is-judged', Boolean(current))
       chip.hidden = !current
-      if (current) chip.textContent = current.verdict
+      if (current) chip.textContent = verbs[current.verdict] || current.verdict
       reason.hidden = !current
       clear.hidden = !current
     }
 
-    const set = (verdict) => {
-      if (judgments[key] && judgments[key].verdict === verdict) {
+    const set = (verdict, { toggle = true } = {}) => {
+      if (!verbs[verdict]) return
+      if (toggle && judgments[key] && judgments[key].verdict === verdict) {
         delete judgments[key]
       } else {
         judgments[key] = {
@@ -1124,7 +1178,9 @@
           id: item.id,
           label: item.label,
           verdict,
+          verdict_label: verbs[verdict],
           reason: reason.value.trim(),
+          took_suggestion: verdict === item.recommended,
           decided_at: new Date().toISOString(),
         }
       }
@@ -1133,15 +1189,15 @@
       onJudgmentChange()
     }
 
-    VERDICTS.forEach(([verdict, label, title]) => {
-      // A cause the loader refuses cannot be dismissed from here either. Offering the
-      // button would produce a YAML row that silences nothing and reports itself.
-      if (verdict === 'dismissed' && !item.dismissable) return
+    Object.entries(verbs).forEach(([verdict, label]) => {
       const btn = el('button', null, label)
       btn.type = 'button'
-      btn.title = title
       btn.dataset.verdict = verdict
       btn.setAttribute('aria-pressed', 'false')
+      if (verdict === item.recommended) {
+        btn.classList.add('is-suggested')
+        btn.title = 'Suggested'
+      }
       btn.addEventListener('click', () => set(verdict))
       bar.appendChild(btn)
     })
@@ -1164,8 +1220,21 @@
       onJudgmentChange()
     })
 
+    setters.push({
+      queue: item.queue,
+      key,
+      recommended: item.recommended,
+      // Approve-all never overwrites a decision already made by hand.
+      approve: () => {
+        if (judgments[key] || !item.recommended || !verbs[item.recommended]) return false
+        set(item.recommended, { toggle: false })
+        return true
+      },
+    })
+
     paint()
-    return [bar, reason]
+    add(block, bar, reason)
+    return block
   }
 
   const renderRow = (item) => {
@@ -1218,7 +1287,7 @@
     const evidence = renderEvidence(item.evidence || [])
     if (evidence) add(body, evidence)
 
-    renderVerdicts(item, row, summary).forEach((node) => body.appendChild(node))
+    add(body, renderVerdicts(item, row, summary))
 
     add(row, body)
     return row
@@ -1251,6 +1320,33 @@
     const list = el('div', 'queue')
     queue.items.forEach((item) => add(list, renderRow(item)))
     add(section, list)
+
+    // Takes only the rows that carry a suggestion and have not been ruled on. The
+    // judgment causes carry none by design, so this never silently decides the 112
+    // flags that turn on product knowledge the monitor does not have.
+    const suggested = queue.items.filter(
+      (item) => item.recommended && (item.verbs || {})[item.recommended],
+    ).length
+    if (suggested) {
+      const approve = el(
+        'button',
+        'approve-all',
+        'Take all ' + suggested + ' suggestions',
+      )
+      approve.type = 'button'
+      approve.addEventListener('click', () => {
+        const taken = setters
+          .filter((s) => s.queue === queue.queue)
+          .map((s) => s.approve())
+          .filter(Boolean).length
+        approve.textContent = taken
+          ? 'Took ' + taken
+          : 'Already ruled on'
+        approve.disabled = true
+      })
+      head.appendChild(approve)
+    }
+
     return section
   }
 
@@ -1268,19 +1364,24 @@
       'judgments: ' + rows.length,
       '',
     ]
-    const order = ['dismissed', 'ticketed', 'investigate', 'reviewed']
-    rows
-      .sort(
-        (a, b) =>
-          order.indexOf(a.verdict) - order.indexOf(b.verdict) ||
-          a.queue.localeCompare(b.queue) ||
-          a.id.localeCompare(b.id),
-      )
-      .forEach((row) => {
-        lines.push(row.verdict + '  ' + row.queue + '  ' + row.id)
-        lines.push('  ' + (row.reason || '(no reason given)'))
+    const queues = ['flags', 'gaps', 'proposals', 'alignment']
+    queues.forEach((queue) => {
+      const inQueue = rows
+        .filter((row) => row.queue === queue)
+        .sort((a, b) => a.verdict.localeCompare(b.verdict) || a.id.localeCompare(b.id))
+      if (!inQueue.length) return
+      lines.push('## ' + queue)
+      inQueue.forEach((row) => {
+        // The verdict value, not its label: these are the literals each queue's own
+        // parser validates against, and a label would have to be translated back.
+        lines.push(
+          '- ' + row.verdict + ': ' + row.id + (row.took_suggestion ? '' : '  [overridden]'),
+        )
+        lines.push('  reason: ' + (row.reason || '(none given)'))
       })
-    return lines.join('\n')
+      lines.push('')
+    })
+    return lines.join('\n').trimEnd()
   }
 
   const renderHandoff = () => {

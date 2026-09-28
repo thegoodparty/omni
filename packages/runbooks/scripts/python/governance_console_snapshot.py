@@ -47,6 +47,32 @@ UNTRIAGED_GAPS = frozenset({"new", "open"})
 PROPOSAL_RANK = 50
 ALIGNMENT_RANK = 40
 
+# Each queue's verbs, in its own vocabulary, as {value: label}. Queue A's values are the
+# literals instrumentation_gaps.apply_seed_dispositions validates against; inventing a
+# shared set would mean translating on the way back in, and a typo there is silently
+# skipped rather than refused.
+FLAG_VERBS = {
+    "govern": "Fix in Govern",
+    "dismiss": "Dismiss cause",
+    "ticket": "Ticket it",
+    "investigate": "Look into it",
+}
+
+GAP_VERBS = {"accept": "Accept", "dismiss": "Dismiss", "defer": "Defer"}
+
+PROPOSAL_VERBS = {
+    "accept": "Add to watchlist",
+    "dismiss": "Dismiss",
+    "defer": "Defer",
+}
+
+ALIGNMENT_VERBS = {
+    "fix_omni": "Fix in omni",
+    "draft_upstream": "Draft upstream",
+    "dismiss": "Dismiss",
+    "defer": "Defer",
+}
+
 EVIDENCE_COLS = (
     "event_type", "status", "event_count_30d", "last_seen_date",
     "divergence", "instrumented_pr", "okr", "elevated",
@@ -55,6 +81,100 @@ EVIDENCE_COLS = (
 
 class StaleReport(Exception):
     """The health report predates the committed state it would be joined with."""
+
+
+# --- recommendations ----------------------------------------------------------
+#
+# Every row arrives with a suggested verb and the reason for it, the way
+# /triage-instrumentation-gaps shows the judge's verdict before asking for one. The
+# operator approves or overrides; nothing here decides anything on its own.
+#
+# The verbs are each queue's own vocabulary, not a shared one. Queue A's are the
+# literals instrumentation_gaps.apply_seed_dispositions validates against, so a handoff
+# needs no translation on the way back in.
+
+# Most flagged causes resolve to a metadata write rather than an investigation: the code
+# is gone and Govern still says in use. Where a cause can point either way, the
+# recommendation is to look, not to write.
+FLAG_RECOMMENDATIONS = {
+    "call_site_removed": (
+        "govern",
+        "The call sites are gone and Govern still declares these in use. The fix is a "
+        "retirement stamp per event.",
+    ),
+    "intent_divergence": (
+        "govern",
+        "The declared intent and the observed behaviour disagree. One of them is wrong "
+        "and Govern is where it is corrected.",
+    ),
+    "orphaned_firing": (
+        "investigate",
+        "Two different faults share this signature: old clients draining after a real "
+        "retirement, and a declaration that is simply wrong. Check last_seen per event "
+        "before writing anything.",
+    ),
+    "counter_blind_spot": (
+        "ticket",
+        "This is our call-site counter failing to see an aliased or wrapped reference, "
+        "not a product fault. It is fixed in count_call_sites, and it cannot be "
+        "dismissed.",
+    ),
+    "okr_anchor_dormant": (
+        "investigate",
+        "A number the company steers by is wrong right now. It clears on recovery or "
+        "when anchored_on changes upstream, and it cannot be dismissed.",
+    ),
+    "anomaly_drop": (
+        "investigate",
+        "A live event dropped without an obvious cause. Nothing to write until the "
+        "cause is known.",
+    ),
+}
+
+
+def recommend_flag(cause: str) -> tuple[str, str]:
+    """Suggested verb for a flagged cause, plus why. Unknown causes get no suggestion.
+
+    The three judgment causes (never_observed, dormant, dormant_elevated) deliberately
+    have no recommendation: they are 112 of today's 174 flags and every one of them
+    turns on product knowledge the monitor does not have.
+    """
+    base = cause.partition("@")[0]
+    return FLAG_RECOMMENDATIONS.get(base, ("", ""))
+
+
+def recommend_gap(gap: Mapping) -> tuple[str, str]:
+    """Suggested verb for an instrumentation gap.
+
+    A gap in the file has already passed the judge (only ``is_gap: true`` verdicts are
+    folded into state), so the standing suggestion is accept. A prior ruling on a
+    resplit predecessor overrides it, because that is a decision already made.
+    """
+    prior = gap.get("prior_ruling") or {}
+    if prior.get("disposition") in ("accepted", "dismissed"):
+        return (
+            "accept" if prior["disposition"] == "accepted" else "dismiss",
+            f"Ruled {prior['disposition']} at this location on "
+            f"{prior.get('ruled_on') or 'an earlier run'}"
+            + (f": {prior['reason']}" if prior.get("reason") else "")
+            + ". Usually the same call.",
+        )
+    return ("accept", gap.get("judge_reason") or "The judge called this a real gap.")
+
+
+ALIGNMENT_RECOMMENDATIONS = {
+    1: ("fix_omni", "omni is behind the declaration, so the registry is what changes."),
+    2: (
+        "draft_upstream",
+        "The declaration is behind the product. The output is a drafted anchored_on "
+        "change for gp-data-platform, never an edit here.",
+    ),
+    3: (
+        "investigate",
+        "The two disagree on scope. A human settles it before it becomes a case 1 or a "
+        "case 2.",
+    ),
+}
 
 
 # --- overview -----------------------------------------------------------------
@@ -85,6 +205,16 @@ def build_overview(report: Mapping, explorer: Mapping) -> dict:
 # --- the flags queue ----------------------------------------------------------
 
 
+def _verbs(verbs: Mapping[str, str], dismissable: bool) -> dict:
+    """A row's verbs, minus dismiss where the loader would refuse it.
+
+    Dropped rather than disabled: a button that cannot work is a promise the page
+    cannot keep, and a dismissal written anyway does nothing except report itself in
+    the next digest.
+    """
+    return {k: v for k, v in verbs.items() if dismissable or k != "dismiss"}
+
+
 def build_flag_queue(report: Mapping) -> list[dict]:
     """The flagged set as one row per cause, in the digest's own grouping and order.
 
@@ -107,15 +237,20 @@ def build_flag_queue(report: Mapping) -> list[dict]:
     for group in aeh.cluster_flagged(records):
         cause = group["cause"]
         reason = dismissed.get(cause)
+        verdict, why = recommend_flag(cause)
+        dismissable = cause.partition("@")[0] not in aeh.UNDISMISSABLE_CAUSES
         items.append({
             "id": cause,
             "queue": "flags",
+            "verbs": _verbs(FLAG_VERBS, dismissable),
+            "recommended": verdict,
+            "recommendation_reason": why,
             "label": group["label"],
             "rank": group["rank"],
             "count": group["count"],
             "events": group["events"],
             "elevated": group["elevated"],
-            "dismissable": cause.partition("@")[0] not in aeh.UNDISMISSABLE_CAUSES,
+            "dismissable": dismissable,
             "dismissed": {"reason": reason} if reason is not None else None,
             "evidence": [
                 {col: record.get(col) for col in EVIDENCE_COLS}
@@ -161,9 +296,13 @@ def build_changes(report: Mapping, previous: Mapping | None) -> dict:
 
 
 def _gap_item(gap: Mapping) -> dict:
+    verdict, why = recommend_gap(gap)
     return {
         "id": gap["id"],
         "queue": "gaps",
+        "verbs": GAP_VERBS,
+        "recommended": verdict,
+        "recommendation_reason": why,
         "label": gap.get("dashboard_question") or gap["id"],
         "rank": gap.get("rank", 99),
         "count": 1,
@@ -193,6 +332,12 @@ def build_proposal_queue(report: Mapping) -> list[dict]:
     return [{
         "id": p["event_type"],
         "queue": "proposals",
+        "verbs": PROPOSAL_VERBS,
+        "recommended": "accept",
+        "recommendation_reason": (
+            "A live event in a watched family that is not on the list. The list exists "
+            "to watch this family, so the default is to watch it."
+        ),
         "label": p["event_type"],
         "rank": PROPOSAL_RANK,
         "count": 1,
@@ -214,6 +359,11 @@ def build_alignment_queue(report: Mapping) -> list[dict]:
     return [{
         "id": f.get("key") or f.get("metric"),
         "queue": "alignment",
+        "verbs": _verbs(ALIGNMENT_VERBS, f.get("case") != 1),
+        "recommended": ALIGNMENT_RECOMMENDATIONS.get(f.get("case"), ("", ""))[0],
+        "recommendation_reason": ALIGNMENT_RECOMMENDATIONS.get(
+            f.get("case"), ("", "")
+        )[1],
         "label": f"{f.get('metric')}: {f.get('summary') or f.get('case')}",
         "rank": ALIGNMENT_RANK,
         "count": 1,
