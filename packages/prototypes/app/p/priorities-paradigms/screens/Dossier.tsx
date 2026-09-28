@@ -22,6 +22,7 @@ import {
 } from '../data'
 import { FOLLOW_UPS } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
+import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
 
 const CHIP_CLASS: Record<SectionState, string> = {
   confirmed: 'bg-success/10 text-success border-success/30',
@@ -318,6 +319,7 @@ export const Dossier = () => {
           </Card>
         </div>
       </div>
+      <ChiefOfStaffPanel paradigm="dossier" />
     </div>
   )
 }

@@ -11,6 +11,7 @@ import {
 } from '../data'
 import { ACTION_QUEUE } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
+import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
 
 type PriorityProgress = {
   index: number
@@ -279,6 +280,7 @@ export const NextAction = () => {
           Reset
         </Button>
       </div>
+      <ChiefOfStaffPanel paradigm="next-action" />
     </div>
   )
 }

@@ -14,6 +14,7 @@ import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import { ParadigmNote } from './ParadigmNote'
 import { MAPLE } from '../data'
 import { FLOW_STEPS, type FlowStep } from '../flow'
+import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
 
 const lowerFirst = (value: string) =>
   value.length > 0 ? `${value.charAt(0).toLowerCase()}${value.slice(1)}` : value
@@ -349,6 +350,7 @@ export const StepperToday = () => {
           </div>
         </>
       )}
+      <ChiefOfStaffPanel paradigm="stepper" />
     </div>
   )
 }

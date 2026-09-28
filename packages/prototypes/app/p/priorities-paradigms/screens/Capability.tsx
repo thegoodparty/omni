@@ -18,6 +18,7 @@ import {
 } from '../data'
 import { CAPABILITY_PROMPTS, FOLLOW_UPS, type FollowUp } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
+import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
 
 const CARD_LABEL: Record<CapabilityCardKind, string> = {
   affected: 'Checked your district data',
@@ -294,6 +295,7 @@ export const Capability = () => {
           </CardContent>
         </Card>
       </div>
+      <ChiefOfStaffPanel paradigm="capability" />
     </div>
   )
 }

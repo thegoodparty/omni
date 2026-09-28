@@ -15,6 +15,7 @@ import { Check } from 'lucide-react'
 import { MAPLE, type Session } from '../data'
 import { LATER_SESSIONS } from '../flow'
 import { ParadigmNote } from './ParadigmNote'
+import { ChiefOfStaffPanel } from './ChiefOfStaffPanel'
 
 type ClosedSession = Session & { resolved: string }
 
@@ -204,6 +205,7 @@ export const CheckIn = () => {
           ))}
         </div>
       </div>
+      <ChiefOfStaffPanel paradigm="check-in" />
     </div>
   )
 }
