@@ -50,6 +50,12 @@ export const useConversation = (): {
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
   const seq = useRef(0)
+  // A play() runs as a chain of awaited sleeps, so a second one started before
+  // the first finished would interleave: the older chain's final setBusy(false)
+  // would clear the flag while the newer one is still streaming. Every play
+  // takes a generation, and only the newest is allowed to touch state. reset()
+  // bumps it too, which is what makes reset an actual cancel.
+  const gen = useRef(0)
 
   const say = useCallback((text: string): void => {
     seq.current += 1
@@ -61,6 +67,9 @@ export const useConversation = (): {
 
   const play = useCallback(async (args: PlayArgs): Promise<void> => {
     seq.current += 1
+    gen.current += 1
+    const mine = gen.current
+    const alive = (): boolean => gen.current === mine
     const id = `a-${seq.current}`
     const tools = args.tools ?? []
     const card: CardSpec = args.card ?? { kind: 'none' }
@@ -80,6 +89,7 @@ export const useConversation = (): {
     ])
 
     const patch = (fn: (t: Extract<Turn, { role: 'agent' }>) => Turn): void => {
+      if (!alive()) return
       setTurns((prev) =>
         prev.map((t) => (t.id === id && t.role === 'agent' ? fn(t) : t)),
       )
@@ -115,10 +125,13 @@ export const useConversation = (): {
     }
 
     patch((t) => ({ ...t, revealed: total, phase: 'done', card }))
-    setBusy(false)
+    if (alive()) setBusy(false)
   }, [])
 
   const reset = useCallback((): void => {
+    // Bumping the generation orphans any play() still walking its sleep chain,
+    // so nothing it does after this lands.
+    gen.current += 1
     setTurns([])
     setBusy(false)
     seq.current = 0

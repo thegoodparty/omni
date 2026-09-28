@@ -224,7 +224,12 @@ export const ChatView = ({
             <p className="text-sm text-muted-foreground">
               That is the thread played out.
             </p>
-            <Button variant="ghost" size="small" onClick={onReset}>
+            <Button
+              variant="ghost"
+              size="small"
+              disabled={busy}
+              onClick={onReset}
+            >
               Start over
             </Button>
           </div>
