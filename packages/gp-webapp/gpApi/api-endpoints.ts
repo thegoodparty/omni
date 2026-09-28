@@ -31,6 +31,7 @@ import type {
   CreatePriorityInput,
   UpdatePriorityInput,
   PriorityStatus,
+  OutreachProposal,
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
@@ -1182,12 +1183,12 @@ export type APIEndpoints = {
   // double click cannot send twice.
   'GET /v1/outreach/by-proposal-key/:proposalKey': {
     Request: {}
-    Response: Outreach
+    Response: OutreachDetail
   }
 
   'PUT /v1/outreach/by-proposal-key/:proposalKey': {
-    Request: CreateOutreachDraftRequest & { priorityId: string }
-    Response: Outreach
+    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId: string }
+    Response: OutreachDetail
   }
 
   'GET /v1/ordinances/:slug': {

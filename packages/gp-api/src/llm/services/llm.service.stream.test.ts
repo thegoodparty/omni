@@ -2,6 +2,7 @@ import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import type { ToolCallOptions } from 'ai'
 import {
   LlmService,
   type AnthropicProvider,
@@ -21,7 +22,7 @@ const USER_MSG = { role: 'user' as const, content: 'Hi' }
 
 // The SDK always hands execute() its call options; tests that invoke a tool
 // directly have to supply them too.
-const toolCallOptions = {
+const toolCallOptions: ToolCallOptions = {
   toolCallId: 'test-call-1',
   messages: [],
 }
@@ -796,12 +797,11 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
       .tools as Record<
       string,
-      { execute: (input: unknown) => Promise<unknown> }
+      {
+        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+      }
     >
-    await passedTools.lookup_voter?.execute(
-      { voterId: 7 },
-      toolCallOptions,
-    )
+    await passedTools.lookup_voter?.execute({ voterId: 7 }, toolCallOptions)
 
     expect(events).toEqual([
       { phase: 'start', name: 'lookup_voter', input: { voterId: 7 } },
@@ -844,7 +844,9 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
       .tools as Record<
       string,
-      { execute: (input: unknown) => Promise<unknown> }
+      {
+        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+      }
     >
     const lookupVoterTool = passedTools.lookup_voter
     if (!lookupVoterTool) throw new Error('expected lookup_voter tool')
@@ -891,7 +893,9 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
       .tools as Record<
       string,
-      { execute: (input: unknown) => Promise<unknown> }
+      {
+        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+      }
     >
     const brokenTool = passedTools.broken_tool
     if (!brokenTool) throw new Error('expected broken_tool tool')
@@ -939,14 +943,14 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
     const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
       .tools as Record<
       string,
-      { execute: (input: unknown) => Promise<unknown> }
+      {
+        execute: (input: unknown, options: ToolCallOptions) => Promise<unknown>
+      }
     >
 
     await expect(
       passedTools.bigint_tool?.execute({ big: 5n }, toolCallOptions),
-    ).rejects.toBe(
-      upstream,
-    )
+    ).rejects.toBe(upstream)
 
     const call = firstOrThrow(
       (logger.error as ReturnType<typeof vi.fn>).mock.calls,

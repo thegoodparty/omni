@@ -4,10 +4,17 @@ import { getDashboardMenuItems } from './DashboardMenu'
 const links = ({
   isElectedOffice = false,
   isElectedOfficeLoading = false,
+  prioritiesEnabled = false,
 }: {
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
-} = {}) => getDashboardMenuItems(isElectedOffice, isElectedOfficeLoading)
+  prioritiesEnabled?: boolean
+} = {}) =>
+  getDashboardMenuItems(
+    isElectedOffice,
+    isElectedOfficeLoading,
+    prioritiesEnabled,
+  )
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -160,6 +167,41 @@ describe('getDashboardMenuItems — Ordinances tab gating', () => {
       isElectedOffice: false,
     })
     expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
+  })
+})
+
+describe('getDashboardMenuItems — Priorities tab gating', () => {
+  it('shows Priorities for an elected office with the flag on', () => {
+    const items = links({ isElectedOffice: true, prioritiesEnabled: true })
+    expect(items.some((i) => i.id === 'priorities-dashboard')).toBe(true)
+  })
+
+  it('hides Priorities while the flag is off', () => {
+    const items = links({ isElectedOffice: true, prioritiesEnabled: false })
+    expect(items.some((i) => i.id === 'priorities-dashboard')).toBe(false)
+  })
+
+  it('hides Priorities for a non-elected office even with the flag on', () => {
+    const items = links({ isElectedOffice: false, prioritiesEnabled: true })
+    expect(items.some((i) => i.id === 'priorities-dashboard')).toBe(false)
+  })
+
+  it('sits directly under Chief of Staff in the Serve rail', () => {
+    const serveRail = links({
+      isElectedOffice: true,
+      prioritiesEnabled: true,
+    }).filter((i) => i.v2Category === 'elected-office')
+    expect(serveRail[0]?.id).toBe('chief-of-staff-dashboard')
+    expect(serveRail[1]?.id).toBe('priorities-dashboard')
+  })
+
+  it('keeps Campaign Tracker under Campaign Manager when Priorities shows', () => {
+    const items = links({ isElectedOffice: true, prioritiesEnabled: true })
+    const campaignManager = items.findIndex(
+      (i) => i.id === 'campaign-tracker-dashboard',
+    )
+    expect(items[campaignManager + 1]?.id).toBe('campaign-story-dashboard')
+    expect(items[campaignManager + 2]?.id).toBe('campaign-plan-dashboard')
   })
 })
 

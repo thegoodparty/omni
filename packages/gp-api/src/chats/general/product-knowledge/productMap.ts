@@ -290,6 +290,20 @@ const SERVE_AREAS: ProductArea[] = [
     ],
   },
   {
+    navId: 'priorities-dashboard',
+    name: 'Priorities',
+    path: '/dashboard/priorities',
+    modes: ['serve'],
+    does: 'Hold the things you are trying to get done this term, and work one of them forward with help.',
+    inside: [
+      'Add a priority writes down what you want to get done and why it matters',
+      'An issue from Community Issues can be pulled in as a priority',
+      'Each row shows the step it is on and the next thing to do about it',
+      'Opening a priority works it forward one step at a time',
+    ],
+    gate: 'Priorities is being rolled out, so it is not on every account yet.',
+  },
+  {
     navId: 'ordinances-dashboard',
     name: 'Ordinances',
     path: '/dashboard/ordinances',

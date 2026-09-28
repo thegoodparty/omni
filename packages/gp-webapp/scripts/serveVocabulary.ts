@@ -85,7 +85,6 @@ export const SERVE_ONLY_DIRS: readonly string[] = [
   'app/dashboard/community-issues',
   'app/dashboard/priorities',
   'app/dashboard/constituent-outreach',
-  'app/dashboard/priorities',
   'app/dashboard/admin-review/briefings',
   'app/serve',
   // The Serve onboarding lives under `app/polls/` for historical reasons —
