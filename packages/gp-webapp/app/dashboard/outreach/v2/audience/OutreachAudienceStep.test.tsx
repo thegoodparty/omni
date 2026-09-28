@@ -53,7 +53,7 @@ const baseProps = () => ({
   selectedId: null,
   onSelect: vi.fn(),
   onStartBuilder: vi.fn(),
-  universeName: 'All voters',
+  universeName: 'All voters' as string | null,
   universeListId: null,
   universeCount: 12_000,
   universeLoading: false,
@@ -501,5 +501,21 @@ describe('OutreachAudienceStep — a preselected recommendation', () => {
     )
 
     expect(screen.getAllByTestId('recommended-list-card')).toHaveLength(1)
+  })
+})
+
+// Until the elected-office query settles we do not know whether to say voters
+// or constituents, and a guess becomes a wrongly named saved list the moment
+// the row is picked. So the row waits rather than guessing.
+describe('OutreachAudienceStep - the universe row before its label is known', () => {
+  it('offers no universe row while the name is unresolved', async () => {
+    render(<OutreachAudienceStep {...baseProps()} universeName={null} />)
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Choose a voter list/i }),
+    )
+
+    expect(await screen.findByText('Create a new list')).toBeVisible()
+    expect(screen.queryByText('All voters')).toBeNull()
+    expect(screen.queryByText('All constituents')).toBeNull()
   })
 })

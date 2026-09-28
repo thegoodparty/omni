@@ -78,7 +78,11 @@ interface OutreachAudienceStepProps {
   // The whole-constituency row. Its name is the CRM's label for the same
   // audience, which is also the name of the saved list it resolves to, so
   // `selectedId` alone tells us whether it is the current selection.
-  universeName: string
+  // Null until the elected-office query settles, because until then we do
+  // not know whether this product calls them voters or constituents. The row
+  // is withheld rather than guessed — a wrong label here becomes a wrongly
+  // named saved list the moment it is picked.
+  universeName: string | null
   // Which saved list IS the universe, resolved by the hook from its criteria
   // rather than from its name — a candidate may legitimately name a filtered
   // list "All voters", and matching on that would point this row at a
@@ -535,55 +539,57 @@ export const OutreachAudienceStep = ({
               {/* First, as on the CRM lists index. Every audience picker owes
                   the candidate the option of their whole constituency, and
                   this was the one surface that did not offer it. */}
-              <button
-                type="button"
-                disabled={universePending}
-                onClick={() => {
-                  if (universeListId !== null) {
-                    setOpen(false)
-                    onSelect(universeListId)
-                    return
-                  }
-                  // The popover stays open across the create, for two
-                  // reasons: the pending spinner lives inside it, and a
-                  // failure has to land somewhere the candidate is still
-                  // looking. Closing first made both invisible — a tap that
-                  // silently did nothing.
-                  //
-                  // Selected through `onSelect` rather than inside the hook,
-                  // so picking the universe clears a pressed recommendation
-                  // and runs each flow's own audience-change side effects —
-                  // SmsFlow's stale phone-list token above all. Bypassing it
-                  // let a carried-in card be saved instead of everyone.
-                  void onSelectUniverse().then((id) => {
-                    if (id === null) return
-                    onSelect(id)
-                    setOpen(false)
-                  })
-                }}
-                className={cn(
-                  'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted disabled:opacity-60',
-                  universeSelected && 'bg-muted',
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="block font-medium text-foreground">
-                    {universeName}
+              {universeName !== null && (
+                <button
+                  type="button"
+                  disabled={universePending}
+                  onClick={() => {
+                    if (universeListId !== null) {
+                      setOpen(false)
+                      onSelect(universeListId)
+                      return
+                    }
+                    // The popover stays open across the create, for two
+                    // reasons: the pending spinner lives inside it, and a
+                    // failure has to land somewhere the candidate is still
+                    // looking. Closing first made both invisible — a tap that
+                    // silently did nothing.
+                    //
+                    // Selected through `onSelect` rather than inside the hook,
+                    // so picking the universe clears a pressed recommendation
+                    // and runs each flow's own audience-change side effects —
+                    // SmsFlow's stale phone-list token above all. Bypassing it
+                    // let a carried-in card be saved instead of everyone.
+                    void onSelectUniverse().then((id) => {
+                      if (id === null) return
+                      onSelect(id)
+                      setOpen(false)
+                    })
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted disabled:opacity-60',
+                    universeSelected && 'bg-muted',
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="block font-medium text-foreground">
+                      {universeName}
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      {universeLoading || universeCount === null
+                        ? 'Counting…'
+                        : `${copy.reachVerb} ${universeCount.toLocaleString()} ${copy.reachNoun}`}
+                    </span>
                   </span>
-                  <span className="block text-sm text-muted-foreground">
-                    {universeLoading || universeCount === null
-                      ? 'Counting…'
-                      : `${copy.reachVerb} ${universeCount.toLocaleString()} ${copy.reachNoun}`}
-                  </span>
-                </span>
-                {universePending ? (
-                  <Loader2Icon className="size-5 shrink-0 animate-spin text-primary" />
-                ) : (
-                  universeSelected && (
-                    <CheckIcon className="size-5 shrink-0 text-primary" />
-                  )
-                )}
-              </button>
+                  {universePending ? (
+                    <Loader2Icon className="size-5 shrink-0 animate-spin text-primary" />
+                  ) : (
+                    universeSelected && (
+                      <CheckIcon className="size-5 shrink-0 text-primary" />
+                    )
+                  )}
+                </button>
+              )}
               {universeError && !universePending && (
                 <p
                   data-testid="universe-create-error"

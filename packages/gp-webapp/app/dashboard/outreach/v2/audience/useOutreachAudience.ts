@@ -128,7 +128,11 @@ export interface OutreachAudience {
   // CRM lists index has always shown first, which every outreach picker was
   // missing. Its name is the CRM's own label, so the two surfaces cannot
   // drift apart.
-  universeName: string
+  // Null until the elected-office query settles: until then we do not know
+  // whether this product says voters or constituents, and a guess becomes a
+  // wrongly named saved list the moment the row is picked. The step withholds
+  // the row while this is null.
+  universeName: string | null
   // The saved list that IS the universe, or null when the org has none yet.
   // Resolved by its CRITERIA, never by its name: a candidate is free to call
   // a filtered list "All voters", and reusing that would select a narrower
@@ -270,7 +274,8 @@ export const useOutreachAudience = ({
     voteGoalShare?: number
   } | null>(null)
 
-  const { data: electedOffice } = useElectedOffice()
+  const { data: electedOffice, isFetched: electedOfficeFetched } =
+    useElectedOffice()
   const isElectedOfficial = !!electedOffice
   // Same gating as the builder's count below: the flow host stays mounted, so
   // an ungated fetch would run for every outreach page view. 'picker' mode
@@ -369,12 +374,21 @@ export const useOutreachAudience = ({
   // The universe row's name is the CRM's own label for the same audience, so
   // "All voters" on Win and "All constituents" on Serve — and so a list
   // created here is the one the contacts tab already talks about.
-  const universeName = getContactsLabels(!isElectedOfficial).allContactsTitle
+  // Null until we know which product's label to use. While the
+  // elected-office query is in flight `electedOffice` is undefined, which
+  // reads as Win — so on a cold cache a Serve org would have been offered a
+  // row called "All voters" and, if they picked it, had a list SAVED under
+  // that name. Better to have no row for a moment than the wrong one.
+  const universeName = electedOfficeFetched
+    ? getContactsLabels(!isElectedOfficial).allContactsTitle
+    : null
 
   // Our label AND no criteria — see `universeList.util.ts` for why either
   // test alone is wrong in a different direction.
   const universeList =
-    lists.find((l) => isUniverseList(l, universeName)) ?? null
+    universeName === null
+      ? null
+      : (lists.find((l) => isUniverseList(l, universeName)) ?? null)
 
   // Omitted segment = the whole unfiltered district (ENG-10778), the same
   // read the CRM's universe row makes. Only needed until the row resolves to
@@ -405,6 +419,12 @@ export const useOutreachAudience = ({
       // Reuse before create, so tapping the row twice — or on a later visit —
       // cannot litter the org with duplicate all-constituents lists. Matched
       // on criteria rather than name; see `isCriteriaFree`.
+      // Refused rather than guessed: the step does not offer the row until
+      // the name is known, so reaching here without one is a bug, not a
+      // state to paper over with a default label.
+      if (universeName === null) {
+        throw new Error('Universe list name is not resolved yet')
+      }
       const existing = listsRef.current.find((l) =>
         isUniverseList(l, universeName),
       )
@@ -421,6 +441,8 @@ export const useOutreachAudience = ({
       return data as SegmentResponse
     },
   })
+  const { reset: resetUniverseMutation } = universeMutation
+
   // Read by `reset` through refs so a lists refetch (staleTime 0, window
   // focus) never changes reset's identity: the flows key their open-time
   // reset effect on it, and a new identity would wipe the flow mid-edit.
@@ -596,6 +618,7 @@ export const useOutreachAudience = ({
       listsRef.current.some((l) => l.id === preselect)
     setMode('picker')
     setPickerOpen(false)
+    resetUniverseMutation()
     setSelectedListId(preselectReady ? preselect : null)
     setSelectedRecommendation(null)
     setRecommendationSnapshot(null)
@@ -608,7 +631,7 @@ export const useOutreachAudience = ({
     setBuilderName('')
     setRecommendedMeta(null)
     resetCreateMutation()
-  }, [resetCreateMutation])
+  }, [resetCreateMutation, resetUniverseMutation])
 
   // Opening the builder leaves a selected recommendation behind: what gets
   // cut from here is a new audience, not that card.

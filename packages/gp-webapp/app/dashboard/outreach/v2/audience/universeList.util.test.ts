@@ -102,3 +102,28 @@ describe('isUniverseList', () => {
     ).toBe(false)
   })
 })
+
+// `recommendedModified` is provenance, not a criterion. Scanned as one, a
+// list carrying it read as filtered and a duplicate universe list was created
+// instead of the existing one being reused.
+describe('provenance is not a criterion', () => {
+  it('ignores recommendedModified', () => {
+    expect(isCriteriaFreeList(list({ recommendedModified: true }))).toBe(true)
+    expect(
+      isUniverseList(
+        list({ name: 'All voters', recommendedModified: true }),
+        'All voters',
+      ),
+    ).toBe(true)
+  })
+
+  // Narrowed by name, so the scan still catches any OTHER boolean —
+  // including one nobody has named yet.
+  it('still catches a real criterion on the same list', () => {
+    expect(
+      isCriteriaFreeList(
+        list({ recommendedModified: true, partyDemocrat: true }),
+      ),
+    ).toBe(false)
+  })
+})

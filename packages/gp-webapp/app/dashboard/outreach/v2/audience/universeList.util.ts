@@ -15,8 +15,18 @@ import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts
 // a criteria-free list as filtered, so we create a fresh universe list — a
 // duplicate the candidate can see and delete, rather than a silently wrong
 // audience. That is the direction to be wrong in.
+// `recommendedModified` is the one boolean on this shape that is NOT a
+// criterion — it records whether an accepted recommendation was edited. The
+// scan below is for voter-file filter flags, so it is skipped by name; left
+// in, a list carrying it read as filtered and a duplicate universe list got
+// created instead of the existing one being reused.
+const NON_CRITERION_BOOLEANS = new Set(['recommendedModified'])
+
 export const isCriteriaFreeList = (list: SegmentResponse): boolean =>
-  Object.values(list).every((value) => typeof value !== 'boolean' || !value) &&
+  Object.entries(list).every(
+    ([key, value]) =>
+      NON_CRITERION_BOOLEANS.has(key) || typeof value !== 'boolean' || !value,
+  ) &&
   !list.search &&
   !list.geoPoly &&
   !list.supportStatus?.length &&
