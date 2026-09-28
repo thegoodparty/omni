@@ -160,8 +160,18 @@ export type Alert = {
    * The query expression. Use `$ENV` for the environment name.
    *
    * Log (LogQL) examples:
-   *   'count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | json | response_statusCode >= 500 [5m])'
+   *   'count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | response_statusCode >= 500 [5m])'
    *   'absent_over_time({service_name="gp-api", deployment_environment_name="$ENV"} [5m])'
+   *
+   * No `| json` in that first example, deliberately. Grafana Cloud promotes
+   * OTel log-record attributes to structured metadata, so `request_endpoint`,
+   * `response_statusCode` and `responseTimeMs` are already labels: a parser
+   * naming them collides and Loki renames its output to `*_extracted`, so the
+   * filter reads the structured metadata either way and the parser only
+   * widens each line's label set. If a query groups the result, add
+   * `| keep <the labels you group by>` before the range — structured metadata
+   * carries `requestId` and `trace_id`, so without it the counted vector is
+   * one series per log line. See controller-alerts.ts ROUTE_RECORDING_RULES.
    *
    * Metric (PromQL) examples:
    *   'avg(process_cpu_utilization{service_name="gp-api", deployment_environment_name="$ENV"}) * 100'
