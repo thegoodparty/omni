@@ -7,10 +7,13 @@ name: Universal judge bench
 # Braintrust aligns the cases and reports per-case improvements and
 # regressions.
 #
-# Deliberately not wired to pull_request. Every run makes two model calls per
-# case and costs real money, and with one run per case the aggregate score
-# moves several points when a single case flips, so this cannot gate a merge
-# until repeat runs show how much it moves on its own.
+# Deliberately not wired to pull_request, for two reasons. Every run makes two
+# model calls per case and costs real money, and with one run per case the
+# aggregate score moves several points when a single case flips, so this cannot
+# gate a merge until repeat runs show how much it moves on its own. Separately,
+# the job assumes `vars.AWS_ROLE_ARN` to read a credential, and a job that
+# reads a stored secret should not be reachable from an event that also
+# supplies its own body. Same reasoning as verify-vercel-registrar-token.yml.
 #
 # It does not use braintrustdata/eval-action. That action runs the Braintrust
 # CLI, which bundles the eval file with esbuild and evaluates the bundle as a
@@ -21,15 +24,16 @@ name: Universal judge bench
 
 on:
   workflow_dispatch:
-
-  # Scaffolding for the first run only, and removed before this merges.
-  # workflow_dispatch is only offered once the workflow sits on the default
-  # branch, so a push trigger is the only way to exercise the job beforehand.
-  push:
-    branches: [chore/universal-judge-bench-workflow]
+    inputs:
+      environment:
+        description: Which gp-api secret holds the Braintrust key
+        type: choice
+        options: [dev, prod]
+        default: dev
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   WORKSPACE: packages/gp-api
@@ -66,12 +70,53 @@ jobs:
             src/chats/general/campaign-manager/evals/wiringCheck.test.ts
           cat "/tmp/wiring-$(git rev-parse --short HEAD).txt"
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      # The Braintrust key is read here rather than from a GitHub Actions
+      # secret because it already lives in Secrets Manager for the runtime
+      # tracing gp-api does, and the deploy role can already read it. That
+      # avoids storing a second copy of the same credential, and avoids
+      # needing repository admin to add one.
+      #
+      # Read and used inside a single step, so it is never written to
+      # $GITHUB_ENV or $GITHUB_OUTPUT and does not outlive the run.
       - name: Run the bench
         working-directory: ${{ env.WORKSPACE }}
         env:
           RUN_LLM_EVALS: '1'
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          SECRET_NAME: GP_API_${{ inputs.environment == 'prod' && 'PROD' || 'DEV' }}
         run: |
+          set -euo pipefail
+
+          # The secret holds every gp-api credential. Only the one value this
+          # bench needs is pulled out, and the blob exists only inside this
+          # pipe, never in a variable something could later echo. Masking the
+          # whole blob would not work: add-mask is line-oriented and a JSON
+          # document is one long line whose individual values it would not
+          # redact.
+          BRAINTRUST_API_KEY="$(
+            aws secretsmanager get-secret-value \
+              --secret-id "$SECRET_NAME" \
+              --query SecretString --output text \
+            | python3 -c "import sys,json;print(json.load(sys.stdin).get('BRAINTRUST_API_KEY',''))"
+          )"
+
+          # Values read at runtime are not auto-redacted the way secrets.* are,
+          # so register this before anything can surface it in an error.
+          echo "::add-mask::$BRAINTRUST_API_KEY"
+
+          if [ -z "$BRAINTRUST_API_KEY" ]; then
+            echo "FAIL: BRAINTRUST_API_KEY is not present in $SECRET_NAME."
+            echo "Dispatch again with the other environment, or add it there."
+            exit 1
+          fi
+          echo "Read BRAINTRUST_API_KEY from $SECRET_NAME."
+
+          export BRAINTRUST_API_KEY
           npx vitest run --config vitest.nodb.config.ts \
             src/chats/general/campaign-manager/evals/universalJudge.eval.test.ts
