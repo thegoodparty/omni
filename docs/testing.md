@@ -57,5 +57,14 @@ Other symptoms: `Could not find a working container runtime strategy`, or
 sleeps. **Don't restart OrbStack** — it is already running and `orb start` will
 say so; exporting `DOCKER_HOST` fixes it immediately.
 
+## Running without a Docker socket
+
+Where testcontainers cannot run at all — an ECS Fargate task, for example —
+point `OMNI_TEST_POSTGRES_URL` at a Postgres started alongside the tests and
+gp-api's and election-api's harnesses will use it instead of starting their
+own. It has to be loopback and its maintenance database has to be named
+`postgres`; anything else throws instead of silently falling back. Details and
+the flags that server needs: `packages/gp-api/AGENTS.md` § Verify.
+
 `ECONNREFUSED 127.0.0.1:5432` is a different failure — that suite wants a _local_
 Postgres, not a testcontainer.
