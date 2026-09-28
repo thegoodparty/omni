@@ -50,6 +50,7 @@ type WhereClause = {
   peerlyProfileStatus?: string | null
   peerlyProfileStatusChangedAt?: { lt: Date }
   NOT?: object
+  AND?: object[]
   OR?: object[]
   campaign?: { isPro: boolean }
 }
@@ -84,27 +85,18 @@ const proRecord = (
   ...overrides,
 })
 
-// Queues the first 9 of the 10 sequential model.findMany results
-// handleNightlyReport makes, in call order: stuckSubmissions, errorRecords,
-// rejectedRecords, billingBlocked, agingCvInFlight, neverReachedCv (case 1),
-// profileStalled (case 3a), inReviewStalled (case 2),
-// waitingToFinalizeStalled (case 3b). The 10th
-// (deferredDispatchCandidates) falls through to the beforeEach [] default —
+// Queues sequential model.findMany results in call order. For
+// handleNightlyReport that is the first 9 of its 10 calls:
+// stuckSubmissions, errorRecords, rejectedRecords, billingBlocked,
+// agingCvInFlight, neverReachedCv (case 1), profileStalled (case 3a),
+// inReviewStalled (case 2), waitingToFinalizeStalled (case 3b) — the 10th
+// (deferredDispatchCandidates) falls through to the beforeEach [] default;
 // tests exercising it use a mockImplementation keyed on its
-// `kickoffSentAt: null` filter instead.
+// `kickoffSentAt: null` filter instead. handleVendorEscalations makes 2:
+// inReviewStalled, waitingToFinalizeStalled.
 const queueFindManyResults = (
   mockFindMany: ReturnType<typeof vi.fn>,
-  results: [
-    unknown[],
-    unknown[],
-    unknown[],
-    unknown[],
-    unknown[],
-    unknown[],
-    unknown[],
-    unknown[],
-    unknown[],
-  ],
+  results: unknown[][],
 ) => {
   results.forEach((result) => mockFindMany.mockResolvedValueOnce(result))
 }
@@ -271,6 +263,39 @@ describe('Nightly10DlcReportService', () => {
       mockQueue.sendMessage.mockRejectedValueOnce(new Error('sqs down'))
 
       await expect(service.triggerNightlyReport()).resolves.toBeUndefined()
+    })
+  })
+
+  describe('triggerVendorEscalations', () => {
+    it('does nothing outside prod so dev/qa never enqueue', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+
+      await service.triggerVendorEscalations()
+
+      expect(mockQueue.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('enqueues once with a date-keyed FIFO deduplicationId in prod', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      const escalationDate = formatInTimeZone(
+        new Date(),
+        EASTERN_TIMEZONE,
+        'yyyy-MM-dd',
+      )
+
+      await service.triggerVendorEscalations()
+
+      expect(mockQueue.sendMessage).toHaveBeenCalledExactlyOnceWith(
+        {
+          type: QueueType.PEERLY_VENDOR_ESCALATION,
+          data: { escalationDate },
+        },
+        MessageGroup.peerlyVendorEscalation,
+        {
+          deduplicationId: `peerlyVendorEscalation-${escalationDate}`,
+          throwOnError: true,
+        },
+      )
     })
   })
 
@@ -887,10 +912,18 @@ describe('Nightly10DlcReportService', () => {
       expect(where.status).toBe(TcrComplianceStatus.submitted)
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBeNull()
-      // Actively billing-blocked records list under their own section only.
-      expect(where.NOT).toEqual({
-        peerlyBillingBlockedAt: { gte: expect.any(Date) },
-      })
+      // Actively billing-blocked records list under their own section only —
+      // as an explicit null-or-stale branch, never `NOT: { gte }` (Prisma
+      // compiles that without an IS NULL branch, excluding never-blocked
+      // rows; real-Postgres semantics in nightly10DlcReportScope.test.ts).
+      expect(where.AND).toEqual([
+        {
+          OR: [
+            { peerlyBillingBlockedAt: null },
+            { peerlyBillingBlockedAt: { lt: expect.any(Date) } },
+          ],
+        },
+      ])
       expect(where.OR).toHaveLength(2)
       const [startedAtBranch] = where.OR as [
         { peerlySubmissionStartedAt: { lt: Date } },
@@ -1398,17 +1431,26 @@ describe('Nightly10DlcReportService', () => {
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.VERIFIED)
       // Excludes only records inside the active billing-block window; a
-      // stale block (past cooldown) must not hide a profile stall.
-      const notClause = where.NOT as {
-        peerlyBillingBlockedAt: { gte: Date }
-      }
+      // stale block (past cooldown) must not hide a profile stall, and a
+      // never-blocked (null) record must stay in — hence the explicit
+      // null-or-stale branch instead of `NOT: { gte }`.
+      const [billingScope] = where.AND as [
+        {
+          OR: [
+            { peerlyBillingBlockedAt: null },
+            { peerlyBillingBlockedAt: { lt: Date } },
+          ]
+        },
+      ]
+      expect(billingScope.OR[0]).toEqual({ peerlyBillingBlockedAt: null })
       const blockWindowMs = subMinutes(
         new Date(),
         PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES,
       ).getTime()
       expect(
         Math.abs(
-          notClause.peerlyBillingBlockedAt.gte.getTime() - blockWindowMs,
+          billingScope.OR[1].peerlyBillingBlockedAt.lt.getTime() -
+            blockWindowMs,
         ),
       ).toBeLessThan(5000)
       const thresholdMs = subHours(new Date(), 20).getTime()
@@ -1463,22 +1505,15 @@ describe('Nightly10DlcReportService', () => {
     })
   })
 
-  describe('handleNightlyReport — vendor escalation, CV IN_REVIEW (case 2, ENG-10796)', () => {
+  describe('handleVendorEscalations — CV IN_REVIEW (case 2, ENG-10796)', () => {
     it('does not escalate 1 business day after entering IN_REVIEW (Friday -> Monday)', async () => {
       vi.useFakeTimers({ now: MONDAY_NOON_ET })
       queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
         [inReviewRecord({ peerlyCvStatusChangedAt: FRIDAY_6PM_ET })],
         [],
       ])
 
-      await service.handleNightlyReport({ reportDate: '2026-07-27' })
+      await service.handleVendorEscalations({ escalationDate: '2026-07-27' })
 
       expect(vendorCalls(mockSlack.message)).toHaveLength(0)
       expect(mockModel.updateMany).not.toHaveBeenCalled()
@@ -1487,20 +1522,10 @@ describe('Nightly10DlcReportService', () => {
     it('escalates once 4 business days after entering IN_REVIEW (Friday -> Thursday)', async () => {
       vi.useFakeTimers({ now: THURSDAY_NOON_ET })
       const record = inReviewRecord({ peerlyCvStatusChangedAt: FRIDAY_6PM_ET })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-        [],
-      ])
+      queueFindManyResults(mockModel.findMany, [[record], []])
 
-      const result = await service.handleNightlyReport({
-        reportDate: '2026-07-30',
+      const result = await service.handleVendorEscalations({
+        escalationDate: '2026-07-30',
       })
 
       expect(result).toBe(true)
@@ -1518,32 +1543,12 @@ describe('Nightly10DlcReportService', () => {
       })
     })
 
-    it('does not re-post across two consecutive handler runs (once-only)', async () => {
+    it('does not re-post across two consecutive runs (once-only)', async () => {
       const record = inReviewRecord({
         peerlyCvStatusChangedAt: subDays(new Date(), 10),
       })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-        [],
-      ])
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-        [],
-      ])
+      queueFindManyResults(mockModel.findMany, [[record], []])
+      queueFindManyResults(mockModel.findMany, [[record], []])
       // First run's claim succeeds; the second run's claim finds the row
       // already claimed (updateMany's WHERE no longer matches) — mirrors the
       // real DB behavior without needing to thread state through the mock.
@@ -1551,8 +1556,8 @@ describe('Nightly10DlcReportService', () => {
         .mockResolvedValueOnce({ count: 1 })
         .mockResolvedValueOnce({ count: 0 })
 
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-      await service.handleNightlyReport({ reportDate: '2026-07-11' })
+      await service.handleVendorEscalations({ escalationDate: '2026-07-10' })
+      await service.handleVendorEscalations({ escalationDate: '2026-07-11' })
 
       expect(vendorCalls(mockSlack.message)).toHaveLength(1)
     })
@@ -1561,23 +1566,11 @@ describe('Nightly10DlcReportService', () => {
       const record = inReviewRecord({
         peerlyCvStatusChangedAt: subDays(new Date(), 10),
       })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-        [],
-      ])
-      mockSlack.message
-        .mockResolvedValueOnce('ok') // internal report post succeeds
-        .mockResolvedValueOnce(undefined) // vendor post fails
+      queueFindManyResults(mockModel.findMany, [[record], []])
+      mockSlack.message.mockResolvedValueOnce(undefined) // vendor post fails
 
-      const result = await service.handleNightlyReport({
-        reportDate: '2026-07-10',
+      const result = await service.handleVendorEscalations({
+        escalationDate: '2026-07-10',
       })
 
       expect(result).toBe(true)
@@ -1598,19 +1591,9 @@ describe('Nightly10DlcReportService', () => {
         email: 'candidate@example.com',
         phone: '555-867-5309',
       })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-        [],
-      ])
+      queueFindManyResults(mockModel.findMany, [[record], []])
 
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+      await service.handleVendorEscalations({ escalationDate: '2026-07-10' })
 
       const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
         { blocks: SlackMessageBlock[] },
@@ -1622,21 +1605,32 @@ describe('Nightly10DlcReportService', () => {
       expect(text).not.toContain('candidate@example.com')
       expect(text).not.toContain('555-867-5309')
     })
+
+    // The channel-wide ping replaced the personal contact mention (ENG-10967)
+    // when the escalation moved to business hours — an @here at midnight
+    // would have woken the whole channel.
+    it('prefixes the vendor message with <!here>', async () => {
+      const record = inReviewRecord({
+        peerlyCvStatusChangedAt: subDays(new Date(), 10),
+      })
+      queueFindManyResults(mockModel.findMany, [[record], []])
+
+      await service.handleVendorEscalations({ escalationDate: '2026-07-10' })
+
+      const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      expect(blocksText(blocks)).toContain('<!here>')
+    })
   })
 
-  describe('handleNightlyReport — vendor escalation, waiting_to_finalize (case 3b, ENG-10796)', () => {
+  describe('handleVendorEscalations — waiting_to_finalize (case 3b, ENG-10796)', () => {
     it('does not escalate at 2 business days (no weekend crossed)', async () => {
       const mondaySixPm = new Date('2026-07-20T18:00:00-04:00')
       const wednesdayNoon = new Date('2026-07-22T12:00:00-04:00')
       vi.useFakeTimers({ now: wednesdayNoon })
       queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
         [],
         [
           waitingToFinalizeRecord({
@@ -1645,7 +1639,7 @@ describe('Nightly10DlcReportService', () => {
         ],
       ])
 
-      await service.handleNightlyReport({ reportDate: '2026-07-22' })
+      await service.handleVendorEscalations({ escalationDate: '2026-07-22' })
 
       expect(vendorCalls(mockSlack.message)).toHaveLength(0)
     })
@@ -1655,20 +1649,10 @@ describe('Nightly10DlcReportService', () => {
       const record = waitingToFinalizeRecord({
         peerlyProfileStatusChangedAt: FRIDAY_6PM_ET,
       })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-      ])
+      queueFindManyResults(mockModel.findMany, [[], [record]])
 
-      const result = await service.handleNightlyReport({
-        reportDate: '2026-07-30',
+      const result = await service.handleVendorEscalations({
+        escalationDate: '2026-07-30',
       })
 
       expect(result).toBe(true)
@@ -1685,40 +1669,20 @@ describe('Nightly10DlcReportService', () => {
       })
     })
 
-    it('does not re-post across two consecutive handler runs (once-only)', async () => {
+    it('does not re-post across two consecutive runs (once-only)', async () => {
       const record = waitingToFinalizeRecord({
         peerlyProfileStatusChangedAt: subDays(new Date(), 10),
       })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-      ])
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-      ])
+      queueFindManyResults(mockModel.findMany, [[], [record]])
+      queueFindManyResults(mockModel.findMany, [[], [record]])
       // First run's claim succeeds; the second run's claim finds the row
       // already claimed (updateMany's WHERE no longer matches).
       mockModel.updateMany
         .mockResolvedValueOnce({ count: 1 })
         .mockResolvedValueOnce({ count: 0 })
 
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-      await service.handleNightlyReport({ reportDate: '2026-07-11' })
+      await service.handleVendorEscalations({ escalationDate: '2026-07-10' })
+      await service.handleVendorEscalations({ escalationDate: '2026-07-11' })
 
       expect(vendorCalls(mockSlack.message)).toHaveLength(1)
     })
@@ -1727,23 +1691,11 @@ describe('Nightly10DlcReportService', () => {
       const record = waitingToFinalizeRecord({
         peerlyProfileStatusChangedAt: subDays(new Date(), 10),
       })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-      ])
-      mockSlack.message
-        .mockResolvedValueOnce('ok') // internal report post succeeds
-        .mockResolvedValueOnce(undefined) // vendor post fails
+      queueFindManyResults(mockModel.findMany, [[], [record]])
+      mockSlack.message.mockResolvedValueOnce(undefined) // vendor post fails
 
-      const result = await service.handleNightlyReport({
-        reportDate: '2026-07-10',
+      const result = await service.handleVendorEscalations({
+        escalationDate: '2026-07-10',
       })
 
       expect(result).toBe(true)
@@ -1755,64 +1707,6 @@ describe('Nightly10DlcReportService', () => {
         where: { id: record.id, finalizeStalledEscalatedAt: expect.any(Date) },
         data: { finalizeStalledEscalatedAt: null },
       })
-    })
-  })
-
-  describe('handleNightlyReport — Peerly contact ping on vendor escalations (ENG-10967)', () => {
-    it('includes the Slack mention when SLACK_PEERLY_CONTACT_MEMBER_ID is set', async () => {
-      vi.stubEnv('SLACK_PEERLY_CONTACT_MEMBER_ID', 'U12345PEERLY')
-      const record = inReviewRecord({
-        peerlyCvStatusChangedAt: subDays(new Date(), 10),
-      })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-        [],
-      ])
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
-        { blocks: SlackMessageBlock[] },
-        SlackChannel,
-      ]
-      expect(blocksText(blocks)).toContain('<@U12345PEERLY>')
-    })
-
-    it('omits the mention (no crash) when SLACK_PEERLY_CONTACT_MEMBER_ID is unset', async () => {
-      const record = waitingToFinalizeRecord({
-        peerlyProfileStatusChangedAt: subDays(new Date(), 10),
-      })
-      queueFindManyResults(mockModel.findMany, [
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [record],
-      ])
-
-      const result = await service.handleNightlyReport({
-        reportDate: '2026-07-10',
-      })
-
-      expect(result).toBe(true)
-      const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
-        { blocks: SlackMessageBlock[] },
-        SlackChannel,
-      ]
-      const text = blocksText(blocks)
-      expect(text).not.toContain('<@')
-      expect(text).toContain('*10DLC vendor escalation*')
     })
   })
 

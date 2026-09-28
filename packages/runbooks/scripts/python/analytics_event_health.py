@@ -130,52 +130,78 @@ def _sql_quote(value: str) -> str:
     return f"'{escaped}'"
 
 
-def build_path_weekly_sql(legs: Sequence[Any]) -> str:
-    """Weekly counts for path-qualified legs, or "" when there are none.
+_PROPERTY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-    A separate query from WEEKLY_SQL because the site-wide page event is 4.46M rows and
-    only its '/dashboard' slice is the instrument; grouping the whole event would drown
-    the signal it exists to watch.
+
+def _leg_predicate(leg: Any) -> str:
+    """SQL that is true for exactly the rows this leg counts.
+
+    The exclusion mirrors `is_outreach_activation_event` in gp-data-platform: a coalesce
+    around the property, so a row that predates the property passes. Written as `not in`
+    rather than `<>` because a bare inequality is NULL for an absent property and would
+    silently drop the legacy leg the metric does count.
     """
-    pathed = [leg for leg in legs if leg.path]
-    if not pathed:
+    parts = [f"event_type = {_sql_quote(leg.event)}"]
+    if leg.path:
+        parts.append(f"event_properties:path::string = {_sql_quote(leg.path)}")
+    for prop, values in leg.excluding:
+        if not _PROPERTY_RE.match(prop):
+            # Declared upstream, so this is a governance error rather than user input,
+            # but it reaches us as another repo's YAML and must not be interpolated.
+            raise ValueError(
+                f"{leg.event}: excluding property {prop!r} is not a plain identifier"
+            )
+        excluded = ", ".join(_sql_quote(value) for value in values)
+        parts.append(f"coalesce(event_properties:{prop}::string, '') not in ({excluded})")
+    return "(" + " and ".join(parts) + ")"
+
+
+def build_qualified_weekly_sql(legs: Sequence[Any]) -> str:
+    """Weekly counts for qualified legs, or "" when there are none.
+
+    Replaces the path-only query. A separate query from WEEKLY_SQL because a qualified
+    leg is narrower than its event: the site-wide page event is 4.46M rows and only its
+    '/dashboard' slice is the instrument, and the shared outreach terminal covers three
+    moments of which the metric counts two. Grouping the whole event drowns the signal
+    the watch exists for — and for the outreach leg it hid the real thing, because the
+    self-report path kept the bare event's counts up after the in-product send died.
+
+    The leg key is selected as a literal rather than derived from a grouping column, so
+    one query serves any qualifier. A row matching two legs is counted under the first;
+    overlapping legs are a semantic-layer authoring problem, not something to split here.
+    """
+    qualified = [leg for leg in legs if leg.qualified]
+    if not qualified:
         return ""
-    predicates = " or ".join(
-        f"(event_type = {_sql_quote(leg.event)} "
-        f"and event_properties:path::string = {_sql_quote(leg.path)})"
-        for leg in pathed
+    predicates = [_leg_predicate(leg) for leg in qualified]
+    branches = "\n              ".join(
+        f"when {predicate} then {_sql_quote(leg.key)}"
+        for leg, predicate in zip(qualified, predicates)
     )
     return f"""
-select event_type,
-       event_properties:path::string as page_path,
-       date_trunc('week', cast(event_time as date)) as week_start,
-       count(*) as n
-from {STREAM_TABLE}
-where cast(event_time as date) >= date_sub(current_date(), 63)
-  and ({predicates})
-group by event_type, event_properties:path::string,
-         date_trunc('week', cast(event_time as date))
+select leg_key as event_type, week_start, count(*) as n
+from (
+  select case
+              {branches}
+         end as leg_key,
+         date_trunc('week', cast(event_time as date)) as week_start
+  from {STREAM_TABLE}
+  where cast(event_time as date) >= date_sub(current_date(), 63)
+    and ({" or ".join(predicates)})
+)
+where leg_key is not null
+group by leg_key, week_start
 """
 
 
-def key_path_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict]:
-    """Rewrite path-qualified rows onto their leg key so they flow through
-    ``weekly_series`` and ``detect_anomaly`` with no special-casing downstream."""
-    return [
-        {
-            "event_type": sem_anchors.Leg(row["event_type"], row["page_path"]).key,
-            "week_start": row["week_start"],
-            "n": row["n"],
-        }
-        for row in rows
-    ]
-
-
-def fetch_path_weekly(run_query: Callable[[str], Any], legs: Sequence[Any]) -> list[dict]:
-    sql = build_path_weekly_sql(legs)
+def fetch_qualified_weekly(run_query: Callable[[str], Any], legs: Sequence[Any]) -> list[dict]:
+    sql = build_qualified_weekly_sql(legs)
     if not sql:
         return []
-    return key_path_rows(_records_from_df(run_query(sql)))
+    return [
+        {"event_type": row["event_type"], "week_start": row["week_start"], "n": row["n"]}
+        for row in _records_from_df(run_query(sql))
+    ]
 
 
 # Provenance CSV column carrying the code-removed date (empty = code still present).
@@ -1173,9 +1199,10 @@ def load_prior_anomalous(path: Path | None) -> set[str] | None:
     return set(anomalous) if isinstance(anomalous, list) else None
 
 
-# Status carried by a latched anchor leg the catalog has no row for. A path-qualified
-# slice of an event is an instrument in its own right, but not something Amplitude counts
-# as an event, so none of the SOP statuses fit it.
+# Status carried by a latched anchor leg the catalog has no row for. A qualified slice of
+# an event — one page path, or one event minus an excluded property value — is an
+# instrument in its own right, but not something Amplitude counts as an event, so none of
+# the SOP statuses fit it.
 LATCHED_STATUS = "okr_anchor_dormant"
 
 
@@ -1184,8 +1211,9 @@ def _latched_leg_record(
 ) -> dict:
     """A flagged row for a latched leg that ``reconcile`` never built a record for.
 
-    ``reconcile`` builds records from the catalog, so a path-qualified leg
-    (``Viewed[path=/dashboard]``) has none — and a latch that reaches no consumer is the
+    ``reconcile`` builds records from the catalog, so a qualified leg
+    (``Viewed[path=/dashboard]``, ``Voter Outreach - Campaign Completed[excluding
+    method=manual]``) has none — and a latch that reaches no consumer is the
     same silent failure this ticket exists to remove. The shape mirrors a reconcile record
     key for key so the digest table, ``digest_triage`` and the state diff need no special
     case for it.
@@ -1269,16 +1297,16 @@ def run_monitor(
     # the declaration omits is the exact shape of a case 3 finding, and with no rows of
     # its own it can never read live, so the check would be blind to the thing it exists
     # to catch. Only the query widens: the latch and watched_by_key stay on declared legs.
-    path_legs = {leg.key: leg for leg in watched_legs if leg.path}
+    qualified_legs = {leg.key: leg for leg in watched_legs if leg.qualified}
     for behavior in behaviors:
         for surface in behavior.get("surfaces") or []:
             if surface.get("instrumented_by") and surface.get("page_path"):
                 leg = sem_anchors.Leg(surface["instrumented_by"], surface["page_path"])
-                path_legs.setdefault(leg.key, leg)
+                qualified_legs.setdefault(leg.key, leg)
 
     catalog = fetch_catalog(run_query)
-    weekly = fetch_weekly(run_query) + fetch_path_weekly(
-        run_query, list(path_legs.values()))
+    weekly = fetch_weekly(run_query) + fetch_qualified_weekly(
+        run_query, list(qualified_legs.values()))
     code = load_code_axis(csv_path)
     watched_families, watchlist_events, dismissed_events = load_monitored_events(watchlist_path)
     result = reconcile(

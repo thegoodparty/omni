@@ -9,11 +9,24 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta
 
+import pytest
+
 import analytics_event_health as eh
 import sem_anchors as sa
 
 TODAY = date(2026, 6, 25)  # a Thursday; current (in-progress) week starts Mon 2026-06-22
 MONDAY = date(2026, 6, 22)
+
+
+class _FakeDF:
+    """Stands in for the pandas frame ``run_query`` returns, which the fetch helpers
+    unwrap with ``.to_dict("records")``."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def to_dict(self, _orient):
+        return self._rows
 
 
 # --- to_date -----------------------------------------------------------------
@@ -1393,12 +1406,12 @@ def test_build_slack_triage_drops_canaries_and_dismissed_causes(monkeypatch):
     assert len(result["flagged"]) == 3
 
 
-# --- path-qualified legs (DATA-2421 Part B) -----------------------------------
+# --- qualified legs (DATA-2421 Part B, widened for `excluding` in DATA-2422) ---
 
 
-def test_path_weekly_sql_filters_the_page_path_not_just_the_event():
+def test_qualified_weekly_sql_filters_the_page_path_not_just_the_event():
     legs = [sa.Leg("Viewed", "/dashboard", None)]
-    sql = eh.build_path_weekly_sql(legs)
+    sql = eh.build_qualified_weekly_sql(legs)
     # The event predicate and the path predicate must be ANDed inside one clause — an OR
     # would return every 'Viewed' row (4.46M) instead of the ~106k '/dashboard' slice,
     # inflating the leg's counts and masking a real break. Asserting the two substrings
@@ -1407,21 +1420,57 @@ def test_path_weekly_sql_filters_the_page_path_not_just_the_event():
     assert "mart_analytics.amplitude_events" in sql
 
 
-def test_build_path_weekly_sql_escapes_single_quotes():
+def test_qualified_weekly_sql_excludes_the_declared_property_value():
+    legs = [sa.Leg("VO - Completed", None, None, (("method", ("manual",)),))]
+    sql = eh.build_qualified_weekly_sql(legs)
+    assert (
+        "(event_type = 'VO - Completed' and "
+        "coalesce(event_properties:method::string, '') not in ('manual'))"
+    ) in sql
+
+
+def test_an_excluded_property_keeps_rows_that_never_carried_it():
+    # `<> 'manual'` is NULL for a row with no method, so a bare inequality would drop the
+    # legacy in-product send — the very leg whose death this watch exists to see. The
+    # coalesce is what keeps it, matching gp-data-platform's is_outreach_activation_event.
+    legs = [sa.Leg("VO - Completed", None, None, (("method", ("manual",)),))]
+    sql = eh.build_qualified_weekly_sql(legs)
+    assert "coalesce(event_properties:method::string, '')" in sql
+    assert "event_properties:method::string <>" not in sql
+
+
+def test_qualified_weekly_sql_selects_the_leg_key_so_rows_need_no_rewriting():
+    legs = [sa.Leg("VO - Completed", None, None, (("method", ("manual",)),))]
+    sql = eh.build_qualified_weekly_sql(legs)
+    assert "then 'VO - Completed[excluding method=manual]'" in sql
+
+
+def test_qualified_weekly_sql_escapes_single_quotes():
     # An apostrophe in a declared event name must not break out of the literal.
     legs = [sa.Leg("Wizard's View", "/x", None)]
-    assert "'Wizard''s View'" in eh.build_path_weekly_sql(legs)
+    assert "'Wizard''s View'" in eh.build_qualified_weekly_sql(legs)
 
 
-def test_build_path_weekly_sql_is_empty_for_no_path_legs():
-    assert eh.build_path_weekly_sql([sa.Leg("Viewed", None, None)]) == ""
+def test_qualified_weekly_sql_is_empty_for_no_qualified_legs():
+    assert eh.build_qualified_weekly_sql([sa.Leg("Viewed", None, None)]) == ""
 
 
-def test_path_rows_key_into_the_series_under_the_leg_key():
-    rows = [{"event_type": "Viewed", "page_path": "/dashboard",
+def test_an_excluding_property_that_is_not_an_identifier_raises():
+    # Another repo's YAML reaches this string unescaped, so a property name that is not a
+    # plain identifier must fail rather than be interpolated into the predicate.
+    legs = [sa.Leg("E", None, None, (("a::string) or (1=1", ("x",)),))]
+    with pytest.raises(ValueError):
+        eh.build_qualified_weekly_sql(legs)
+
+
+def test_fetch_qualified_weekly_passes_rows_through_under_the_leg_key():
+    # The query now selects the leg key itself, so nothing downstream re-derives it from
+    # a grouping column — which is what let the path query serve path legs only.
+    rows = [{"event_type": "Viewed[path=/dashboard]",
              "week_start": MONDAY - timedelta(days=7), "n": 500}]
-    keyed = eh.key_path_rows(rows)
-    assert keyed[0]["event_type"] == "Viewed[path=/dashboard]"
+    fetched = eh.fetch_qualified_weekly(
+        lambda sql: _FakeDF(rows), [sa.Leg("Viewed", "/dashboard", None)])
+    assert fetched[0]["event_type"] == "Viewed[path=/dashboard]"
 
 
 # --- latch ranking (DATA-2421 Part B) -----------------------------------------
@@ -1494,23 +1543,24 @@ def _fake_query(catalog_rows, weekly_rows, path_rows=()):
     def run(sql):
         if "amplitude_event_catalog" in sql:
             return _DF(catalog_rows)
-        if "event_properties:path" in sql:
+        if "leg_key" in sql:
             return _DF(path_rows)
         return _DF(weekly_rows)
 
     return run
 
 
-def _weeks_before(event_type, counts, page_path=None):
-    """Weekly rows for the complete weeks immediately before MONDAY, oldest first."""
-    rows = []
-    for offset, n in enumerate(reversed(counts), start=1):
-        row = {"event_type": event_type, "week_start": MONDAY - timedelta(days=7 * offset),
-               "n": n}
-        if page_path is not None:
-            row["page_path"] = page_path
-        rows.append(row)
-    return rows
+def _weeks_before(event_type, counts, page_path=None, excluding=()):
+    """Weekly rows for the complete weeks immediately before MONDAY, oldest first.
+
+    A qualified leg's rows come back keyed by the leg key, because the qualified query
+    selects that key itself rather than a grouping column the caller re-derives.
+    """
+    key = sa.Leg(event_type, page_path, None, excluding).key
+    return [
+        {"event_type": key, "week_start": MONDAY - timedelta(days=7 * offset), "n": n}
+        for offset, n in enumerate(reversed(counts), start=1)
+    ]
 
 
 def _monitor_env(tmp_path, code_rows, latches=None, watchlist="events: []\n",
@@ -1962,6 +2012,69 @@ def test_run_monitor_queries_weekly_rows_for_registry_path_surfaces(tmp_path):
     [f] = [x for x in result["anchor_alignment"]
            if x["kind"] == "live_instrument_not_declared"]
     assert f["event_key"] == "Viewed[path=/polls]" and f["case"] == 3
+
+
+# --- excluding-qualified legs (DATA-2422) -------------------------------------
+
+_OUTREACH = "Voter Outreach - Campaign Completed"
+_ACTIVATED = "win_activated_users"
+_EXCLUDING = (("method", ("manual",)),)
+_OUTREACH_KEY = f"{_OUTREACH}[excluding method=manual]"
+
+
+def test_run_monitor_watches_the_narrowed_slice_not_the_whole_event(tmp_path):
+    # The live shape this fixes. The bare event keeps firing on the self-report path, so
+    # its catalog record and its own weekly rows both read healthy, while the leg the
+    # metric actually counts went to zero. Watching the event watches the wrong series.
+    catalog = [_cat(_OUTREACH, "win_voter_outreach", "Outreach terminal.", cnt30=900)]
+    weekly = _weeks_before(_OUTREACH, [300, 300, 300, 300, 300])
+    slice_rows = _weeks_before(_OUTREACH, [1, 1], excluding=_EXCLUDING)
+    seen_sql = []
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _OUTREACH, "call_site_count": 2}],
+        latches={_OUTREACH_KEY: _latch(metric=_ACTIVATED, reference=300.0)})
+
+    result, _changes = eh.run_monitor(
+        _recording_query(catalog, weekly, slice_rows, seen_sql=seen_sql), today=TODAY,
+        csv_path=csv_path, watchlist_path=wl_path, state_path=state_path,
+        anchors={_ACTIVATED: [sa.Leg(_OUTREACH, None, None, _EXCLUDING)]})
+
+    assert any("coalesce(event_properties:method::string, '')" in sql for sql in seen_sql)
+    synthetic = result["flagged"][0]
+    assert synthetic["event_type"] == _OUTREACH_KEY
+    assert synthetic["okr"] == _ACTIVATED
+    assert synthetic["status"] == eh.LATCHED_STATUS
+    # The whole event's record is not itself flagged: it is genuinely still firing.
+    assert all(r["event_type"] != _OUTREACH for r in result["flagged"])
+
+
+def test_a_registry_surface_naming_the_bare_event_still_matches_an_excluding_leg(tmp_path):
+    # An exclusion narrows what the metric counts over one event; it does not change
+    # which call site instruments the behavior. Keying the registry comparison on the
+    # narrowed series key would report the surface as undeclared and the leg as
+    # unmonitored, both of which are false.
+    catalog = [_cat(_OUTREACH, "win_voter_outreach", "Outreach terminal.", cnt30=900)]
+    weekly = _weeks_before(_OUTREACH, [300, 300, 300, 300, 300])
+    slice_rows = _weeks_before(_OUTREACH, [300, 300], excluding=_EXCLUDING)
+    behavior = (
+        "behaviors:\n"
+        "  - id: outreach_sent\n"
+        '    question: "Do candidates send outreach?"\n'
+        "    product: win\n"
+        f"    metric: {_ACTIVATED}\n"
+        "    surfaces:\n"
+        f'      - {{path: a.ts, label: walk, instrumented_by: "{_OUTREACH}"}}\n'
+    )
+    csv_path, wl_path, state_path = _monitor_env(
+        tmp_path, [{"event_type": _OUTREACH, "call_site_count": 2}], latches={},
+        watchlist=behavior)
+
+    result, _ = eh.run_monitor(
+        _fake_query(catalog, weekly, slice_rows), today=TODAY, csv_path=csv_path,
+        watchlist_path=wl_path, state_path=state_path,
+        anchors={_ACTIVATED: [sa.Leg(_OUTREACH, None, None, _EXCLUDING)]})
+
+    assert result["anchor_alignment"] == []
 
 
 def test_run_monitor_does_not_latch_an_undeclared_path_surface(tmp_path):

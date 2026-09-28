@@ -190,5 +190,65 @@
     "id": "packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit",
     "reason": "",
     "ruled_on": "2026-09-24"
+  },
+  "packages/gp-webapp/app/dashboard/race-opponent/components/AddOpponentsForm.tsx#form_submit#AddOpponentsForm": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/race-opponent/components/AddOpponentsForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/race-opponent/components/AddOpponentsForm.tsx#form_submit#L163": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/race-opponent/components/AddOpponentsForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/race-opponent/components/AddOpponentsForm.tsx#form_submit#L163.2": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/race-opponent/components/AddOpponentsForm.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/shared/ElectedOfficeTermDatesModal.tsx#form_submit#L122": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/shared/ElectedOfficeTermDatesModal.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/shared/ElectedOfficeTermDatesModal.tsx#form_submit#L76": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/shared/ElectedOfficeTermDatesModal.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit#L621": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit#L667": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit#L667.2": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit#L686": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
+  },
+  "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit#L686.2": {
+    "disposition": "new",
+    "id": "packages/gp-webapp/app/dashboard/shared/agent-chat/chatUI.tsx#form_submit",
+    "reason": "",
+    "ruled_on": "2026-09-28"
   }
 }

@@ -2,9 +2,12 @@ import { Client } from 'pg'
 import {
   TEMPLATE_LOCK_KEY,
   TEMPLATE_PREFIX,
+  TEST_POSTGRES_URL_VAR,
+  externalTestPostgresUrl,
   loadMigrationsSql,
-  startTestPostgres,
   templateDbName,
+  testPostgresUri,
+  withDatabase,
 } from './test-postgres'
 
 // Suites drop their own clone, so a survivor means the run that made it was
@@ -17,6 +20,10 @@ const STALE_TEMPLATE_INTERVAL = '7 days'
 
 // pg_database carries no creation time. missing_ok is what keeps this from
 // throwing when a concurrent run's afterAll drops its clone mid-query.
+//
+// pg_stat_file() is superuser-only (or pg_read_server_files), which is why an
+// external server has to be one we own — a sidecar started with the image
+// superuser — and can never be a managed cluster.
 const CREATED_AT =
   "(pg_stat_file('base/' || oid || '/PG_VERSION', true)).modification"
 
@@ -30,8 +37,29 @@ const CREATED_AT =
 // dropped and rebuilt in place, which is what the old fixed name required and
 // what forced the container to be scoped per checkout.
 export default async () => {
-  const container = await startTestPostgres()
-  const baseUri = container.getConnectionUri()
+  const baseUri = await testPostgresUri()
+
+  // One probe before any other work, so that a sidecar that never came up
+  // reads as broken infrastructure instead of as hundreds of failing tests.
+  if (externalTestPostgresUrl(process.env)) {
+    const { hostname, port } = new URL(baseUri)
+    const probe = new Client({ connectionString: baseUri })
+    try {
+      await probe.connect()
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : 'unknown error'
+      throw new Error(
+        `${TEST_POSTGRES_URL_VAR} points at ${hostname}:${port}, but the ` +
+          `test database there is unreachable: ${cause}. This is the test ` +
+          'infrastructure, not the code under test — every database-backed ' +
+          'failure in this run is this connection, not the change being ' +
+          `tested. Start the Postgres sidecar, or unset ` +
+          `${TEST_POSTGRES_URL_VAR} to fall back to a testcontainer.`,
+      )
+    }
+    await probe.end()
+  }
+
   const template = templateDbName()
 
   const admin = new Client({ connectionString: baseUri })
@@ -82,7 +110,7 @@ export default async () => {
     await admin.query(`CREATE DATABASE "${scratch}"`)
 
     const build = new Client({
-      connectionString: baseUri.replace('/postgres', `/${scratch}`),
+      connectionString: withDatabase(baseUri, scratch),
     })
     await build.connect()
     await build.query(loadMigrationsSql())

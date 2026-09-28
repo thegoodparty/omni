@@ -28,6 +28,7 @@ import { QueueProducerService } from '../../../queue/producer/queueProducer.serv
 import {
   MessageGroup,
   Nightly10DlcReportMessage,
+  PeerlyVendorEscalationMessage,
   QueueType,
 } from '../../../queue/queue.types'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
@@ -124,6 +125,26 @@ export const reportableCampaign = {
   },
 }
 
+// Excludes only *actively* billing-blocked records — they render in their own
+// section, so listing them elsewhere would double-count the stuck total. The
+// null branch must be explicit: Prisma compiles `NOT: { gte }` to bare SQL
+// `NOT(col >= $1)`, which evaluates NULL — not true — for the never-blocked
+// rows that are almost the whole table, so that form silently emptied every
+// query carrying it and no case-1/2/3a/3b alert or vendor escalation ever
+// fired (christine-silva 326777, Sep 2026).
+export const notActivelyBillingBlocked = (
+  now: Date,
+): Prisma.TcrComplianceWhereInput => ({
+  OR: [
+    { peerlyBillingBlockedAt: null },
+    {
+      peerlyBillingBlockedAt: {
+        lt: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
+      },
+    },
+  ],
+})
+
 type RecordWithCampaign = TcrCompliance & { campaign: Campaign }
 
 type DomainWithCampaign = Domain & {
@@ -176,17 +197,46 @@ const internalStallAlertMessage = ({
   `${detail}\n` +
   'This is an engineering bug on our side — needs a one-time fix, not a nightly nudge.'
 
-// Not set in dev/preview (the real Peerly contact's Slack member ID isn't a
-// value we hardcode), so escalations there must render exactly as they did
-// before this ping existed rather than crash or post a broken mention.
-const peerlyContactMention = () => {
-  const memberId = process.env.SLACK_PEERLY_CONTACT_MEMBER_ID
-  return memberId ? `<@${memberId}> ` : ''
-}
+// Cases 2 and 3b (ENG-10796) are fetched by two callers — the nightly
+// report's mirror sections and the weekday vendor-escalation job — so the
+// where clauses live here once and the two can't drift. Case 2: CV stuck
+// IN_REVIEW (CampaignVerify can't reach the election authority). Case 3b:
+// CV VERIFIED but the brand profile is stuck waiting_to_finalize. Both
+// exclude actively billing-blocked records (they list under their own
+// report section), and both key on the *ChangedAt stamp the CV status
+// scan's poll write sets — the business-day floor is applied in code by
+// each caller, since date-fns business-day math can't live in a where
+// clause.
+const inReviewStallWhere = (now: Date): Prisma.TcrComplianceWhereInput => ({
+  campaign: reportableCampaign,
+  peerlyIdentityId: { not: null },
+  AND: [notActivelyBillingBlocked(now)],
+  status: {
+    in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+  },
+  peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+  peerlyCvStatusChangedAt: { not: null },
+})
+
+const waitingToFinalizeStallWhere = (
+  now: Date,
+): Prisma.TcrComplianceWhereInput => ({
+  campaign: reportableCampaign,
+  peerlyIdentityId: { not: null },
+  AND: [notActivelyBillingBlocked(now)],
+  status: {
+    in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+  },
+  peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+  peerlyProfileStatus: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
+  peerlyProfileStatusChangedAt: { not: null },
+})
 
 // Vendor-appropriate content only: identity ID + committee name is enough
 // for Peerly to look up the record — no candidate email/phone, no internal
-// campaign IDs, no gp-admin links.
+// campaign IDs, no gp-admin links. The <!here> only notifies because the
+// escalation job posts during business hours (11am ET, weekdays) — don't
+// move it back onto the midnight report.
 const vendorEscalationMessage = ({
   record,
   stateLabel,
@@ -200,7 +250,7 @@ const vendorEscalationMessage = ({
   now: Date
   ask: string
 }) =>
-  `${peerlyContactMention()}*10DLC vendor escalation*\n` +
+  `<!here> *10DLC vendor escalation*\n` +
   `Peerly identity: ${record.peerlyIdentityId}\n` +
   `Committee: ${record.committeeName}\n` +
   `${stateLabel} since ${formatDate(since, DateFormats.usDate)} ` +
@@ -255,6 +305,94 @@ export class Nightly10DlcReportService extends createPrismaBase(
     }
   }
 
+  // Vendor escalations post separately from the midnight report so the
+  // <!here> in the shared Peerly channel lands during their business hours —
+  // weekdays at 11am ET. Same replica-dedup shape as the report's cron.
+  @Cron('0 11 * * 1-5', {
+    name: 'peerlyVendorEscalation',
+    timeZone: EASTERN_TIMEZONE,
+  })
+  async triggerVendorEscalations() {
+    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+      return
+    }
+    const escalationDate = formatInTimeZone(
+      new Date(),
+      EASTERN_TIMEZONE,
+      DateFormats.isoDate,
+    )
+    try {
+      await this.queueService.sendMessage(
+        {
+          type: QueueType.PEERLY_VENDOR_ESCALATION,
+          data: { escalationDate },
+        },
+        MessageGroup.peerlyVendorEscalation,
+        {
+          deduplicationId: `peerlyVendorEscalation-${escalationDate}`,
+          throwOnError: true,
+        },
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, escalationDate },
+        '[10DLC vendor escalation] Failed to enqueue escalation message',
+      )
+    }
+  }
+
+  // Re-fetches the case-2/3b populations with fresh state rather than
+  // reusing the midnight report's — a record the morning CV scan already
+  // moved must not ping the vendor. A failed post rolls its claim back
+  // inside the escalate methods, so the retry unit is the next weekday run,
+  // not an SQS redelivery — the handler always acks.
+  async handleVendorEscalations({
+    escalationDate,
+  }: PeerlyVendorEscalationMessage): Promise<boolean> {
+    const now = new Date()
+    const [inReviewStalled, waitingToFinalizeStalled] = await Promise.all([
+      this.model.findMany({
+        where: inReviewStallWhere(now),
+        include: { campaign: true },
+      }),
+      this.model.findMany({
+        where: waitingToFinalizeStallWhere(now),
+        include: { campaign: true },
+      }),
+    ])
+    const inReviewToEscalate = inReviewStalled.filter(
+      (
+        record,
+      ): record is RecordWithCampaign & {
+        peerlyCvStatusChangedAt: Date
+      } =>
+        record.peerlyCvStatusChangedAt !== null &&
+        differenceInBusinessDays(now, record.peerlyCvStatusChangedAt) >
+          VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD,
+    )
+    const waitingToFinalizeToEscalate = waitingToFinalizeStalled.filter(
+      (
+        record,
+      ): record is RecordWithCampaign & {
+        peerlyProfileStatusChangedAt: Date
+      } =>
+        record.peerlyProfileStatusChangedAt !== null &&
+        differenceInBusinessDays(now, record.peerlyProfileStatusChangedAt) >
+          VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD,
+    )
+    await this.escalateInReviewStalls(inReviewToEscalate, now)
+    await this.escalateWaitingToFinalizeStalls(waitingToFinalizeToEscalate, now)
+    this.logger.info(
+      {
+        escalationDate,
+        inReview: inReviewToEscalate.length,
+        waitingToFinalize: waitingToFinalizeToEscalate.length,
+      },
+      '[10DLC vendor escalation] Escalation pass complete',
+    )
+    return true
+  }
+
   // Returns false (SQS redelivery) when the Slack post fails, so a missed
   // report retries instead of silently skipping the night.
   async handleNightlyReport({
@@ -262,6 +400,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
   }: Nightly10DlcReportMessage): Promise<boolean> {
     const now = new Date()
     const proOnly = { campaign: reportableCampaign }
+    const billingBlockScope = notActivelyBillingBlocked(now)
 
     // The report no longer polls Peerly itself — the twice-daily CV status
     // scan (cvStatusPoll.service.ts) owns every scheduled retrieve_cv and
@@ -368,11 +507,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           // An actively billing-blocked record already appears in the
           // billingBlocked section — exclude it here to avoid
           // double-counting it in the stuck total (mirrors case 3a).
-          NOT: {
-            peerlyBillingBlockedAt: {
-              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
-            },
-          },
+          AND: [billingBlockScope],
           OR: [
             {
               peerlySubmissionStartedAt: {
@@ -399,11 +534,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           // double-count it in the stuck total. Records whose block is older
           // than the cooldown are not in that section and must not be
           // excluded here.
-          NOT: {
-            peerlyBillingBlockedAt: {
-              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
-            },
-          },
+          AND: [billingBlockScope],
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },
@@ -415,50 +546,16 @@ export class Nightly10DlcReportService extends createPrismaBase(
         },
         include: { campaign: true },
       }),
-      // Case 2 (ENG-10796): CV stuck IN_REVIEW — CampaignVerify can't reach
-      // the election authority. Business-day math can't live in the Prisma
-      // where clause, so this fetches every currently-IN_REVIEW candidate and
-      // the >3-business-day floor is applied in code below.
+      // Case 2 (ENG-10796): CV stuck IN_REVIEW — fetched here only for the
+      // mirror sections; the weekday escalation job posts to the vendor.
       this.model.findMany({
-        where: {
-          ...proOnly,
-          peerlyIdentityId: { not: null },
-          // Actively billing-blocked records list under their own section
-          // only (mirrors cases 1 and 3a).
-          NOT: {
-            peerlyBillingBlockedAt: {
-              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
-            },
-          },
-          status: {
-            in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
-          },
-          peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
-          // Stamped by the same poll write that sets the status; the guard
-          // keeps never-escalatable rows out of the fetch.
-          peerlyCvStatusChangedAt: { not: null },
-        },
+        where: inReviewStallWhere(now),
         include: { campaign: true },
       }),
-      // Case 3b (ENG-10796): CV VERIFIED but the brand profile is stuck
-      // waiting_to_finalize — the CV token is attached and /approve ran, but
-      // Peerly's own finalize confirmation never landed.
+      // Case 3b (ENG-10796): profile stuck waiting_to_finalize — mirror
+      // sections only, same split as case 2.
       this.model.findMany({
-        where: {
-          ...proOnly,
-          peerlyIdentityId: { not: null },
-          NOT: {
-            peerlyBillingBlockedAt: {
-              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
-            },
-          },
-          status: {
-            in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
-          },
-          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
-          peerlyProfileStatus: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
-          peerlyProfileStatusChangedAt: { not: null },
-        },
+        where: waitingToFinalizeStallWhere(now),
         include: { campaign: true },
       }),
       // Dispatch deferred (ENG-10859): the kickoff gate leaves kickoffSentAt
@@ -798,12 +895,11 @@ export class Nightly10DlcReportService extends createPrismaBase(
       return false
     }
 
-    // Runs after the internal report posts — each stalled record pings the
-    // shared vendor channel once, not nightly (ENG-10796).
-    await this.escalateInReviewStalls(inReviewToEscalate, now)
-    await this.escalateWaitingToFinalizeStalls(waitingToFinalizeToEscalate, now)
     // Cases 1 and 3a (ENG-10966): our own engineering bugs, so they ping the
     // internal channel once instead of relisting in this report every night.
+    // The vendor escalations (cases 2/3b) do NOT run here — the weekday 11am
+    // ET job owns them, so a record detected tonight renders "escalation
+    // pending" in the mirror sections until that job next fires.
     await this.alertCvNeverReached(neverReachedCv, now)
     await this.alertProfileStalled(profileStalled, now)
 

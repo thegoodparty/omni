@@ -349,22 +349,30 @@ directly into the shared Slack Connect channel
   more than 3 business days (CV token attached, `/approve` called, waiting
   on Peerly's own finalize confirmation).
 
-Business-day math (`date-fns` `differenceInBusinessDays`, never calendar
-days — a Friday stall must not read as escalatable by Monday) can't live in
-the Prisma `where` clause, so `handleNightlyReport` fetches every
-currently-`IN_REVIEW` / currently-`waiting_to_finalize` candidate (same
-in-flight population the CV status scan polls) and applies the
-
-> 3-business-day floor in code.
+**The vendor posts fire from their own job, not the midnight report:**
+`triggerVendorEscalations` (`@Cron('0 11 * * 1-5')` ET, prod-only,
+date-keyed FIFO dedup like the report's cron) →
+`QueueType.PEERLY_VENDOR_ESCALATION` → `handleVendorEscalations`. Each
+message is prefixed `<!here>`, and that pairing is deliberate: the ping
+lands in Peerly's business hours, weekdays at 11am ET — don't move the
+posting back onto the midnight report, and don't drop the schedule while
+keeping the @here. The handler re-fetches the case-2/3b populations with
+fresh state (a record the 8am CV scan already moved must not ping) through
+`inReviewStallWhere`/`waitingToFinalizeStallWhere`, the same builders the
+report's mirror sections read, and applies the business-day floor in code
+(`date-fns` `differenceInBusinessDays`, never calendar days — a Friday
+stall must not read as escalatable by Monday; the math can't live in a
+Prisma `where` clause).
 
 **Once-only per stall**, mirroring the `pinSentDetectedAt` claim/rollback
 pattern: an atomic `updateMany WHERE cvInReviewEscalatedAt IS NULL` (resp.
 `finalizeStalledEscalatedAt`) claims the record _before_ the Slack post; only
 a claim count of 1 posts. `SlackService.message` swallows delivery errors
 and resolves `undefined` — a failed post rolls the claim back (scoped to the
-exact timestamp written) so the next nightly run retries. Escalation runs
-_after_ the internal report posts, so a first-night detection can render as
-"escalation pending" in the mirror section before the claim lands.
+exact timestamp written) so the next weekday run retries; the handler always
+acks its SQS message. A record the midnight report detects renders
+"escalation pending" in the mirror section until the next weekday 11am run
+claims it.
 
 **Reset on progress:** the CV status scan's persist writes
 (`CvStatusPollService`) that advance `peerlyCvStatus`/`peerlyProfileStatus`
@@ -379,11 +387,17 @@ identity ID, committee name, which state it's stuck in, and since-when
 (date + business-day count) — never the candidate's email/phone, no
 internal campaign IDs, no gp-admin links.
 
-**Direct ping to the Peerly contact (ENG-10967).** Both messages are prefixed
-with `<@SLACK_PEERLY_CONTACT_MEMBER_ID>` when that env var is set
-(`peerlyContactMention()`); unset (dev/preview, where the real contact's
-member ID isn't configured) it renders as before — no mention, no crash.
-Never hardcode a real person's Slack member ID; env var only.
+**The shared channel posts via the Web API, not a webhook.** It is a Slack
+Connect channel owned by Peerly, and an incoming webhook cannot be created
+for a Connect channel we don't own — which is how the first-ever escalations
+(2026-09-26) landed in `bot-10dlc-compliance`: the shared channel's env vars
+had been seeded with the internal channel's webhook. `SlackService.message`
+routes any channel configured with `apiChannelId` through
+`chat.postMessage`; `SLACK_SHARED_PEERLY_10DLC_CHANNEL_ID` must hold the
+real channel ID (`C…`, not a webhook `B…` id), and the **goodparty** app
+(the `SLACK_APP_BOT_TOKEN` bot) must be a member of the shared channel or
+the post fails `not_in_channel` — which resolves undefined, so the
+escalation claim rolls back and retries the next night.
 
 **Internal mirror:** two more report sections ("Escalated to Peerly: CV
 IN_REVIEW >3 business days" / "... waiting_to_finalize >3 business days")

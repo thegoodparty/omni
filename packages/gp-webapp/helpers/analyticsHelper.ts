@@ -666,6 +666,10 @@ export const EVENTS = {
     // point (useOutreachAudience.ts).
     RecommendedList: {
       Accepted: 'Voter Outreach - Recommended List Accepted',
+      // The save that Accepted reports on can fail. Without the twin, the
+      // accept count is a success count with no denominator, so a rise in
+      // failures reads as a fall in interest.
+      Failed: 'Voter Outreach - Recommended List Failed',
     },
     // outreach-pro-gating-v2: the saved draft a gated candidate keeps.
     // Every event carries `channel` (the gate's `GateChannel`); `Resumed`

@@ -185,16 +185,22 @@ every six weeks. Five ended up with no callers at all and nobody noticed, and a
 large JSON blob in a PR diff looks like every other collapsed blob, so there was
 never a moment where the question got asked.
 
-**Empty states are where this kept going wrong.** Use the standard pattern
-rather than inventing one: a `Card` with one centered, muted sentence, and the
-CTA below it.
+**Empty states are where this kept going wrong.** Use the `EmptyState`
+component rather than inventing one — it is the pattern that kept being
+hand-rolled (a `Card` with one centred, muted sentence) with the title and CTA
+that were always meant to sit with it made part of it.
 
 ```tsx
-<Card className="w-full p-6 text-center text-sm text-muted-foreground">
-  No door knocking scripts yet. Create one to start collecting answers at the
-  door.
-</Card>
+<EmptyState
+  title="No scripts yet"
+  message="Create one to start collecting answers at the door."
+  action={<Button onClick={create}>Create script</Button>}
+/>
 ```
+
+Both `title` and `action` are optional. An archive with nothing in it has no
+button that would help, and a one-line row in a table has no room for a
+heading, so neither slot is one every caller fills.
 
 Copy follows `docs/product-copy.md` rule 8: what happened, then what to do, in
 that order. `OutreachHistoryTable` is the reference implementation.

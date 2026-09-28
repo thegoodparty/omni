@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { geoapifyStaticUrl } from './geoapifyStaticUrl'
 import { DraftCounts } from './draftCounts'
 import { TurfCard } from './TurfCard'
@@ -14,17 +13,13 @@ interface DrawStepProps {
   // The turfs cut so far, newest last, one card each.
   drafts: TurfDraft[]
   draftStats: Map<string, PolygonStats>
-  // The roster, so an open card can offer the canvasser control the
-  // panel's cards offer. It replaced a precomputed label map: the card
-  // now needs the whole list to populate its menu, not just the name of
-  // whoever is already assigned.
+  // The roster, so a card can print WHO walks the turf beside its count.
+  // Only the name: setting the canvasser belongs to the drawing surface.
   team: TeamOption[]
   // Takes the pressed rectangle, which is what the map animates out of.
   onOpenFullScreen: (origin: DOMRect) => void
   onEditDraft: (clientId: string, origin: DOMRect) => void
   onRemoveDraft: (clientId: string) => void
-  onPickColor: (clientId: string, color: string) => void
-  onAssign: (clientId: string, assigneeId: number | null) => void
 }
 
 // The draw step body inside OutreachFlowShell. The shell provides header
@@ -55,13 +50,7 @@ export const DrawStep = ({
   onOpenFullScreen,
   onEditDraft,
   onRemoveDraft,
-  onPickColor,
-  onAssign,
 }: DrawStepProps) => {
-  // Which card is open. Local disclosure, unlike the panel's, where being
-  // open means "this is the turf under the cursor on the canvas" — there is
-  // no canvas here, so the only thing a card can be is expanded or not.
-  const [openId, setOpenId] = useState<string | null>(null)
   // Singular after the first: the press cuts ONE turf, and "more" invited a
   // candidate to expect the next screen to take several at once.
   const label = drafts.length > 0 ? 'Draw another turf' : 'Draw turfs'
@@ -122,19 +111,21 @@ export const DrawStep = ({
       </button>
       {drafts.length > 0 && (
         <div className="flex flex-col gap-2">
-          {/* The same card the drawing surface's panel draws, opening onto
-              the same colour and canvasser controls. Changing either used
-              to mean reopening the map — a whole surface for a two-tap
-              change — and the two lists of the same turfs looked nothing
-              alike. The pencil is what still goes to the map, because the
-              boundary is the one thing that can only be edited there. */}
+          {/* The same card the drawing surface's panel draws, but never
+              open. A turf's name, colour and canvasser are all set while
+              it is being cut, on the surface cutting it, and a second
+              place to set them is a second place for the two to disagree
+              about what a turf is. So these cards read: what it is
+              called, who walks it, what it is worth, and a menu with the
+              only two things left to do. Edit is the way back to the map,
+              because the boundary can only be changed there. */}
           {drafts.map((draft) => (
             <TurfCard
               key={draft.clientId}
               name={draft.name}
               color={draft.color}
               assigneeId={draft.assigneeId}
-              selected={draft.clientId === openId}
+              selected={false}
               counts={
                 isDrawnTurf(draft) ? (
                   <DraftCounts stats={draftStats.get(draft.clientId) ?? null} />
@@ -143,15 +134,8 @@ export const DrawStep = ({
                 )
               }
               team={team}
-              onSelect={() =>
-                setOpenId((current) =>
-                  current === draft.clientId ? null : draft.clientId,
-                )
-              }
               onEdit={(origin) => onEditDraft(draft.clientId, origin)}
               onRemove={() => onRemoveDraft(draft.clientId)}
-              onPickColor={(color) => onPickColor(draft.clientId, color)}
-              onAssign={(assigneeId) => onAssign(draft.clientId, assigneeId)}
             />
           ))}
         </div>

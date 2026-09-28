@@ -1,7 +1,7 @@
 {
   "job_name": "amplitude_event_provenance_backfill",
-  "last_processed_sha": "2c0b01167f8c3f36083268e39d5b1df8ae6c32f2",
+  "last_processed_sha": "3c95cfa8c5b1b86dbcdfa75839bd230d79b0d89a",
   "head_ref": "origin/main",
-  "commit_count": 12806,
-  "last_run_at": "2026-09-21T11:07:29"
+  "commit_count": 13153,
+  "last_run_at": "2026-09-28T11:07:52"
 }

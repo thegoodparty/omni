@@ -248,10 +248,41 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
  *   `organizations` has NO counted 4xx at all — its 76 firings are Clerk 502s.
  *   Adding it would change nothing today while telling the next reader its 4xx
  *   had been reviewed and found deliberate.
+ *
+ * `campaigns/tcr-compliance` was measured over 30 days of prod logs to
+ * 2026-09-27. Its entire counted 4xx vocabulary is one response:
+ *
+ *    31  422 "Invalid PIN" on POST /:id/submit-cv-pin
+ *
+ * against 19 successful submissions in the same window — a ~40% standing rate,
+ * because it is what the route answers when a candidate mistypes the 6-digit
+ * Campaign Verify PIN. It is thrown only after the code has confirmed Peerly's
+ * CV status is APPROVED, so a PIN provably existed and the digits provably did
+ * not match; a PIN that was never issued answers 409 instead
+ * (CampaignVerifyPinNotIssuedException), precisely so the FE can distinguish
+ * the two (ENG-10866). There is no fault to report either way.
+ *
+ * Spread across ~25 separate 10-minute windows, that was paging win-bugs about
+ * twice a week for people typing a wrong number. Two of the four users in the
+ * 2026-09-25 firing retried and got a 200 minutes later, which is the whole
+ * argument: verify_pin accepts a correct PIN, so the integration is healthy and
+ * the page carried no action.
+ *
+ * What this keeps, from the same 30 days: 96 × 502 on POST /submit-to-peerly,
+ * 2 × 502 on POST /admin/:campaignId/resend-cv-pin, and 1 × 500 on GET /mine.
+ * The 502s are a real Peerly-side failure mode and by far the most valuable
+ * signal this controller has, so the entry is only defensible because it leaves
+ * them counted.
+ *
+ * The 422s this drops are not the controller's only designed 422 — the
+ * submit-to-peerly stage gate and the resend-PIN preconditions raise one too —
+ * and none of them is a fault. The cost is the usual one: a genuine bug here
+ * that surfaces as a 4xx now reaches us through the logs rather than a page.
  */
 export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'door-knocking',
   'contacts',
+  'campaigns/tcr-compliance',
 ]
 
 /**

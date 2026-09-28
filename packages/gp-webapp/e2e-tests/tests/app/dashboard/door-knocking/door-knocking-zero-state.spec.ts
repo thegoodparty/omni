@@ -56,8 +56,10 @@ test.describe('native door-knocking zero state', () => {
     // stepper always exposes (plus an aria-valuetext for screen readers).
     const stepper = page.getByRole('progressbar', { name: 'Progress' })
     await expect(stepper).toHaveAttribute('aria-valuenow', '1')
-    // Six since the talking-points step landed between confirm and route.
-    await expect(stepper).toHaveAttribute('aria-valuemax', '6')
+    // Five since the route step went: the route is bought at the first
+    // knock now, so drawing the turfs is the last counted step and the
+    // success screen sits outside the count with no stepper at all.
+    await expect(stepper).toHaveAttribute('aria-valuemax', '5')
 
     // And the rail's own Create list is not the way in any more — the design
     // disables the empty state's card and lets the flow open instead.

@@ -10,7 +10,7 @@ import {
   SlackMessageType,
   VanitySlackMethodArgs,
 } from '../slackService.types'
-import { WebClient } from '@slack/web-api'
+import { Block, WebClient } from '@slack/web-api'
 import { serializeError } from 'serialize-error'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -42,7 +42,8 @@ export class SlackService {
     // Slack channel config indexed by enum — Record index signature returns string | undefined
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const channelConfig = SLACK_CHANNEL_IDS[channel] as
-      | { channelId: string; channelToken: string }
+      | { channelId: string; channelToken: string; apiChannelId?: never }
+      | { apiChannelId: string | undefined; channelId?: never }
       | undefined
     if (!channelConfig) {
       throw new InternalServerErrorException(
@@ -54,10 +55,11 @@ export class SlackService {
   }
 
   async message(message: SlackMessage, channel: SlackChannel) {
-    const { channelId, channelToken } = this.getChannelConfig(channel) as {
-      channelId: string
-      channelToken: string
+    const channelConfig = this.getChannelConfig(channel)
+    if ('apiChannelId' in channelConfig) {
+      return this.postViaWebApi(message, channelConfig.apiChannelId, channel)
     }
+    const { channelId, channelToken } = channelConfig
 
     try {
       const { data } = (await lastValueFrom(
@@ -72,6 +74,42 @@ export class SlackService {
         ),
       )) as { data: string }
       return data
+    } catch (e: unknown) {
+      this.logger.warn({
+        msg: 'Failed to send slack message',
+        channel,
+        err: serializeError(e),
+      })
+      return undefined
+    }
+  }
+
+  // Same failure contract as the webhook path: resolve undefined instead of
+  // throwing, so callers' once-only claims (e.g. the nightly report's vendor
+  // escalations) roll back and retry the next night.
+  private async postViaWebApi(
+    message: SlackMessage,
+    apiChannelId: string | undefined,
+    channel: SlackChannel,
+  ): Promise<string | undefined> {
+    if (!apiChannelId) {
+      this.logger.warn({
+        msg: 'Slack API channel ID not configured',
+        channel,
+      })
+      return undefined
+    }
+    try {
+      await this.client.chat.postMessage(
+        message.blocks
+          ? {
+              channel: apiChannelId,
+              text: message.text ?? '',
+              blocks: message.blocks as Block[],
+            }
+          : { channel: apiChannelId, text: message.text ?? '' },
+      )
+      return 'ok'
     } catch (e: unknown) {
       this.logger.warn({
         msg: 'Failed to send slack message',

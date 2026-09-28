@@ -21,7 +21,7 @@ runs and for the stage-2 code investigation, which is agent work the schedule ca
   `thegoodparty/gp-data-platform`, in 1Password under `Product-Analytics` / "GP Data
   Platform Read Token". `sem_anchors.py` uses it to read that repo's `sem_*.yml` over the
   GitHub API — the semantic layer this monitor derives its OKR watch set from. Without
-  it, every OKR dormancy check (the latch, the path-qualified legs, the registry
+  it, every OKR dormancy check (the latch, the qualified legs, the registry
   alignment check) disables itself for the run, and the digest says so with a red "OKR
   dormancy checks degraded" line rather than failing. A laptop run without the token
   now reads the sem files through the reviewer's own `gh` auth first, so it degrades
@@ -299,6 +299,21 @@ DATA-2174 happened). An event is OKR-anchored when the governed metric declares 
 in gp-data-platform's `sem_*.yml`. Nothing in this repo declares it. The red-persistence
 rule and the rules-tier judge key off the `okr` field the monitor derives from that
 declaration each run.
+
+A declared leg can be **narrower than its event**, and then it is watched as its own
+series under a qualified key rather than as the whole event:
+
+- `path:` — one page-path slice of a site-wide event, `Viewed[path=/dashboard]`.
+- `excluding:` — one event minus the property values the metric does not count,
+  `Voter Outreach - Campaign Completed[excluding method=manual]`.
+
+Either way the whole event keeps its own catalog row and its own weekly series; the
+qualified key is an additional series, and only it carries the `okr` marker. This matters
+because a whole-event watch reads healthy off traffic the metric never counted: the shared
+outreach terminal kept its counts up on the self-report path after the in-product send
+stopped firing on 2026-09-08, so watching the event would have said nothing. Qualified
+legs have no Amplitude catalog record, so they are judged from their own weekly rows and,
+when latched, appear in the digest as a synthesized `okr_anchor_dormant` row.
 
 The `<!here>` mention on a red section can be overridden with `SLACK_EVENT_ALERT_MENTION`
 (e.g. a subteam handle) so paging doesn't always go to the whole channel. The post happens
