@@ -26,7 +26,10 @@ export interface FilterResult {
 }
 
 interface ActiveDim {
-  plane: Uint8Array
+  // Wide only for precinct. The mask is indexed BY the plane's value, so the
+  // inner loop (`mask[plane[i]]`) is identical either way and no second loop
+  // is needed for the wide case.
+  plane: Uint8Array | Uint16Array
   mask: Uint8Array
 }
 

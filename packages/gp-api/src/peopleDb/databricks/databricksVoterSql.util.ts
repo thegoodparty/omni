@@ -1118,6 +1118,11 @@ export const PACK_CSV_COLUMNS = [
   'Estimated_Income_Amount_Int',
   'Language_Code',
   'EthnicGroups_EthnicGroup1Desc',
+  // The precinct dim's two halves. A precinct number is unique only inside
+  // its county, so the pair is the identity and the encoder joins them with
+  // `encodePrecinctPair` — the same representation the saved filter stores.
+  'County',
+  'Precinct',
   'registered',
   'hasCellPhone',
   'hasLandline',
@@ -1143,6 +1148,8 @@ export const buildPackSql = (args: { district: DbxDistrict }): DbxStatement => {
     'Estimated_Income_Amount_Int',
     'Language_Code',
     'EthnicGroups_EthnicGroup1Desc',
+    'County',
+    'Precinct',
   ]
     // Read back as CSV, where the Statement Execution API renders a SQL NULL
     // as the literal text `null`. Coalescing to '' here makes the empty case
