@@ -55,3 +55,23 @@ def test_build_reverse_index_maps_importers():
     ex = _exists(set(texts))
     idx = ti.build_reverse_index(texts, ex)
     assert idx["app/Child.tsx"] == ["app/Other.tsx", "app/Parent.tsx"]
+
+
+def test_combined_default_and_named_import_binds_both():
+    # `import Default, { useHook }` — without the optional default arm in _NAMED_IMPORT_RE
+    # the default pattern swallows the statement and useHook is lost, so a surface whose
+    # handler lives in that hook reads as uninstrumented and false-alarms.
+    pairs = ti.parse_relative_imports("import Default, { useHook } from './x'\n")
+    assert ("useHook", "./x") in pairs
+    assert ("Default", "./x") in pairs
+
+
+def test_blank_noncode_handles_a_nested_template_literal():
+    # Nested backticks inside `${...}`. The scan alternates delimiters rather than tracking
+    # interpolation depth, so this pins that no brace escapes blanking regardless.
+    text = "const a = `outer ${ `inner` } end`\nconst B = () => { q() }\n"
+    code = __import__("ts_scopes").blank_noncode(text)
+    template = code[code.index("`"): code.rindex("`") + 1]
+    assert "{" not in template and "}" not in template
+    # the real component block after it is still found intact
+    assert len(__import__("ts_scopes").brace_pairs(code)) == 1

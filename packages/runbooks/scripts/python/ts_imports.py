@@ -15,8 +15,12 @@ import posixpath
 import re
 from collections.abc import Callable, Mapping
 
+# The `(?:\w+\s*,\s*)?` arm matters: in `import Default, { useHook } from './x'` the named
+# block does not follow `import` directly, and without it _DEFAULT_IMPORT_RE swallows the
+# whole statement and `useHook` is never returned — so a surface whose handler lives in a
+# hook imported that way reads as uninstrumented and false-alarms.
 _NAMED_IMPORT_RE = re.compile(
-    r"""import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"](\.[^'"]+)['"]"""
+    r"""import\s+(?:type\s+)?(?:\w+\s*,\s*)?\{([^}]*)\}\s*from\s*['"](\.[^'"]+)['"]"""
 )
 _DEFAULT_IMPORT_RE = re.compile(
     r"""import\s+(?:type\s+)?(\w+)\s*(?:,\s*\{[^}]*\})?\s*from\s*['"](\.[^'"]+)['"]"""
