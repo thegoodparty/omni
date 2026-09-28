@@ -26,6 +26,24 @@ export const CONTACTS_MADE_BUCKETS = ['0', '1', '2', '3', '4', '5+'] as const
 // the wrong answer for the one bucket candidates select most.
 export const PACK_CONTACTS_MADE_MAX = 100_000
 
+// The precinct dim, whose vocabulary is the district's own `county|precinct`
+// pairs as `encodePrecinctPair` writes them — the same strings
+// `VoterFileFilter.precincts` stores, so the map and the saved list compare
+// one representation and no translation table can drift between them. Byte 0
+// is the no-data slot every other dim uses; a voter with no precinct on file
+// is NOT that, they are a real selectable bucket whose precinct side is
+// empty, exactly as the picker offers it.
+export const PRECINCT_DIM_KEY = 'precinct'
+
+// The most precincts the pack will shade. Deliberately MAX_PRECINCT_FILTER_VALUES,
+// the number the picker itself is capped to, so the rule is "if the picker can
+// offer it, the map can shade it" and the two cannot drift in the direction
+// that strands a selection nothing narrows by. Past it the plane is OMITTED
+// rather than truncated, the way the contacts-made plane is: a truncated
+// plane reads those people as some other precinct, which is a wrong answer
+// where an absent plane is an honest "cannot shade this" the create flow
+// already knows how to say.
+
 // The exploration-map "pack": one binary buffer, built per request and
 // streamed people-api → gp-api → browser, never stored. Wire framing:
 //
@@ -134,11 +152,19 @@ export const PACK_CORE_ARRAYS = {
   householdToDot: 'householdToDot',
 } as const
 
+// The widest a dim's plane may be. Every dim was u8 until precinct, whose
+// vocabulary is per-district and runs past 256 pairs on a state-level race —
+// see PRECINCT_DIM_KEY below. The plane's width is declared on the dim's
+// entry in `arrays`, and `superRefine` holds `values.length` to whatever that
+// width can index.
+export const PACK_DIM_WIDTHS = { u8: 256, u16: 65_536 } as const
+
 export const DoorKnockingPackDimSchema = z.object({
   key: z.string().min(1),
-  // The dim's byte plane (array named `dim:<key>`, u8, one byte per person)
-  // holds indexes into this list.
-  values: z.array(z.string().min(1)).min(1).max(256),
+  // The dim's plane (array named `dim:<key>`, one ELEMENT per person) holds
+  // indexes into this list. u8 unless the vocabulary needs more than 256
+  // entries, which only precinct does.
+  values: z.array(z.string().min(1)).min(1).max(PACK_DIM_WIDTHS.u16),
 })
 
 export type DoorKnockingPackDim = z.infer<typeof DoorKnockingPackDimSchema>
@@ -178,6 +204,10 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 //       "no data" as it does in every other dim.
 //   4 — the ethnicity dim was dropped when ethnicity subsetting was removed
 //       from both products (#1933).
+//   6 — the precinct dim, on the format's first non-u8 plane. Precinct is the
+//       only thing a door list is commonly cut by that the pack could not
+//       shade, so a precinct-cut list previewed as the whole district and
+//       every count on the way to the boundary was the district's.
 //   5 — the ethnicity dim is back, because that removal was correct for Serve
 //       and wrong for Win, and Win's create-flow preview shades on it. The
 //       counter does not rewind to 3: a revision-4 buffer carries no
@@ -194,7 +224,7 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 // finds nothing for `languageUnknown`, which is the old pack honestly having
 // no such bucket. Bumping `version` would instead make every tab open across
 // the deploy reject the pack outright, which this change does not warrant.
-export const PACK_FORMAT_REVISION = 5
+export const PACK_FORMAT_REVISION = 6
 
 export const DoorKnockingPackManifestSchema = z
   .object({
@@ -231,11 +261,23 @@ export const DoorKnockingPackManifestSchema = z
     }
     for (const dim of manifest.dims) {
       const plane = byName.get(`dim:${dim.key}`)
-      if (!plane || plane.type !== 'u8') {
+      if (!plane || (plane.type !== 'u8' && plane.type !== 'u16')) {
         ctx.addIssue({
           path: ['dims'],
           code: z.ZodIssueCode.custom,
-          message: `dim "${dim.key}" needs a u8 array named "dim:${dim.key}"`,
+          message:
+            `dim "${dim.key}" needs a u8 or u16 array named ` +
+            `"dim:${dim.key}"`,
+        })
+      } else if (dim.values.length > PACK_DIM_WIDTHS[plane.type]) {
+        // A plane too narrow to index its own vocabulary would silently read
+        // the overflow as some OTHER value, which is worse than no plane.
+        ctx.addIssue({
+          path: ['dims'],
+          code: z.ZodIssueCode.custom,
+          message:
+            `dim "${dim.key}" has ${dim.values.length} values, more than a ` +
+            `${plane.type} plane can index`,
         })
       } else if (plane.elementCount !== manifest.counts.people) {
         ctx.addIssue({

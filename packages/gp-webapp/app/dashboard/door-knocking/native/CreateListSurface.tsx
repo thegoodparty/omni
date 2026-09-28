@@ -277,6 +277,11 @@ export interface CreateListSurfaceProps {
   // Owned by the orchestrator alongside `filters` — the address preview
   // assembled below is what needs them, and the query is the page's.
   precincts: string[]
+  // The precinct values in effect once a picked list's clause and an accepted
+  // recommendation's are folded in with the hand-cut selection above.
+  // Reported up because the MAP reads it and the canvas outlives this
+  // surface, which is the same rule `ring` and the draw tokens follow.
+  onEffectivePrecinctsChange: (precincts: string[]) => void
   onPrecinctsChange: (value: string[]) => void
   precinctOptions: PrecinctOptionsResult
   // Draft selections the pack can't shade, computed by the orchestrator
@@ -323,6 +328,9 @@ export interface CreateListSurfaceProps {
   onRecommendedPreselectApplied?: () => void
 }
 
+// Stable identity, so the page's effect does not refire every render.
+const NO_PRECINCTS: string[] = []
+
 export default function CreateListSurface({
   step,
   filters,
@@ -343,6 +351,7 @@ export default function CreateListSurface({
   isServeOrg,
   precincts,
   onPrecinctsChange,
+  onEffectivePrecinctsChange,
   precinctOptions,
   unpreviewableKeys,
   orgSlug,
@@ -450,6 +459,17 @@ export default function CreateListSurface({
     }),
     [filters, selectedList, precincts, recommendedCriteria],
   )
+  // Read back OFF the merged request rather than reassembled from the same
+  // three sources, so the map cannot come to shade a different precinct set
+  // than the one the preview and the create are asked about. Stable
+  // reference on the empty case, because the page holds this in state.
+  const effectivePrecincts = useMemo(
+    () => previewFilters.precincts ?? NO_PRECINCTS,
+    [previewFilters],
+  )
+  useEffect(() => {
+    onEffectivePrecinctsChange(effectivePrecincts)
+  }, [effectivePrecincts, onEffectivePrecinctsChange])
   // Does this audience keep anybody? Asked of the same filter payload the
   // preview sends, and asked HERE rather than beside the picker because this
   // is where that payload is assembled — a list's support-status and activity

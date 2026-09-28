@@ -343,3 +343,49 @@ describe('unpreviewableDisclosureSentence', () => {
     )
   })
 })
+
+describe('precinct', () => {
+  // The one dim whose vocabulary is the district's own data rather than a
+  // closed enum, so the selection's values ARE the bucket names.
+  const withPrecinct = {
+    ...manifest,
+    dims: [
+      ...manifest.dims,
+      {
+        key: 'precinct',
+        values: ['Unknown', 'Brevard|300', 'Brevard|301', 'Orange|300'],
+      },
+    ],
+  } as typeof manifest
+
+  it('narrows by the pairs the list was cut to', () => {
+    const selections = filtersToDimSelections({}, withPrecinct, [
+      'Brevard|300',
+      'Orange|300',
+    ])
+
+    expect(selections.get('precinct')).toEqual(new Set([1, 3]))
+  })
+
+  it('adds no entry when this pack carries no precinct plane', () => {
+    // A district past the picker's ceiling gets no plane. "We can't express
+    // this" has to mean "don't constrain" — an empty set would allow
+    // nothing and shade an empty map, which is a confidently wrong answer
+    // where the disclosure is an honest one.
+    const selections = filtersToDimSelections({}, manifest, ['Brevard|300'])
+
+    expect(selections.has('precinct')).toBe(false)
+  })
+
+  it('stops disclosing precinct once the pack can shade it', () => {
+    // The disclosure is a property of the pack in hand, not a fixed list:
+    // the same selection is honest on a pack with the plane and misleading
+    // on one without.
+    expect(unpreviewableFilterKeys({ precincts: true }, manifest)).toContain(
+      'precincts',
+    )
+    expect(
+      unpreviewableFilterKeys({ precincts: true }, withPrecinct),
+    ).not.toContain('precincts')
+  })
+})

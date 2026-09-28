@@ -34,7 +34,11 @@ export interface DecodedPack {
   personToHousehold: Uint32Array
   householdToDot: Uint32Array
   // One u8 plane per manifest dim, keyed by dim key.
-  dimPlanes: Map<string, Uint8Array>
+  // u8 for every dim but precinct, whose vocabulary is the district's own
+  // pairs and can run past 256 on a state-level race. Read through the
+  // manifest's declared type rather than assumed — a u16 plane mounted as
+  // u8 reads every index as its low byte, which is wrong quietly.
+  dimPlanes: Map<string, Uint8Array | Uint16Array>
   // Doors logged since this pack was built, folded in by `recordLoggedKnocks`
   // and applied by `applyLoggedKnocks`. Never set by the decoder: a pack that
   // has just arrived already carries these statuses in its `canvassStatus`
@@ -110,12 +114,15 @@ export const decodePack = (buffer: ArrayBuffer): DecodedPack => {
   const personMeta = required('personToHousehold')
   const householdMeta = required('householdToDot')
 
-  const dimPlanes = new Map<string, Uint8Array>()
+  const dimPlanes = new Map<string, Uint8Array | Uint16Array>()
   for (const dim of manifest.dims) {
     const plane = required(`dim:${dim.key}`)
+    const at = packStart + plane.byteOffset
     dimPlanes.set(
       dim.key,
-      new Uint8Array(buffer, packStart + plane.byteOffset, plane.elementCount),
+      plane.type === 'u16'
+        ? new Uint16Array(buffer, at, plane.elementCount)
+        : new Uint8Array(buffer, at, plane.elementCount),
     )
   }
 

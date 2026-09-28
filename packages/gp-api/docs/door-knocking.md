@@ -931,11 +931,24 @@ the empty-audience one: the audience resolved to real people and then none
 of them were inside the drawn shape.
 
 That points at the client/server disagreement rather than at the warehouse.
-The pack cannot express `supportStatus`, `activityConditions` or
-`precincts` (`UNSHADEABLE_LIST_CRITERIA`), so the map shades people the
-server excludes, and the candidate draws over dots that really are there.
+The pack could not express `supportStatus`, `activityConditions` or
+`precincts` (`UNSHADEABLE_LIST_CRITERIA`), so the map shaded people the
+server excludes, and the candidate drew over dots that really are there.
 One user hit this six times in 62 seconds — redrawing the boundary, which
 is what the message asks for and what cannot help.
+
+**Precinct is fixed** (format revision 6): the pack carries a `precinct`
+dim keyed on `encodePrecinctPair`'s `county|precinct`, the same strings
+`VoterFileFilter.precincts` stores. It is the format's first non-u8 plane,
+because a precinct vocabulary is the district's own rather than a closed
+enum and a state-level race runs past 256 pairs; it accumulates as u16 and
+narrows back to u8 when the district fits, which p75 (13-15 pairs) always
+does. Past `MAX_PRECINCT_FILTER_VALUES` the plane is omitted rather than
+truncated, so the disclosure returns rather than the map shading
+confidently wrong. **`supportStatus` and `activityConditions` remain
+unshadeable** and are a different problem: both are org-scoped Postgres id
+sets rather than district facts, so they cannot live in a district-cached
+artifact at all.
 
 **Where the slow reads actually are**, from the same window, max `dbxMs` by
 op: `dk-evaluate` 5.0s, `dk-residents` 13.4s, `list` 26.3s, **`dk-pack`
