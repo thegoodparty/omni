@@ -187,7 +187,7 @@ export default async function Page({ params }: PageProps) {
                 <DataList.Label>Audience</DataList.Label>
                 <DataList.Value>
                   {(
-                    item.billableTextCount ?? item.textCount
+                    item.textCount ?? item.billableTextCount
                   )?.toLocaleString() ?? '—'}{' '}
                   {item.paid ? '(paid)' : '(free texts)'}
                 </DataList.Value>
