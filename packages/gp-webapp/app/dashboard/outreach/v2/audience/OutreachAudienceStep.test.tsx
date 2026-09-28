@@ -157,6 +157,37 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
     expect(props.onSelectUniverse).not.toHaveBeenCalled()
   })
 
+  // The universe has its own row, so an org whose ONLY saved list is the
+  // universe list has no ordinary rows — and still owes the empty-state line
+  // rather than a silent gap under "Create a new list".
+  it('still says there are no saved lists when only the universe exists', async () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        lists={[{ id: 77, name: 'All voters' } as never]}
+      />,
+    )
+    await openPicker()
+
+    expect(await screen.findByText('No saved lists yet.')).toBeVisible()
+  })
+
+  it('says nothing of the sort once a real list exists', async () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        lists={[
+          { id: 77, name: 'All voters' } as never,
+          { id: 78, name: 'Ward 3' } as never,
+        ]}
+      />,
+    )
+    await openPicker()
+
+    await screen.findByText('Ward 3')
+    expect(screen.queryByText('No saved lists yet.')).toBeNull()
+  })
+
   // It is rendered as its own row at the top, so leaving it in the ordinary
   // rows too would read as two different audiences.
   it('does not also list it among the saved lists', async () => {

@@ -228,6 +228,11 @@ export const OutreachAudienceStep = ({
   const universeResolved = universeList !== null
   const universeListId = universeList?.id ?? 0
   const universeSelected = universeResolved && universeList.id === selectedId
+  // Derived once and read by BOTH the empty state and the rows below, so the
+  // two cannot disagree: the universe has its own row at the top, so an org
+  // whose only saved list IS the universe list has no ordinary rows to show
+  // and does still owe the empty-state line.
+  const otherLists = lists.filter((list) => list.name !== universeName)
   // The three nouns this step states itself, rather than reading from `copy`:
   // a surface's OutreachAudienceCopy covers the titles and bodies, but these
   // sit inside shared controls. Serve never says "voter", so they key off the
@@ -576,37 +581,35 @@ export const OutreachAudienceStep = ({
                   </span>
                 </span>
               </button>
-              {lists.length === 0 && !listsLoading && (
+              {otherLists.length === 0 && !listsLoading && (
                 <p className="p-4 text-sm text-muted-foreground">
                   No saved lists yet.
                 </p>
               )}
-              {lists
-                .filter((list) => list.name !== universeName)
-                .map((list) => {
-                  const on = list.id === selectedId
-                  return (
-                    <button
-                      key={list.id}
-                      type="button"
-                      onClick={() => {
-                        onSelect(list.id)
-                        setOpen(false)
-                      }}
-                      className={cn(
-                        'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
-                        on && 'bg-muted',
-                      )}
-                    >
-                      <span className="block min-w-0 truncate font-medium text-foreground">
-                        {list.name ?? `List ${list.id}`}
-                      </span>
-                      {on && (
-                        <CheckIcon className="size-5 shrink-0 text-primary" />
-                      )}
-                    </button>
-                  )
-                })}
+              {otherLists.map((list) => {
+                const on = list.id === selectedId
+                return (
+                  <button
+                    key={list.id}
+                    type="button"
+                    onClick={() => {
+                      onSelect(list.id)
+                      setOpen(false)
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted',
+                      on && 'bg-muted',
+                    )}
+                  >
+                    <span className="block min-w-0 truncate font-medium text-foreground">
+                      {list.name ?? `List ${list.id}`}
+                    </span>
+                    {on && (
+                      <CheckIcon className="size-5 shrink-0 text-primary" />
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </PopoverContent>
         </Popover>
