@@ -58,25 +58,3 @@ describe('the alert filter webhook address', () => {
     expect(Object.keys(ALERT_FILTER_WEBHOOK_URLS)).toEqual(['prod'])
   })
 })
-
-describe('the recording rule window', () => {
-  /**
-   * Grafana parses the expression blob into a struct whose `relative_time_range`
-   * fields are seconds-as-int. A duration string lands as 0, which collapses
-   * the window onto `now` — and because the window no longer overlaps the way
-   * the old ten-minute one did, every log line that arrived late is dropped
-   * permanently rather than caught on the next pass. It fails silently: the
-   * rule saves, records, and is simply short.
-   *
-   * Asserted against the source because the blob is built inside the component
-   * and there is nothing to import.
-   */
-  it('passes seconds as integers, not duration strings', () => {
-    const source = readFileSync(join(__dirname, 'grafana.ts'), 'utf8')
-
-    const block = /relative_time_range:\s*\{([^}]*)\}/.exec(source)
-
-    expect(block, 'no relative_time_range found in grafana.ts').not.toBeNull()
-    expect(block?.[1]).not.toMatch(/`/)
-  })
-})

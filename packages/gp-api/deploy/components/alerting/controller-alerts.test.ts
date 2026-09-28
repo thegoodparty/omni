@@ -12,13 +12,7 @@ import {
   SERVER_ERRORS_ONLY,
 } from '../alerts'
 import { buildAlertDescription } from './alert-notification'
-import {
-  ANY_ERROR_METRIC,
-  ROUTE_RECORDING_RULES,
-  SERVER_ERROR_METRIC,
-  controllerAlerts,
-  promEndpointPattern,
-} from './controller-alerts'
+import { controllerAlerts } from './controller-alerts'
 
 /**
  * The single alert a controller now produces. Asserting the count here rather
@@ -92,54 +86,6 @@ const promisedSeconds = (message: string) => {
   return toSeconds(amount, unit)
 }
 
-/**
- * The recording rule that writes a metric.
- *
- * The status vocabulary now lives on the two Loki reads rather than on the 74
- * alerts, so every assertion about WHICH statuses count has to find its rule.
- * Looked up by metric rather than by index so the pairing being asserted is
- * the one the alerts actually resolve, not whichever rule happens to be first.
- */
-const ruleWriting = (metric: string) => {
-  const rule = ROUTE_RECORDING_RULES.find((one) => one.metric === metric)
-  if (!rule) {
-    throw new Error(`no recording rule writes ${metric}`)
-  }
-  return rule
-}
-
-const anyErrorRule = ruleWriting(ANY_ERROR_METRIC)
-const serverErrorRule = ruleWriting(SERVER_ERROR_METRIC)
-
-/** The recorded metric a generated alert reads. */
-const selectedMetric = (expr: string) => {
-  const [, metric] =
-    /sum_over_time\(([a-zA-Z_:][a-zA-Z0-9_:]*)\{/.exec(expr) ?? []
-  if (!metric) {
-    throw new Error(`no recorded metric in expr: ${expr}`)
-  }
-  return metric
-}
-
-/** The endpoint alternation out of a PromQL label matcher. */
-const endpointPattern = (expr: string) => {
-  const [, pattern] = /request_endpoint=~"([^"]*)"/.exec(expr) ?? []
-  if (pattern === undefined) {
-    throw new Error(`no endpoint matcher in expr: ${expr}`)
-  }
-  return pattern
-}
-
-/**
- * The pattern as the regex engine will see it, not as it is written.
- *
- * PromQL unescapes a double-quoted string Go-style before the matcher compiles
- * it, so the `\\` the generator writes is one `\` by then. Building a RegExp
- * from the raw string would test an escape layer that never reaches a regex
- * engine, and every metacharacter assertion below would be wrong.
- */
-const asRegExp = (pattern: string) => new RegExp(pattern.replace(/\\\\/g, '\\'))
-
 describe('controllerAlerts', () => {
   const alerts = controllerAlerts('door-knocking')
 
@@ -186,70 +132,37 @@ describe('controllerAlerts', () => {
   // which are deliberately provisioned disabled — would page through whichever
   // owned controller happened to read them first.
   it('matches every route on its own controller', () => {
-    const pattern = asRegExp(endpointPattern(onlyAlert('contacts').expr))
+    const alert = onlyAlert('contacts')
     for (const { endpoint } of ROUTE_MAP['contacts']) {
-      expect(pattern.test(endpoint), endpoint).toBe(true)
+      expect(alert.expr).toContain(endpoint)
     }
   })
 
   it('matches no route from another controller', () => {
-    const pattern = asRegExp(endpointPattern(onlyAlert('contacts').expr))
+    const alert = onlyAlert('contacts')
     for (const { endpoint } of ROUTE_MAP['polls']) {
-      expect(pattern.test(endpoint), endpoint).toBe(false)
+      expect(alert.expr).not.toContain(endpoint)
     }
   })
 
-  // Prometheus anchors label-matcher regexes on its own, but the alternation
-  // is written anchored anyway: unanchored, `GET /v1/contacts` would also
-  // swallow `GET /v1/contacts/:id`, silently merging two routes into one alert
-  // instance and losing the one that fired second.
+  // Loki anchors label-filter regexes the same way Prometheus does, but the
+  // alternation is written anchored anyway: unanchored, `GET /v1/contacts`
+  // would also swallow `GET /v1/contacts/:id`, silently merging two routes
+  // into one alert instance and losing the one that fired second.
   it('anchors the endpoint alternation', () => {
     for (const alert of alerts) {
-      const pattern = endpointPattern(alert.expr)
-      expect(pattern.startsWith('^(?:')).toBe(true)
-      expect(pattern.endsWith(')$')).toBe(true)
-
-      const compiled = asRegExp(pattern)
-      for (const { endpoint } of ROUTE_MAP['door-knocking']) {
-        expect(compiled.test(`${endpoint}/zzz`), endpoint).toBe(false)
-      }
+      expect(alert.expr).toContain('request_endpoint =~ `^(?:')
+      expect(alert.expr).toContain(')$`')
     }
   })
 
-  // The pattern goes into a PromQL double-quoted string, so a `"` reaching it
-  // would terminate that string early and produce a rule that either fails to
-  // parse at provision time or matches the wrong thing.
+  // The pattern goes into a LogQL raw string, which does no escape processing,
+  // so a backtick in an endpoint would terminate it early and produce a query
+  // that either fails to parse or matches the wrong thing.
   it('builds a pattern no endpoint can break out of', () => {
     for (const { endpoint } of Object.values(ROUTE_MAP).flat()) {
-      expect(endpoint).not.toContain('"')
+      expect(endpoint).not.toContain('`')
     }
-
-    for (const controller of CONTROLLER_NAMES) {
-      const routes = ROUTE_MAP[controller]
-      if (routes.length === 0) continue
-
-      const pattern = promEndpointPattern(
-        routes.map(({ endpoint }) => endpoint),
-      )
-      expect(pattern, controller).not.toContain('"')
-    }
-  })
-
-  // THE SUBTLEST THING IN THIS FILE, and the only regression here that fails
-  // nowhere else: the endpoint's regex escaping has to survive being written
-  // inside a PromQL double-quoted string, which unescapes `\\` to `\` the way
-  // Go does. A single backslash is an invalid string escape, so Grafana
-  // rejects the rule at provision time rather than failing any assertion — the
-  // alert simply never exists. No real endpoint carries a metacharacter today,
-  // so this is pinned against a synthetic one rather than the route map.
-  it('doubles the backslash so PromQL unescaping leaves exactly one', () => {
-    const pattern = promEndpointPattern(['GET /v1/a.b'])
-
-    expect(pattern).toBe('^(?:GET /v1/a\\\\.b)$')
-
-    const compiled = asRegExp(pattern)
-    expect(compiled.test('GET /v1/a.b')).toBe(true)
-    expect(compiled.test('GET /v1/aXb')).toBe(false)
   })
 
   // Grafana renders annotations per alert instance, so this is what turns one
@@ -288,13 +201,6 @@ describe('controllerAlerts', () => {
     for (const routes of Object.values(ROUTE_MAP)) {
       expect(routes.length).toBeLessThan(MAX_QUERY_SERIES)
     }
-
-    // The fan-out moved with the Loki read. One recording rule now covers
-    // every controller at once, so the query that has to stay under the cap
-    // returns one series per route in the whole service, not per controller.
-    expect(Object.values(ROUTE_MAP).flat().length).toBeLessThan(
-      MAX_QUERY_SERIES,
-    )
   })
 
   // The regression: the vector was written `[1h]` while these alerts take the
@@ -321,18 +227,10 @@ describe('controllerAlerts', () => {
   // feature working. Now that 400 is excluded everywhere, 429 is the part
   // still doing the work here — the 400s would be dropped by the default
   // filter too.
-  //
-  // Two halves now, because the filter and the choice of filter live in
-  // different places: the recording rule decides what `>= 500` means, and the
-  // alert decides which of the two recorded metrics it reads. Asserting only
-  // the first would let a refactor point every controller at the wide metric
-  // with this test still green.
   it('pages on 5xx only for door-knocking', () => {
-    expect(serverErrorRule.expr).toContain('response_statusCode >= 500')
-    expect(serverErrorRule.expr).not.toContain('response_statusCode >= 400')
-
     for (const alert of alerts) {
-      expect(selectedMetric(alert.expr)).toBe(SERVER_ERROR_METRIC)
+      expect(alert.expr).toContain('response_statusCode >= 500')
+      expect(alert.expr).not.toContain('response_statusCode >= 400')
     }
   })
 
@@ -345,25 +243,20 @@ describe('controllerAlerts', () => {
   // which point the assertion inverted and the failure read as a bug in the
   // filter rather than a stale fixture.
   it('pages on 4xx too for a controller outside SERVER_ERRORS_ONLY', () => {
-    expect(anyErrorRule.expr).toContain('response_statusCode >= 400')
-    expect(anyErrorRule.expr).not.toContain('response_statusCode >= 500')
-
     const alert = onlyAlert(outsideServerErrorsOnly())
-    expect(selectedMetric(alert.expr)).toBe(ANY_ERROR_METRIC)
+    expect(alert.expr).toContain('response_statusCode >= 400')
+    expect(alert.expr).not.toContain('response_statusCode >= 500')
   })
 
   // The other direction, also derived: every controller ON the list gets the
   // narrow filter. Together these two mean the list is what decides, for any
   // membership, rather than door-knocking being special-cased somewhere.
   it('pages on 5xx only for every controller in SERVER_ERRORS_ONLY', () => {
-    expect(serverErrorRule.expr).toContain('response_statusCode >= 500')
-    expect(serverErrorRule.expr).not.toContain('response_statusCode >= 400')
-
     for (const name of SERVER_ERRORS_ONLY) {
       if (ROUTE_MAP[name].length === 0) continue
-      expect(selectedMetric(onlyAlert(name).expr), name).toBe(
-        SERVER_ERROR_METRIC,
-      )
+      const alert = onlyAlert(name)
+      expect(alert.expr).toContain('response_statusCode >= 500')
+      expect(alert.expr).not.toContain('response_statusCode >= 400')
     }
   })
 
@@ -374,22 +267,20 @@ describe('controllerAlerts', () => {
   // refusal or Pro gate hit was enough to page, which is what taught us a 400
   // is never evidence of a fault on its own.
   it('excludes the designed client-error vocabulary, 400 included', () => {
+    const alert = onlyAlert(outsideServerErrorsOnly())
     for (const code of [400, 401, 403, 404, 409, 498]) {
-      expect(anyErrorRule.expr).toContain(`response_statusCode != ${code}`)
+      expect(alert.expr).toContain(`response_statusCode != ${code}`)
     }
   })
 
   // The prose used to restate the exclusions as a hardcoded string, so it was
   // one edit away from telling whoever it paged that a status it had just
   // stopped counting was still in scope. Both sides now read one constant;
-  // this pins them together without naming the codes a third time. The filter
-  // moved onto the recording rule and the prose stayed on the alert, so the
-  // two halves are read from different objects — which is precisely the split
-  // that makes them able to drift.
+  // this pins them together without naming the codes a third time.
   it('tells the reader the same exclusions the filter applies', () => {
     const alert = onlyAlert(outsideServerErrorsOnly())
     const filtered = [
-      ...anyErrorRule.expr.matchAll(/response_statusCode != (\d+)/g),
+      ...alert.expr.matchAll(/response_statusCode != (\d+)/g),
     ].map(([, code]) => code)
     const [, prose] =
       /status ≥ 400 excluding ([\d/]+)/.exec(alert.message) ?? []
@@ -404,10 +295,8 @@ describe('controllerAlerts', () => {
   // nobody. Loki drops a null field and reads a missing label as empty, so
   // the empty-string comparison is what catches it either way.
   it('pages when a request completes with no status at all', () => {
-    for (const rule of ROUTE_RECORDING_RULES) {
-      expect(rule.expr, rule.slug).toContain('response_statusCode = ""')
-    }
     for (const alert of alerts) {
+      expect(alert.expr).toContain('response_statusCode = ""')
       expect(alert.message).toContain('null')
     }
   })
@@ -420,8 +309,8 @@ describe('controllerAlerts', () => {
   // pages on users closing tabs, and across every controller that is the kind
   // of alert someone mutes.
   it('ignores a null status the caller caused by hanging up', () => {
-    for (const rule of ROUTE_RECORDING_RULES) {
-      expect(rule.expr, rule.slug).toMatch(/responseTimeMs > \d+/)
+    for (const alert of alerts) {
+      expect(alert.expr).toMatch(/responseTimeMs > \d+/)
     }
   })
 
@@ -429,11 +318,11 @@ describe('controllerAlerts', () => {
   // real handler, and below the gateway's ~120s idle timeout, or it discards
   // the timeouts the clause exists to catch along with the aborts.
   it('puts the floor under the gateway timeout it has to catch', () => {
-    for (const rule of ROUTE_RECORDING_RULES) {
-      const floor = Number(/responseTimeMs > (\d+)/.exec(rule.expr)?.[1])
+    for (const alert of alerts) {
+      const floor = Number(/responseTimeMs > (\d+)/.exec(alert.expr)?.[1])
 
-      expect(floor, rule.slug).toBeGreaterThan(5_000)
-      expect(floor, rule.slug).toBeLessThan(120_000)
+      expect(floor).toBeGreaterThan(5_000)
+      expect(floor).toBeLessThan(120_000)
     }
   })
 
@@ -448,141 +337,16 @@ describe('controllerAlerts', () => {
 
   // It has to catch the timeout without dragging the 4xx vocabulary back in —
   // a null status is the absence of one, so it can't overlap with 429 or 400.
-  // Asserted on the server-error rule only, which is the same scope it always
-  // had: the wide rule names 4xx codes deliberately, to exclude them.
   it('admits no 4xx alongside the null-status clause', () => {
-    expect(serverErrorRule.expr).not.toMatch(
-      /response_statusCode\s*[<>=!]+\s*4\d\d/,
-    )
+    for (const alert of alerts) {
+      expect(alert.expr).not.toMatch(/response_statusCode\s*[<>=!]+\s*4\d\d/)
+    }
   })
 
   // `A and B or C` is one precedence misread away from paging on every 401.
   it('parenthesizes the status clauses', () => {
-    expect(serverErrorRule.expr).toContain(
-      '( response_statusCode >= 500 ) or (',
-    )
-    expect(anyErrorRule.expr).toContain('( response_statusCode >= 400')
-    expect(anyErrorRule.expr).toContain(') or (')
-  })
-})
-
-// The two Loki reads that replaced 74. Everything the generated alerts stopped
-// asserting when they became PromQL is asserted here instead, plus the cost
-// property that is the whole reason they exist.
-describe('route recording rules', () => {
-  it('writes two distinct, valid Prometheus metric names', () => {
-    expect(ROUTE_RECORDING_RULES).toHaveLength(2)
-
-    const metrics = ROUTE_RECORDING_RULES.map((rule) => rule.metric)
-    expect(new Set(metrics).size).toBe(metrics.length)
-
-    for (const metric of metrics) {
-      expect(metric).toMatch(/^[a-zA-Z_:][a-zA-Z0-9_:]*$/)
-    }
-  })
-
-  // A typo'd metric name is the one failure here that reports nothing: the
-  // alert queries a series nobody writes, gets no data, and `noDataState: 'OK'`
-  // calls that healthy. The rule stays green in Grafana forever while the
-  // routes behind it are unwatched.
-  it('records every metric a generated alert reads', () => {
-    const recorded = new Set(ROUTE_RECORDING_RULES.map((rule) => rule.metric))
-
-    for (const controller of CONTROLLER_NAMES) {
-      if (ROUTE_MAP[controller].length === 0) continue
-
-      const metric = selectedMetric(onlyAlert(controller).expr)
-      expect(recorded.has(metric), `${controller} reads ${metric}`).toBe(true)
-    }
-  })
-
-  // THE COST PROPERTY, AS A TEST. A rule's Loki bill is its fetch window
-  // divided by its evaluation interval — the number of times a day it re-reads
-  // the same bytes. At 1:1 each log line is read exactly once, which is the
-  // floor and is the entire point of this collapse. A window wider than the
-  // interval silently re-reads, which is the defect that produced 2,690 GB/day
-  // and the 2026-09-28 429s, so it fails the suite rather than living in a
-  // comment. The width is read out of the expression rather than hardcoded:
-  // widening `[1m]` without widening the offsets is exactly the edit this
-  // catches.
-  it('reads each log line exactly once', () => {
-    for (const rule of ROUTE_RECORDING_RULES) {
-      const width = rangeSeconds(rule.expr)
-
-      expect(rule.fromSeconds - rule.toSeconds, rule.slug).toEqual(width)
-      expect(width, rule.slug).toEqual(rule.intervalSeconds)
-    }
-  })
-
-  // The window has to END in the past. Log lines reach Loki several seconds
-  // after the request they describe, so a window ending at `now` misses the
-  // last few seconds — and, unlike an overlapping window, never sees them
-  // again, because the next evaluation starts where this one ended. Those
-  // lines are lost permanently, and nothing anywhere would say so.
-  it('ends its window before now, to clear the ingestion lag', () => {
-    for (const rule of ROUTE_RECORDING_RULES) {
-      expect(rule.toSeconds, rule.slug).toBeGreaterThan(0)
-    }
-  })
-
-  // THE INNER VECTOR'S WIDTH, AS A TEST. `count_over_time` counts one series
-  // per distinct label set, and on these lines the label set is structured
-  // metadata — which carries `requestId`, `trace_id`, `span_id` and
-  // `request_url`, all unique per request. Left alone, the vector being
-  // counted is about one series per log line, sized by traffic rather than by
-  // anything we control, and a `| json` on top of that doubles it (Grafana
-  // Cloud already promoted those fields, so the parser only adds
-  // `*_extracted` copies of labels the filter was reading anyway).
-  //
-  // `| keep` after the filter is what bounds it: the counted vector then
-  // carries exactly the label the rule groups by, so its width is the number
-  // of distinct endpoints — ROUTE_MAP's 421 plus a few no-route sentinels,
-  // and 119 in a measured hour of prod. Asserted as an equality with the
-  // `sum by` grouping rather than as "contains keep", because the two have to
-  // agree: a `keep` that dropped the grouping label would collapse every
-  // route into one unlabelled series and the alerts, which match on
-  // `request_endpoint`, would silently find nothing to read.
-  it('counts a vector carrying only the label it groups by', () => {
-    for (const rule of ROUTE_RECORDING_RULES) {
-      const [, grouped] = /^sum by \(([^)]*)\)/.exec(rule.expr) ?? []
-      const [, kept] = /\|\s*keep\s+([^[|]+)/.exec(rule.expr) ?? []
-
-      const labels = (list: string | undefined) =>
-        (list ?? '')
-          .split(',')
-          .map((label) => label.trim())
-          .filter(Boolean)
-          .sort()
-
-      expect(labels(kept), rule.slug).toEqual(labels(grouped))
-      expect(labels(grouped).length, rule.slug).toBeGreaterThan(0)
-    }
-  })
-
-  // The specific edit that reintroduces the above. A parser with no field list
-  // extracts every key in the line into the vector's identity, so it is never
-  // what these rules want — and here it was not even doing the extraction it
-  // looked like it was doing, since the fields it names arrive as structured
-  // metadata and Loki renamed the parser's output to `*_extracted`. A field
-  // list is fine; a bare parser is the regression.
-  it('extracts no per-request field into the counted vector', () => {
-    for (const rule of ROUTE_RECORDING_RULES) {
-      expect(rule.expr, rule.slug).not.toMatch(
-        /\|\s*(json|logfmt|pattern|regexp)\s*(\||\[)/,
-      )
-    }
-  })
-
-  // Both rules read the one stream the alerts used to each read for
-  // themselves, and both carry `$ENV` — grafana.ts substitutes the environment
-  // into `expr` on provision, and a rule that hardcoded one would have dev and
-  // prod writing the same series from the same logs.
-  it('reads one stream, in the environment grafana.ts substitutes', () => {
-    for (const rule of ROUTE_RECORDING_RULES) {
-      expect(rule.expr, rule.slug).toContain(
-        '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      )
-      expect(rule.expr, rule.slug).toContain('|= "Request completed"')
+    for (const alert of alerts) {
+      expect(alert.expr).toContain('( response_statusCode >= 500 ) or (')
     }
   })
 })
