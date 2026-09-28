@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ALERT_FILTER_WEBHOOK_URLS } from './grafana'
+import {
+  recordingRuleExpression,
+  ROUTE_RECORDING_RULES,
+} from './alerting/controller-alerts'
 
 /**
  * The Terraform that publishes the endpoint Pulumi points Grafana at.
@@ -59,35 +63,59 @@ describe('the alert filter webhook address', () => {
   })
 })
 
-describe('the recording rule window', () => {
+describe('the recording rule expression', () => {
   /**
-   * Grafana parses the expression blob into a struct whose `relative_time_range`
-   * fields are seconds-as-int. A duration string lands as 0, which collapses
-   * the window onto `now` — and because the window no longer overlaps the way
-   * the old ten-minute one did, every log line that arrived late is dropped
-   * permanently rather than caught on the next pass. It fails silently: the
-   * rule saves, records, and is simply short.
-   *
-   * Asserted against the source because the blob is built inside the component
-   * and there is nothing to import.
+   * These pin the blob to the PROVIDER's input dialect, which is not the
+   * dialect of the API behind it. The provider picks these snake_case keys
+   * out by hand and re-marshals them as the API's camelCase, so asserting
+   * the API's spelling here would assert the bug.
    */
-  it('passes seconds as integers, not duration strings', () => {
-    const source = readFileSync(join(__dirname, 'grafana.ts'), 'utf8')
+  const [rule] = ROUTE_RECORDING_RULES
+  const expression = JSON.parse(recordingRuleExpression(rule, 'dev'))
 
-    const block = /relative_time_range:\s*\{([^}]*)\}/.exec(source)
+  it('names the datasource and query type the way the provider reads', () => {
+    expect(expression.datasource_uid).toBe('grafanacloud-logs')
+    expect(expression.query_type).toBe('instant')
 
-    expect(block, 'no relative_time_range found in grafana.ts').not.toBeNull()
+    // The API's own casing is the trap, not a harmless synonym: the provider
+    // looks for the keys above, finds nothing, and sends the expression with
+    // these fields missing.
+    expect(expression).not.toHaveProperty('datasourceUID')
+    expect(expression).not.toHaveProperty('queryType')
+    expect(expression).not.toHaveProperty('relativeTimeRange')
+  })
 
-    // Any quote, not just a backtick. The bug shipped as `${n}s`, but '120s'
-    // and "120s" fail Grafana identically, and a guard that bans one spelling
-    // of a mistake is not a guard against the mistake.
-    expect(block?.[1]).not.toMatch(/['"`]/)
+  it('gives the time range as duration strings', () => {
+    // The regression that broke the release train twice on 2026-09-28. The
+    // provider reads these through a Go `.(string)` assertion, so a number
+    // empties both ends and makes it drop the whole range from the request;
+    // Grafana then 403s with `query expressions must have a relative time
+    // range`. Numbers must stay unrepresentable here.
+    expect(expression.relative_time_range).toEqual({
+      from: `${rule.fromSeconds}s`,
+      to: `${rule.toSeconds}s`,
+    })
+    expect(typeof expression.relative_time_range.from).toBe('string')
+    expect(typeof expression.relative_time_range.to).toBe('string')
+  })
 
-    // And the values are what they claim to be: a bare identifier or number
-    // on each side, so a future `String(n)` or `n + 's'` cannot slip past a
-    // quote check that has nothing to match on.
-    expect(block?.[1]).toMatch(
-      /^\s*from:\s*[A-Za-z0-9_.]+,\s*to:\s*[A-Za-z0-9_.]+,?\s*$/,
-    )
+  it('ends the window in the past and marks its output', () => {
+    // Log lines reach Loki seconds late and each window starts where the last
+    // one ended, so a window ending at `now` drops them permanently.
+    expect(rule.toSeconds).toBeGreaterThan(0)
+    expect(rule.fromSeconds).toBeGreaterThan(rule.toSeconds)
+
+    // Without `source` the rule saves cleanly and records nothing.
+    expect(expression.source).toBe(true)
+
+    // A range query returns a series of points per evaluation; a recording
+    // rule wants one value per label set.
+    expect(expression.model.instant).toBe(true)
+    expect(expression.model.range).toBe(false)
+  })
+
+  it('substitutes the environment into the query', () => {
+    expect(expression.model.expr).toContain('deployment_environment_name="dev"')
+    expect(expression.model.expr).not.toContain('$ENV')
   })
 })
