@@ -1,7 +1,6 @@
 import { UnauthorizedException } from '@nestjs/common'
 import { NestFastifyApplication } from '@nestjs/platform-fastify'
 import { User } from './generated/prisma'
-import { StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import axios, { AxiosInstance } from 'axios'
 import { randomBytes } from 'crypto'
 import jwt from 'jsonwebtoken'
@@ -17,8 +16,9 @@ import { PrismaService } from './prisma/prisma.service'
 import {
   TEMPLATE_LOCK_KEY,
   TEST_POOL_LIMIT,
-  startTestPostgres,
   templateDbName,
+  testPostgresUri,
+  withDatabase,
 } from './test-postgres'
 import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
 import { ElectionsService } from './elections/services/elections.service'
@@ -110,7 +110,7 @@ export type TestServiceContext = {
  * ```
  */
 export const useTestService = (): TestServiceContext => {
-  let container: StartedPostgreSqlContainer
+  let baseConnectionUri: string
   let app: NestFastifyApplication
   let client: AxiosInstance
   let user: User
@@ -130,9 +130,7 @@ export const useTestService = (): TestServiceContext => {
     // database names per suite to ensure that suites are isolated from each other.
     uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
 
-    container = await startTestPostgres()
-
-    const baseConnectionUri = container.getConnectionUri()
+    baseConnectionUri = await testPostgresUri()
 
     // Clone the schema template that globalSetup built once, rather than
     // replaying every migration here. The copy is a near-instant Postgres
@@ -157,13 +155,11 @@ export const useTestService = (): TestServiceContext => {
       await admin.end()
     }
 
-    const databaseUrl = baseConnectionUri.replace(
-      '/postgres',
-      // One container serves every checkout on the machine, so the pool
-      // Prisma would size itself (cores * 2 + 1 per worker) lets concurrent
-      // runs exhaust max_connections.
-      `/${uniqueDbName}?connection_limit=${TEST_POOL_LIMIT}`,
-    )
+    // One server serves every checkout on the machine, so the pool Prisma
+    // would size itself (cores * 2 + 1 per worker) lets concurrent runs
+    // exhaust max_connections.
+    const cloneUri = withDatabase(baseConnectionUri, uniqueDbName)
+    const databaseUrl = `${cloneUri}?connection_limit=${TEST_POOL_LIMIT}`
     // Set DATABASE_URL for Prisma with the unique database
     process.env.DATABASE_URL = databaseUrl
 
@@ -300,10 +296,8 @@ export const useTestService = (): TestServiceContext => {
     // of them, which is what leaves a "warm" container measurably slower to
     // test against than a fresh one. FORCE covers any connection app.close()
     // left behind.
-    if (!container) return
-    const admin = new Client({
-      connectionString: container.getConnectionUri(),
-    })
+    if (!baseConnectionUri) return
+    const admin = new Client({ connectionString: baseConnectionUri })
     await admin.connect()
     try {
       await admin.query(`DROP DATABASE IF EXISTS ${uniqueDbName} WITH (FORCE)`)
