@@ -13,6 +13,14 @@ elapsed time can make a break look normal.
 It clears two ways and only two ways: the signal recovers, or the leg stops being
 declared in the semantic layer. There is deliberately no dismiss path — silencing an OKR
 break should require a governed change to what the metric is anchored on.
+
+The records it writes are a CROSS-REPO CONTRACT. gp-data-platform's semantic catalog
+reads them out of the persisted state file and marks the metric's build approval as
+needing re-verification while a declared leg is latched, so a sign-off cannot go on
+reading approved while the instrument under it is dead. Three keys carry that: `metric`,
+`since` (the FIRST broken week of the run, which is the truthful "not fired since") and
+`latched`. `reference` and `consecutive` are this module's own and nothing outside reads
+them.
 """
 
 from __future__ import annotations
