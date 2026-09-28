@@ -281,10 +281,8 @@ export const ENV_VAR_CONTRACT: Record<string, EnvVarSpec> = {
 
   ENABLE_DOMAIN_PURCHASE: { tier: 'optional', default: 'false' },
 
-  CAMPAIGN_PLAN_INPUT_QUEUE_URL: { tier: 'optional' },
   CAMPAIGN_PLAN_RESULTS_BUCKET: { tier: 'optional' },
   CAMPAIGN_PLAN_SHARES_BUCKET: { tier: 'optional' },
-  CAMPAIGN_PLAN_LOCAL_URL: { tier: 'optional' },
 
   AGENT_DISPATCH_QUEUE_NAME: { tier: 'optional' },
   AGENT_RUN_INPUTS_BUCKET: { tier: 'optional' },
