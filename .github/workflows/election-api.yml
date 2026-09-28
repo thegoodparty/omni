@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 # Scoped per-PR only. On main this resolves to github.run_id — unique per run,
 # so pushes never serialize here: validate shares no state across commits, and a
