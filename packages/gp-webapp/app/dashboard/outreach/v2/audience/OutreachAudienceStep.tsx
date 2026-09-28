@@ -91,6 +91,7 @@ interface OutreachAudienceStepProps {
   // every other row does.
   onSelectUniverse: () => Promise<number | null>
   universePending: boolean
+  universeError: boolean
   onStartBuilder: () => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
   // "All lists" in picker mode only.
@@ -181,6 +182,7 @@ export const OutreachAudienceStep = ({
   universeLoading,
   onSelectUniverse,
   universePending,
+  universeError,
   onStartBuilder,
   recommendations,
   recommendationsLoading,
@@ -527,18 +529,26 @@ export const OutreachAudienceStep = ({
                 type="button"
                 disabled={universePending}
                 onClick={() => {
-                  setOpen(false)
                   if (universeListId !== null) {
+                    setOpen(false)
                     onSelect(universeListId)
                     return
                   }
+                  // The popover stays open across the create, for two
+                  // reasons: the pending spinner lives inside it, and a
+                  // failure has to land somewhere the candidate is still
+                  // looking. Closing first made both invisible — a tap that
+                  // silently did nothing.
+                  //
                   // Selected through `onSelect` rather than inside the hook,
                   // so picking the universe clears a pressed recommendation
                   // and runs each flow's own audience-change side effects —
                   // SmsFlow's stale phone-list token above all. Bypassing it
                   // let a carried-in card be saved instead of everyone.
                   void onSelectUniverse().then((id) => {
-                    if (id !== null) onSelect(id)
+                    if (id === null) return
+                    onSelect(id)
+                    setOpen(false)
                   })
                 }}
                 className={cn(
@@ -564,6 +574,14 @@ export const OutreachAudienceStep = ({
                   )
                 )}
               </button>
+              {universeError && !universePending && (
+                <p
+                  data-testid="universe-create-error"
+                  className="px-4 pb-4 text-sm text-destructive"
+                >
+                  Couldn&apos;t build that list. Try again.
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => {

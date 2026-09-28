@@ -149,6 +149,10 @@ export interface OutreachAudience {
   // stale phone-list token). Null when the create failed.
   selectUniverse: () => Promise<number | null>
   universePending: boolean
+  // Surfaced because `selectUniverse` swallows the rejection to return null:
+  // without this the row's failure is a silent no-op, since nothing else on
+  // the step knows the create was even attempted.
+  universeError: boolean
   startBuilder: () => void
   // Persist the built filters as a saved list (overlay-free), refresh the
   // picker, and return the created row so the flow can select it.
@@ -869,6 +873,7 @@ export const useOutreachAudience = ({
       }
     },
     universePending: universeMutation.isPending,
+    universeError: universeMutation.isError,
     startBuilder,
     selectedRecommendation,
     selectRecommendation,

@@ -59,6 +59,7 @@ const baseProps = () => ({
   universeLoading: false,
   onSelectUniverse: vi.fn(async () => 99),
   universePending: false,
+  universeError: false,
   recommendations: [] as RecommendedList[],
   recommendationsLoading: false,
   recommendationsError: false,
@@ -123,6 +124,53 @@ describe('OutreachAudienceStep — the whole-constituency row', () => {
 
     expect(props.onSelectUniverse).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(props.onSelect).toHaveBeenCalledWith(99))
+  })
+
+  // Closing the popover before the create settled made the pending spinner
+  // unreachable and a failure invisible, so the popover has to outlive the
+  // request. `universePending` is deliberately NOT set here: it disables the
+  // row, and setting it up front would mean the click never lands — which is
+  // how this test failed the first time.
+  it('keeps the picker open until the list is built', async () => {
+    let release: (v: number | null) => void = () => undefined
+    const props = {
+      ...baseProps(),
+      onSelectUniverse: vi.fn(
+        () => new Promise<number | null>((r) => (release = r)),
+      ),
+    }
+    render(<OutreachAudienceStep {...props} />)
+    await openPicker()
+    await userEvent.click(await screen.findByText('All voters'))
+
+    // Still open on the row it is working on, and nothing selected yet.
+    expect(screen.getByText('Create a new list')).toBeVisible()
+    expect(props.onSelect).not.toHaveBeenCalled()
+
+    release(42)
+    await waitFor(() => expect(props.onSelect).toHaveBeenCalledWith(42))
+    await waitFor(() =>
+      expect(screen.queryByText('Create a new list')).toBeNull(),
+    )
+  })
+
+  // The spinner is what tells the candidate the tap registered at all.
+  it('spins on the row while it builds', async () => {
+    render(<OutreachAudienceStep {...baseProps()} universePending />)
+    await openPicker()
+
+    const row = (await screen.findByText('All voters')).closest('button')
+    expect(row).toBeDisabled()
+    expect(row?.querySelector('.animate-spin')).not.toBeNull()
+  })
+
+  // Without this the candidate taps the row, the create 500s, and nothing at
+  // all happens on screen.
+  it('says so when building the list failed', async () => {
+    render(<OutreachAudienceStep {...baseProps()} universeError />)
+    await openPicker()
+
+    expect(await screen.findByTestId('universe-create-error')).toBeVisible()
   })
 
   // A failed create must not select a list that does not exist.

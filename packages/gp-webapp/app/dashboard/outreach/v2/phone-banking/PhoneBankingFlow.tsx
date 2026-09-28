@@ -819,6 +819,7 @@ export const PhoneBankingFlow = ({
             universeLoading={audience.universeLoading}
             onSelectUniverse={audience.selectUniverse}
             universePending={audience.universePending}
+            universeError={audience.universeError}
             onStartBuilder={audience.startBuilder}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}
