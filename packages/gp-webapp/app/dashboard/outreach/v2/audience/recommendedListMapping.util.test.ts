@@ -77,6 +77,16 @@ describe('builderFiltersFromRecommendation', () => {
     })
   })
 
+  it('carries the landline cut a robocall card was priced on', () => {
+    // Dropping it saves a list WIDER than the card the candidate accepted,
+    // and because the saved shape no longer matches the recommendation,
+    // `existingFilterId` never matches either — so the same card can be
+    // saved again as a second, different list.
+    expect(builderFiltersFromRecommendation({ hasLandline: true })).toEqual({
+      hasLandline: true,
+    })
+  })
+
   it('sets no key for a dimension the filter leaves unset', () => {
     // A mutation that flips this to `result[key] = !!filter.independentAffinity`
     // would start emitting an explicit `false`, which is a real behavior change

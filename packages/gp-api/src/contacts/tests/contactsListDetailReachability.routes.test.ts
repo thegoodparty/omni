@@ -70,6 +70,24 @@ describe('GET /v1/contacts/list-detail reachability', () => {
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ search: 'elm' }))
   })
 
+  // The unsaved sibling: POST /list-detail takes the filter in the body
+  // (a recommendation's detail sheet). It carries a search the same way a
+  // saved row does, and dropped it the same way — fixing only the saved
+  // path would have left this one over-counting.
+  it('applies an unsaved filter’s search to its aggregates', async () => {
+    const slug = await setupOrg('unsaved-search')
+    const spy = mockAggregates({})
+
+    const response = await service.client.post(
+      '/v1/contacts/list-detail',
+      { search: 'elm' },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    expect(response.status).toBe(201)
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ search: 'elm' }))
+  })
+
   // The universe row has no saved row behind it, so there is no stored
   // search to carry — and passing one would narrow the whole district by a
   // string nobody typed here.

@@ -1682,6 +1682,12 @@ export class ContactsService {
       this.mergeIdFilter(baseFilters, idResolution),
       idOverrides,
       contactsMadeIdOverrides,
+      // Same reason as `getListDetail` above: an unsaved filter still
+      // carries the search the holder typed (`voterFilterBaseSchema`), and
+      // every path that materialises its people re-applies it. This is the
+      // second call site of the one bug — fixing the saved path alone would
+      // have left the detail sheet for an UNSAVED filter still over-counting.
+      filterInput.search ?? undefined,
     )
     return { ...aggregates, outreachHistory: [] }
   }
