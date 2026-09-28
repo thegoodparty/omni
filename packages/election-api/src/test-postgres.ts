@@ -92,7 +92,7 @@ export const TEST_POSTGRES_URL_VAR = 'OMNI_TEST_POSTGRES_URL'
 // harness could never reach anything else. An operator-supplied URL has to
 // prove the same thing, because this harness replays every migration and
 // issues CREATE/DROP DATABASE.
-const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '::1', '[::1]']
+export const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '::1', '[::1]']
 
 // Every failure here throws rather than falling back to a container: a silent
 // fallback inside a sandbox with no Docker socket surfaces as "Could not find

@@ -1,5 +1,6 @@
 import { Client } from 'pg'
 import {
+  LOOPBACK_HOSTS,
   TEMPLATE_LOCK_KEY,
   TEMPLATE_PREFIX,
   TEST_POSTGRES_URL_VAR,
@@ -47,11 +48,15 @@ export default async () => {
   // DB SAFETY: the testcontainer always binds to a random localhost port. Refuse
   // to run migrations against anything but a local host — this guarantees the
   // harness can never touch a dev/prod database, even if misconfigured.
+  // An operator-supplied server widens that to any loopback address, which
+  // is why this shares LOOPBACK_HOSTS with the validator rather than keeping
+  // its own narrower copy.
   const host = new URL(baseUri).hostname
-  if (host !== 'localhost' && host !== '127.0.0.1') {
+  if (!LOOPBACK_HOSTS.includes(host)) {
     throw new Error(
       `Refusing to migrate a non-local test database (host=${host}). ` +
-        'The integration harness only ever targets a Postgres testcontainer.',
+        'The integration harness replays every migration and issues ' +
+        'CREATE/DROP DATABASE — it may never target a dev or prod cluster.',
     )
   }
 

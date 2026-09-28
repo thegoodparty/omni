@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach } from 'vitest'
 import { bootstrap } from './app'
 import { PrismaService } from './prisma/prisma.service'
 import {
+  LOOPBACK_HOSTS,
   TEMPLATE_LOCK_KEY,
   TEST_POOL_LIMIT,
   templateDbName,
@@ -105,7 +106,7 @@ export const useTestService = (): TestServiceContext => {
     const host = new URL(databaseUrl).hostname
     // eslint-disable-next-line no-console
     console.log(`[election-api integration] DATABASE_URL host=${host}`)
-    if (host !== 'localhost' && host !== '127.0.0.1') {
+    if (!LOOPBACK_HOSTS.includes(host)) {
       throw new Error(
         `Refusing to boot the harness against a non-local database (host=${host}).`,
       )
