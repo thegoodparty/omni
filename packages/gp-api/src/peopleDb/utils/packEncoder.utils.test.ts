@@ -451,6 +451,29 @@ describe('the precinct plane', () => {
     expect(plane('precinct').at(-1)).toBe(total)
   })
 
+  it("keeps a district sitting exactly on the picker's ceiling", () => {
+    // The cap counts REAL pairs, and index 0 is the no-county sentinel, so
+    // the guard is `>` rather than `>=`. Off by one here silently drops the
+    // plane for a district the picker would happily enumerate, which is the
+    // invariant inverted: anything the picker can offer, the map can shade.
+    const encoder = new PackEncoder(statusesToBytes([]))
+    for (let i = 0; i < MAX_PRECINCT_FILTER_VALUES; i++) {
+      encoder.add(
+        at(
+          'Brevard',
+          String(i),
+          `${String(i).padStart(8, '0')}-1111-1111-1111-111111111111`,
+        ),
+      )
+    }
+    const { manifest } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+    const dim = manifest.dims.find((d) => d.key === 'precinct')
+
+    expect(dim).toBeDefined()
+    // Every real pair, plus the sentinel.
+    expect(dim?.values.length).toBe(MAX_PRECINCT_FILTER_VALUES + 1)
+  })
+
   it("drops the plane whole past the picker's own ceiling", () => {
     // Omitted rather than truncated, the way contactsMade is: a truncated
     // plane reads the overflow as some OTHER precinct, which shades a map

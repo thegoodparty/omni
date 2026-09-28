@@ -315,7 +315,12 @@ export class PackEncoder {
         const pair = encodePrecinctPair(county, row.Precinct ?? '')
         const seen = precinctBytes.get(pair)
         if (seen !== undefined) return seen
-        if (precinctValues.length >= MAX_PRECINCT_FILTER_VALUES) {
+        // `>` and not `>=`, because index 0 is the sentinel and the cap
+        // counts REAL pairs. At `length === MAX` there are MAX - 1 of those
+        // and the one being added is the MAXth, which the picker would
+        // offer — rejecting it there breaks the invariant this cap exists
+        // to hold, that anything the picker can offer the map can shade.
+        if (precinctValues.length > MAX_PRECINCT_FILTER_VALUES) {
           // Past the picker's own ceiling. Mark and keep going rather than
           // throwing: the rest of the pack is still worth serving, and the
           // plane leaves in `toBuffer`.
