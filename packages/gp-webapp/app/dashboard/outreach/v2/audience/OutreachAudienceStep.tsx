@@ -92,7 +92,9 @@ interface OutreachAudienceStepProps {
   onSelectUniverse: () => Promise<number | null>
   universePending: boolean
   universeError: boolean
-  onClearUniverseError: () => void
+  // Reported so the hook can hold the whole-district count back until the
+  // popover is actually up, and clear a previous failure on the way in.
+  onPickerOpenChange: (open: boolean) => void
   onStartBuilder: () => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
   // "All lists" in picker mode only.
@@ -184,7 +186,7 @@ export const OutreachAudienceStep = ({
   onSelectUniverse,
   universePending,
   universeError,
-  onClearUniverseError,
+  onPickerOpenChange,
   onStartBuilder,
   recommendations,
   recommendationsLoading,
@@ -451,14 +453,10 @@ export const OutreachAudienceStep = ({
 
       <div className="space-y-2">
         <p className="text-xs font-bold uppercase text-primary">All lists</p>
-        {/* Cleared on the way IN rather than on the way out: the banner
-            belongs to the attempt the candidate just made, so it should
-            survive them closing the picker to think, and be gone by the time
-            they come back to try again. */}
         <Popover
           open={open}
           onOpenChange={(next) => {
-            if (next) onClearUniverseError()
+            onPickerOpenChange(next)
             setOpen(next)
           }}
         >

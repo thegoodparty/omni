@@ -153,11 +153,20 @@ export interface OutreachAudience {
   // without this the row's failure is a silent no-op, since nothing else on
   // the step knows the create was even attempted.
   universeError: boolean
-  // React Query keeps a mutation's error until it is reset or retried, and
-  // the banner it drives lives inside the picker — so without this a failed
-  // create still reads as failed every time the picker is reopened, for the
-  // rest of the session. Same reason `clearCreateError` exists above.
-  clearUniverseError: () => void
+  // Told when the picker itself opens and closes, which does two jobs.
+  //
+  // It gates the universe count: that read is
+  // `GET /v1/contacts/list-detail` over the WHOLE district, measured at 12s
+  // p50 and 17s p95 under concurrency (see `useListRowDetail`'s cap), and
+  // nothing shows it until the popover is up — so firing it when the flow
+  // opens spent a slow warehouse read on every candidate who never touched
+  // the picker.
+  //
+  // And it clears a failed create. React Query keeps a mutation's error
+  // until it is reset or retried, and the banner lives inside the picker, so
+  // without this one blip read as failed on every reopen for the rest of the
+  // session. Same reason `clearCreateError` exists above.
+  onPickerOpenChange: (open: boolean) => void
   startBuilder: () => void
   // Persist the built filters as a saved list (overlay-free), refresh the
   // picker, and return the created row so the flow can select it.
@@ -370,6 +379,10 @@ export const useOutreachAudience = ({
   // Omitted segment = the whole unfiltered district (ENG-10778), the same
   // read the CRM's universe row makes. Only needed until the row resolves to
   // a real list, after which the ordinary reachability query answers.
+  // Whether the saved-list popover is up. The step owns that state; this is
+  // its copy, so the count below can wait for it.
+  const [pickerOpen, setPickerOpen] = useState(false)
+
   const universeQuery = useQuery({
     queryKey: ['outreach-audience-universe', orgSlug, reachabilityKey],
     queryFn: async ({ signal }) => {
@@ -380,7 +393,9 @@ export const useOutreachAudience = ({
       )
       return data.reachability[reachabilityKey]
     },
-    enabled: open,
+    // Not merely `open`: see `onPickerOpenChange`. The flow being open is not
+    // a reason to read the whole district.
+    enabled: open && pickerOpen,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
@@ -580,6 +595,7 @@ export const useOutreachAudience = ({
       preselect !== undefined &&
       listsRef.current.some((l) => l.id === preselect)
     setMode('picker')
+    setPickerOpen(false)
     setSelectedListId(preselectReady ? preselect : null)
     setSelectedRecommendation(null)
     setRecommendationSnapshot(null)
@@ -879,7 +895,13 @@ export const useOutreachAudience = ({
     },
     universePending: universeMutation.isPending,
     universeError: universeMutation.isError,
-    clearUniverseError: universeMutation.reset,
+    onPickerOpenChange: (next: boolean) => {
+      setPickerOpen(next)
+      // Cleared on the way IN: the banner belongs to the attempt just made,
+      // so it survives closing the picker to think and is gone by the time
+      // they come back to try again.
+      if (next) universeMutation.reset()
+    },
     startBuilder,
     selectedRecommendation,
     selectRecommendation,
