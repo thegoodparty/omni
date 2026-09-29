@@ -143,14 +143,18 @@ export class AdminCampaignsService {
     // stamped `details.isProUpdatedAt` (HubSpot's `pro_upgrade_date`), never
     // granted the free-texts offer and never announced in Slack; the CRM sync
     // then published the campaign as Pro with no upgrade date, permanently.
+    // `setIsPro` also owns the Pro identify and the CRM sync (none of the
+    // other attributes reach HubSpot), so the sync below is only for bodies
+    // without `isPro`.
     if (typeof isPro !== 'undefined') {
-      await this.campaigns.setIsPro(id, isPro, false)
+      await this.campaigns.setIsPro(id, isPro)
     }
 
-    const updatedCampaign = await this.campaigns.update({
-      where: { id },
-      data: attributes,
-    })
+    const updatedCampaign =
+      Object.keys(attributes).length > 0
+        ? await this.campaigns.update({ where: { id }, data: attributes })
+        : await this.campaigns.findUniqueOrThrow({ where: { id } })
+
     if (isPro === true) {
       try {
         await this.analytics.track(
@@ -169,7 +173,9 @@ export class AdminCampaignsService {
         // Don't throw - we don't want to fail the admin operation for analytics issues
       }
     }
-    await this.crm.trackCampaign(updatedCampaign.id)
+    if (typeof isPro === 'undefined') {
+      await this.crm.trackCampaign(updatedCampaign.id)
+    }
 
     return updatedCampaign
   }

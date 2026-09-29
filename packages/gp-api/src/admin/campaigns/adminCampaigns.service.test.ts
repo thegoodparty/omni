@@ -128,6 +128,7 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
 
   beforeEach(() => {
     vi.clearAllMocks()
+    findUniqueOrThrow.mockResolvedValue({ id: 42, userId: 7, details: {} })
     update.mockResolvedValue({ id: 42, userId: 7 })
     setIsPro.mockResolvedValue({ becamePro: false })
     trackCampaign.mockResolvedValue(undefined)
@@ -146,7 +147,7 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
     expect(cancelSubscription).toHaveBeenCalledWith('sub_live_123')
     // DB write still happens after a successful cancel so admin state moves
     // immediately; the webhook then clears details.subscriptionId.
-    expect(setIsPro).toHaveBeenCalledWith(42, false, false)
+    expect(setIsPro).toHaveBeenCalledWith(42, false)
   })
 
   it('does not touch Stripe for a comped campaign (isPro:false without subscriptionId)', async () => {
@@ -158,7 +159,7 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
     await buildService().update(42, { isPro: false })
 
     expect(cancelSubscription).not.toHaveBeenCalled()
-    expect(setIsPro).toHaveBeenCalledWith(42, false, false)
+    expect(setIsPro).toHaveBeenCalledWith(42, false)
   })
 
   it('surfaces a 502 and skips the DB update when Stripe cancel fails', async () => {
@@ -192,7 +193,6 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
   it('does not touch Stripe when isPro is being set to true', async () => {
     await buildService().update(42, { isPro: true })
 
-    expect(findUniqueOrThrow).not.toHaveBeenCalled()
     expect(cancelSubscription).not.toHaveBeenCalled()
   })
 
@@ -201,7 +201,7 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
   it('grants Pro through setIsPro so the upgrade date is stamped', async () => {
     await buildService().update(42, { isPro: true, isVerified: true })
 
-    expect(setIsPro).toHaveBeenCalledWith(42, true, false)
+    expect(setIsPro).toHaveBeenCalledWith(42, true)
     expect(update).toHaveBeenCalledWith({
       where: { id: 42 },
       data: expect.not.objectContaining({ isPro: expect.anything() }),
@@ -210,12 +210,28 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
       where: { id: 42 },
       data: expect.objectContaining({ isVerified: true }),
     })
-    expect(trackCampaign).toHaveBeenCalledWith(42)
+    // setIsPro owns the Pro identify and the CRM sync; a second sync here
+    // would publish the same row twice.
+    expect(trackCampaign).not.toHaveBeenCalled()
   })
 
-  it('does not call setIsPro when isPro is not in the body', async () => {
+  it('reads the campaign instead of issuing an empty update for an isPro-only body', async () => {
+    await buildService().update(42, { isPro: true })
+
+    expect(update).not.toHaveBeenCalled()
+    expect(findUniqueOrThrow).toHaveBeenCalledWith({ where: { id: 42 } })
+    expect(setIsPro).toHaveBeenCalledWith(42, true)
+    expect(track).toHaveBeenCalledWith(
+      7,
+      expect.anything(),
+      expect.objectContaining({ paymentMethod: 'admin' }),
+    )
+  })
+
+  it('syncs the CRM itself only when isPro is not in the body', async () => {
     await buildService().update(42, { didWin: true })
 
     expect(setIsPro).not.toHaveBeenCalled()
+    expect(trackCampaign).toHaveBeenCalledWith(42)
   })
 })
