@@ -41,18 +41,16 @@ import {
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
+import { buildPresentConstituentsTool } from '../chat-tools/presentConstituents.tool'
+import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
+import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
+import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
+import { buildReadPastOutreachTool } from '../chat-tools/readPastOutreach.tool'
 import {
   PriorityFlowContext,
   PriorityFlowContextService,
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
-import {
-  buildPresentConstituentsTool,
-  buildPresentOutsideContactTool,
-  buildPresentOutreachProposalTool,
-  buildPresentPastOutreachTool,
-  buildReadPastOutreachTool,
-} from './tools/priorityFlowTools'
 import { buildPriorityFlowSystemPrompt } from './priorityFlow.prompt'
 
 // Sensitive scope: the priority, its status, constituent counts and past

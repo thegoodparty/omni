@@ -18,6 +18,7 @@ import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { buildComposeHandoffTool } from './services/composeHandoff.tool'
+import type { PriorityFlowOutreachService } from '../priority-flow/services/priorityFlowOutreach.service'
 
 // Native web search has no description; every other registered tool does.
 const descriptionOf = (tool: LlmTool | undefined): string => {
@@ -120,9 +121,11 @@ describe('ChiefOfStaffHandler', () => {
     // web_search is always present now (Anthropic native, gated at the LLM
     // layer on ANTHROPIC_API_KEY, not on an injected provider).
     expect(Object.keys(tools).sort()).toEqual([
+      'ask_clarify_question',
       'crud_priorities',
       'get_briefing',
       'list_briefings',
+      'present_outside_contact',
       'web_search',
     ])
   })
@@ -481,6 +484,107 @@ describe('ChiefOfStaffHandler', () => {
       expect(toolNames).toContain('count_contacts')
       expect(toolNames).not.toContain('crud_saved_filters')
       expect(handler.buildSystemPrompt(ctx)).not.toContain('crud_saved_filters')
+    })
+
+    it('offers constituents with the contacts service and proposals only with saved lists', async () => {
+      const readOnly = buildCrmHandler({ contacts: buildContacts() })
+      const readOnlyTools = Object.keys(
+        readOnly.buildTools(await readOnly.loadContext('c1', USER_ID)),
+      )
+      expect(readOnlyTools).toContain('present_constituents')
+      expect(readOnlyTools).not.toContain('present_outreach_proposal')
+
+      const withLists = buildCrmHandler({
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const withListsTools = Object.keys(
+        withLists.buildTools(await withLists.loadContext('c1', USER_ID)),
+      )
+      expect(withListsTools).toContain('present_outreach_proposal')
+    })
+
+    it('keeps the proposal out of the filter catalog', async () => {
+      const handler = buildCrmHandler({
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(descriptionOf(tools.describe_filter_dimensions)).not.toContain(
+        'present_outreach_proposal',
+      )
+    })
+  })
+
+  describe('shared cards and past outreach', () => {
+    const buildPastOutreachHandler = (outreach?: PriorityFlowOutreachService) =>
+      new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        outreach,
+      )
+
+    it('reads the office-wide history with no priority behind it', async () => {
+      const forPriority = vi.fn()
+      const forOffice = vi.fn(() => Promise.resolve([]))
+      const handler = buildPastOutreachHandler({
+        forPriority,
+        forOffice,
+      } as unknown as PriorityFlowOutreachService)
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(Object.keys(tools)).toContain('present_past_outreach')
+      const read = tools.read_past_outreach
+      if (read === undefined || !('execute' in read)) {
+        throw new Error('expected an executable tool')
+      }
+      expect(await read.execute({})).toEqual({ priority: [], office: [] })
+      expect(forPriority).not.toHaveBeenCalled()
+      expect(forOffice).toHaveBeenCalledWith(ORG, null, undefined)
+    })
+
+    it('omits the past-outreach tools without the service', async () => {
+      const handler = buildPastOutreachHandler(undefined)
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(Object.keys(tools)).not.toContain('read_past_outreach')
+      expect(Object.keys(tools)).not.toContain('present_past_outreach')
+    })
+
+    it('omits the outside contact when there is no web search', async () => {
+      delete process.env.ANTHROPIC_API_KEY
+      const handler = buildPastOutreachHandler(undefined)
+      const tools = handler.buildTools(await handler.loadContext('c1', USER_ID))
+      expect(Object.keys(tools)).not.toContain('present_outside_contact')
+      expect(Object.keys(tools)).toContain('ask_clarify_question')
+    })
+
+    it('tells the model the two people cards apart', async () => {
+      const handler = new ChiefOfStaffHandler(
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        {
+          getFilterDimensions: vi.fn(() => []),
+          countContacts: vi.fn(),
+        } as unknown as ContactsService,
+      )
+      const prompt = handler.buildSystemPrompt(
+        await handler.loadContext('c1', USER_ID),
+      )
+      expect(prompt).toContain('CARDS AND QUESTIONS')
+      expect(prompt).toContain('`present_constituents` is the user')
+      expect(prompt).toContain('`present_outside_contact` is someone OUTSIDE')
     })
   })
 

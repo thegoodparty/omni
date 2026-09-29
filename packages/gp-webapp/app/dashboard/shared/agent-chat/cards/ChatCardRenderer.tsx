@@ -6,7 +6,7 @@ import { OutsideContactCard } from './OutsideContactCard'
 
 export type ChatCardRendererProps = {
   card: ChatCard
-  priorityId: string
+  priorityId?: string
   conversationId: string
 }
 
@@ -24,7 +24,7 @@ export const ChatCardRenderer = ({
       return (
         <OutreachProposalCard
           proposal={card}
-          priorityId={priorityId}
+          {...(priorityId !== undefined && { priorityId })}
           conversationId={conversationId}
         />
       )

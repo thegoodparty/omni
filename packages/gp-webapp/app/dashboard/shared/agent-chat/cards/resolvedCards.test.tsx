@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react'
 import type { ChatCard, OutreachDetail, Person } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import { toChatCard } from '../data/cards'
+import { toChatCard } from './toChatCard'
 import { ChatCardRenderer } from './ChatCardRenderer'
 
 const renderCard = (card: ChatCard) =>

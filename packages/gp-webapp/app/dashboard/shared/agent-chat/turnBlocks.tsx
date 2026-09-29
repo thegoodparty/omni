@@ -94,18 +94,26 @@ export const liveTurnBlocks = <Ctx,>(
 // stream positions, so walk them in order — text and ordinary tools into inline
 // runs, widget tools as widgets — to match the live interleaving. With a
 // `messageId`, blocks carry keys stable across re-renders.
+// `surfaceWidget` is for a block whose data is not in the tool args (the
+// Priorities status marker reads a replay the surface holds in state); it is
+// asked first, and null falls through to the registry.
 export const persistedTurnBlocks = <Ctx,>({
   registry,
   segments,
   content,
   messageId,
   conversationId,
+  surfaceWidget,
 }: {
   registry: WidgetRegistry<Ctx>
   segments: ChatMessageSegment[]
   content: string
   messageId?: string
   conversationId?: string | null
+  surfaceWidget?: (
+    segment: ChatMessageSegment,
+    index: number,
+  ) => WidgetInstance<Ctx> | null
 }): TurnBlock<Ctx>[] => {
   if (segments.length === 0) {
     const live = segmentsToLive([], content)
@@ -121,11 +129,13 @@ export const persistedTurnBlocks = <Ctx,>({
   }
   const blocks: TurnBlock<Ctx>[] = []
   let run: ChatMessageSegment[] = []
+  let citations = 0
   // Split the segments at each widget tool; the shared segmentsToLive does the
   // text/tool projection for the non-widget runs, so those rules live in one
   // place.
   const flushRun = (): void => {
-    const live = segmentsToLive(run, '')
+    const live = segmentsToLive(run, '', citations)
+    citations += live.filter((s) => s.kind === 'citation').length
     if (live.length > 0) {
       blocks.push({
         kind: 'segments',
@@ -138,6 +148,18 @@ export const persistedTurnBlocks = <Ctx,>({
     run = []
   }
   segments.forEach((s, index) => {
+    const surface = surfaceWidget?.(s, index)
+    if (surface) {
+      flushRun()
+      blocks.push({
+        kind: 'widget',
+        instance: surface,
+        ...(messageId !== undefined && {
+          key: `${messageId}-widget-${index}`,
+        }),
+      })
+      return
+    }
     const entry =
       s.kind === 'tool' && s.toolName ? registry.entry(s.toolName) : undefined
     if (!entry || !s.toolName) {
@@ -177,10 +199,15 @@ export const TurnBlocks = <Ctx,>({
   blocks,
   toolLabel,
   context,
+  onCitationClick,
 }: {
   blocks: TurnBlock<Ctx>[]
   toolLabel: (toolName: string) => string | null
   context: Ctx
+  onCitationClick?: (
+    attachmentId: string,
+    page: number | null | undefined,
+  ) => void
 }): React.JSX.Element => (
   <>
     {blocks.map((block, i) =>
@@ -193,6 +220,7 @@ export const TurnBlocks = <Ctx,>({
           key={block.key ?? i}
           segments={block.segments}
           toolLabel={toolLabel}
+          onCitationClick={onCitationClick}
         />
       ),
     )}

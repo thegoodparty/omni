@@ -7,22 +7,6 @@ import {
   type ChatCard,
 } from '@goodparty_org/contracts'
 
-// The tools whose call IS a card. They do no work server-side; the whole
-// point of the call is what it leaves in the conversation.
-export const CARD_TOOLS = [
-  'present_outreach_proposal',
-  'present_constituents',
-  // The name present_constituents shipped under. Segments that already exist
-  // on dev and prod persist it, so it stays mapped forever.
-  'present_contacts',
-  'present_outside_contact',
-  'present_past_outreach',
-  'read_past_outreach',
-] as const
-
-export const isCardTool = (toolName: string): boolean =>
-  (CARD_TOOLS as readonly string[]).includes(toolName)
-
 // The model never writes proposalKey, so the card's args carry everything but.
 const OutreachProposalArgsSchema = OutreachProposalSchema.omit({
   proposalKey: true,

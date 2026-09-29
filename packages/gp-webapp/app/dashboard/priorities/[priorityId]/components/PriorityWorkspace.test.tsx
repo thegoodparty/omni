@@ -47,7 +47,7 @@ vi.mock('../../../shared/dictation/useDictationAppend', () => ({
 
 // The card components are another surface's concern; this asserts only that a
 // card tool call reaches the renderer, and with which key.
-vi.mock('../cards/ChatCardRenderer', () => ({
+vi.mock('../../../shared/agent-chat/cards/ChatCardRenderer', () => ({
   ChatCardRenderer: ({
     card,
     conversationId,
@@ -345,7 +345,7 @@ describe('PriorityWorkspace', () => {
     gate.resolve()
   })
 
-  it('locks a clarify question once something has been said after it', async () => {
+  it('reloads an answered clarify question with its choice checked', async () => {
     mocks.listMessages.mockResolvedValue([
       {
         id: 'a1',
@@ -380,7 +380,52 @@ describe('PriorityWorkspace', () => {
     expect(
       await screen.findByText('Which blocks do you want repaired first?'),
     ).toBeInTheDocument()
-    expect(screen.getByText('Or write your own...')).toBeDisabled()
+    const choice = screen.getByRole('radio', { name: 'The two by the school' })
+    expect(choice).toBeChecked()
+    expect(choice).toBeDisabled()
+    // Answered, so there is nothing left to write in.
+    expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
+  })
+
+  it('reloads a written-in answer as what the official said', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-clarify',
+            payload: {
+              questionId: 'q1',
+              question: 'Which blocks do you want repaired first?',
+              options: [{ label: 'The two by the school' }],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: 'Whichever the engineer says is most urgent',
+        createdAt: '2026-09-01T00:01:00.000Z',
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Which blocks do you want repaired first?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('radio', { name: 'The two by the school' }),
+    ).not.toBeChecked()
+    expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
   })
 
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {

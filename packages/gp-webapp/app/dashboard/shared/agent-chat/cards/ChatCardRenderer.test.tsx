@@ -230,6 +230,46 @@ describe('OutreachProposalCard', () => {
     expect(keys).toEqual([PROPOSAL_KEY])
   })
 
+  it('sends the priority it was proposed under', async () => {
+    mockNotSent()
+    mockAudience()
+    const bodies: Record<string, unknown>[] = []
+    api.mock('PUT /v1/outreach/by-proposal-key/:proposalKey', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return { status: 200, data: outreachRow }
+    })
+
+    renderCard(proposalCard())
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({ priorityId: 'priority-1' })
+  })
+
+  // Chief of Staff proposes outreach outside any priority.
+  it('sends no priority when it has none', async () => {
+    mockNotSent()
+    mockAudience()
+    const bodies: Record<string, unknown>[] = []
+    api.mock('PUT /v1/outreach/by-proposal-key/:proposalKey', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return { status: 200, data: outreachRow }
+    })
+
+    render(
+      <ChatCardRenderer
+        card={proposalCard()}
+        conversationId="conversation-1"
+      />,
+    )
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).not.toHaveProperty('priorityId')
+  })
+
   it('follows the picked list with its own count, and sends that list', async () => {
     mockNotSent()
     mockAudience()

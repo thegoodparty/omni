@@ -81,7 +81,7 @@ export const SERVE_PROPOSAL_DEEP_LINK_NOTE: Record<
 
 type OutreachProposalCardProps = {
   proposal: Extract<ChatCard, { kind: 'outreach_proposal' }>
-  priorityId: string
+  priorityId?: string
   conversationId: string
 }
 
@@ -187,7 +187,7 @@ export const OutreachProposalCard = ({
         {
           ...body,
           proposalKey,
-          priorityId,
+          ...(priorityId !== undefined && { priorityId }),
           channel,
           message,
           savedFilterId: listId,

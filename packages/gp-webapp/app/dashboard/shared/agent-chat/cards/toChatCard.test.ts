@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mintProposalKey } from '@goodparty_org/contracts'
-import { toChatCard } from './cards'
+import { toChatCard } from './toChatCard'
 
 const CONVERSATION_ID = 'conv_abc'
 const TOOL_CALL_ID = 'toolu_01xyz'
