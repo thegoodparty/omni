@@ -263,6 +263,23 @@ export const PriorityWorkspace = ({
     }
     return null
   }, [messages])
+  // Priorities keeps no separate answer record: an answer is the next thing the
+  // official said, so derive it from the transcript. Without this, a question
+  // answered in an earlier session reloads locked with nothing highlighted.
+  const clarifyAnswerById = useMemo(() => {
+    const answers: Record<string, string> = {}
+    messages.forEach((message, index) => {
+      if (message.role === 'user') return
+      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return
+      }
+      const reply = messages
+        .slice(index + 1)
+        .find((later) => later.role === 'user' && later.content !== KICKOFF)
+      if (reply) answers[message.id] = reply.content
+    })
+    return answers
+  }, [messages])
   const visibleMessages = useMemo(
     () => messages.filter((m) => !(m.role === 'user' && m.content === KICKOFF)),
     [messages],
@@ -379,6 +396,7 @@ export const PriorityWorkspace = ({
                         clarifyInteractive={
                           message.id === activeClarifyId && !sending
                         }
+                        clarifyAnswer={clarifyAnswerById[message.id]}
                         onClarifyAnswer={answerClarify}
                       />
                     </AssistantRow>

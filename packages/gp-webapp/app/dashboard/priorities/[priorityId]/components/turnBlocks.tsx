@@ -194,6 +194,7 @@ export const TurnBlocks = ({
   priorityId,
   conversationId,
   clarifyInteractive,
+  clarifyAnswer,
   onClarifyAnswer,
 }: {
   blocks: TurnBlock[]
@@ -202,6 +203,9 @@ export const TurnBlocks = ({
   // Only the question still waiting on an answer takes input. An earlier one
   // reads back with its options locked, above the turn that answered it.
   clarifyInteractive: boolean
+  // What the official said next. The widget highlights it when it matches an
+  // option and shows it as written when it does not.
+  clarifyAnswer?: string
   onClarifyAnswer: (answer: string) => void
 }): React.JSX.Element => (
   <>
@@ -231,6 +235,7 @@ export const TurnBlocks = ({
             key={block.key}
             question={block.extra.question}
             disabled={!clarifyInteractive}
+            answer={clarifyAnswer}
             onAnswer={onClarifyAnswer}
           />
         )
