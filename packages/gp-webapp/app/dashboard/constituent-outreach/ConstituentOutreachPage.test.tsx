@@ -636,3 +636,51 @@ describe('ConstituentOutreachPage — the serve-sms-outreach gate', () => {
     expect(screen.getByText('Explain a recent decision')).toBeInTheDocument()
   })
 })
+
+// Door knocking leaves this page and comes back to it, and the row it wrote
+// while away has to be here. See `OutreachHubPage.test.tsx` for the Win half
+// of the same fix.
+describe('ConstituentOutreachPage — the mount refresh', () => {
+  it('asks the server once on mount, so a campaign made while away appears', async () => {
+    // The seeded snapshot predates the campaign: the refetch is the only
+    // thing that can put it on the table, because this route's RSC may not
+    // have re-run on the way back.
+    api.mock('GET /v1/outreach/serve', {
+      status: 200,
+      data: [
+        {
+          id: 1,
+          date: '2026-08-20',
+          outreachType: 'socialMedia',
+          name: 'Budget update post',
+          status: 'completed',
+        },
+        {
+          id: 2,
+          date: '2026-09-29',
+          outreachType: 'nativeDoorKnocking',
+          name: 'Introduction walk',
+          status: 'in_progress',
+        },
+      ],
+    })
+
+    render(
+      <ConstituentOutreachPage
+        outreaches={[
+          {
+            id: 1,
+            date: '2026-08-20',
+            outreachType: 'socialMedia',
+            name: 'Budget update post',
+            status: 'completed',
+          },
+        ]}
+      />,
+    )
+
+    expect(
+      await within(desktopTable()).findByText('Introduction walk'),
+    ).toBeInTheDocument()
+  })
+})
