@@ -116,6 +116,15 @@ const CONTROLLER_OWNERS: Partial<
   authentication: BOTH,
   content: BOTH,
   elections: BOTH,
+  // The election data surface the marketing site reads. Absorbed from the
+  // election-api service, which had no alerting of its own; a failure here
+  // takes out public /elections and /people pages, not a product flow.
+  'elections/candidacies': BOTH,
+  'elections/officeholders': BOTH,
+  'elections/persons': BOTH,
+  'elections/places': BOTH,
+  'elections/positions': BOTH,
+  'elections/races': BOTH,
   experiment: BOTH,
   'onboarding/contacts': BOTH,
   'onboarding/local-news': BOTH,

@@ -65,6 +65,12 @@ jobs:
           route-types: 'true'
 
       - name: Lint
+        env:
+          # Type-aware ESLint over the whole workspace peaks near Node's
+          # default ~4GB heap and now exceeds it (exit 134), because absorbing
+          # election-api added ~170 files to src/. Same failure mode and cap as
+          # the Build step below, which hit this first on 2026-09-18.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run lint -w ${{ env.WORKSPACE }}
 
       - name: Typecheck

@@ -55,22 +55,6 @@ export enum ElectionCode {
   Primary = 'Primary',
 }
 
-export type ProjectedTurnout = {
-  id: string
-  brPositionId: string
-  createdAt: Date
-  updatedAt: Date
-  geoid: string
-  state: string
-  L2DistrictType: string
-  L2DistrictName: string
-  year: number
-  electionCode: ElectionCode
-  projectedTurnout: number
-  inferenceDate: Date
-  modelVersion: string
-}
-
 /**
  * District-only race target calculation result. Does NOT include filing fee
  * fields — those only come from the position lookup path. Callers using this
