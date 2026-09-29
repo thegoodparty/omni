@@ -141,7 +141,6 @@ const baseProps = {
   drawnStops: null,
   onStartKnocking: vi.fn(),
   isServeOrg: false,
-  unpreviewableKeys: [],
   orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
@@ -1265,67 +1264,6 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('option', { name: 'All contacts' })).toBeTruthy()
   })
 
-  // The reported defect, at the step it was reported from. A persuasion list
-  // is narrowed by support status, and the pack has no plane for it — so
-  // starting from a 256-person list put the whole district in the Continue
-  // button and said nothing about why. The count itself cannot be fixed here
-  // (the map genuinely cannot shade that clause), so the step has to say so:
-  // an undisclosed superset is what made this read as the list being ignored.
-  it('discloses, on the who step, a picked list’s unshadeable clauses', async () => {
-    const { rerender } = await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      unpreviewableKeys: [],
-    })
-    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
-
-    // Pick the row for real rather than posting the lifted draft in as props:
-    // the sentence names the picked list, so a test that never picks one is
-    // asserting wording the flow cannot actually reach.
-    await pickList(/Precinct 2 homeowners/)
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="filters"
-        savedLists={savedLists}
-        districtHouseholds={12_000}
-        filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
-      />,
-    )
-
-    // The CTA's count is still the whole district here, which is the thing the
-    // sentence below discloses.
-    expect(
-      screen.getByRole('button', { name: 'Continue (12,000)' }),
-    ).toBeEnabled()
-    expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
-      'The map can’t yet shade by Support status, so these counts include ' +
-        'people that filter will exclude. Your saved list still applies it ' +
-        'when you knock.',
-    )
-  })
-
-  // The same sentence, one step earlier in the decision: a candidate who
-  // builds a list from scratch and picks 65+ has an unshadeable selection and
-  // no list to attribute it to. Citing "your saved list" there describes
-  // something that does not exist; dropping the promise instead would end the
-  // sentence on "that filter will exclude", which reads as the filter being
-  // ignored. Both halves are checked because fixing either one alone is a
-  // regression in the other.
-  it('does not cite a saved list on the who step when none is picked', async () => {
-    await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { age65Plus: true },
-      unpreviewableKeys: ['age65Plus'],
-    })
-
-    const disclosure = screen.getByText(/The map can’t yet shade by/)
-    expect(disclosure).toHaveTextContent('Your list still applies it when you')
-    expect(disclosure).not.toHaveTextContent('saved list')
-  })
-
   // Derek's dead end, as reported: a list cut by support status shades as the
   // whole district, so every count on the way to the boundary looked healthy
   // and the create refused at the end — with a message about widening the
@@ -1348,7 +1286,6 @@ describe('CreateListFlow steps', () => {
         savedLists={savedLists}
         districtHouseholds={12_000}
         filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
         audienceEmpty
       />,
     )
@@ -1359,22 +1296,6 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'No contacts match this list’s support status filters',
     )
-  })
-
-  // Two sentences about the same gap, one hedging the count and one saying the
-  // count is moot, read as the step arguing with itself. The stronger claim
-  // wins: there is no point explaining that a number is too big once it is
-  // established that the right number is zero.
-  it('drops the shading disclosure once the audience is proven empty', async () => {
-    await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { supportStatus: true },
-      unpreviewableKeys: ['supportStatus'],
-      audienceEmpty: true,
-    })
-
-    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
   })
 
   // The same sentence from the pill-builder face, which has no list to cite.
@@ -1407,7 +1328,6 @@ describe('CreateListFlow steps', () => {
         savedLists={savedLists}
         districtHouseholds={12_000}
         filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
         audienceEmpty={false}
       />,
     )

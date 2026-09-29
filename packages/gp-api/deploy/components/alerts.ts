@@ -344,9 +344,10 @@ export const ROUTE_ERROR_THRESHOLDS: Partial<Record<ControllerName, number>> = {
  * thresholds on one measurement should not be able to drift into measuring
  * two different things.
  *
- * Both sides are hour-averaged. `:rate5m` on either alone is spiky enough that
+ * Both sides are 6h-averaged. `:rate5m` on either alone is spiky enough that
  * one wide ad-hoc query would clear 50% on its own, and a budget alert that
- * fires on a single query is a budget alert nobody keeps.
+ * fires on a single query is a budget alert nobody keeps. An hour turned out
+ * not to be enough of that smoothing — see the window note on the 50% rule.
  */
 /**
  * The two halves of each error-ratio rule, named once.
@@ -377,9 +378,9 @@ const PROFILE_RESOLVABLE_10M = logSignalTotalBy(
 )
 
 const LOKI_QUERY_BUDGET_RATIO = [
-  'sum(avg_over_time(grafanacloud_logs_instance_query_bytes:rate5m[1h]))',
+  'sum(avg_over_time(grafanacloud_logs_instance_query_bytes:rate5m[6h]))',
   '/',
-  '(100 * sum(avg_over_time(grafanacloud_logs_instance_billable_bytes_received_per_second[1h])))',
+  '(100 * sum(avg_over_time(grafanacloud_logs_instance_billable_bytes_received_per_second[6h])))',
 ].join(' ')
 
 /**
@@ -1177,15 +1178,26 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The plan includes log queries up to 100x what we ingest, so ingest is the
     // denominator and the ratio is the only number worth alerting on — an
     // absolute GB/day threshold goes stale the moment log volume moves, in
-    // whichever direction. Both sides are averaged over an hour because
-    // `:rate5m` is spiky enough that a single wide ad-hoc query would otherwise
-    // fire this on its own.
+    // whichever direction.
+    //
+    // Both sides are averaged over SIX hours, and the pending period is two.
+    // An hour was the first guess and it flapped: on 2026-09-29 the 1h ratio
+    // swung between 0.79 and 1.5 within a single hour (and spiked to 23 on one
+    // ad-hoc query), so it crossed the 0.8 threshold several times an hour and
+    // sent a fresh page on every re-cross. `repeat_interval` is 2d, so a
+    // sustained firing is one notification — the spam was entirely the
+    // resolve/re-fire cycle. Over the same window the 6h ratio is monotone.
+    //
+    // A long window costs nothing here because of what this measures: the
+    // allowance is billed monthly, so the thing worth paging on is a trend that
+    // holds for hours. Anything that resolves faster than that was never going
+    // to show up on an invoice.
     expr: LOKI_QUERY_BUDGET_RATIO,
     threshold: 0.5,
-    for: '30m',
-    timeRangeSeconds: 3600,
+    for: '120m',
+    timeRangeSeconds: 21600,
     message: [
-      'Loki log queries are running at more than **50%** of the included allowance (100x ingest), averaged over the last hour. Nothing is broken yet; this is the point at which somebody should look at what is reading.',
+      'Loki log queries are running at more than **50%** of the included allowance (100x ingest), averaged over the last 6 hours. Nothing is broken yet; this is the point at which somebody should look at what is reading.',
       LOKI_ATTRIBUTION_PROSE,
       'The usual cause is a rule whose fetch window is wide and whose evaluation interval is fast — a rule re-reads its whole window every interval, so a 6h window on the 60s default reads the same six hours 1,440 times a day. See gp-api `docs/observability.md` § Query cost.',
     ].join('\n\n'),
@@ -1196,10 +1208,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     type: 'usage',
     expr: LOKI_QUERY_BUDGET_RATIO,
     threshold: 0.8,
-    for: '30m',
-    timeRangeSeconds: 3600,
+    for: '120m',
+    timeRangeSeconds: 21600,
     message: [
-      'Loki log queries are running at more than **80%** of the included allowance (100x ingest), averaged over the last hour. Past 100% Grafana Cloud bills the overage and, sustained, starts answering queries with HTTP 429 — at which point every log-backed alert rule fails to evaluate and fires.',
+      'Loki log queries are running at more than **80%** of the included allowance (100x ingest), averaged over the last 6 hours. Past 100% Grafana Cloud bills the overage and, sustained, starts answering queries with HTTP 429 — at which point every log-backed alert rule fails to evaluate and fires.',
       LOKI_ATTRIBUTION_PROSE,
       '**Reducing log ingest does not fix this.** Ingest is the denominator of the allowance, so writing fewer logs lowers the budget by the same proportion it lowers nothing else. The fix is always a narrower stream selector, a shorter window, or a slower evaluation interval on whatever is doing the reading.',
     ].join('\n\n'),

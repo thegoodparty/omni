@@ -95,6 +95,11 @@ export class StatsDTO extends createZodDto(withDistrictInput({})) {}
 // unfiltered DistrictStats row (see StatsService).
 export const aggregatesSchema = withDistrictInput({
   filters: filtersSchema,
+  // A saved list's own stored search narrows it on every read that
+  // materialises people (ENG-10518), so aggregates computed without it
+  // describe a larger list than the one the holder sees — and than the one
+  // every send path will actually reach.
+  search: z.string().optional(),
   // See listPeopleSchema's idOverrides comment (ENG-10838).
   idOverrides: IdOverridesSchema.optional(),
   // See listPeopleSchema's contactsMadeIdOverrides comment (ENG-10839).

@@ -119,8 +119,16 @@ const setupStack = async (env: string) => {
     'pulumi-state-config-passphrase',
   )
 
-  GRAFANA_AUTH = await getSSMParameter('grafana-shared-service-account-token')
-  GRAFANA_SM_ACCESS_TOKEN = await getSSMParameter('grafana-sm-access-token')
+  // Not on preview. `index.ts` calls `createGrafanaResources` only when
+  // `environment !== 'preview'`, so a preview run constructs no Grafana
+  // provider and these two values are never read. Fetching them anyway pulls
+  // two live credentials, decrypted, onto a path whose Pulumi program comes
+  // from the pull request. Skipping the fetch is what lets the PR preview
+  // role hold no SSM grant for them at all.
+  if (env !== 'preview') {
+    GRAFANA_AUTH = await getSSMParameter('grafana-shared-service-account-token')
+    GRAFANA_SM_ACCESS_TOKEN = await getSSMParameter('grafana-sm-access-token')
+  }
 
   // In CI, every setup pulumi command must keep both stdout AND stderr fully
   // silenced. The infrastructure-diffs workflow runs the diff with

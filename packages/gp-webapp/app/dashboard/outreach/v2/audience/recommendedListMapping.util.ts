@@ -79,6 +79,12 @@ export const builderFiltersFromRecommendation = (
   if (filter.ideologyModerate) result.ideologyModerate = true
   if (filter.ideologyConservative) result.ideologyConservative = true
   if (filter.hasCellPhone) result.hasCellPhone = true
+  // Robocall's cut, and it has to survive accepting the card. Without it the
+  // saved list drops the landline narrowing the card was PRICED on, so the
+  // candidate keeps a wider audience than they were shown and
+  // `existingFilterId` never matches — the same recommendation can be saved
+  // again as a different list.
+  if (filter.hasLandline) result.hasLandline = true
   if (filter.hasAnyPhone) result.hasAnyPhone = true
   return result
 }

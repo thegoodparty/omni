@@ -27,10 +27,6 @@ import {
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SupportStatusRollup } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import {
-  unpreviewableDisclosureLabels,
-  unpreviewableDisclosureSentence,
-} from './voterFilterPreview'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
@@ -246,8 +242,6 @@ interface CreateListFlowProps {
   // presentational flow and its tests don't need an organization provider.
   isServeOrg: boolean
   // Selected filter option keys the map preview can't narrow by, so the drawn
-  // shape shows more people than the list will target.
-  unpreviewableKeys: string[]
   // The organization the recommendations are asked for, purely as a cache-key
   // segment. A prop rather than a `useOrganization()` read for the same
   // reason as `isServeOrg` above.
@@ -399,7 +393,6 @@ export default function CreateListFlow({
   onDrawFullScreenChange,
   onStartKnocking,
   isServeOrg,
-  unpreviewableKeys,
   orgSlug,
   preselectedListId,
   onPreselectApplied,
@@ -1432,16 +1425,6 @@ export default function CreateListFlow({
     ? audienceEmptyMessage(filters, savedListId !== null)
     : null
 
-  const unpreviewableDisclosure = audienceEmptyDisclosure
-    ? // Suppressed under a proven-empty audience. This sentence hedges the
-      // count as too big; that one says the count is moot. Both at once reads
-      // as the step arguing with itself.
-      null
-    : unpreviewableDisclosureSentence(
-        unpreviewableDisclosureLabels(unpreviewableKeys),
-        savedListId !== null,
-      )
-
   // The drawing surface is the map with nothing over it. Every control it
   // used to float there — the hint, the instructions modal, Undo and the
   // stop count — is either deleted or in the turf panel now, and the panel
@@ -1751,18 +1734,6 @@ export default function CreateListFlow({
               {audienceEmptyDisclosure && (
                 <p role="alert" className="text-sm text-destructive">
                   {audienceEmptyDisclosure}
-                </p>
-              )}
-              {/* The count in the CTA is the pack's, and the pack cannot shade
-                every way a saved list narrows — a list cut by support status
-                or prior outreach previews as the whole district here. Without
-                this the gap would first appear on the draw step, two moves
-                after the number that provoked it, and a candidate starting
-                from a 256-person list would read the district figure as their
-                list being ignored. */}
-              {unpreviewableDisclosure && (
-                <p className="text-xs text-muted-foreground">
-                  {unpreviewableDisclosure}
                 </p>
               )}
             </>

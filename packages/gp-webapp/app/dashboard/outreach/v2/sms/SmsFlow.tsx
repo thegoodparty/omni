@@ -1401,6 +1401,14 @@ export const SmsFlow = ({
               setStopPolling(false)
               setPhoneListError(false)
             }}
+            universeName={audience.universeName}
+            universeListId={audience.universeListId}
+            universeCount={audience.universeCount}
+            universeLoading={audience.universeLoading}
+            onSelectUniverse={audience.selectUniverse}
+            universePending={audience.universePending}
+            universeError={audience.universeError}
+            onPickerOpenChange={audience.onPickerOpenChange}
             onStartBuilder={() => {
               setPhoneListError(false)
               audience.startBuilder()
