@@ -140,6 +140,10 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
       billableCount: 500,
       amountInCents: calcRobocallTotalInCents(500),
       numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
+      promoCode: null,
+      promoDiscountInCents: 0,
+      amountDueInCents: calcRobocallTotalInCents(500),
+      coversTotal: false,
     })
 
     // The count is derived with the landline dimension forced on.

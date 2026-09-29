@@ -6,6 +6,7 @@ import { Campaign, User } from 'src/generated/prisma'
 import { CampaignsService } from '../services/campaigns.service'
 import {
   buildFilingInstructionsContent,
+  renderEinInstructionsEmail,
   renderFilingInstructionsEmail,
 } from './filingInstructions.util'
 
@@ -30,6 +31,18 @@ export class FilingInstructionsService {
     return this.email.sendEmail({
       to: user.email,
       subject: 'Your filing instructions - GoodParty.org',
+      message,
+      html: message.replace(/\n/g, '<br />'),
+    })
+  }
+
+  // The EIN step's "Email me these steps": the same six IRS steps the wizard
+  // shows, so the candidate can finish at the IRS from their inbox.
+  async emailEinInstructionsToCandidate(user: User) {
+    const message = renderEinInstructionsEmail()
+    return this.email.sendEmail({
+      to: user.email,
+      subject: 'How to get your free EIN - GoodParty.org',
       message,
       html: message.replace(/\n/g, '<br />'),
     })

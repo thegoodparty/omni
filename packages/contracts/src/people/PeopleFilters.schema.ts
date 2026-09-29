@@ -34,16 +34,8 @@ import { z } from 'zod'
  * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress (true = IS NOT NULL, false = IS NULL)
  * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-100000 uuids)
  * - Enum filters: voterStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
- *   businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
+ *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
  *   independentAffinity
- *
- * Ethnicity is deliberately NOT filterable and must not be added back. Nobody
- * may subset constituents or voters by ethnicity: not through the API, not
- * through the assistants, not by hand in the list wizard. The attribute is a
- * modeled L2 estimate, it maps to no local issue without passing through a
- * stereotype, and a contactable list cut by it is the one output this product
- * will not produce. Aggregate district composition is a separate question and
- * stays available through the agent voter marts.
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
  * - Numeric filters: ageInt, estimatedIncomeAmountInt
  *   Operators: { in: number[] }, { eq: number }, { gte: number }, { lte: number }, { is: "not_null" | "null" }
@@ -92,12 +84,20 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
     'Graduate Degree',
     'Unknown',
   ] as const,
+  ethnicity: [
+    'Asian',
+    'European',
+    'Hispanic',
+    'African American',
+    'Other',
+    'Unknown',
+  ] as const,
   businessOwner: ['Yes', 'Unknown'] as const,
   presenceOfChildren: ['Yes', 'No', 'Unknown'] as const,
   homeowner: ['Yes', 'Likely', 'No', 'Unknown'] as const,
   gender: ['M', 'F', 'Unknown'] as const,
-  // 'Other' and 'Unknown' are separate because `Language_Code` is nullable
-  // with no sentinel, so "speaks
+  // 'Other' and 'Unknown' are separate for the same reason `ethnicity` keeps
+  // them apart: `Language_Code` is nullable with no sentinel, so "speaks
   // something else" and "we were never told" are distinguishable facts about
   // a person. 'Other' used to mean both, which reported roughly 60% of a
   // district as Other-language speakers.
@@ -207,7 +207,7 @@ export const decodePrecinctPair = (
 // the UI offers whenever a district contains voters with no precinct on file
 // (0.7% nationally, and all 1,086,506 New Hampshire voters). Selecting it must
 // resolve to `Precinct IS NULL`, never be dropped.
-const MAX_PRECINCT_FILTER_VALUES = 5_000
+export const MAX_PRECINCT_FILTER_VALUES = 5_000
 
 export const createPrecinctFilterSchema = () =>
   z.object({
@@ -261,6 +261,9 @@ export const PeopleFiltersSchema = z.object({
   ).optional(),
   educationLevel: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.educationLevel,
+  ).optional(),
+  ethnicity: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.ethnicity,
   ).optional(),
   businessOwner: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.businessOwner,

@@ -8,7 +8,13 @@ import {
   DoorKnockingPackManifest,
   DoorKnockingPackRequest,
   INCOME_RANGE_MAPPING,
+  KNOCKABLE_DIM_KEY,
+  KNOCKABLE_VALUES,
+  MAX_PRECINCT_FILTER_VALUES,
+  PACK_DIM_WIDTHS,
   PEOPLE_FILTER_VALUE_ENUMS,
+  PRECINCT_DIM_KEY,
+  encodePrecinctPair,
 } from '@goodparty_org/contracts'
 import { VALUE_MAPPERS } from './valueMappers.util'
 import {
@@ -33,6 +39,9 @@ export type PackRow = {
   Education_Of_Person: string | null
   Estimated_Income_Amount_Int: number | null
   Language_Code: string | null
+  EthnicGroups_EthnicGroup1Desc: string | null
+  County: string | null
+  Precinct: string | null
   registered: boolean
   hasCellPhone: boolean
   hasLandline: boolean
@@ -74,6 +83,7 @@ const MAPPED_DIMS = [
   ['presenceOfChildren', 'presenceOfChildren', 'Presence_Of_Children'],
   ['homeowner', 'homeowner', 'Homeowner_Probability_Model'],
   ['educationLevel', 'educationLevel', 'Education_Of_Person'],
+  ['ethnicity', 'ethnicity', 'EthnicGroups_EthnicGroup1Desc'],
 ] as const satisfies ReadonlyArray<
   readonly [string, keyof typeof VALUE_MAPPERS, keyof PackRow]
 >
@@ -135,11 +145,66 @@ class GrowableU8 {
   }
 }
 
+// The precinct plane's sibling. Every other dim's vocabulary is a closed enum
+// known before the scan, so a byte is always enough; precinct's is the
+// district's own pairs, discovered row by row, and a state-level race has
+// more than 256 of them. Accumulated wide and NARROWED back to u8 in
+// `toBuffer` when the district turned out to fit, which is the common case:
+// p75 is 13-15 pairs, so almost every build still pays one byte per person.
+class GrowableU16 {
+  private array = new Uint16Array(64 * 1024)
+  length = 0
+
+  push(value: number): void {
+    if (this.length === this.array.length) {
+      const next = new Uint16Array(this.array.length * 2)
+      next.set(this.array)
+      this.array = next
+    }
+    this.array[this.length++] = value
+  }
+
+  view(): Uint16Array {
+    return this.array.subarray(0, this.length)
+  }
+}
+
 type DimPlane = {
   key: string
   values: string[]
   encode: (row: PackRow) => number
-  bytes: GrowableU8
+  bytes: GrowableU8 | GrowableU16
+  // Set when the dim's vocabulary outgrew what the pack will carry. The plane
+  // is dropped whole in `toBuffer` rather than truncated: a truncated plane
+  // reads the overflow as some OTHER value, where an absent one is an honest
+  // "cannot shade this" the create flow already knows how to say.
+  dropped?: boolean
+}
+
+const ELEMENT_BYTES = { f32: 4, u32: 4, u16: 2, u8: 1 } as const
+
+// A dim's plane is as narrow as its vocabulary allows. Only precinct can be
+// wide, and only in a district with more than 256 pairs — p75 is 13-15, so
+// the wide case is the exception rather than the rule.
+const planeType = (dim: DimPlane): 'u8' | 'u16' =>
+  dim.values.length > PACK_DIM_WIDTHS.u8 ? 'u16' : 'u8'
+
+// The plane as bytes for the wire. Precinct accumulates wide because its
+// vocabulary is not known until the last row has been read; by here it is,
+// so a district that turned out to fit in a byte pays a byte. The narrowing
+// is one element per person, which is nothing beside the scan that produced
+// them.
+const planeBytes = (dim: DimPlane): Uint8Array => {
+  const view = dim.bytes.view()
+  if (view instanceof Uint8Array) return view
+  if (planeType(dim) === 'u16') {
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+  }
+  const narrowed = new Uint8Array(view.length)
+  for (let index = 0; index < view.length; index++) {
+    narrowed[index] = view[index] ?? 0
+  }
+  return narrowed
 }
 
 // personId -> canvass status byte (index into DOOR_KNOCK_STATUSES).
@@ -172,6 +237,17 @@ export const contactsMadeToBytes = (
     ? null
     : new Map(entries.map(({ personId, bucket }) => [personId, bucket]))
 
+// The people every server-side evaluation removes before it counts anything.
+// `null` is "gp-api did not answer" and omits the plane; an empty set is an
+// organization that has flagged nobody, which is a real fact the map can
+// shade. Same two-state convention as `contactsMadeToBytes`, and for a
+// sharper reason: a plane of yeses claims every door is open, which is the
+// wrong way to be wrong about somebody who said don't come back.
+export type PackExcluded = Set<string> | null
+
+export const excludedToSet = (personIds: string[] | undefined): PackExcluded =>
+  personIds === undefined ? null : new Set(personIds)
+
 export class PackEncoder {
   // Keyed lat -> lng -> dot rather than on a `${lat}|${lng}` string. Building
   // that string was 261ms of a 628k-row build — the single most expensive
@@ -197,6 +273,7 @@ export class PackEncoder {
   constructor(
     statusByPersonId: PackStatuses,
     contactsMadeByPersonId: PackContactsMade = null,
+    excludedPersonIds: PackExcluded = null,
   ) {
     const mapped: DimPlane[] = MAPPED_DIMS.map(([key, mapperKey, column]) => {
       const { values, rawToByte } = invertMapper(
@@ -228,6 +305,50 @@ export class PackEncoder {
       },
       bytes: new GrowableU8(),
     }
+    // Precinct, and the only dim whose vocabulary is LEARNED rather than
+    // declared. Every other plane maps a closed enum, so its values exist
+    // before the first row; a district's precincts are whatever is in the
+    // district, so the list is built as the scan runs and each new pair takes
+    // the next index. That works precisely because the encoder is a single
+    // forward pass — the value list and the plane are written together.
+    //
+    // Byte 0 is the no-data slot the other dims use, and it means "no county
+    // on file", which is not the same thing as no PRECINCT on file: a voter
+    // whose county is known and precinct is not has a real, selectable pair
+    // with an empty precinct side, exactly as the picker offers it. New
+    // Hampshire is the case that makes this matter, where every voter has a
+    // null precinct and a perfectly good county.
+    const precinctValues: string[] = [UNKNOWN]
+    const precinctBytes = new Map<string, number>()
+    const precinct: DimPlane = {
+      key: PRECINCT_DIM_KEY,
+      values: precinctValues,
+      encode: (row) => {
+        const county = row.County ?? ''
+        if (county === '') return 0
+        const pair = encodePrecinctPair(county, row.Precinct ?? '')
+        const seen = precinctBytes.get(pair)
+        if (seen !== undefined) return seen
+        // `>` and not `>=`, because index 0 is the sentinel and the cap
+        // counts REAL pairs. At `length === MAX` there are MAX - 1 of those
+        // and the one being added is the MAXth, which the picker would
+        // offer — rejecting it there breaks the invariant this cap exists
+        // to hold, that anything the picker can offer the map can shade.
+        if (precinctValues.length > MAX_PRECINCT_FILTER_VALUES) {
+          // Past the picker's own ceiling. Mark and keep going rather than
+          // throwing: the rest of the pack is still worth serving, and the
+          // plane leaves in `toBuffer`.
+          precinct.dropped = true
+          return 0
+        }
+        const next = precinctValues.length
+        precinctValues.push(pair)
+        precinctBytes.set(pair, next)
+        return next
+      },
+      bytes: new GrowableU16(),
+    }
+
     this.dims = [
       party,
       ...mapped,
@@ -288,6 +409,11 @@ export class PackEncoder {
         encode: (row) => (row.hasLandline ? 1 : 0),
         bytes: new GrowableU8(),
       },
+      // District-scoped, so it sits with the district dims and IN FRONT of
+      // the per-organization planes below: everything above `canvassStatus`
+      // is a pure function of the district, which is the property a cached
+      // shared build would rest on.
+      precinct,
       {
         key: 'canvassStatus',
         values: [...DOOR_KNOCK_STATUSES],
@@ -310,6 +436,25 @@ export class PackEncoder {
         key: CONTACTS_MADE_DIM_KEY,
         values: [...CONTACTS_MADE_BUCKETS],
         encode: (row) => contactsMadeByPersonId.get(row.id) ?? 0,
+        bytes: new GrowableU8(),
+      })
+    }
+
+    // The third per-organization plane, and the only one that is not a
+    // filter. Nothing selects it: `runFilter` and `polygonStats` read it as
+    // an unconditional mask, because do-not-knock and not-a-voter are
+    // suppression rather than criteria and every server-side evaluation
+    // already applies them. That is also what keeps this out of the filter
+    // catalog, which is the review ADR 0007 deferred.
+    //
+    // Note the encode is the inverse of the other planes' `?? 0`: the
+    // DEFAULT here is knockable, and byte 0 is reserved for the people who
+    // are not.
+    if (excludedPersonIds) {
+      this.dims.push({
+        key: KNOCKABLE_DIM_KEY,
+        values: [...KNOCKABLE_VALUES],
+        encode: (row) => (excludedPersonIds.has(row.id) ? 0 : 1),
         bytes: new GrowableU8(),
       })
     }
@@ -373,22 +518,42 @@ export class PackEncoder {
     // inside it — so the written manifest is always consistent with the
     // actual layout. Monotone growth converges in 2-3 iterations; the guard
     // turns a would-be silent corruption into a hard error.
+    // What survives to the wire, widest plane first.
+    //
+    // Dropping is the vocabulary-overflow path (see `DimPlane.dropped`). The
+    // ORDER is what keeps a u16 plane 2-byte aligned without a padding
+    // scheme: `dataStart` is 4-aligned and every core array is a whole
+    // number of 4-byte elements, so the first dim starts aligned, and a u16
+    // plane is `people * 2` bytes, which leaves the next one aligned too.
+    // Put a u8 plane in front of a u16 one and an odd person count lands the
+    // u16 view on an odd offset, where the browser's
+    // `new Uint16Array(buffer, byteOffset, n)` throws outright. `sort` is
+    // stable, so dims keep their relative order within each width — which
+    // matters because the district-scoped dims deliberately precede the
+    // per-organization ones.
+    const dims = this.dims
+      .filter((dim) => !dim.dropped)
+      .sort(
+        (a, b) =>
+          Number(planeType(b) === 'u16') - Number(planeType(a) === 'u16'),
+      )
+
     const buildManifestJson = (dataStart: number): string => {
       const arrays: DoorKnockingPackManifest['arrays'] = []
       let offset = dataStart
       const push = (
         name: string,
-        type: 'f32' | 'u32' | 'u8',
+        type: 'f32' | 'u32' | 'u16' | 'u8',
         count: number,
       ) => {
         arrays.push({ name, type, byteOffset: offset, elementCount: count })
-        offset += count * (type === 'u8' ? 1 : 4)
+        offset += count * ELEMENT_BYTES[type]
       }
       push('positions', 'f32', this.positionsLength)
       push('personToHousehold', 'u32', counts.people)
       push('householdToDot', 'u32', counts.households)
-      for (const dim of this.dims) {
-        push(`dim:${dim.key}`, 'u8', counts.people)
+      for (const dim of dims) {
+        push(`dim:${dim.key}`, planeType(dim), counts.people)
       }
       const manifest: DoorKnockingPackManifest = {
         // The byte FRAMING, unchanged by the language split: still one u8 per
@@ -397,7 +562,7 @@ export class PackEncoder {
         version: 1,
         generatedAt,
         counts,
-        dims: this.dims.map((dim) => ({ key: dim.key, values: dim.values })),
+        dims: dims.map((dim) => ({ key: dim.key, values: dim.values })),
         arrays,
       }
       return JSON.stringify(manifest)
@@ -421,7 +586,10 @@ export class PackEncoder {
       this.positionsLength * 4 +
       counts.people * 4 +
       counts.households * 4 +
-      this.dims.length * counts.people
+      dims.reduce(
+        (sum, dim) => sum + counts.people * ELEMENT_BYTES[planeType(dim)],
+        0,
+      )
 
     const buffer = Buffer.alloc(total)
     buffer.writeUInt32LE(manifestBytes, 0)
@@ -434,8 +602,15 @@ export class PackEncoder {
     copy(new Uint8Array(this.positions.buffer, 0, this.positionsLength * 4))
     copy(new Uint8Array(this.personToHousehold.buffer, 0, counts.people * 4))
     copy(new Uint8Array(this.householdToDot.buffer, 0, counts.households * 4))
-    for (const dim of this.dims) {
-      copy(dim.bytes.view())
+    for (const dim of dims) {
+      if (planeType(dim) === 'u16' && offset % 2 !== 0) {
+        // Unreachable while `dims` is ordered widest-first, and a hard error
+        // rather than a silent one if that ever stops being true: an odd
+        // offset makes the client's `new Uint16Array(buffer, offset, n)`
+        // throw, which surfaces as a pack that fails to decode at all.
+        throw new Error(`u16 plane "${dim.key}" would land on an odd offset`)
+      }
+      copy(planeBytes(dim))
     }
     return buffer
   }

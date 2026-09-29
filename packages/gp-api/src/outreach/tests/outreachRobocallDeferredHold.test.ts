@@ -247,6 +247,7 @@ describe('authorize defers and persists the chosen card', () => {
       status: 'authorized',
       settleState: RobocallSettleState.authorized,
       authorizedAmountInCents: 450,
+      promoDiscountInCents: null,
     })
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     // The authorized row's card is left intact — 'pm_new' never overwrote it.

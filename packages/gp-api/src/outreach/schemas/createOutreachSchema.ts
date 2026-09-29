@@ -40,6 +40,8 @@ export class CreateOutreachSchema extends createZodDto(
       imageUrl: z.string().url().optional(),
       voterFileFilterId: z.coerce.number().int().positive().optional(),
       phoneListId: z.coerce.number().int().positive().optional(),
+      draftOutreachId: z.coerce.number().int().positive().optional(),
+      priorityId: z.string().min(1).optional(),
       // P2P-specific fields
       didState: z
         .string()
@@ -117,6 +119,13 @@ export class CreateOutreachSchema extends createZodDto(
           path: ['status'],
           code: z.ZodIssueCode.custom,
           message: 'pending_payment is set by the draft flow, not the client',
+        })
+      }
+      if (data.status === OutreachStatus.draft) {
+        ctx.addIssue({
+          path: ['status'],
+          code: z.ZodIssueCode.custom,
+          message: 'draft is set by POST /outreach/drafts, not the client',
         })
       }
       if (data.outreachType === OutreachType.nativeDoorKnocking) {

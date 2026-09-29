@@ -98,7 +98,14 @@ const CHANNEL_CONTACTABILITY: Record<
   Partial<VoterFilterShape>
 > = {
   sms: { hasCellPhone: true },
-  robocall: { hasAnyPhone: true },
+  // Landline, not any phone. A robocall dials landlines and nothing else —
+  // the reachability leaf is `COUNT_IF(landline)`, the builder's count
+  // overlay is `{ hasLandline: true }`, and both `deriveBillableCount` and
+  // `resolveLandlineNumbers` force it. Sizing the card on any phone made it
+  // promise reach the channel cannot deliver, and that number is carried
+  // into the audience step as `reachableCount` whenever list-detail has not
+  // answered yet.
+  robocall: { hasLandline: true },
   phoneBanking: { hasAnyPhone: true },
   // Every voter has an address on file, so a contactability filter here
   // would narrow nothing. Door knocking's precinct restriction is applied

@@ -641,6 +641,15 @@ export class OutreachTextDeliveryService extends createPrismaBase(
       // warns about. The cost is that opted-out rows are paged over before
       // being discarded.
       excludePersonIds: new Set(),
+      // No deadline on this path: the send is already paid for and running off
+      // a queue, so the page-1 pre-flight's speed-for-precision trade is the
+      // wrong way round here. It reads the MATCHED count, and this caller's
+      // matched-minus-resolved gap is routinely the size of the org's opt-out
+      // set (scrubbed below rather than in the query), so the pre-flight would
+      // refuse sends that resolve well under the cap and complete fine — and a
+      // 4xx out of here marks a PAID outreach permanently `failed`. The in-loop
+      // cap still enforces the audience's actual size.
+      skipPreflightCap: true,
       // Runs after the cell-phone check and before dedupe/cap, so an
       // opted-out person neither claims a phone number nor spends a
       // recipient — the same position the upstream filter had.

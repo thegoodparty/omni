@@ -452,6 +452,7 @@ export const EVENTS = {
       EinViewed: 'Pro Upgrade - EIN Viewed',
       EinContinue: 'Pro Upgrade - EIN: Click continue',
       EinHoverHelp: 'Pro Upgrade - EIN: Hover help',
+      EinInstructionsEmail: 'Pro Upgrade - EIN: Click email me these steps',
       CandidateProfileViewed: 'Pro Upgrade - Candidate Profile Viewed',
       FilingDetailsViewed: 'Pro Upgrade - Filing Details Viewed',
       PaymentViewed: 'Pro Upgrade - Payment Viewed',
@@ -459,12 +460,37 @@ export const EVENTS = {
       SuccessContinue: 'Pro Upgrade - Success: Click continue',
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
+    // outreach-pro-gating-v2 membership surfaces (Pro upgrade and campaign
+    // verification 2.0). Banner/chip carry `tier` and `texting`; clicks carry
+    // `action`.
+    Membership: {
+      BannerViewed: 'Pro Upgrade - Membership Banner Viewed',
+      BannerClicked: 'Pro Upgrade - Membership Banner: Click',
+      ChipViewed: 'Pro Upgrade - Membership Chip Viewed',
+      ChipClicked: 'Pro Upgrade - Membership Chip: Click',
+      PitchViewed: 'Pro Upgrade - Pitch Viewed',
+      PitchJoin: 'Pro Upgrade - Pitch: Click join',
+      PitchDismiss: 'Pro Upgrade - Pitch: Click continue without Pro',
+    },
+    // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
+    // campaign verification 2.0).
+    Verification: {
+      IntroViewed: 'Pro Upgrade - Verification Intro Viewed',
+      IntroContinue: 'Pro Upgrade - Verification Intro: Click continue',
+      SubmittedViewed: 'Pro Upgrade - Verification Submitted Viewed',
+    },
   },
   // Candidate questions flow. The event string is snake_case, predating the
   // 'Product Area - Action' convention; the name is kept exactly as ingested so
   // moving it into the registry stays a no-op for Amplitude and HubSpot.
   Questions: {
     Completed: 'question_complete',
+    OccupationViewed: 'Questions - Occupation Viewed',
+    OccupationCompleted: 'Questions - Occupation Completed',
+    FunFactViewed: 'Questions - Fun Fact Viewed',
+    FunFactCompleted: 'Questions - Fun Fact Completed',
+    PastExperienceViewed: 'Questions - Past Experience Viewed',
+    PastExperienceCompleted: 'Questions - Past Experience Completed',
   },
   // Peer-to-peer texting upsell modal, a sibling of ProUpgrade.Modal above with
   // its own event family. Every event carries `variant` (P2PModalVariant) so the
@@ -693,6 +719,37 @@ export const EVENTS = {
     // point (useOutreachAudience.ts).
     RecommendedList: {
       Accepted: 'Voter Outreach - Recommended List Accepted',
+      // The save that Accepted reports on can fail. Without the twin, the
+      // accept count is a success count with no denominator, so a rise in
+      // failures reads as a fall in interest.
+      Failed: 'Voter Outreach - Recommended List Failed',
+    },
+    // outreach-pro-gating-v2: the saved draft a gated candidate keeps.
+    // Every event carries `channel` (the gate's `GateChannel`); `Resumed`
+    // also carries the `source` the resume was pressed from.
+    Draft: {
+      Saved: 'Outreach - Draft Saved',
+      Resumed: 'Outreach - Draft Resumed',
+      Deleted: 'Outreach - Draft Deleted',
+    },
+    // outreach-pro-gating-v2: the in-flow gate's own surfaces. Both carry
+    // `channel` and `requirement`; `ExplainerCta` adds which button
+    // (`cta`) was pressed, dismiss included.
+    Gate: {
+      BannerViewed: 'Outreach - Gate Banner Viewed',
+      ExplainerViewed: 'Outreach - Gate Explainer Viewed',
+      ExplainerCta: 'Outreach - Gate Explainer: Click CTA',
+    },
+    // Per-stage drop-off across the v2 channel wizards, fired by
+    // OutreachFlowShell rather than by each flow: the stage is a property
+    // (`channel`, `step`), not a separate event, matching the shared
+    // 'Voter Outreach - Campaign Scheduled' terminal. StepViewed re-fires on
+    // Back re-entry; StepCompleted names the step the user just left, so it
+    // fires only on a forward move. The gate sub-flow and the success screen
+    // are deliberately untracked here — they are not stages of this funnel.
+    Flow: {
+      StepViewed: 'Voter Outreach - Flow Step Viewed',
+      StepCompleted: 'Voter Outreach - Flow Step Completed',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },
@@ -763,6 +820,13 @@ export const EVENTS = {
     PartyDesignationCompleted: 'Onboarding V2 - Party Designation Completed',
     PartyDesignationBlocked: 'Onboarding V2 - Party Designation Blocked',
     OfficeViewed: 'Onboarding V2 - Office Viewed',
+    // The candidate gave up on the office picker and was sent to the manual
+    // form. Carries the picker state at the moment they gave up (zip, search
+    // text, how many offices were on screen) — none of which reaches the
+    // campaign record, so this event is the only record of it. Its pair is
+    // OfficeCompleted with officePath: 'manual'; a Viewed without that
+    // Completed is an abandoned manual form (DATA-2525).
+    ManualOfficeViewed: 'Onboarding V2 - Manual Office Viewed',
     OfficeCompleted: 'Onboarding V2 - Office Completed',
     VotesNeededViewed: 'Onboarding V2 - Votes Needed Viewed',
     VotesNeededCompleted: 'Onboarding V2 - Votes Needed Completed',
@@ -823,6 +887,12 @@ export const EVENTS = {
     DraftDetailsDownloaded: 'Ordinances - Draft Details Downloaded',
     DraftDetailsStatusUpdated: 'Ordinances - Draft Details Status Updated',
     DraftDetailsDeleted: 'Ordinances - Draft Details Deleted',
+    BugReportSubmitted: 'Ordinances - Bug Report Submitted',
+    BugReportErrored: 'Ordinances - Bug Report Errored',
+    NewOrdinanceCreated: 'Ordinances - New Ordinance Created',
+    NewOrdinanceErrored: 'Ordinances - New Ordinance Errored',
+    DraftChatOpened: 'Ordinances - Draft Chat Opened',
+    DraftChatMessageSent: 'Ordinances - Draft Chat Message Sent',
   },
   // ENG-10626: the native door-knocking surface (voter map, turf cutting,
   // routed walk). Distinct from Dashboard.VoterContact.DoorKnocking above,

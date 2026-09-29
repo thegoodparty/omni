@@ -1,7 +1,9 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
 import {
@@ -13,6 +15,7 @@ import {
   Outreach,
   OutreachStatus,
   OutreachType,
+  Prisma,
   User,
 } from '../../generated/prisma'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
@@ -25,6 +28,8 @@ import {
   type SmsStandardsRule,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { EmailService } from 'src/email/email.service'
 import { ASSET_DOMAIN, WEBAPP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
@@ -107,6 +112,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly s3: S3Service,
     private readonly stripeService: StripeService,
     private readonly emailService: EmailService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -251,6 +257,76 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     )
   }
 
+  // Resume: the candidate built this row while they could not send and is Pro
+  // (and texting-cleared) now, so the SAME row becomes the payable draft —
+  // inserting a second one would leave the saved image and script behind and
+  // let the expiry job delete the audience the candidate is paying for.
+  private async convertP2pDraft(
+    campaign: Campaign,
+    createOutreachDto: CreateOutreachSchema,
+    draftOutreachId: number,
+    script: string,
+  ) {
+    const draft = await this.model.findFirst({
+      where: {
+        id: draftOutreachId,
+        campaignId: campaign.id,
+        outreachType: OutreachType.p2p,
+      },
+    })
+    if (!draft) {
+      throw new NotFoundException('Outreach draft not found')
+    }
+    if (draft.status !== OutreachStatus.draft) {
+      throw new ConflictException('This outreach is no longer a draft')
+    }
+
+    const {
+      peerlyIdentityId,
+      name,
+      resolvedScriptText,
+      didState,
+      didNpaSubset,
+    } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
+
+    // The status transition is the claim: two resume submits both clear the
+    // read above, so the `draft` guard here is what makes exactly one of them
+    // the scheduling write instead of letting the last one win silently.
+    const claimed = await this.model.updateMany({
+      where: { id: draft.id, status: OutreachStatus.draft },
+      data: {
+        status: OutreachStatus.pending_payment,
+        phoneListId: createOutreachDto.phoneListId,
+        // The audience the resume was priced and scheduled against; left
+        // untouched when the client sends none.
+        voterFileFilterId: createOutreachDto.voterFileFilterId,
+        date: createOutreachDto.date,
+        // The payload's offset-annotated datetime starts with the user's
+        // local calendar day; the DateTime column loses that offset, and
+        // finalize needs the local day for Peerly's start/end dates.
+        scheduledLocalDate: createOutreachDto.date?.slice(0, 10),
+        scheduledLocalTime: createOutreachDto.scheduledLocalTime,
+        textCount: createOutreachDto.textCount,
+        billableTextCount: createOutreachDto.billableTextCount,
+        campaignPlanDueDate: createOutreachDto.campaignPlanDueDate,
+        script: resolvedScriptText,
+        message: resolvedScriptText,
+        name,
+        didState,
+        didNpaSubset,
+        identityId: peerlyIdentityId,
+      },
+    })
+    if (claimed.count === 0) {
+      throw new ConflictException('This draft was already scheduled')
+    }
+
+    return await this.model.findUniqueOrThrow({
+      where: { id: draft.id },
+      include: { voterFileFilter: true },
+    })
+  }
+
   private async createP2pOutreach(
     campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
@@ -335,7 +411,37 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       }
     }
 
+    // A priority belongs to an elected office, which belongs to exactly one
+    // organization — so the caller's own org is the whole tenancy boundary.
+    if (createOutreachDto.priorityId) {
+      const priority = await this.client.priority.findFirst({
+        where: {
+          id: createOutreachDto.priorityId,
+          electedOffice: { organizationSlug: campaign.organizationSlug },
+        },
+        select: { id: true },
+      })
+      if (!priority) {
+        throw new NotFoundException('Priority not found')
+      }
+    }
+
     const isP2p = createOutreachDto.outreachType === OutreachType.p2p
+
+    // A resume carries no image and no Peerly job of its own: the draft row
+    // already holds the image, and the job is created at finalize like any
+    // other pending_payment draft. So this branches before the create guards.
+    if (isP2p && createOutreachDto.draftOutreachId) {
+      if (!createOutreachDto.script) {
+        throw new BadRequestException('Script is required for P2P outreach')
+      }
+      return await this.convertP2pDraft(
+        campaign,
+        createOutreachDto,
+        createOutreachDto.draftOutreachId,
+        createOutreachDto.script,
+      )
+    }
 
     if (isP2p) {
       if (!imageUrl) {
@@ -478,6 +584,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       where: { id: outreachId },
       data: { projectId: jobId },
     })
+
+    await this.tryTrackCampaignScheduled(
+      campaign.userId,
+      outreachId,
+      outreach.textCount,
+    )
 
     const finalized = { ...outreach, projectId: jobId }
     // Materialization needs no user — a missing user record must not skip
@@ -647,6 +759,40 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
+  // The send terminal for the SMS channel, emitted once per purchase: the
+  // pending_payment -> pending claim in finalizeOutreachPurchase already
+  // returned for every replay, so a Stripe webhook retry never reaches this.
+  // Keyed on campaign.userId rather than the loaded `user` relation, so a
+  // missing user record does not silently drop the OKR signal the way it
+  // skips the notifications. Awaited with the catch inside (the house pattern
+  // here and in the robocall services) rather than left floating: a floating
+  // emit resolves after the caller returns, which makes the event's own tests
+  // race the assertion. A Segment failure still cannot fail the request.
+  private async tryTrackCampaignScheduled(
+    userId: number,
+    outreachId: number,
+    textCount: number | null,
+  ) {
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.Outreach.CampaignScheduled,
+        {
+          channel: 'sms',
+          outreachId,
+          recipientCount: textCount ?? undefined,
+        },
+        undefined,
+        `${outreachId}:campaign_scheduled`,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'Outreach campaign scheduled emit failed',
+      )
+    }
+  }
+
   // Materializes the outreach's resolved saved filter into per-recipient
   // ContactInteraction<channel> rows and locks the filter. Best-effort like
   // tryNotifySuccess: the rows are the audit trail, but a materialization
@@ -711,6 +857,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // draft is a flow selector, not an Outreach column.
     const outreachData = { ...createOutreachDto }
     delete outreachData.draft
+    // draftOutreachId likewise: the resume path consumes it, and Prisma would
+    // reject it as an unknown column.
+    delete outreachData.draftOutreachId
     return await this.model.create({
       data: {
         ...outreachData,
@@ -734,7 +883,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     archived: boolean,
   ): Promise<{ id: number; archivedAt: Date | null }> {
     const claimed = await this.model.updateMany({
-      where: { id, organizationSlug },
+      // A LEGACY row carries a null `organizationSlug` and resolves its org
+      // through the campaign join instead — the schema says so on that column
+      // ("legacy rows resolve their org via the campaignId join; no
+      // backfill"), and `voterFileFilter.service.ts` already scopes this way.
+      //
+      // Scoping on the column alone matched zero rows for every one of them,
+      // so archive 404'd on exactly the population that needs it: a
+      // pre-VO-2.0 request submitted, never fulfilled, and now unremovable.
+      // Tenancy is unchanged — a null-slug row still has to hang off a
+      // campaign in the caller's own org.
+      where: {
+        id,
+        OR: [
+          { organizationSlug },
+          { organizationSlug: null, campaign: { organizationSlug } },
+        ],
+      },
       data: { archivedAt: archived ? new Date() : null },
     })
     if (claimed.count === 0) {
@@ -1202,6 +1367,76 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // the Win controller keeps that decoration on top of the shared query.
   async findByOrganizationSlug(organizationSlug: string) {
     return this.findByScope({ organizationSlug, campaignId: null })
+  }
+
+  // Scoped by organizationSlug rather than campaignId: a proposal can come
+  // out of either product's chat, and a Serve row carries no campaign at all.
+  // No legacy null-slug branch the way setArchived needs one — proposalKey
+  // only exists on rows written after the column did.
+  async findByProposalKey(proposalKey: string, organizationSlug: string) {
+    return this.model.findFirst({
+      where: { proposalKey, organizationSlug },
+      include: { voterFileFilter: true },
+    })
+  }
+
+  /**
+   * Idempotent create behind a chat card's Send button. The key is minted
+   * from the tool call, so a double click, a reload and a retry all arrive
+   * with the same one and must all resolve to the same row.
+   *
+   * `create` is the channel's own real create — this wrapper never writes the
+   * row itself. It must put `proposalKey` into the INSERT it already makes,
+   * because the unique index is the only thing that makes two simultaneous
+   * sends produce one artifact: a key stamped on afterwards would leave the
+   * loser's list or draft standing with nothing pointing at it.
+   *
+   * The probe handles the common repeat; the index handles two callers that
+   * clear that probe at the same instant.
+   *
+   * Guarding on the key alone, rather than the usual `(key, status)` breadth,
+   * is what the constraint already forces: the index leaves no second row for
+   * a terminally-failed send to be retried into, so narrowing the guard by
+   * status would only build an insert the database then rejects. A retry
+   * after a failed send mints a fresh key.
+   */
+  async createWithProposalKey(
+    proposalKey: string,
+    organizationSlug: string,
+    create: () => Promise<void>,
+  ) {
+    const existing = await this.findByProposalKey(proposalKey, organizationSlug)
+    if (existing) {
+      return existing
+    }
+
+    try {
+      await create()
+    } catch (err) {
+      if (
+        !(err instanceof Prisma.PrismaClientKnownRequestError) ||
+        err.code !== 'P2002'
+      ) {
+        throw err
+      }
+    }
+
+    const outreach = await this.model.findUnique({
+      where: { proposalKey },
+      include: { voterFileFilter: true },
+    })
+    if (!outreach) {
+      throw new InternalServerErrorException(
+        'Outreach create did not persist its proposal key',
+      )
+    }
+    // Reached either by losing the race or by the key belonging to another
+    // organization all along. Both answer the same way, and neither hands
+    // back a row the caller cannot see.
+    if (outreach.organizationSlug !== organizationSlug) {
+      throw new ConflictException('Proposal key is already in use')
+    }
+    return outreach
   }
 
   async resolveP2pJobGeography(

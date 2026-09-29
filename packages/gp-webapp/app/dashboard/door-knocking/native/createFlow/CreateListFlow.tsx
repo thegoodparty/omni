@@ -10,6 +10,10 @@ import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/share
 import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
 import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
+import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
+import { GateExplainerModal } from 'app/dashboard/outreach/v2/gate/GateExplainerModal'
+import { OutreachGate } from 'app/dashboard/outreach/v2/gate/OutreachGate'
+import { useOutreachGate } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 import { useTeamOptions } from '../useTeamOptions'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
@@ -24,17 +28,12 @@ import {
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SupportStatusRollup } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import {
-  unpreviewableDisclosureLabels,
-  unpreviewableDisclosureSentence,
-} from './voterFilterPreview'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import { isDrawnTurf, type TurfDraft } from '../turfDrafts'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from '../turfQueries'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
-import { suggestTravelMode } from '../travelMode'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import {
@@ -70,11 +69,10 @@ import {
 } from './serveDoorKnockingPurposes'
 import { WhoStep } from './WhoStep'
 import { DrawStep } from './DrawStep'
-import { RouteStep } from './RouteStep'
+import { CreateCampaignSuccess } from './CreateCampaignSuccess'
 import type { SavedListOption } from './savedListOptions'
 import type {
   DoorKnockingAddressPreviewResponse,
-  DoorKnockingMode,
   DoorKnockingTurf,
   RecommendedList,
   RecommendedListFilter,
@@ -84,10 +82,9 @@ import type {
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
-export type { CreateFlowStep } from './createFlowSteps'
+import { overStopCap } from './stopCap'
 
-// Hard cap on stops per list — anything over this can't route.
-export const HARD_STOP_LIMIT = 150
+export type { CreateFlowStep } from './createFlowSteps'
 
 // The canvas emits an OPEN ring — the vertices as placed, first corner not
 // repeated at the end — and `GeoJsonPolygonSchema` requires a closed one.
@@ -194,11 +191,6 @@ interface CreateListFlowProps {
   // The estimate: instant on every ring change, and a superset, since the pack
   // carries no addresses and cannot shade by every filter a list applies.
 
-  // The drawn shape's stops as [lng, lat], from the pack the page holds. The
-  // route step's walk-vs-drive suggestion is derived from how spread out they
-  // are, which is only answerable before the route is bought — and since the
-  // purchase now happens at the end of this flow, this is that moment.
-  drawnStops: Array<[number, number]> | null
   // gp-api's answer for the shape the candidate asked about — the addresses
   // themselves, and the exact counts that come with them. Non-null only while
   // it describes the ring currently on screen, and when it is non-null it is
@@ -243,14 +235,14 @@ interface CreateListFlowProps {
   onRestartDrawing: () => void
   // The whole chain committed: turf, route and outreach envelope all exist.
   // Carries the created row because the page opens the walk on it directly.
-  onListCreated: (turf: DoorKnockingTurf) => void
+  // One turf's Start knocking, from the success screen. This is the press
+  // that will buy the route once the walk-or-drive prompt exists.
+  onStartKnocking: (turf: DoorKnockingTurf) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays a plain
   // presentational flow and its tests don't need an organization provider.
   isServeOrg: boolean
   // Selected filter option keys the map preview can't narrow by, so the drawn
-  // shape shows more people than the list will target.
-  unpreviewableKeys: string[]
   // The organization the recommendations are asked for, purely as a cache-key
   // segment. A prop rather than a `useOrganization()` read for the same
   // reason as `isServeOrg` above.
@@ -314,12 +306,6 @@ interface CreateListFlowProps {
   // now, which the page mounts — so this seam carries only the two things
   // the STEP can do to a turf: open it, or drop it.
   onSelectDraft: (clientId: string) => void
-  // Write a turf's colour or canvasser from the draw step's cards, which
-  // open onto the same two controls the drawing surface's panel offers.
-  onUpdateDraft: (
-    clientId: string,
-    patch: Partial<Omit<TurfDraft, 'clientId'>>,
-  ) => void
   onRemoveDraft: (clientId: string) => void
 }
 
@@ -338,10 +324,10 @@ export interface RecommendedCriteria {
 // outreach channel puts it and where the design puts it: the sheet header
 // carries only the back button and the stepper.
 //
-// The route step's title names the list, so it is built below rather than
-// stored here.
+// `success` is absent: it draws no header at all, so it has no title or
+// caption to store.
 const STAGE_META: Record<
-  Exclude<CreateFlowStage, 'route'>,
+  Exclude<CreateFlowStage, 'success'>,
   { title: string; caption: string }
 > = {
   purpose: {
@@ -385,10 +371,6 @@ const EMPTY_POINTS: TalkingPointsLines = {
   ask: '',
 }
 
-const ROUTE_CAPTION =
-  'This helps us draw the most efficient route for you based on how ' +
-  'you’re getting there.'
-
 export default function CreateListFlow({
   step,
   filters,
@@ -407,13 +389,11 @@ export default function CreateListFlow({
   savedLists,
   allContactsHouseholds,
   ring,
-  drawnStops,
   drawPointCount,
   drawFullScreen,
   onDrawFullScreenChange,
-  onListCreated,
+  onStartKnocking,
   isServeOrg,
-  unpreviewableKeys,
   orgSlug,
   preselectedListId,
   onPreselectApplied,
@@ -425,7 +405,6 @@ export default function CreateListFlow({
   turfDrafts,
   draftStats,
   onSelectDraft,
-  onUpdateDraft,
   onRemoveDraft,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
@@ -448,6 +427,18 @@ export default function CreateListFlow({
   const drawnDrafts = useMemo(
     () => turfDrafts.filter(isDrawnTurf),
     [turfDrafts],
+  )
+  // Re-asked HERE rather than trusted from the drawing surface, which is
+  // where the candidate was last told. Stepping back to the who step and
+  // widening the audience rewrites every committed turf's stop count, so a
+  // shape that was under the cap when it was cut is not necessarily under
+  // it now — and this is the press that pays for the route.
+  const overCapDrafts = useMemo(
+    () =>
+      drawnDrafts.filter(
+        (draft) => overStopCap(draftStats.get(draft.clientId)) !== null,
+      ),
+    [drawnDrafts, draftStats],
   )
 
   // For the talking-points step's composed sections only: the identity clause
@@ -519,12 +510,16 @@ export default function CreateListFlow({
   // pills, not to be shown the list picker again.
   const [buildingList, setBuildingList] = useState(false)
   const [listOpen, setListOpen] = useState(false)
-  // The route the last step buys. Overrides only — `mode` falls back to what
-  // the drawn shape's geometry suggests, which can resolve after this mounts.
-  const [modeOverride, setModeOverride] = useState<DoorKnockingMode | null>(
+  // The turfs the create actually wrote, held for the success screen, which
+  // lists them with their own counts and a knock control each.
+  //
+  // ACCUMULATED across presses, because a partial batch leaves the flow on
+  // the draw step with the turfs that failed still in the list: the retry's
+  // own success would otherwise name only what the second press bought, and
+  // the campaign would look like it had lost the turfs it started with.
+  const [createdTurfs, setCreatedTurfs] = useState<DoorKnockingTurf[] | null>(
     null,
   )
-  const [loop, setLoop] = useState(true)
 
   // The card the canvassers will read. Three of these four lines are the
   // model's; `cta` is composed from the campaign's own website below and is
@@ -718,6 +713,38 @@ export default function CreateListFlow({
   // Recommendations render in the who step's list-picker face only — the
   // same "picker mode, above the saved lists" placement Task 8 used for the
   // other channels' shared audience step.
+  // Milestone 2's in-flow gate. Door knocking saves no draft — nothing is
+  // written until the create — so the gate stands in front of a press
+  // rather than behind a saved row. Under outreach-pro-gating-v2 the page
+  // admits a free campaign, because the four map reads it needs are open to
+  // one.
+  //
+  // **It now guards a press that spends nothing, and that is deliberate for
+  // this round.** The Geoapify spend moved to the first knock, which is a
+  // dialog — and a dialog is not a surface the gate's own full-sheet
+  // screens can mount in. Create campaign is the last press before the
+  // money and the only one with a sheet around it, so a free candidate
+  // meets Pro exactly where they always did rather than building a campaign
+  // that dead-ends at the door. gp-api refuses the buy without Pro either
+  // way (`assertProAccess` on `POST turfs/:id/route`), so this is about
+  // where the candidate is told, not about what is enforced. Moving it onto
+  // the knock press is the follow-up.
+  const gate = useOutreachGate('door')
+  const [gateOpen, setGateOpen] = useState(false)
+  // WHICH gesture opened the gate. The banner rides every step but the draw,
+  // so its explainer can open the gate from any of them, with Build route
+  // still several steps away — finishing there must not buy a route the
+  // candidate never pressed for.
+  const [gateOrigin, setGateOrigin] = useState<'build' | 'explainer' | null>(
+    null,
+  )
+  const [explainerOpen, setExplainerOpen] = useState(false)
+
+  const openGateFromExplainer = (): void => {
+    setGateOrigin('explainer')
+    setGateOpen(true)
+  }
+
   const recommendationsVisible = stage === 'who' && !buildingList
   const recommendationsQuery = useQuery({
     // Keyed on the org even though this flow is unmounted on every org switch
@@ -861,7 +888,7 @@ export default function CreateListFlow({
   // that far back usually means changing the audience upstream, and any
   // step above points (who, purpose) invalidates the filter anyway.
   useEffect(() => {
-    if (step === 'name' || step === 'draw' || step === 'route') return
+    if (step === 'name' || step === 'draw' || step === 'success') return
     releaseOrphanFilterRef.current()
   }, [step])
   // Closing the flow from confirm or route unmounts without a step change, so
@@ -938,14 +965,6 @@ export default function CreateListFlow({
     appliedSuggestion.current = suggestion
     setName(suggestion)
   }, [step, purpose, purposeNameSuggestion, siblingTurfs])
-
-  // Derived rather than seeded into state: the pack decodes on its own
-  // schedule, so a suggestion that arrives after the route step is on screen
-  // still lands. `mode` is the override once there is one, the suggestion
-  // until then, and walking when there is nothing to suggest from.
-  const suggestedMode =
-    drawnStops && drawnStops.length > 0 ? suggestTravelMode(drawnStops) : null
-  const mode = modeOverride ?? suggestedMode ?? 'walk'
 
   // The card's two composed sections, previewed on the step so the candidate
   // reviews five sections rather than the four they can edit.
@@ -1186,16 +1205,22 @@ export default function CreateListFlow({
       // because all of that was settled before the map was ever drawn on.
       const bodyFor = (draft: TurfDraft, anchorId: number | undefined) => ({
         voterFileFilterId: filterId,
+        // Guaranteed non-empty: an unnamed turf cannot reach this press —
+        // both Save on the drawing surface and Create campaign refuse it and
+        // mark the card.
         name: draft.name.trim(),
         color: draft.color,
         geoPoly: {
           type: 'Polygon' as const,
           coordinates: [closeRing(draft.polygon)],
         },
-        mode,
-        loop,
+        // No `mode`/`loop`: creating a campaign does not buy a route any
+        // more. They are asked at first knock, by the person who knows
+        // whether they are walking it, and the contract takes them as a
+        // pair or not at all.
+        //
         // Why this list is being walked, and the card its canvassers read —
-        // frozen with the route for the same reason the door list is:
+        // frozen with the turf for the same reason the door list is:
         // everyone works from the same plan. Both optional server-side, so a
         // flow that skipped the points step still creates a turf.
         ...(purpose ? { purpose } : {}),
@@ -1316,49 +1341,25 @@ export default function CreateListFlow({
           // Without shipping which filters — the demographics themselves
           // stay out of the analytics payload.
           filterCount: activeFilterCount,
-          mode,
-          loop,
-          // Beside `mode`, the only read on whether the geometry-derived
-          // default is any good: equal means it was accepted, different
-          // means it was deliberately overruled, null means there was
-          // nothing to suggest from.
-          suggestedMode,
         })
         // The cross-channel sibling of the event above, fired per turf for
         // the same reason. Door knocking is one-to-one, so a created list has
         // reached nobody yet — completion is the turf being finished
-        // (`turfLifecycle.ts`). `ListCreated` carries route geometry that no
-        // other channel has; this one carries only what every channel does,
-        // which is what makes a created → contacted → completed funnel
-        // countable across all of them.
+        // (`turfLifecycle.ts`). `ListCreated` carries this turf's own stops
+        // and people; this one carries only what every channel does, which is
+        // what makes a created → contacted → completed funnel countable
+        // across all of them.
         trackEvent(
           surfaceEvent(
             EVENTS.Dashboard.VoterContact.CampaignCreated,
             serveMode,
           ),
-          {
-            ...outreachEventProps({
-              channel: 'doorKnocking',
-              recipientCount: stats?.people ?? 0,
-              outreachCampaignId: row.turf.outreachId ?? undefined,
-              listId: row.turf.id,
-            }),
-          },
-        )
-      }
-      // A turf that did not build, reported the same way a whole failed
-      // press is. `onError` only fires when the ANCHOR throws, which is the
-      // one failure that buys nothing — every sibling that 502s resolves
-      // this mutation, so without this the activation metric's failure
-      // counterpart would miss every one of them.
-      for (const error of failures) {
-        trackEvent(
-          surfaceEvent(EVENTS.DoorKnocking.RouteBuildFailed, serveMode),
-          {
-            mode,
-            loop,
-            status: error instanceof FetchError ? error.status : undefined,
-          },
+          outreachEventProps({
+            channel: 'doorKnocking',
+            recipientCount: stats?.people ?? 0,
+            outreachCampaignId: row.turf.outreachId ?? undefined,
+            listId: row.turf.id,
+          }),
         )
       }
       // Dropped here rather than in the mutation body so a draft is only
@@ -1388,31 +1389,27 @@ export default function CreateListFlow({
       void queryClient.invalidateQueries({
         queryKey: ['door-knocking-preselected-recommendation', orgSlug],
       })
-      // Both daily allowances just moved — this campaign spent one campaign
-      // and the stops of every turf in it — and the next press reads them to
-      // decide whether to open the flow at all.
-      void queryClient.invalidateQueries({ queryKey: ['door-knocking-quota'] })
-
-      // A partial batch stays on the route step with its unsold turfs still
-      // in the list, so the same Build route press finishes the job. Handing
-      // over to a walk here would strand the turfs that failed on a screen
-      // with no way back to them.
+      // Recorded BEFORE the partial-batch return, and accumulated: a press
+      // that saved two turfs and lost a third has still bought two, and the
+      // retry's own success screen has to name the campaign's turfs rather
+      // than the last press's. Dropping them here is how the screen came to
+      // list one turf of a campaign holding three.
+      if (created.length > 0) {
+        setCreatedTurfs((earlier) => [
+          ...(earlier ?? []),
+          ...created.map((c) => c.turf),
+        ])
+      }
+      // A partial batch stays on the draw step with its unsaved turfs still
+      // in the list, so the same Create campaign press finishes the job.
+      // Advancing here would strand the turfs that failed on a screen with
+      // no way back to them.
       if (failures.length > 0) return
-      const first = created[0]
-      if (first) onListCreated(first.turf)
-    },
-    onError: (error) => {
-      trackEvent(
-        surfaceEvent(EVENTS.DoorKnocking.RouteBuildFailed, serveMode),
-        {
-          mode,
-          loop,
-          // Separates the failures the candidate can act on (400 empty turf or
-          // over the stop cap, 429 daily routing budget) from the vendor being
-          // down (502) — different problems with very different fixes.
-          status: error instanceof FetchError ? error.status : undefined,
-        },
-      )
+      if (created.length === 0) return
+      // The campaign exists. The flow's last screen names it and offers the
+      // two things to do next; it does NOT hand over to a walk any more,
+      // because there is no route to walk until somebody buys one.
+      goToStage('success')
     },
   })
 
@@ -1428,7 +1425,7 @@ export default function CreateListFlow({
   const saveErrorMessage = save.isError
     ? toCreateErrorMessage(save.error)
     : partialFailure
-      ? `${toCreateErrorMessage(partialFailure)} The turfs that did build are saved — press Build route again to finish the rest.`
+      ? `${toCreateErrorMessage(partialFailure)} The turfs that were created are saved — press Create campaign again to finish the rest.`
       : null
 
   // The per-list stop cap above is the only thing the drawing surface
@@ -1448,16 +1445,6 @@ export default function CreateListFlow({
     ? audienceEmptyMessage(filters, savedListId !== null)
     : null
 
-  const unpreviewableDisclosure = audienceEmptyDisclosure
-    ? // Suppressed under a proven-empty audience. This sentence hedges the
-      // count as too big; that one says the count is moot. Both at once reads
-      // as the step arguing with itself.
-      null
-    : unpreviewableDisclosureSentence(
-        unpreviewableDisclosureLabels(unpreviewableKeys),
-        savedListId !== null,
-      )
-
   // The drawing surface is the map with nothing over it. Every control it
   // used to float there — the hint, the instructions modal, Undo and the
   // stop count — is either deleted or in the turf panel now, and the panel
@@ -1474,11 +1461,8 @@ export default function CreateListFlow({
     return null
   }
 
-  const title =
-    stage === 'route'
-      ? 'Will you be walking or driving?'
-      : STAGE_META[stage].title
-  const caption = stage === 'route' ? ROUTE_CAPTION : STAGE_META[stage].caption
+  const title = stage === 'success' ? '' : STAGE_META[stage].title
+  const caption = stage === 'success' ? '' : STAGE_META[stage].caption
   const { currentStep, totalSteps } = stepperPosition(stage)
 
   return (
@@ -1487,205 +1471,252 @@ export default function CreateListFlow({
       open
       onClose={onClose}
       title={title}
-      headerBadge={<ChannelBadge type="nativeDoorKnocking" />}
+      headerBadge={
+        <ChannelBadge
+          type="nativeDoorKnocking"
+          locked={gate.requirement !== null && !gateOpen}
+        />
+      }
       currentStep={currentStep}
       totalSteps={totalSteps}
-      onBack={previousStage(stage) ? back : undefined}
+      onBack={previousStage(stage) && !gateOpen ? back : undefined}
       dirty={dirty}
+      // A React element is truthy even when it renders null, so the caller
+      // gates the JSX (see GateBanner). Not on the draw stage: the map is the
+      // content there and the shape is being cut against it, so a banner over
+      // the footer would cover the only thing being looked at.
+      banner={
+        gate.requirement !== null && stage !== 'draw' && !gateOpen ? (
+          <GateBanner
+            channel="door"
+            state={gate}
+            onOpenExplainer={() => setExplainerOpen(true)}
+          />
+        ) : undefined
+      }
       cta={
-        // The purpose step has no footer: choosing a card is the advance, so a
-        // CTA under it would be a second way to do the same thing, disabled
-        // until the first one was used.
-        stage === 'purpose'
+        // The gate screens carry their own buttons.
+        gateOpen
           ? null
-          : stage === 'who'
-            ? {
-                // The design puts the filtered audience's size in this button.
-                // It is the one number on the step that moves as a pill is
-                // toggled — the picker's own `All Contacts (N)` is the
-                // UNFILTERED universe and does not — so it is also the only
-                // reading of how big the audience being cut actually is.
-                //
-                // While there is no answer the button carries the design's bare
-                // word instead, which is what phone banking's identical CTA
-                // already does on the same shell. `Continue (0)` is not a
-                // pending state: it is a real-looking number, and the reading a
-                // candidate takes from it — this district has nobody in it — is
-                // the opposite of the truth. A failed pack has no answer coming
-                // at all, so it is bare for the same reason; what went wrong is
-                // said in the body, where there is room to say it.
-                // Bare "Continue" until the candidate has actually picked
-                // an audience — otherwise the count in the button reads
-                // as a preselection ("Continue (12,000)" on a fresh who
-                // step implied a list was already chosen, when in fact
-                // nothing was picked and `districtHouseholds` was just
-                // the full district population). Once picked, the count
-                // returns as the honest size of the audience being
-                // advanced. Failed / unavailable / still-pending also
-                // suppress the count for their own reasons above.
-                label:
-                  !hasPickedAudience ||
-                  districtHouseholdsPending ||
-                  districtHouseholdsFailed ||
-                  districtUnavailable
-                    ? 'Continue'
-                    : `Continue (${districtHouseholds.toLocaleString()})`,
-                disabled:
-                  !hasPickedAudience ||
-                  districtHouseholdsPending ||
-                  districtHouseholdsFailed ||
-                  districtUnavailable ||
-                  districtHouseholds === 0 ||
-                  // The only one of these the pack cannot see. Every other
-                  // term above is about whether a count ARRIVED; this is a
-                  // count that arrived, looked healthy, and was about a
-                  // different question than the one the create will ask.
-                  audienceEmpty,
-                loading: districtHouseholdsPending,
-                // Always the talking-points step. Building a new list is a
-                // way of choosing the audience, not a way of finishing early
-                // — there is no door knocking without a boundary and a
-                // route, and the pitch is what the flow settles next.
-                onClick: () => goToStage('points'),
-              }
-            : stage === 'points'
+          : // The purpose step has no footer: choosing a card is the advance, so a
+            // CTA under it would be a second way to do the same thing, disabled
+            // until the first one was used.
+            stage === 'purpose'
+            ? null
+            : stage === 'who'
               ? {
-                  // Never blocked on the draft — not on a failure, not on a
-                  // slow model, not on an empty card. A candidate who would
-                  // rather write their points on paper must not be held back
-                  // from the route they came to buy, which is why the field
-                  // is optional server-side too. Unlike phone banking, which
-                  // gates this CTA on its draft because its script is
-                  // required. Leaving mid-draft loses nothing: a draft that
-                  // lands after the step is still in state when Build route
-                  // reads it.
-                  label: 'Continue',
-                  onClick: () => goToStage('name'),
+                  // The design puts the filtered audience's size in this button.
+                  // It is the one number on the step that moves as a pill is
+                  // toggled — the picker's own `All Contacts (N)` is the
+                  // UNFILTERED universe and does not — so it is also the only
+                  // reading of how big the audience being cut actually is.
+                  //
+                  // While there is no answer the button carries the design's bare
+                  // word instead, which is what phone banking's identical CTA
+                  // already does on the same shell. `Continue (0)` is not a
+                  // pending state: it is a real-looking number, and the reading a
+                  // candidate takes from it — this district has nobody in it — is
+                  // the opposite of the truth. A failed pack has no answer coming
+                  // at all, so it is bare for the same reason; what went wrong is
+                  // said in the body, where there is room to say it.
+                  // Bare "Continue" until the candidate has actually picked
+                  // an audience — otherwise the count in the button reads
+                  // as a preselection ("Continue (12,000)" on a fresh who
+                  // step implied a list was already chosen, when in fact
+                  // nothing was picked and `districtHouseholds` was just
+                  // the full district population). Once picked, the count
+                  // returns as the honest size of the audience being
+                  // advanced. Failed / unavailable / still-pending also
+                  // suppress the count for their own reasons above.
+                  label:
+                    !hasPickedAudience ||
+                    districtHouseholdsPending ||
+                    districtHouseholdsFailed ||
+                    districtUnavailable
+                      ? 'Continue'
+                      : `Continue (${districtHouseholds.toLocaleString()})`,
+                  disabled:
+                    !hasPickedAudience ||
+                    districtHouseholdsPending ||
+                    districtHouseholdsFailed ||
+                    districtUnavailable ||
+                    districtHouseholds === 0 ||
+                    // The only one of these the pack cannot see. Every other
+                    // term above is about whether a count ARRIVED; this is a
+                    // count that arrived, looked healthy, and was about a
+                    // different question than the one the create will ask.
+                    audienceEmpty,
+                  loading: districtHouseholdsPending,
+                  // Always the talking-points step. Building a new list is a
+                  // way of choosing the audience, not a way of finishing early
+                  // — there is no door knocking without a boundary and a
+                  // route, and the pitch is what the flow settles next.
+                  onClick: () => goToStage('points'),
                 }
-              : stage === 'name'
+              : stage === 'points'
                 ? {
-                    // "Continue", not "Save" — nothing is written yet at
-                    // this step. The only write in the flow happens on the
-                    // route step's Build route CTA (turf + Geoapify route
-                    // + outreach envelope, in one paid transaction).
-                    // Calling this "Save" read as commit and cost, when
-                    // it's really just the next step.
+                    // Never blocked on the draft — not on a failure, not on a
+                    // slow model, not on an empty card. A candidate who would
+                    // rather write their points on paper must not be held back
+                    // from the route they came to buy, which is why the field
+                    // is optional server-side too. Unlike phone banking, which
+                    // gates this CTA on its draft because its script is
+                    // required. Leaving mid-draft loses nothing: a draft that
+                    // lands after the step is still in state when Build route
+                    // reads it.
                     label: 'Continue',
-                    disabled: name.trim().length === 0,
-                    onClick: () => goToStage('draw'),
+                    onClick: () => goToStage('name'),
                   }
-                : stage === 'draw'
+                : stage === 'name'
                   ? {
-                      // Bare word — the shape's own count sits on the
-                      // drawing surface, and the cap warnings are there
-                      // too, so a count in the CTA would be a third place
-                      // saying the same number. With several turfs on the
-                      // step there is no single number it could carry
-                      // anyway.
+                      // "Continue", not "Save" — nothing is written yet at
+                      // this step. The only write in the flow happens on the
+                      // route step's Build route CTA (turf + Geoapify route
+                      // + outreach envelope, in one paid transaction).
+                      // Calling this "Save" read as commit and cost, when
+                      // it's really just the next step.
                       label: 'Continue',
-                      // One turf is the whole requirement: a campaign with
-                      // no boundary has nothing to route, and the per-turf
-                      // validity was settled when each was committed.
-                      disabled: drawnDrafts.length === 0,
-                      onClick: () => goToStage('route'),
+                      disabled: name.trim().length === 0,
+                      onClick: () => goToStage('draw'),
                     }
-                  : {
-                      // While the mutation runs, the button shows both a
-                      // spinner (via `loading`) and the "Building route"
-                      // label — same treatment the design calls for on the
-                      // one CTA whose click starts a paid multi-second
-                      // request.
-                      // Plural once the campaign holds more than one turf:
-                      // the press buys a route per turf, and a singular
-                      // label on a four-turf campaign understates what is
-                      // about to be spent.
-                      label: save.isPending
-                        ? 'Building routes'
-                        : drawnDrafts.length > 1
-                          ? `Build ${drawnDrafts.length} routes`
-                          : 'Build route',
-                      disabled: save.isPending || drawnDrafts.length === 0,
-                      loading: save.isPending,
-                      onClick: () => save.mutate(),
-                    }
+                  : stage === 'draw'
+                    ? {
+                        // Drawing is the last thing the candidate does, so
+                        // this is the press that writes the campaign. It
+                        // names what it creates rather than what it spends:
+                        // nothing is bought here any more.
+                        label: save.isPending
+                          ? 'Creating campaign'
+                          : 'Create campaign',
+                        // A campaign with no boundary has nothing in it,
+                        // and a turf over the stop cap cannot be routed —
+                        // the card above says which one and why, so this
+                        // is disabled rather than refusing into a second
+                        // explanation of a problem already on screen.
+                        disabled:
+                          save.isPending ||
+                          drawnDrafts.length === 0 ||
+                          overCapDrafts.length > 0,
+                        loading: save.isPending,
+                        onClick: () => {
+                          if (gate.requirement !== null) {
+                            setGateOrigin('build')
+                            setGateOpen(true)
+                            return
+                          }
+                          save.mutate()
+                        },
+                      }
+                    : // `success` carries its own two buttons in the body,
+                      // so the shell has no CTA to draw.
+                      null
       }
     >
-      <div className="flex flex-col gap-6">
-        <Intro channel="nativeDoorKnocking" title={title} body={caption} />
+      <GateExplainerModal
+        channel="door"
+        state={gate}
+        open={explainerOpen}
+        onOpenChange={setExplainerOpen}
+        onUpgrade={openGateFromExplainer}
+        onVerify={openGateFromExplainer}
+        onPin={openGateFromExplainer}
+      />
+      {gateOpen ? (
+        <OutreachGate
+          channel="door"
+          state={gate}
+          open
+          showInterstitial={false}
+          onExit={() => {
+            setGateOpen(false)
+            setGateOrigin(null)
+          }}
+          onComplete={() => {
+            setGateOpen(false)
+            const origin = gateOrigin
+            setGateOrigin(null)
+            // Only Build route's own gate buys the route; from the banner the
+            // candidate keeps building where they were.
+            if (origin === 'build') save.mutate()
+          }}
+        />
+      ) : (
+        <div className="flex flex-col gap-6">
+          <Intro channel="nativeDoorKnocking" title={title} body={caption} />
 
-        {stage === 'purpose' && (
-          <PurposeStep
-            purposes={purposes}
-            selected={purpose}
-            onSelect={(next) => {
-              setPurpose(next)
-              goToStage('who')
-            }}
-          />
-        )}
-
-        {stage === 'who' && (
-          <>
-            <WhoStep
-              filters={filters}
-              onFiltersChange={(next) => {
-                // Editing a pill is leaving the named list — or the accepted
-                // recommendation — behind: the draft is no longer that list,
-                // so the offer to save it as a new one comes back. The list's
-                // own support-status, activity and precinct clauses leave
-                // with it — nothing can carry them onto the new list, so a
-                // draft that kept their marks would go on disclosing a filter
-                // that list will never apply.
-                setSavedListId(null)
-                clearRecommendedDraft()
-                // The hand-cut precinct selection is this draft's own, not
-                // the departing list's, so its mark is re-applied after the
-                // strip — dropping it would hide a filter that IS still
-                // being applied, which is the disclosure lying the other way.
-                onFiltersChange({
-                  ...withoutUnshadeableCriteria(next),
-                  ...(precincts.length ? { precincts: true } : {}),
-                })
+          {stage === 'purpose' && (
+            <PurposeStep
+              purposes={purposes}
+              selected={purpose}
+              onSelect={(next) => {
+                setPurpose(next)
+                goToStage('who')
               }}
-              precincts={precincts}
-              onPrecinctsChange={(next) => {
-                // Same departure as editing a pill: narrowing by precinct is
-                // cutting a new audience, not the named list.
-                setSavedListId(null)
-                clearRecommendedDraft()
-                onPrecinctsChange(next)
-                onFiltersChange({
-                  ...withoutUnshadeableCriteria(filters),
-                  ...(next.length ? { precincts: true } : {}),
-                })
-              }}
-              precinctOptions={precinctOptions}
-              savedLists={savedLists}
-              allContactsHouseholds={allContactsHouseholds}
-              selectedListId={savedListId}
-              onSelectList={selectList}
-              hasPickedAudience={hasPickedAudience}
-              // True while the draft came from a recommendation card
-              // rather than a picker pick — the who step suppresses its
-              // own selected-state visuals then, so the audience isn't
-              // shown twice.
-              activeRecommendationVariant={recommendedMeta?.variant ?? null}
-              isServeOrg={isServeOrg}
-              building={buildingList}
-              onBuildingChange={(next) => {
-                // Opening the filter pills leaves the named list behind: what
-                // gets cut from here is a new audience, not that list.
-                if (next) selectList(null)
-                setBuildingList(next)
-              }}
-              open={listOpen}
-              onOpenChange={setListOpen}
-              recommendations={recommendations}
-              recommendationsLoading={recommendationsQuery.isLoading}
-              recommendationsError={recommendationsQuery.isError}
-              onSelectRecommendation={applyRecommendation}
             />
-            {/* The pack-pending sentence used to sit here ("Loading your
+          )}
+
+          {stage === 'who' && (
+            <>
+              <WhoStep
+                filters={filters}
+                onFiltersChange={(next) => {
+                  // Editing a pill is leaving the named list — or the accepted
+                  // recommendation — behind: the draft is no longer that list,
+                  // so the offer to save it as a new one comes back. The list's
+                  // own support-status, activity and precinct clauses leave
+                  // with it — nothing can carry them onto the new list, so a
+                  // draft that kept their marks would go on disclosing a filter
+                  // that list will never apply.
+                  setSavedListId(null)
+                  clearRecommendedDraft()
+                  // The hand-cut precinct selection is this draft's own, not
+                  // the departing list's, so its mark is re-applied after the
+                  // strip — dropping it would hide a filter that IS still
+                  // being applied, which is the disclosure lying the other way.
+                  onFiltersChange({
+                    ...withoutUnshadeableCriteria(next),
+                    ...(precincts.length ? { precincts: true } : {}),
+                  })
+                }}
+                precincts={precincts}
+                onPrecinctsChange={(next) => {
+                  // Same departure as editing a pill: narrowing by precinct is
+                  // cutting a new audience, not the named list.
+                  setSavedListId(null)
+                  clearRecommendedDraft()
+                  onPrecinctsChange(next)
+                  onFiltersChange({
+                    ...withoutUnshadeableCriteria(filters),
+                    ...(next.length ? { precincts: true } : {}),
+                  })
+                }}
+                precinctOptions={precinctOptions}
+                savedLists={savedLists}
+                allContactsHouseholds={allContactsHouseholds}
+                selectedListId={savedListId}
+                onSelectList={selectList}
+                hasPickedAudience={hasPickedAudience}
+                // True while the draft came from a recommendation card
+                // rather than a picker pick — the who step suppresses its
+                // own selected-state visuals then, so the audience isn't
+                // shown twice.
+                activeRecommendationVariant={recommendedMeta?.variant ?? null}
+                isServeOrg={isServeOrg}
+                building={buildingList}
+                onBuildingChange={(next) => {
+                  // Opening the filter pills leaves the named list behind: what
+                  // gets cut from here is a new audience, not that list.
+                  if (next) selectList(null)
+                  setBuildingList(next)
+                }}
+                open={listOpen}
+                onOpenChange={setListOpen}
+                recommendations={recommendations}
+                recommendationsLoading={recommendationsQuery.isLoading}
+                recommendationsError={recommendationsQuery.isError}
+                onSelectRecommendation={applyRecommendation}
+              />
+              {/* The pack-pending sentence used to sit here ("Loading your
                 voter map…") to explain a Continue that would otherwise sit
                 dead for up to 34s. It was correct when the whole flow
                 covered the map region that carried the same message, but
@@ -1696,140 +1727,123 @@ export default function CreateListFlow({
                 pack-pending signal on this step, which is what phone
                 banking and every other channel's audience step already
                 does. */}
-            {/* Failure is different: `retry: 0` means a failed pack is
+              {/* Failure is different: `retry: 0` means a failed pack is
                 final, so without this the step is a permanently disabled
                 Continue with the reason hidden behind it. */}
-            {districtHouseholdsFailed && (
-              <p role="alert" className="text-sm text-destructive">
-                {packErrorMessage(serveMode)}
-              </p>
-            )}
-            {/* And the case that is neither: no request was made, so there is
+              {districtHouseholdsFailed && (
+                <p role="alert" className="text-sm text-destructive">
+                  {packErrorMessage(serveMode)}
+                </p>
+              )}
+              {/* And the case that is neither: no request was made, so there is
                 nothing to wait for and nothing a refresh would fix. Left to
                 the two above it, this step was a disabled Continue under a
                 promise of a download that was never going to arrive. */}
-            {districtUnavailable && (
-              <p role="alert" className="text-sm text-muted-foreground">
-                {districtUnavailableMessage(serveMode)}
-              </p>
-            )}
-            {/* Proven empty, so it outranks the disclosure below it: that
+              {districtUnavailable && (
+                <p role="alert" className="text-sm text-muted-foreground">
+                  {districtUnavailableMessage(serveMode)}
+                </p>
+              )}
+              {/* Proven empty, so it outranks the disclosure below it: that
                 sentence explains that the count on screen is too BIG, which
                 is a caveat about a list worth drawing. This one says there is
                 no list. Rendered above it and suppressing it, rather than
                 beside it, because two sentences about the same gap — one
                 hedging the count, one saying the count is moot — read as the
                 step contradicting itself. */}
-            {audienceEmptyDisclosure && (
-              <p role="alert" className="text-sm text-destructive">
-                {audienceEmptyDisclosure}
-              </p>
-            )}
-            {/* The count in the CTA is the pack's, and the pack cannot shade
-                every way a saved list narrows — a list cut by support status
-                or prior outreach previews as the whole district here. Without
-                this the gap would first appear on the draw step, two moves
-                after the number that provoked it, and a candidate starting
-                from a 256-person list would read the district figure as their
-                list being ignored. */}
-            {unpreviewableDisclosure && (
-              <p className="text-xs text-muted-foreground">
-                {unpreviewableDisclosure}
-              </p>
-            )}
-          </>
-        )}
+              {audienceEmptyDisclosure && (
+                <p role="alert" className="text-sm text-destructive">
+                  {audienceEmptyDisclosure}
+                </p>
+              )}
+            </>
+          )}
 
-        {stage === 'draw' && (
-          <DrawStep
-            districtBounds={districtBounds}
-            drafts={turfDrafts}
-            draftStats={draftStats}
-            team={teamOptions}
-            onPickColor={(clientId, color) =>
-              onUpdateDraft(clientId, { color })
-            }
-            onAssign={(clientId, assigneeId) =>
-              onUpdateDraft(clientId, { assigneeId })
-            }
-            onOpenFullScreen={(origin) => onDrawFullScreenChange(true, origin)}
-            // Editing a turf from its card opens the drawing surface with
-            // that boundary already under the cursor, which is the only
-            // place its corners can be moved.
-            onEditDraft={(clientId, origin) => {
-              onSelectDraft(clientId)
-              onDrawFullScreenChange(true, origin)
-            }}
-            onRemoveDraft={onRemoveDraft}
-          />
-        )}
-
-        {stage === 'name' && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="turf-name" className="text-sm font-medium">
-              Campaign name
-            </Label>
-            <Input
-              id="turf-name"
-              autoFocus
-              value={name}
-              maxLength={MAX_CAMPAIGN_NAME_LENGTH}
-              placeholder="Name this list"
-              onChange={(event) => {
-                nameTouched.current = true
-                setName(event.target.value)
+          {stage === 'draw' && (
+            <DrawStep
+              districtBounds={districtBounds}
+              drafts={turfDrafts}
+              draftStats={draftStats}
+              team={teamOptions}
+              onOpenFullScreen={(origin) =>
+                onDrawFullScreenChange(true, origin)
+              }
+              // Editing a turf from its card opens the drawing surface with
+              // that boundary already under the cursor, which is the only
+              // place its corners can be moved.
+              onEditDraft={(clientId, origin) => {
+                onSelectDraft(clientId)
+                onDrawFullScreenChange(true, origin)
               }}
+              onRemoveDraft={onRemoveDraft}
             />
-          </div>
-        )}
+          )}
 
-        {stage === 'points' && (
-          <TalkingPointsStep
-            isServe={serveMode}
-            intro={previewIntro}
-            // The name they gave the list one step ago, which says more about
-            // who is being walked than any summary of the pills would.
-            audienceLabel={name.trim() || 'this list'}
-            lines={points}
-            onLineChange={(key, value) => {
-              setPointsManuallyEdited(true)
-              setPoints((current) => ({ ...current, [key]: value }))
-            }}
-            instructions={instructions}
-            onInstructionsChange={setInstructions}
-            // Regenerate discards what is on screen deliberately, so the
-            // rejected text always rides along as `previousDraft` — that is
-            // what stops the re-roll converging on the thing just turned down.
-            onRegenerate={() =>
-              requestDraft(purpose, undefined, generatedBlock() || undefined)
-            }
-            onImprove={() => requestDraft(purpose, generatedBlock())}
-            // Nothing to polish until something is written, and a purpose the
-            // candidate is writing themselves has only this path.
-            canImprove={generatedBlock().length > 0}
-            isDrafting={draft.isPending}
-            isDraftError={draft.isError}
-            isCustomPurpose={purpose === 'custom'}
-          />
-        )}
+          {stage === 'name' && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="turf-name" className="text-sm font-medium">
+                Campaign name
+              </Label>
+              <Input
+                id="turf-name"
+                autoFocus
+                value={name}
+                maxLength={MAX_CAMPAIGN_NAME_LENGTH}
+                placeholder="Name this list"
+                onChange={(event) => {
+                  nameTouched.current = true
+                  setName(event.target.value)
+                }}
+              />
+            </div>
+          )}
 
-        {stage === 'route' && (
-          <>
-            <RouteStep
-              mode={mode}
-              onModeChange={setModeOverride}
-              loop={loop}
-              onLoopChange={setLoop}
-              suggested={suggestedMode}
+          {stage === 'points' && (
+            <TalkingPointsStep
+              isServe={serveMode}
+              intro={previewIntro}
+              // The name they gave the list one step ago, which says more about
+              // who is being walked than any summary of the pills would.
+              audienceLabel={name.trim() || 'this list'}
+              lines={points}
+              onLineChange={(key, value) => {
+                setPointsManuallyEdited(true)
+                setPoints((current) => ({ ...current, [key]: value }))
+              }}
+              instructions={instructions}
+              onInstructionsChange={setInstructions}
+              // Regenerate discards what is on screen deliberately, so the
+              // rejected text always rides along as `previousDraft` — that is
+              // what stops the re-roll converging on the thing just turned down.
+              onRegenerate={() =>
+                requestDraft(purpose, undefined, generatedBlock() || undefined)
+              }
+              onImprove={() => requestDraft(purpose, generatedBlock())}
+              // Nothing to polish until something is written, and a purpose the
+              // candidate is writing themselves has only this path.
+              canImprove={generatedBlock().length > 0}
+              isDrafting={draft.isPending}
+              isDraftError={draft.isError}
+              isCustomPurpose={purpose === 'custom'}
             />
-            {saveErrorMessage && (
-              <p role="alert" className="text-sm text-destructive">
-                {saveErrorMessage}
-              </p>
-            )}
-          </>
-        )}
-      </div>
+          )}
+
+          {stage === 'draw' && saveErrorMessage && (
+            <p role="alert" className="text-sm text-destructive">
+              {saveErrorMessage}
+            </p>
+          )}
+
+          {stage === 'success' && createdTurfs && (
+            <CreateCampaignSuccess
+              campaignName={name.trim()}
+              turfs={createdTurfs}
+              onStartKnocking={onStartKnocking}
+              onDone={onClose}
+            />
+          )}
+        </div>
+      )}
     </OutreachFlowShell>
   )
 }

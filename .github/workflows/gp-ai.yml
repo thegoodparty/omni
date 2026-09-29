@@ -27,6 +27,9 @@ concurrency:
 env:
   AWS_REGION: us-west-2
   ECR_REPOSITORY: gp-ai-projects
+  # Static, so the image tag does not depend on the ECR login step. That is
+  # what lets a pull request build without AWS credentials at all.
+  ECR_REGISTRY: 333022194791.dkr.ecr.us-west-2.amazonaws.com
   SUBTREE: packages/gp-ai
 
 jobs:
@@ -211,7 +214,15 @@ jobs:
       && needs.changes.outputs.services != '[]'
       && needs.validate.result != 'failure'
       && needs.validate.result != 'cancelled'
-    runs-on: ubuntu-latest
+    # Native arm64, not ubuntu-latest. Every image here is linux/arm64, so an
+    # amd64 runner built them through the buildkit QEMU emulator — and the
+    # autopilot Dockerfile's whole-monorepo `npm ci` under emulation ran 9-14
+    # minutes and intermittently died on `npm error code ETIMEDOUT` fetching a
+    # different tarball each time. The registry was fine; QEMU starved the
+    # download of CPU until npm's fetch timeout tripped. Building natively
+    # removes the emulator, and with it that entire failure class. The GHA
+    # layer cache carries over unchanged — these layers were always arm64.
+    runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
@@ -275,14 +286,19 @@ jobs:
             image=moby/buildkit:latest
             network=host
 
+      # Only where something is actually pushed. A pull request builds to
+      # validate the Dockerfile and throws the image away, and every base
+      # image here is public, so a PR run needs no AWS access. It used to take
+      # credentials unconditionally and hold ECR push it never exercised.
       - name: Configure AWS Credentials
+        if: github.event_name == 'push' && github.ref_name == 'main'
         uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: login-ecr
+        if: github.event_name == 'push' && github.ref_name == 'main'
         uses: aws-actions/amazon-ecr-login@v2
 
       # Build on PRs too (catches a broken Dockerfile before merge) but only
@@ -304,7 +320,7 @@ jobs:
           # SHA-tagged and immutable — the only tag written. The mutable
           # <service>-dev tag is gone: terraform now pins the exact SHA, so a
           # moving tag would just be a second, lying source of truth.
-          tags: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }}
+          tags: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ matrix.service }}-${{ github.sha }}
           cache-from: type=gha,scope=gp-ai-${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=gp-ai-${{ matrix.service }}
           provenance: false

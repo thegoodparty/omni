@@ -1,4 +1,5 @@
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
+import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 
 // The two legacy status vocabularies the unified history has to keep
 // rendering. One DELIBERATE divergence from the legacy table's vocabulary:
@@ -6,10 +7,8 @@ import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 // prototype's history table) rather than "Sent" — a product call, not drift.
 
 export interface HistoryRow extends Outreach {
-  p2pJob?: { status?: string; start_date?: string; end_date?: string }
+  p2pJob?: { status?: string; start_date?: string }
 }
-
-const DAY_MS = 24 * 60 * 60 * 1000
 
 type StatusKey =
   | 'pending'
@@ -21,20 +20,26 @@ type StatusKey =
   | 'pending_payment'
   | 'canceled'
   | 'failed'
+  | 'draft'
 
 // P2P rows (phoneListId != null): `pending` only ever reaches the map for
 // rows without a vendor job (getP2pStatusLabel remaps pending-with-a-job to
-// `paid`, i.e. Scheduled).
+// `paid`, i.e. Scheduled). `in_progress` is the send day itself — the
+// completion sweep sets it when the day begins and clears it when the day
+// has passed — so it reads Sending, not the non-p2p map's legacy Scheduled.
 const p2pStatusLabels: { [K in StatusKey]: string } = {
   pending: 'Draft',
   approved: 'In review',
   denied: 'Denied',
   paid: 'Scheduled',
-  in_progress: 'Scheduled',
+  in_progress: 'Sending',
   completed: 'Done',
   pending_payment: 'Pending payment',
   canceled: 'Canceled',
   failed: "Couldn't send",
+  // Unreachable: getHistoryStatusLabel intercepts `draft` before either map.
+  // Kept so the record stays total over StatusKey.
+  draft: 'Pro needed',
 }
 
 // Rows without a phone list (robocall, legacy text, social): `pending` means
@@ -52,10 +57,47 @@ const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   // A robocall the send chain could not deliver (CallHub failure). The candidate
   // was not charged; see OutreachRobocall.settleState (send_failed).
   failed: "Couldn't send",
+  // Unreachable, same as the p2p map's entry above: kept for totality.
+  draft: 'Pro needed',
 }
 
 const isStatusKey = (key: string | null | undefined): key is StatusKey =>
   key !== null && key !== undefined && key in nonP2pStatusLabels
+
+// A draft's label is never the spine's own vocabulary — it names the next
+// step the candidate must clear before they can send, off the membership
+// state the hub reads once per page. Without a membership read (the drawer's
+// own getHistoryStatusLabel call passes none) there is no next step to name,
+// so this returns null rather than assuming the worst case ('Pro needed').
+export const DRAFT_LABELS = {
+  pro: 'Pro needed',
+  verification: 'Verification needed',
+  inReview: 'Verification in review',
+  pin: 'PIN needed',
+  ready: 'Ready to schedule',
+} as const
+
+export const draftLabelFor = (
+  row: HistoryRow,
+  membership: MembershipState | null,
+): string | null => {
+  if (!membership) return null
+  if (membership.tier === 'free') return DRAFT_LABELS.pro
+  // Only the texting channels gate on TCR/CV verification — a robocall or
+  // other Pro-only draft has nothing left to clear but the send itself.
+  const texting = row.outreachType === 'p2p' || row.outreachType === 'text'
+  if (!texting) return DRAFT_LABELS.ready
+  switch (membership.texting) {
+    case 'needs_verification':
+      return DRAFT_LABELS.verification
+    case 'in_review':
+      return DRAFT_LABELS.inReview
+    case 'awaiting_pin':
+      return DRAFT_LABELS.pin
+    case 'cleared':
+      return DRAFT_LABELS.ready
+  }
+}
 
 // A Serve SMS row: an elected official's text to constituents, which shares
 // `outreachType: 'text'` with two other things it is not.
@@ -91,46 +133,60 @@ const getP2pStatusLabel = (row: HistoryRow): string | null => {
   if (!p2pJob?.status) {
     return null
   }
-  // An ACTIVE job used to display as sent unconditionally, which held when
-  // activation only ever happened around the send. It no longer does: CAS
-  // activates scheduled jobs weeks early (auto-activation at approve,
-  // 2026-09-09), and an active job with a future window has sent nothing —
-  // candidates saw "Done" on queued sends (2026-09-16). So an active job's
-  // label follows its own send window, the same UTC-day semantics the
-  // backend completion sweep uses: not started until the start_date day
-  // begins, done only once the end_date day has fully passed, and
-  // "Sending" in between. A pending row WITH a vendor job is a scheduled
-  // send awaiting its start day, not an unfinished draft — draft-first
-  // finalize leaves the spine at `pending` until the completion sweep
-  // advances it, so 'Draft' would be a lie the moment verification
-  // cleared.
-  if (p2pJob.status === 'active' && p2pJob.start_date && p2pJob.end_date) {
-    const now = Date.now()
-    const windowStart = Date.parse(`${p2pJob.start_date}T00:00:00Z`)
-    const windowClose = Date.parse(`${p2pJob.end_date}T00:00:00Z`) + DAY_MS
-    if (!Number.isNaN(windowStart) && !Number.isNaN(windowClose)) {
-      if (now < windowStart) {
-        return p2pStatusLabels.paid
-      }
-      return now >= windowClose ? p2pStatusLabels.completed : 'Sending'
-    }
+  // Done is the spine's word, never the vendor's. Peerly's job status has no
+  // "finished" value (a sent job reads active or paused depending on what the
+  // agent did) and its end_date is a REPLY window, not a send window: an
+  // automated Peerly process moves it to start_date + 15 days the morning
+  // after the send so replies keep flowing (2026-09-24). Reading either as
+  // "still sending" labeled every campaign Sending for two weeks (ENG-11157)
+  // or, before that, Done weeks before anything went out (2026-09-16). The
+  // completion sweep completes the row once the send day has passed, and
+  // that is the one signal this label trusts for Done.
+  if (status === 'completed') {
+    return p2pStatusLabels.completed
   }
-  const displayStatus: StatusKey =
-    p2pJob.status === 'active'
-      ? 'completed'
-      : status === 'pending'
-        ? 'paid'
-        : status
-  return p2pStatusLabels[displayStatus]
+  // A queued job (not yet loaded by a Peerly agent) has sent nothing even
+  // past its date — a stale schedule that was never picked up.
+  if (p2pJob.status === 'pending') {
+    return p2pStatusLabels.paid
+  }
+  // Sending begins at the candidate's own send time. The row's `date` is the
+  // instant they picked; the job's start_date is a bare calendar day and
+  // stands in only for legacy rows that carry no timestamp.
+  const sendStart = sendStartMs(row)
+  if (sendStart !== null) {
+    return Date.now() < sendStart ? p2pStatusLabels.paid : 'Sending'
+  }
+  // A pending row WITH a vendor job is a scheduled send awaiting its start
+  // day, not an unfinished draft — draft-first finalize leaves the spine at
+  // `pending` until the completion sweep advances it, so 'Draft' would be a
+  // lie the moment verification cleared.
+  return p2pStatusLabels[status === 'pending' ? 'paid' : status]
 }
 
-// `isServe` defaults to false so every Win caller — and every existing Win
-// test — behaves exactly as it did. Only a caller that knows it is rendering
-// the Serve surface opts in.
+const sendStartMs = (row: HistoryRow): number | null => {
+  if (row.date) {
+    const fromRow = new Date(row.date).getTime()
+    if (!Number.isNaN(fromRow)) return fromRow
+  }
+  if (row.p2pJob?.start_date) {
+    const fromJob = Date.parse(`${row.p2pJob.start_date}T00:00:00Z`)
+    if (!Number.isNaN(fromJob)) return fromJob
+  }
+  return null
+}
+
+// `membership` (Win, milestone 2) names the next step for a `draft` row;
+// `isServe` (Serve) picks the Serve SMS vocabulary. Both default off so every
+// existing caller and test behaves exactly as it did.
 export const getHistoryStatusLabel = (
   row: HistoryRow,
+  membership: MembershipState | null = null,
   isServe = false,
 ): string | null => {
+  if (row.status === 'draft') {
+    return draftLabelFor(row, membership)
+  }
   // phoneListId marks a row created via the P2P flow, even when its type is
   // normalized to 'text' — its status merges the Peerly job state.
   if (row.phoneListId != null) {

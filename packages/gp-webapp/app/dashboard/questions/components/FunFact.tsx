@@ -3,7 +3,8 @@ import { Button } from '@styleguide'
 import TextField from '@shared/inputs/TextField'
 import Body1 from '@shared/typography/Body1'
 import H1 from '@shared/typography/H1'
-import { ChangeEvent } from 'react'
+import { ChangeEvent, useEffect } from 'react'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 interface FunFactProps {
   value: string
@@ -18,9 +19,14 @@ export default function FunFact({
   saveCallback,
   campaignKey,
 }: FunFactProps): React.JSX.Element {
+  useEffect(() => {
+    trackEvent(EVENTS.Questions.FunFactViewed)
+  }, [])
+
   const handleSave = () => {
     if (!canSave()) return
 
+    trackEvent(EVENTS.Questions.FunFactCompleted)
     saveCallback([`details.${campaignKey}`], [value])
   }
 

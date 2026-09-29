@@ -79,8 +79,25 @@ export const ListDetailsFooter = ({
   secondary,
   note,
 }: ListDetailsFooterProps) => {
-  if (mode === 'none') return null
-  const hasActions = Boolean(leading || destructive || primary || secondary)
+  // `none` says the CANVAS has no position for this row, so there is no
+  // primary to offer. It used to return null unconditionally, which also
+  // withheld the shelf — and Draft, In review and Denied are exactly the
+  // states that need it: a legacy request submitted before VO 2.0 and never
+  // fulfilled sat in outreach history with no control on any surface able to
+  // move it, which is the opposite of what "history is never hard-deleted"
+  // is for.
+  //
+  // The closed mode set is unchanged and no primary is offered here; the
+  // guard below already returns null for a caller that passes nothing, so
+  // `none` still renders nothing unless something is actually handed to it.
+  //
+  // The suppression is structural rather than a rule call sites are trusted
+  // to follow: in `none` the canvas row is dropped here, so a caller that
+  // passes a primary gets it ignored instead of quietly inventing the fifth
+  // mode. Only the shelf and the note can reach a footerless row.
+  const canvasActions =
+    mode === 'none' ? null : leading || destructive || primary
+  const hasActions = Boolean(canvasActions || secondary)
   if (mode !== 'automatic' && !hasActions && !note) return null
 
   return (
@@ -91,7 +108,7 @@ export const ListDetailsFooter = ({
             {AUTOMATIC_NOTE}
           </p>
         ) : (
-          (leading || destructive || primary) && (
+          canvasActions && (
             <div className="flex gap-3">
               {leading}
               {destructive}

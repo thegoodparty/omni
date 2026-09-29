@@ -21,6 +21,7 @@ beforeEach(() => {
 import { useSnackbar } from 'helpers/useSnackbar'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
 import type { HistoryRow } from './historyStatus.util'
+import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
@@ -558,6 +559,114 @@ describe('OutreachDetailsDrawer — phone banking', () => {
   })
 })
 
+// Milestone 2's saved drafts: the drawer is where a draft is discarded, and
+// its footer CTA is the way back into the flow (design: the `verify` footer).
+describe('OutreachDetailsDrawer — draft rows', () => {
+  const draftRow: HistoryRow = {
+    id: 40,
+    createdAt: '2026-09-01T00:00:00Z',
+    outreachType: 'p2p',
+    name: 'Draft blast',
+    status: 'draft',
+    phoneListId: null,
+  }
+  const membership = (
+    overrides: Partial<MembershipState>,
+  ): MembershipState => ({
+    tier: 'free',
+    texting: 'needs_verification',
+    pinDelivery: null,
+    isElectedOffice: false,
+    ...overrides,
+  })
+  beforeEach(() => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        id: 40,
+        outreachType: 'p2p',
+        name: 'Draft blast',
+        status: 'draft',
+        script: 'Hi there',
+      },
+    })
+  })
+
+  it('offers Delete and Upgrade to Pro for a free tier draft, resuming through the CTA', async () => {
+    const onOpenChange = vi.fn()
+    const onResumeDraft = vi.fn()
+    render(
+      <OutreachDetailsDrawer
+        row={draftRow}
+        onOpenChange={onOpenChange}
+        membership={membership({})}
+        onResumeDraft={onResumeDraft}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Delete' }),
+    ).toBeInTheDocument()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Upgrade to Pro' }),
+    )
+
+    expect(onResumeDraft).toHaveBeenCalledWith(draftRow)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('holds the CTA disabled while verification is in review', async () => {
+    render(
+      <OutreachDetailsDrawer
+        row={draftRow}
+        onOpenChange={vi.fn()}
+        membership={membership({ tier: 'pro', texting: 'in_review' })}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: /Verification in progress/ }),
+    ).toBeDisabled()
+  })
+
+  it('confirms before deleting a draft and calls the outreach delete endpoint', async () => {
+    const deleted: string[] = []
+    api.mock('DELETE /v1/outreach/:id', ({ params }) => {
+      deleted.push(params.id)
+      return { status: 200, data: undefined }
+    })
+    const onOpenChange = vi.fn()
+    const onDraftDeleted = vi.fn().mockResolvedValue(undefined)
+    render(
+      <OutreachDetailsDrawer
+        row={draftRow}
+        onOpenChange={onOpenChange}
+        membership={membership({})}
+        onDraftDeleted={onDraftDeleted}
+      />,
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Delete' }),
+    )
+
+    await waitFor(() => expect(deleted).toEqual(['40']))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    await waitFor(() => expect(onDraftDeleted).toHaveBeenCalledTimes(1))
+  })
+
+  it('renders no footer for a draft when no membership is passed', async () => {
+    render(<OutreachDetailsDrawer row={draftRow} onOpenChange={vi.fn()} />)
+
+    await screen.findByRole('heading', { name: 'Draft blast' })
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Upgrade to Pro' })).toBeNull()
+  })
+})
+
 // ENG-11056: the manager assign/remove/invite surface for a self-run list.
 // Gated entirely on win-team-accounts — off renders the drawer exactly as
 // every test above already proves, since the section returns null. Full
@@ -824,6 +933,7 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     turfId: 12,
     routeId: 7,
     turfName: 'Elm St & 5th',
+    stopCount: 3,
     doorCount: 4,
     peopleCount: 9,
     loggedCount: 6,
@@ -841,6 +951,7 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     name: 'Elm St & 5th',
     color: '#2563eb',
     geoPoly: { type: 'Polygon', coordinates: [] },
+    stopCount: 3,
     doorCount: 4,
     knockedDoorCount: 3,
     peopleCount: 9,
@@ -887,12 +998,48 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     status,
   })
 
-  // The phone-banking precedent, in door knocking's verb — and straight into
-  // the walk rather than onto the rail, which only became possible once every
-  // door-knocking row had exactly one routed list behind it. `outreachId` is
-  // the return leg: closing the walk reopens this drawer, so a candidate who
-  // left to knock comes back to the row they were reading.
-  it('links Continue knocking straight into the walk, with a way back', async () => {
+  // A campaign is several turfs, so the drawer has no walk of its own to
+  // offer: "Walk this route" would have to pick one of them for the
+  // candidate. Each turf row carries its own Continue instead, and the only
+  // bottom CTA left is the one act that is about the campaign.
+  it('offers no walk CTA of its own, only the campaign act', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress'),
+    })
+    mockCampaignTurfs([campaignTurf({ id: 12 }), campaignTurf({ id: 13 })])
+
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...doorKnockingRow('in_progress'), turfCount: 2 }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Mark campaign done' }),
+    ).toBeInTheDocument()
+    // Every way into a walk belongs to a turf. Counted rather than queried
+    // for absence, because the rows carry the same label: what must not
+    // exist is a walk link OUTSIDE the turfs.
+    const turfs = screen
+      .getByText('Turfs in this campaign')
+      .closest('section') as HTMLElement
+    expect(
+      within(turfs).getAllByRole('link', { name: 'Continue knocking' }),
+    ).toHaveLength(2)
+    expect(
+      screen.getAllByRole('link', { name: 'Continue knocking' }),
+    ).toHaveLength(2)
+    expect(
+      screen.queryByRole('link', { name: 'Walk this route' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The PDF is a walk-time artifact: it is the sheet a canvasser carries
+  // down the street, and it names one turf. It lives on the walk view,
+  // which is the surface that knows which turf that is.
+  it('leaves the walk sheet export to the walk view', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('in_progress'),
@@ -905,71 +1052,10 @@ describe('OutreachDetailsDrawer — door knocking', () => {
       />,
     )
 
-    const cta = await screen.findByRole('link', { name: 'Continue knocking' })
-    expect(cta).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
-    )
+    await screen.findByText('Turfs in this campaign')
     expect(
-      screen.queryByRole('link', { name: 'Continue calling' }),
+      screen.queryByRole('link', { name: 'Export this list to PDF' }),
     ).not.toBeInTheDocument()
-  })
-
-  // ENG-11066's zero-progress rule, door knocking's verb: an unwalked list
-  // reads "Walk this route" rather than "Continue knocking".
-  it('reads "Walk this route" instead of "Continue knocking" when nobody has logged a door yet', async () => {
-    api.mock('GET /v1/outreach/:id', {
-      status: 200,
-      data: doorKnockingDetail('in_progress', {
-        ...doorKnockingBlock,
-        loggedCount: 0,
-      }),
-    })
-    // The zero is the CAMPAIGN's now, not the anchor's: any sibling with a
-    // logged door means somebody has started, so the label reads Continue.
-    mockCampaignTurfs([campaignTurf({ loggedCount: 0 })])
-
-    render(
-      <OutreachDetailsDrawer
-        row={doorKnockingRow('in_progress')}
-        onOpenChange={vi.fn()}
-      />,
-    )
-
-    const cta = await screen.findByRole('link', { name: 'Walk this route' })
-    expect(cta).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
-    )
-    expect(
-      screen.queryByRole('link', { name: 'Continue knocking' }),
-    ).not.toBeInTheDocument()
-  })
-
-  // The design's full-width outline button, and the one thing a candidate
-  // opens this row to take away. It is the same component the walk view
-  // renders, so the label, the icon, the path and the toast cannot drift
-  // between the two places they appear.
-  it('offers the walk sheet as a full-width export', async () => {
-    api.mock('GET /v1/outreach/:id', {
-      status: 200,
-      data: doorKnockingDetail('in_progress'),
-    })
-
-    render(
-      <OutreachDetailsDrawer
-        row={doorKnockingRow('in_progress')}
-        onOpenChange={vi.fn()}
-      />,
-    )
-
-    const link = await screen.findByRole('link', {
-      name: 'Export this list to PDF',
-    })
-    expect(link).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking/print/12/pdf',
-    )
   })
 
   it('renders doors, people and logged progress from the block', async () => {
@@ -985,18 +1071,21 @@ describe('OutreachDetailsDrawer — door knocking', () => {
       />,
     )
 
-    // The Doors/People labels render while the detail is still in flight, so
-    // waiting on one of them would assert against the skeleton. The progress
-    // line only exists once the block has landed.
-    // "Logged", never "reached": three of the outcomes behind this number are
-    // doors where nobody spoke to anybody.
+    // "Logged", never "reached": three of the outcomes behind this number
+    // are doors where nobody spoke to anybody.
     expect(await screen.findByText('6 of 9 people logged')).toBeInTheDocument()
-    expect(screen.getByText('Doors')).toBeInTheDocument()
-    expect(screen.getByText('4')).toBeInTheDocument()
-    expect(screen.getByText('People')).toBeInTheDocument()
-    expect(screen.getByText('67%')).toBeInTheDocument()
+    // Twice over: the campaign's progress card, and the turf's own card in
+    // the section above it.
+    expect(screen.getAllByText('67%')).toHaveLength(2)
+    expect(screen.getByText('Logged')).toBeInTheDocument()
     expect(screen.getByText('Remaining')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
+    // And no Overview beside it. Its cells were Date, Name and Channel —
+    // all three in the header two inches above — with a Doors/People pair
+    // that was the ANCHOR turf's and so was withheld on every multi-turf
+    // campaign anyway.
+    expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+    expect(screen.queryByText('Doors')).not.toBeInTheDocument()
   })
 
   // A finished walk keeps its progress rather than swapping it for a Results
@@ -1128,31 +1217,6 @@ describe('OutreachDetailsDrawer — door knocking', () => {
   // A campaign reads `in_progress` until EVERY turf is done, so an anchor
   // finished ahead of its siblings still gets the `continue` footer. The
   // destination has to be a turf with something left in it.
-  it('continues into the first unfinished turf, not the finished anchor', async () => {
-    api.mock('GET /v1/outreach/:id', {
-      status: 200,
-      data: doorKnockingDetail('in_progress'),
-    })
-    mockCampaignTurfs([
-      campaignTurf({ id: 12, completed: true }),
-      campaignTurf({ id: 13 }),
-      campaignTurf({ id: 14 }),
-    ])
-
-    render(
-      <OutreachDetailsDrawer
-        row={{ ...doorKnockingRow('in_progress'), turfCount: 3 }}
-        onOpenChange={vi.fn()}
-      />,
-    )
-
-    const cta = await screen.findByRole('link', { name: 'Continue knocking' })
-    expect(cta).toHaveAttribute(
-      'href',
-      '/dashboard/door-knocking?walkTurfId=13&outreachId=30',
-    )
-  })
-
   it('counts the unfinished turfs and says the press cannot be undone', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -1371,30 +1435,137 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
     ).not.toBeInTheDocument()
   })
 
-  // Draft and In review have no canvas position at all: nothing to continue,
-  // nothing to archive, and nothing automatic to promise. No phone list on
-  // purpose: a pending row WITH one is the cancel-before-send set, which
-  // carries the Cancel footer covered below.
-  it('leaves a draft with no footer', async () => {
+  // Draft, In review and Denied have no canvas position: nothing to
+  // continue, and nothing automatic to promise. They DO get the shelf — see
+  // below. No phone list on purpose: a pending row WITH one is the
+  // cancel-before-send set, which carries the Cancel footer covered below.
+  //
+  // A non-p2p row at `pending` renders "In review", which is what a legacy
+  // request submitted before VO 2.0 and never fulfilled still reads today.
+  const reviewRow: HistoryRow = {
+    id: 30,
+    createdAt: '2026-08-10T00:00:00Z',
+    outreachType: 'text',
+    name: 'Untitled',
+    status: 'pending',
+  }
+
+  const mockDetail = (status: string, archivedAt: Date | null = null) =>
     api.mock('GET /v1/outreach/:id', {
       status: 200,
-      data: { ...baseDetail, outreachType: 'text' as const, status: 'pending' },
+      data: {
+        ...baseDetail,
+        outreachType: 'text' as const,
+        status,
+        archivedAt,
+      } as never,
     })
 
-    const draft: HistoryRow = {
+  it('offers the shelf on an In review row, and still no primary', async () => {
+    mockDetail('pending')
+    render(<OutreachDetailsDrawer row={reviewRow} onOpenChange={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+    // The closed set is intact: archive is ours, and no canvas CTA was
+    // invented for a state the canvas has no position for.
+    expect(screen.queryByText(/sending automatically/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /Continue|Walk|Call/ }),
+    ).not.toBeInTheDocument()
+  })
+
+  // A saved outreach draft (server status `draft`, milestone 2) draws its own
+  // footer (`draftFooterAction`) or, with no membership read, nothing: the
+  // shared footer, and with it the archive shelf the In review rows below
+  // get, never stands in for it.
+  it('leaves a saved outreach draft with no footer either', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...baseDetail, outreachType: 'p2p' as const, status: 'draft' },
+    })
+
+    const savedDraft: HistoryRow = {
       id: 30,
       createdAt: '2026-08-10T00:00:00Z',
-      outreachType: 'text',
+      outreachType: 'p2p',
       name: 'Untitled',
-      status: 'pending',
+      status: 'draft',
+      phoneListId: null,
     }
-    render(<OutreachDetailsDrawer row={draft} onOpenChange={vi.fn()} />)
+    render(<OutreachDetailsDrawer row={savedDraft} onOpenChange={vi.fn()} />)
 
     expect(await screen.findByText('Overview')).toBeInTheDocument()
     expect(screen.queryByText(/sending automatically/)).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Move to archive' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('archives an In review row through the envelope endpoint', async () => {
+    mockDetail('pending')
+    let archiveParams: unknown
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ params, body }) => {
+      archiveParams = params
+      archiveBody = body
+      return {
+        status: 200,
+        data: { id: 30, archivedAt: new Date('2026-09-24T00:00:00Z') },
+      }
+    })
+
+    const onOpenChange = vi.fn()
+    render(
+      <OutreachDetailsDrawer row={reviewRow} onOpenChange={onOpenChange} />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    )
+
+    expect(archiveParams).toEqual({ id: '30' })
+    expect(archiveBody).toEqual({ archived: true })
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+  })
+
+  it('offers the shelf on a Denied row too', async () => {
+    mockDetail('denied')
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...reviewRow, status: 'denied' }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Move to archive' }),
+    ).toBeInTheDocument()
+  })
+
+  // Restore has to work from the same slot, or archiving one of these would
+  // be the one-way trip the "history is never hard-deleted" rule exists to
+  // avoid.
+  it('restores an archived footerless row', async () => {
+    mockDetail('pending', new Date('2026-09-01T00:00:00Z'))
+    let archiveBody: unknown
+    api.mock('PATCH /v1/outreach/:id/archive', ({ body }) => {
+      archiveBody = body
+      return { status: 200, data: { id: 30, archivedAt: null } }
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={{ ...reviewRow, archivedAt: '2026-09-01T00:00:00Z' }}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Restore from archive' }),
+    )
+    expect(archiveBody).toEqual({ archived: false })
   })
 })
 

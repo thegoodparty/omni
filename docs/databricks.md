@@ -118,8 +118,8 @@ The voter-data identity takes no hostname: there is one workspace, so
 `peopleDbx.config.ts` holds it as a constant. It keeps the warehouse in env so
 dev and prod can run on separate compute, and so moving off a saturated
 warehouse is a secret update and a task cycle rather than a deploy. It reads
-`mart_gp_api.gp_api_voters`, `gp_api_districts`, and `gp_api_district_stats`,
-and is deliberately not interchangeable with the two agent identities above.
+`mart_gp_api.gp_api_voters` and `gp_api_district_census_stats`, and is
+deliberately not interchangeable with the two agent identities above.
 
 Read the mart, never the `dbt` models underneath it. The data is the same, but
 the access is not: `mart_gp_api` carries a schema-scoped `SELECT` for the
@@ -127,19 +127,11 @@ the access is not: `mart_gp_api` carries a schema-scoped `SELECT` for the
 rebuild performs. Table-level grants on the `dbt` objects do not -- they were
 granted directly once and silently vanished, taking every voter read with them.
 
-A Databricks-served voter read touches people-db not at all. Scoping needs the
-district's `type`, `name`, and `state`, and those come from **election-api**,
-which owns that table -- people-db's `District` is downstream of it, and the two
-agree exactly (a checksum over `id|state|type|name` across all 131,642 rows
-matched). Resolving it from the warehouse instead cost a p90 of 8.6s for one
-keyed row, at the head of every read; resolving it from people-db kept that
-cluster on the path. The result is memoized per process, so it is one hop per
-district per task.
-
-`gp_api_district_stats` mirrors Postgres's `DistrictStats` column for column,
-including which districts have no row at all. Read it rather than aggregating
-the voter rows: absence is the product's signal for "no constituent data for
-this office", so a query that always returns a number would erase it.
+Scoping a voter read needs the district's `type`, `name`, and `state`, and those
+come from **election-api**, which owns that table. Resolving it from the
+warehouse instead put a keyed single-row lookup at the head of every read, for a
+p90 an order of magnitude worse than the HTTP hop. The result is memoized per
+process, so it is one hop per district per task.
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not

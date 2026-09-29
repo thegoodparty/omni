@@ -15,6 +15,8 @@ import {
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
 import {
+  BuildDoorKnockingRoute,
+  BuildDoorKnockingRouteSchema,
   CreateDoorKnockingTurf,
   CreateDoorKnockingTurfSchema,
   RecordDoorKnockInteraction,
@@ -28,7 +30,6 @@ import {
   SetNotAVoterResponseSchema,
   DoorKnockingAddressPreviewResponseSchema,
   DoorKnockingAudienceCheckResponseSchema,
-  DoorKnockingQuotaResponseSchema,
   DoorKnockingArchiveRequest,
   DoorKnockingArchiveRequestSchema,
   DoorKnockingRoutePayloadSchema,
@@ -60,7 +61,6 @@ import { DoorKnockingServeService } from './services/doorKnockingServe.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
 import { DoorKnockingPreviewService } from './services/doorKnockingPreview.service'
-import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
 import { DoorKnockingAudienceCheckService } from './services/doorKnockingAudienceCheck.service'
 import {
   DoorKnockingAddressPreview,
@@ -73,15 +73,18 @@ import {
 
 // Every route here is Pro-gated through ContactsService.assertProAccess — the
 // CRM's own predicate, so an `eo-` (Serve) org keeps access without isPro —
-// EXCEPT the two suppression writes below. Reads are gated alongside the
-// writes: a map you can open but cannot route is a worse answer than an
-// upgrade prompt, and creating a list spends real Geoapify routing credits.
+// EXCEPT the two suppression writes below and the three reads the create flow
+// needs before its one paid write (GET turfs, GET pack, POST audience-check).
+// Those are open so a free campaign can draw and shape a list behind
+// outreach-pro-gating-v2's in-flow gate; the two writes that spend real
+// Geoapify routing credits — POST turfs and POST turfs/:id/route — and every
+// read that returns a person's address stay gated.
 //
 // Six routes additionally carry @AllowVolunteer() (ENG-11051): a volunteer's
 // walk — turf get, route serve, complete, interactions, do-not-knock,
 // not-a-voter — scoped to their own OutreachAssignment by the service layer
 // (see doorKnockingAccess.util.ts). Everything else (create, list, update,
-// delete, archive, the two campaign-level lifecycle writes, pack, quota,
+// delete, archive, the two campaign-level lifecycle writes, pack,
 // address-preview, audience-check) stays manager+ by the guard's default
 // posture. The campaign pair is the one worth naming: the assignment check is
 // per envelope, so it has no answer for a write that spans N of them.
@@ -94,16 +97,18 @@ export class DoorKnockingController {
     private readonly interactionService: DoorKnockingInteractionService,
     private readonly packService: DoorKnockingPackService,
     private readonly previewService: DoorKnockingPreviewService,
-    private readonly quotaService: DoorKnockingQuotaService,
     private readonly audienceCheckService: DoorKnockingAudienceCheckService,
     private readonly contacts: ContactsService,
   ) {}
 
-  // Creating a list buys its route: this is the only paid call in the feature
-  // and the only place the Win/Serve scope is chosen. Everything downstream is
+  // The only place the Win/Serve scope is chosen. Everything downstream is
   // reached through `voterFileFilter.organizationSlug` and so is already
   // org-scoped, which is why this and its serve sibling below are the only
   // pair — the same shape phone banking settled on.
+  //
+  // It still buys a route when the body carries `mode` and `loop`, which is
+  // what the current flow sends. Without them the turf is saved unrouted and
+  // `POST turfs/:id/route` buys it at first knock.
   @Post('turfs')
   @UseOrganization()
   @UseCampaign({ continueIfNotFound: true })
@@ -178,7 +183,6 @@ export class DoorKnockingController {
     @ReqOrganization() organization: Organization,
     @ReqCampaign() campaign: Campaign | null,
   ) {
-    await this.contacts.assertProAccess(organization)
     return this.turfService.list(organization.slug, {
       campaignId: campaign?.id ?? null,
     })
@@ -363,6 +367,45 @@ export class DoorKnockingController {
     )
   }
 
+  // Buy the route for a turf that has none — the only paid call in the
+  // feature now that creating a list does not make one. POST rather than PUT
+  // because it is an event with a cost, and it shares a path with the GET
+  // below on purpose: the same turf, the thing being bought and then the
+  // thing being walked.
+  //
+  // ONE route for both surfaces, unlike the create pair above. Those two
+  // exist because a create CHOOSES the Win/Serve scope; this addresses a turf
+  // that already has one, so there is nothing to choose — same as
+  // `turfs/:id/complete` and `turfs/:id/archive`.
+  //
+  // @AllowVolunteer(), like the GET below and the complete press: a
+  // volunteer buys the route for the turf they were assigned, because they
+  // are the one standing at the door and the alternative is a canvasser who
+  // cannot start without a manager. It makes this the first spend a
+  // volunteer can trigger, which is why the assignment check is not
+  // optional — an unassigned volunteer 404s exactly as they do on the walk.
+  @Post('turfs/:id/route')
+  @UseOrganization()
+  @AllowVolunteer()
+  @ResponseSchema(DoorKnockingTurfSchema)
+  async buildTurfRoute(
+    @Param('id', ParseIntPipe) id: number,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
+    @Body(new ZodValidationPipe(BuildDoorKnockingRouteSchema))
+    input: BuildDoorKnockingRoute,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.createService.buildRouteForTurf(
+      organization,
+      id,
+      input,
+      user.id,
+      role,
+    )
+  }
+
   // A volunteer walks the route on the turf they were assigned (ENG-11051).
   @Get('turfs/:id/route')
   @UseOrganization()
@@ -388,7 +431,6 @@ export class DoorKnockingController {
   @UseOrganization()
   @Header('Content-Type', 'application/octet-stream')
   async pack(@ReqOrganization() organization: Organization) {
-    await this.contacts.assertProAccess(organization)
     return new StreamableFile(this.packService.stream(organization))
   }
 
@@ -430,27 +472,7 @@ export class DoorKnockingController {
     @Body(new ZodValidationPipe(DoorKnockingAudienceCheckSchema))
     input: DoorKnockingAudienceCheck,
   ) {
-    await this.contacts.assertProAccess(organization)
     return this.audienceCheckService.check(organization, input)
-  }
-
-  // The day's allowance, read before the flow opens rather than discovered at
-  // the last press. The remedy for this 429 is waiting out a rolling 24-hour
-  // window, and the flow holds its polygon, name and travel mode in memory
-  // only — so meeting it at Build route throws all of that away. This is the
-  // only allowance left to report: a 500-stop daily budget rode the
-  // address-preview response and has been removed.
-  //
-  // Org-scoped with no serve sibling. The allowance belongs to the
-  // organization — turfs reach it through `voterFileFilter.organizationSlug`
-  // — so there is no per-surface answer for a Win/Serve pair to keep apart,
-  // and a Serve org reaches this the same way it reaches address-preview.
-  @Get('quota')
-  @UseOrganization()
-  @ResponseSchema(DoorKnockingQuotaResponseSchema)
-  async quota(@ReqOrganization() organization: Organization) {
-    await this.contacts.assertProAccess(organization)
-    return this.quotaService.read(organization)
   }
 
   // A volunteer logs a knock on a door in their assigned turf (ENG-11051).

@@ -86,6 +86,9 @@ export {
   type OrganizationRole,
   ORGANIZATION_ROLE_VALUES,
   OrganizationRoleSchema,
+  type PrioritySource,
+  PRIORITY_SOURCE_VALUES,
+  PrioritySourceSchema,
 } from './generated/enums'
 
 export {
@@ -666,6 +669,41 @@ export {
 } from './adminBriefings/AdminBriefing.schema'
 
 export {
+  PRIORITY_STEP_IDS,
+  PRIORITY_STEP_LABELS,
+  PRIORITY_STATUS_VERSION,
+  PriorityStepIdSchema,
+  PriorityStepStateSchema,
+  PriorityStepSchema,
+  PriorityStatusSchema,
+  emptyPriorityStatus,
+  parsePriorityStatus,
+  type PriorityStepId,
+  type PriorityStepState,
+  type PriorityStep,
+  type PriorityStatus,
+} from './priorities/PriorityStatus.schema'
+
+export { mintProposalKey } from './chats/proposalKey'
+
+export {
+  CHAT_CARD_KINDS,
+  PROPOSAL_CHANNELS,
+  ChatCardKindSchema,
+  ProposalChannelSchema,
+  OutreachProposalSchema,
+  PastOutreachRefSchema,
+  ContactRefSchema,
+  ChatCardSchema,
+  type ChatCardKind,
+  type ProposalChannel,
+  type OutreachProposal,
+  type PastOutreachRef,
+  type ContactRef,
+  type ChatCard,
+} from './chats/ChatCard.schema'
+
+export {
   PrioritySchema,
   type Priority,
   CreatePriorityInputSchema,
@@ -714,6 +752,7 @@ export {
   type ChatAnchorSnapshot,
   CommunityIssueChatAnchorSchema,
   OrdinanceChatAnchorSchema,
+  PriorityChatAnchorSchema,
   ChatAnchorSchema,
   type ChatAnchor,
   CreateChatRequestSchema,
@@ -939,8 +978,14 @@ export {
 export {
   RobocallDraftCreateRequestSchema,
   type RobocallDraftCreateRequest,
+  OutreachRobocallDetailSchema,
+  type OutreachRobocallDetail,
   RobocallDraftCreateResponseSchema,
   type RobocallDraftCreateResponse,
+  RobocallPromoApplyRequestSchema,
+  type RobocallPromoApplyRequest,
+  RobocallPromoStateResponseSchema,
+  type RobocallPromoStateResponse,
 } from './outreach/RobocallPurchase.schema'
 export {
   RobocallAuthorizeRequestSchema,
@@ -957,6 +1002,13 @@ export {
   type OutreachArchiveResponse,
 } from './outreach/OutreachArchive.schema'
 export {
+  OUTREACH_DRAFT_TYPES,
+  CreateOutreachDraftRequestSchema,
+  type CreateOutreachDraftRequest,
+  OutreachDraftConflictSchema,
+  type OutreachDraftConflict,
+} from './outreach/OutreachDraft.schema'
+export {
   CancelOutreachResponseSchema,
   type CancelOutreachResponse,
 } from './outreach/OutreachCancel.schema'
@@ -964,6 +1016,7 @@ export {
   OutreachReceiptSchema,
   type OutreachReceipt,
 } from './outreach/OutreachReceipt.schema'
+export { ProReceiptSchema, type ProReceipt } from './payments/ProReceipt.schema'
 export {
   SmsOutreachResultsSchema,
   type SmsOutreachResults,
@@ -1054,6 +1107,7 @@ export {
   createIdFilterSchema,
   createNumericFilterSchema,
   createPrecinctFilterSchema,
+  MAX_PRECINCT_FILTER_VALUES,
   PRECINCT_PAIR_DELIMITER,
   encodePrecinctPair,
   decodePrecinctPair,
@@ -1114,14 +1168,14 @@ export {
 } from './doorKnocking/DoorKnockingAudienceCheck.schema'
 
 export {
-  DoorKnockingQuotaResponseSchema,
-  type DoorKnockingQuotaResponse,
-} from './doorKnocking/DoorKnockingQuota.schema'
-
-export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
   CONTACTS_MADE_DIM_KEY,
+  KNOCKABLE_DIM_KEY,
+  KNOCKABLE_VALUES,
+  PACK_DIM_WIDTHS,
+  PACK_EXCLUDED_PEOPLE_MAX,
+  PRECINCT_DIM_KEY,
   CONTACTS_MADE_BUCKETS,
   PACK_CONTACTS_MADE_MAX,
   PACK_FORMAT_REVISION,
@@ -1175,6 +1229,8 @@ export {
   type DoorKnockingOutreachDetail,
   DoorKnockingArchiveRequestSchema,
   type DoorKnockingArchiveRequest,
+  BuildDoorKnockingRouteSchema,
+  type BuildDoorKnockingRoute,
   DoorKnockingRouteHeaderSchema,
   type DoorKnockingRouteHeader,
   DoorKnockingModeSchema,

@@ -69,7 +69,9 @@ import {
   useOrganizationRole,
 } from '@shared/organization-picker'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
+import { useServePrioritiesFlag } from '@shared/experiments/servePrioritiesFlag'
 import { openSupportChat } from '@shared/utils/supportWidget'
+import { MembershipBanner } from './membership/MembershipBanner'
 
 // Adding, renaming or removing an item here also means updating the AI
 // assistants' product map, in
@@ -238,6 +240,15 @@ const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
   v2Category: 'elected-office',
 }
 
+const PRIORITIES_MENU_ITEM: MenuItem = {
+  id: 'priorities-dashboard',
+  label: NAV_LABELS.priorities,
+  link: '/dashboard/priorities',
+  icon: <MdFactCheck />,
+  v2Icon: NAV_HEADER_ICONS.target,
+  v2Category: 'elected-office',
+}
+
 const ORDINANCES_MENU_ITEM: MenuItem = {
   id: 'ordinances-dashboard',
   label: 'Ordinances',
@@ -278,6 +289,7 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
+  prioritiesEnabled = false,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -322,6 +334,14 @@ export const getDashboardMenuItems = (
     menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
 
+  // Priorities is what the official is trying to get done, so it sits directly
+  // under Chief of Staff, above the feeds that feed it. Behind
+  // `serve-priorities` until the surface ships.
+  const prioritiesShown = isElectedOffice && prioritiesEnabled
+  if (prioritiesShown) {
+    menuItems.splice(chiefOfStaffShown ? 1 : 0, 0, PRIORITIES_MENU_ITEM)
+  }
+
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
   // unshifted above it: BRIEFINGS and COMMUNITY_ISSUES for an elected office,
   // then Chief of Staff when shown. Insert the Plan/Tracker item right after
@@ -332,7 +352,8 @@ export const getDashboardMenuItems = (
     (isElectedOffice ? 1 : 0) +
     (communityIssuesShown ? 1 : 0) +
     (ordinancesShown ? 1 : 0) +
-    (chiefOfStaffShown ? 1 : 0)
+    (chiefOfStaffShown ? 1 : 0) +
+    (prioritiesShown ? 1 : 0)
 
   // The campaign tracker tab, and the "Your Story" tab just above it (the
   // story is what the tracker + plan are generated from).
@@ -366,10 +387,16 @@ export default function DashboardMenu({
   // trackExposure=false: this is a render-decision read, not the experiment's
   // treatment surface (the team page itself tracks exposure).
   const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
+  const { enabled: prioritiesEnabled } = useServePrioritiesFlag(false)
 
   const menuItems = useMemo(
-    () => getDashboardMenuItems(!!electedOffice, isElectedOfficeLoading),
-    [electedOffice, isElectedOfficeLoading],
+    () =>
+      getDashboardMenuItems(
+        !!electedOffice,
+        isElectedOfficeLoading,
+        prioritiesEnabled,
+      ),
+    [electedOffice, isElectedOfficeLoading, prioritiesEnabled],
   )
 
   useEffect(() => {
@@ -631,6 +658,7 @@ const NewNavMenu = ({
       </SidebarContent>
       {!isMobile && (
         <SidebarFooter>
+          <MembershipBanner />
           <SidebarMenu>
             <SidebarMenuItemComponent>
               <DropdownMenu>

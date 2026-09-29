@@ -362,12 +362,6 @@ export = async () => {
   const region = 'us-west-2'
   const accountId = '333022194791'
 
-  // preview shares the dev people-db connection string — no per-env SSM
-  // parameter exists for it (people-api only ran dev/prod).
-  const peopleDbEnv = environment === 'prod' ? 'prod' : 'dev'
-  const peopleDbParameterName = `people-db-connection-string-${peopleDbEnv}`
-  const peopleDbParameterArn = `arn:aws:ssm:${region}:${accountId}:parameter/${peopleDbParameterName}`
-
   const serveAnalysisBucketName = `serve-analyze-data-${
     environment === 'preview' ? 'dev' : environment
   }`
@@ -538,7 +532,6 @@ export = async () => {
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
-      PEOPLE_DB_SSM_PARAM: peopleDbParameterName,
       DB_HOST: sharedPreviewCluster
         ? sharedPreviewCluster.endpoint
         : rdsCluster!.endpoint,
@@ -628,11 +621,6 @@ export = async () => {
           'transcribe:GetTranscriptionJob',
         ],
         Resource: ['*'],
-      },
-      {
-        Effect: 'Allow',
-        Action: ['ssm:GetParameter'],
-        Resource: [peopleDbParameterArn],
       },
       {
         Effect: 'Allow',

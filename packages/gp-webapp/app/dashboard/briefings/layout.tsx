@@ -1,9 +1,4 @@
-import { Open_Sans } from 'next/font/google'
-
-const openSansBriefings = Open_Sans({
-  subsets: ['latin'],
-  variable: '--font-briefings',
-})
+import { openSansBriefings } from '../../fonts'
 
 const BriefingsSegmentLayout: React.FC<{ children: React.ReactNode }> = ({
   children,

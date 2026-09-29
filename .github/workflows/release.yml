@@ -118,20 +118,30 @@ jobs:
             pending=0
             failed=""
             for wf in $REQUIRED; do
-              # `// empty` so a not-yet-registered run yields an empty string (not
-              # base64 of a null-valued object), so the no-run guard below fires.
-              run=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=1" \
-                --jq '.workflow_runs[0] // empty | {status, conclusion} | @base64' 2>/dev/null || echo "")
-              if [ -z "$run" ]; then
-                pending=$((pending+1)); continue # run not registered yet — keep waiting
+              # Every run for this SHA, not just the newest one. A single push
+              # can register more than one run of the same workflow — on
+              # f7e2abb0 each required workflow got two, created in the same
+              # second, one cancelled and one green. Reading only
+              # workflow_runs[0] made that a coin flip, and when it came up
+              # cancelled the train hard-failed a commit whose checks had in
+              # fact passed. A workflow is green if ANY of its runs for this
+              # SHA concluded success; it is pending while any is still going;
+              # only an all-completed, none-succeeded set is a real failure.
+              summary=$(gh api "repos/$REPO/actions/workflows/$wf/runs?head_sha=$SHA&event=push&per_page=20" \
+                --jq '"\(.workflow_runs|length) \([.workflow_runs[]|select(.conclusion=="success")]|length) \([.workflow_runs[]|select(.status!="completed")]|length) \([.workflow_runs[]|.conclusion // .status]|join(","))"' 2>/dev/null || echo "")
+              if [ -z "$summary" ]; then
+                pending=$((pending+1)); continue # API hiccup — re-read next pass
               fi
-              decoded=$(echo "$run" | base64 --decode)
-              status=$(echo "$decoded" | jq -r '.status')
-              conclusion=$(echo "$decoded" | jq -r '.conclusion')
-              if [ "$status" != "completed" ]; then
-                pending=$((pending+1))
-              elif [ "$conclusion" != "success" ]; then
-                failed="$failed $wf($conclusion)"
+              # Unquoted on purpose — the four space-separated fields are the
+              # point. None can itself contain a space: three are counts and
+              # the fourth is a comma-joined list of run conclusions.
+              # shellcheck disable=SC2086
+              set -- $summary
+              total="$1"; succeeded="$2"; running="$3"; seen="${4:-none}"
+              if [ "$total" -eq 0 ] || [ "$running" -gt 0 ]; then
+                pending=$((pending+1)) # not registered yet, or still running
+              elif [ "$succeeded" -eq 0 ]; then
+                failed="$failed $wf($seen)"
               fi
             done
 

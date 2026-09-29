@@ -246,3 +246,102 @@ describe('POST /v1/payments/purchase/create-checkout-session', () => {
     expect(purchaseService.createCheckoutSession).toHaveBeenCalled()
   })
 })
+
+describe('GET /v1/payments/purchase/pro-receipt', () => {
+  const PRO_RECEIPT_ROUTE = '/v1/payments/purchase/pro-receipt'
+
+  it('returns 404 when the campaign has no subscription on record', async () => {
+    const campaign = await seedCampaign()
+    const stripe = service.app.get(StripeService)
+    const read = vi.spyOn(stripe, 'retrieveLatestPaidInvoice')
+
+    const res = await service.client.get(PRO_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(404)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 for a lapsed subscription without reading Stripe', async () => {
+    const campaign = await seedCampaign({
+      isPro: false,
+      details: {
+        electionDate: futureElectionDate(),
+        subscriptionId: 'sub_receipt_lapsed',
+      },
+    })
+    const stripe = service.app.get(StripeService)
+    const read = vi.spyOn(stripe, 'retrieveLatestPaidInvoice')
+
+    const res = await service.client.get(PRO_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(404)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('returns the latest paid invoice as a receipt', async () => {
+    const campaign = await seedCampaign({
+      isPro: true,
+      details: {
+        electionDate: futureElectionDate(),
+        subscriptionId: 'sub_receipt_test',
+      },
+    })
+    const stripe = service.app.get(StripeService)
+    const read = vi
+      .spyOn(stripe, 'retrieveLatestPaidInvoice')
+      .mockResolvedValue({
+        invoice: {
+          amount_paid: 1000,
+          created: 1_700_000_000,
+          status_transitions: { paid_at: 1_700_000_100 },
+          invoice_pdf: 'https://stripe.test/invoice.pdf',
+        },
+        charge: {
+          receipt_url: 'https://stripe.test/receipt',
+          payment_method_details: {
+            card: { brand: 'visa', last4: '4242' },
+          },
+        },
+      } as unknown as Awaited<
+        ReturnType<StripeService['retrieveLatestPaidInvoice']>
+      >)
+
+    const res = await service.client.get(PRO_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(200)
+    expect(read).toHaveBeenCalledWith('sub_receipt_test')
+    expect(res.data).toEqual({
+      amount: 10,
+      cardBrand: 'visa',
+      cardLast4: '4242',
+      receiptUrl: 'https://stripe.test/invoice.pdf',
+      paidAt: new Date(1_700_000_100 * 1000).toISOString(),
+    })
+  })
+
+  it('returns 502 when Stripe cannot be read', async () => {
+    const campaign = await seedCampaign({
+      isPro: true,
+      details: {
+        electionDate: futureElectionDate(),
+        subscriptionId: 'sub_receipt_test',
+      },
+    })
+    const stripe = service.app.get(StripeService)
+    vi.spyOn(stripe, 'retrieveLatestPaidInvoice').mockRejectedValue(
+      new Error('stripe down'),
+    )
+
+    const res = await service.client.get(PRO_RECEIPT_ROUTE, {
+      headers: { 'x-organization-slug': campaign.organizationSlug },
+    })
+
+    expect(res.status).toBe(502)
+  })
+})

@@ -1,6 +1,13 @@
 import { AnalyticsBrowser, Analytics } from '@segment/analytics-next'
 import cookie from 'js-cookie'
 import { NEXT_PUBLIC_SEGMENT_WRITE_KEY } from 'appEnv'
+import { ANONYMOUS_ID_COOKIE } from 'helpers/anonymousId'
+
+// Rewritten to cdn.segment.com / api.segment.io in next.config.ts. Both of
+// those hostnames are blocked outright by Brave and by ad blockers, and the
+// failure is total rather than partial: the blocked settings fetch rejects
+// `AnalyticsBrowser.load()` below, so every later call no-ops.
+const PROXY_PREFIX = '/mx'
 
 interface UserTraits {
   // Core user info
@@ -30,10 +37,35 @@ interface UserTraits {
 
 export const analytics: Promise<Analytics | null> =
   typeof window !== 'undefined' && NEXT_PUBLIC_SEGMENT_WRITE_KEY
-    ? AnalyticsBrowser.load({
-        writeKey: NEXT_PUBLIC_SEGMENT_WRITE_KEY,
-      })
+    ? AnalyticsBrowser.load(
+        {
+          writeKey: NEXT_PUBLIC_SEGMENT_WRITE_KEY,
+          cdnURL: `${window.location.origin}${PROXY_PREFIX}`,
+        },
+        {
+          integrations: {
+            'Segment.io': {
+              apiHost: `${window.location.host}${PROXY_PREFIX}/evs`,
+            },
+          },
+        },
+      )
         .then((result) => (Array.isArray(result) ? result[0] : result))
+        .then((instance) => {
+          // Adopt the server-minted id before anything is sent, so the whole
+          // session lands under one anonymous identity even after the browser
+          // has expired Segment's own cookie. Chained into the load promise
+          // rather than done by a caller: every consumer awaits this, so there
+          // is no window in which an event could go out under the old id.
+          const serverAnonymousId = cookie.get(ANONYMOUS_ID_COOKIE)
+          if (
+            serverAnonymousId &&
+            instance.user().anonymousId() !== serverAnonymousId
+          ) {
+            instance.setAnonymousId(serverAnonymousId)
+          }
+          return instance
+        })
         .catch((error) => {
           console.error('Segment analytics failed to load:', error)
           return null

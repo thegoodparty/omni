@@ -23,6 +23,7 @@ const STATUS_LABELS: Record<NonNullable<MyAssignment['status']>, string> = {
   pending_payment: 'Pending payment',
   canceled: 'Canceled',
   failed: "Couldn't send",
+  draft: 'Draft',
 }
 
 const statusLabel = (status: MyAssignment['status']): string =>
@@ -50,6 +51,8 @@ const TERMINAL_BY_STATUS: Record<
   canceled: true,
   denied: true,
   failed: true,
+  // Resumable work, not finished — it belongs in the active list.
+  draft: false,
 }
 export const isTerminalStatus = (status: MyAssignment['status']) =>
   status !== null && TERMINAL_BY_STATUS[status]

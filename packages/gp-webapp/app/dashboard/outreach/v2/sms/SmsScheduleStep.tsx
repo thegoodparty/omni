@@ -59,9 +59,18 @@ const fmtDate = (d: Date) =>
 const fmtDateTime = (d: Date) =>
   `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
 
+// Build mode's version of this step (design: the locked "when" step): a
+// candidate who cannot send yet names the campaign and nothing else, since a
+// draft carries no date.
+export const NAME_ONLY_COPY = {
+  title: 'What do you want to call this campaign?',
+  body: 'You pick the send date once your campaign is approved to send.',
+}
+
 interface SmsScheduleStepProps {
   name: string
   onNameChange: (value: string) => void
+  nameOnly?: boolean
   date: Date | undefined
   onDateChange: (date: Date | undefined) => void
   timeSlot: string
@@ -77,6 +86,7 @@ interface SmsScheduleStepProps {
 export const SmsScheduleStep = ({
   name,
   onNameChange,
+  nameOnly = false,
   date,
   onDateChange,
   timeSlot,
@@ -104,11 +114,19 @@ export const SmsScheduleStep = ({
 
   return (
     <div className="space-y-6">
-      <Intro
-        channel="text"
-        title="When do you want to send it?"
-        body="We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
-      />
+      {nameOnly ? (
+        <Intro
+          channel="text"
+          title={NAME_ONLY_COPY.title}
+          body={NAME_ONLY_COPY.body}
+        />
+      ) : (
+        <Intro
+          channel="text"
+          title="When do you want to send it?"
+          body="We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
+        />
+      )}
 
       <div className="space-y-2">
         <Label htmlFor="sms-name">Campaign name</Label>
@@ -124,71 +142,73 @@ export const SmsScheduleStep = ({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="space-y-2">
-          <Label>Send date</Label>
-          <Popover open={calOpen} onOpenChange={setCalOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                className={cn(
-                  'w-full justify-start rounded-md border-components-input-border bg-components-input-base px-3 text-base font-normal text-foreground hover:bg-muted md:text-sm',
-                  !date && 'text-muted-foreground',
-                )}
-                aria-invalid={violates48h}
-              >
-                <CalendarIcon className="size-4 text-muted-foreground" />
-                {date ? fmtDate(date) : 'Pick a date'}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-auto p-0">
-              <Calendar
-                mode="single"
-                selected={date}
-                onSelect={(d) => {
-                  onDateChange(d ?? undefined)
-                  setCalOpen(false)
-                }}
-                disabled={(day) => day < earliestDay}
-              />
-              {/* w-0 + min-w-full: contribute nothing to the popover's
+      {nameOnly ? null : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Send date</Label>
+            <Popover open={calOpen} onOpenChange={setCalOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    'w-full justify-start rounded-md border-components-input-border bg-components-input-base px-3 text-base font-normal text-foreground hover:bg-muted md:text-sm',
+                    !date && 'text-muted-foreground',
+                  )}
+                  aria-invalid={violates48h}
+                >
+                  <CalendarIcon className="size-4 text-muted-foreground" />
+                  {date ? fmtDate(date) : 'Pick a date'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={date}
+                  onSelect={(d) => {
+                    onDateChange(d ?? undefined)
+                    setCalOpen(false)
+                  }}
+                  disabled={(day) => day < earliestDay}
+                />
+                {/* w-0 + min-w-full: contribute nothing to the popover's
                   intrinsic width (the calendar sets it) and wrap inside it. */}
-              <div className="w-0 min-w-full border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                Dates inside the 48-hour window can&rsquo;t be scheduled.
-              </div>
-            </PopoverContent>
-          </Popover>
-          <p className="text-sm text-muted-foreground">
-            Earliest send: {fmtDateTime(new Date(earliestSend))}.
-          </p>
-        </div>
+                <div className="w-0 min-w-full border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                  Dates inside the 48-hour window can&rsquo;t be scheduled.
+                </div>
+              </PopoverContent>
+            </Popover>
+            <p className="text-sm text-muted-foreground">
+              Earliest send: {fmtDateTime(new Date(earliestSend))}.
+            </p>
+          </div>
 
-        <div className="space-y-2">
-          <Label>Send time</Label>
-          <Select value={timeSlot} onValueChange={onTimeSlotChange}>
-            <SelectTrigger className="w-full" aria-invalid={violates48h}>
-              <ClockIcon className="size-4 text-muted-foreground" />
-              <SelectValue placeholder="Select time" />
-            </SelectTrigger>
-            <SelectContent>
-              {TIME_OPTIONS.map((o) => (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {timeSlot === 'custom' && (
-            <Input
-              type="time"
-              value={customTime}
-              onChange={(e) => onCustomTimeChange(e.target.value)}
-            />
-          )}
-          <p className="text-sm text-muted-foreground">{tz}</p>
+          <div className="space-y-2">
+            <Label>Send time</Label>
+            <Select value={timeSlot} onValueChange={onTimeSlotChange}>
+              <SelectTrigger className="w-full" aria-invalid={violates48h}>
+                <ClockIcon className="size-4 text-muted-foreground" />
+                <SelectValue placeholder="Select time" />
+              </SelectTrigger>
+              <SelectContent>
+                {TIME_OPTIONS.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {timeSlot === 'custom' && (
+              <Input
+                type="time"
+                value={customTime}
+                onChange={(e) => onCustomTimeChange(e.target.value)}
+              />
+            )}
+            <p className="text-sm text-muted-foreground">{tz}</p>
+          </div>
         </div>
-      </div>
+      )}
 
       {violates48h && (
         <Alert variant="destructive" icon={<CircleAlertIcon />}>

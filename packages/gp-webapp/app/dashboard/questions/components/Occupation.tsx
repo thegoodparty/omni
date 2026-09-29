@@ -2,6 +2,8 @@
 import { Button } from '@styleguide'
 import TextField from '@shared/inputs/TextField'
 import H1 from '@shared/typography/H1'
+import { useEffect } from 'react'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 interface OccupationProps {
   value: string
@@ -16,8 +18,13 @@ export default function Occupation({
   saveCallback,
   campaignKey,
 }: OccupationProps): React.JSX.Element {
+  useEffect(() => {
+    trackEvent(EVENTS.Questions.OccupationViewed)
+  }, [])
+
   const handleSave = () => {
     if (!canSave()) return
+    trackEvent(EVENTS.Questions.OccupationCompleted)
     saveCallback([`details.${campaignKey}`], [value])
   }
   const canSave = () => {

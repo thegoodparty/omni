@@ -10,7 +10,7 @@ straddling a retirement cannot make a behavior flap here.
 
 from __future__ import annotations
 
-from behavior_registry import instrumenting_events
+from behavior_registry import instrumenting_events, surface_key
 
 _LIVE_STATUSES = frozenset({"active"})
 _ORPHAN_STATUSES = frozenset({"orphaned_firing"})
@@ -24,27 +24,39 @@ def is_live(event_type: str, records_by_type: dict[str, dict]) -> bool:
     return bool(rec) and rec.get("status") in _LIVE_STATUSES
 
 
-def surface_states(behavior: dict, records_by_type: dict[str, dict]) -> list[dict]:
+def surface_states(
+    behavior: dict, records_by_type: dict[str, dict], latches: dict[str, dict] | None = None
+) -> list[dict]:
     """`gap` means we said up front there is no instrument here. `dead` means we named one and
     it stopped working. Keeping them distinct is what lets the digest tell "never built" from
     "broke", which are different asks of different people."""
     out: list[dict] = []
     for s in behavior.get("surfaces") or []:
         name = s.get("instrumented_by")
+        key = surface_key(s)
         if not name:
             state = "gap"
-        elif is_live(name, records_by_type):
-            state = "live"
+        elif key != name:
+            # A path slice never has a catalog record of its own, so the only verdict that
+            # ever saw the slice is the monitor's latch. Site-wide traffic on the bare event
+            # says nothing about one page going quiet, so a latched slice is dead; with no
+            # latch the bare event's status is the only fallback we have.
+            if (latches or {}).get(key, {}).get("latched"):
+                state = "dead"
+            else:
+                state = "live" if is_live(name, records_by_type) else "dead"
         else:
-            state = "dead"
+            state = "live" if is_live(name, records_by_type) else "dead"
         out.append({
             "label": s.get("label", ""), "path": s.get("path", ""),
-            "instrumented_by": name, "state": state,
+            "instrumented_by": name, "key": key, "state": state,
         })
     return out
 
 
-def behavior_state(behavior: dict, records_by_type: dict[str, dict]) -> dict:
+def behavior_state(
+    behavior: dict, records_by_type: dict[str, dict], latches: dict[str, dict] | None = None
+) -> dict:
     """Roll surface states up to one verdict.
 
     `orphaned` is checked only when nothing is live: instruments still firing with no working
@@ -52,7 +64,7 @@ def behavior_state(behavior: dict, records_by_type: dict[str, dict]) -> dict:
     understand, which is worse than a number we know is missing. When something IS live the
     behavior is still partially answerable, so partial wins.
     """
-    surfaces = surface_states(behavior, records_by_type)
+    surfaces = surface_states(behavior, records_by_type, latches)
     live = [s for s in surfaces if s["state"] == "live"]
     names = instrumenting_events(behavior)
 

@@ -65,6 +65,56 @@ describe('priorities controller', () => {
     expect(afterDelete.data).toHaveLength(0)
   })
 
+  // The detail page reads this route on every render; it shipped without a
+  // handler once and every priority detail page 404'd.
+  it('reads one priority by id, and 404s for another office', async () => {
+    const created = await service.client.post<Priority>(
+      PRIORITIES_PATH,
+      { title: 'Bridge', description: 'Reopen Maple Avenue' },
+      eoHeaders(),
+    )
+
+    const fetched = await service.client.get<Priority>(
+      `${PRIORITIES_PATH}/${created.data.id}`,
+      eoHeaders(),
+    )
+    expect(fetched.status).toBe(HttpStatus.OK)
+    expect(fetched.data).toMatchObject({
+      id: created.data.id,
+      title: 'Bridge',
+      description: 'Reopen Maple Avenue',
+    })
+
+    const otherId = uuidv7()
+    const otherSlug = `eo-${otherId}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    await service.prisma.electedOffice.create({
+      data: {
+        id: otherId,
+        userId: service.user.id,
+        organizationSlug: otherSlug,
+      },
+    })
+
+    const foreign = await service.client.get(
+      `${PRIORITIES_PATH}/${created.data.id}`,
+      { headers: { 'x-organization-slug': otherSlug } },
+    )
+    expect(foreign.status).toBe(HttpStatus.NOT_FOUND)
+
+    await service.client.delete(
+      `${PRIORITIES_PATH}/${created.data.id}`,
+      eoHeaders(),
+    )
+    const archived = await service.client.get(
+      `${PRIORITIES_PATH}/${created.data.id}`,
+      eoHeaders(),
+    )
+    expect(archived.status).toBe(HttpStatus.NOT_FOUND)
+  })
+
   it('returns 404 when the elected office header is missing', async () => {
     const result = await service.client.get(PRIORITIES_PATH)
     expect(result.status).toBe(HttpStatus.NOT_FOUND)

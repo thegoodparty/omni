@@ -33,17 +33,21 @@ import {
 } from '../utils/unitAddress.util'
 import { activeTurfScope } from '../utils/turfScope.util'
 
-const ROUTE_INCLUDE = {
+// The stops hang off the TURF and are ordered by the route's `seq`, so the
+// walk is one include off the turf rather than two. `seq` is non-null for
+// every stop here — an unrouted turf is refused before this is read.
+//
+// The envelope is on the turf too. Its id resolves a volunteer's
+// OutreachAssignment (ENG-11051); `script` is the talking-points card the
+// candidate froze with the list.
+const TURF_INCLUDE = {
   stops: {
     orderBy: { seq: Prisma.SortOrder.asc },
     include: { targets: true },
   },
-  // The id resolves a volunteer's OutreachAssignment (ENG-11051); `script`
-  // is the talking-points card the candidate froze with the list. Every route
-  // has exactly one envelope (the 1:1:1 invariant), so neither costs a query
-  // and neither can arrive twice.
   outreach: { select: { id: true, script: true } },
-} as const satisfies Prisma.DoorKnockingRouteInclude
+  route: true,
+} as const satisfies Prisma.DoorKnockingTurfInclude
 
 type LiveAddress = DoorKnockingResidentsResponse['addresses'][number]
 
@@ -67,6 +71,7 @@ type LiveTarget = LiveAddress['targets'][number]
 // `Pick` is what makes forgetting one a type error instead of a hole.
 const demographicsOf = (
   livePerson: LiveTarget | undefined,
+  isServe: boolean,
 ): Pick<RoutePayloadTarget, keyof typeof DoorKnockingDemographicsShape> => ({
   registeredVoter: livePerson?.registeredVoter ?? null,
   turnoutLikelihood: livePerson?.turnoutLikelihood ?? null,
@@ -78,6 +83,13 @@ const demographicsOf = (
   levelOfEducation: livePerson?.levelOfEducation ?? null,
   estimatedIncomeAmount: livePerson?.estimatedIncomeAmount ?? null,
   language: livePerson?.language ?? null,
+  // Never for Serve, on the same terms as `politicalParty` below: an
+  // elected official may not have a list cut by ethnicity (#1933), and a
+  // per-person value at the door is that cut arriving one canvasser at a
+  // time. Nulled at the payload rather than filtered out of the people-api
+  // read, because the residents response is shared with the pack's own
+  // district-scoped ethnicity dim.
+  ethnicityGroup: isServe ? null : (livePerson?.ethnicityGroup ?? null),
 })
 
 @Injectable()
@@ -115,30 +127,48 @@ export class DoorKnockingServeService extends createPrismaBase(
   ): Promise<DoorKnockingRoutePayload> {
     const turf = await this.client.doorKnockingTurf.findFirst({
       where: { id: turfId, ...activeTurfScope(organization.slug) },
-      include: { route: { include: ROUTE_INCLUDE } },
+      include: TURF_INCLUDE,
     })
     if (!turf) {
       throw new NotFoundException('Turf not found')
     }
+    // The doors exist from the moment the turf is drawn; the ORDER to walk
+    // them in does not, and a walk with no order is not a walk. So this is
+    // still the unrouted refusal it always was.
     if (!turf.route) {
       throw new NotFoundException('This turf has not been knocked yet')
     }
     const route = turf.route
-    if (!route.outreach) {
+    if (!turf.outreach) {
       throw new Error(
-        `Door-knocking route ${route.id} has no outreach envelope; every ` +
-          'route is created with one in the same transaction',
+        `Door-knocking turf ${turf.id} has no outreach envelope; every ` +
+          'turf is created with one in the same transaction',
       )
     }
     await assertVolunteerAssignedToOutreach(
       this.moduleRef,
       role,
-      route.outreach.id,
+      turf.outreach.id,
       userId,
       'Turf not found',
     )
 
-    const targets = route.stops.flatMap((stop) => stop.targets)
+    // The walk order, narrowed once. The three columns are nullable because
+    // a turf's doors exist before its route does, but they are written in
+    // the same transaction that creates the route — so a null here on a
+    // routed turf is a broken invariant and not a case to render around.
+    const stops = turf.stops.map((stop) => {
+      const { seq, legSeconds, legMeters } = stop
+      if (seq === null || legSeconds === null || legMeters === null) {
+        throw new Error(
+          `Door-knocking stop ${stop.id} has no walk order although turf ` +
+            `${turf.id} is routed; the route writes both together`,
+        )
+      }
+      return { ...stop, seq, legSeconds, legMeters }
+    })
+
+    const targets = stops.flatMap((stop) => stop.targets)
     const addressKeys = [...new Set(targets.map((t) => t.addressKey))]
     const targetPersonIds = [...new Set(targets.map((t) => t.personId))]
 
@@ -188,11 +218,11 @@ export class DoorKnockingServeService extends createPrismaBase(
         loop: route.loop,
         totalSeconds: route.totalSeconds,
         totalMeters: route.totalMeters,
-        stopCount: route.stops.length,
+        stopCount: stops.length,
         createdAt: route.createdAt,
       },
       pathGeometry: route.pathGeometry ?? null,
-      stops: route.stops.map((stop) => {
+      stops: stops.map((stop) => {
         // The building's own line, with whichever door's unit the frozen
         // column happened to capture taken back off. Computed once and used
         // for both the stop's name and the full address of every door under
@@ -230,9 +260,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       // every list whose candidate skipped it. The client falls back to the
       // static card on both, so absent and empty must not be distinguishable
       // — see the field's note on the payload schema.
-      ...(route.outreach.script
-        ? { talkingPoints: route.outreach.script }
-        : {}),
+      ...(turf.outreach.script ? { talkingPoints: turf.outreach.script } : {}),
     }
   }
 
@@ -342,7 +370,7 @@ export class DoorKnockingServeService extends createPrismaBase(
             // field by field rather than spread, so the payload can never pick
             // up a key the residents response grows later without someone
             // deciding it belongs at the door.
-            ...demographicsOf(livePerson),
+            ...demographicsOf(livePerson, isServe),
             knockStatus: statusByPersonId.get(target.personId) ?? 'unknown',
             // mayHaveMoved is the voter file disagreeing with the frozen
             // snapshot; notAVoterReason is a person at the door saying so.

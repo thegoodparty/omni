@@ -165,7 +165,10 @@ describe('POST /v1/contacts/overlap-count', () => {
     })
   })
 
-  it('403s for a non-pro organization without querying people-db', async () => {
+  // outreach-pro-gating-v2: the build path prices a list before the upgrade,
+  // so the overlap strip is served to a free organization too. With no saved
+  // lists there is nothing to overlap with, so people-db is still not asked.
+  it('serves a free organization, answering zero without querying people-db when it has no saved lists', async () => {
     const slug = `campaign-overlap-nonpro-${Date.now()}`
     await service.prisma.organization.create({
       data: { slug, ownerId: service.user.id },
@@ -178,7 +181,8 @@ describe('POST /v1/contacts/overlap-count', () => {
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    expect(response.status).toBe(403)
+    expect(response.status).toBe(201)
+    expect(response.data).toEqual({ count: 0 })
     expect(overlapSpy).not.toHaveBeenCalled()
   })
 
@@ -377,6 +381,62 @@ describe('POST /v1/contacts/overlap-count', () => {
       expect.objectContaining({ organizationSlug: slug }),
       expect.stringContaining('party predicate'),
     )
+  })
+
+  // The same hole, the same shape, one rule later: #1933 barred subsetting by
+  // ethnicity for both products and the Win half was reverted, so a pre-rule
+  // `eo-` row still carrying the six columns must drop out of the union too.
+  it('drops an ethnicity-tainted saved list from the union for an elected-office org', async () => {
+    const slug = await setupProOrg('ethnicity-tainted')
+    await createSavedFilter(slug, { name: 'clean', genderFemale: true })
+    await createSavedFilter(slug, {
+      name: 'tainted',
+      ethnicityHispanic: true,
+    })
+    const warnSpy = vi.spyOn(PinoLogger.prototype, 'warn')
+    const overlapSpy = spyOnOverlapCount({ count: 3 })
+
+    const response = await service.client.post(
+      '/v1/contacts/overlap-count',
+      { genderMale: true },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    expect(response.status).toBe(201)
+    const savedFilterSets = overlapSpy.mock.calls[0]?.[0]?.savedFilterSets ?? []
+    expect(savedFilterSets).toHaveLength(1)
+    expect(
+      savedFilterSets.some((set) => 'ethnicity' in set.filterOperators),
+    ).toBe(false)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: slug }),
+      expect.stringContaining('ethnicity predicate'),
+    )
+  })
+
+  // And the Win half, so the drop above is a mode rule rather than a blanket
+  // one — a candidate's saved list keeps its ethnicity predicate.
+  it('still includes a Win org saved list carrying an ethnicity predicate in the union', async () => {
+    const slug = await setupWinProOrg('ethnicity-allowed')
+    await createSavedFilter(slug, {
+      name: 'ethnicity list',
+      ethnicityHispanic: true,
+    })
+    const overlapSpy = spyOnOverlapCount({ count: 4 })
+
+    const response = await service.client.post(
+      '/v1/contacts/overlap-count',
+      { genderMale: true },
+      { headers: { [ORG_SLUG_HEADER]: slug } },
+    )
+
+    expect(response.status).toBe(201)
+    const savedFilterSets = overlapSpy.mock.calls[0]?.[0]?.savedFilterSets ?? []
+    expect(savedFilterSets).toHaveLength(1)
+    expect(savedFilterSets[0]?.filterOperators.ethnicity).toEqual({
+      operator: 'eq',
+      value: 'Hispanic',
+    })
   })
 
   it('still includes a Win org saved list carrying a party predicate in the union', async () => {

@@ -94,6 +94,7 @@ const buildPreviewPerson = (index: number): Person => {
     homeowner: null,
     businessOwner: null,
     levelOfEducation: null,
+    ethnicityGroup: null,
     language: 'English',
   }
 }

@@ -363,6 +363,7 @@ import { dirname, join, relative } from 'node:path'
 //     refusal, mounted by both NativeDoorKnockingPage and the outreach
 //     tile (server-side redirect isn't an option — the click that
 //     surfaces it also fires an intent event and starts the pack warm).
+//     Deleted 2026-09-25 with the allowance it refused on.
 //   - RecommendedListNameDrawer: vaul Drawer for naming a saved list on
 //     recommendation accept, used by OutreachAudienceStep. Vaul is
 //     client-only.
@@ -385,6 +386,42 @@ import { dirname, join, relative } from 'node:path'
 // the handshake — it reads the Clerk session through `useUser`, holds the
 // field's state, and redirects on success, none of which a server component
 // can do. Its page shell stays a server component.
+// 2026-09-18: 567 -> 568 for useMembershipState, the shared membership hook.
+// It reads React Query and the campaign/elected-office/TCR contexts, so it
+// can only run client-side; every surface consuming it is already a client
+// component.
+// 2026-09-18: 568 -> 570 for the shared Pro wizard context
+// (proUpgradeWizardContext) and ProUpgradeFlow, the state-driven twin of the
+// route-based wizard. One holds a React context, the other holds the step
+// state and provides it, so neither can be a server component.
+// 2026-09-18: 570 -> 571 for EinHowToCollapsible, which holds the open/closed
+// state of the purchase-only how-to-get-an-EIN disclosure.
+// 2026-09-18: 571 -> 574 for the campaign verification flow:
+// ElectionFilingForm (the extracted filing form — already client code, just
+// moved out of ElectionFiling), CampaignVerificationFlow (holds the step
+// state) and VerificationIntro (fires its viewed event on mount).
+// 2026-09-18: 574 -> 575 for PinDialog, the membership banner's PIN entry.
+// It holds the typed-PIN state and reads useCvPinGate/useSubmitCvPin, both
+// client-only hooks.
+// 2026-09-18: 575 -> 576 for ProPitchDialog, the Pro pitch the membership
+// surfaces open. It is a Radix dialog that fires its viewed event on open and
+// routes into the wizard, so it cannot render on the server.
+// 2026-09-18: 576 -> 578 for the membership banner and chip. Both read the
+// membership hook and the flag, own dialog open state, and route on click.
+// 2026-09-18: 578 -> 580 for InterstitialStep (reads the wizard context and
+// routes on click) and CampaignVerificationSteps (the state machine
+// extracted from CampaignVerificationFlow so it can be mounted elsewhere;
+// CampaignVerificationFlow keeps its own 'use client' as the page wrapper).
+// 2026-09-18: 580 -> 584 for the outreach gate: useOutreachGate (reads the
+// flag and membership hooks), GateBanner and GateExplainerModal (both own
+// click/dialog interaction), and OutreachGate (mounts the interactive
+// upgrade/verification/PIN screens). None can be a server component.
+// 2026-09-19: 584 -> 585 for useDraftGate, the saved-draft/gate state the
+// texting and robocall flows both run on. It owns React state and effects,
+// so it can only run in the browser.
+// 2026-09-21: 585 -> 586 for ProPitchPanel, the Pro pitch the gate explainer
+// and the wizard's interstitial now share. Its verification card is a
+// collapsible the candidate opens and closes, so it holds React state.
 // 2026-09-18: 567 -> 569 for the Serve list-boundary surfaces. BoundaryStep
 // owns the wizard's drawn ring and reads the polygon-preview count, and
 // ListBoundaryOverlay owns the in-progress ring for the full-bleed drawing
@@ -445,7 +482,29 @@ import { dirname, join, relative } from 'node:path'
 // sides keep moving the ratchet from bases the other no longer shares, so
 // neither number is reachable by arithmetic. Tightened rather than left
 // slack: a ratchet a point above the real count silently permits one.
-const BASELINE = 567
+// 2026-09-24: 578 on merging main into feat/pro-upgrade-v2. Measured against
+// the merged tree, not derived: this branch counted up to 586 from a base
+// main has since moved off (main sits at 567 after its own removals), and
+// neither number is reachable by arithmetic from the other.
+// 2026-09-24: 586 on merging feat/pro-upgrade-v2 (itself just merged with main)
+// into feat/pro-upgrade-drafts. Measured against the merged tree: this branch
+// counted up to 586 from a base main has since moved off, and main sits at
+// 567 after its own removals, so neither number is reachable by arithmetic.
+// 2026-09-25: 586 -> 585. The daily door-knocking campaign allowance was
+// removed, and DoorKnockingDailyLimitDialog went with it — the only thing it
+// ever rendered was that refusal.
+// 2026-09-28: 585 -> 593 for the Serve Priorities chat. The priority detail
+// view is a live agent conversation, so its orchestrator, status rail, inline
+// turn blocks and status marker all hold streaming state (SSE segments, a
+// status that moves mid-turn, an open step) and cannot render on the server.
+// The list hub owns lane filtering and optimistic insert/remove; the add form
+// is controlled. The three `*-api.ts` files are not components — the directive
+// marks them browser-only because they call `clientRequest`, which reads the
+// org-slug cookie, and that is what stops a server component importing them by
+// accident (same pattern as `ordinances/data/ordinances-api.ts`). The chat
+// cards under `[priorityId]/cards/` deliberately carry NO directive: they
+// inherit the boundary from the chat that mounts them.
+const BASELINE = 593
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

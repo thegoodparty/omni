@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
+import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 import ChiefOfStaffChatSurface from './ChiefOfStaffChatSurface'
 
@@ -72,5 +74,54 @@ describe('ChiefOfStaffChatSurface body identity', () => {
     )
 
     expect(mounts).toHaveLength(1)
+  })
+})
+
+describe('ChiefOfStaffChatSurface New chat', () => {
+  it('renders no New chat action unless the owner passes onNewChat', () => {
+    render(<ChiefOfStaffChatSurface open onOpenChange={vi.fn()} />)
+
+    expect(screen.queryByRole('button', { name: 'New chat' })).toBeNull()
+  })
+
+  it('drops the active conversation and notifies the owner', async () => {
+    mounts.length = 0
+    const onNewChat = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <ChiefOfStaffChatSurface
+        open
+        onOpenChange={vi.fn()}
+        initialConversationId="conv-9"
+        onNewChat={onNewChat}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'New chat' }))
+
+    expect(onNewChat).toHaveBeenCalledTimes(1)
+    expect(mounts.map((m) => m.conversationIdOverride)).toEqual([
+      'conv-9',
+      undefined,
+    ])
+  })
+
+  // The body can deferred-create a conversation the surface never sees in
+  // selectedId — clearing selectedId alone would leave the key unchanged and
+  // strand the candidate in that conversation.
+  it('remounts the body even when no conversation was ever selected', async () => {
+    mounts.length = 0
+    const user = userEvent.setup()
+    render(
+      <ChiefOfStaffChatSurface
+        open
+        onOpenChange={vi.fn()}
+        onNewChat={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'New chat' }))
+
+    expect(mounts).toHaveLength(2)
   })
 })

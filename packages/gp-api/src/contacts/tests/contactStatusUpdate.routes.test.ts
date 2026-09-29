@@ -99,6 +99,7 @@ describe('PATCH /v1/contacts/:personId/status', () => {
     homeowner: null,
     businessOwner: null,
     levelOfEducation: null,
+    ethnicityGroup: null,
     language: 'English',
     ...overrides,
   })

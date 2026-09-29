@@ -502,7 +502,7 @@ describe('ContactsService', () => {
         )
       })
 
-      it('excludes the party column for an elected-office org', async () => {
+      it('excludes the party and ethnicity columns for an elected-office org', async () => {
         const org = makeOrganization({
           slug: 'eo-office-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -520,7 +520,10 @@ describe('ContactsService', () => {
 
         expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
           expect.objectContaining({
-            excludeColumns: ['Parties_Description'],
+            excludeColumns: [
+              'Parties_Description',
+              'EthnicGroups_EthnicGroup1Desc',
+            ],
           }),
           res,
           expect.any(Object),
@@ -1360,17 +1363,23 @@ describe('ContactsService', () => {
     })
 
     describe('countContacts (live segment builder count, ENG-10517)', () => {
-      it('throws when the organization is not pro', async () => {
+      // outreach-pro-gating-v2: the build path prices a list before the
+      // candidate upgrades, so a free campaign gets the count — a figure
+      // about the district, never a voter record.
+      it('serves a free campaign', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
         mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+        mockVoterQueryService.findPeople.mockResolvedValue({
+          people: [],
+          pagination: { totalResults: 77 },
+        })
 
         await expect(
           service.countContacts({ partyDemocrat: true }, org),
-        ).rejects.toThrow(ForbiddenException)
-        expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
+        ).resolves.toEqual({ count: 77 })
       })
 
       it('returns the people-db total for the in-progress filter set', async () => {
@@ -1512,6 +1521,51 @@ describe('ContactsService', () => {
         )
       })
 
+      // Refused rather than dropped, on the party gate's reasoning: silently
+      // ignoring the dimension would return a WIDER audience than asked for.
+      // Win keeps the filter — #1933 removed it for both products and only
+      // the Win half was reverted.
+      it('rejects an ethnicity filter for an elected-office organization', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+
+        await expect(
+          service.findContactsForFilter(
+            { ethnicityHispanic: true },
+            { resultsPerPage: 1000, page: 1 },
+            org,
+          ),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
+      })
+
+      it('forwards an ethnicity filter for a Win organization', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterQueryService.findPeople.mockResolvedValue({
+          people: [{ id: PERSON_ID_1, cellPhone: '5551234567' }],
+          pagination: { totalResults: 1, hasNextPage: false },
+        })
+        const createSpy = vi.spyOn(ListPeopleDTO, 'create')
+
+        await service.findContactsForFilter(
+          { ethnicityHispanic: true },
+          { resultsPerPage: 1000, page: 1 },
+          org,
+        )
+
+        expect(createSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            filters: { ethnicity: { eq: 'Hispanic' } },
+          }),
+        )
+      })
+
       it('rejects a party filter for an elected-office organization', async () => {
         const org = makeOrganization({
           slug: 'eo-office-1',
@@ -1580,19 +1634,34 @@ describe('ContactsService', () => {
     })
 
     describe('getFilterDetail (aggregates for an unsaved filter)', () => {
-      it('throws when the organization is not pro, before querying', async () => {
+      // outreach-pro-gating-v2: aggregates about the district are open to a
+      // free campaign; only the voter rows themselves stay behind Pro.
+      it('serves a free campaign', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
         mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+        mockVoterQueryService.getListDetailAggregates.mockResolvedValue({
+          count: 10,
+          avgAge: 40,
+          avgIncome: 50000,
+          sms: 5,
+          robocall: 6,
+          phoneBanking: 7,
+          doorKnocking: 10,
+        })
 
-        await expect(
-          service.getFilterDetail({ voterStatus: ['Super'] }, org),
-        ).rejects.toThrow(ForbiddenException)
-        expect(
-          mockVoterQueryService.getListDetailAggregates,
-        ).not.toHaveBeenCalled()
+        const result = await service.getFilterDetail(
+          { independentAffinity: true },
+          org,
+        )
+
+        expect(result.demographics).toEqual({
+          people: 10,
+          avgAge: 40,
+          avgIncome: 50000,
+        })
       })
 
       it('runs the inline filter through the same translation a saved list gets', async () => {
@@ -1693,22 +1762,25 @@ describe('ContactsService', () => {
         ...channels,
       })
 
-      it('throws when the organization is not pro, before looking up the list', async () => {
+      // outreach-pro-gating-v2: a free campaign reads the saved list's
+      // aggregates too (the audience step shows them before the upgrade);
+      // ownership is still checked, so a foreign list 404s as below.
+      it('looks the list up for a free campaign instead of refusing', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
         mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          null,
+        )
 
         await expect(
           service.getListDetail({ segment: 42 }, org),
-        ).rejects.toThrow(ForbiddenException)
+        ).rejects.toThrow(NotFoundException)
         expect(
           mockVoterFileFilterService.findByIdAndOrganizationSlug,
-        ).not.toHaveBeenCalled()
-        expect(
-          mockVoterQueryService.getListDetailAggregates,
-        ).not.toHaveBeenCalled()
+        ).toHaveBeenCalledWith(42, 'campaign-1')
       })
 
       it('404s when the list does not belong to this org (or does not exist)', async () => {
@@ -1876,21 +1948,30 @@ describe('ContactsService', () => {
       // ENG-10778: the universe row's detail (no segment param) — same
       // aggregates shape as a saved list, over the whole unfiltered district.
       describe('universe mode (no segment)', () => {
-        it('throws when the organization is not pro, without looking up any list', async () => {
+        it('serves the universe aggregates to a free campaign', async () => {
           const org = makeOrganization({
             slug: 'campaign-1',
             overrideDistrictId: OVERRIDE_DISTRICT_ID,
           })
           mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
-
-          await expect(service.getListDetail({}, org)).rejects.toThrow(
-            ForbiddenException,
+          mockVoterQueryService.getListDetailAggregates.mockResolvedValue(
+            aggregatesResponse(100, 45, 55000, {
+              sms: 60,
+              robocall: 40,
+              phoneBanking: 70,
+              doorKnocking: 30,
+            }),
           )
+
+          const result = await service.getListDetail({}, org)
+
+          expect(result.demographics).toEqual({
+            people: 100,
+            avgAge: 45,
+            avgIncome: 55000,
+          })
           expect(
             mockVoterFileFilterService.findByIdAndOrganizationSlug,
-          ).not.toHaveBeenCalled()
-          expect(
-            mockVoterQueryService.getListDetailAggregates,
           ).not.toHaveBeenCalled()
         })
 

@@ -9,10 +9,14 @@ import instrumentation_gaps as ig
 
 @pytest.fixture(autouse=True)
 def _isolate_run_state(tmp_path_factory, monkeypatch):
-    """main() defaults --run-state into the committed instrumentation_data/ dir, so without
-    this every sweep-running test would write the repo's real state file."""
+    """main() defaults --run-state and --prior-rulings into the committed instrumentation_data/
+    dir, so without this every sweep-running test would write the repo's real files."""
     monkeypatch.setattr(
         ig, "DEFAULT_RUN_STATE", tmp_path_factory.mktemp("run_state") / "run_state.json"
+    )
+    monkeypatch.setattr(
+        ig, "DEFAULT_PRIOR_RULINGS",
+        tmp_path_factory.mktemp("prior_rulings") / "prior_rulings.json",
     )
 
 
@@ -32,7 +36,11 @@ def test_is_excluded_matches_package_and_file_globs():
 
 def test_load_gap_config_missing_file_returns_empty(tmp_path):
     cfg = ig.load_gap_config(tmp_path / "nope.yaml")
-    assert cfg == {"exclude_globs": []}
+    assert cfg["exclude_globs"] == []
+    # Missing file predates scan_roots entirely -> falls back to the default roots.
+    assert {r["path"] for r in cfg["scan_roots"]} == {
+        "packages/gp-webapp", "packages/gp-api/src"
+    }
 
 
 def test_route_pattern_from_page_path():
@@ -69,7 +77,7 @@ def test_detect_webapp_wizard_and_form_and_cta():
         "  </form>\n"
         "}\n"
     )
-    out = ig.detect_surfaces_in_file("packages/gp-webapp/components/Wizard.tsx", text)
+    out = ig.detect_surfaces_in_file("packages/gp-webapp/components/Wizard.tsx", text, "webapp")
     kinds = {s["surface_type"] for s in out}
     assert "wizard_stage" in kinds
     assert "form_submit" in kinds
@@ -86,7 +94,7 @@ def test_detect_api_job_webhook_status():
         "  async complete() { this.status = 'COMPLETED' }\n"
         "}\n"
     )
-    out = ig.detect_surfaces_in_file("packages/gp-api/src/briefing/briefing.worker.ts", text)
+    out = ig.detect_surfaces_in_file("packages/gp-api/src/briefing/briefing.worker.ts", text, "api")
     kinds = {s["surface_type"] for s in out}
     assert "api_job" in kinds
     assert "api_webhook" in kinds
@@ -94,7 +102,7 @@ def test_detect_api_job_webhook_status():
 
 
 def test_detect_returns_nothing_for_plain_file():
-    assert ig.detect_surfaces_in_file("packages/gp-webapp/helpers/x.ts", "export const x = 1\n") == []
+    assert ig.detect_surfaces_in_file("packages/gp-webapp/helpers/x.ts", "export const x = 1\n", "webapp") == []
 
 
 def test_extract_context_windows_around_match():
@@ -208,7 +216,211 @@ def test_coverage_stats_counts_by_disposition():
     }
     assert ig.coverage_stats(state) == {
         "tracked_gaps": 4, "new": 2, "open": 1, "accepted": 0, "dismissed": 1,
+        "resolved": 0, "retired": 0,
     }
+
+
+def _entry(gid, disposition="accepted", **kw):
+    return {"id": gid, "surface_type": "form_submit", "location": "a/B.tsx",
+            "disposition": disposition, "reason": "human reason", "rank": 2,
+            "first_seen": "2026-08-01", "last_seen": "2026-08-06", **kw}
+
+
+def test_instrumented_surface_closes_as_resolved_preserving_human_fields():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", ticket_url="http://t/1")}
+    surfaces = [{"id": "a/B.tsx#form_submit", "location": "a/B.tsx", "surface_type": "form_submit"}]
+    out, closed = ig.close_resolved_entries(state, surfaces, gap_ids=set(), today=date(2026, 9, 25))
+    e = out["a/B.tsx#form_submit"]
+    assert closed == 1
+    assert e["disposition"] == "resolved"
+    assert e["resolved_cause"] == "instrumented"
+    assert e["resolved_at"] == "2026-09-25"
+    assert e["reason"] == "human reason"
+    assert e["first_seen"] == "2026-08-01"
+    assert e["ticket_url"] == "http://t/1"
+
+
+def test_vanished_surface_closes_as_retired():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}
+    out, closed = ig.close_resolved_entries(state, [], gap_ids=set(), today=date(2026, 9, 25))
+    assert closed == 1
+    assert out["a/B.tsx#form_submit"]["disposition"] == "retired"
+    assert out["a/B.tsx#form_submit"]["resolved_cause"] == "surface_gone"
+
+
+def test_a_resplit_surface_retires_with_its_own_cause():
+    # The id changed but the file still offers surfaces of this type: the surface lives, so
+    # this must not read as a disappearance. Task 7 relies on the cause to decide which
+    # entries hand their ruling to successors.
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}
+    surfaces = [
+        {"id": "a/B.tsx#form_submit#Alpha", "location": "a/B.tsx", "surface_type": "form_submit"},
+        {"id": "a/B.tsx#form_submit#Beta", "location": "a/B.tsx", "surface_type": "form_submit"},
+    ]
+    out, closed = ig.close_resolved_entries(state, surfaces, set(), date(2026, 9, 25))
+    assert closed == 1
+    e = out["a/B.tsx#form_submit"]
+    assert e["disposition"] == "retired"
+    assert e["resolved_cause"] == "resplit"
+    assert e["reason"] == "human reason"
+
+
+def test_a_vanished_surface_is_distinguished_from_a_resplit_one():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}
+    out, closed = ig.close_resolved_entries(state, [], set(), date(2026, 9, 25))
+    assert out["a/B.tsx#form_submit"]["resolved_cause"] == "surface_gone"
+
+
+def test_still_a_gap_is_left_alone():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="new")}
+    surfaces = [{"id": "a/B.tsx#form_submit", "location": "a/B.tsx", "surface_type": "form_submit"}]
+    out, closed = ig.close_resolved_entries(
+        state, surfaces, gap_ids={"a/B.tsx#form_submit"}, today=date(2026, 9, 25),
+    )
+    assert closed == 0
+    assert out["a/B.tsx#form_submit"]["disposition"] == "new"
+
+
+def test_already_closed_entries_are_not_reclosed():
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="resolved",
+                                           resolved_at="2026-09-01")}
+    out, closed = ig.close_resolved_entries(state, [], gap_ids=set(), today=date(2026, 9, 25))
+    assert closed == 0
+    assert out["a/B.tsx#form_submit"]["resolved_at"] == "2026-09-01"
+
+
+def test_coverage_stats_counts_the_closed_buckets():
+    state = {
+        "a": _entry("a", disposition="new"),
+        "b": _entry("b", disposition="resolved"),
+        "c": _entry("c", disposition="retired"),
+    }
+    cov = ig.coverage_stats(state)
+    assert cov["resolved"] == 1 and cov["retired"] == 1 and cov["new"] == 1
+
+
+# --- prior rulings carried across an id-scheme migration (DATA-2539) ---------------------
+
+
+def test_resplit_predecessors_ruling_attaches_to_each_live_sibling():
+    # The predecessor id closes as resplit; every live surface sharing its (location,
+    # surface_type) should see the predecessor's own ruling as context.
+    state = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="accepted",
+                                           reason="known handler")}
+    surfaces = [
+        {"id": "a/B.tsx#form_submit#Alpha", "location": "a/B.tsx", "surface_type": "form_submit"},
+        {"id": "a/B.tsx#form_submit#Beta", "location": "a/B.tsx", "surface_type": "form_submit"},
+    ]
+    rulings = ig.build_prior_rulings(state, surfaces, gap_ids=set(), today=date(2026, 9, 25))
+    assert set(rulings) == {"a/B.tsx#form_submit#Alpha", "a/B.tsx#form_submit#Beta"}
+    assert all(r["id"] == "a/B.tsx#form_submit" for r in rulings.values())
+    assert all(r["disposition"] == "accepted" for r in rulings.values())
+    assert all(r["reason"] == "known handler" for r in rulings.values())
+
+
+def test_successor_enters_as_new_never_inheriting_the_predecessors_disposition():
+    # The safety property this whole ticket exists to guarantee: a dismissed predecessor
+    # auto-dismissing a genuinely untracked sibling handler would be exactly the silent miss
+    # DATA-2539 removes. prior_ruling is context on the entry, never its disposition.
+    prior = {"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit", disposition="dismissed",
+                                           reason="not worth it")}
+    ruling = {"id": "a/B.tsx#form_submit", "disposition": "dismissed",
+              "reason": "not worth it", "ruled_on": "2026-08-06"}
+    verdicts = {"a/B.tsx#form_submit#Alpha": {
+        "id": "a/B.tsx#form_submit#Alpha", "is_gap": True, "rubric_rule": "flow",
+        "dashboard_question": "q", "rank": 1, "reason": "judge says gap",
+    }}
+    cands = {"a/B.tsx#form_submit#Alpha": {
+        "id": "a/B.tsx#form_submit#Alpha", "surface_type": "form_submit", "location": "a/B.tsx",
+    }}
+    out = ig.merge_judged_state(
+        prior, verdicts, cands, date(2026, 9, 25),
+        prior_rulings={"a/B.tsx#form_submit#Alpha": ruling},
+    )
+    entry = out["a/B.tsx#form_submit#Alpha"]
+    assert entry["disposition"] == "new"  # NOT "dismissed" — the safety property
+    assert entry["prior_ruling"] == ruling
+
+
+def test_prior_ruling_attaches_on_creation_only_and_is_not_overwritten():
+    ruling = {"id": "old", "disposition": "accepted", "reason": "r", "ruled_on": "2026-08-01"}
+    verdicts = {"new_id": {"id": "new_id", "is_gap": True, "rubric_rule": "flow",
+                           "dashboard_question": "q", "rank": 1, "reason": "gap"}}
+    cands = {"new_id": {"id": "new_id", "surface_type": "form_submit", "location": "a.tsx"}}
+    out1 = ig.merge_judged_state(
+        {}, verdicts, cands, date(2026, 9, 25), prior_rulings={"new_id": ruling},
+    )
+    assert out1["new_id"]["prior_ruling"] == ruling
+
+    # Second run: a different ruling is offered for the same id, but the entry already
+    # exists — the field records what was true at creation and must not be refreshed.
+    verdicts2 = {"new_id": {"id": "new_id", "is_gap": True, "rubric_rule": "flow",
+                            "dashboard_question": "q", "rank": 1, "reason": "still a gap"}}
+    other_ruling = {"id": "old", "disposition": "dismissed", "reason": "different",
+                    "ruled_on": "2026-09-01"}
+    out2 = ig.merge_judged_state(
+        out1, verdicts2, cands, date(2026, 9, 26), prior_rulings={"new_id": other_ruling},
+    )
+    assert out2["new_id"]["prior_ruling"] == ruling  # unchanged
+
+
+def test_run_sweep_survives_a_corrupt_prior_rulings_file(tmp_path):
+    # Same never-raise contract as the run-state file: a bad side file must not break the
+    # unattended cron, and must degrade to {} rather than raising.
+    state_path = tmp_path / "state.json"
+    state_path.write_text("{}")
+    prior_rulings = tmp_path / "prior_rulings.json"
+    prior_rulings.write_text("{ not json")
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+
+    *_rest, rulings = ig.run_sweep(
+        tmp_path, tmp_path / "none.yaml", state_path, date(2026, 9, 25),
+        api_key=None, enable_judge=False, prior_rulings_path=prior_rulings,
+    )
+    assert rulings == {}
+
+
+def test_a_collapsed_scan_closes_nothing(tmp_path, capsys):
+    # Review Focus 3: a broken glob must not retire the backlog.
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}))
+    run_state = tmp_path / "run.json"
+    run_state.write_text(json.dumps({"surface_count": 400}))
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+
+    new_state, *_ = ig.run_sweep(
+        tmp_path, tmp_path / "none.yaml", state_path, date(2026, 9, 25),
+        api_key=None, enable_judge=False, run_state_path=run_state,
+    )
+    assert new_state["a/B.tsx#form_submit"]["disposition"] == "accepted"
+    assert "closing skipped" in capsys.readouterr().err
+
+
+def test_main_on_a_collapsed_scan_keeps_the_old_surface_count(tmp_path, capsys):
+    # The highest-risk invariant in this ticket. If a collapsed run writes its own tiny count
+    # back as the baseline, the guard is disarmed for every future run and nothing reports it.
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"a/B.tsx#form_submit": _entry("a/B.tsx#form_submit")}))
+    run_state = tmp_path / "run.json"
+    run_state.write_text(json.dumps({"surface_count": 400}))
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+
+    rc = ig.main([
+        "--repo", str(tmp_path), "--state", str(state_path), "--run-state", str(run_state),
+        "--config", str(tmp_path / "none.yaml"), "--no-judge", "--no-log",
+        "--today", "2026-09-25",
+    ])
+    assert rc == 0
+    assert "closing skipped" in capsys.readouterr().err
+    assert json.loads(state_path.read_text())["a/B.tsx#form_submit"]["disposition"] == "accepted"
+    # the point of the test: the baseline was NOT overwritten with the collapsed count
+    assert json.loads(run_state.read_text())["surface_count"] == 400
 
 
 def test_render_gap_section_shows_judged_columns():
@@ -244,6 +456,33 @@ def test_render_gap_section_ok_status_has_no_unavailable_line():
                     "disposition": "new", "rank": 3}}
     out = ig.render_gap_section(state, "2026-07-20", judgment_status="ok")
     assert "Judgment unavailable" not in out
+
+
+def test_coverage_line_reports_enumeration_and_suppression():
+    section = ig.render_gap_section(
+        {"a": _entry("a", disposition="new")}, "2026-09-25",
+        surfaces_enumerated=402, suppressed_by_tracking=110,
+    )
+    assert "402 surfaces enumerated" in section
+    assert "110 already tracked" in section
+
+
+def test_coverage_line_numbers_reconcile():
+    state = {
+        "a": _entry("a", disposition="new"),
+        "b": _entry("b", disposition="resolved"),
+        "c": _entry("c", disposition="retired"),
+    }
+    section = ig.render_gap_section(
+        state, "2026-09-25", surfaces_enumerated=448, suppressed_by_tracking=107,
+    )
+    # every bucket coverage_stats counts is visible, so the total reconciles
+    assert "3 tracked" in section
+    assert "1 resolved" in section and "1 retired" in section
+    # and the scan line's own arithmetic holds
+    assert "448 surfaces enumerated" in section
+    assert "107 already tracked" in section
+    assert "341 candidates" in section
 
 
 def test_load_state_missing_file_returns_empty(tmp_path):
@@ -350,7 +589,26 @@ def test_main_warns_when_neither_scan_root_exists(tmp_path, capsys):
     ])
     assert rc == 0
     err = capsys.readouterr().err
-    assert "neither scan root found" in err
+    assert "no configured scan root found" in err
+
+
+def test_main_survives_a_malformed_config_file(tmp_path, capsys):
+    """The scan-roots pre-check in main() must degrade like every other failure path here —
+    one stderr line and rc 0 — never a raw traceback from yaml.safe_load. The real sweep
+    below has its own try/except and reports the substantive error; this guard only exists
+    to warn about missing roots and must not itself be able to crash the cron."""
+    bad_config = tmp_path / "bad.yaml"
+    bad_config.write_text('exclude_globs: [\n  - "unclosed\n')
+    state = tmp_path / "state.json"
+
+    rc = ig.main([
+        "--config", str(bad_config), "--no-judge", "--no-log",
+        "--state", str(state), "--today", "2026-07-17",
+    ])
+
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "gap-sweep:" in err
 
 
 def test_judge_verdict_schema_roundtrips():
@@ -419,6 +677,47 @@ def test_build_judge_messages_carries_candidates():
     msgs = ig.build_judge_messages(cands)
     assert msgs[0]["role"] == "user"
     assert "/a" in msgs[0]["content"]
+
+
+def test_hook_fires_events_follows_only_hook_imports():
+    text = (
+        "import { useThing } from './useThing'\n"
+        "import { Child } from './Child'\n"
+        "const C = () => <form onSubmit={x} />\n"
+    )
+    known = {"a/useThing.ts", "a/Child.tsx"}
+    # the hook fires events -> true
+    assert ig.hook_fires_events("a/C.tsx", text, {"a/useThing.ts"}, lambda r: r in known)
+    # only an ordinary child component fires -> false, because a parent importing a tracked
+    # child says nothing about the parent's own surface
+    assert not ig.hook_fires_events("a/C.tsx", text, {"a/Child.tsx"}, lambda r: r in known)
+
+
+def test_hook_hint_rides_in_the_judge_payload():
+    msgs = ig.build_judge_messages([{
+        "id": "a/B.tsx#form_submit", "surface_type": "form_submit",
+        "location": "a/B.tsx", "snippet": "x", "tracked_in_hook": True,
+    }])
+    assert '"tracked_in_hook": true' in msgs[0]["content"]
+
+
+def test_hook_hint_never_removes_a_candidate(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "useForm.ts").write_text(
+        "import { trackEvent } from 'h'\nexport const useForm = () => trackEvent('S', {})\n"
+    )
+    (app / "C.tsx").write_text(
+        "import { useForm } from './useForm'\nconst C = () => <form onSubmit={s} />\n"
+    )
+    surfaces, tracked = ig.scan_repo(
+        tmp_path, exclude_globs=[],
+        scan_roots=[{"path": "packages/gp-webapp", "detectors": "webapp"}],
+    )
+    gaps = ig.find_gaps(surfaces, tracked)
+    hinted = [g for g in gaps if g["location"].endswith("C.tsx")]
+    assert hinted, "the hint must inform the judge, never drop the candidate"
+    assert hinted[0]["tracked_in_hook"] is True
 
 
 def test_judge_system_prompt_includes_rubric():
@@ -656,7 +955,7 @@ def test_run_sweep_no_judge_adds_nothing_and_reports_pending(tmp_path):
     app = tmp_path / "packages/gp-webapp/app/dashboard"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
-    new_state, gaps, status, pending = ig.run_sweep(
+    new_state, gaps, status, pending, *_ = ig.run_sweep(
         tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
         enable_judge=False,
     )
@@ -679,7 +978,7 @@ def test_run_sweep_with_fake_judge_adds_confirmed(tmp_path):
             ]
         })
 
-    new_state, gaps, status, pending = ig.run_sweep(
+    new_state, gaps, status, pending, *_ = ig.run_sweep(
         tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
         api_key="sk-ant-x", model="claude-sonnet-5", client_factory=fake_factory,
     )
@@ -1198,6 +1497,14 @@ def test_build_slack_payload_defaults_the_streak_to_zero():
     assert payload["judge_consecutive_failures"] == 0
 
 
+def test_build_slack_payload_carries_scan_coverage_counts():
+    payload = ig.build_slack_payload({}, "2026-09-09", "ok", 0,
+                                     browse_url=None, feedback_url=None,
+                                     surfaces_enumerated=402, suppressed_by_tracking=110)
+    assert payload["surfaces_enumerated"] == 402
+    assert payload["suppressed_by_tracking"] == 110
+
+
 def _fake_repo(tmp_path):
     (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
     (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
@@ -1265,3 +1572,231 @@ def test_main_no_judge_leaves_the_streak_alone(tmp_path):
                   "--run-state", str(run_state), "--slack-out", str(out)])
     assert rc == 0
     assert json.loads(out.read_text())["judge_consecutive_failures"] == 0
+
+
+def test_load_gap_config_defaults_scan_roots_when_absent(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("exclude_globs: []\n")
+    cfg = ig.load_gap_config(p)
+    # A config predating this key must keep scanning the two original roots rather than
+    # silently scanning nothing.
+    assert {r["path"] for r in cfg["scan_roots"]} == {
+        "packages/gp-webapp", "packages/gp-api/src"
+    }
+
+
+def test_load_gap_config_reads_scan_roots():
+    cfg = ig.load_gap_config(ig.CONFIG_PATH)
+    paths = {r["path"] for r in cfg["scan_roots"]}
+    assert "packages/election-api/src" in paths
+    assert "packages/gp-admin" not in paths
+    assert all(r["detectors"] in ("webapp", "api") for r in cfg["scan_roots"])
+
+
+def test_detect_surfaces_takes_detector_set_explicitly():
+    api_text = "@Processor('queue')\nclass W {}\n"
+    assert ig.detect_surfaces_in_file("packages/election-api/src/w.ts", api_text, "api")
+    # the same text under the webapp detector set matches nothing
+    assert ig.detect_surfaces_in_file("packages/election-api/src/w.ts", api_text, "webapp") == []
+
+
+def test_scan_repo_walks_a_configured_third_root(tmp_path):
+    root = tmp_path / "packages/election-api/src/jobs"
+    root.mkdir(parents=True)
+    (root / "sender.ts").write_text("@Processor('send')\nclass S { run(){} }\n")
+    surfaces, _tracked = ig.scan_repo(
+        tmp_path,
+        exclude_globs=[],
+        scan_roots=[{"path": "packages/election-api/src", "detectors": "api"}],
+    )
+    assert any(s["location"] == "packages/election-api/src/jobs/sender.ts" for s in surfaces)
+
+
+# --- per-surface detection + scoping (DATA-2539 task 4) -----------------------
+
+_TWO_FORMS = """\
+import { trackEvent } from 'helpers/analyticsHelper'
+
+const Tracked = () => {
+  const onSave = () => { trackEvent('Saved', {}) }
+  return <form onSubmit={onSave} />
+}
+
+const Untracked = () => {
+  const onSend = () => { void send() }
+  return <form onSubmit={onSend} />
+}
+"""
+
+
+def test_partly_instrumented_file_yields_exactly_one_gap():
+    surfaces = ig.detect_surfaces_in_file("packages/gp-webapp/app/x/F.tsx", _TWO_FORMS, "webapp")
+    forms = [s for s in surfaces if s["surface_type"] == "form_submit"]
+    assert len(forms) == 2
+    gaps = ig.find_gaps(surfaces, files_with_tracking={"packages/gp-webapp/app/x/F.tsx"})
+    gap_ids = {g["id"] for g in gaps if g["surface_type"] == "form_submit"}
+    assert gap_ids == {"packages/gp-webapp/app/x/F.tsx#form_submit#Untracked"}
+
+
+def test_single_match_keeps_the_historic_id():
+    # The 17 existing single-match state entries must survive untouched.
+    text = "const Only = () => <form onSubmit={onSend} />\n"
+    surfaces = ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+    assert surfaces[0]["id"] == "a/B.tsx#form_submit"
+
+
+def test_cta_stays_one_surface_per_file():
+    text = (
+        "const P = () => (<div>"
+        "<Button onClick={a}>A</Button>"
+        "<Button onClick={b}>B</Button>"
+        "</div>)\n"
+    )
+    ctas = [s for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+            if s["surface_type"] == "cta"]
+    assert len(ctas) == 1
+    assert ctas[0]["id"] == "a/B.tsx#cta"
+
+
+def test_two_matches_in_one_symbol_do_not_collide():
+    # Review Focus 2: same enclosing symbol, so the second must fall to a line-keyed id
+    # rather than overwriting the first.
+    text = (
+        "const Both = () => {\n"
+        "  return (<div>\n"
+        "    <form onSubmit={a} />\n"
+        "    <form onSubmit={b} />\n"
+        "  </div>)\n"
+        "}\n"
+    )
+    ids = [s["id"] for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+           if s["surface_type"] == "form_submit"]
+    assert len(ids) == len(set(ids)) == 2
+    assert "a/B.tsx#form_submit#Both" in ids
+    assert any(i.startswith("a/B.tsx#form_submit#L") for i in ids)
+
+
+def test_handler_declared_far_from_the_jsx_is_the_scope():
+    # The regression that decides DATA-2539. A component that fires unrelated events must not
+    # mask an untracked submit whose handler is declared elsewhere in the same component.
+    text = (
+        "const Body = () => {\n"
+        "  useEffect(() => { trackEvent('Peripheral', {}) }, [])\n"
+        + "  // filler\n" * 30
+        + "  const onSend = useCallback(() => {\n"
+        "    void send()\n"
+        "  }, [])\n"
+        + "  // filler\n" * 30
+        + "  return <form onSubmit={onSend} />\n"
+        "}\n"
+    )
+    surfaces = ig.detect_surfaces_in_file("a/Body.tsx", text, "webapp")
+    form = next(s for s in surfaces if s["surface_type"] == "form_submit")
+    assert form["scope_kind"] == "handler"
+    assert form["has_tracking"] is False, "scoped to the component, not the handler"
+
+
+def test_wizard_match_inside_a_type_declaration_is_dropped():
+    text = (
+        "interface Props {\n  currentStep?: string\n}\n"
+        "const C = () => { const x = currentStep; return null }\n"
+    )
+    wiz = [s for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+           if s["surface_type"] == "wizard_stage"]
+    assert len(wiz) == 1, "the props-type occurrence must not become its own candidate"
+
+
+def test_surface_ids_are_safe_for_the_digest_table():
+    # Review Focus 4: an id reaches a committed markdown table via _md_cell.
+    surfaces = ig.detect_surfaces_in_file("a/B.tsx", _TWO_FORMS, "webapp")
+    assert all("|" not in s["id"] and "\n" not in s["id"] for s in surfaces)
+
+
+def test_snippet_windows_on_the_surfaces_own_match(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/x"
+    app.mkdir(parents=True)
+    (app / "F.tsx").write_text(_TWO_FORMS)
+    surfaces, _ = ig.scan_repo(
+        tmp_path, exclude_globs=[],
+        scan_roots=[{"path": "packages/gp-webapp", "detectors": "webapp"}],
+    )
+    untracked = next(s for s in surfaces if s["id"].endswith("#form_submit#Untracked"))
+    assert "onSend" in untracked["snippet"]
+
+
+def test_two_matches_on_one_line_get_distinct_ids():
+    # Without the ordinal tiebreak both collapse to the same #L key and one surface is
+    # silently lost from the state file.
+    text = "const B = () => (<div><form onSubmit={a} /><form onSubmit={b} /></div>)\n"
+    ids = [s["id"] for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+           if s["surface_type"] == "form_submit"]
+    assert len(ids) == 2
+    assert len(set(ids)) == 2, f"duplicate ids: {ids}"
+
+
+def test_wizard_is_one_surface_per_file_with_a_scope_level_check():
+    text = (
+        "const Flow = () => {\n"
+        "  const [currentStep, setCurrentStep] = useState(0)\n"
+        "  const next = () => { setCurrentStep(currentStep + 1) }\n"
+        "  return <div>{currentStep}</div>\n"
+        "}\n"
+    )
+    wiz = [s for s in ig.detect_surfaces_in_file("a/F.tsx", text, "webapp")
+           if s["surface_type"] == "wizard_stage"]
+    assert len(wiz) == 1, "a wizard's many currentStep references are one surface"
+    assert wiz[0]["id"] == "a/F.tsx#wizard_stage"
+    assert wiz[0]["has_tracking"] is False
+
+
+def test_a_second_collision_on_one_line_gets_an_ordinal():
+    # Three matches, all in the same named scope (`Both`) and on the same source line: the
+    # name key collides for all three, then the line-key fallback collides too for the second
+    # and third. Without the ordinal tiebreak the third surface silently overwrites the second
+    # in the state file.
+    text = (
+        "const Both = () => {\n"
+        "  return (<div><form onSubmit={a} /><form onSubmit={b} /><form onSubmit={d} />"
+        "</div>)\n"
+        "}\n"
+    )
+    ids = [s["id"] for s in ig.detect_surfaces_in_file("a/B.tsx", text, "webapp")
+           if s["surface_type"] == "form_submit"]
+    assert len(ids) == 3
+    assert len(set(ids)) == 3, f"duplicate ids: {ids}"
+    assert any(i.endswith(".2") for i in ids), f"ordinal tiebreak never fired: {ids}"
+
+
+def test_handler_with_destructured_params_sees_its_own_tracking():
+    # `const onSend = ({ id }: Args) => {...}` opens a brace for the destructured params
+    # before the body. Picking that one scopes the tracking check to the parameter list, so
+    # a handler that DOES fire an event reads as untracked and false-alarms.
+    text = (
+        "const Comp = () => {\n"
+        "  const onSend = ({ id }: Args) => { trackEvent('Sent', {}) }\n"
+        "  return <form onSubmit={onSend} />\n"
+        "}\n"
+    )
+    surface = next(
+        s for s in ig.detect_surfaces_in_file("a/C.tsx", text, "webapp")
+        if s["surface_type"] == "form_submit"
+    )
+    assert surface["scope_kind"] == "handler"
+    assert surface["has_tracking"] is True
+
+
+def test_prior_rulings_are_not_regenerated_for_an_already_closed_entry():
+    # An entry closed as resplit on an earlier run already handed its ruling to the
+    # successors that existed then. Re-emitting every run keeps an ancient predecessor's
+    # reason alive and can attach it to a surface that only appeared months later.
+    state = {
+        "a/B.tsx#form_submit": _entry(
+            "a/B.tsx#form_submit", disposition="retired",
+            resolved_cause="resplit", resolved_at="2026-09-01",
+        )
+    }
+    surfaces = [
+        {"id": "a/B.tsx#form_submit#Alpha", "location": "a/B.tsx", "surface_type": "form_submit"},
+        {"id": "a/B.tsx#form_submit#Beta", "location": "a/B.tsx", "surface_type": "form_submit"},
+    ]
+    assert ig.build_prior_rulings(state, surfaces, set(), date(2026, 9, 28)) == {}

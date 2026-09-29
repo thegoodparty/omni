@@ -269,6 +269,7 @@ describe('buildVoterFiltersSql', () => {
       maritalStatus: { in: ['Married'] },
       veteranStatus: { in: ['Yes'] },
       educationLevel: { in: ['College Degree'] },
+      ethnicity: { in: ['European'] },
       businessOwner: { in: ['Yes'] },
       presenceOfChildren: { in: ['Yes'] },
       homeowner: { in: ['Yes'] },

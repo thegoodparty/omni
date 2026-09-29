@@ -18,6 +18,7 @@ import {
 import { useUser } from '@shared/hooks/useUser'
 import { useOrganization } from '@shared/organization-picker'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
+import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
@@ -81,12 +82,16 @@ export const useCampaignManagerChat =
  * manager home's cards and the tracker's "Campaign Manager" button drive the
  * same dock instead of each owning a copy.
  *
- * Conversations work exactly as they do for Chief of Staff, and must keep
- * working that way: opening the manager starts a NEW chat, the conversation is
- * created on the first message (so an open with nothing typed leaves nothing
- * behind), and earlier chats are reopened by id from the footer's history
- * popover. The greeting plays client-side as the chat body's `opener`; gp-api
- * seeds the same copy as the conversation's first message once it exists.
+ * Conversations persist exactly as Chief of Staff's do, but the manager's
+ * GENERAL open (meet card / footer) resumes the candidate's most recent
+ * conversation instead of starting fresh — a new chat on every open read as
+ * the manager losing its memory (ENG-11184). A candidate with no history, a
+ * kickoff entry, and the drawer header's "New chat" all still start a NEW
+ * chat whose conversation is created on the first message (so an open with
+ * nothing typed leaves nothing behind), and earlier chats are reopened by id
+ * from the footer's history popover. The greeting plays client-side as the
+ * chat body's `opener`; gp-api seeds the same copy as the conversation's
+ * first message once it exists.
  */
 export function CampaignManagerChatProvider({
   children,
@@ -111,6 +116,19 @@ export function CampaignManagerChatProvider({
   // already personalized, so the "Personalize your campaign" starter chip is
   // dropped from the chat.
   const { isComplete: storyComplete } = useCampaignStoryComplete(true)
+
+  // Fetched at mount so a general open can resume the latest conversation
+  // synchronously. The chat body invalidates this key when a conversation is
+  // created, so [0] (the list is updatedAt-desc) tracks the one the candidate
+  // most recently used. Until the first fetch resolves, an open falls back to
+  // a new chat — the pre-resume behavior, and only for a click within the
+  // first request's latency.
+  const { data: conversations } = useChatHistory(
+    true,
+    campaignManagerChatApi,
+    CAMPAIGN_MANAGER_HISTORY_KEY,
+  )
+  const latestConversationId = conversations?.[0]?.conversationId ?? null
 
   // Default to showing the card (the common case: a new candidate who has not
   // dismissed it) so it renders immediately with no pop-in. The effect flips it
@@ -198,11 +216,14 @@ export function CampaignManagerChatProvider({
   }, [])
 
   // General open (meet card / footer): counts as meeting the manager, so it
-  // dismisses the first-run meet card.
+  // dismisses the first-run meet card. Resumes the most recent conversation;
+  // only a candidate with no history lands on a new chat.
   const openManager = useCallback(() => {
     dismissMeetCard()
-    openNewChat()
-  }, [dismissMeetCard, openNewChat])
+    setPendingKickoff(undefined)
+    setConversationId(latestConversationId)
+    setChatOpen(true)
+  }, [dismissMeetCard, latestConversationId])
 
   const openConversation = useCallback(
     (id: string) => {
@@ -308,6 +329,9 @@ export function CampaignManagerChatProvider({
           if (!next) setPendingKickoff(undefined)
         }}
         initialConversationId={conversationId}
+        // The header's "New chat" clears any queued kickoff too, so a fresh
+        // chat started from a kickoff entry never replays the sentinel.
+        onNewChat={openNewChat}
         // The manager greets on every new chat, not just the candidate's
         // first, so the greeting is an `opener` rather than `defaultIntro`
         // (which is gated on the first-chat-ever check). Skipped on a kickoff

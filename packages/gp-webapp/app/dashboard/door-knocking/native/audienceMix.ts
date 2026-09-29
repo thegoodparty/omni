@@ -6,12 +6,12 @@ import {
 } from '@goodparty_org/contracts'
 
 // Party and age are the only two dimensions BOTH of this sheet's sources can
-// answer. The pack carries thirteen more (education, income, marital
-// status, veteran, homeowner…), but a frozen route's targets carry a
+// answer. The pack carries fourteen more (education, income, ethnicity,
+// marital status, veteran, homeowner…), but a frozen route's targets carry a
 // live `age` and `politicalParty` and nothing else — so a breakdown built on
 // the pack's full set would empty itself the moment the list was knocked, and
 // a candidate would watch twelve dimensions disappear as a reward for walking.
-// Two dimensions that survive the lock beat thirteen that don't.
+// Two dimensions that survive the lock beat fourteen that don't.
 //
 // The prototype's third and fourth groups have no honest equivalent here.
 // "Top issues" is not a fact this product holds about a voter — no pack dim,

@@ -11,6 +11,7 @@ import {
 } from '@styleguide'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import { reportErrorToSentry } from '@shared/sentry'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 // Matches the contract's bugReportDescriptionSchema max so an over-long
 // description is stopped at the textarea instead of failing the POST.
@@ -66,8 +67,10 @@ export default function OrdinanceBugReportSheet({
     setErrorMessage(null)
     try {
       await onSubmit(description.trim())
+      trackEvent(EVENTS.Ordinances.BugReportSubmitted)
       if (openSeq.current === seq) onClose()
     } catch (err) {
+      trackEvent(EVENTS.Ordinances.BugReportErrored)
       reportErrorToSentry(err, {
         surface: 'ordinance-annotations',
         op: 'createBugReport',

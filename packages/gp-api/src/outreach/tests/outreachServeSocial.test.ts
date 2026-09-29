@@ -2,6 +2,8 @@ import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { LlmService } from '@/llm/services/llm.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   Campaign,
   ElectedOffice,
@@ -17,6 +19,7 @@ import { TONE_STYLES } from '../util/messageTone.util'
 const service = useTestService()
 
 const jsonCompletion = vi.fn()
+let trackSpy: ReturnType<typeof vi.spyOn>
 
 let eoOrgSlug: string
 let electedOffice: ElectedOffice
@@ -24,6 +27,9 @@ let electedOffice: ElectedOffice
 beforeEach(async () => {
   const llmSvc = service.app.get(LlmService)
   vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
+  trackSpy = vi
+    .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
 
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   eoOrgSlug = `eo-${suffix}`
@@ -642,6 +648,19 @@ describe('POST /v1/outreach/serve/social', () => {
     expect(spine.campaignId).toBeNull()
     expect(spine.organizationSlug).toBe(eoOrgSlug)
     expect(spine.social?.assets).toHaveLength(2)
+
+    // NO send terminal on the Serve route (DATA-2526). The event name carries
+    // the `Voter Outreach -` prefix, which classifies to the win_voter_outreach
+    // family downstream, so emitting here would file an elected official's post
+    // inside a Win number. Counting Serve social needs its own event name.
+    const trackCalls = trackSpy.mock.calls as Parameters<
+      AnalyticsService['track']
+    >[]
+    expect(
+      trackCalls.filter(
+        (call) => call[1] === EVENTS.Outreach.CampaignScheduled,
+      ),
+    ).toHaveLength(0)
   })
 
   it('rejects duplicate-platform assets and persists nothing', async () => {

@@ -12,6 +12,11 @@ Background: events flow app/api → Segment → Amplitude (and HubSpot). There a
 - **Frontend** — `helpers/analyticsHelper.ts` in gp-webapp: the `EVENTS` map + `trackEvent`.
 - **Backend** — `src/vendors/segment/segment.types.ts` in gp-api: the `EVENTS` map, fired through `AnalyticsService.track`.
 
+This file is also read at runtime as a rubric: `instrumentation_gaps.py`'s gap judge
+loads it from `instrumentation_gaps.DEFAULT_RUBRIC_PATH` to decide whether a scanned
+surface is a real instrumentation gap. An edit here changes what that judge sees, not
+just what a human reads.
+
 Naming and governance are adopted from the Analytics Event Tracking Guide (product-os `processes/analytics-standards.md`, owner: Bryan Levine), which remains the source of truth.
 
 ## Procedure
@@ -187,6 +192,10 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    periodic git-walk (`packages/runbooks/books/refresh-event-provenance.md`) to fill. The skill is the freshness
    writer; the walk is the truth writer. Do not hand-edit the CSV — always go through `upsert`
    so the file's sort and quoting stay identical to a full walk.
+
+   If you upserted before the PR existed, re-run the same command with `--pr` once it is
+   open. `add` fills an empty `instrumented_pr` and never overwrites one already recorded,
+   so the second call is safe and does the right thing.
 
 8. **Verify.**
 

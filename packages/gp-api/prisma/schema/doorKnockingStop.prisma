@@ -2,21 +2,29 @@ model DoorKnockingStop {
   id                  Int                    @id @default(autoincrement())
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @updatedAt @map("updated_at")
-  route               DoorKnockingRoute      @relation(fields: [doorKnockingRouteId], references: [id], onDelete: Cascade)
-  doorKnockingRouteId Int                    @map("door_knocking_route_id")
+  // The stop's parent is the TURF, because a stop is a door in the audience
+  // and the audience is frozen when the turf is drawn. The route only decides
+  // what order they are walked in, and it is bought later.
+  turf                DoorKnockingTurf       @relation(fields: [doorKnockingTurfId], references: [id], onDelete: Cascade)
+  doorKnockingTurfId  Int                    @map("door_knocking_turf_id")
   // Geoapify visit order (1-based), joined back by the opaque job ids we
   // minted. A raw CHECK in the migration caps seq at 150 (the hard stop
   // limit) — Prisma cannot express CHECK constraints in the model.
-  seq                 Int                    @db.SmallInt
+  //
+  // Null until the route is bought: the doors are known from the moment the
+  // turf is drawn, the order they are walked in is not.
+  seq                 Int?                   @db.SmallInt
   lat                 Float
   lng                 Float
   // Copied verbatim from Residence_Addresses_AddressLine at the freeze —
   // people_db's own display format, never invented here.
   displayAddress      String                 @map("display_address")
-  legSeconds          Int                    @map("leg_seconds")
-  legMeters           Int                    @map("leg_meters")
+  // The leg INTO this stop, so both are the route's answer and both arrive
+  // with it.
+  legSeconds          Int?                   @map("leg_seconds")
+  legMeters           Int?                   @map("leg_meters")
   targets             DoorKnockingStopTarget[]
 
-  @@unique([doorKnockingRouteId, seq])
+  @@unique([doorKnockingTurfId, seq])
   @@map("door_knocking_stop")
 }

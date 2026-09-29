@@ -24,6 +24,36 @@ import { EcanvasserService } from './ecanvasser.service'
 // otherwise close a module-eval cycle (see ecanvasserIntegration.types.ts).
 import type { EcanvasserAttributionService } from './ecanvasserAttribution.service'
 
+// How long into a sync request door-knock attribution may keep starting new
+// People-API lookups. The gateway drops an idle connection at ~120s and a
+// severed request logs `statusCode: null`, which is what the
+// `ecanvasser-route-errors` alert fires on — 68 of them in the 30 days to
+// 2026-09-27, every one a user watching a spinner for two minutes and then
+// clicking Sync again.
+//
+// 45s, not something closer to 120s, because the budget is checked BEFORE a
+// lookup and a lookup can itself be slow: PeopleDbxStatementClient gives a
+// single Databricks statement 60s (STATEMENT_TIMEOUT_MS) before giving up. The
+// worst case is therefore this budget plus 60s, and 45 + 60 = 105s still answers
+// inside the gateway's window, leaving ~15s for the response and for the CRM and
+// campaign reads that follow attribution. A 90s budget would have had a 150s
+// worst case — fixing the common path while leaving the pathological one timing
+// out, which is the failure mode hardest to distinguish from no fix at all.
+//
+// At a measured ~800ms per lookup this is ~55 interactions per sync, which is not
+// enough to drain a backlog of thousands and is not trying to be: it bounds the
+// request so the caller always gets an answer.
+//
+// This bounds the request; it does not make attribution complete. Only MATCHED
+// interactions are recorded (VoterOutreachActivity rows), so a skipped one — no
+// phone, or a last name that did not match — is re-examined on every later sync
+// and the unmatched set never shrinks. A campaign whose interactions mostly do
+// not match therefore re-walks the same prefix each time and never reaches its
+// tail. Fixing that means recording negative outcomes too, or moving attribution
+// to a background worker that can run unbounded; both are larger changes than an
+// incident fix should carry, and neither is needed to stop the timeouts.
+const ATTRIBUTION_BUDGET_MS = 45_000
+
 @Injectable()
 export class EcanvasserIntegrationService extends createPrismaBase(
   MODELS.Ecanvasser,
@@ -194,6 +224,13 @@ export class EcanvasserIntegrationService extends createPrismaBase(
   }
 
   async sync(campaignId: number, force?: boolean): Promise<Ecanvasser> {
+    // Wall clock from the top of the request, not from the start of
+    // attribution. The vendor fetches and the write transaction below have
+    // already spent an unknown slice of the gateway's ~120s idle timeout by the
+    // time attribution starts, so a budget measured from there could still
+    // overrun it. Measured from here, the deadline is an absolute point the
+    // whole request shares.
+    const startedAt = Date.now()
     const ecanvasser = await this.findByCampaignId(campaignId)
 
     if (!ecanvasser) {
@@ -376,6 +413,7 @@ export class EcanvasserIntegrationService extends createPrismaBase(
             campaign.organization,
             updated.contacts,
             updated.interactions,
+            { deadlineAt: startedAt + ATTRIBUTION_BUDGET_MS },
           )
         } catch (error) {
           this.logger.error(

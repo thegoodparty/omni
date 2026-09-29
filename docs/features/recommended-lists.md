@@ -526,7 +526,7 @@ Don't recommend a list the organization already has; return the existing one
 instead, so accepting a recommendation twice doesn't create a duplicate.
 
 **Compare normalized filter payloads, not rows.** `voterFileFilter.utils.ts`
-already converts a saved row into the people-db filter payload — a small object
+already converts a saved row into the voter filter payload — a small object
 holding only the dimensions actually set. Two lists are the same list when
 their payloads match. That is the right comparison because it is the code path
 that already defines what a filter _means_: null and false collapse

@@ -233,6 +233,22 @@
       transform: scaleY(1);
     }
   }
+
+  /* Pro upgrade success: confetti pieces dropping through the card
+     (pro-upgrade/components/ConfettiField.tsx). */
+  @keyframes gp-confetti-drop {
+    0% {
+      transform: translateY(-16px) rotate(0deg);
+      opacity: 0;
+    }
+    12% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateY(620px) rotate(220deg);
+      opacity: 0;
+    }
+  }
 }
 
 /*

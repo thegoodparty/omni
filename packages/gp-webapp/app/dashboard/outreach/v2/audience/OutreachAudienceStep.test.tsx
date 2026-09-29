@@ -53,6 +53,14 @@ const baseProps = () => ({
   selectedId: null,
   onSelect: vi.fn(),
   onStartBuilder: vi.fn(),
+  universeName: 'All voters' as string | null,
+  universeListId: null,
+  universeCount: 12_000,
+  universeLoading: false,
+  onSelectUniverse: vi.fn(async () => 99),
+  universePending: false,
+  universeError: false,
+  onPickerOpenChange: vi.fn(),
   recommendations: [] as RecommendedList[],
   recommendationsLoading: false,
   recommendationsError: false,
@@ -84,6 +92,186 @@ const baseProps = () => ({
   builderCounting: false,
   builderCapError: false,
   builderCountErrorMessage: undefined,
+})
+
+// Every audience picker owes the candidate their whole constituency, the way
+// the CRM lists index has always offered it. This step was the one surface
+// that did not, which is the deviation these cover.
+describe('OutreachAudienceStep — the whole-constituency row', () => {
+  const openPicker = async () => {
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Choose a voter list/i }),
+    )
+  }
+
+  it('offers the universe with its count', async () => {
+    render(<OutreachAudienceStep {...baseProps()} />)
+    await openPicker()
+
+    expect(await screen.findByText('All voters')).toBeVisible()
+    expect(screen.getByText(/12,000/)).toBeVisible()
+  })
+
+  // Nothing is saved until it is picked, so the first pick resolves it to a
+  // real list AND selects it through `onSelect` — the same path every other
+  // row takes, which is what clears a pressed recommendation and runs each
+  // flow's own audience-change side effects.
+  it('resolves it on pick and selects it through onSelect', async () => {
+    const props = baseProps()
+    render(<OutreachAudienceStep {...props} />)
+    await openPicker()
+
+    await userEvent.click(await screen.findByText('All voters'))
+
+    expect(props.onSelectUniverse).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(props.onSelect).toHaveBeenCalledWith(99))
+  })
+
+  // Closing the popover before the create settled made the pending spinner
+  // unreachable and a failure invisible, so the popover has to outlive the
+  // request. `universePending` is deliberately NOT set here: it disables the
+  // row, and setting it up front would mean the click never lands — which is
+  // how this test failed the first time.
+  it('keeps the picker open until the list is built', async () => {
+    let release: (v: number | null) => void = () => undefined
+    const props = {
+      ...baseProps(),
+      onSelectUniverse: vi.fn(
+        () => new Promise<number | null>((r) => (release = r)),
+      ),
+    }
+    render(<OutreachAudienceStep {...props} />)
+    await openPicker()
+    await userEvent.click(await screen.findByText('All voters'))
+
+    // Still open on the row it is working on, and nothing selected yet.
+    expect(screen.getByText('Create a new list')).toBeVisible()
+    expect(props.onSelect).not.toHaveBeenCalled()
+
+    release(42)
+    await waitFor(() => expect(props.onSelect).toHaveBeenCalledWith(42))
+    await waitFor(() =>
+      expect(screen.queryByText('Create a new list')).toBeNull(),
+    )
+  })
+
+  // The spinner is what tells the candidate the tap registered at all.
+  it('spins on the row while it builds', async () => {
+    render(<OutreachAudienceStep {...baseProps()} universePending />)
+    await openPicker()
+
+    const row = (await screen.findByText('All voters')).closest('button')
+    expect(row).toBeDisabled()
+    expect(row?.querySelector('.animate-spin')).not.toBeNull()
+  })
+
+  // Without this the candidate taps the row, the create 500s, and nothing at
+  // all happens on screen.
+  it('says so when building the list failed', async () => {
+    render(<OutreachAudienceStep {...baseProps()} universeError />)
+    await openPicker()
+
+    expect(await screen.findByTestId('universe-create-error')).toBeVisible()
+  })
+
+  // Reported so the hook can hold the whole-district count until the popover
+  // is up, and clear a previous failure on the way in. Nothing about the
+  // universe row is visible before that, so nothing should be read for it.
+  it('tells the hook when the picker opens, not when the flow does', async () => {
+    const props = baseProps()
+    render(<OutreachAudienceStep {...props} universeError />)
+
+    expect(props.onPickerOpenChange).not.toHaveBeenCalled()
+    await openPicker()
+
+    expect(props.onPickerOpenChange).toHaveBeenCalledWith(true)
+  })
+
+  // A failed create must not select a list that does not exist.
+  it('selects nothing when resolving it fails', async () => {
+    const props = {
+      ...baseProps(),
+      onSelectUniverse: vi.fn(async () => null),
+    }
+    render(<OutreachAudienceStep {...props} />)
+    await openPicker()
+
+    await userEvent.click(await screen.findByText('All voters'))
+
+    expect(props.onSelectUniverse).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(props.onSelect).not.toHaveBeenCalled())
+  })
+
+  // Once resolved it is an ordinary saved list, so picking it again must
+  // select that row rather than create a second one.
+  it('selects the existing list instead of creating another', async () => {
+    const props = baseProps()
+    render(
+      <OutreachAudienceStep
+        {...props}
+        lists={[{ id: 77, name: 'All voters' } as never]}
+        universeListId={77}
+      />,
+    )
+    await openPicker()
+
+    await userEvent.click(await screen.findByText('All voters'))
+
+    expect(props.onSelect).toHaveBeenCalledWith(77)
+    expect(props.onSelectUniverse).not.toHaveBeenCalled()
+  })
+
+  // The universe has its own row, so an org whose ONLY saved list is the
+  // universe list has no ordinary rows — and still owes the empty-state line
+  // rather than a silent gap under "Create a new list".
+  it('still says there are no saved lists when only the universe exists', async () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        lists={[{ id: 77, name: 'All voters' } as never]}
+        universeListId={77}
+      />,
+    )
+    await openPicker()
+
+    expect(await screen.findByText('No saved lists yet.')).toBeVisible()
+  })
+
+  it('says nothing of the sort once a real list exists', async () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        lists={[
+          { id: 77, name: 'All voters' } as never,
+          { id: 78, name: 'Ward 3' } as never,
+        ]}
+        universeListId={77}
+      />,
+    )
+    await openPicker()
+
+    await screen.findByText('Ward 3')
+    expect(screen.queryByText('No saved lists yet.')).toBeNull()
+  })
+
+  // It is rendered as its own row at the top, so leaving it in the ordinary
+  // rows too would read as two different audiences.
+  it('does not also list it among the saved lists', async () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        lists={[
+          { id: 77, name: 'All voters' } as never,
+          { id: 78, name: 'Ward 3' } as never,
+        ]}
+        universeListId={77}
+      />,
+    )
+    await openPicker()
+
+    expect(await screen.findByText('Ward 3')).toBeVisible()
+    expect(screen.getAllByText('All voters')).toHaveLength(1)
+  })
 })
 
 describe('OutreachAudienceStep — recommended lists', () => {
@@ -313,5 +501,21 @@ describe('OutreachAudienceStep — a preselected recommendation', () => {
     )
 
     expect(screen.getAllByTestId('recommended-list-card')).toHaveLength(1)
+  })
+})
+
+// Until the elected-office query settles we do not know whether to say voters
+// or constituents, and a guess becomes a wrongly named saved list the moment
+// the row is picked. So the row waits rather than guessing.
+describe('OutreachAudienceStep - the universe row before its label is known', () => {
+  it('offers no universe row while the name is unresolved', async () => {
+    render(<OutreachAudienceStep {...baseProps()} universeName={null} />)
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Choose a voter list/i }),
+    )
+
+    expect(await screen.findByText('Create a new list')).toBeVisible()
+    expect(screen.queryByText('All voters')).toBeNull()
+    expect(screen.queryByText('All constituents')).toBeNull()
   })
 })

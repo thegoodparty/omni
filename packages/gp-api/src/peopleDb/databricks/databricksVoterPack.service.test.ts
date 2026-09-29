@@ -35,6 +35,7 @@ const csvRow = (
     Education_Of_Person: '',
     Estimated_Income_Amount_Int: '',
     Language_Code: '',
+    EthnicGroups_EthnicGroup1Desc: '',
     registered: 'true',
     hasCellPhone: 'false',
     hasLandline: 'false',

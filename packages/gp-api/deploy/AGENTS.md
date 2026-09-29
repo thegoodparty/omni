@@ -28,6 +28,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 - **Preview stacks are ephemeral**: `prNumber` is required for `preview`, and stack name is `pr-${prNumber}`. They are torn down two ways: `gp-api-teardown-preview.yml` destroys a PR's stack on `pull_request: closed`, and `gp-api-cleanup-preview.yml` sweeps any dangling ones (those with no open PR, found by `find-stale-preview-stacks.ts`) every 3 hours. Both share the `destroy-preview-stack` composite action, which runs `pulumi cancel` first — a runner killed mid-deploy leaves a state lock that otherwise makes `pulumi destroy` fail and strands the stack's ALB.
 - **Pulumi config secrets** come from SSM via `infra-cli.ts` (`PULUMI_CONFIG_PASSPHRASE`, `GRAFANA_AUTH`, `GRAFANA_SM_ACCESS_TOKEN`). The CLI fetches them per-run; nothing is committed.
 - **App secrets are enumerated, not declared.** `index.ts` reads `GP_API_<ENV>` from Secrets Manager and wires every key it finds into the task definition's `secrets` block as `valueFrom`, so adding one needs no change in this directory — the key only has to exist in the blob, and the value never enters Pulumi state. Never add a secret value as Pulumi config or a stack output. Full flow (and why you don't need AWS access for it): `docs/secrets.md`.
+- **All environments authenticate via the ECS task role** — no task carries static AWS keys. The AWS SDK's default credential chain resolves to the task role in every deployed task, so a task-role grant in `index.ts` is sufficient on its own. (Prod used to carry the legacy `gp-api` IAM user's static creds, which shadowed the task role and caused the 2026-07-29 contacts outage; those creds and the user were retired.)
 - **Docker image is tagged with `imageUri`** passed in from CI; `index.ts` reads it via `pulumi.Config()`. Local builds aren't deployable — push through the workflow.
 - **`npm run infra deploy <env>` is invoked by CI, not by hand.** A push to `main` runs `infra deploy dev`; `infra deploy prod` runs only from the release train's prod stage (`release.yml`, freeze-switch gated, with a manual `workflow_dispatch` fallback) once the commit is green on dev — never from a branch push. `npm run infra diff <env>` stays useful locally for previewing a change.
 - **Observability lives here, not just in app code.** Grafana dashboards/alerts are defined in `components/grafana.ts` and `components/alerting/`. App-side metric naming must line up with these.
@@ -46,22 +47,6 @@ Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-e
 1. Raise `minCapacity` in the cluster's `serverlessv2ScalingConfiguration` (in `components/preview-shared-cluster.ts`; reduces cold-start connection drops).
 2. Add an RDS Proxy in front of the cluster (multiplexes connections; the proxy endpoint replaces `DB_HOST` for previews).
 3. Lower `connection_limit` further, or raise it if the 5-per-service cap proves too tight for single-preview load.
-
-## People-db connection string (SSM)
-
-The task role is granted `ssm:GetParameter` on
-`people-db-connection-string-<dev|prod>` (`index.ts`, alongside the other
-task-role permissions); `PEOPLE_DB_SSM_PARAM` is passed to the container so
-`PeopleDbUrlProvider` (`src/peopleDb/peopleDbUrl.provider.ts`) reads the exact
-parameter name instead of deriving one from `OTEL_SERVICE_ENVIRONMENT`. preview
-maps to the `dev` parameter — no separate preview secret exists.
-
-All environments authenticate via the ECS task role — no task carries static
-AWS keys. The AWS SDK's default credential chain resolves to the task role in
-every deployed task, so a task-role grant is sufficient on its own. (Prod used
-to carry the legacy `gp-api` IAM user's static creds, which shadowed the task
-role and caused the 2026-07-29 contacts outage; those creds and the user were
-retired.)
 
 ## Gotchas
 

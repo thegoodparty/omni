@@ -4,8 +4,8 @@ import {
   CONTACTS_MADE_BUCKETS,
   CONTACTS_MADE_DIM_KEY,
   DoorKnockingPackManifest,
+  PRECINCT_DIM_KEY,
 } from '@goodparty_org/contracts'
-import filterSections from 'app/dashboard/contacts/shared/filters.config'
 import { DimSelections } from '../filterEngine'
 import {
   INCOME_KEY_TO_RANGE,
@@ -164,6 +164,18 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
     dim: 'educationLevel',
     buckets: ['Unknown', 'unknown'],
   },
+  ethnicityAsian: { dim: 'ethnicity', buckets: ['Asian'] },
+  ethnicityEuropean: { dim: 'ethnicity', buckets: ['European'] },
+  ethnicityHispanic: { dim: 'ethnicity', buckets: ['Hispanic'] },
+  ethnicityAfricanAmerican: {
+    dim: 'ethnicity',
+    buckets: ['African American'],
+  },
+  ethnicityOther: { dim: 'ethnicity', buckets: ['Other'] },
+  ethnicityUnknown: {
+    dim: 'ethnicity',
+    buckets: ['Unknown', 'unknown'],
+  },
   incomeUnknown: { dim: 'income', buckets: ['Unknown', 'unknown'] },
   ...Object.fromEntries(
     Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [
@@ -198,144 +210,19 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
   ),
 }
 
-// True when a selected option can't be expressed against the pack's buckets,
-// so it leaves the preview unnarrowed. Shared with filtersToDimSelections
-// below to keep the two answers from disagreeing.
-const narrowsPreview = (
-  filterKey: string,
-  manifest: DoorKnockingPackManifest,
-): boolean => {
-  const mapping = FILTER_KEY_TO_DIM[filterKey]
-  if (!mapping) return false
-  const dim = manifest.dims.find((entry) => entry.key === mapping.dim)
-  if (!dim) return false
-  return dim.values.some((bucket) => mapping.buckets.includes(bucket))
-}
-
-// The selected options the map preview silently ignores: anything whose
-// bucket THIS pack lacks. That is a property of the pack in hand rather than a
-// fixed list — an organization past PACK_CONTACTS_MADE_MAX gets no
-// contacts-made plane and its prior-contacts pills land here, while the same
-// pills on the same build shade fine for everyone else. They still apply at
-// knock time (evaluation is canonical), so the preview shows a SUPERSET of
-// what the list will actually target. Callers surface this rather than letting
-// a candidate draw against a shape that quietly disagrees with their own
-// filters.
-export const unpreviewableFilterKeys = (
-  filters: VoterFileFilters,
-  manifest: DoorKnockingPackManifest,
-): string[] =>
-  Object.entries(filters)
-    .filter(
-      ([filterKey, value]) => value && !narrowsPreview(filterKey, manifest),
-    )
-    .map(([filterKey]) => filterKey)
-
-const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
-// Every other group's option labels stand on their own ("65+", "Renter"), so
-// the disclosure names the option. Contacts made's are the bare counts
-// '0'…'5+', which turned the sentence into "the map can't shade by 0 yet" — a
-// sentence that reads like a bug. Name the group instead, once however many of
-// its buckets are selected.
-//
-// This survives the plane shipping: the plane is omitted for an organization
-// with more contacted people than one pack can carry, and that org's pills
-// still need naming. It is the group's fallback wording, not a statement that
-// the group is permanently unshadeable.
-const CONTACTS_MADE_DISCLOSURE_LABEL = 'Prior contacts made'
-
-// The marks `savedListFilterKeys` leaves for a list's non-boolean criteria.
-// Every other unshadeable key is an option in filters.config and takes its
-// label from there; these three are columns on the list itself, so the config
-// has no row to name them and they would drop straight back out of the
-// sentence they were just added to. "Past outreach activity" rather than
-// "Prior outreach" so it cannot be mistaken for the contacts-made group above,
-// which counts door knocks specifically.
-const LIST_CRITERION_DISCLOSURE_LABELS: Record<string, string> = {
-  supportStatus: 'Support status',
-  activityConditions: 'Past outreach activity',
-  precincts: 'Precinct',
-}
-
-// The disclosure's own vocabulary, beside the keys it describes: the draw step,
-// the landing rail and the details sheet all say which filters the map can't
-// shade, and a candidate meeting those sentences in one session must not find
-// them naming the same filter differently.
-export const unpreviewableDisclosureLabels = (keys: string[]): string[] => [
-  ...new Set(
-    keys
-      .map((key) => {
-        const criterionLabel = LIST_CRITERION_DISCLOSURE_LABELS[key]
-        if (criterionLabel) return criterionLabel
-        const field = filterSections
-          .flatMap((section) => section.fields)
-          .find((entry) => entry.options.some((option) => option.key === key))
-        if (!field) return undefined
-        if (field.key === CONTACTS_MADE_FIELD_KEY)
-          return CONTACTS_MADE_DISCLOSURE_LABEL
-        return field.options.find((option) => option.key === key)?.label
-      })
-      .filter((label): label is string => Boolean(label)),
-  ),
-]
-
-// "A", "A or B", "A, B, or C". The clause this feeds is negated — the map can
-// shade by none of them — so English wants "or" rather than "and", and the
-// comma before the final "or" is the thing that stops a three-item list from
-// reading as one long filter name.
-const joinWithOr = (labels: string[]): string => {
-  if (labels.length <= 1) return labels[0] ?? ''
-  if (labels.length === 2) return `${labels[0]} or ${labels[1]}`
-  return `${labels.slice(0, -1).join(', ')}, or ${labels[labels.length - 1]}`
-}
-
-// The one wording of the disclosure, for the three surfaces that carry it (the
-// draw step, the landing rail and the details sheet). It was assembled inline
-// at each of them from `labels.join(', ')` around a sentence written for
-// exactly one filter, which two selections turned into "The map can't shade by
-// 65+, Prior contacts made yet, so these counts include people that filter
-// will exclude" — a comma list a reader parses as a typo, a trailing "yet"
-// that glues itself to the last label ("Prior contacts made yet"), and then a
-// singular "that filter" / "it" for a plural subject. All three failures are
-// properties of the sentence rather than of any one surface, so the sentence
-// lives here with the labels it is about.
-//
-// What it must keep saying is in AGENTS.md and ADR 0010: the map can't SHOW
-// the filter, and the list still applies it at knock time. Never that the
-// filter isn't applied — a candidate who reads that concludes their targeting
-// is silently failing, which is the worse misunderstanding.
-// `hasSavedList` names the subject of the closing clause, and only that. The
-// create flow reaches this sentence with no list picked — a candidate who
-// toggles 65+ from scratch has an unshadeable selection and nothing saved to
-// attribute it to — where "Your saved list still applies it" cites a list that
-// does not exist. Dropping the clause instead was the obvious repair and is
-// the wrong one: what remains ends on "include people that filter will
-// exclude", which is the reading ADR 0010 exists to prevent. The reassurance
-// is true either way (knock-time evaluation is canonical for a list the flow
-// is about to create, exactly as for one already saved), so the fix is to say
-// whose list it is. Defaults to the saved wording because the other two
-// surfaces — the details sheet and the landing rail — only ever describe a
-// list that exists, and neither should have to opt in to being correct.
-export const unpreviewableDisclosureSentence = (
-  labels: string[],
-  hasSavedList = true,
-): string | null => {
-  if (labels.length === 0) return null
-  const plural = labels.length > 1
-  return (
-    `The map can’t yet shade by ${joinWithOr(labels)}, so these counts ` +
-    `include people ${plural ? 'those filters' : 'that filter'} will ` +
-    `exclude. Your ${hasSavedList ? 'saved list' : 'list'} still applies ` +
-    `${plural ? 'them' : 'it'} when you knock.`
-  )
-}
-
 // Builds the pack filter selection previewing a saved-list filter draft: for
 // each dim with at least one selected option, allow exactly the selected
 // buckets; dims untouched by the draft stay fully allowed.
 export const filtersToDimSelections = (
   filters: VoterFileFilters,
   manifest: DoorKnockingPackManifest,
+  // The precinct selection in effect, as encoded `county|precinct` pairs.
+  // Separate from `filters` because it is the one selection that is not a
+  // boolean: the draft carries only a MARK that precincts are in play, and
+  // the values travel beside it from whichever of the three mutually
+  // exclusive sources set them (hand-cut, a picked list's clause, or an
+  // accepted recommendation's).
+  precincts: readonly string[] = [],
 ): DimSelections => {
   const dimIndex = new Map(manifest.dims.map((dim) => [dim.key, dim]))
   const allowed = new Map<string, Set<number>>()
@@ -357,6 +244,26 @@ export const filtersToDimSelections = (
     const set = allowed.get(mapping.dim) ?? new Set<number>()
     for (const index of indexes) set.add(index)
     allowed.set(mapping.dim, set)
+  }
+
+  // Matched directly against the dim's values rather than through
+  // FILTER_KEY_TO_DIM: these ARE those values, because the encoder builds
+  // the vocabulary out of `encodePrecinctPair` and the saved filter stores
+  // the same strings. Same rule as the loop above — a selection this pack
+  // cannot express adds NO entry rather than an empty one, since an empty
+  // set allows nothing and would shade an empty map where "we can't express
+  // this" has to mean "don't constrain".
+  if (precincts.length > 0) {
+    const dim = dimIndex.get(PRECINCT_DIM_KEY)
+    if (dim) {
+      const wanted = new Set(precincts)
+      const indexes = dim.values.flatMap((pair, index) =>
+        wanted.has(pair) ? [index] : [],
+      )
+      if (indexes.length > 0) {
+        allowed.set(PRECINCT_DIM_KEY, new Set(indexes))
+      }
+    }
   }
 
   return allowed

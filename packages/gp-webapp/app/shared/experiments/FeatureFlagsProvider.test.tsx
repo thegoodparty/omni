@@ -379,6 +379,30 @@ describe('exposure tracking', () => {
     expect(mockTrack).toHaveBeenCalledTimes(1)
   })
 
+  it('fires $exposure once per flag key via exposure(), the manual path', async () => {
+    // How a surface that only branches on the flag (trackExposure false) takes
+    // the exposure itself, once it is genuinely showing the treatment.
+    mockUser = fullUser
+
+    const { result } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+
+    act(() => {
+      result.current.exposure('campaign-story')
+      result.current.exposure('campaign-story')
+    })
+
+    await waitFor(() =>
+      expect(mockTrack).toHaveBeenCalledWith('$exposure', {
+        flag_key: 'campaign-story',
+        variant: 'on',
+      }),
+    )
+    expect(mockTrack).toHaveBeenCalledTimes(1)
+  })
+
   it('does not fire $exposure for all()', async () => {
     mockUser = fullUser
 

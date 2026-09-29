@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
+  OutreachDetail,
   OutreachReceipt,
   RecommendedList,
   RecommendedListVariant,
@@ -35,6 +36,7 @@ import {
   type PhoneListStatusResponse,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
+import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_OPTIONS,
@@ -55,12 +57,22 @@ import {
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
+import { REVIEW_GATE_CTA } from '../gate/gateCopy'
+import { GateBanner } from '../gate/GateBanner'
+import { GateExplainerModal } from '../gate/GateExplainerModal'
+import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
+import { useOutreachGate } from '../gate/useOutreachGate'
+import { useDraftGate } from '../gate/useDraftGate'
 import {
   SERVE_SMS_PURPOSES,
   serveSmsPurposeNameSuggestion,
 } from '../serveSmsPurposes'
 import { SMS_PURPOSE_INTRO_BODY, SmsPurposeStep } from './SmsPurposeStep'
-import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
+import {
+  NAME_ONLY_COPY,
+  SmsScheduleStep,
+  TIME_OPTIONS,
+} from './SmsScheduleStep'
 import { ServeSmsScheduleStep } from './ServeSmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
@@ -86,6 +98,19 @@ const STEP_ORDER: StepId[] = [
   'compose',
   'review',
 ]
+
+// Build mode (the candidate cannot send yet) has no date to pick, so the
+// schedule step only names the campaign (design: the locked "when" step) and
+// the draft is written off it. A free tier hands straight to the Pro gate
+// from there; a Pro candidate who still has to verify continues to the
+// "Review and verify" summary (design: flowReview's preClear branch).
+const PRO_BUILD_STEP_ORDER: StepId[] = [
+  'purpose',
+  'audience',
+  'compose',
+  'schedule',
+]
+const VERIFY_BUILD_STEP_ORDER: StepId[] = [...PRO_BUILD_STEP_ORDER, 'review']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -261,6 +286,16 @@ interface SmsFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // A saved draft the candidate is picking back up (milestone 2). The flow
+  // opens on it instead of asking the questions it already answered.
+  resumeDraft?: OutreachDetail | null
+  // Fired once a draft is written or discarded, so the hub's history reflects
+  // it; the same refetch a completed send does.
+  onDraftSaved?: () => Promise<void>
+  // The drawer's "Upgrade to Pro" already made the pitch, so that resume
+  // opens the wizard on its first step; a tile or deep-link resume shows the
+  // pause screen first.
+  resumeStartsOnWizard?: boolean
 }
 
 const successDate = (d: Date) =>
@@ -407,9 +442,13 @@ export const SmsFlow = ({
   initialScript,
   preselectedListId,
   preselectedRecommendedVariant,
+  resumeDraft = null,
+  onDraftSaved,
+  resumeStartsOnWizard = false,
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
+  const gate = useOutreachGate('sms')
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
@@ -451,6 +490,36 @@ export const SmsFlow = ({
 
   const draftRequestRef = useRef(0)
 
+  // Every saved-draft and gate concern — the row, the resume switch, the
+  // gate/explainer visibility, and the origin that says what finishing the
+  // gate means — lives in the shared hook RobocallFlow uses too. Only the
+  // payload and the step ids below are this channel's.
+  const draftGate = useDraftGate({
+    channel: 'sms',
+    gate,
+    open,
+    resumeDraft,
+    createDraft: () => createDraftRow(),
+    goToResumeStep: () => setStepId('schedule'),
+    onDraftSaved: () => handleDraftSaved(),
+    onClose,
+  })
+  const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
+  // While a gate screen is up the sheet header is the gate's (design:
+  // renderSgModal's "Upgrade to Pro" overline and its own stepper), not the
+  // flow's channel badge and step count.
+  const [gateChrome, setGateChrome] = useState<GateChrome | null>(null)
+  const showGateChrome = gateOpen && gateChrome !== null
+
+  // Everything new here hangs off one of these two: with no requirement and
+  // no resumed row the flow is byte-identical to the pre-gate one.
+  const buildMode = gate.requirement !== null && !resumed
+  const stepOrder = !buildMode
+    ? STEP_ORDER
+    : gate.requirement === 'pro'
+      ? PRO_BUILD_STEP_ORDER
+      : VERIFY_BUILD_STEP_ORDER
+
   // Reference equality against the Win singleton, not a purpose check:
   // recommended lists are Win-only (the endpoint 400s an eo- org outright),
   // and Serve's purpose vocabulary reuses three of the same slugs
@@ -461,13 +530,20 @@ export const SmsFlow = ({
   const recommendedListIntent =
     isWinSms && purpose ? intentForOutreachPurpose(purpose as SmsPurpose) : null
 
+  // A resumed row already names its audience; the picker selects it the same
+  // way a deep link's does, which is also what gives the resume its reach
+  // count and its Peerly phone list.
+  const resumedListId = resumed
+    ? (savedDraft?.voterFileFilterId ?? undefined)
+    : undefined
+
   const audience = useOutreachAudience({
     open,
     active: stepId === 'audience',
     reachabilityKey: 'sms',
     countOverlay: SMS_COUNT_OVERLAY,
     recommendedListIntent,
-    preselectedListId,
+    preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
   })
   const { reset: resetAudience } = audience
@@ -490,7 +566,15 @@ export const SmsFlow = ({
     const carriedPurpose = preselectedRecommendedVariant
       ? purposeForRecommendedVariant(preselectedRecommendedVariant)
       : null
-    setStepId(initialScript || carriedPurpose ? 'audience' : 'purpose')
+    // A resumed draft answered purpose, audience and compose when it was
+    // built, so it opens on the one thing still missing.
+    setStepId(
+      resumeDraft
+        ? 'schedule'
+        : initialScript || carriedPurpose
+          ? 'audience'
+          : 'purpose',
+    )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
     setBody(initialScript ?? '')
@@ -503,8 +587,8 @@ export const SmsFlow = ({
     setPhoneListError(false)
     setStopPolling(false)
     setPhoneList(null)
-    setName('')
-    setNameEdited(false)
+    setName(resumeDraft?.name ?? '')
+    setNameEdited(Boolean(resumeDraft?.name))
     setDate(undefined)
     setTimeSlot('10')
     setCustomTime('10:00')
@@ -521,6 +605,7 @@ export const SmsFlow = ({
     resetAudience,
     initialScript,
     preselectedRecommendedVariant,
+    resumeDraft,
   ])
 
   // Object URL lifecycle for the image preview.
@@ -548,13 +633,19 @@ export const SmsFlow = ({
   // Serve's office comes from the org's position name, not from a campaign
   // row it does not have; the hook owns that derivation.
   const serveIntroFor = useServeSmsIdentification(candidateFirstName)
+  // Win's office prefers positionName (the org's elections-DB position,
+  // already on campaigns/mine) over details.normalizedOffice, which is empty
+  // for org-era onboardings and read "candidate for local office" — the same
+  // chain gp-api's own draft grounding resolves (resolveOffice). `||`, not
+  // `??`: resolvePositionContext can pass an empty customPositionName
+  // through, and it must not mask a populated normalizedOffice.
   const introFor = (t: SocialTone) =>
     surface.isServe
       ? serveIntroFor(t)
       : identificationIntro(
           t,
           candidateFirstName,
-          campaign?.details?.normalizedOffice ?? '',
+          campaign?.positionName || campaign?.details?.normalizedOffice || '',
         )
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
   // committee, which a Serve org does not have. Nulled at the source rather
@@ -564,7 +655,12 @@ export const SmsFlow = ({
   const committeeName = surface.isServe
     ? null
     : (tcrCompliance?.committeeName ?? null)
-  const composedMessage = surface.composeMessage(body, committeeName)
+  // A resumed row carries the script exactly as it was saved (intro, body and
+  // system footer already joined), so it must not be composed a second time.
+  const composedMessage =
+    resumed && savedDraft?.script
+      ? savedDraft.script
+      : surface.composeMessage(body, committeeName)
   const composedLength = composedMessage.length
   const rawStandards = checkSmsStandards(composedMessage, {
     candidateNames: [candidateFullName, tcrCompliance?.candidateName].filter(
@@ -768,6 +864,10 @@ export const SmsFlow = ({
     setPhoneListError(false)
     try {
       const created = await audience.createList()
+      if (buildMode) {
+        setStepId('compose')
+        return
+      }
       setPhoneListToken(null)
       setPhoneList(null)
       setStopPolling(false)
@@ -801,6 +901,10 @@ export const SmsFlow = ({
     if (surface.isServe)
       return serveSend.continueWithRecommendation(recommendation, name)
     const created = await audience.createRecommendedList(recommendation, name)
+    if (buildMode) {
+      setStepId('compose')
+      return
+    }
     // Same reset as onSelect: a token left over from a previously picked
     // list would let a retry skip straight to schedule with the wrong
     // audience.
@@ -836,6 +940,12 @@ export const SmsFlow = ({
   const handleAudienceContinue = async () => {
     if (surface.isServe) return serveSend.audienceContinue()
     if (!selectedList) return
+    // A draft is never submitted to Peerly, so build mode skips the phone
+    // list entirely; the resume creates it once the send is real.
+    if (buildMode) {
+      setStepId('compose')
+      return
+    }
     if (phoneListToken) {
       setStepId('schedule')
       return
@@ -852,6 +962,55 @@ export const SmsFlow = ({
     setStepId('schedule')
   }
 
+  // A resumed row's image lives on the server, so there is no local File to
+  // build an object URL from.
+  const previewUrl =
+    imagePreviewUrl ?? (resumed ? (savedDraft?.imageUrl ?? null) : null)
+
+  const handleDraftSaved = async () => {
+    await (onDraftSaved ?? onScheduled)()
+  }
+
+  // Build mode's one write, assembled here because only this flow knows the
+  // multipart payload and what has to be in hand before there is anything to
+  // save. The 201/409 branching is the shared hook's.
+  const createDraftRow = async () => {
+    if (!audience.selectedListId || !image) return null
+    return createOutreachDraft(
+      {
+        outreachType: 'p2p',
+        name: name.trim(),
+        voterFileFilterId: audience.selectedListId,
+        script: composedMessage,
+      },
+      image,
+    )
+  }
+
+  // Resume's schedule advance: the audience and the message were settled
+  // when the draft was built, so this is where the Peerly phone list the
+  // purchase needs finally gets derived.
+  const handleResumeScheduleContinue = async () => {
+    // The CTA is disabled without a date, but review is a checkout step:
+    // nothing reaches it on a resumed row until the date exists.
+    if (scheduledAt === null) return
+    if (phoneListToken) {
+      setStepId('review')
+      return
+    }
+    if (!selectedList || phoneListCreating) return
+    setPhoneListCreating(true)
+    setPhoneListError(false)
+    const result = await createP2pPhoneList(selectedList, selectedList.id)
+    setPhoneListCreating(false)
+    if (!result.ok || !result.token) {
+      setPhoneListError(true)
+      return
+    }
+    setPhoneListToken(result.token)
+    setStepId('review')
+  }
+
   // First compose entry generates the initial draft (custom writes its own).
   useEffect(() => {
     if (stepId !== 'compose' || !open) return
@@ -866,7 +1025,12 @@ export const SmsFlow = ({
   useEffect(() => {
     if (surface.isServe) return
     if (stepId !== 'review' || !open || scheduled) return
+    // Build mode has nothing to charge for yet — the summary's own CTA
+    // writes the draft instead.
+    if (buildMode) return
     if (draftOutreachId || isDraftCreatingRef.current) return
+    // A dateless resumed row must never reach the create: `scheduledAt`
+    // covers it, and is load-bearing rather than defensive.
     if (!campaign?.id || !phoneList?.phoneListId || !scheduledAt) return
     isDraftCreatingRef.current = true
     setDraftCreateError(false)
@@ -899,9 +1063,14 @@ export const SmsFlow = ({
             textCount: phoneList.leadsLoaded,
             billableTextCount: phoneList.leadsLoaded - discount,
             ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
+            // Resume: the server converts this row in place, so no second
+            // row is written and the saved image and script stand.
+            ...(resumed && savedDraft
+              ? { draftOutreachId: savedDraft.id }
+              : {}),
             draft: true,
           },
-          image,
+          resumed ? null : image,
         )
         if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
@@ -942,6 +1111,9 @@ export const SmsFlow = ({
     stepId,
     open,
     scheduled,
+    buildMode,
+    resumed,
+    savedDraft,
     draftOutreachId,
     campaign,
     phoneList,
@@ -993,7 +1165,7 @@ export const SmsFlow = ({
     await onScheduled()
   }
 
-  const stepIndex = STEP_ORDER.indexOf(stepId)
+  const stepIndex = stepOrder.indexOf(stepId)
 
   const handleBack = () => {
     if (stepId === 'audience' && audience.mode === 'name') {
@@ -1007,7 +1179,10 @@ export const SmsFlow = ({
       audience.resetBuilder()
       return
     }
-    if (stepId === 'review') {
+    // Resume converts the saved row rather than creating a throwaway one, so
+    // discarding its id would strand the row: the re-entry POST would meet a
+    // draft that is already pending_payment and 409.
+    if (stepId === 'review' && !resumed) {
       // Back off the pay step discards the draft (stale drafts stay hidden
       // server-side); re-entry creates a fresh one.
       draftGenerationRef.current += 1
@@ -1015,98 +1190,147 @@ export const SmsFlow = ({
       setDraftOutreachId(null)
       setDraftCreateError(false)
     }
-    const previous = STEP_ORDER[stepIndex - 1]
+    const previous = stepOrder[stepIndex - 1]
     if (previous) setStepId(previous)
   }
 
-  const dirty = !scheduled && purpose !== null
+  // A saved draft is the opposite of unsaved work: closing loses nothing.
+  const dirty = !scheduled && purpose !== null && savedDraft === null
 
   const cta: FlowShellCta | null = scheduled
     ? null
-    : stepId === 'audience' && audience.mode === 'filters'
-      ? {
-          label: audience.builderCounting
-            ? 'Continue'
-            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
-          onClick: () => audience.setMode('name'),
-          disabled:
-            !hasAnyVoterFileSelection(
-              audience.builderFilters,
-              audience.builderSupportStatus,
-              audience.builderPrecincts,
-            ) ||
-            audience.builderCounting ||
-            audience.builderZeroMatch ||
-            audience.builderCapError,
-          loading:
-            hasAnyVoterFileSelection(
-              audience.builderFilters,
-              audience.builderSupportStatus,
-              audience.builderPrecincts,
-            ) && audience.builderCounting,
-        }
-      : stepId === 'audience' && audience.mode === 'name'
+    : // The gate screens carry their own buttons.
+      gateOpen
+      ? null
+      : stepId === 'audience' && audience.mode === 'filters'
         ? {
-            label: 'Continue',
-            onClick: () => {
-              void handleCreateListContinue()
-            },
-            disabled: audience.builderName.trim().length === 0,
-            loading: audience.createListPending || phoneListCreating,
+            label: audience.builderCounting
+              ? 'Continue'
+              : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+            onClick: () => audience.setMode('name'),
+            disabled:
+              !hasAnyVoterFileSelection(
+                audience.builderFilters,
+                audience.builderSupportStatus,
+                audience.builderPrecincts,
+              ) ||
+              audience.builderCounting ||
+              audience.builderZeroMatch ||
+              audience.builderCapError,
+            loading:
+              hasAnyVoterFileSelection(
+                audience.builderFilters,
+                audience.builderSupportStatus,
+                audience.builderPrecincts,
+              ) && audience.builderCounting,
           }
-        : stepId === 'audience'
+        : stepId === 'audience' && audience.mode === 'name'
           ? {
-              label: phoneListError
-                ? 'Try again'
-                : reachableCount !== null
-                  ? `Continue (${reachableCount.toLocaleString()})`
-                  : 'Continue',
+              label: 'Continue',
               onClick: () => {
-                if (audience.selectedRecommendation) {
-                  void handleSelectedRecommendationContinue()
-                  return
-                }
-                void handleAudienceContinue()
+                void handleCreateListContinue()
               },
-              disabled:
-                (!selectedList && !audience.selectedRecommendation) ||
-                audience.reachableLoading ||
-                reachableCount === null ||
-                reachableCount === 0,
-              // A list the naming drawer just created lands here with its
-              // reachability fetch still in flight, so "Try again" would sit
-              // disabled with no explanation until the count resolves.
-              loading:
-                audience.createRecommendedListPending ||
-                phoneListCreating ||
-                (phoneListError && audience.reachableLoading),
+              disabled: audience.builderName.trim().length === 0,
+              loading: audience.createListPending || phoneListCreating,
             }
-          : stepId === 'schedule'
+          : stepId === 'audience'
             ? {
-                label: 'Continue',
-                onClick: () => setStepId('compose'),
+                label: phoneListError
+                  ? 'Try again'
+                  : reachableCount !== null
+                    ? `Continue (${reachableCount.toLocaleString()})`
+                    : 'Continue',
+                onClick: () => {
+                  if (audience.selectedRecommendation) {
+                    void handleSelectedRecommendationContinue()
+                    return
+                  }
+                  void handleAudienceContinue()
+                },
                 disabled:
-                  name.trim().length === 0 ||
-                  scheduledAt === null ||
-                  violates48h ||
-                  outsideWindow,
+                  (!selectedList && !audience.selectedRecommendation) ||
+                  audience.reachableLoading ||
+                  reachableCount === null ||
+                  reachableCount === 0,
+                // A list the naming drawer just created lands here with its
+                // reachability fetch still in flight, so "Try again" would sit
+                // disabled with no explanation until the count resolves.
+                loading:
+                  audience.createRecommendedListPending ||
+                  phoneListCreating ||
+                  (phoneListError && audience.reachableLoading),
               }
-            : stepId === 'compose'
+            : // Build mode's name step is where the draft is written: a
+              // free tier goes to the Pro gate from here, and a Pro candidate
+              // who still has to verify reads the summary first.
+              stepId === 'schedule' && buildMode
               ? {
                   label: 'Continue',
-                  onClick: () => setStepId('review'),
+                  onClick: () => {
+                    if (gate.requirement === 'pro') {
+                      void draftGate.saveDraft()
+                      return
+                    }
+                    setStepId('review')
+                  },
                   disabled:
-                    body.trim().length === 0 ||
-                    !standards.passed ||
-                    composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                    // Win only: Peerly rejects an imageless text/p2p send.
-                    // Serve is fulfilled by the shared delivery layer, whose
-                    // create takes imageUrl as optional, so an official can
-                    // send text alone.
-                    (!surface.isServe && image === null) ||
-                    draftMutation.isPending,
+                    name.trim().length === 0 ||
+                    !audience.selectedListId ||
+                    image === null,
+                  loading: draftGate.savingDraft,
                 }
-              : null
+              : stepId === 'schedule'
+                ? {
+                    label: 'Continue',
+                    onClick: () => {
+                      if (resumed) {
+                        void handleResumeScheduleContinue()
+                        return
+                      }
+                      setStepId('compose')
+                    },
+                    disabled:
+                      name.trim().length === 0 ||
+                      scheduledAt === null ||
+                      violates48h ||
+                      outsideWindow ||
+                      // The resume derives its phone list from this list:
+                      // nothing to press until it resolves, and nothing at all
+                      // if it has been deleted since the draft was saved.
+                      (resumed && !selectedList),
+                    loading: resumed && phoneListCreating,
+                  }
+                : stepId === 'compose'
+                  ? {
+                      label: 'Continue',
+                      onClick: () =>
+                        setStepId(buildMode ? 'schedule' : 'review'),
+                      disabled:
+                        body.trim().length === 0 ||
+                        !standards.passed ||
+                        composedLength > SMS_COMPOSED_MAX_LENGTH ||
+                        // Win only: Peerly rejects an imageless text/p2p send.
+                        // Serve is fulfilled by the shared delivery layer, whose
+                        // create takes imageUrl as optional, so an official can
+                        // send text alone.
+                        (!surface.isServe && image === null) ||
+                        draftMutation.isPending,
+                    }
+                  : // Build mode's review has nothing to pay for: the CTA saves
+                    // the draft and hands the flow to the gate, named for
+                    // whatever still stands in the way.
+                    stepId === 'review' &&
+                      buildMode &&
+                      gate.requirement !== null
+                    ? {
+                        label: REVIEW_GATE_CTA[gate.requirement],
+                        onClick: () => {
+                          void draftGate.saveDraft()
+                        },
+                        disabled: !audience.selectedListId || image === null,
+                        loading: draftGate.savingDraft,
+                      }
+                    : null
 
   // Mirrors the review step's isFree: a free send reads "Review and send" /
   // "Schedule campaign" instead of the pay vocabulary (design prototype).
@@ -1121,15 +1345,58 @@ export const SmsFlow = ({
       title={
         scheduled
           ? 'Done'
-          : stepId === 'review' && isFreeSend
-            ? 'Review and send'
-            : STEP_TITLES[stepId]
+          : showGateChrome
+            ? gateChrome.overline
+            : stepId === 'schedule' && buildMode
+              ? NAME_ONLY_COPY.title
+              : stepId === 'review' && buildMode
+                ? 'Review and verify'
+                : stepId === 'review' && isFreeSend
+                  ? 'Review and send'
+                  : STEP_TITLES[stepId]
       }
-      headerBadge={<ChannelBadge type={OUTREACH_TYPES.text} />}
-      currentStep={stepIndex + 1}
-      totalSteps={scheduled ? 0 : STEP_ORDER.length}
-      onBack={!scheduled && stepIndex > 0 ? handleBack : undefined}
+      headerBadge={
+        showGateChrome ? (
+          gateChrome.overline
+        ) : (
+          <ChannelBadge
+            type={OUTREACH_TYPES.text}
+            locked={gate.requirement !== null && !scheduled && !gateOpen}
+          />
+        )
+      }
+      channel="sms"
+      trackedStep={scheduled || showGateChrome ? null : stepId}
+      settled={scheduled}
+      currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}
+      totalSteps={
+        scheduled
+          ? 0
+          : showGateChrome
+            ? gateChrome.totalSteps
+            : stepOrder.length
+      }
+      onBack={
+        // A resume has no reachable step behind it at all: purpose, audience
+        // and compose were settled when the draft was saved, and compose
+        // could never advance again (its Continue needs a local image file
+        // the saved row cannot supply).
+        !scheduled && !gateOpen && !resumed && stepIndex > 0
+          ? handleBack
+          : undefined
+      }
       cta={cta}
+      // A React element is truthy even when it renders null, so the caller
+      // gates the JSX (see GateBanner).
+      banner={
+        gate.requirement !== null && !scheduled && !gateOpen ? (
+          <GateBanner
+            channel="sms"
+            state={gate}
+            onOpenExplainer={() => draftGate.setExplainerOpen(true)}
+          />
+        ) : undefined
+      }
       dirty={dirty}
     >
       {phoneListToken && !phoneList && (
@@ -1147,6 +1414,15 @@ export const SmsFlow = ({
           limit={60}
         />
       )}
+      <GateExplainerModal
+        channel="sms"
+        state={gate}
+        open={explainerOpen}
+        onOpenChange={draftGate.setExplainerOpen}
+        onUpgrade={draftGate.openGateFromExplainer}
+        onVerify={draftGate.openGateFromExplainer}
+        onPin={draftGate.openGateFromExplainer}
+      />
       {scheduled ? (
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
@@ -1154,6 +1430,19 @@ export const SmsFlow = ({
           outreachId={draftOutreachId}
           paid={paidSend}
           onDone={onClose}
+        />
+      ) : gateOpen ? (
+        <OutreachGate
+          channel="sms"
+          state={gate}
+          open
+          showInterstitial={
+            draftGate.gateOrigin === 'save' ||
+            (draftGate.gateOrigin === 'resume' && !resumeStartsOnWizard)
+          }
+          onExit={draftGate.handleGateExit}
+          onComplete={draftGate.handleGateComplete}
+          onChromeChange={setGateChrome}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep
@@ -1180,6 +1469,14 @@ export const SmsFlow = ({
               setStopPolling(false)
               setPhoneListError(false)
             }}
+            universeName={audience.universeName}
+            universeListId={audience.universeListId}
+            universeCount={audience.universeCount}
+            universeLoading={audience.universeLoading}
+            onSelectUniverse={audience.selectUniverse}
+            universePending={audience.universePending}
+            universeError={audience.universeError}
+            onPickerOpenChange={audience.onPickerOpenChange}
             onStartBuilder={() => {
               setPhoneListError(false)
               audience.startBuilder()
@@ -1247,23 +1544,43 @@ export const SmsFlow = ({
             onDateChange={setDate}
           />
         ) : (
-          <SmsScheduleStep
-            name={name}
-            onNameChange={(value) => {
-              setName(value)
-              setNameEdited(true)
-            }}
-            date={date}
-            onDateChange={setDate}
-            timeSlot={timeSlot}
-            onTimeSlotChange={setTimeSlot}
-            customTime={customTime}
-            onCustomTimeChange={setCustomTime}
-            earliestSend={earliestSend}
-            calendarFloor={earliestSend}
-            violates48h={violates48h}
-            outsideWindow={outsideWindow}
-          />
+          <>
+            <SmsScheduleStep
+              name={name}
+              onNameChange={(value) => {
+                setName(value)
+                setNameEdited(true)
+              }}
+              nameOnly={buildMode}
+              date={date}
+              onDateChange={setDate}
+              timeSlot={timeSlot}
+              onTimeSlotChange={setTimeSlot}
+              customTime={customTime}
+              onCustomTimeChange={setCustomTime}
+              earliestSend={earliestSend}
+              calendarFloor={earliestSend}
+              violates48h={violates48h}
+              outsideWindow={outsideWindow}
+            />
+            {/* Resume derives the phone list here, so its failure reads here
+              too — the audience step is behind the candidate. */}
+            {resumed && !audience.listsLoading && !selectedList && (
+              <p className="mt-4 text-sm text-destructive">
+                The voter list for this text is no longer available.
+              </p>
+            )}
+            {resumed && phoneListError && (
+              <p className="mt-4 text-sm text-destructive">
+                We couldn&apos;t prepare this audience. Try again.
+              </p>
+            )}
+            {buildMode && draftGate.draftSaveError && (
+              <p className="mt-4 text-sm text-destructive">
+                We couldn&apos;t save this draft. Try again.
+              </p>
+            )}
+          </>
         )
       ) : stepId === 'compose' ? (
         <SmsComposeStep
@@ -1314,8 +1631,10 @@ export const SmsFlow = ({
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
             composedMessage={composedMessage}
-            imagePreviewUrl={imagePreviewUrl}
-            contactCount={phoneList?.leadsLoaded ?? 0}
+            imagePreviewUrl={previewUrl}
+            contactCount={
+              buildMode ? reachableCount : (phoneList?.leadsLoaded ?? 0)
+            }
             pricePerContact={PRICE_PER_MESSAGE}
             outreachId={draftOutreachId}
             phoneListToken={phoneListToken}
@@ -1323,10 +1642,19 @@ export const SmsFlow = ({
             excludedDuplicatePhoneCount={
               phoneList?.excludedDuplicatePhoneCount ?? null
             }
-            preparing={!phoneList || (!draftOutreachId && !draftCreateError)}
+            preparing={
+              !buildMode &&
+              (!phoneList || (!draftOutreachId && !draftCreateError))
+            }
             prepareError={draftCreateError}
+            readOnlySummary={buildMode}
             onComplete={handleScheduled}
           />
+          {draftGate.draftSaveError && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t save this draft. Try again.
+            </p>
+          )}
         </CheckoutSessionProvider>
       )}
     </OutreachFlowShell>

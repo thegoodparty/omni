@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { ChannelCard } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
@@ -12,14 +12,13 @@ import {
 } from 'app/dashboard/outreach/constants'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import type { RecommendedListVariant } from '@goodparty_org/contracts'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
-import { quotaQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
-import { DoorKnockingDailyLimitDialog } from 'app/dashboard/door-knocking/native/DoorKnockingDailyLimitDialog'
 import { CHANNEL_META } from './channelMeta'
 import type { AudiencePreselect } from './audiencePreselect'
 
@@ -79,23 +78,14 @@ export const ChannelTileGrid = ({
   const { isPro } = campaign || {}
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
+  // Milestone 2 moves the Pro/compliance gate INSIDE the text, robocall and
+  // phone-banking flows: the tile stops refusing the click and opens the
+  // flow, which pauses itself once there is something to save. Read without
+  // exposure — pressing a tile is not the treatment surface.
+  const { enabled: gatedFlows } = useOutreachProGatingV2Flag(false)
   // Read only to decide whether the district download below is worth starting.
   // The door-knocking page gate is the treatment surface, so no exposure here.
   const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
-  // Prefetch the per-day quota alongside the pack (small, cached) so a click
-  // on the door-knocking tile can be intercepted here when the allowance is
-  // spent, instead of navigating to /dashboard/door-knocking just to raise
-  // the refusal dialog. Same enabled scope as the pack prefetch: control-arm
-  // campaigns never reach the native page, so there is nothing to gate for
-  // them. A failed or in-flight read lets the click through — the destination
-  // page carries the same dialog as the safety net.
-  const quotaQuery = useQuery({
-    ...quotaQueryOptions,
-    enabled: nativeDoorKnocking.enabled,
-  })
-  const [refusedCampaignLimit, setRefusedCampaignLimit] = useState<
-    number | null
-  >(null)
   // Own equivalent of ContactsTableProvider's canUseProFeatures — not
   // imported from there (contacts-scoped, would force an organization
   // provider onto every tile-grid test). A pending elected-office query must
@@ -146,6 +136,10 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.text) {
+      if (gatedFlows) {
+        onCreateSms(spendPreselect())
+        return
+      }
       // Upgrade-at-entry (2026-08-28): a non-Pro click goes straight to the
       // Pro upgrade wizard instead of the legacy marketing modal, the same
       // pattern the phone-banking tile set. Pro candidates with an
@@ -166,7 +160,7 @@ export const ChannelTileGrid = ({
     if (type === OUTREACH_TYPES.phoneBanking) {
       // A pending elected-office query is not a refusal — wait for it to
       // settle rather than redirecting a Serve org that will resolve true.
-      if (!canUseProFeatures && !electedOfficePending) {
+      if (!gatedFlows && !canUseProFeatures && !electedOfficePending) {
         trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
         router.push('/dashboard/pro-upgrade')
         return
@@ -182,30 +176,28 @@ export const ChannelTileGrid = ({
       return
     }
 
-    if (requiresPro && !isPro) {
+    if (type === OUTREACH_TYPES.robocall) {
+      if (!gatedFlows && requiresPro && !isPro) {
+        trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
+          source: 'outreach_page',
+        })
+        setShowProUpgradeModal(true)
+        return
+      }
+      onCreateRobocall(spendPreselect())
+      return
+    }
+    // Behind the flag door knocking is a door like the other three: its page
+    // admits a free campaign (the map's reads are open to one) and its create
+    // flow gates Build route, the one paid write.
+    if (!gatedFlows && requiresPro && !isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
         source: 'outreach_page',
       })
       setShowProUpgradeModal(true)
       return
     }
-    if (type === OUTREACH_TYPES.robocall) {
-      onCreateRobocall(spendPreselect())
-      return
-    }
     if (type === OUTREACH_TYPES.doorKnocking) {
-      // Intercept a spent allowance here rather than making the candidate
-      // load the door-knocking page just to see the refusal. The dialog on
-      // the destination page stays as the safety net for direct-URL entry
-      // and for a race between this click and the quota refetch. Only fires
-      // on a settled read that reports zero — an in-flight or failed read
-      // lets the click through and the destination-page assert is the
-      // authority, same as the destination's own beginCreateFlow policy.
-      const quota = quotaQuery.data
-      if (quota && quota.campaignsRemaining === 0) {
-        setRefusedCampaignLimit(quota.campaignLimit)
-        return
-      }
       // The one tile that navigates instead of opening a flow here, so the
       // preselected audience travels in the URL — `?listId=` or
       // `?recommended=`, the same params the voter data page's "Send
@@ -260,7 +252,7 @@ export const ChannelTileGrid = ({
     <section className="space-y-3">
       <div>
         <h2 className="text-lg font-semibold text-foreground">
-          Create an outreach campaign
+          Create a campaign
         </h2>
         <p className="text-sm text-muted-foreground">
           Pick a channel to draft and send a new campaign.
@@ -270,18 +262,29 @@ export const ChannelTileGrid = ({
         {TILE_ORDER.map((type) => {
           const option = OUTREACH_OPTIONS.find((o) => o.type === type)
           const meta = CHANNEL_META[type]
+          // The four channels whose flows carry their own gate: the tile is
+          // a door now, not a lock.
+          const gatedInFlow =
+            gatedFlows &&
+            (type === OUTREACH_TYPES.text ||
+              type === OUTREACH_TYPES.robocall ||
+              type === OUTREACH_TYPES.phoneBanking ||
+              type === OUTREACH_TYPES.doorKnocking)
           return (
             <ChannelCard
               key={type}
               icon={meta.icon}
               iconClassName={meta.iconTint}
               label={meta.label}
-              locked={Boolean(
-                option?.requiresPro &&
-                (type === OUTREACH_TYPES.phoneBanking
-                  ? !canUseProFeatures && !electedOfficePending
-                  : !isPro),
-              )}
+              locked={
+                !gatedInFlow &&
+                Boolean(
+                  option?.requiresPro &&
+                  (type === OUTREACH_TYPES.phoneBanking
+                    ? !canUseProFeatures && !electedOfficePending
+                    : !isPro),
+                )
+              }
               onClick={() => handleTileClick(type, option?.requiresPro)}
             />
           )
@@ -295,10 +298,6 @@ export const ChannelTileGrid = ({
         }}
       />
       {gateModals}
-      <DoorKnockingDailyLimitDialog
-        limit={refusedCampaignLimit}
-        onDismiss={() => setRefusedCampaignLimit(null)}
-      />
     </section>
   )
 }

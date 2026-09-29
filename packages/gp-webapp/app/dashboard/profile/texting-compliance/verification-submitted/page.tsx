@@ -1,15 +1,6 @@
-import Link from 'next/link'
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Badge,
-  Button,
-  Card,
-} from '@styleguide'
-import { CheckCircleIcon, InfoIcon } from '@styleguide/components/ui/icons'
 import pageMetaData from 'helpers/metadataHelper'
 import candidateAccess from 'app/dashboard/shared/candidateAccess'
+import VerificationSubmittedContent from './components/VerificationSubmittedContent'
 
 const meta = pageMetaData({
   title: 'Verification submitted | GoodParty.org',
@@ -27,38 +18,8 @@ export default async function Page(): Promise<React.JSX.Element> {
 
   return (
     <div className="min-h-screen bg-white pt-2 md:pt-4">
-      <div className="mx-auto w-full max-w-2xl space-y-6 p-4">
-        <Badge
-          shape="pill"
-          className="h-6.5 gap-1.5 border-transparent bg-info-light px-3 text-xs font-semibold text-foreground"
-        >
-          Verification
-        </Badge>
-
-        <Card className="items-center gap-3 p-8 text-center">
-          <span className="flex size-16 items-center justify-center rounded-full bg-success-light">
-            <CheckCircleIcon className="size-8 text-success" />
-          </span>
-          <h1 className="text-2xl font-semibold text-foreground">
-            Submitted for verification
-          </h1>
-          <p className="text-muted-foreground">
-            Your campaign has been submitted for verification.
-          </p>
-        </Card>
-
-        <Alert variant="info" icon={<InfoIcon className="size-4" />}>
-          <AlertTitle>A PIN is on its way</AlertTitle>
-          <AlertDescription>
-            After your campaign is verified, a PIN will be sent to the email,
-            phone, or address that matches your election filing — about 1 to 2
-            weeks. Entering the PIN unlocks texting.
-          </AlertDescription>
-        </Alert>
-
-        <Button asChild size="large" className="w-full">
-          <Link href="/dashboard">Back to dashboard</Link>
-        </Button>
+      <div className="mx-auto w-full max-w-2xl p-4">
+        <VerificationSubmittedContent />
       </div>
     </div>
   )

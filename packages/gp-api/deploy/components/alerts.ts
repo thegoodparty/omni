@@ -1,6 +1,7 @@
 import { ControllerName } from '../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
+import { doorKnockingCredits } from './alerting/door-knocking-spend'
 
 /**
  * Which product's users each controller serves, and therefore who hears about
@@ -63,6 +64,10 @@ const CONTROLLER_OWNERS: Partial<
   // to constituents, and polls joins it later on the same side.
   'outreach/admin/results': [SERVE],
   priorities: [SERVE],
+  // Send-from-a-chat-card. Serve because the only thing that mints a proposal
+  // key is a priority chat, and a failure here is an elected official pressing
+  // Send and getting nothing.
+  'outreach/by-proposal-key': [SERVE],
   'admin/briefings': [SERVE],
   'admin/elected-office': [SERVE],
   annotations: [SERVE],
@@ -248,10 +253,41 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
  *   `organizations` has NO counted 4xx at all — its 76 firings are Clerk 502s.
  *   Adding it would change nothing today while telling the next reader its 4xx
  *   had been reviewed and found deliberate.
+ *
+ * `campaigns/tcr-compliance` was measured over 30 days of prod logs to
+ * 2026-09-27. Its entire counted 4xx vocabulary is one response:
+ *
+ *    31  422 "Invalid PIN" on POST /:id/submit-cv-pin
+ *
+ * against 19 successful submissions in the same window — a ~40% standing rate,
+ * because it is what the route answers when a candidate mistypes the 6-digit
+ * Campaign Verify PIN. It is thrown only after the code has confirmed Peerly's
+ * CV status is APPROVED, so a PIN provably existed and the digits provably did
+ * not match; a PIN that was never issued answers 409 instead
+ * (CampaignVerifyPinNotIssuedException), precisely so the FE can distinguish
+ * the two (ENG-10866). There is no fault to report either way.
+ *
+ * Spread across ~25 separate 10-minute windows, that was paging win-bugs about
+ * twice a week for people typing a wrong number. Two of the four users in the
+ * 2026-09-25 firing retried and got a 200 minutes later, which is the whole
+ * argument: verify_pin accepts a correct PIN, so the integration is healthy and
+ * the page carried no action.
+ *
+ * What this keeps, from the same 30 days: 96 × 502 on POST /submit-to-peerly,
+ * 2 × 502 on POST /admin/:campaignId/resend-cv-pin, and 1 × 500 on GET /mine.
+ * The 502s are a real Peerly-side failure mode and by far the most valuable
+ * signal this controller has, so the entry is only defensible because it leaves
+ * them counted.
+ *
+ * The 422s this drops are not the controller's only designed 422 — the
+ * submit-to-peerly stage gate and the resend-PIN preconditions raise one too —
+ * and none of them is a fault. The cost is the usual one: a genuine bug here
+ * that surfaces as a 4xx now reaches us through the logs rather than a page.
  */
 export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'door-knocking',
   'contacts',
+  'campaigns/tcr-compliance',
 ]
 
 /**
@@ -298,6 +334,46 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
 export const ROUTE_ERROR_THRESHOLDS: Partial<Record<ControllerName, number>> = {
   'public-person-profiles': 2,
 }
+
+/**
+ * Log-query spend as a fraction of what the plan includes.
+ *
+ * The allowance is 100x ingest, so this is `bytes read / (100 * bytes
+ * written)` — one expression shared by the 50% and 80% rules, because two
+ * thresholds on one measurement should not be able to drift into measuring
+ * two different things.
+ *
+ * Both sides are 6h-averaged. `:rate5m` on either alone is spiky enough that
+ * one wide ad-hoc query would clear 50% on its own, and a budget alert that
+ * fires on a single query is a budget alert nobody keeps. An hour turned out
+ * not to be enough of that smoothing — see the window note on the 50% rule.
+ */
+const LOKI_QUERY_BUDGET_RATIO = [
+  'sum(avg_over_time(grafanacloud_logs_instance_query_bytes:rate5m[6h]))',
+  '/',
+  '(100 * sum(avg_over_time(grafanacloud_logs_instance_billable_bytes_received_per_second[6h])))',
+].join(' ')
+
+/**
+ * How to find out which query is spending the budget.
+ *
+ * Attribution is per-rule and it is obtainable, which is the difference
+ * between a useful budget alert and a puzzle — so the query goes in the
+ * notification rather than in a doc the reader has to know exists.
+ * `grafanacloud-usage-insights` is Grafana's own usage stream and does not
+ * bill against the allowance it reports on, so running this while over budget
+ * is safe.
+ */
+const LOKI_ATTRIBUTION_PROSE = [
+  'Find the offender in Explore on the `grafanacloud-usage-insights` datasource — it reports bytes scanned per rule and does not bill against the allowance it measures:',
+  '```',
+  'topk(10, sum by (rule_name) (sum_over_time(',
+  '  {instance_type="logs"} | logfmt | __error__="" | source="grafana-alert"',
+  '  | unwrap total_bytes [24h]',
+  ')))',
+  '```',
+  'Drop the `source="grafana-alert"` matcher to see ad-hoc queries alongside the rules.',
+].join('\n')
 
 export const GLOBAL_ALERTS: Alert[] = [
   // ------ Global Shared Alerts ------ //
@@ -409,6 +485,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     // would let the engine see only 10 minutes of logs and miss this
     // low-frequency event.
     timeRangeSeconds: 3600,
+    // An hour of logs on the 60s default re-read the same hour 1,440 times a
+    // day — 60x our ingest for one rule, against a query allowance of 100x that
+    // every rule and both environments share. At 5m it is 12x. `for` is 5m, so
+    // the rule still fires on its first evaluation past the threshold and the
+    // worst case is ~5 minutes later than before, on an event whose remedy is
+    // a human reading a log line.
+    evaluationIntervalSeconds: 300,
     message: [
       'A paid P2P outreach draft failed to submit to Peerly in the last hour. Money was taken; the draft reverted to pending_payment and the Stripe webhook will retry automatically.',
       'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId/campaignId and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
@@ -442,6 +525,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // see only 10 minutes and miss it (same reason as the paid-not-scheduled
     // alert above).
     timeRangeSeconds: 3600,
+    // 12x ingest rather than 60x, for the reason given on the sibling above.
+    // These events are money-integrity ones that need a human, not a rollback,
+    // so ~5 minutes of extra detection latency costs nothing real.
+    evaluationIntervalSeconds: 300,
     message: [
       'A robocall send/settlement CRITICAL was logged in the last hour — a money- or delivery-integrity event that needs a human.',
       'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
@@ -452,7 +539,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
-    type: 'log',
+    type: 'metric',
     // No per-organization spend cap exists — a 500-waypoint daily budget used
     // to sit beside this and was removed — and nothing sums across
     // organizations, so the total bill scales with how many orgs hold the
@@ -463,23 +550,16 @@ export const GLOBAL_ALERTS: Alert[] = [
     // Reads the DoorKnockingSpend log line rather than
     // geoapify_credits_total: the log is exact and immune to the
     // counter resets a deploy causes, and it's the same source as the per-org
-    // spend queries in docs/door-knocking.md.
+    // spend queries in docs/door-knocking.md. It reaches that line through the
+    // recorded metric rather than by scanning Loki itself — same measurement,
+    // one read a minute shared with the four budget tiers instead of a 6h
+    // window re-scanned every 5 minutes. See alerting/door-knocking-spend.ts.
     //
-    // 6h, not the quota's 24h, and matching the widest window any existing log
-    // alert here evaluates. The runaway this is built to catch — a loop, a
-    // wider flag rollout than intended — burns fast, and a [24h] vector
-    // re-scanned every minute is four times the read for a slower signal, on
-    // an alert whose execErrState is Alerting (a query timeout pages).
-    expr: [
-      'sum(sum_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      // Cheap line filter before | json, as the sibling log alerts do.
-      '|= "DoorKnockingSpend"',
-      '| json',
-      '| event = "DoorKnockingSpend"',
-      '| unwrap credits',
-      '[6h]))',
-    ].join(' '),
+    // 6h, not the quota's 24h. The runaway this is built to catch — a loop, a
+    // wider flag rollout than intended — burns fast, and the tiers are what
+    // watch the pool. Assembling the window in PromQL costs nothing, so the
+    // choice is now purely about what signal is wanted.
+    expr: doorKnockingCredits('6h'),
     // Roughly 900 stops routed inside six hours — about six maximum-size
     // turfs, and close enough to two organizations' entire default daily
     // allowance to serve as one. A stop costs a little over ten credits all
@@ -493,11 +573,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The [6h] range vector needs a matching fetch window; the default 600s
     // would let the engine see only 10 minutes and never accumulate the sum.
     timeRangeSeconds: 21600,
-    // Reading 6h on the 60s default re-read the same six hours 1,440 times a
-    // day, which made this one of the two most expensive rules we run. A
-    // ceiling measured over 6h does not need minute resolution: at 5m the
-    // worst case is that a runaway is caught ~4 minutes later, against a
-    // Geoapify daily pool this threshold leaves most of intact anyway.
+    // Reading 6h of logs on the 60s default re-read the same six hours 1,440
+    // times a day, which made this one of the two most expensive rules we ran.
+    // Now that the 6h window is assembled from a recorded metric the read is
+    // free, and 5m stays only because the firing behaviour was tuned under it.
     evaluationIntervalSeconds: 300,
     message: [
       'Door-knocking has burned more than 10,000 Geoapify credits in the last 6 hours — roughly two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
@@ -540,7 +619,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'A door-knocking voter-map build failed after gp-api had already started the response, in the last 10 minutes.',
       'The candidate saw the map fail to load. Because the response was already committed as a 200, the per-route error alert cannot see this — the log line is the only signal.',
-      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Code: 57014` there is the 25s people-db statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. A missing `districtId` means the eligibility resolve failed before any scan started.',
+      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Databricks statement exceeded` there is the 60s statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. A missing `districtId` means the eligibility resolve failed before any scan started.',
     ].join('\n\n'),
     notify: 'win-bugs',
     // The statement timeout is the case this whole registry was built for: the
@@ -552,7 +631,7 @@ export const GLOBAL_ALERTS: Alert[] = [
       {
         id: 'people-db-statement-timeout',
         summary:
-          "A district large enough that one of the pack's people-db batches exceeds the 25s statement timeout. The query plan does not scale to districts this size yet, so it is a known capacity limit rather than a regression, and it recurs for the same district until that district is reassigned or the plan is changed.",
+          "A district large enough that one of the pack's batches exceeds the 60s Databricks statement timeout. The query plan does not scale to districts this size yet, so it is a known capacity limit rather than a regression, and it recurs for the same district until that district is reassigned or the plan is changed.",
         // Narrow: the same line filter the alert uses, plus the JSON parse, so
         // this reads the handful of event lines rather than the window.
         evidence: [
@@ -562,7 +641,7 @@ export const GLOBAL_ALERTS: Alert[] = [
           '| event = "DoorKnockingPackBuildFailed"',
         ].join(' '),
         confirmedBy:
-          'Every matched line carries `Code: 57014` in its error, names a `districtId`, and has `elapsedMs` at or above 25000. A single line missing any of the three means something other than a timed-out scan is mixed in, and the alert is not this cause. Report the districtId values so the thread names which districts are over the limit.',
+          'Every matched line carries `Databricks statement exceeded` in its error, names a `districtId`, and has `elapsedMs` at or above 60000. A single line missing any of the three means something other than a timed-out scan is mixed in, and the alert is not this cause. Report the districtId values so the thread names which districts are over the limit.',
         action: 'suppress',
       },
     ],
@@ -659,8 +738,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     //  - Its `> 20` volume floor never was one. It summed increase() over a
     //    counter whose series conflated both prod tasks, so 4 real submissions
     //    read as 1,702 and the floor was cleared by arithmetic rather than by
-    //    traffic — which is how it fired in the first place. See the
-    //    service.instance.id comment in src/otel.ts.
+    //    traffic — which is how it fired in the first place. `service
+    //    .instance.id` on the metric resource fixed the conflation (see
+    //    src/otel.ts); it did not make the rule worth reinstating.
     //
     // What that rule was reaching for, and could not see, is the lookup
     // ERRORING: resolveContactEmail returns null both for "no address on file"
@@ -700,14 +780,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // that stops being honored because `isRemoved` matches on an id the person
     // no longer renders under. See the header on `resyncLinkedUser`.
     //
-    // ON THE LOG RATHER THAN person_profile_person_id_drift_count_total, for
-    // the reason `people-person-contact-email-lookup-failing` above sets out at
-    // length: src/otel.ts sets no `service.instance.id`, so both prod tasks
-    // export that counter under one series identity, and `increase()` over
-    // interleaved cumulative streams is not a number to page on — here it would
-    // read a lock that moved between tasks as a fresh collision. The log line
-    // is exact, and it carries the `userId`, `from`, `to` and `blocker` the
-    // responder needs, which the counter's `result` label does not.
+    // ON THE LOG RATHER THAN person_profile_person_id_drift_count_total. The
+    // log line is exact, it survives the counter reset every deploy causes,
+    // and it carries the `userId`, `from`, `to` and `blocker` the responder
+    // needs, which the counter's `result` label does not.
     //
     // Both collision branches: the pre-check in `repoint` and the unique
     // violation that loses a race to a concurrent write. Same situation, found
@@ -727,10 +803,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     // >= the [6h] vector, or the engine's default ten minutes means a rule that
     // only ever sees 03:54-04:04 and reports zero the rest of the day.
     timeRangeSeconds: 21600,
-    // 24 re-reads/day against the MAX_REREAD_FACTOR of 100 in
-    // global-alerts.test.ts. A daily sweep does not need minute resolution, and
-    // a 6h window on the 60s default would re-read those hours 360 times.
-    evaluationIntervalSeconds: 900,
+    // 12 re-reads a day. A `0 4 * * *` sweep does not need minute resolution,
+    // and a 6h window on the 60s default would re-read those hours 360 times —
+    // 360x our ingest for one rule, against an allowance of 100x shared by
+    // every rule in both environments. `for` is 0m and nothing retries this, so
+    // the only cost is that the page can arrive up to 30 minutes after the
+    // nightly sweep emitted the line, on a finding whose remedy is manual.
+    evaluationIntervalSeconds: 1800,
     message: [
       'The nightly person-id sweep found a user whose civics id has moved, and could not follow it: the destination id already holds another user’s rows. The link was left stale deliberately, for a human.',
       'Nothing retries this. The stale link survives every subsequent sweep, so the symptom persists until someone acts — that user’s public /people page renders the unclaimed civics spine (wrong name, wrong headshot, no bio) instead of their profile, and if they are under a takedown it silently stops being enforced, because `isRemoved` matches on an id they no longer render under.',
@@ -895,9 +974,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     // the 6h count this alert is built on.
     timeRangeSeconds: 21600,
     // As above: 6h of logs re-read every 60s was one of our two costliest
-    // rules. `for` is 30m here, so a 5m interval still gives the rule six
-    // evaluations before it fires and barely moves detection latency.
-    evaluationIntervalSeconds: 300,
+    // rules, and at 5m it was still 72x our daily ingest against a query
+    // allowance of 100x that every rule and both environments share. At 30m it
+    // is 12x. `for` is 30m, so the rule now fires on the first evaluation past
+    // the threshold instead of the sixth: detection moves from ~30 minutes
+    // after the fifth campaign to ~30-60. This watches a 6h trend with no
+    // automatic remedy, so that is the right thing to make slow.
+    evaluationIntervalSeconds: 1800,
     message: [
       'More than 5 distinct campaigns hit a "no matched district" outcome in the last 6h — well above the ~0 baseline.',
       'This usually means the auto-district-matching pipeline broke *silently*: election-api is returning a position with no associated district (or a 404) rather than an error. Likely causes: a district-association / dbt mart regression, or an election-api data/deploy issue that stopped attaching districts. Note that upstream election-api errors (5xx) are excluded here — those page via the per-route error alerts instead.',
@@ -1098,29 +1181,122 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
       'These routes back the public candidate profiles on the marketing site. 404s are excluded because most requests here are meant to miss: the caller asks about every candidate, and a person who maps to no L2 district has no heat map to return.',
-      'Click *View in Grafana* to find the failing requests. Check which Prisma client raised the error before assuming the main database: the voter-density route reads people-db through a second client (see peopleDb/AGENTS.md), and its tables are populated by the data team rather than by a migration in this repo — so a table this repo has a migration for can still be absent in the database.',
+      'Click *View in Grafana* to find the failing requests. The voter-density route reads election-api over HTTP, so a failure there surfaces as a 502 rather than as a database error in this service.',
       'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout rather than the handler, and points at how long the query takes rather than at what it returned.',
     ].join('\n\n'),
-    knownCauses: [
-      {
-        id: 'people-db-table-missing',
-        summary:
-          'The people-db table the voter-density route reads does not exist. gp-api has a migration for it, but the data team creates and populates it (dbt/Databricks), so shipping the reader before that lands breaks the route completely until it does.',
-        // Not scoped to a status code or endpoint: the P2021 is what confirms
-        // the cause, and it is raised before any response is written. Matching
-        // only the failing route's completions would hide the case where the
-        // same missing table is breaking something else too, which is the
-        // evidence that this is a data-side outage rather than one route's bug.
-        evidence: [
-          '{service_name="gp-api", deployment_environment_name="$ENV"}',
-          '|= "does not exist in the current database"',
-          '| json',
-          '| exception_type = "P2021"',
-        ].join(' '),
-        confirmedBy:
-          "Matched lines name the missing table in `exception.message`, and their `exception.stacktrace` runs through generated/people-prisma. No matched lines means the failures are something else and this is NOT the cause. This does not lower the urgency: while it holds, the route returns nothing to anyone, and the fix is on the data team's side rather than in a deploy of this repo.",
-        action: 'annotate',
-      },
-    ],
+  },
+  // ------ Our own Grafana Cloud spend ------ //
+  //
+  // These four exist because on 2026-09-28 the vendor was the first to tell us
+  // anything was wrong, and it told us by refusing every Loki query with a 429.
+  // 154 alert rules failed to evaluate, `exec_err_state` is `Alerting`
+  // (deliberately, and it stays), and every one of them fired at once claiming
+  // a specific API route was broken. Production was healthy throughout. The
+  // signal we needed was not on any gp-api stream; it was on Grafana Cloud's
+  // own usage metrics, which nothing here was reading.
+  //
+  // They query `grafanacloud-usage`, which is Prometheus and is NOT metered
+  // against the log-query allowance they measure. That is the point: a budget
+  // alert paid for out of the budget it watches goes silent exactly when it
+  // matters.
+  {
+    slug: 'loki-query-budget-half',
+    name: 'Loki query budget half spent',
+    type: 'usage',
+    // The plan includes log queries up to 100x what we ingest, so ingest is the
+    // denominator and the ratio is the only number worth alerting on — an
+    // absolute GB/day threshold goes stale the moment log volume moves, in
+    // whichever direction.
+    //
+    // Both sides are averaged over SIX hours, and the pending period is two.
+    // An hour was the first guess and it flapped: on 2026-09-29 the 1h ratio
+    // swung between 0.79 and 1.5 within a single hour (and spiked to 23 on one
+    // ad-hoc query), so it crossed the 0.8 threshold several times an hour and
+    // sent a fresh page on every re-cross. `repeat_interval` is 2d, so a
+    // sustained firing is one notification — the spam was entirely the
+    // resolve/re-fire cycle. Over the same window the 6h ratio is monotone.
+    //
+    // A long window costs nothing here because of what this measures: the
+    // allowance is billed monthly, so the thing worth paging on is a trend that
+    // holds for hours. Anything that resolves faster than that was never going
+    // to show up on an invoice.
+    expr: LOKI_QUERY_BUDGET_RATIO,
+    threshold: 0.5,
+    for: '120m',
+    timeRangeSeconds: 21600,
+    message: [
+      'Loki log queries are running at more than **50%** of the included allowance (100x ingest), averaged over the last 6 hours. Nothing is broken yet; this is the point at which somebody should look at what is reading.',
+      LOKI_ATTRIBUTION_PROSE,
+      'The usual cause is a rule whose fetch window is wide and whose evaluation interval is fast — a rule re-reads its whole window every interval, so a 6h window on the 60s default reads the same six hours 1,440 times a day. See gp-api `docs/observability.md` § Query cost.',
+    ].join('\n\n'),
+  },
+  {
+    slug: 'loki-query-budget-critical',
+    name: 'Loki query budget nearly spent',
+    type: 'usage',
+    expr: LOKI_QUERY_BUDGET_RATIO,
+    threshold: 0.8,
+    for: '120m',
+    timeRangeSeconds: 21600,
+    message: [
+      'Loki log queries are running at more than **80%** of the included allowance (100x ingest), averaged over the last 6 hours. Past 100% Grafana Cloud bills the overage and, sustained, starts answering queries with HTTP 429 — at which point every log-backed alert rule fails to evaluate and fires.',
+      LOKI_ATTRIBUTION_PROSE,
+      '**Reducing log ingest does not fix this.** Ingest is the denominator of the allowance, so writing fewer logs lowers the budget by the same proportion it lowers nothing else. The fix is always a narrower stream selector, a shorter window, or a slower evaluation interval on whatever is doing the reading.',
+    ].join('\n\n'),
+    notify: BOTH,
+  },
+  {
+    slug: 'loki-stream-count-approaching-cap',
+    name: 'Loki active stream count approaching the cap',
+    type: 'usage',
+    // Against the live limit rather than a constant, because the limit is
+    // Grafana's to change and a hardcoded 5,000 would silently misreport the
+    // day they raise it. `max` rather than `sum`: both are per-stack gauges and
+    // the cap is per-stack too.
+    expr: [
+      'max(grafanacloud_logs_instance_active_streams)',
+      '/',
+      'max(grafanacloud_logs_instance_limits{limit_name="max_global_streams_per_user"})',
+    ].join(' '),
+    threshold: 0.8,
+    for: '15m',
+    message: [
+      'More than **80%** of the Loki active stream cap is in use. Past the cap, Loki rejects writes for new streams — logs are dropped, not queued.',
+      'A stream is one distinct combination of stream labels, and the label set is deliberately tiny: `service_name` and `deployment_environment_name`. Nothing that varies per request or per task is in it, so the count should be roughly (services x environments) and should not move when a service scales out.',
+      'Grafana Cloud promotes a fixed list of OTel **resource** attributes to stream labels and nothing else, so a new label can only arrive by someone adding a resource attribute in `src/otel.ts`. Check there first.',
+    ].join('\n\n'),
+    notify: BOTH,
+  },
+  {
+    slug: 'alerting-rule-evaluations-failing',
+    name: 'Alert rule evaluations are failing',
+    type: 'usage',
+    // THE RULE THAT SAYS ALERTING IS BLIND. On 2026-09-28 this ratio was flat 0
+    // all day, 4% at 17:10 UTC, 35% at 17:20 and 94% at 17:30; a threshold of
+    // 0.2 with `for: 5m` fires once at ~17:20, about a minute after the flood
+    // started. Anything between 0.1 and 0.5 catches it identically. Do not go
+    // below 0.1 — a single rule failing on a transient is normal.
+    //
+    // It reads Prometheus rather than Loki deliberately, so that it survives
+    // the exact failure it reports.
+    //
+    // `or on() vector(0)` because the failures counter has no series at all
+    // when nothing is failing, and a rule whose expression returns no data
+    // reports nothing rather than reporting zero. Stating the zero explicitly
+    // is what makes this rule visibly healthy instead of merely quiet.
+    expr: [
+      '(sum(grafanacloud_grafana_instance_alerting_rule_evaluation_failures_total:rate5m)',
+      'or on() vector(0))',
+      '/',
+      'sum(grafanacloud_grafana_instance_alerting_rule_evaluations_total:rate5m)',
+    ].join(' '),
+    threshold: 0.2,
+    for: '5m',
+    message: [
+      'More than **20%** of Grafana alert rule evaluations are failing. **Alerting is blind.** Treat every alert currently firing as unverified and every alert currently silent as unchecked — this says nothing about whether any particular route, job or service is healthy.',
+      'Rules that cannot evaluate are configured to fire (`exec_err_state: Alerting`), so a burst of identical-looking pages naming different routes is the symptom of this, not of those routes breaking. Read this rule first and the others second.',
+      'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check `loki-query-budget-critical`, then Grafana Alerting → the rule list for the actual evaluation error.',
+    ].join('\n\n'),
+    notify: BOTH,
   },
 ]

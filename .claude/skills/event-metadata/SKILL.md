@@ -105,6 +105,16 @@ event name and confirmed by the human, plus any cross-cutting tag the human adds
 touch `isOfficial`, `is_active`, or visibility — the dated description line is the
 status source of truth.
 
+**`surface:<slug>` — where the event fires** (ratified 2026-09-24, DATA-2532). Write one
+whenever the event's name does not name the surface it fires from, which is every event
+whose surface moved without a rename. The analytics-event explorer files an event by its
+`surface:` tag when there is one and by the nav-label prefix of its display name
+otherwise, so the tag is what lets a mislabelled event be filed correctly **without**
+renaming it — and stops a rename silently re-filing an event as a side effect. Use the
+nav label, lower-kebab: `surface:campaign-details`, `surface:dashboard`,
+`surface:pro-upgrade`. `product:` says who owns the event; `surface:` says where it
+lives. Neither implies the other.
+
 ## Procedure
 
 ### Q1 — NEW event, or EXISTING event?

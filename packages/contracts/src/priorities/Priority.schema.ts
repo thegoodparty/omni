@@ -9,6 +9,8 @@ export const PrioritySchema = z.object({
   source: PrioritySourceSchema,
   sourceCampaignPositionId: z.number().int().nullable(),
   targetDate: z.string().nullable(),
+  currentStep: z.string().nullable(),
+  nextAction: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })

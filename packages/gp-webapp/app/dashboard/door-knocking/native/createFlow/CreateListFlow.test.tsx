@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
@@ -10,12 +10,77 @@ import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { TurfDraft } from '../turfDrafts'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
+import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
+import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
+import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+// Milestone 2's in-flow gate, driven directly the way PhoneBankingFlow's own
+// gate suite drives it: the flag/membership plumbing behind the hook has its
+// own tests, and the requirement clearing mid-upgrade is a behavior this file
+// has to be able to stage. Ungated by default, so every other case here is
+// the Pro candidate this flow shipped for.
+vi.mock('app/dashboard/outreach/v2/gate/useOutreachGate', async () => {
+  const { useMockOutreachGate } =
+    await import('app/dashboard/outreach/v2/gate/testing/mockReactiveGate')
+  return { useOutreachGate: useMockOutreachGate }
+})
+
+// Mounts real Stripe surfaces; the flow only owns whether the gate is on
+// screen and what its completion runs, so the stand-in exposes both as
+// buttons.
+vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
+  default: ({
+    onComplete,
+    onExit,
+  }: {
+    onComplete: () => void
+    onExit: () => void
+  }) => (
+    <div data-testid="pro-upgrade-flow">
+      <button type="button" onClick={onComplete}>
+        Finish upgrade
+      </button>
+      <button type="button" onClick={onExit}>
+        Finish later
+      </button>
+    </div>
+  ),
+}))
+
+const FREE_GATE: OutreachGateState = {
+  enabled: true,
+  requirement: 'pro',
+  twoStep: false,
+  membership: {
+    tier: 'free',
+    texting: 'needs_verification',
+    pinDelivery: null,
+    isElectedOffice: false,
+  },
+  tcrCompliance: null,
+}
+
+const PRO_GATE: OutreachGateState = {
+  enabled: true,
+  requirement: null,
+  twoStep: false,
+  membership: {
+    tier: 'pro',
+    texting: 'cleared',
+    pinDelivery: null,
+    isElectedOffice: false,
+  },
+  tcrCompliance: null,
+}
+
+const GATE_LINE =
+  'Pro is needed to see voter names and addresses on this route.'
 
 // mapbox-gl-draw hands back an open ring; save must close it before POSTing.
 const OPEN_RING: PolygonRing = [
@@ -74,9 +139,8 @@ const baseProps = {
   onRestartDrawing: vi.fn(),
   color: '#2563eb',
   drawnStops: null,
-  onListCreated: vi.fn(),
+  onStartKnocking: vi.fn(),
   isServeOrg: false,
-  unpreviewableKeys: [],
   orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
@@ -96,8 +160,6 @@ const baseProps = {
   onSelectDraft: vi.fn(),
   onStartNewTurf: vi.fn(),
   onRemoveDraft: vi.fn(),
-  onUpdateDraft: vi.fn(),
-  onPickColor: vi.fn(),
 }
 
 // What gp-api hands back for a created turf. Every count is a real number
@@ -113,6 +175,7 @@ const savedTurf = {
     type: 'Polygon' as const,
     coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
   },
+  stopCount: 9,
   doorCount: 9,
   peopleCount: 22,
   loggedCount: 0,
@@ -128,21 +191,21 @@ const savedTurf = {
 // campaign name the route step's title says is typed there. Two moves, exactly
 // as a candidate makes them, and the rerender is the page's own `step` prop
 // catching up with the advance the flow asked for.
-const advanceToRoute = (
+// Walks from the name step to the draw step, which is where the flow now
+// ends: the campaign is named before the polygon is drawn, and drawing is
+// the last thing the candidate does. One Continue, not two — draw's own CTA
+// is Create campaign and it is the caller's to press. `baseProps` already
+// carries the one turf that gates it.
+const advanceToDraw = (
   rerender: (ui: ReactElement) => void,
   props: Partial<ComponentProps<typeof CreateListFlow>> = {},
   campaignName = 'Tuesday evening',
 ) => {
-  // The campaign is named BEFORE the polygon is drawn now, so the name
-  // step advances to draw, and draw advances to route. Two Continues, and
-  // baseProps already carries the one turf that gates draw's own Continue.
   fireEvent.change(screen.getByLabelText('Campaign name'), {
     target: { value: campaignName },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   rerender(<CreateListFlow {...baseProps} {...props} step="draw" />)
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  rerender(<CreateListFlow {...baseProps} {...props} step="route" />)
 }
 
 // The flow opens on the goal cards, and both pre-draw stages live inside the
@@ -216,6 +279,10 @@ beforeEach(() => {
   })
 })
 
+beforeEach(() => {
+  gateRef.set(PRO_GATE)
+})
+
 describe('CreateListFlow', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -241,18 +308,16 @@ describe('CreateListFlow', () => {
       status: 200,
       data: { ...savedTurf, id: 6, voterFileFilterId: 78 },
     }))
-    const onListCreated = vi.fn()
     const props = {
       filters: { precincts: true },
       precincts: ['Laramie|14', 'Laramie|15'],
-      onListCreated,
     }
 
     const { rerender } = render(
       <CreateListFlow {...baseProps} {...props} step="name" />,
     )
-    advanceToRoute(rerender, props, 'Ward 1 evening')
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    advanceToDraw(rerender, props, 'Ward 1 evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]).toMatchObject({
@@ -261,7 +326,7 @@ describe('CreateListFlow', () => {
     })
   })
 
-  it('creates the voter list from the filter draft, then buys the route', async () => {
+  it('creates the voter list from the filter draft, then the campaign', async () => {
     const calls: Array<{ kind: string; body: unknown }> = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       calls.push({ kind: 'filter', body })
@@ -274,10 +339,8 @@ describe('CreateListFlow', () => {
         data: { ...savedTurf, id: 5, voterFileFilterId: 77 },
       }
     })
-    const onListCreated = vi.fn()
     const props = {
       filters: { partyDemocrat: true },
-      onListCreated,
     }
 
     const { rerender } = render(
@@ -287,15 +350,13 @@ describe('CreateListFlow', () => {
     // Nothing has been written by the time the confirm step is done with —
     // Save is a move, not a save, which is what the single atomic commit at
     // the end of the flow costs this step's label in honesty.
-    advanceToRoute(rerender, props, 'Lakeview blitz')
+    advanceToDraw(rerender, props, 'Lakeview blitz')
     expect(calls).toHaveLength(0)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() =>
-      expect(onListCreated).toHaveBeenCalledWith(
-        expect.objectContaining({ id: 5 }),
-      ),
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
     )
     expect(calls.map((call) => call.kind)).toEqual(['filter', 'turf'])
     expect(calls[0]?.body).toMatchObject({
@@ -311,11 +372,6 @@ describe('CreateListFlow', () => {
       // is what every history surface reads.
       name: 'Turf 1',
       campaignName: 'Lakeview blitz',
-      // The route options this step exists to collect, sent with the turf
-      // rather than to a second endpoint: they are what the vendor is paid to
-      // plan, so they cannot arrive after the purchase.
-      mode: 'walk',
-      loop: true,
       geoPoly: {
         type: 'Polygon',
         coordinates: [
@@ -328,17 +384,16 @@ describe('CreateListFlow', () => {
         ],
       },
     })
-    // One event per turf, because one turf is one route bought in one
-    // transaction — and the figures are that turf's own.
+    // One event per turf, because a campaign is cut into turfs and each is
+    // its own list — and the figures are that turf's own. No travel mode on
+    // it: nothing here chooses one any more, and a default reported as a
+    // choice is worse than a silence.
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.ListCreated.win,
       {
         stops: 14,
         people: 22,
         filterCount: 1,
-        mode: 'walk',
-        loop: true,
-        suggestedMode: null,
       },
     )
   })
@@ -359,26 +414,21 @@ describe('CreateListFlow', () => {
         data: { ...savedTurf, id: 6, voterFileFilterId: 88 },
       }
     })
-    const onListCreated = vi.fn()
 
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-        onListCreated={onListCreated}
-      />,
-    )
-    advanceToRoute(rerender, { onListCreated }, 'Retry turf')
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToDraw(rerender, {}, 'Retry turf')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
         /Building the route failed/,
       ),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
     // One list total across both attempts — no orphan per retry.
     expect(filterPosts).toBe(1)
     expect(turfPosts).toBe(2)
@@ -405,9 +455,9 @@ describe('CreateListFlow', () => {
     }))
 
     const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
-    advanceToRoute(rerender, {}, 'Slow turf')
+    advanceToDraw(rerender, {}, 'Slow turf')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
@@ -436,9 +486,9 @@ describe('CreateListFlow', () => {
     }))
 
     const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
-    advanceToRoute(rerender, {}, 'Unreachable turf')
+    advanceToDraw(rerender, {}, 'Unreachable turf')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
@@ -462,9 +512,9 @@ describe('CreateListFlow', () => {
     }))
 
     const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
-    advanceToRoute(rerender, {}, 'Vendor turf')
+    advanceToDraw(rerender, {}, 'Vendor turf')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(
@@ -489,17 +539,10 @@ describe('CreateListFlow', () => {
       status: 400,
       data: { message: 'No matching voters inside this turf — widen the area' },
     })
-    const onListCreated = vi.fn()
 
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-        onListCreated={onListCreated}
-      />,
-    )
-    advanceToRoute(rerender, { onListCreated })
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToDraw(rerender, {})
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
     // A 4xx is something the candidate can act on and arrives with its own
     // instruction, so it is shown rather than swallowed by "try again in a
@@ -507,88 +550,52 @@ describe('CreateListFlow', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'No matching voters inside this turf — widen the area',
     )
-    expect(onListCreated).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Build route' })).toBeEnabled()
-    expect(trackEvent).toHaveBeenCalledWith(
+    expect(baseProps.onStepChange).not.toHaveBeenCalledWith('success')
+    expect(
+      screen.getByRole('button', { name: 'Create campaign' }),
+    ).toBeEnabled()
+    // And it reports no route build. Nothing here builds one — that event
+    // belongs to the press at the door now (`StartKnockingDialog`).
+    expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.DoorKnocking.RouteBuildFailed.win,
-      { mode: 'walk', loop: true, status: 400 },
+      expect.anything(),
     )
   })
 
-  // The route step is the only step that spends money, and these two controls
-  // are the whole of what it spends it on. The mode rides to the vendor as the
-  // travel profile; the loop decides whether the tour closes.
-  it('sends the travel mode and the loop the route step collected', async () => {
-    let turfBody: unknown = null
-    api.mock('POST /v1/voters/voter-file/filter', {
-      status: 200,
-      data: { id: 3 },
-    })
-    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
-      turfBody = body
-      return { status: 200, data: savedTurf }
-    })
-    const onListCreated = vi.fn()
-
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-        onListCreated={onListCreated}
-      />,
-    )
-    advanceToRoute(rerender, { onListCreated })
-
-    fireEvent.click(screen.getByRole('radio', { name: /Driving/ }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /End where I start/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
-
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
-    expect(turfBody).toMatchObject({ mode: 'drive', loop: false })
-  })
-
-  // Every stop within a five-minute walk of the next is what makes a list
-  // walkable, and the drawn shape is the only thing that knows. It only tags a
-  // radio — the selected mode stays the candidate's, so a suggestion that
-  // decodes late cannot move a choice already made.
-  it('suggests driving for a spread-out shape, without overruling a pick', async () => {
-    let turfBody: unknown = null
-    api.mock('POST /v1/voters/voter-file/filter', {
-      status: 200,
-      data: { id: 3 },
-    })
-    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
-      turfBody = body
-      return { status: 200, data: savedTurf }
-    })
-    const onListCreated = vi.fn()
-    // Two stops a couple of kilometres apart: nobody walks that between doors.
+  // The one path that can put an over-cap turf on this step. The cap was
+  // answered on the drawing surface and the candidate was told there — then
+  // they stepped back to the who step and widened the audience, which
+  // rewrites every committed turf's stop count. This is the press that pays
+  // for the route, so it asks again rather than trusting what it was handed.
+  it('refuses to create a campaign holding a turf over the stop cap', () => {
     const props = {
-      onListCreated,
-      drawnStops: [
-        [-87.65, 41.9],
-        [-87.62, 41.93],
-      ] as Array<[number, number]>,
+      draftStats: new Map([
+        [
+          DRAFT.clientId,
+          {
+            stops: 214,
+            people: 430,
+            households: 190,
+            partyMix: [],
+            ageMix: [],
+          },
+        ],
+      ]),
     }
 
     const { rerender } = render(
       <CreateListFlow {...baseProps} {...props} step="name" />,
     )
-    advanceToRoute(rerender, props)
+    advanceToDraw(rerender, props)
 
-    expect(screen.getByRole('radio', { name: /Driving/ })).toBeChecked()
-    expect(screen.getByText(/more than a 5-minute walk/)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('radio', { name: /Walking/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
-
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
-    // Overruled, and the analytics record both halves so the suggestion's
-    // accuracy is readable rather than assumed.
-    expect(turfBody).toMatchObject({ mode: 'walk' })
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.ListCreated.win,
-      expect.objectContaining({ mode: 'walk', suggestedMode: 'drive' }),
+    // Disabled rather than refusing, because the card beside it already
+    // names which turf and why — a refusal would be a second explanation
+    // of a problem that is on screen before the press is reached.
+    expect(
+      screen.getByRole('button', { name: 'Create campaign' }),
+    ).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Over 150 stops. Draw this one smaller.',
     )
   })
 
@@ -655,8 +662,10 @@ describe('CreateListFlow', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: /^Turf 1/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^Turf 2/ })).toBeInTheDocument()
+    // Text, not a row button: the step's cards never open, so nothing
+    // selects them and the name is not a control.
+    expect(screen.getByText('Turf 1')).toBeInTheDocument()
+    expect(screen.getByText('Turf 2')).toBeInTheDocument()
     // Stops, the router's own unit and the one the 150 cap is stated in.
     // `turfStats(stops, households)` puts stops first.
     expect(screen.getByText(/^14 stops/)).toBeInTheDocument()
@@ -843,7 +852,7 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to lists' }))
 
     expect(audiencePicker()).toBeInTheDocument()
-    expectStep(2, 6)
+    expectStep(2, 5)
   })
 
   // The canvas puts Top issue first in the shared filter pool. We hold no
@@ -979,21 +988,10 @@ describe('CreateListFlow', () => {
     expect(posts).toBe(0)
   })
 
-  // Why the travel mode is being asked for at all is said under the title,
-  // since the answer is what shapes the route that gets built.
-  it('says why the travel mode matters on the route step', () => {
-    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
-    advanceToRoute(rerender, {}, 'Lakeview blitz')
-
-    expect(heading('Will you be walking or driving?')).toBeInTheDocument()
-    expect(
-      screen.getByText(/most efficient route for you based on how/),
-    ).toBeInTheDocument()
-  })
-
-  // The one press that spends money, so it says so while it is spending and
-  // cannot be pressed twice.
-  it('says Building route while the purchase is in flight', async () => {
+  // The press that writes the campaign says so while it is writing and
+  // cannot be pressed twice. It names what it creates rather than what it
+  // spends — nothing is bought here any more.
+  it('says Creating campaign while the write is in flight', async () => {
     let release: () => void
     const held = new Promise<void>((resolve) => {
       release = resolve
@@ -1006,25 +1004,20 @@ describe('CreateListFlow', () => {
       await held
       return { status: 200 as const, data: savedTurf }
     })
-    const onListCreated = vi.fn()
 
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="name"
-        onListCreated={onListCreated}
-      />,
-    )
-    advanceToRoute(rerender, { onListCreated })
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToDraw(rerender, {})
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
-    const building = await screen.findByRole('button', {
-      name: 'Building routes',
+    const creating = await screen.findByRole('button', {
+      name: 'Creating campaign',
     })
-    expect(building).toBeDisabled()
+    expect(creating).toBeDisabled()
 
     release!()
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
   })
 
   // The colour a list is drawn in is auto-assigned rather than asked for: the
@@ -1041,9 +1034,7 @@ describe('CreateListFlow', () => {
       turfBody = body
       return { status: 200, data: savedTurf }
     })
-    const onListCreated = vi.fn()
     const props = {
-      onListCreated,
       turfDrafts: [{ ...DRAFT, color: '#16a34a' }],
     }
 
@@ -1057,9 +1048,11 @@ describe('CreateListFlow', () => {
     expect(screen.queryByRole('button', { name: 'Green' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Blue' })).toBeNull()
 
-    advanceToRoute(rerender, props)
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    advanceToDraw(rerender, props)
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
     // The turf is filed under its own colour, which is the one the map was
     // tinted with while it was being cut.
     expect(turfBody).toMatchObject({ color: '#16a34a' })
@@ -1115,13 +1108,13 @@ describe('CreateListFlow steps', () => {
     // equivalent on a channel that sends a message.
     expect(screen.getByText('Encourage early voting')).toBeInTheDocument()
     expect(screen.getByText('Turn out my supporters')).toBeInTheDocument()
-    expectStep(1, 6)
+    expectStep(1, 5)
 
     fireEvent.click(
       screen.getByRole('button', { name: /Encourage early voting/ }),
     )
     expect(heading('Who do you want to reach?')).toBeInTheDocument()
-    expectStep(2, 6)
+    expectStep(2, 5)
   })
 
   // The reported defect, walked end to end at the step it was reported from:
@@ -1130,15 +1123,15 @@ describe('CreateListFlow steps', () => {
   // "Step 2 of 3", promising an ending that saved a list and stopped. Both
   // audiences are walked because the old branch keyed off exactly the
   // difference between them.
-  it('stays six steps long whether the audience is picked or cut by hand', async () => {
+  it('stays five steps long whether the audience is picked or cut by hand', async () => {
     const onStepChange = vi.fn()
     const props = { ...baseProps, savedLists, onStepChange }
 
     const { rerender } = await renderAtWho(props)
-    expectStep(2, 6)
+    expectStep(2, 5)
 
     await pickList(/Super voters/)
-    expectStep(2, 6)
+    expectStep(2, 5)
 
     // The other audience: pills cut against the whole contact universe, with
     // no saved list behind them to shorten anything.
@@ -1150,7 +1143,7 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expectStep(2, 6)
+    expectStep(2, 5)
 
     // And it really does continue through the flow rather than ending on
     // its own — the stepper's promise and the flow's behaviour are the same
@@ -1166,7 +1159,7 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expectStep(3, 6)
+    expectStep(3, 5)
   })
 
   // One name per pass through the flow, and it is the campaign's. A hand-cut
@@ -1189,20 +1182,20 @@ describe('CreateListFlow steps', () => {
     expect(screen.queryByLabelText('List name')).toBeNull()
   })
 
-  it('numbers the points, name, draw and route steps as the last four of six', () => {
+  // Drawing is the last counted step now: the route step it used to precede
+  // is gone, and the success screen sits outside the count with no stepper
+  // at all.
+  it('numbers the points, name and draw steps as the last three of five', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="points" filters={{}} />,
     )
-    expectStep(3, 6)
+    expectStep(3, 5)
 
     rerender(<CreateListFlow {...baseProps} step="name" filters={{}} />)
-    expectStep(4, 6)
+    expectStep(4, 5)
 
     rerender(<CreateListFlow {...baseProps} step="draw" filters={{}} />)
-    expectStep(5, 6)
-
-    rerender(<CreateListFlow {...baseProps} step="route" filters={{}} />)
-    expectStep(6, 6)
+    expectStep(5, 5)
   })
 
   // The #1385 lesson: a card label doubling as a default title renamed live
@@ -1274,67 +1267,6 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('option', { name: 'All contacts' })).toBeTruthy()
   })
 
-  // The reported defect, at the step it was reported from. A persuasion list
-  // is narrowed by support status, and the pack has no plane for it — so
-  // starting from a 256-person list put the whole district in the Continue
-  // button and said nothing about why. The count itself cannot be fixed here
-  // (the map genuinely cannot shade that clause), so the step has to say so:
-  // an undisclosed superset is what made this read as the list being ignored.
-  it('discloses, on the who step, a picked list’s unshadeable clauses', async () => {
-    const { rerender } = await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      unpreviewableKeys: [],
-    })
-    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
-
-    // Pick the row for real rather than posting the lifted draft in as props:
-    // the sentence names the picked list, so a test that never picks one is
-    // asserting wording the flow cannot actually reach.
-    await pickList(/Precinct 2 homeowners/)
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="filters"
-        savedLists={savedLists}
-        districtHouseholds={12_000}
-        filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
-      />,
-    )
-
-    // The CTA's count is still the whole district here, which is the thing the
-    // sentence below discloses.
-    expect(
-      screen.getByRole('button', { name: 'Continue (12,000)' }),
-    ).toBeEnabled()
-    expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
-      'The map can’t yet shade by Support status, so these counts include ' +
-        'people that filter will exclude. Your saved list still applies it ' +
-        'when you knock.',
-    )
-  })
-
-  // The same sentence, one step earlier in the decision: a candidate who
-  // builds a list from scratch and picks 65+ has an unshadeable selection and
-  // no list to attribute it to. Citing "your saved list" there describes
-  // something that does not exist; dropping the promise instead would end the
-  // sentence on "that filter will exclude", which reads as the filter being
-  // ignored. Both halves are checked because fixing either one alone is a
-  // regression in the other.
-  it('does not cite a saved list on the who step when none is picked', async () => {
-    await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { age65Plus: true },
-      unpreviewableKeys: ['age65Plus'],
-    })
-
-    const disclosure = screen.getByText(/The map can’t yet shade by/)
-    expect(disclosure).toHaveTextContent('Your list still applies it when you')
-    expect(disclosure).not.toHaveTextContent('saved list')
-  })
-
   // Derek's dead end, as reported: a list cut by support status shades as the
   // whole district, so every count on the way to the boundary looked healthy
   // and the create refused at the end — with a message about widening the
@@ -1357,7 +1289,6 @@ describe('CreateListFlow steps', () => {
         savedLists={savedLists}
         districtHouseholds={12_000}
         filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
         audienceEmpty
       />,
     )
@@ -1368,22 +1299,6 @@ describe('CreateListFlow steps', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'No contacts match this list’s support status filters',
     )
-  })
-
-  // Two sentences about the same gap, one hedging the count and one saying the
-  // count is moot, read as the step arguing with itself. The stronger claim
-  // wins: there is no point explaining that a number is too big once it is
-  // established that the right number is zero.
-  it('drops the shading disclosure once the audience is proven empty', async () => {
-    await renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { supportStatus: true },
-      unpreviewableKeys: ['supportStatus'],
-      audienceEmpty: true,
-    })
-
-    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
   })
 
   // The same sentence from the pill-builder face, which has no list to cite.
@@ -1416,7 +1331,6 @@ describe('CreateListFlow steps', () => {
         savedLists={savedLists}
         districtHouseholds={12_000}
         filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
         audienceEmpty={false}
       />,
     )
@@ -1537,18 +1451,19 @@ describe('CreateListFlow steps', () => {
       deletes()
       return { status: 200, data: {} }
     })
-    const onListCreated = vi.fn()
-    const props = { ...baseProps, savedLists, onListCreated }
+    const props = { ...baseProps, savedLists }
 
     const { rerender } = await renderAtWho(props)
     await pickList(/Super voters/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
     rerender(<CreateListFlow {...props} step="name" />)
-    advanceToRoute(rerender, props)
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    advanceToDraw(rerender, props)
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
     expect(filterPosts).toBe(0)
     expect(turfBody).toMatchObject({
       voterFileFilterId: 9,
@@ -1631,19 +1546,17 @@ describe('CreateListFlow steps', () => {
 
   // Back from the route step walks straight up the post-name chain: route
   // → draw → name. The campaign name is still editable on the way through.
-  it('returns from the route step to the draw step, and on to the name step', () => {
+  // Drawing is the last step, so Back off it is the end of the walkback
+  // rather than a rung in the middle of one.
+  it('returns from the draw step to the name step, with the name still on it', () => {
     const onStepChange = vi.fn()
     const props = { onStepChange }
 
     const { rerender } = render(
       <CreateListFlow {...baseProps} {...props} step="name" />,
     )
-    advanceToRoute(rerender, props, 'Lakeview blitz')
+    advanceToDraw(rerender, props, 'Lakeview blitz')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(onStepChange).toHaveBeenLastCalledWith('draw')
-
-    rerender(<CreateListFlow {...baseProps} {...props} step="draw" />)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onStepChange).toHaveBeenLastCalledWith('name')
 
@@ -1687,7 +1600,7 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
     // Arriving with the audience already chosen skips no step of the flow:
     // the boundary and the route are still ahead of it.
-    expectStep(2, 6)
+    expectStep(2, 5)
   })
 
   // The four ways a query param can be wrong that survive the parser — an id
@@ -1712,7 +1625,7 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).not.toHaveBeenCalled()
     // A missed preselection is the ordinary flow and nothing else — same
     // audience the flow opens on, same six steps in front of it.
-    expectStep(2, 6)
+    expectStep(2, 5)
   })
 
   it('leaves the flow untouched with no list carried in', async () => {
@@ -1810,22 +1723,22 @@ describe('CreateListFlow preselected list', () => {
       turfBody = body
       return { status: 200, data: savedTurf }
     })
-    const onListCreated = vi.fn()
     const props = {
       ...baseProps,
       savedLists,
       preselectedListId: 9,
-      onListCreated,
     }
 
     const { rerender } = await renderAtWho(props)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
     rerender(<CreateListFlow {...props} step="name" />)
-    advanceToRoute(rerender, props)
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    advanceToDraw(rerender, props)
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
 
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
     expect(filterPosts).toBe(0)
     expect(turfBody).toMatchObject({ voterFileFilterId: 9 })
   })
@@ -1982,9 +1895,130 @@ describe('CreateListFlow on the Serve surface', () => {
   // view).
 })
 
+// Milestone 2. The page used to refuse a free candidate outright; now the
+// whole flow is theirs and the gate stands in front of the one paid write —
+// Build route, which buys the Geoapify route and is the only call here
+// gp-api refuses without Pro.
+describe('CreateListFlow — the Pro gate', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+    gateRef.set(FREE_GATE)
+  })
+
+  const mockCreate = () => {
+    const turfPosts: CreateDoorKnockingTurf[] = []
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 44 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfPosts.push(body)
+      return { status: 200, data: { ...savedTurf, id: 12 } }
+    })
+    return turfPosts
+  }
+
+  it('shows the gate banner on the steps before the map for a free candidate', () => {
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
+
+    rerender(<CreateListFlow {...baseProps} step="points" />)
+    expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
+  })
+
+  // The draw stage is the one step with nothing under the footer to spare:
+  // the map is the content and the shape is being cut against it, so the
+  // banner would sit over the only thing the candidate is looking at.
+  it('does not show the gate banner on the draw stage', () => {
+    render(<CreateListFlow {...baseProps} step="draw" />)
+
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+  })
+
+  it('free candidate: Build route opens the gate instead of buying the route', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToDraw(rerender, {}, 'Tuesday evening')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+
+    expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
+  it('free candidate: completing the gate builds the route once', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToDraw(rerender, {}, 'Tuesday evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await screen.findByTestId('pro-upgrade-flow')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish upgrade' }))
+
+    await waitFor(() => expect(turfPosts).toHaveLength(1))
+    expect(
+      baseProps.onStepChange.mock.calls.filter(([s]) => s === 'success'),
+    ).toHaveLength(1)
+  })
+
+  it('free candidate: leaving the gate lands back on the route step', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToDraw(rerender, {}, 'Tuesday evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await screen.findByTestId('pro-upgrade-flow')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish later' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Create campaign' }),
+    ).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
+  // The banner rides every step but the draw, so its explainer can open the
+  // gate long before Build route. Finishing there must hand the candidate
+  // back the step they were on, not buy the route behind their back.
+  it('free candidate: upgrading from the banner writes nothing and keeps the step', async () => {
+    const turfPosts = mockCreate()
+    // From the name step, which is where the banner is: the draw step is
+    // the one stage that hides it, so the explainer cannot be opened from
+    // the press it guards.
+    render(<CreateListFlow {...baseProps} step="name" />)
+
+    fireEvent.click(screen.getByText(GATE_LINE))
+    fireEvent.click(await screen.findByRole('button', { name: 'Join Pro' }))
+    await screen.findByTestId('pro-upgrade-flow')
+
+    act(() => gateRef.set(PRO_GATE))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish upgrade' }))
+
+    // Back on the step it was opened from, with nothing written: finishing
+    // the gate means whatever the gesture that opened it was about, and
+    // this one was about reading the explainer.
+    expect(await screen.findByLabelText('Campaign name')).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
+  it('Pro candidate: Build route buys the route with no gate and no banner', async () => {
+    gateRef.set(PRO_GATE)
+    const turfPosts = mockCreate()
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
+    advanceToDraw(rerender, {}, 'Tuesday evening')
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+
+    await waitFor(() => expect(turfPosts).toHaveLength(1))
+    expect(screen.queryByTestId('pro-upgrade-flow')).toBeNull()
+  })
+})
+
 // One campaign, many turfs, one press. The anchor has to exist before
 // anything can point at it, so the batch is not a flat `Promise.all` — and
 // the failure modes below are the reason it is not a `Promise.all` at all.
+
 describe('CreateListFlow multi-turf save', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -2015,7 +2049,7 @@ describe('CreateListFlow multi-turf save', () => {
   // Distinct envelope ids, so a body carrying `campaignOutreachId` can only
   // have got it from the turf that was actually bought first.
   const mockBatch = (
-    overrides: { failSecond?: boolean } = {},
+    overrides: { failSecond?: boolean; failSecondOnce?: boolean } = {},
   ): { turfs: Record<string, unknown>[]; assignments: unknown[] } => {
     const turfs: Record<string, unknown>[] = []
     const assignments: unknown[] = []
@@ -2026,7 +2060,13 @@ describe('CreateListFlow multi-turf save', () => {
     api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
       const sent = body as Record<string, unknown>
       turfs.push(sent)
-      if (overrides.failSecond && sent.name === 'Turf 2') {
+      const secondTurfFails =
+        sent.name === 'Turf 2' &&
+        (overrides.failSecond ||
+          // Once only, so the retry can be walked to its end.
+          (overrides.failSecondOnce &&
+            turfs.filter((t) => t.name === 'Turf 2').length === 1))
+      if (secondTurfFails) {
         return { status: 502 as const, data: {} }
       }
       const index = turfs.length
@@ -2064,16 +2104,17 @@ describe('CreateListFlow multi-turf save', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} {...props} step="name" />,
     )
-    advanceToRoute(rerender, props, 'Fall canvass')
-    fireEvent.click(screen.getByRole('button', { name: 'Build 2 routes' }))
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
   }
 
   it('buys the anchor first, then hangs every other turf off it', async () => {
-    const onListCreated = vi.fn()
     const { turfs } = mockBatch()
 
-    await buildRoutes({ ...twoTurfs, onListCreated })
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    await buildRoutes({ ...twoTurfs })
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
 
     expect(turfs).toHaveLength(2)
     // The anchor names no campaign to join, which is what makes it one.
@@ -2091,24 +2132,24 @@ describe('CreateListFlow multi-turf save', () => {
     })
     // The handover is to the first turf's walk, which is the campaign's
     // anchor and the only turf this page can open.
-    expect(onListCreated).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 101 }),
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
     )
   })
 
   it('fires one creation event per turf, each with its own figures', async () => {
-    const onListCreated = vi.fn()
     mockBatch()
 
     await buildRoutes({
       ...twoTurfs,
-      onListCreated,
       draftStats: new Map([
         [DRAFT.clientId, turfStats(14, 9)],
         [SECOND.clientId, turfStats(40, 31)],
       ]),
     })
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
 
     const created = (trackEvent as ReturnType<typeof vi.fn>).mock.calls.filter(
       (call) => call[0] === EVENTS.DoorKnocking.ListCreated.win,
@@ -2119,11 +2160,12 @@ describe('CreateListFlow multi-turf save', () => {
   })
 
   it('assigns each turf after its route, against its own envelope', async () => {
-    const onListCreated = vi.fn()
     const { assignments } = mockBatch()
 
-    await buildRoutes({ ...twoTurfs, onListCreated })
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    await buildRoutes({ ...twoTurfs })
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
 
     // Only the turf that was given a canvasser, and against the envelope
     // that turf's own create returned.
@@ -2131,11 +2173,10 @@ describe('CreateListFlow multi-turf save', () => {
   })
 
   it('keeps the turfs it bought when one of them fails', async () => {
-    const onListCreated = vi.fn()
     const onRemoveDraft = vi.fn()
     mockBatch({ failSecond: true })
 
-    await buildRoutes({ ...twoTurfs, onListCreated, onRemoveDraft })
+    await buildRoutes({ ...twoTurfs, onRemoveDraft })
 
     // The anchor was bought and billed, so its draft is spent; the one that
     // failed stays in the list for the retry.
@@ -2143,31 +2184,24 @@ describe('CreateListFlow multi-turf save', () => {
       expect(onRemoveDraft).toHaveBeenCalledWith(DRAFT.clientId),
     )
     expect(onRemoveDraft).not.toHaveBeenCalledWith(SECOND.clientId)
-    // And the flow stays on the route step rather than handing over to a
-    // walk, which would strand the turf that still has to be bought.
-    expect(onListCreated).not.toHaveBeenCalled()
+    // And the flow stays on the draw step rather than moving to the
+    // success screen, which would strand the turf that still has to be
+    // written.
+    expect(baseProps.onStepChange).not.toHaveBeenCalledWith('success')
     expect(
-      await screen.findByText(/The turfs that did build are saved/),
+      await screen.findByText(/The turfs that were created are saved/),
     ).toBeInTheDocument()
-    // Reported like any other failed build. `onError` never fires for a
-    // sibling — the mutation resolves — so without this the failure metric
-    // would only ever count anchors.
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.RouteBuildFailed.win,
-      expect.objectContaining({ status: 502 }),
-    )
   })
 
   it('does not mint a second anchor when the retry runs', async () => {
-    const onListCreated = vi.fn()
     const { turfs } = mockBatch({ failSecond: true })
 
-    await buildRoutes({ ...twoTurfs, onListCreated, onRemoveDraft: vi.fn() })
+    await buildRoutes({ ...twoTurfs, onRemoveDraft: vi.fn() })
     await waitFor(() => expect(turfs).toHaveLength(2))
 
     // Press again with the same drafts still on screen, which is what a
     // parent that has not re-rendered yet hands back.
-    fireEvent.click(screen.getByRole('button', { name: 'Build 2 routes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
     await waitFor(() => expect(turfs).toHaveLength(4))
 
     // Every turf in the retry names the anchor the first press paid for.
@@ -2177,17 +2211,48 @@ describe('CreateListFlow multi-turf save', () => {
     expect(turfs[3]).toMatchObject({ campaignOutreachId: 901 })
   })
 
+  it('names every turf the campaign got, not only the retry’s', async () => {
+    // A partial batch leaves the flow on the draw step with the turf that
+    // failed still in the list, so the retry buys one turf and its success
+    // screen would name one turf — of a campaign that holds two.
+    const { turfs } = mockBatch({ failSecondOnce: true })
+    const onRemoveDraft = vi.fn()
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...twoTurfs} step="name" />,
+    )
+    advanceToDraw(rerender, twoTurfs, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() => expect(turfs).toHaveLength(2))
+
+    // What the page does with the anchor's spent draft, which is what makes
+    // the retry buy only what is still owed.
+    const owed = { turfDrafts: [SECOND], onRemoveDraft }
+    rerender(<CreateListFlow {...baseProps} {...owed} step="draw" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...owed} step="success" />)
+
+    // Both turfs, each with its own knock control: the one the first press
+    // bought and the one the retry did.
+    expect(await screen.findByText('Turf 1')).toBeInTheDocument()
+    expect(screen.getByText('Turf 2')).toBeInTheDocument()
+  })
+
   it('joins an existing campaign without buying an anchor of its own', async () => {
-    const onListCreated = vi.fn()
     const { turfs } = mockBatch()
 
     await buildRoutes({
       ...twoTurfs,
-      onListCreated,
       // "Add another turf" arrives with the campaign already anchored.
       campaignOutreachId: 555,
     })
-    await waitFor(() => expect(onListCreated).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
 
     // Both are siblings, and neither renames the campaign they are joining
     // — the server reads the anchor's own name over anything on the wire.

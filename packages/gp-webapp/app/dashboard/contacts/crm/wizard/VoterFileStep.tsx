@@ -67,6 +67,7 @@ const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'education',
   'income_ranges',
   'language',
+  'ethnicity',
   'independent_affinity',
   'ideology',
   'gender',
@@ -121,7 +122,9 @@ export default function VoterFileStep({
       (field) =>
         field.key !== CONTACTS_MADE_FIELD_KEY &&
         (!isElectedOfficial ||
-          (field.key !== 'political_party' && field.key !== 'voter_likely')),
+          (field.key !== 'political_party' &&
+            field.key !== 'voter_likely' &&
+            field.key !== 'ethnicity')),
     )
     .sort((a, b) => orderIndex(a.key) - orderIndex(b.key))
 

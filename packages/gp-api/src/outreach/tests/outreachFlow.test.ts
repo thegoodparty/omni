@@ -113,6 +113,8 @@ beforeEach(async () => {
       organizationSlug: orgSlug,
       userId: service.user.id,
       slug: 'jane-doe',
+      // Texting is Pro-only, so a campaign that can reach this route is Pro.
+      isPro: true,
       details: { state: 'TX', zip: '78634' },
       data: { hubspotId: 'hub-1' },
       aiContent: {},
@@ -126,6 +128,7 @@ const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
 
 interface SubmitOpts {
   outreachType: OutreachType
+  status?: OutreachStatus
   script?: string
   date?: string
   scheduledLocalTime?: string
@@ -134,6 +137,7 @@ interface SubmitOpts {
   voterFileFilterId?: number
   audienceRequest?: string
   draft?: boolean
+  draftOutreachId?: number
   textCount?: number
   billableTextCount?: number
   campaignPlanDueDate?: string
@@ -148,7 +152,7 @@ async function submitOutreach(opts: SubmitOpts) {
   const form = new FormData()
   form.append('campaignId', String(campaign.id))
   form.append('outreachType', opts.outreachType)
-  form.append('status', 'pending')
+  form.append('status', opts.status ?? OutreachStatus.pending)
   if (opts.date) form.append('date', opts.date)
   if (opts.scheduledLocalTime) {
     form.append('scheduledLocalTime', opts.scheduledLocalTime)
@@ -160,6 +164,9 @@ async function submitOutreach(opts: SubmitOpts) {
   }
   if (opts.audienceRequest) form.append('audienceRequest', opts.audienceRequest)
   if (opts.draft !== undefined) form.append('draft', String(opts.draft))
+  if (opts.draftOutreachId !== undefined) {
+    form.append('draftOutreachId', String(opts.draftOutreachId))
+  }
   if (opts.textCount !== undefined) {
     form.append('textCount', String(opts.textCount))
   }
@@ -782,6 +789,68 @@ describe('Outreach submission flow — single API call contract', () => {
       })
       expect(untouched.status).toBe(OutreachStatus.pending_payment)
       expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+    })
+
+    it('a draftOutreachId with no such draft 404s and writes nothing', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+        draftOutreachId: 4242,
+      })
+      expect(res.status).toBe(404)
+
+      expect(
+        await service.prisma.outreach.count({
+          where: { campaignId: campaign.id },
+        }),
+      ).toBe(0)
+    })
+
+    // The Pro gate on p2p is what stands between a free candidate and a paid
+    // send; the resume path carries no voterFileFilterId, so filterAccessCheck
+    // cannot be the thing enforcing it.
+    it('a fresh p2p create from a non-Pro campaign 403s and writes nothing', async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: { isPro: false },
+      })
+
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(403)
+      expect(
+        await service.prisma.outreach.count({
+          where: { campaignId: campaign.id },
+        }),
+      ).toBe(0)
+      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+    })
+
+    it('a client-set status of draft → 400, no DB row', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.draft,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain(
+        'draft is set by POST /outreach/drafts, not the client',
+      )
+      const rows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(rows.length).toBe(0)
     })
 
     it('draft with a non-p2p outreachType → 400, no DB row', async () => {

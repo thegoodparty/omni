@@ -77,6 +77,32 @@ export const EVENTS = {
     // admin console. Carries `channel` so SMS and robocall approvals share one
     // event.
     CampaignApproved: 'Voter Outreach - Campaign Approved',
+    // The candidate committed a campaign to send. One event across channels,
+    // keyed by `channel` (sms | robocall | social) — the same shape as
+    // CampaignApproved above, and the reason this is not three events.
+    //
+    // Emitted from the point on each channel where the commit is already
+    // once per committed payment, so a webhook or pay-step replay cannot
+    // double-count: the pending_payment -> pending claim in
+    // `finalizeOutreachPurchase` (sms), the placement/covered-run CAS in
+    // `authorizeHold` and `scheduleCoveredRun` (robocall — NOT the spine
+    // transition, which the deferred card-save path performs before any hold
+    // exists), and the save transaction in `saveSocialOutreach` (social,
+    // which takes no payment).
+    //
+    // Not exactly-once per OUTREACH, and consumers must not assume it is. A
+    // robocall whose hold lapses before dial is reset to hold_failed and can
+    // be re-authorized with a new card, committing — and emitting — a second
+    // time under the same messageId, days apart and so outside Segment's
+    // ~24h dedup window. One send commitment, retried. `outreachId` is on
+    // every emit so downstream counts distinct outreach rather than rows.
+    //
+    // Distinct from 'Robocall - Scheduled', which fires earlier, at
+    // draft-create on an UNPAID row — a robocall draft that is never paid for
+    // fires that one and not this one. Win only: the `Voter Outreach -` prefix
+    // classifies to the win_voter_outreach family downstream, so the Serve
+    // social route deliberately does not emit it.
+    CampaignScheduled: 'Voter Outreach - Campaign Scheduled',
   },
   AiContent: {
     GenerationStarted: 'Content Builder: Generation Started',

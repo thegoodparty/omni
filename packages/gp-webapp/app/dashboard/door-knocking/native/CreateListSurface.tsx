@@ -268,8 +268,7 @@ export interface CreateListSurfaceProps {
   onRestartDrawing: () => void
   // The drawn shape's stops as [lng, lat], for the route step's walk-vs-drive
   // suggestion. From the pack, which is the orchestrator's.
-  drawnStops: Array<[number, number]> | null
-  onListCreated: (turf: DoorKnockingTurf) => void
+  onStartKnocking: (turf: DoorKnockingTurf) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
@@ -278,11 +277,15 @@ export interface CreateListSurfaceProps {
   // Owned by the orchestrator alongside `filters` — the address preview
   // assembled below is what needs them, and the query is the page's.
   precincts: string[]
+  // The precinct values in effect once a picked list's clause and an accepted
+  // recommendation's are folded in with the hand-cut selection above.
+  // Reported up because the MAP reads it and the canvas outlives this
+  // surface, which is the same rule `ring` and the draw tokens follow.
+  onEffectivePrecinctsChange: (precincts: string[]) => void
   onPrecinctsChange: (value: string[]) => void
   precinctOptions: PrecinctOptionsResult
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
-  unpreviewableKeys: string[]
   // The organization the recommendations are asked for, threaded down purely
   // as a cache-key segment.
   orgSlug: string | undefined
@@ -318,15 +321,14 @@ export interface CreateListSurfaceProps {
   // A draft missing from the map has no answer yet and prints as such.
   draftStats: Map<string, PolygonStats>
   onSelectDraft: (clientId: string) => void
-  onUpdateDraft: (
-    clientId: string,
-    patch: Partial<Omit<TurfDraft, 'clientId'>>,
-  ) => void
   onRemoveDraft: (clientId: string) => void
   // The same pair for a recommendation carried in on `?recommended=`.
   preselectedRecommendedVariant?: RecommendedListVariant
   onRecommendedPreselectApplied?: () => void
 }
+
+// Stable identity, so the page's effect does not refire every render.
+const NO_PRECINCTS: string[] = []
 
 export default function CreateListSurface({
   step,
@@ -344,13 +346,12 @@ export default function CreateListSurface({
   drawFullScreen,
   onDrawFullScreenChange,
   onRestartDrawing,
-  drawnStops,
-  onListCreated,
+  onStartKnocking,
   isServeOrg,
   precincts,
   onPrecinctsChange,
+  onEffectivePrecinctsChange,
   precinctOptions,
-  unpreviewableKeys,
   orgSlug,
   preselectedListId,
   onPreselectApplied,
@@ -359,7 +360,6 @@ export default function CreateListSurface({
   turfDrafts,
   draftStats,
   onSelectDraft,
-  onUpdateDraft,
   onRemoveDraft,
   preselectedRecommendedVariant,
   onRecommendedPreselectApplied,
@@ -457,6 +457,17 @@ export default function CreateListSurface({
     }),
     [filters, selectedList, precincts, recommendedCriteria],
   )
+  // Read back OFF the merged request rather than reassembled from the same
+  // three sources, so the map cannot come to shade a different precinct set
+  // than the one the preview and the create are asked about. Stable
+  // reference on the empty case, because the page holds this in state.
+  const effectivePrecincts = useMemo(
+    () => previewFilters.precincts ?? NO_PRECINCTS,
+    [previewFilters],
+  )
+  useEffect(() => {
+    onEffectivePrecinctsChange(effectivePrecincts)
+  }, [effectivePrecincts, onEffectivePrecinctsChange])
   // Does this audience keep anybody? Asked of the same filter payload the
   // preview sends, and asked HERE rather than beside the picker because this
   // is where that payload is assembled — a list's support-status and activity
@@ -544,10 +555,8 @@ export default function CreateListSurface({
       drawFullScreen={drawFullScreen}
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}
-      drawnStops={drawnStops}
-      onListCreated={onListCreated}
+      onStartKnocking={onStartKnocking}
       isServeOrg={isServeOrg}
-      unpreviewableKeys={unpreviewableKeys}
       orgSlug={orgSlug}
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}
@@ -559,7 +568,6 @@ export default function CreateListSurface({
       turfDrafts={turfDrafts}
       draftStats={draftStats}
       onSelectDraft={onSelectDraft}
-      onUpdateDraft={onUpdateDraft}
       onRemoveDraft={onRemoveDraft}
     />
   )

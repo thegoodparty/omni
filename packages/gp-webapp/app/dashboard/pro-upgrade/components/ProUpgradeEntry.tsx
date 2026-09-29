@@ -27,6 +27,7 @@ import { PRO_COMPLIANCE_SUPPORT_EMAIL as SUPPORT_EMAIL } from '@shared/utils/sup
 import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
 import type { Eligibility } from 'gpApi/api-endpoints'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import {
   deriveProUpgradeStep,
   filingStatusFromDetails,
@@ -38,6 +39,12 @@ import {
 // re-derives, landing a returning candidate on the first incomplete step.
 const ProUpgradeEntry = (): React.JSX.Element | null => {
   const router = useRouter()
+
+  // Not the treatment surface (the sidebar banner is), so this read doesn't
+  // track exposure. purchaseOnly picks the derivation branch and, with it,
+  // whether the website/TCR reads are needed at all.
+  const { ready: flagReady, enabled: purchaseOnly } =
+    useOutreachProGatingV2Flag(false)
 
   // Observe the shared campaign query (same key as CampaignProvider, deduped)
   // so step derivation waits for it. Reading campaign from context instead
@@ -61,6 +68,7 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
   } = useQuery({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
+    enabled: !purchaseOnly,
   })
   const {
     data: tcrCompliance,
@@ -70,6 +78,7 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
   } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
+    enabled: !purchaseOnly,
   })
   // Server-derived eligibility (the same isActiveCampaign predicate the
   // checkout-session guard runs), so an inactive campaign is caught here with
@@ -86,9 +95,17 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
       clientRequest('GET /v1/eligibility', {}).then((res) => res.data),
   })
 
+  // A disabled TanStack query (website/TCR, in purchase-only mode) reports
+  // isPending: true forever, so purchase-only must not wait on those flags.
   const ready =
-    !campaignPending && !websitePending && !tcrPending && !eligibilityPending
-  const hasError = campaignError || websiteError || tcrError || eligibilityError
+    flagReady &&
+    !campaignPending &&
+    !eligibilityPending &&
+    (purchaseOnly || (!websitePending && !tcrPending))
+  const hasError =
+    campaignError ||
+    eligibilityError ||
+    (!purchaseOnly && (websiteError || tcrError))
   // Already-Pro users have nothing left to buy — let derivation route them to
   // the post-payment SUCCESS surface instead of a purchase-blocked screen.
   const purchaseBlocked =
@@ -103,24 +120,34 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     const { filingComplete, pinComplete } =
       getTcrComplianceStatusCompletions(tcrCompliance)
 
-    const step = deriveProUpgradeStep({
-      isPro: Boolean(campaign?.isPro),
-      filingStatus: filingStatusFromDetails(campaign?.details?.hasFiledForRace),
-      // Presence isn't enough: older surfaces persisted shape-valid
-      // placeholder EINs, which would skip the EIN step only to fail
-      // filing-details' sanity validation. A bad EIN routes back to the EIN
-      // step where it can be fixed.
-      hasEin: checkEinSanity(campaign?.details?.einNumber ?? '').valid,
-      filingComplete,
-      profileComplete: isCandidateProfileComplete(website),
-      pinComplete,
-    })
+    const step = deriveProUpgradeStep(
+      {
+        isPro: Boolean(campaign?.isPro),
+        filingStatus: filingStatusFromDetails(
+          campaign?.details?.hasFiledForRace,
+        ),
+        // Presence isn't enough: older surfaces persisted shape-valid
+        // placeholder EINs, which would skip the EIN step only to fail
+        // filing-details' sanity validation. A bad EIN routes back to the EIN
+        // step where it can be fixed.
+        hasEin: checkEinSanity(campaign?.details?.einNumber ?? '').valid,
+        // Purchase-only never reads the website/TCR queries, so these two
+        // never factor into that branch's derivation.
+        filingComplete: purchaseOnly ? false : filingComplete,
+        profileComplete: purchaseOnly
+          ? false
+          : isCandidateProfileComplete(website),
+        pinComplete,
+      },
+      { purchaseOnly },
+    )
 
     router.replace(proUpgradeStepPath(step))
   }, [
     ready,
     hasError,
     purchaseBlocked,
+    purchaseOnly,
     campaign,
     website,
     tcrCompliance,

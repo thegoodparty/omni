@@ -218,27 +218,23 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     const target = await this.findFirst({
       where: {
         id: stopTargetId,
-        stop: {
-          route: {
-            turf: { voterFileFilter: { organizationSlug } },
-          },
-        },
+        stop: { turf: { voterFileFilter: { organizationSlug } } },
       },
       select: {
         personId: true,
         stop: {
-          select: { route: { select: { outreach: { select: { id: true } } } } },
+          select: { turf: { select: { outreach: { select: { id: true } } } } },
         },
       },
     })
     if (!target) {
       throw new NotFoundException('Stop target not found')
     }
-    const outreachId = target.stop.route.outreach?.id
+    const outreachId = target.stop.turf.outreach?.id
     if (outreachId === undefined) {
       throw new Error(
-        `Door-knocking route for stop target ${stopTargetId} has no ` +
-          'outreach envelope; every route is created with one',
+        `Door-knocking turf for stop target ${stopTargetId} has no ` +
+          'outreach envelope; every turf is created with one',
       )
     }
     return { personId: target.personId, outreachId }

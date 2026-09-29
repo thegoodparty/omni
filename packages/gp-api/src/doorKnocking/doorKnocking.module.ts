@@ -21,7 +21,6 @@ import { DoorKnockingInteractionService } from './services/doorKnockingInteracti
 import { DoorKnockingAudienceCheckService } from './services/doorKnockingAudienceCheck.service'
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
 import { DoorKnockingPreviewService } from './services/doorKnockingPreview.service'
-import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
 
 @Module({
   imports: [
@@ -55,7 +54,6 @@ import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
     DoorKnockingAudienceCheckService,
     DoorKnockingPackService,
     DoorKnockingPreviewService,
-    DoorKnockingQuotaService,
   ],
   // The rail's counts aggregate, exported so the outreach detail read can
   // report doors/people/logged for a nativeDoorKnocking envelope off the same

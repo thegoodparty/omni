@@ -10,6 +10,7 @@ import {
 } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
+import { OutreachRobocallPromoService } from './outreachRobocallPromo.service'
 
 // The robocall settle states in which no call has been placed yet: a hold may be
 // reserved (authorized / hold_pending / staging) or the card merely persisted
@@ -35,6 +36,7 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
     private readonly stripe: StripeService,
     private readonly holds: OutreachRobocallHoldService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
+    private readonly promos: OutreachRobocallPromoService,
   ) {
     super()
   }
@@ -78,6 +80,16 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
       // too so the row doesn't linger as "In review" in history.
       if (cancelled) {
         await this.markSpineCanceled(cancelled.outreachId)
+        // Nothing dialed, so a reward code the run had spent is handed back.
+        // Best-effort: the cancel already committed.
+        try {
+          await this.promos.restore(cancelled.outreachId)
+        } catch (err) {
+          this.logger.error(
+            { err, outreachId: cancelled.outreachId },
+            'robocall: failed to restore the promo code after cancel',
+          )
+        }
       }
       if (cancelled?.authorizationIntentId) {
         await this.stripe.voidHold(cancelled.authorizationIntentId)

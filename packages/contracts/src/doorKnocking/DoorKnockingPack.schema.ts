@@ -26,6 +26,42 @@ export const CONTACTS_MADE_BUCKETS = ['0', '1', '2', '3', '4', '5+'] as const
 // the wrong answer for the one bucket candidates select most.
 export const PACK_CONTACTS_MADE_MAX = 100_000
 
+// The precinct dim, whose vocabulary is the district's own `county|precinct`
+// pairs as `encodePrecinctPair` writes them — the same strings
+// `VoterFileFilter.precincts` stores, so the map and the saved list compare
+// one representation and no translation table can drift between them. Byte 0
+// is the no-data slot every other dim uses; a voter with no precinct on file
+// is NOT that, they are a real selectable bucket whose precinct side is
+// empty, exactly as the picker offers it.
+// Whether this door is one the campaign may knock at all. NOT a filter the
+// candidate picks: do-not-knock (ADR 0007) and not-a-voter (ADR 0008) are
+// suppression, applied unconditionally by every server-side evaluation, and
+// the map was the only surface still drawing the people they remove. So the
+// plane is consumed as a mask in `runFilter`/`polygonStats` rather than
+// through a dim selection, and it needs no entry in the filter catalog —
+// which is the review ADR 0007 deferred and this deliberately does not open.
+export const KNOCKABLE_DIM_KEY = 'knockable'
+export const KNOCKABLE_VALUES = ['No', 'Yes'] as const
+
+// The most suppressed people gp-api will describe on the wire. Same number as
+// PACK_CONTACTS_MADE_MAX and for the same reason: it is
+// MAX_RESOLVED_ID_SET_SIZE, the point at which resolving an id set for a real
+// query gives up. These sets are far smaller in practice — a do-not-knock row
+// needs a canvasser at a door pressing a button — so the cap is a ceiling
+// rather than a working limit.
+export const PACK_EXCLUDED_PEOPLE_MAX = 100_000
+
+export const PRECINCT_DIM_KEY = 'precinct'
+
+// The most precincts the pack will shade. Deliberately MAX_PRECINCT_FILTER_VALUES,
+// the number the picker itself is capped to, so the rule is "if the picker can
+// offer it, the map can shade it" and the two cannot drift in the direction
+// that strands a selection nothing narrows by. Past it the plane is OMITTED
+// rather than truncated, the way the contacts-made plane is: a truncated
+// plane reads those people as some other precinct, which is a wrong answer
+// where an absent plane is an honest "cannot shade this" the create flow
+// already knows how to say.
+
 // The exploration-map "pack": one binary buffer, built per request and
 // streamed people-api → gp-api → browser, never stored. Wire framing:
 //
@@ -71,6 +107,20 @@ export const DoorKnockingPackRequestSchema = z
     // gp-api could not answer — see PACK_CONTACTS_MADE_MAX — and the plane is
     // then left out of the pack entirely, which the client reads through the
     // same unpreviewable-filter disclosure that names any other dim it lacks.
+    // The people every server-side evaluation removes before it counts
+    // anything: do-not-knock and not-a-voter, deduped, exactly as
+    // `doorKnockingPreview` and `doorKnockingCreate` build them.
+    //
+    // ABSENT AND EMPTY MEAN DIFFERENT THINGS, as they do for contactsMade.
+    // Empty is an organization that has flagged nobody, which is a fact the
+    // map can shade. Absent means gp-api did not answer, and the plane is
+    // left out rather than filled with "knockable" — a plane of yeses
+    // claims every door is open, which is the wrong way to be wrong about
+    // somebody who said don't come back.
+    excludedPersonIds: z
+      .array(z.guid())
+      .max(PACK_EXCLUDED_PEOPLE_MAX)
+      .optional(),
     contactsMade: z
       .array(
         z
@@ -134,11 +184,19 @@ export const PACK_CORE_ARRAYS = {
   householdToDot: 'householdToDot',
 } as const
 
+// The widest a dim's plane may be. Every dim was u8 until precinct, whose
+// vocabulary is per-district and runs past 256 pairs on a state-level race —
+// see PRECINCT_DIM_KEY below. The plane's width is declared on the dim's
+// entry in `arrays`, and `superRefine` holds `values.length` to whatever that
+// width can index.
+export const PACK_DIM_WIDTHS = { u8: 256, u16: 65_536 } as const
+
 export const DoorKnockingPackDimSchema = z.object({
   key: z.string().min(1),
-  // The dim's byte plane (array named `dim:<key>`, u8, one byte per person)
-  // holds indexes into this list.
-  values: z.array(z.string().min(1)).min(1).max(256),
+  // The dim's plane (array named `dim:<key>`, one ELEMENT per person) holds
+  // indexes into this list. u8 unless the vocabulary needs more than 256
+  // entries, which only precinct does.
+  values: z.array(z.string().min(1)).min(1).max(PACK_DIM_WIDTHS.u16),
 })
 
 export type DoorKnockingPackDim = z.infer<typeof DoorKnockingPackDimSchema>
@@ -176,10 +234,21 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 //       Other-language speaker — the pack's copy of buildLanguageFilter's
 //       `OR ... IS NULL`. Now UNKNOWN/English/Spanish/Other, byte 0 meaning
 //       "no data" as it does in every other dim.
-//   4 — the ethnicity dim is gone. Nobody may subset constituents or voters
-//       by ethnicity (PeopleFilters.schema.ts), and this pack was shipping a
-//       per-person ethnicity byte to the browser, so the plane went with the
-//       filter rather than lingering as an unselectable shading option.
+//   4 — the ethnicity dim was dropped when ethnicity subsetting was removed
+//       from both products (#1933).
+//   6 — the precinct dim, on the format's first non-u8 plane. Precinct is the
+//       only thing a door list is commonly cut by that the pack could not
+//       shade, so a precinct-cut list previewed as the whole district and
+//       every count on the way to the boundary was the district's.
+//   5 — the ethnicity dim is back, because that removal was correct for Serve
+//       and wrong for Win, and Win's create-flow preview shades on it. The
+//       counter does not rewind to 3: a revision-4 buffer carries no
+//       ethnicity plane, so pointing at 3 again would serve those cached
+//       buffers as current and the preview would silently ignore an
+//       ethnicity pill the server count honors. The plane is district-scoped
+//       like party's, and Serve is held off it the same way party is — the
+//       dim is `modes: 'win'`, the create flow does not render the group,
+//       and the served route nulls the per-target value for an `eo-` org.
 //
 // Note this is the vocabulary axis and not `version`: a client reads the
 // bucket list out of the manifest, so one shipping the new keys reads an old
@@ -187,7 +256,7 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 // finds nothing for `languageUnknown`, which is the old pack honestly having
 // no such bucket. Bumping `version` would instead make every tab open across
 // the deploy reject the pack outright, which this change does not warrant.
-export const PACK_FORMAT_REVISION = 4
+export const PACK_FORMAT_REVISION = 6
 
 export const DoorKnockingPackManifestSchema = z
   .object({
@@ -224,11 +293,23 @@ export const DoorKnockingPackManifestSchema = z
     }
     for (const dim of manifest.dims) {
       const plane = byName.get(`dim:${dim.key}`)
-      if (!plane || plane.type !== 'u8') {
+      if (!plane || (plane.type !== 'u8' && plane.type !== 'u16')) {
         ctx.addIssue({
           path: ['dims'],
           code: z.ZodIssueCode.custom,
-          message: `dim "${dim.key}" needs a u8 array named "dim:${dim.key}"`,
+          message:
+            `dim "${dim.key}" needs a u8 or u16 array named ` +
+            `"dim:${dim.key}"`,
+        })
+      } else if (dim.values.length > PACK_DIM_WIDTHS[plane.type]) {
+        // A plane too narrow to index its own vocabulary would silently read
+        // the overflow as some OTHER value, which is worse than no plane.
+        ctx.addIssue({
+          path: ['dims'],
+          code: z.ZodIssueCode.custom,
+          message:
+            `dim "${dim.key}" has ${dim.values.length} values, more than a ` +
+            `${plane.type} plane can index`,
         })
       } else if (plane.elementCount !== manifest.counts.people) {
         ctx.addIssue({

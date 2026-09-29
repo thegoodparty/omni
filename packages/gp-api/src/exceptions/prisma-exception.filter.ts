@@ -5,46 +5,26 @@ import {
   HttpStatus,
 } from '@nestjs/common'
 import { Prisma } from '../generated/prisma'
-import { Prisma as PeoplePrisma } from '../generated/people-prisma'
 import { PinoLogger } from 'nestjs-pino'
 
-// BOTH GENERATED CLIENTS, because gp-api has two and they are different
-// identities. The main client covers everything; the people-db client is the
-// read-only one behind VoterDensityService (see peopleDb/AGENTS.md). Each
-// generated client bundles its own copy of the Prisma runtime, so the people-db
-// `PrismaClientKnownRequestError` is not the main client's class — same shape,
-// same codes, different constructor.
-//
-// Listing only the first set is why every people-db failure used to fall past
-// this filter to Nest's default handler. That is not hypothetical: between
-// 2026-08-24 and 2026-08-28 it dropped 1,498,324 of them on
-// GET /v1/public-person-profiles/voter-density, unclassified.
 const prismaErrorClasses = [
   Prisma.PrismaClientKnownRequestError,
   Prisma.PrismaClientUnknownRequestError,
   Prisma.PrismaClientRustPanicError,
   Prisma.PrismaClientInitializationError,
   Prisma.PrismaClientValidationError,
-  PeoplePrisma.PrismaClientKnownRequestError,
-  PeoplePrisma.PrismaClientUnknownRequestError,
-  PeoplePrisma.PrismaClientRustPanicError,
-  PeoplePrisma.PrismaClientInitializationError,
-  PeoplePrisma.PrismaClientValidationError,
 ]
 
 /**
  * Which kind of Prisma error this is, by NAME rather than by `instanceof`.
  *
- * Same reason the class list above has ten entries and not five: an error from
- * the people-db client fails `instanceof` against the main client's class, so
- * branching on `instanceof` would let this filter catch a people-db error and
- * then classify none of it — falling through to the `throw` at the bottom and
- * straight back to Nest's default handler, which is the bug this is fixing.
- *
- * `prismaErrors.util.ts` documents the same hazard for a different cause (dual
- * ESM/CJS resolution loading the runtime twice), and resolves it the same way.
- * Every Prisma error class sets `name` to its own constructor name, and the two
- * clients agree on both the names and the `code` vocabulary.
+ * `prismaErrors.util.ts` documents the hazard: dual ESM/CJS resolution can load
+ * the Prisma runtime twice, and an error thrown by one copy fails `instanceof`
+ * against the other's class. Branching on `instanceof` would then let this
+ * filter catch the error and classify none of it, falling through to the
+ * `throw` at the bottom and straight back to Nest's default handler. Every
+ * Prisma error class sets `name` to its own constructor name, so matching on
+ * the name survives that.
  */
 const isPrismaError = <T>(exception: unknown, name: string): exception is T =>
   typeof exception === 'object' &&

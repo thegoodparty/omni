@@ -83,7 +83,7 @@ const filterSections = [
           { key: 'languageOther', label: 'Other' },
           // People whose language was never recorded. 'Other' used to return
           // them too, so it reported most of a district; they are their own
-          // bucket now.
+          // bucket now, as they already are under Ethnicity.
           { key: 'languageUnknown', label: 'Unknown' },
         ],
       },
@@ -180,6 +180,18 @@ const filterSections = [
           { key: 'income150kTo200k', label: '$150k - $200k' },
           { key: 'income200kPlus', label: '$200k+' },
           { key: 'incomeUnknown', label: 'Unknown' },
+        ],
+      },
+      {
+        key: 'ethnicity',
+        label: 'Ethnicity',
+        options: [
+          { key: 'ethnicityAfricanAmerican', label: 'African American' },
+          { key: 'ethnicityAsian', label: 'Asian' },
+          { key: 'ethnicityEuropean', label: 'European' },
+          { key: 'ethnicityHispanic', label: 'Hispanic' },
+          { key: 'ethnicityOther', label: 'Other' },
+          { key: 'ethnicityUnknown', label: 'Unknown' },
         ],
       },
     ],

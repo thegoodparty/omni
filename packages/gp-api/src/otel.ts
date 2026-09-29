@@ -1,5 +1,5 @@
-import { hostname } from 'node:os'
 import { metrics } from '@opentelemetry/api'
+import { logs } from '@opentelemetry/api-logs'
 import {
   BatchSpanProcessor,
   type ReadableSpan,
@@ -7,11 +7,7 @@ import {
 } from '@opentelemetry/sdk-trace-base'
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { resourceFromAttributes } from '@opentelemetry/resources'
-import {
-  ATTR_SERVICE_INSTANCE_ID,
-  ATTR_SERVICE_NAME,
-} from '@opentelemetry/semantic-conventions'
-import { ATTR_DEPLOYMENT_ENVIRONMENT_NAME } from '@opentelemetry/semantic-conventions/incubating'
+import { ATTR_SERVICE_INSTANCE_ID } from '@opentelemetry/semantic-conventions'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
@@ -21,6 +17,7 @@ import {
 } from '@opentelemetry/sdk-metrics'
 import {
   BatchLogRecordProcessor,
+  LoggerProvider,
   type LogRecordProcessor,
 } from '@opentelemetry/sdk-logs'
 import type { SdkLogRecord } from '@opentelemetry/sdk-logs/build/src/export/SdkLogRecord'
@@ -36,6 +33,7 @@ import { UndiciInstrumentation } from '@opentelemetry/instrumentation-undici'
 // Relative, not the `@/` alias: this module is preloaded with `node -r` before
 // any path-alias resolver is registered.
 import { isDbxStatementPoll } from './observability/otel/dbxStatementPoll'
+import { otelResourceAttributes } from './observability/otel/resource'
 
 /**
  * Why we want this:
@@ -55,9 +53,17 @@ import { isDbxStatementPoll } from './observability/otel/dbxStatementPoll'
  * - ability to use simple "line contains" queries
  * - still flexibilty to do structured queries by just adding a
  *   "json parse" step to any Loki query
+ *
+ * It also folds `service_instance_id` into that body. The log resource
+ * deliberately omits `service.instance.id` (see the resource comment below),
+ * and this is the only place the value survives on a log line:
+ * `| json | service_instance_id = "..."` still narrows to one task.
  */
 class JsonBodyLogRecordProcessor implements LogRecordProcessor {
-  constructor(private readonly delegate: LogRecordProcessor) {}
+  constructor(
+    private readonly delegate: LogRecordProcessor,
+    private readonly serviceInstanceId: string | undefined,
+  ) {}
 
   onEmit(logRecord: SdkLogRecord, context?: Context): void {
     const jsonBody: Record<string, unknown> = {}
@@ -67,6 +73,7 @@ class JsonBodyLogRecordProcessor implements LogRecordProcessor {
     for (const [key, value] of Object.entries(logRecord.attributes)) {
       jsonBody[key] = value
     }
+    jsonBody.service_instance_id = this.serviceInstanceId
     logRecord.setBody(JSON.stringify(jsonBody))
     this.delegate.onEmit(logRecord, context)
   }
@@ -119,13 +126,20 @@ if (!headers) {
   // instance, whose counters genuinely start at zero) rather than per export.
   // The cost is one series per task per metric, which is the price of the
   // counters being arithmetic rather than decorative.
-  const resource = resourceFromAttributes({
-    [ATTR_SERVICE_NAME]: 'gp-api',
-    [ATTR_SERVICE_INSTANCE_ID]:
-      process.env.OTEL_SERVICE_INSTANCE_ID || hostname(),
-    [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]:
-      process.env.OTEL_SERVICE_ENVIRONMENT || 'local',
+  //
+  // This resource carries METRICS and TRACES only. Logs get `logResource`
+  // below — the same attributes minus the instance id — because Loki
+  // promotes a fixed set of resource attributes to stream labels and
+  // service.instance.id is one of them
+  // (https://grafana.com/docs/loki/latest/send-data/otel/#format-considerations).
+  // On logs it therefore multiplies our stream count by the fleet size against
+  // a hard account cap of 5,000 active streams
+  // (`max_global_streams_per_user`, measured), which is a different failure
+  // than the metric one above and pulls the opposite way.
+  const resourceAttributes = otelResourceAttributes({
+    includeInstanceId: true,
   })
+  const resource = resourceFromAttributes(resourceAttributes)
 
   const prismaConnectionMetricProcessor: SpanProcessor = {
     onStart: () => undefined,
@@ -202,6 +216,38 @@ if (!headers) {
     headers: parsedHeaders,
   })
 
+  // Logs are exported through a LoggerProvider we own, registered globally
+  // BEFORE NodeSDK is constructed, because NodeSDK has exactly one `resource`
+  // and would build the log pipeline from the one above. Two things make this
+  // hold, and both are load-bearing:
+  //   - OTEL_LOGS_EXPORTER=none makes NodeSDK's env-driven log config return
+  //     without configuring anything, so start() never overwrites the global
+  //     provider set here. It is read in the NodeSDK constructor, so it has to
+  //     be set before that line, not before start().
+  //   - registerInstrumentations() falls back to logs.getLoggerProvider(), so
+  //     PinoInstrumentation binds to this provider as long as it is global
+  //     first.
+  // Get the order wrong and gp-api ships no logs at all.
+  const logResource = resourceFromAttributes(
+    otelResourceAttributes({ includeInstanceId: false }),
+  )
+  const loggerProvider = new LoggerProvider({
+    resource: logResource,
+    processors: [
+      new JsonBodyLogRecordProcessor(
+        new BatchLogRecordProcessor(
+          new OTLPLogExporter({
+            url: `${endpoint}/v1/logs`,
+            headers: parsedHeaders,
+          }),
+        ),
+        resourceAttributes[ATTR_SERVICE_INSTANCE_ID],
+      ),
+    ],
+  })
+  logs.setGlobalLoggerProvider(loggerProvider)
+  process.env.OTEL_LOGS_EXPORTER = 'none'
+
   const sdk = new NodeSDK({
     autoDetectResources: false,
     resource,
@@ -222,14 +268,6 @@ if (!headers) {
         aggregation: { type: AggregationType.DROP },
       },
     ],
-    logRecordProcessor: new JsonBodyLogRecordProcessor(
-      new BatchLogRecordProcessor(
-        new OTLPLogExporter({
-          url: `${endpoint}/v1/logs`,
-          headers: parsedHeaders,
-        }),
-      ),
-    ),
     spanProcessors: [
       cardinalityScrubProcessor,
       new BatchSpanProcessor(traceExporter),
@@ -265,6 +303,8 @@ if (!headers) {
   hostMetrics.start()
 
   process.on('SIGTERM', () => {
-    sdk.shutdown().catch((err) => console.error('OTel shutdown error', err))
+    Promise.all([sdk.shutdown(), loggerProvider.shutdown()]).catch((err) =>
+      console.error('OTel shutdown error', err),
+    )
   })
 }

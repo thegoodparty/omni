@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom/vitest'
-import { configure } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { testQueryClient } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
-import { beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
 
 // waitFor/findBy default to a 1s deadline, which is a bet on machine speed
 // rather than anything the assertions mean. Suites that poll for a debounced
@@ -74,6 +74,28 @@ if (typeof CSSStyleDeclaration !== 'undefined') {
 
 beforeEach(() => {
   testQueryClient.clear()
+})
+
+// Radix defers its unmount autofocus to a setTimeout(…, 0) — a React 16 focus
+// workaround it still carries. When a file's last test unmounts a dialog or
+// drawer, that timer can outlive the jsdom environment, and it then builds a
+// CustomEvent from the replacement global and dispatches it at an element from
+// the old one: "Failed to execute 'dispatchEvent': parameter 1 is not of type
+// 'Event'". Vitest reports that as an unhandled error, which fails the whole
+// shard while every test passes — it is how AssistantDrawer.test.tsx took the
+// release train down. Unmounting here and then yielding one macrotask drains
+// the timer while its realm is still alive. cleanup() is idempotent and runs
+// before the await, so this holds whatever order Testing Library's own
+// auto-cleanup hook happens to run in.
+// Skipped under a fake clock, where the yield would never resolve and would
+// instead hang the hook until it times out. Nothing is lost: a deferred timer
+// on a fake clock only runs if a test advances it, and the clock is thrown
+// away with the file, so it can never reach a dead realm the way a real one
+// can.
+afterEach(async () => {
+  cleanup()
+  if (vi.isFakeTimers()) return
+  await new Promise((resolve) => setTimeout(resolve, 0))
 })
 
 vi.mock('next/navigation', () => ({

@@ -43,6 +43,7 @@ All routes are mounted under the global prefix `v1` (set in `src/main.ts`). Cont
 | `GET /v1/races` | `src/races/` |
 | `GET /v1/projectedTurnout` | `src/projectedTurnout/` |
 | `GET /v1/voter-issues` | `src/voterIssues/` |
+| `GET /v1/persons`, `/persons/by-slug/:slug`, `/persons/:id`, `/persons/:id/voter-district`, `/persons/:id/voter-density`, `/persons/:id/contact-email` | `src/persons/` |
 
 ## Auth
 

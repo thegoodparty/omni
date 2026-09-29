@@ -78,3 +78,91 @@ export const templateDbName = (): string =>
     .update(loadMigrationsSql())
     .digest('hex')
     .slice(0, 16)}`)
+
+const MAINTENANCE_PATH = '/postgres'
+
+// Derives the URL of one database on the same server. Anchored on purpose:
+// an unanchored replace('/postgres', ...) also matches the '//postgres' in
+// the userinfo of a URL like postgresql://postgres:pw@127.0.0.1:5432/postgres,
+// so against a sidecar running as the image superuser a blind replace rewrites
+// the username and every connection fails 28P01 instead.
+export const withDatabase = (baseUri: string, database: string): string => {
+  if (!baseUri.endsWith(MAINTENANCE_PATH)) {
+    throw new Error(
+      'The test Postgres URI must end in /postgres — every per-database URL ' +
+        'is derived from it by swapping that suffix, and a URI that does ' +
+        'not would silently leave the harness on the maintenance database.',
+    )
+  }
+  return `${baseUri.slice(0, -MAINTENANCE_PATH.length)}/${database}`
+}
+
+// Declared in both packages' harnesses rather than shared: gp-api and
+// election-api are independently deployable and neither imports the other's
+// source. The other copy is packages/election-api/src/test-postgres.ts — keep
+// the name identical there.
+export const TEST_POSTGRES_URL_VAR = 'OMNI_TEST_POSTGRES_URL'
+
+// DB SAFETY: a testcontainer always binds a random loopback port, so the
+// harness could never reach anything else. An operator-supplied URL has to
+// prove the same thing, because this harness replays every migration and
+// issues CREATE/DROP DATABASE.
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '::1', '[::1]']
+
+// Every failure here throws rather than falling back to a container: a silent
+// fallback inside a sandbox with no Docker socket surfaces as "Could not find
+// a working container runtime", which says nothing about the real mistake.
+export const externalTestPostgresUrl = (
+  env: NodeJS.ProcessEnv,
+): string | null => {
+  const raw = env[TEST_POSTGRES_URL_VAR]?.trim()
+  if (!raw) return null
+
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error(
+      `${TEST_POSTGRES_URL_VAR} is not a parseable URL. Expected ` +
+        'something like postgresql://user:pass@127.0.0.1:5432/postgres.',
+    )
+  }
+
+  if (url.protocol !== 'postgresql:' && url.protocol !== 'postgres:') {
+    throw new Error(
+      `${TEST_POSTGRES_URL_VAR} must use postgresql:// or postgres:// ` +
+        `(got ${url.protocol}//).`,
+    )
+  }
+
+  if (!LOOPBACK_HOSTS.includes(url.hostname)) {
+    throw new Error(
+      `${TEST_POSTGRES_URL_VAR} must point at a loopback host (got ` +
+        `${url.hostname}). This harness replays migrations and issues ` +
+        'CREATE/DROP DATABASE, so it may never be able to reach a dev or ' +
+        'prod cluster.',
+    )
+  }
+
+  if (url.pathname !== '/postgres' || url.search || url.hash) {
+    throw new Error(
+      `${TEST_POSTGRES_URL_VAR} must end in /postgres with no query ` +
+        `string (got "${url.pathname}${url.search}${url.hash}"). ` +
+        'test-global-setup.ts and test-service.ts derive every ' +
+        'per-database URL by swapping that suffix (see withDatabase), so ' +
+        'the maintenance database has to be named postgres.',
+    )
+  }
+
+  return raw
+}
+
+// The one place either caller resolves a server. A sandbox with no Docker
+// socket (an ECS Fargate task running a Postgres sidecar on loopback) sets
+// TEST_POSTGRES_URL_VAR, and these suites then run against a server the
+// harness did not start.
+export const testPostgresUri = async (): Promise<string> => {
+  const external = externalTestPostgresUrl(process.env)
+  if (external) return external
+  return (await startTestPostgres()).getConnectionUri()
+}

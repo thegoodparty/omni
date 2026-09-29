@@ -93,7 +93,7 @@ def build_values(rows: list[dict]) -> list[list[str]]:
 GAPS_COLUMNS = [
     "rank", "surface", "surface_type", "disposition", "reason",
     "judge_reason", "rubric_rule", "dashboard_question", "location",
-    "first_seen", "last_seen",
+    "first_seen", "last_seen", "resolved_at", "resolved_cause",
 ]
 # The tab column name "surface" is the entry's user-facing id; every other column is a
 # direct state key.
@@ -307,7 +307,12 @@ def question_rows_for_refresh() -> list[dict]:
 
     result = esa.assemble(date.today())
     by_type = {r["event_type"]: r for r in result["rows"]}
-    return bqs.question_rows(brg.load_validated_behaviors(aeh.WATCHLIST), by_type)
+    # by_type only ever holds bare catalog events, so a page_path surface's dormancy is
+    # invisible here without the monitor's latches from the health state file.
+    latches = aeh.load_prior_latches(aeh.DEFAULT_STATE)
+    return bqs.question_rows(
+        brg.load_validated_behaviors(aeh.WATCHLIST), by_type, latches=latches
+    )
 
 
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:

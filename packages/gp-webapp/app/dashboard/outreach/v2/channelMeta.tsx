@@ -3,16 +3,20 @@ import { Badge, StatusText } from '@styleguide'
 import {
   ArchiveIcon,
   CalendarClockIcon,
+  CalendarDaysIcon,
   CheckCircleIcon,
   CircleDotIcon,
   CircleIcon,
   ClockIcon,
   DoorOpenIcon,
   HeadsetIcon,
+  LockIcon,
+  Loader2Icon,
   MessageSquareIcon,
   PencilIcon,
   PhoneIcon,
   Share2Icon,
+  ShieldCheckIcon,
   XCircleIcon,
   ShieldAlertIcon,
 } from '@styleguide/components/ui/icons'
@@ -27,7 +31,8 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 // …) so a retune of `destructive` for error surfaces does not silently
 // recolour phone banking. Bg is one-to-one with the tile's icon circle —
 // the row's badge must look like the same channel speaking, not a
-// different one — using `bg-brand-<palette>-100`. Text is
+// different one — using `bg-brand-<palette>-200`, the prototype's
+// `CHANNEL_TINT` wash (its `-light` tokens are the 200 step). Text is
 // `text-foreground` on every badge, matching the ChannelCard icon glyph's
 // constant `text-foreground` (see `styleguide/components/ui/channel-card.tsx`)
 // so the label reads flat and neutral instead of tinted. Add a new
@@ -46,44 +51,44 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
   socialMedia: {
     label: 'Social media',
     icon: <Share2Icon />,
-    iconTint: 'bg-brand-lavender-100',
-    badgeTint: 'bg-brand-lavender-100 text-foreground',
+    iconTint: 'bg-brand-lavender-200',
+    badgeTint: 'bg-brand-lavender-200 text-foreground',
   },
   text: {
     label: 'SMS',
     icon: <MessageSquareIcon />,
-    iconTint: 'bg-brand-blue-100',
-    badgeTint: 'bg-brand-blue-100 text-foreground',
+    iconTint: 'bg-brand-blue-200',
+    badgeTint: 'bg-brand-blue-200 text-foreground',
   },
   p2p: {
     label: 'SMS',
     icon: <MessageSquareIcon />,
-    iconTint: 'bg-brand-blue-100',
-    badgeTint: 'bg-brand-blue-100 text-foreground',
+    iconTint: 'bg-brand-blue-200',
+    badgeTint: 'bg-brand-blue-200 text-foreground',
   },
   robocall: {
     label: 'Robocall',
     icon: <PhoneIcon />,
-    iconTint: 'bg-brand-waxflower-100',
-    badgeTint: 'bg-brand-waxflower-100 text-foreground',
+    iconTint: 'bg-brand-waxflower-200',
+    badgeTint: 'bg-brand-waxflower-200 text-foreground',
   },
   phoneBanking: {
     label: 'Phone banking',
     icon: <HeadsetIcon />,
-    iconTint: 'bg-brand-red-100',
-    badgeTint: 'bg-brand-red-100 text-foreground',
+    iconTint: 'bg-brand-red-200',
+    badgeTint: 'bg-brand-red-200 text-foreground',
   },
   nativePhoneBanking: {
     label: 'Phone banking',
     icon: <HeadsetIcon />,
-    iconTint: 'bg-brand-red-100',
-    badgeTint: 'bg-brand-red-100 text-foreground',
+    iconTint: 'bg-brand-red-200',
+    badgeTint: 'bg-brand-red-200 text-foreground',
   },
   doorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconTint: 'bg-brand-halo-green-100',
-    badgeTint: 'bg-brand-halo-green-100 text-foreground',
+    iconTint: 'bg-brand-halo-green-200',
+    badgeTint: 'bg-brand-halo-green-200 text-foreground',
   },
   // Same presentation as the legacy type: a candidate reading the history has
   // no use for the distinction between an eCanvasser draft and a native walk,
@@ -91,8 +96,8 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
   nativeDoorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconTint: 'bg-brand-halo-green-100',
-    badgeTint: 'bg-brand-halo-green-100 text-foreground',
+    iconTint: 'bg-brand-halo-green-200',
+    badgeTint: 'bg-brand-halo-green-200 text-foreground',
   },
 }
 
@@ -108,7 +113,16 @@ export const getChannelLabel = (type: string | undefined): string => {
 // own default) for legible label padding. The `shape="pill"` variant
 // (h-5 px-1.5) is intentionally tight for numeric notification chips and
 // reads as a compressed capsule around channel words like "Phone banking".
-export const ChannelBadge = ({ type }: { type: string | undefined }) => (
+// `locked` trails the label with the prototype's lock glyph (`channelBadge`):
+// the flow header shows it while the candidate cannot send on this channel
+// yet, and drops it on the gate screens themselves.
+export const ChannelBadge = ({
+  type,
+  locked = false,
+}: {
+  type: string | undefined
+  locked?: boolean
+}) => (
   <Badge
     className={
       CHANNEL_META[type as OutreachType]?.badgeTint ??
@@ -116,6 +130,7 @@ export const ChannelBadge = ({ type }: { type: string | undefined }) => (
     }
   >
     {getChannelLabel(type)}
+    {locked && <LockIcon className="size-[13px] shrink-0" aria-hidden />}
   </Badge>
 )
 
@@ -154,6 +169,14 @@ const STATUS_DISPLAY: Record<
   // envelope in the same transaction as the turf, so the state is the table's
   // too.
   Archived: { icon: <ArchiveIcon />, tone: 'muted' },
+  // The five draft next-step labels (historyStatus.util.ts's DRAFT_LABELS) —
+  // each names what the candidate must clear next, so 'primary' (not
+  // 'destructive'/'warning') reads as a normal step rather than a problem.
+  'Pro needed': { icon: <LockIcon />, tone: 'primary' },
+  'Verification needed': { icon: <ShieldAlertIcon />, tone: 'primary' },
+  'Verification in review': { icon: <Loader2Icon />, tone: 'primary' },
+  'PIN needed': { icon: <ShieldCheckIcon />, tone: 'primary' },
+  'Ready to schedule': { icon: <CalendarDaysIcon />, tone: 'primary' },
 }
 
 export const HistoryStatusText = ({ label }: { label: string | null }) => {

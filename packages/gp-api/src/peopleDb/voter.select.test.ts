@@ -39,6 +39,13 @@ describe('DOWNLOAD_COLUMNS', () => {
     ).map(({ column }) => column)
     expect(leaked).toEqual([])
   })
+
+  // Not covered by the regex above, and it must not be: a Serve CSV may not
+  // carry ethnicity either (#1933), and the only thing standing between the
+  // column and an `eo-` export is its membership in this set.
+  it('marks the ethnicity column excludable', () => {
+    expect(EXCLUDABLE_VOTER_COLUMNS).toContain('EthnicGroups_EthnicGroup1Desc')
+  })
 })
 
 describe('excludeColumns filtering (mirrors peopleDownload.service usage)', () => {

@@ -27,6 +27,7 @@ import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
+import { MembershipChip } from './membership/MembershipChip'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 
 export interface DashboardNavHeaderConfig {
@@ -187,10 +188,12 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/community-issues', 'Community Issues'],
   ['/dashboard/public-profile', NAV_LABELS.publicProfile],
   ['/dashboard/ordinances', 'Ordinances'],
+  ['/dashboard/priorities', NAV_LABELS.priorities],
   ['/dashboard/constituent-outreach', NAV_LABELS.constituentOutreach],
   ['/dashboard/race-opponent', NAV_LABELS.knowYourOpponent],
   ['/dashboard/campaign-story', NAV_LABELS.campaignStory],
   ['/dashboard/outreach', NAV_LABELS.voterOutreach],
+  ['/dashboard/campaign-verification', 'Campaign verification'],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs
   // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],
@@ -258,14 +261,17 @@ const MobileMenuTrigger = () => {
             </>
           )}
         </div>
-        <button
-          data-testid="mobile-menu-trigger"
-          onClick={() => setOpenMobile(true)}
-          className="flex items-center justify-center rounded-full size-9"
-          aria-label="Open menu"
-        >
-          <MenuIcon size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          <MembershipChip />
+          <button
+            data-testid="mobile-menu-trigger"
+            onClick={() => setOpenMobile(true)}
+            className="flex items-center justify-center rounded-full size-9"
+            aria-label="Open menu"
+          >
+            <MenuIcon size={20} />
+          </button>
+        </div>
       </div>
       {openMobile && (
         <button

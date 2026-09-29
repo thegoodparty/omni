@@ -50,8 +50,10 @@ const renderForm = (
 }
 
 beforeEach(() => {
-  // jsdom does not implement scrollTo; the invalid-submit path calls it.
+  // jsdom does not implement scrollTo; the invalid-submit path calls it. The
+  // verification variant scrolls its form marker into view instead.
   window.scrollTo = vi.fn()
+  Element.prototype.scrollIntoView = vi.fn()
 })
 
 describe('TextingComplianceRegistrationForm — submit behavior', () => {
@@ -433,5 +435,147 @@ describe('TextingComplianceRegistrationForm — composed section (ENG-10857)', (
 
     expect(onValidateExtra).toHaveBeenCalledTimes(1)
     expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('TextingComplianceRegistrationForm — section headings', () => {
+  it('renders no section headings by default (the legacy election-filing page)', () => {
+    renderForm({})
+
+    expect(
+      screen.queryByText('What are your campaign filing details?'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('What is your campaign filing contact information?'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the caller-provided filing-details and contact-information headings', () => {
+    render(
+      <FormDataProvider
+        initialState={validInitialState()}
+        validator={(d) =>
+          validateRegistrationForm(d, { requireWebsite: false })
+        }
+      >
+        <TextingComplianceRegistrationForm
+          title="What are your campaign filing details?"
+          caption="If these do not match the details you submitted on your campaign filing or registration, it will take much longer before you can send text messages."
+          contactTitle="What is your campaign filing contact information?"
+          contactCaption="Enter the email, phone, or address exactly as it appears on your filing document. A PIN will be sent to one of these to verify your campaign."
+        />
+      </FormDataProvider>,
+    )
+
+    expect(
+      screen.getByText('What are your campaign filing details?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'If these do not match the details you submitted on your campaign filing or registration, it will take much longer before you can send text messages.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('What is your campaign filing contact information?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Enter the email, phone, or address exactly as it appears on your filing document. A PIN will be sent to one of these to verify your campaign.',
+      ),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('TextingComplianceRegistrationForm — verification variant', () => {
+  const renderVerification = (
+    initialState: FormDataState,
+    onBack = vi.fn(),
+    onSubmit: SubmitMock = vi.fn<(formData: FormDataState) => void>(),
+  ) => {
+    render(
+      <FormDataProvider
+        initialState={initialState}
+        validator={(d) =>
+          validateRegistrationForm(d, { requireWebsite: false })
+        }
+      >
+        <TextingComplianceRegistrationForm
+          variant="verification"
+          onSubmit={onSubmit}
+          onBack={onBack}
+          requireWebsite={false}
+        />
+      </FormDataProvider>,
+    )
+    return { onBack, onSubmit }
+  }
+
+  it('holds Submit for verification until every field has a value, then submits', async () => {
+    const user = userEvent.setup()
+    const { onSubmit } = renderVerification(
+      validInitialState({ campaignCommitteeName: '' }),
+    )
+
+    const submit = screen.getByRole('button', {
+      name: 'Submit for verification',
+    })
+    expect(submit).toBeDisabled()
+
+    await user.type(
+      screen.getByPlaceholderText('Jane for Council'),
+      'Jane for Council',
+    )
+
+    expect(submit).toBeEnabled()
+    await user.click(submit)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('enables on a filled but invalid form and explains what is wrong on click', async () => {
+    const user = userEvent.setup()
+    const { onSubmit } = renderVerification(
+      validInitialState({ phone: '123', electionFilingLink: 'https://x.gov' }),
+    )
+
+    const submit = screen.getByRole('button', {
+      name: 'Submit for verification',
+    })
+    expect(submit).toBeEnabled()
+
+    await user.click(submit)
+
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(
+      screen.getByText('Please fix the following fields:'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Filing Phone')).toBeInTheDocument()
+    expect(screen.getByText('Election Filing Link')).toBeInTheDocument()
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+  })
+
+  it('fires onBack from its inline footer', async () => {
+    const user = userEvent.setup()
+    const { onBack } = renderVerification(validInitialState())
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(onBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('draws the design labels and hides a valid prefilled EIN', () => {
+    renderVerification(validInitialState())
+
+    expect(screen.getByText('Campaign filing link')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('https://')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('you@campaign.org')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('123 Main St')).toBeInTheDocument()
+    expect(screen.queryByText('Campaign EIN')).not.toBeInTheDocument()
+    expect(screen.queryByText(/A PIN is required/)).not.toBeInTheDocument()
+  })
+
+  it('still asks for the EIN when none is on file', () => {
+    renderVerification(validInitialState({ ein: '' }))
+
+    expect(screen.getByText('Campaign EIN')).toBeInTheDocument()
   })
 })

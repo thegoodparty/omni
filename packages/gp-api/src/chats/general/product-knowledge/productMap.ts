@@ -122,6 +122,8 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
     inside: [
+      'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
+      'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
     ],
@@ -155,6 +157,11 @@ const WIN_AREAS: ProductArea[] = [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
       'Each channel starts by asking who to reach, which reads from your saved lists',
+      'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
+      'A saved one waits in the outreach history, labeled with what it still needs — Pro needed, Verification needed, Verification in review, PIN needed, or Ready to schedule',
+      'Click that row to reopen the flow and pick up where you left off, or delete it from there',
+      'One saved text and one saved robocall at a time, kept for 90 days',
+      'SMS and Robocall take a promo code on their payment step, in a Promo Code box above the card details. A code that covers the whole cost schedules the send with no card',
     ],
   },
   {
@@ -211,9 +218,27 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'Upgrade to Pro, which is what unlocks filtering the voter file and Know Your Opponent.',
     inside: [
-      'One flow: the Pro pitch, then EIN, filing details, and candidate profile for texting compliance, then payment',
-      'All of the compliance data is collected before paying',
+      'One flow, and which screens it asks for depends on the campaign: some candidates answer whether they have filed, give their campaign EIN, and pay, and nothing else',
+      'Other candidates are asked for their filing details and candidate profile before paying, in the same flow',
+      'When those are not asked for up front they are collected afterwards, under Campaign verification',
+      'The same flow can open inside a text or robocall you are building, so upgrading does not lose the work',
+      'The Welcome to Pro screen shows the receipt for the $10 monthly charge, with the card used and a download',
     ],
+  },
+  {
+    // No tab: candidates reach this from the membership status shown at the
+    // bottom of the left rail (or, on a phone, in the top bar), and from the
+    // end of the Pro upgrade flow.
+    navId: null,
+    name: 'Campaign verification',
+    path: '/dashboard/campaign-verification',
+    modes: ['win'],
+    does: 'Register a Pro campaign with the phone carriers, which is what makes texting possible.',
+    inside: [
+      'Campaign filing details: the committee name, the filing link, and where to send the PIN',
+      'Carrier review takes about 1 to 2 weeks, then a PIN arrives to finish it',
+    ],
+    gate: 'No tab, and not every candidate is offered it. Filing details can be submitted before paying, but carrier registration only starts once Pro is paid for.',
   },
   {
     navId: 'nav-dash-team',
@@ -265,6 +290,20 @@ const SERVE_AREAS: ProductArea[] = [
       'View all issues and View all open the full lists',
       'An issue’s detail page shows its category, rank, sources, and the briefings it touches',
     ],
+  },
+  {
+    navId: 'priorities-dashboard',
+    name: 'Priorities',
+    path: '/dashboard/priorities',
+    modes: ['serve'],
+    does: 'Hold the things you are trying to get done this term, and work one of them forward with help.',
+    inside: [
+      'Add a priority writes down what you want to get done and why it matters',
+      'An issue from Community Issues can be pulled in as a priority',
+      'Each row shows the step it is on and the next thing to do about it',
+      'Opening a priority works it forward one step at a time',
+    ],
+    gate: 'Priorities is being rolled out, so it is not on every account yet.',
   },
   {
     navId: 'ordinances-dashboard',
@@ -341,6 +380,8 @@ const CROSS_PRODUCT_AREAS: ProductArea[] = [
       'Custom door-knocking surveys, so volunteers log answers in the field',
       'Summaries of interactions by day and by survey answer',
       'A campaign can hold several turfs. Mark the whole campaign done, or one turf at a time, from its row in outreach history. Done does not require every door to have been knocked',
+      'Creating a campaign ends at drawing the turfs. The walking route is planned the first time somebody starts knocking a turf, which is also when they are asked whether they are walking or driving',
+      'Each turf can be handed to a different person, from its card in the campaign’s row in outreach history',
     ],
   },
 ]

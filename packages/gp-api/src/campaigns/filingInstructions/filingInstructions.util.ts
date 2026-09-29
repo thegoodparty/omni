@@ -55,6 +55,30 @@ export const buildFilingInstructionsContent = (
  * filing-instructions content. Sections with no data are omitted so the
  * candidate never sees empty labels.
  */
+// The six steps the wizard's "How to get a free EIN" card lists, verbatim
+// (gp-webapp's EinHowToCollapsible), so the email and the screen never say
+// two different things.
+const EIN_STEPS = [
+  "Go to IRS.gov and open the EIN Assistant (search 'Apply for an EIN online').",
+  "Choose 'View additional types', then select 'Political organization' as your entity type.",
+  "Enter the responsible party's name and SSN or ITIN.",
+  "Enter your campaign committee's legal name and address.",
+  'Answer the short questionnaire about your organization.',
+  "Submit, you'll get your EIN right away and can download the confirmation letter.",
+]
+
+export const renderEinInstructionsEmail = (): string =>
+  [
+    'Here is how to get a free EIN for your campaign from the IRS.',
+    '',
+    ...EIN_STEPS.map((step, index) => `${index + 1}. ${step}`),
+    '',
+    'The online tool is open Monday to Friday and issues your EIN immediately.',
+    'Start here: https://sa.www4.irs.gov/applyein/legalStructure',
+    '',
+    'Once you have it, come back to GoodParty.org and enter it to finish unlocking Pro.',
+  ].join('\n')
+
 export const renderFilingInstructionsEmail = (
   content: FilingInstructionsContent,
 ): string => {

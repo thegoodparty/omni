@@ -144,12 +144,6 @@ gp-api and election-api build a production Docker image, push to ECR
 whose prod stage promotes the same image (see below), not a push to a prod branch.
 Both stages call the same composite deploy action, only with different env inputs.
 
-people-api's repo package and `.github/workflows/people-api.yml` pipeline were
-removed once gp-api absorbed direct people-db access (`packages/gp-api/src/peopleDb/`).
-The people-api ECS service and its Aurora cluster remain deployed as a frozen,
-manually decommissioned service pending teardown — see
-`packages/gp-api/src/peopleDb/AGENTS.md`.
-
 - ECR tags are **immutable**. Deploy jobs check whether the SHA's tag already
   exists and skip the build/push if so — this is what makes re-running a deploy
   job possible after the image was pushed (same SHA, same source, same image).

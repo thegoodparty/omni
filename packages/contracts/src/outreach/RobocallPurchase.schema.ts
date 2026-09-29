@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ROBOCALL_SCRIPT_MAX_LENGTH } from './RobocallScript.schema'
+import { ROBOCALL_SCRIPT_MAX_LENGTH } from './OutreachScript.const'
 
 // POST /v1/outreach/robocall — creates the robocall as a `pending_payment`
 // draft BEFORE payment (mirrors the p2p draft-first flow), storing everything
@@ -40,9 +40,26 @@ export const RobocallDraftCreateRequestSchema = z.object({
       message: 'campaignPlanDueDate must be a valid calendar date',
     })
     .optional(),
+  // Converts an existing `draft` row in place instead of inserting (resume).
+  draftOutreachId: z.number().int().positive().optional(),
 })
 export type RobocallDraftCreateRequest = z.infer<
   typeof RobocallDraftCreateRequestSchema
+>
+
+// The robocall satellite as `GET /v1/outreach/:id` reads it back: the two
+// fields a resume cannot re-derive (the recording it was saved with and the
+// number the candidate already read aloud, both of which the resume's own
+// create has to send again), plus the landline count the purchase priced,
+// which is the history's People figure for a call. Null on a draft, which
+// has not been priced yet.
+export const OutreachRobocallDetailSchema = z.object({
+  audioKey: z.string(),
+  callbackNumber: z.string(),
+  billableCount: z.number().int().nullable(),
+})
+export type OutreachRobocallDetail = z.infer<
+  typeof OutreachRobocallDetailSchema
 >
 
 export const RobocallDraftCreateResponseSchema = z.object({
@@ -57,7 +74,37 @@ export const RobocallDraftCreateResponseSchema = z.object({
   billableCount: z.number().int().min(0),
   amountInCents: z.number().int().min(0),
   numberFeeInCents: z.number().int().min(0),
+  // A reward promotion code remembered on the draft (null when none). The
+  // discount and the amount left to authorize are server-derived: the client
+  // never subtracts money itself. `coversTotal` means nothing is left to hold,
+  // so the pay step schedules without a card.
+  promoCode: z.string().nullable(),
+  promoDiscountInCents: z.number().int().min(0),
+  amountDueInCents: z.number().int().min(0),
+  coversTotal: z.boolean(),
 })
 export type RobocallDraftCreateResponse = z.infer<
   typeof RobocallDraftCreateResponseSchema
+>
+
+// POST /v1/outreach/robocall/:outreachId/promo applies a reward promotion code
+// to a pending_payment draft; DELETE removes it. Both return the draft's promo
+// state. Applying only remembers the code and prices the discount — the code is
+// consumed (and deactivated in Stripe) when the hold places or the fully
+// covered run is scheduled, so abandoning the flow costs the candidate nothing.
+export const RobocallPromoApplyRequestSchema = z.object({
+  code: z.string().trim().min(1).max(64),
+})
+export type RobocallPromoApplyRequest = z.infer<
+  typeof RobocallPromoApplyRequestSchema
+>
+
+export const RobocallPromoStateResponseSchema = z.object({
+  promoCode: z.string().nullable(),
+  promoDiscountInCents: z.number().int().min(0),
+  amountDueInCents: z.number().int().min(0),
+  coversTotal: z.boolean(),
+})
+export type RobocallPromoStateResponse = z.infer<
+  typeof RobocallPromoStateResponseSchema
 >

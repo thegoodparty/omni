@@ -8,6 +8,7 @@ import {
   seedEinAndFiled,
   seedFilingComplete,
 } from 'src/helpers/pro-upgrade.helper'
+import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
 // E2E coverage for the Pro-upgrade wizard's step derivation, resume, and isPro
 // routing (ENG-10322 AC #3/#4). The wizard has no server-side session: every
@@ -32,6 +33,15 @@ type CampaignWizardState = {
     hasFiledForRace?: boolean | null
   }
 }
+
+// The legacy wizard these specs assert only renders while
+// outreach-pro-gating-v2 is off — pinned here so the suite reads the same
+// whatever the flag's live dev rollout is (the 2026-09-28 dev ramp turned
+// every PR's shard red when these ran against the v2 purchase-only flow).
+// The v2 flow needs its own specs pinned on; tracked as follow-up.
+test.beforeEach(async ({ page }) => {
+  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'off' })
+})
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)

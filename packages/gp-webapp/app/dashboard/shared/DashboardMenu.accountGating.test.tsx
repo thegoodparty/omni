@@ -56,6 +56,9 @@ vi.mock('@clerk/nextjs', () => ({
 vi.mock('@styleguide/hooks/use-mobile', () => ({
   useIsMobile: () => mockUseIsMobile(),
 }))
+vi.mock('./membership/MembershipBanner', () => ({
+  MembershipBanner: () => null,
+}))
 
 const renderMenu = () =>
   render(

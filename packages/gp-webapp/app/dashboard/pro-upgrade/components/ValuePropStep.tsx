@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import {
   Button,
   ProBadge,
@@ -80,8 +79,7 @@ const ROW_GRID =
   'grid grid-cols-[1fr_64px_64px] md:grid-cols-[1fr_100px_100px] items-center'
 
 const ValuePropStep = (): React.JSX.Element => {
-  const router = useRouter()
-  const { goToNextStep } = useProUpgradeWizard()
+  const { goToNextStep, exit } = useProUpgradeWizard()
 
   useEffect(() => {
     trackEvent(EVENTS.ProUpgrade.Compliance.ValuePropViewed)
@@ -94,7 +92,7 @@ const ValuePropStep = (): React.JSX.Element => {
 
   const handleMaybeLater = () => {
     trackEvent(EVENTS.ProUpgrade.Compliance.ValuePropMaybeLater)
-    router.push('/dashboard')
+    exit()
   }
 
   return (

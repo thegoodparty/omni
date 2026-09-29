@@ -91,12 +91,14 @@ const createDraft = async ({
   authorizedAmountInCents = calcRobocallTotalInCents(100),
   authorizationIntentId = 'pi_1' as string | null,
   captureBefore = addDays(new Date(), 3),
+  promoCoversTotal = false,
 }: {
   settleState?: RobocallSettleState
   completedCallCount?: number | null
   authorizedAmountInCents?: number | null
   authorizationIntentId?: string | null
   captureBefore?: Date | null
+  promoCoversTotal?: boolean
 } = {}): Promise<number> => {
   const spine = await service.prisma.outreach.create({
     data: {
@@ -121,6 +123,7 @@ const createDraft = async ({
       authorizedAmountInCents,
       captureBefore,
       callhubCampaignPkStr: 'vb_1',
+      promoCoversTotal,
     },
   })
   return spine.id
@@ -139,6 +142,26 @@ const setSpineStatus = (outreachId: number, status: OutreachStatus) =>
   })
 
 describe('OutreachRobocallCaptureService.captureDraft', () => {
+  it('settles a promo-covered run as captured at $0 without touching Stripe', async () => {
+    const outreachId = await createDraft({
+      authorizationIntentId: null,
+      authorizedAmountInCents: 0,
+      captureBefore: null,
+      promoCoversTotal: true,
+    })
+    await setSpineStatus(outreachId, OutreachStatus.in_progress)
+
+    await capture.captureDraft(outreachId)
+
+    expect(retrieveSpy).not.toHaveBeenCalled()
+    expect(captureSpy).not.toHaveBeenCalled()
+    expect(voidSpy).not.toHaveBeenCalled()
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.captured)
+    expect(satellite.capturedAmountInCents).toBe(0)
+    expect((await readSpine(outreachId)).status).toBe(OutreachStatus.completed)
+  })
+
   it('captures the actual amount off a live hold and records the receipt once', async () => {
     const outreachId = await createDraft({ completedCallCount: 100 })
 
@@ -445,6 +468,24 @@ describe('OutreachRobocallCaptureService.sweepCaptures', () => {
     // A second sweep no longer finds it in settling, so no second capture.
     await capture.sweepCaptures()
     expect(captureSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('picks up a promo-covered run that has no hold and settles it at $0', async () => {
+    const outreachId = await createDraft({
+      completedCallCount: 100,
+      authorizationIntentId: null,
+      authorizedAmountInCents: 0,
+      captureBefore: null,
+      promoCoversTotal: true,
+    })
+
+    await capture.sweepCaptures()
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.captured)
+    expect(satellite.capturedAmountInCents).toBe(0)
+    expect(captureSpy).not.toHaveBeenCalled()
+    expect(retrieveSpy).not.toHaveBeenCalled()
   })
 
   it('captures nearest-expiry holds first (expiry-priority, not FIFO)', async () => {

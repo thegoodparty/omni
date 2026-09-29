@@ -1,3 +1,4 @@
+import { KNOCKABLE_DIM_KEY } from '@goodparty_org/contracts'
 import { DecodedPack } from './packDecoder'
 import { groupAgeSlices, type DimSlice } from './audienceMix'
 import { statusByteActionability } from './statusPresentation'
@@ -26,9 +27,25 @@ export interface FilterResult {
 }
 
 interface ActiveDim {
-  plane: Uint8Array
+  // Wide only for precinct. The mask is indexed BY the plane's value, so the
+  // inner loop (`mask[plane[i]]`) is identical either way and no second loop
+  // is needed for the wide case.
+  plane: Uint8Array | Uint16Array
   mask: Uint8Array
 }
+
+// The people every server-side evaluation removes before it counts anything:
+// do-not-knock (ADR 0007) and not-a-voter (ADR 0008). Read as a MASK rather
+// than through `selections`, because this is suppression and not a criterion
+// — nobody picks it, and there is no filter pill to clear. Byte 0 is the
+// suppressed one; the plane's default is knockable.
+//
+// Absent on a pack gp-api could not answer for, and absent means DON'T
+// suppress: the same fail-open the rest of this engine takes, and the walk
+// still drops these people because the route was frozen server-side.
+const knockableMask = (
+  pack: DecodedPack,
+): Uint8Array | Uint16Array | undefined => pack.dimPlanes.get(KNOCKABLE_DIM_KEY)
 
 // A dim only constrains when the selection leaves something out, so a fully
 // selected (or absent) dim is dropped here rather than tested per person.
@@ -59,6 +76,7 @@ export const runFilter = (
   const dotCount = manifest.counts.dots
 
   const active = activeDimMasks(pack, selections)
+  const knockable = knockableMask(pack)
 
   const canvassPlane = dimPlanes.get('canvassStatus')
   const matchedPerDot = new Uint32Array(dotCount)
@@ -68,6 +86,7 @@ export const runFilter = (
   let people = 0
   let households = 0
   outer: for (let i = 0; i < peopleCount; i++) {
+    if (knockable && knockable[i] === 0) continue
     for (let a = 0; a < active.length; a++) {
       const entry = active[a]
       if (entry && !entry.mask[entry.plane[i] ?? 0]) continue outer
@@ -173,8 +192,8 @@ export interface PolygonStats {
   partyMix: DimSlice[]
   // Same shape and the same pass, for the only other dim a FROZEN ROUTE can
   // also answer (its targets carry a live age and party and nothing else).
-  // Every other dim the pack carries — education, income and ten more —
-  // would build a breakdown that emptied itself the moment the list
+  // Every other dim the pack carries — education, income, ethnicity and ten
+  // more — would build a breakdown that emptied itself the moment the list
   // was knocked, so the sheet reports the two both sources have.
   ageMix: DimSlice[]
 }
@@ -227,6 +246,7 @@ export const polygonStats = (
   const insideDot = dotsInRing(pack, ring)
 
   const active = activeDimMasks(pack, selections)
+  const knockable = knockableMask(pack)
   const partyDim = manifest.dims.find((dim) => dim.key === 'party')
   const partyPlane = dimPlanes.get('party')
   const partyPeople = new Array<number>(partyDim?.values.length ?? 0).fill(0)
@@ -240,6 +260,7 @@ export const polygonStats = (
   let people = 0
   let households = 0
   outer: for (let i = 0; i < personToHousehold.length; i++) {
+    if (knockable && knockable[i] === 0) continue
     for (let a = 0; a < active.length; a++) {
       const entry = active[a]
       if (entry && !entry.mask[entry.plane[i] ?? 0]) continue outer

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
 import { Button, ProBadge, Spinner } from '@styleguide'
-import Body2 from '@shared/typography/Body2'
+import { StepFooter } from 'app/dashboard/shared/StepFooter'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { APP_BASE } from 'appEnv'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
@@ -23,7 +23,7 @@ const SUCCESS_RETURN_URL = `${APP_BASE}${proUpgradeStepPath(
 
 // Reads the live total from the mounted Stripe checkout so the amount can't
 // drift from the configured Stripe price. Rendered inside CheckoutProvider.
-// Borderless: it sits beside the form card, not in one (Figma 7563:3405).
+// Design: the "Pro subscription" card above the payment details.
 const OrderSummary = (): React.JSX.Element => {
   const checkoutResult = useCheckout()
   const monthly =
@@ -33,31 +33,29 @@ const OrderSummary = (): React.JSX.Element => {
   const amountLabel = monthly === null ? null : `$${monthly.toFixed(2)}`
 
   return (
-    <aside className="w-full max-w-screen-sm">
-      <div className="flex items-center justify-between">
-        <span className="font-medium">Pro Plan</span>
+    <div className="flex flex-col gap-2.5 rounded-xl border border-base-border bg-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[15px] font-semibold">Pro subscription</span>
         <ProBadge />
       </div>
-      <Body2 className="text-base-muted-foreground mt-1">Billed monthly</Body2>
-
-      <div className="mt-6 flex items-baseline justify-between">
-        <span className="text-base-muted-foreground">Monthly</span>
+      <div className="h-px bg-base-border" />
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="text-base-muted-foreground">Pro plan, monthly</span>
         <span className="font-medium">
           {amountLabel === null ? '—' : `${amountLabel}/mo`}
         </span>
       </div>
-
-      <div className="mt-4 flex items-center justify-between border-t border-base-border pt-4">
-        <span className="font-semibold">Total</span>
-        <span className="font-semibold">{amountLabel ?? '—'}</span>
+      <div className="flex items-center justify-between gap-3 text-[15px] font-semibold">
+        <span>Total due today</span>
+        <span>{amountLabel ?? '—'}</span>
       </div>
-    </aside>
+    </div>
   )
 }
 
-// The wizard chrome renders the payment step cardless, so the step owns its
-// layout: the bordered form card next to the borderless order summary on
-// desktop, stacked and centered below lg (Figma 7563:3405).
+// One column, as the design draws it on every width: title, the
+// subscription card, the payment card, the terms line, and Back pinned to
+// the bottom of the host's column.
 const PaymentFrame = ({
   onBack,
   summary,
@@ -67,19 +65,27 @@ const PaymentFrame = ({
   summary?: React.ReactNode
   children: React.ReactNode
 }): React.JSX.Element => (
-  <div className="flex flex-col items-center gap-8 lg:grid lg:grid-cols-[1fr_360px] lg:items-start lg:gap-16">
-    <div className="w-full max-w-screen-sm rounded-2xl border border-base-border bg-white p-6 md:px-12 md:py-8">
-      <h1 className="text-[32px] leading-[44px] font-semibold mb-6">
-        Complete your upgrade
-      </h1>
-      {children}
-      <div className="mt-8">
-        <Button variant="outline" size="large" onClick={onBack}>
-          Back
-        </Button>
-      </div>
+  <div className="flex min-h-full flex-1 flex-col gap-4">
+    <div>
+      <h1 className="mb-2 text-xl font-semibold">Complete your upgrade</h1>
+      <p className="text-base text-base-muted-foreground">
+        Pro is $10/mo, cancel anytime.
+      </p>
     </div>
     {summary}
+    <div className="rounded-xl border border-base-border bg-card p-4">
+      <p className="mb-3 font-semibold">Payment details</p>
+      {children}
+    </div>
+    <p className="text-xs text-base-muted-foreground">
+      By subscribing, you authorize us to charge you according to the terms
+      until you cancel.
+    </p>
+    <StepFooter align="start">
+      <Button variant="ghost" size="large" onClick={onBack}>
+        Back
+      </Button>
+    </StepFooter>
   </div>
 )
 

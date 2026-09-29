@@ -1,4 +1,5 @@
 import { Alert } from './alerts.types'
+import { doorKnockingCredits } from './door-knocking-spend'
 
 /**
  * Geoapify's whole-account daily credit allowance — the number every tier
@@ -29,35 +30,39 @@ const TIERS = [60, 80, 90, 95] as const
 /**
  * Rolling 24h credits across every organization, as one shared expression.
  *
- * **Identical text on all four rules, deliberately.** They differ only in
- * their threshold, so Loki's query-frontend result cache serves tiers 2-4 from
- * the work tier 1 already did — the incremental read cost of the escalation is
- * near zero. Any per-tier edit to this string forfeits that, so if a tier ever
- * needs its own query, give it its own constant and say why.
+ * **This no longer reads Loki, and that is the whole reason these four rules
+ * are affordable.** Each of them used to scan a 24h window of logs every 15
+ * minutes, which is 96x our daily ingest per rule against an allowance of 100x
+ * — one rule at 96% of everything we are allowed to read, and four of them at
+ * 384%. Measured in prod on 2026-09-29: 1,038 GB/day from these four, against
+ * a 1,056 GB/day allowance. The previous note here claimed Loki's result cache
+ * served tiers 2-4 from tier 1's work; attribution per rule said 13.6, 11.2,
+ * 11.2 and 7.2 GB/h, so it did not. They now select over the recorded metric,
+ * and Prometheus is not metered by bytes read.
  *
- * Reads the `DoorKnockingSpend` log line rather than
- * `geoapify_credits_total`, for the reason the 6h ceiling gives
- * and one more. The log is exact and survives the counter reset every deploy
- * causes; and `otel.ts` sets no `service.instance.id`, so every replica exports
- * that counter under one series identity and `increase()` over interleaved
- * cumulative streams is not a number worth paging on.
+ * The measurement is unchanged: the recording rule counts the same
+ * `DoorKnockingSpend` credits with the same pipeline, one minute at a time, and
+ * the 24h window is assembled here in PromQL where it is free. See
+ * `recording-rules.ts`.
+ *
+ * **Identical text on all four rules, deliberately.** They differ only in their
+ * threshold, and four rules asking the same question of Prometheus should be
+ * asking it in the same words; a per-tier edit to this string is how the
+ * escalation starts measuring four slightly different things. If a tier ever
+ * genuinely needs its own query, give it its own constant and say why.
+ *
+ * Still the `DoorKnockingSpend` log line underneath rather than
+ * `geoapify_credits_total`, for the reason the 6h ceiling gives and one more:
+ * the log is exact and survives the counter reset every deploy causes, which
+ * `increase()` over a cumulative counter does not.
  *
  * 24h, matching how Geoapify meters. Rolling rather than calendar-aligned
- * because LogQL has no calendar, which makes this a slight over-estimate of
- * any single day — it can span the tail of one and the head of the next. That
- * is the safe direction for a budget alarm, and it is the only respect in
- * which these tiers are pessimistic.
+ * because neither LogQL nor PromQL has a calendar, which makes this a slight
+ * over-estimate of any single day — it can span the tail of one and the head of
+ * the next. That is the safe direction for a budget alarm, and it is the only
+ * respect in which these tiers are pessimistic.
  */
-const CREDITS_24H = [
-  'sum(sum_over_time(',
-  '{service_name="gp-api", deployment_environment_name="$ENV"}',
-  // Cheap line filter before | json, as every sibling log alert does.
-  '|= "DoorKnockingSpend"',
-  '| json',
-  '| event = "DoorKnockingSpend"',
-  '| unwrap credits',
-  '[24h]))',
-].join(' ')
+const CREDITS_24H = doorKnockingCredits('24h')
 
 const DAY_SECONDS = 86_400
 
@@ -104,7 +109,7 @@ const ACTION: Record<(typeof TIERS)[number], string> = {
 export const geoapifyBudgetAlerts: Alert[] = TIERS.map((percent) => ({
   slug: `geoapify-daily-budget-${percent}`,
   name: `[Win] Geoapify daily credit budget ${percent}% consumed`,
-  type: 'log',
+  type: 'metric',
   expr: CREDITS_24H,
   threshold: Math.round((GEOAPIFY_DAILY_CREDIT_POOL * percent) / 100),
   // Longer grace on the advisory tiers than the urgent ones. A rolling sum
@@ -120,16 +125,17 @@ export const geoapifyBudgetAlerts: Alert[] = TIERS.map((percent) => ({
   // The [24h] vector needs a fetch window to match, or the engine sees the
   // default ten minutes and the sum never accumulates.
   timeRangeSeconds: DAY_SECONDS,
-  // Loki bills the bytes an evaluation decompresses and an evaluation
-  // decompresses its whole fetch window, so a day-wide rule on the 60s default
-  // would re-read 24h of logs 1,440 times a day — the single largest line in
-  // the query bill, and the thing `MAX_REREAD_FACTOR` exists to prevent. At
-  // 15m it is 96 re-reads, just inside that ceiling.
+  // 15 minutes, and it is no longer cost that decides it. While these read
+  // Loki, each evaluation decompressed its whole 24h window, so the interval
+  // was the only lever holding four rules to 384% of the query allowance
+  // instead of 5,760% — and it is why the urgent tiers could not react faster
+  // than 15 minutes. Reading the recorded metric instead, an evaluation costs
+  // nothing measurable and that constraint is gone.
   //
-  // This is why the urgent tiers cannot react in 5m: nothing below 864s keeps
-  // a 24h window under the ceiling, and the window is not negotiable because
-  // it is how Geoapify meters. A budget alarm with a day of headroom is the
-  // right thing to make slow.
+  // It stays at 900s because the firing behaviour was tuned under it: a rolling
+  // sum steps in bursts, and speeding up the two urgent tiers is a change to
+  // how often they page, which is worth making deliberately rather than as a
+  // side effect of making them cheap.
   evaluationIntervalSeconds: 900,
   message: [
     `Door knocking has spent more than ${percent}% of Geoapify’s daily credit allowance (${Math.round(
@@ -138,7 +144,7 @@ export const geoapifyBudgetAlerts: Alert[] = TIERS.map((percent) => ({
       'en-US',
     )} credits) in the last 24 hours, across all organizations.`,
     ACTION[percent],
-    'Click *View in Grafana* for the DoorKnockingSpend lines, then group by organization to find the source: `sum by (organizationSlug) (sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))`. No per-org spend cap exists to compare that against, so read it against the campaign limit instead: a full-sized 150-stop campaign is about 210 credits, so an organization far above five of those (~1,000) has either been granted an override — check `override_door_knocking_campaign_limit` on the org — or is looping. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
+    '*View in Grafana* shows the recorded credit total that fired, not the spend itself. Run this in Explore on the logs datasource to find the source, grouped by organization: `sum by (organizationSlug) (sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))`. No per-org spend cap exists to compare that against, so read it against the campaign limit instead: a full-sized 150-stop campaign is about 210 credits, so an organization far above five of those (~1,000) has either been granted an override — check `override_door_knocking_campaign_limit` on the org — or is looping. Queries and the per-org breakdown are in gp-api docs/door-knocking.md § Spend visibility.',
     `The allowance is a hand-maintained constant (GEOAPIFY_DAILY_CREDIT_POOL, currently ${GEOAPIFY_DAILY_CREDIT_POOL.toLocaleString(
       'en-US',
     )}), not something gp-api can read. If all four tiers fired at once, suspect the constant before the spend — a free-tier key is 3,000/day.`,

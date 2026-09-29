@@ -3,11 +3,19 @@ import { Injectable } from '@nestjs/common'
 import {
   DoorKnockingPackRequest,
   PACK_CONTACTS_MADE_MAX,
+  PACK_EXCLUDED_PEOPLE_MAX,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
-import { Organization, Prisma } from '../../generated/prisma'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import {
+  ContactStatusField,
+  DoNotKnockStatus,
+  NotAVoterStatus,
+  Organization,
+  Prisma,
+} from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import {
   deriveKnockStatus,
@@ -32,6 +40,7 @@ export class DoorKnockingPackService extends createPrismaBase(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
     private readonly contactsMade: ContactsMadeResolutionService,
+    private readonly contactStatus: ContactStatusService,
   ) {
     super()
   }
@@ -95,29 +104,44 @@ export class DoorKnockingPackService extends createPrismaBase(
     // eligibility check, and an ineligible organization should not have had
     // its interaction history read at all. These two are independent of each
     // other, and both are small next to the district scan they precede.
-    const [buckets, interactions] = await Promise.all([
-      this.contactsMade.contactsMadeBuckets(
-        organization.slug,
-        PACK_CONTACTS_MADE_MAX,
-      ),
-      this.findMany({
-        where: { organizationSlug: organization.slug },
-        orderBy: [
-          { occurredAt: Prisma.SortOrder.desc },
-          { id: Prisma.SortOrder.desc },
-        ],
-        // Mirrors the contract's knockStatuses cap. Newest-first ordering
-        // means truncation (absurd knock volume) drops the OLDEST rows, and a
-        // dropped person just renders as unknown on the map.
-        take: 200_000,
-        select: {
-          personId: true,
-          outcome: true,
-          supportAnswer: true,
-          followUp: true,
-        },
-      }),
-    ])
+    const [buckets, interactions, doNotKnockIds, notAVoterIds] =
+      await Promise.all([
+        this.contactsMade.contactsMadeBuckets(
+          organization.slug,
+          PACK_CONTACTS_MADE_MAX,
+        ),
+        this.findMany({
+          where: { organizationSlug: organization.slug },
+          orderBy: [
+            { occurredAt: Prisma.SortOrder.desc },
+            { id: Prisma.SortOrder.desc },
+          ],
+          // Mirrors the contract's knockStatuses cap. Newest-first ordering
+          // means truncation (absurd knock volume) drops the OLDEST rows, and a
+          // dropped person just renders as unknown on the map.
+          take: 200_000,
+          select: {
+            personId: true,
+            outcome: true,
+            supportAnswer: true,
+            followUp: true,
+          },
+        }),
+        // ADR 0007 and ADR 0008, read exactly as `doorKnockingPreview` and
+        // `doorKnockingCreate` read them — same fields, same values, deduped
+        // below into one list. Every server-side evaluation already drops
+        // these people; the map was the last surface still drawing them.
+        this.contactStatus.personIdsByFieldValue(
+          organization.slug,
+          ContactStatusField.do_not_knock,
+          [DoNotKnockStatus.active],
+        ),
+        this.contactStatus.personIdsByFieldValue(
+          organization.slug,
+          ContactStatusField.not_a_voter,
+          [NotAVoterStatus.moved, NotAVoterStatus.deceased],
+        ),
+      ])
     // `null` (over the cap) becomes absent, not empty — the contract's two
     // states differ, and empty would assert nobody has been contacted.
     const contactsMade = buckets ?? undefined
@@ -138,8 +162,20 @@ export class DoorKnockingPackService extends createPrismaBase(
       })
     }
 
+    // Deduped because a person told "don't come back" who also moved is two
+    // facts about one door, which is the same sentence `doorKnockingCreate`
+    // carries over its own version of this.
+    //
+    // Over the cap becomes ABSENT rather than truncated: a partial exclusion
+    // list draws some of the people who asked not to be knocked, and if we
+    // cannot answer completely the honest thing is not to answer. These sets
+    // are far smaller than the cap in practice.
+    const excluded = [...new Set([...doNotKnockIds, ...notAVoterIds])]
+    const excludedPersonIds =
+      excluded.length > PACK_EXCLUDED_PEOPLE_MAX ? undefined : excluded
+
     return this.peopleApi.pack(
-      { districtId, knockStatuses, contactsMade },
+      { districtId, knockStatuses, contactsMade, excludedPersonIds },
       signal,
     )
   }

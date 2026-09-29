@@ -42,6 +42,20 @@ const createOutreach = () =>
     },
   })
 
+// A pre-VO-2.0 row: campaign-scoped, with no `organizationSlug` of its own.
+// The schema says these resolve their org through the campaign join and are
+// deliberately not backfilled, so the archive scope has to follow that join
+// or every one of them 404s.
+const createLegacyOutreach = () =>
+  service.prisma.outreach.create({
+    data: {
+      campaignId: campaign.id,
+      organizationSlug: null,
+      outreachType: OutreachType.text,
+      name: 'Legacy request',
+    },
+  })
+
 describe('PATCH /v1/outreach/:id/archive', () => {
   it('stamps archivedAt when archiving', async () => {
     const outreach = await createOutreach()
@@ -60,6 +74,58 @@ describe('PATCH /v1/outreach/:id/archive', () => {
       where: { id: outreach.id },
     })
     expect(persisted.archivedAt).not.toBeNull()
+  })
+
+  // The bug this endpoint had for every legacy row: scoping on the column
+  // alone matched nothing, so a request submitted before VO 2.0 and never
+  // fulfilled could not be archived from anywhere.
+  it('archives a legacy row that carries no organizationSlug', async () => {
+    const legacy = await createLegacyOutreach()
+
+    const res = await service.client.patch(
+      `/v1/outreach/${legacy.id}/archive`,
+      { archived: true },
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.archivedAt).not.toBeNull()
+    const persisted = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: legacy.id },
+    })
+    expect(persisted.archivedAt).not.toBeNull()
+  })
+
+  // The join widens the scope, so what matters is that it does not widen the
+  // TENANT: a legacy row still has to hang off a campaign in the caller's org.
+  it('refuses a legacy row belonging to another organization', async () => {
+    const legacy = await createLegacyOutreach()
+    const otherSlug = `campaign-archive-outsider-${Date.now()}`
+    await service.prisma.organization.create({
+      data: { slug: otherSlug, ownerId: service.user.id },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        organizationSlug: otherSlug,
+        userId: service.user.id,
+        slug: `${otherSlug}-campaign`,
+        details: {},
+        data: {},
+        aiContent: {},
+      },
+    })
+
+    const res = await service.client.patch(
+      `/v1/outreach/${legacy.id}/archive`,
+      { archived: true },
+      { ...orgHeaders(otherSlug), validateStatus: () => true },
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    const persisted = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: legacy.id },
+    })
+    expect(persisted.archivedAt).toBeNull()
   })
 
   it('clears archivedAt on restore', async () => {

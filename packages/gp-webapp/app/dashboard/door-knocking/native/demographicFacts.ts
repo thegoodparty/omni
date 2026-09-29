@@ -140,7 +140,9 @@ export const demographicFacts = (
     | 'levelOfEducation'
     | 'estimatedIncomeAmount'
     | 'language'
+    | 'ethnicityGroup'
   >,
+  isServe = false,
 ): DemographicFact[] =>
   withFallback([
     // First, as the canvas orders it. It used to be the sheet's header
@@ -164,4 +166,13 @@ export const demographicFacts = (
       value: incomeRangeLabel(target.estimatedIncomeAmount),
     },
     { label: 'Language', value: target.language },
+    // **Dropped for Serve, not left to `withFallback`.** The served route
+    // already nulls `ethnicityGroup` for an `eo-` org, and the fallback
+    // would print "Not on file" — a claim about a gap in the voter file,
+    // where the truth is that an elected official is not shown a
+    // constituent's ethnicity (#1933). Same treatment, and the same reason,
+    // as the Political party row in `voterDemographicFacts` above.
+    ...(isServe
+      ? []
+      : [{ label: 'Ethnicity group', value: target.ethnicityGroup }]),
   ])

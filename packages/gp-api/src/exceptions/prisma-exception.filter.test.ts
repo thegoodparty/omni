@@ -1,7 +1,6 @@
 import { ArgumentsHost } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import { Prisma } from '../generated/prisma'
-import { Prisma as PeoplePrisma } from '../generated/people-prisma'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PrismaExceptionFilter } from './prisma-exception.filter'
 
@@ -142,111 +141,6 @@ describe('PrismaExceptionFilter', () => {
           `${code} should stay a client error`,
         ).toBeGreaterThanOrEqual(400)
       }
-    })
-  })
-
-  // gp-api generates TWO Prisma clients, and each bundles its own runtime, so
-  // the people-db client's error classes are not the main client's. This filter
-  // used to reference only the main set, so everything the people-db client
-  // raised fell past it to Nest's default handler — 1,498,324 unclassified
-  // failures on GET /v1/public-person-profiles/voter-density between
-  // 2026-08-24 and 2026-08-28.
-  //
-  // The assertions below are deliberately written as "identical to the main
-  // client" rather than against literal numbers. What matters is not that a
-  // people-db P2024 is 503; it is that which client raised an error cannot
-  // change the answer. A future edit to the mapping should move both or fail.
-  describe('the people-db client is classified like the main one', () => {
-    const bothClients = (code: string) => {
-      const main = makeHost()
-      filter.catch(
-        new Prisma.PrismaClientKnownRequestError('x', {
-          code,
-          clientVersion: 'x',
-        }),
-        main.host,
-      )
-
-      const people = makeHost()
-      filter.catch(
-        new PeoplePrisma.PrismaClientKnownRequestError('x', {
-          code,
-          clientVersion: 'x',
-        }),
-        people.host,
-      )
-
-      return { main: main.sent, people: people.sent }
-    }
-
-    it.each([
-      ['P2021', 'the code that caused the voter-density outage'],
-      ['P2024', 'a transient pool timeout'],
-      ['P2025', 'a caller-caused not-found'],
-      ['P2002', 'a caller-caused conflict'],
-    ])('answers %s the same from either client (%s)', (code) => {
-      const { main, people } = bothClients(code)
-
-      expect(people.code).toBe(main.code)
-      expect(people.body?.error).toBe(main.body?.error)
-    })
-
-    // The specific regression: a people-db error must be HANDLED here, not
-    // re-thrown for someone else to turn into an anonymous 500. `catch`
-    // re-throws anything it cannot classify, so an unhandled people-db error
-    // shows up as this call throwing rather than as a wrong status code.
-    it('handles a people-db error instead of re-throwing it', () => {
-      const { host, sent } = makeHost()
-
-      expect(() =>
-        filter.catch(
-          new PeoplePrisma.PrismaClientKnownRequestError('x', {
-            code: 'P2021',
-            clientVersion: 'x',
-          }),
-          host,
-        ),
-      ).not.toThrow()
-      expect(sent.code).toBe(500)
-    })
-
-    // Everything else in this block calls `filter.catch` directly, which is not
-    // how the filter is reached in production: Nest first decides whether this
-    // filter handles the error at all, by testing it against the `@Catch(...)`
-    // list with `instanceof`. Dropping the people-db classes from that list
-    // would restore the original bug — errors never reaching this filter — and
-    // every other test here would still pass, because they skip that step.
-    //
-    // So this reproduces Nest's own check rather than asserting the list's
-    // contents, which would only restate the source.
-    it('is reached by Nest for a people-db error', () => {
-      const catchTypes: (new (...args: never[]) => Error)[] =
-        Reflect.getMetadata(
-          '__filterCatchExceptions__',
-          PrismaExceptionFilter,
-        ) ?? []
-
-      const peopleDbError = new PeoplePrisma.PrismaClientKnownRequestError(
-        'x',
-        { code: 'P2021', clientVersion: 'x' },
-      )
-
-      expect(catchTypes.some((type) => peopleDbError instanceof type)).toBe(
-        true,
-      )
-    })
-
-    it('classifies the people-db non-request error classes too', () => {
-      const { host, sent } = makeHost()
-      filter.catch(
-        new PeoplePrisma.PrismaClientValidationError('secret', {
-          clientVersion: 'x',
-        }),
-        host,
-      )
-
-      expect(sent.code).toBe(500)
-      expect(JSON.stringify(sent.body)).not.toContain('secret')
     })
   })
 

@@ -3,6 +3,9 @@ import {
   deriveProUpgradeStep,
   filingStatusFromDetails,
   PRO_UPGRADE_STEP,
+  PRO_UPGRADE_STEP_ORDER,
+  PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY,
+  proUpgradeStepOrder,
   type FilingStatus,
   type ProUpgradeStepInputs,
 } from './proUpgradeStep'
@@ -209,5 +212,59 @@ describe('filingStatusFromDetails', () => {
   it('treats an unset answer as unanswered', () => {
     expect(filingStatusFromDetails(undefined)).toBe('unanswered')
     expect(filingStatusFromDetails(null)).toBe('unanswered')
+  })
+})
+
+describe('deriveProUpgradeStep purchase-only mode', () => {
+  const inputs = {
+    isPro: false,
+    filingStatus: 'unanswered' as const,
+    hasEin: false,
+    filingComplete: false,
+    profileComplete: false,
+    pinComplete: false,
+  }
+  const opts = { purchaseOnly: true }
+
+  it('lands a brand-new candidate on guidance instead of value-prop', () => {
+    expect(deriveProUpgradeStep(inputs, opts)).toBe(PRO_UPGRADE_STEP.GUIDANCE)
+  })
+
+  // Design: the wizard always opens on its overview; the steps prefill from
+  // what is saved, so nothing derives a later step from progress.
+  it('starts on guidance whatever progress is saved', () => {
+    expect(deriveProUpgradeStep({ ...inputs, hasEin: true }, opts)).toBe(
+      PRO_UPGRADE_STEP.GUIDANCE,
+    )
+    expect(
+      deriveProUpgradeStep(
+        { ...inputs, filingStatus: 'has-filed', hasEin: true },
+        opts,
+      ),
+    ).toBe(PRO_UPGRADE_STEP.GUIDANCE)
+    expect(
+      deriveProUpgradeStep(
+        { ...inputs, filingComplete: true, profileComplete: true },
+        opts,
+      ),
+    ).toBe(PRO_UPGRADE_STEP.GUIDANCE)
+  })
+
+  it('still routes Pro to success', () => {
+    expect(deriveProUpgradeStep({ ...inputs, isPro: true }, opts)).toBe(
+      PRO_UPGRADE_STEP.SUCCESS,
+    )
+  })
+
+  it('exposes the purchase-only linear order', () => {
+    expect(PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY).toEqual([
+      PRO_UPGRADE_STEP.GUIDANCE,
+      PRO_UPGRADE_STEP.STATUS,
+      PRO_UPGRADE_STEP.EIN,
+      PRO_UPGRADE_STEP.PAYMENT,
+      PRO_UPGRADE_STEP.SUCCESS,
+    ])
+    expect(proUpgradeStepOrder(false)).toBe(PRO_UPGRADE_STEP_ORDER)
+    expect(proUpgradeStepOrder(true)).toBe(PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY)
   })
 })

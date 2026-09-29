@@ -75,6 +75,30 @@ interface OutreachAudienceStepProps {
   listsLoading: boolean
   selectedId: number | null
   onSelect: (id: number) => void
+  // The whole-constituency row. Its name is the CRM's label for the same
+  // audience, which is also the name of the saved list it resolves to, so
+  // `selectedId` alone tells us whether it is the current selection.
+  // Null until the elected-office query settles, because until then we do
+  // not know whether this product calls them voters or constituents. The row
+  // is withheld rather than guessed — a wrong label here becomes a wrongly
+  // named saved list the moment it is picked.
+  universeName: string | null
+  // Which saved list IS the universe, resolved by the hook from its criteria
+  // rather than from its name — a candidate may legitimately name a filtered
+  // list "All voters", and matching on that would point this row at a
+  // narrower audience than it promises.
+  universeListId: number | null
+  universeCount: number | null
+  universeLoading: boolean
+  // Resolves the row to a real saved list and returns its id; this step then
+  // selects it through `onSelect`, so the universe goes down the exact path
+  // every other row does.
+  onSelectUniverse: () => Promise<number | null>
+  universePending: boolean
+  universeError: boolean
+  // Reported so the hook can hold the whole-district count back until the
+  // popover is actually up, and clear a previous failure on the way in.
+  onPickerOpenChange: (open: boolean) => void
   onStartBuilder: () => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
   // "All lists" in picker mode only.
@@ -159,6 +183,14 @@ export const OutreachAudienceStep = ({
   listsLoading,
   selectedId,
   onSelect,
+  universeName,
+  universeListId,
+  universeCount,
+  universeLoading,
+  onSelectUniverse,
+  universePending,
+  universeError,
+  onPickerOpenChange,
   onStartBuilder,
   recommendations,
   recommendationsLoading,
@@ -205,6 +237,15 @@ export const OutreachAudienceStep = ({
   // the picker's own root div — and scroll works.
   const pickerRootRef = useRef<HTMLDivElement | null>(null)
   const active = lists.find((l) => l.id === selectedId) ?? null
+  // Both derived from the hook's resolved id, so this step cannot disagree
+  // with the hook about which row is the universe.
+  const universeResolved = universeListId !== null
+  const universeSelected = universeResolved && universeListId === selectedId
+  // Derived once and read by BOTH the empty state and the rows below, so the
+  // two cannot disagree: the universe has its own row at the top, so an org
+  // whose only saved list IS the universe list has no ordinary rows to show
+  // and does still owe the empty-state line.
+  const otherLists = lists.filter((list) => list.id !== universeListId)
   // The three nouns this step states itself, rather than reading from `copy`:
   // a surface's OutreachAudienceCopy covers the titles and bodies, but these
   // sit inside shared controls. Serve never says "voter", so they key off the
@@ -416,7 +457,13 @@ export const OutreachAudienceStep = ({
 
       <div className="space-y-2">
         <p className="text-xs font-bold uppercase text-primary">All lists</p>
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+          open={open}
+          onOpenChange={(next) => {
+            onPickerOpenChange(next)
+            setOpen(next)
+          }}
+        >
           <PopoverTrigger asChild>
             <Card
               role="button"
@@ -489,6 +536,68 @@ export const OutreachAudienceStep = ({
             className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
           >
             <div className="divide-y divide-border">
+              {/* First, as on the CRM lists index. Every audience picker owes
+                  the candidate the option of their whole constituency, and
+                  this was the one surface that did not offer it. */}
+              {universeName !== null && (
+                <button
+                  type="button"
+                  disabled={universePending}
+                  onClick={() => {
+                    if (universeListId !== null) {
+                      setOpen(false)
+                      onSelect(universeListId)
+                      return
+                    }
+                    // The popover stays open across the create, for two
+                    // reasons: the pending spinner lives inside it, and a
+                    // failure has to land somewhere the candidate is still
+                    // looking. Closing first made both invisible — a tap that
+                    // silently did nothing.
+                    //
+                    // Selected through `onSelect` rather than inside the hook,
+                    // so picking the universe clears a pressed recommendation
+                    // and runs each flow's own audience-change side effects —
+                    // SmsFlow's stale phone-list token above all. Bypassing it
+                    // let a carried-in card be saved instead of everyone.
+                    void onSelectUniverse().then((id) => {
+                      if (id === null) return
+                      onSelect(id)
+                      setOpen(false)
+                    })
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-3 p-4 text-left transition-colors hover:bg-muted disabled:opacity-60',
+                    universeSelected && 'bg-muted',
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="block font-medium text-foreground">
+                      {universeName}
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      {universeLoading || universeCount === null
+                        ? 'Counting…'
+                        : `${copy.reachVerb} ${universeCount.toLocaleString()} ${copy.reachNoun}`}
+                    </span>
+                  </span>
+                  {universePending ? (
+                    <Loader2Icon className="size-5 shrink-0 animate-spin text-primary" />
+                  ) : (
+                    universeSelected && (
+                      <CheckIcon className="size-5 shrink-0 text-primary" />
+                    )
+                  )}
+                </button>
+              )}
+              {universeError && !universePending && (
+                <p
+                  data-testid="universe-create-error"
+                  className="px-4 pb-4 text-sm text-destructive"
+                >
+                  Couldn&apos;t build that list. Try again.
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -509,12 +618,12 @@ export const OutreachAudienceStep = ({
                   </span>
                 </span>
               </button>
-              {lists.length === 0 && !listsLoading && (
+              {otherLists.length === 0 && !listsLoading && (
                 <p className="p-4 text-sm text-muted-foreground">
                   No saved lists yet.
                 </p>
               )}
-              {lists.map((list) => {
+              {otherLists.map((list) => {
                 const on = list.id === selectedId
                 return (
                   <button

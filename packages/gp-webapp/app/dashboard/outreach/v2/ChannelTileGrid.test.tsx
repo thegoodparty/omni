@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
@@ -20,24 +20,6 @@ vi.mock('app/dashboard/door-knocking/native/useVoterPack', () => ({
   },
 }))
 
-// The per-day allowance the hub reads to decide whether pressing Door
-// knocking is worth navigating for. Left null (unresolved endpoint) by
-// default so the vast majority of tests here mirror the pre-gate behavior:
-// a click that goes through as-is, since a pending read is not a refusal.
-const quotaData = vi.hoisted(
-  () =>
-    ({ current: null }) as {
-      current: { campaignsRemaining: number; campaignLimit: number } | null
-    },
-)
-vi.mock('app/dashboard/door-knocking/native/turfQueries', () => ({
-  quotaQueryOptions: {
-    queryKey: ['door-knocking-quota'],
-    queryFn: async () =>
-      quotaData.current ?? { campaignsRemaining: 5, campaignLimit: 5 },
-  },
-}))
-
 const mockRouterPush = vi.fn()
 vi.mock('next/navigation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/navigation')>()),
@@ -49,8 +31,16 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
+const runTextGate = vi.hoisted(() => vi.fn(() => true))
 vi.mock('app/dashboard/outreach/hooks/useTextOutreachGate', () => ({
-  useTextOutreachGate: () => ({ runTextGate: () => true, gateModals: null }),
+  useTextOutreachGate: () => ({ runTextGate, gateModals: null }),
+}))
+
+// Milestone 2's gate flag. Off by default, so every case in this file keeps
+// asserting today's upgrade-at-entry behavior.
+const proGatingV2 = { ready: true, enabled: false }
+vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
+  useOutreachProGatingV2Flag: () => proGatingV2,
 }))
 
 let mockCampaign: { id: number; isPro: boolean } = { id: 9, isPro: true }
@@ -357,59 +347,6 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
   })
 })
 
-// The per-day cap the door-knocking backend enforces used to be raised
-// only after the destination page had mounted, so a candidate who had spent
-// the day's allowance had to load /dashboard/door-knocking to be told they
-// couldn't create anything. The hub intercepts the click here when the
-// quota query has already answered zero — the same dialog on the far side
-// stays as the safety net for direct-URL entry and quota-refetch races.
-describe('ChannelTileGrid — door-knocking daily-limit gate', () => {
-  beforeEach(() => {
-    mockCampaign = { id: 9, isPro: true }
-    mockElectedOffice = { data: null, isPending: false }
-    mockRouterPush.mockClear()
-    testQueryClient.clear()
-    quotaData.current = null
-  })
-
-  it('opens the daily-limit dialog and does not navigate when the allowance is spent', async () => {
-    quotaData.current = { campaignsRemaining: 0, campaignLimit: 5 }
-    renderGrid({ preselectedListId: 42 })
-
-    // Wait for the quota query to resolve before clicking. Prefetching the
-    // query here mirrors what the tile's own useQuery does on mount, and
-    // guarantees the click sees a settled read.
-    await testQueryClient.prefetchQuery({
-      queryKey: ['door-knocking-quota'],
-      queryFn: async () => quotaData.current,
-    })
-
-    await userEvent.click(screen.getByText('Door knocking'))
-
-    expect(mockRouterPush).not.toHaveBeenCalled()
-    expect(await screen.findByText('Daily limit reached')).toBeInTheDocument()
-    expect(
-      screen.getByText(/created 5 door knocking campaigns today/),
-    ).toBeInTheDocument()
-  })
-
-  it('navigates as usual when the quota still has capacity', async () => {
-    quotaData.current = { campaignsRemaining: 3, campaignLimit: 5 }
-    renderGrid()
-    await testQueryClient.prefetchQuery({
-      queryKey: ['door-knocking-quota'],
-      queryFn: async () => quotaData.current,
-    })
-
-    await userEvent.click(screen.getByText('Door knocking'))
-
-    expect(mockRouterPush).toHaveBeenCalledWith(
-      '/dashboard/door-knocking?create=1',
-    )
-    expect(screen.queryByText('Daily limit reached')).not.toBeInTheDocument()
-  })
-})
-
 // ENG-11020: phone banking opens in the hub (not here), so the list travels
 // through the open callback — and is spent on hand-off, exactly like door
 // knocking spends it on the way out, so no later tile inherits it.
@@ -535,5 +472,100 @@ describe('ChannelTileGrid — the preselect reaches every audience-taking tile',
     expect(mockRouterPush).toHaveBeenCalledWith(
       '/dashboard/door-knocking?create=1&recommended=persuadeAffinity',
     )
+  })
+})
+
+// Milestone 2: the tiles stop being the gate. A free candidate opens the
+// flow, builds their campaign, and meets the gate inside it.
+describe('ChannelTileGrid — flag on: the tiles open the gated flows', () => {
+  beforeEach(() => {
+    proGatingV2.enabled = true
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+    runTextGate.mockClear()
+  })
+
+  afterEach(() => {
+    proGatingV2.enabled = false
+  })
+
+  it('leaves the text, robocall and phone-banking tiles unlocked for a free candidate', () => {
+    renderGrid()
+
+    expect(screen.getByText('SMS').closest('button')).not.toHaveAttribute(
+      'data-locked',
+    )
+    expect(screen.getByText('Robocall').closest('button')).not.toHaveAttribute(
+      'data-locked',
+    )
+    expect(
+      screen.getByText('Phone banking').closest('button'),
+    ).not.toHaveAttribute('data-locked')
+  })
+
+  it('opens the SMS flow for a free candidate instead of the Pro wizard', async () => {
+    const onCreateSms = vi.fn()
+    renderGrid({ onCreateSms })
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(onCreateSms).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    // The flow carries the compliance gate now, so the tile no longer runs it.
+    expect(runTextGate).not.toHaveBeenCalled()
+  })
+
+  it('opens the robocall flow for a free candidate instead of the Pro modal', async () => {
+    const onCreateRobocall = vi.fn()
+    renderGrid({ onCreateRobocall })
+
+    await userEvent.click(screen.getByText('Robocall'))
+
+    expect(onCreateRobocall).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByText('Get Pro voter data and tools'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens the phone-banking flow for a free candidate instead of the Pro wizard', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+  })
+
+  it('still spends the carried audience on open', async () => {
+    const onCreateSms = vi.fn()
+    const onCreateRobocall = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreateSms, onCreateRobocall })
+
+    await userEvent.click(screen.getByText('SMS'))
+    await userEvent.click(screen.getByText('Robocall'))
+
+    expect(onCreateSms).toHaveBeenCalledWith({ listId: 42 })
+    expect(onCreateRobocall).toHaveBeenCalledWith(undefined)
+  })
+
+  // Door knocking is a door too: its page admits a free campaign under the
+  // flag and its create flow gates Build route.
+  it('opens door knocking for a free candidate instead of the Pro modal', async () => {
+    renderGrid()
+
+    expect(
+      screen.getByText('Door knocking').closest('button'),
+    ).not.toHaveAttribute('data-locked')
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1',
+    )
+    expect(
+      screen.queryByText('Get Pro voter data and tools'),
+    ).not.toBeInTheDocument()
   })
 })

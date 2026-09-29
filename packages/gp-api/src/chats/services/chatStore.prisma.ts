@@ -17,6 +17,7 @@ export type PersistedSegment = {
   text?: string | null
   toolName?: string | null
   payload?: Prisma.InputJsonValue | null
+  toolCallId?: string | null
 }
 
 export type ChatMessageWithSegments = ChatMessage & {

@@ -1,0 +1,6 @@
+# Generated files. Formatting them would put prettier and their generator in a loop:
+# the analytics-governance workflow rewrites the snapshot twice a week and commits it,
+# and a prettier-versus-generator disagreement would fail lint on the bot's own PR,
+# which is how the explorer's refresh loop would quietly stop.
+app/p/analytics-event-explorer/data/event-explorer.json
+app/p/analytics-event-explorer/standalone/analytics-event-explorer.html

@@ -55,6 +55,14 @@ vi.mock('../../../shared/agent-chat/hooks/useAttachmentsEnabled', () => ({
 const uploadAttachmentMock = vi.fn()
 const downloadAttachmentMock = vi.fn()
 const trackEventMock = vi.fn()
+// Sonner's toast never renders in jsdom (no <Toaster> here), so the guard
+// toast is asserted through the call, not the DOM. Hoisted because the barrel
+// factory reads it eagerly, before this module's consts initialize.
+const toastMock = vi.hoisted(() => Object.assign(vi.fn(), { error: vi.fn() }))
+vi.mock('@styleguide', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  toast: toastMock,
+}))
 vi.mock('../../../shared/agent-chat/chatAttachments-api', async (orig) => ({
   ...(await orig<object>()),
   uploadChatAttachment: (...args: unknown[]) => uploadAttachmentMock(...args),
@@ -162,6 +170,8 @@ beforeEach(() => {
   uploadAttachmentMock.mockReset()
   downloadAttachmentMock.mockReset()
   trackEventMock.mockReset()
+  toastMock.mockReset()
+  toastMock.error.mockReset()
   window.localStorage.clear()
 })
 
@@ -1667,5 +1677,67 @@ describe('<ChiefOfStaffChatBody> drag-and-drop attachments', () => {
     fireEvent.drop(surface, dragPayload([file]))
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(uploadAttachmentMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('<ChiefOfStaffChatBody> upload guard toast', () => {
+  const GUARD_COPY =
+    "Don't upload closed-session, privileged, or active-litigation material."
+
+  const dragPayload = (files: File[]) => ({
+    dataTransfer: { types: ['Files'], files },
+  })
+
+  const renderBody = () => {
+    listConversationsMock.mockResolvedValue([])
+    listMessagesMock.mockResolvedValue([])
+    const { container } = render(
+      <ChiefOfStaffChatBody active conversationIdOverride="conv" />,
+    )
+    return container.firstElementChild as HTMLElement
+  }
+
+  const dropPdf = (surface: HTMLElement, name: string) =>
+    fireEvent.drop(
+      surface,
+      dragPayload([new File(['x'], name, { type: 'application/pdf' })]),
+    )
+
+  it('shows the guard toast once after the first successful upload', async () => {
+    attachmentsOn = true
+    uploadAttachmentMock.mockResolvedValue({
+      id: 'att-1',
+      fileName: 'agenda.pdf',
+      status: 'ready',
+      pageCount: null,
+      failureReason: null,
+    })
+    const surface = renderBody()
+
+    dropPdf(surface, 'agenda.pdf')
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(GUARD_COPY))
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.UploadGuardShown,
+      {},
+    )
+
+    dropPdf(surface, 'minutes.pdf')
+    await waitFor(() => expect(uploadAttachmentMock).toHaveBeenCalledTimes(2))
+    expect(toastMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not show the guard toast when the upload fails', async () => {
+    attachmentsOn = true
+    uploadAttachmentMock.mockRejectedValue(new Error('boom'))
+    const surface = renderBody()
+
+    dropPdf(surface, 'agenda.pdf')
+
+    await waitFor(() => expect(uploadAttachmentMock).toHaveBeenCalled())
+    expect(toastMock).not.toHaveBeenCalled()
+    expect(trackEventMock).not.toHaveBeenCalledWith(
+      EVENTS.ChiefOfStaff.UploadGuardShown,
+      {},
+    )
   })
 })

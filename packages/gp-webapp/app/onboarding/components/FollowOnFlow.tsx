@@ -361,6 +361,9 @@ export default function FollowOnFlow({
     })
   }
 
+  // The picker hands over what it had on screen, but this flow fires no events
+  // at all yet, so there is nowhere to put it. Instrumenting the whole flow is
+  // DATA-2528; until then the context is deliberately dropped here.
   const handleCantFindOffice = () => {
     updateAnswers({
       officePath: 'manual',

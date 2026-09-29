@@ -1,6 +1,6 @@
 import { useTestService } from '@/test-service'
 import { ForbiddenException } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   EcanvasserContact,
   EcanvasserInteraction,
@@ -86,6 +86,13 @@ describe('EcanvasserAttributionService', () => {
     contacts = service.app.get(ContactsService)
   })
 
+  // vitest is configured with clearMocks (call history) but not restoreMocks
+  // (implementations), so spies set with mockImplementation would otherwise
+  // persist across tests in this file.
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('emits exactly one activity for a confident match and none on re-run', async () => {
     const { campaignId, organization } = await seedCampaign('match-once')
     const ecanvasser = await seedEcanvasser(
@@ -110,8 +117,14 @@ describe('EcanvasserAttributionService', () => {
       ecanvasser.interactions,
     )
 
-    expect(first).toEqual({ matched: 1, skipped: 0 })
-    expect(lookup).toHaveBeenCalledWith('5551234567', expect.anything())
+    expect(first).toEqual({ matched: 1, skipped: 0, deferred: 0 })
+    // Three arguments now: attribution resolves pro access once per call and
+    // passes it in, rather than letting each lookup re-derive it.
+    expect(lookup).toHaveBeenCalledWith(
+      '5551234567',
+      expect.anything(),
+      expect.any(Boolean),
+    )
 
     const rows = await service.prisma.voterOutreachActivity.findMany({
       where: { campaignId },
@@ -138,7 +151,7 @@ describe('EcanvasserAttributionService', () => {
       ecanvasser.contacts,
       ecanvasser.interactions,
     )
-    expect(second).toEqual({ matched: 0, skipped: 0 })
+    expect(second).toEqual({ matched: 0, skipped: 0, deferred: 0 })
     expect(lookup).not.toHaveBeenCalled()
 
     const afterRerun = await service.prisma.voterOutreachActivity.count({
@@ -164,7 +177,7 @@ describe('EcanvasserAttributionService', () => {
       ecanvasser.interactions,
     )
 
-    expect(result).toEqual({ matched: 0, skipped: 1 })
+    expect(result).toEqual({ matched: 0, skipped: 1, deferred: 0 })
     const count = await service.prisma.voterOutreachActivity.count({
       where: { campaignId },
     })
@@ -190,7 +203,7 @@ describe('EcanvasserAttributionService', () => {
       ecanvasser.interactions,
     )
 
-    expect(result).toEqual({ matched: 0, skipped: 1 })
+    expect(result).toEqual({ matched: 0, skipped: 1, deferred: 0 })
     const count = await service.prisma.voterOutreachActivity.count({
       where: { campaignId },
     })
@@ -214,7 +227,7 @@ describe('EcanvasserAttributionService', () => {
       ecanvasser.interactions,
     )
 
-    expect(result).toEqual({ matched: 0, skipped: 1 })
+    expect(result).toEqual({ matched: 0, skipped: 1, deferred: 0 })
     expect(lookup).not.toHaveBeenCalled()
   })
 
@@ -237,7 +250,7 @@ describe('EcanvasserAttributionService', () => {
       ecanvasser.interactions,
     )
 
-    expect(result).toEqual({ matched: 0, skipped: 0 })
+    expect(result).toEqual({ matched: 0, skipped: 0, deferred: 0 })
     const count = await service.prisma.voterOutreachActivity.count({
       where: { campaignId },
     })
@@ -265,7 +278,7 @@ describe('EcanvasserAttributionService', () => {
       ecanvasser.interactions,
     )
 
-    expect(result).toEqual({ matched: 0, skipped: 0 })
+    expect(result).toEqual({ matched: 0, skipped: 0, deferred: 0 })
     const count = await service.prisma.voterOutreachActivity.count({
       where: { campaignId },
     })
@@ -338,7 +351,153 @@ describe('EcanvasserAttributionService', () => {
       [interaction],
     )
 
-    expect(result).toEqual({ matched: 1, skipped: 0 })
-    expect(lookup).toHaveBeenCalledWith('5557778888', expect.anything())
+    expect(result).toEqual({ matched: 1, skipped: 0, deferred: 0 })
+    expect(lookup).toHaveBeenCalledWith(
+      '5557778888',
+      expect.anything(),
+      expect.any(Boolean),
+    )
+  })
+
+  // Rows built in memory rather than seeded: these cases care about how many
+  // lookups the loop starts, not about what is persisted.
+  const contactRow = (externalId: number, id: number): EcanvasserContact =>
+    ({
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      externalId,
+      firstName: 'John',
+      lastName: 'Smith',
+      type: 'Resident',
+      homePhone: null,
+      mobilePhone: `555000${String(externalId).padStart(4, '0')}`,
+      email: null,
+      actionId: null,
+      lastInteractionId: null,
+      createdBy: 0,
+      ecanvasserId: 1,
+      ecanvasserHouseId: null,
+    }) as EcanvasserContact
+
+  const interactionRow = (
+    externalId: number,
+    contactId: number,
+    id: number,
+  ): EcanvasserInteraction =>
+    ({
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      externalId,
+      type: 'Canvass',
+      rating: null,
+      date: new Date('2026-03-01T12:00:00.000Z'),
+      status: 'Active',
+      contactId,
+      createdBy: 0,
+      notes: null,
+      source: null,
+      ecanvasserId: 1,
+    }) as EcanvasserInteraction
+
+  it('stops starting lookups once the deadline has passed and reports the remainder', async () => {
+    const { campaignId, organization } = await seedCampaign('deadline-stop')
+
+    const contactRows = [1, 2, 3, 4].map((n) => contactRow(200 + n, n))
+    const interactionRows = [1, 2, 3, 4].map((n) =>
+      interactionRow(910 + n, 200 + n, n),
+    )
+
+    // Each lookup pushes the clock past the deadline the caller set, so the
+    // second iteration finds the budget gone. Driving time through an injected
+    // clock keeps the test deterministic and leaves the global Date.now (which
+    // Prisma reads for its own timeouts) alone.
+    let now = 1_000_000
+    const lookup = vi
+      .spyOn(contacts, 'findPersonByPhone')
+      .mockImplementation(async () => {
+        now += 50_000
+        return matchPerson('LAL-200', 'Smith')
+      })
+
+    const result = await attribution.attributeDoorKnocking(
+      campaignId,
+      organization,
+      contactRows,
+      interactionRows,
+      { deadlineAt: now + 40_000, now: () => now },
+    )
+
+    // One lookup ran, then the budget was gone: 3 of the 4 are deferred.
+    expect(lookup).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ matched: 1, skipped: 0, deferred: 3 })
+
+    // The match that did happen is persisted — stopping early must not discard
+    // completed work.
+    const rows = await service.prisma.voterOutreachActivity.findMany({
+      where: { campaignId },
+    })
+    expect(rows).toHaveLength(1)
+  })
+
+  it('runs every interaction when no deadline is given', async () => {
+    const { campaignId, organization } = await seedCampaign('deadline-absent')
+
+    const contactRows = [1, 2, 3].map((n) => contactRow(300 + n, n))
+    const interactionRows = [1, 2, 3].map((n) =>
+      interactionRow(920 + n, 300 + n, n),
+    )
+
+    // Time races far ahead of any plausible budget; with no deadline passed in,
+    // that must not matter.
+    let now = 1_000_000
+    const lookup = vi
+      .spyOn(contacts, 'findPersonByPhone')
+      .mockImplementation(async () => {
+        now += 500_000
+        return matchPerson('LAL-300', 'Smith')
+      })
+
+    const result = await attribution.attributeDoorKnocking(
+      campaignId,
+      organization,
+      contactRows,
+      interactionRows,
+      { now: () => now },
+    )
+
+    expect(lookup).toHaveBeenCalledTimes(3)
+    expect(result).toEqual({ matched: 3, skipped: 0, deferred: 0 })
+  })
+
+  it('resolves pro access once per call, not once per interaction', async () => {
+    const { campaignId, organization } = await seedCampaign('pro-access-once')
+
+    const contactRows = [1, 2, 3].map((n) => contactRow(400 + n, n))
+    const interactionRows = [1, 2, 3].map((n) =>
+      interactionRow(930 + n, 400 + n, n),
+    )
+
+    const resolveProAccess = vi
+      .spyOn(contacts, 'resolveProAccess')
+      .mockResolvedValue(true)
+    const lookup = vi
+      .spyOn(contacts, 'findPersonByPhone')
+      .mockResolvedValue(matchPerson('LAL-400', 'Smith'))
+
+    await attribution.attributeDoorKnocking(
+      campaignId,
+      organization,
+      contactRows,
+      interactionRows,
+    )
+
+    expect(resolveProAccess).toHaveBeenCalledTimes(1)
+    // The resolved value reaches every lookup, so none of them re-derives it.
+    expect(lookup).toHaveBeenCalledTimes(3)
+    for (const call of lookup.mock.calls) {
+      expect(call[2]).toBe(true)
+    }
   })
 })

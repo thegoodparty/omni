@@ -490,6 +490,10 @@ export const apiRoutes = {
       path: '/outreach',
       method: 'POST',
     },
+    drafts: {
+      path: '/outreach/drafts',
+      method: 'POST',
+    },
     list: {
       path: '/outreach',
       method: 'GET',

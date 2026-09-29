@@ -11,7 +11,7 @@ import {
   ComplianceStage,
   PeerlyCvVerificationStatus,
 } from '@goodparty_org/contracts'
-import { parseISO } from 'date-fns'
+import { formatISO, parseISO } from 'date-fns'
 import { Test, TestingModule } from '@nestjs/testing'
 import { BadGatewayException } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -519,6 +519,48 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
     expect(result.pinDelivery).toBeNull()
     expect(mockRetrieveCv).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the hold details at filing_review_hold', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    const heldAt = parseISO('2026-09-22T20:40:00Z')
+    const held = awaitingPinCampaign({ peerlyIdentityId: null })
+    mockFindUniqueOrThrow.mockResolvedValue({
+      ...held,
+      tcrCompliance: {
+        ...held.tcrCompliance,
+        cvValidationFailedAt: heldAt,
+        cvValidationFailureReasons: [
+          "Candidate name 'Jake Solberg' does not appear on the page",
+        ],
+        filingUrl: 'https://candidates.sos.mn.gov/filing-results',
+      },
+    })
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.stage).toBe(ComplianceStage.filing_review_hold)
+    expect(result.filingUrl).toBe(
+      'https://candidates.sos.mn.gov/filing-results',
+    )
+    expect(result.cvValidationFailedAt).toBe(formatISO(heldAt))
+    expect(result.cvValidationFailureReasons).toEqual([
+      "Candidate name 'Jake Solberg' does not appear on the page",
+    ])
+    expect(mockRetrieveCv).not.toHaveBeenCalled()
+  })
+
+  it('defaults the hold fields when the record is not held', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(
+      awaitingPinCampaign({ peerlyIdentityId: null }),
+    )
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.filingUrl).toBeNull()
+    expect(result.cvValidationFailedAt).toBeNull()
+    expect(result.cvValidationFailureReasons).toEqual([])
   })
 
   it('does not resolve CV state outside the awaiting_pin stage', async () => {

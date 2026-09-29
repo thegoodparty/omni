@@ -1,9 +1,9 @@
 import type {
   CreateDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
+  BuildDoorKnockingRoute,
   DoorKnockingArchiveRequest,
   DoorKnockingAudienceCheckResponse,
-  DoorKnockingQuotaResponse,
   DoorKnockingRoutePayload,
   DoorKnockingTalkingPointsDraftResponse,
   DoorKnockingTalkingPointsPurpose,
@@ -28,6 +28,10 @@ import type {
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
   Priority,
+  CreatePriorityInput,
+  UpdatePriorityInput,
+  PriorityStatus,
+  OutreachProposal,
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
@@ -35,10 +39,12 @@ import type {
   RaceOpponentFindingKind,
   SummarySource,
   CancelOutreachResponse,
+  CreateOutreachDraftRequest,
   OutreachArchiveRequest,
   OutreachArchiveResponse,
   OutreachDetail,
   OutreachReceipt,
+  ProReceipt,
   SmsOutreachReplies,
   SmsOutreachResults,
   SocialDraftRequest,
@@ -71,6 +77,8 @@ import type {
   RobocallSaveCardIntentResponse,
   RobocallAuthorizeRequest,
   RobocallAuthorizeResponse,
+  RobocallPromoApplyRequest,
+  RobocallPromoStateResponse,
   PhoneBankingCreate,
   PhoneBankingCreateResponse,
   PeoplePrecinctsResponse,
@@ -317,6 +325,23 @@ export type APIEndpoints = {
   'GET /v1/outreach/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Save an outreach as a DRAFT (milestone 2). JSON, which is what a
+  // robocall draft posts — a texting draft carries its image, so it goes
+  // multipart through gpApi/outreachDraft.api.ts instead. 409 carries
+  // `{ existingId }`: the campaign already holds a draft of that type.
+  'POST /v1/outreach/drafts': {
+    Request: CreateOutreachDraftRequest
+    Response: OutreachDetail
+  }
+
+  // Discard a saved DRAFT (milestone 2): 404 when the row isn't this
+  // campaign's, 409 once it is no longer a draft. Never reaches a scheduled
+  // or sent campaign — those cancel or archive instead.
+  'DELETE /v1/outreach/:id': {
+    Request: {}
+    Response: undefined
   }
 
   // Archive/restore for the v2 history drawer footer. Org-scoped (not
@@ -591,6 +616,19 @@ export type APIEndpoints = {
     Response: RobocallAuthorizeResponse
   }
 
+  // Remembers a reward promotion code on the pending robocall draft and returns
+  // the server-priced discount + what is left to authorize. The code is only
+  // consumed when the hold places (authorize), never here.
+  'POST /v1/outreach/robocall/:outreachId/promo': {
+    Request: RobocallPromoApplyRequest
+    Response: RobocallPromoStateResponse
+  }
+
+  'DELETE /v1/outreach/robocall/:outreachId/promo': {
+    Request: {}
+    Response: RobocallPromoStateResponse
+  }
+
   // Freezes the chosen script, sheet count, and audience (exactly one of
   // voterFileFilterId or filters+filterName) into a phone-banking list.
   // Pro-gated; 400 when the resolved audience is empty.
@@ -818,6 +856,15 @@ export type APIEndpoints = {
   // requirements, office contact). No body: gp-api scopes the send to the
   // authenticated user's campaign + email via @UseCampaign()/@ReqUser().
   'POST /v1/campaigns/mine/filing-instructions/email': {
+    Request: {}
+    Response: {
+      success: boolean
+    }
+  }
+
+  // The EIN step's "Email me these steps": the six IRS how-to steps, sent
+  // to the authenticated user's own email. No body, same scoping as above.
+  'POST /v1/campaigns/mine/ein-instructions/email': {
     Request: {}
     Response: {
       success: boolean
@@ -1100,6 +1147,48 @@ export type APIEndpoints = {
   'GET /v1/priorities': {
     Request: {}
     Response: Priority[]
+  }
+
+  'POST /v1/priorities': {
+    Request: CreatePriorityInput
+    Response: Priority
+  }
+
+  'GET /v1/priorities/:id': {
+    Request: {}
+    Response: Priority
+  }
+
+  'PUT /v1/priorities/:id': {
+    Request: UpdatePriorityInput
+    Response: Priority
+  }
+
+  'DELETE /v1/priorities/:id': {
+    Request: {}
+    Response: void
+  }
+
+  'GET /v1/priorities/:id/status': {
+    Request: {}
+    Response: {
+      status: PriorityStatus
+      currentStep: string | null
+      nextAction: string | null
+    }
+  }
+
+  // A proposal key names the outreach a chat card WOULD create. A 404 is the
+  // normal "not sent yet" answer, and the PUT is an idempotent create, so a
+  // double click cannot send twice.
+  'GET /v1/outreach/by-proposal-key/:proposalKey': {
+    Request: {}
+    Response: OutreachDetail
+  }
+
+  'PUT /v1/outreach/by-proposal-key/:proposalKey': {
+    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId: string }
+    Response: OutreachDetail
   }
 
   'GET /v1/ordinances/:slug': {
@@ -1388,13 +1477,6 @@ export type APIEndpoints = {
     Request: {}
     Response: DoorKnockingTurf[]
   }
-  // Both daily allowances, read before the create flow opens. Org-scoped and
-  // NOT surface-scoped, unlike the two rails above: an org has one campaign
-  // allowance and one stop allowance, shared across Win and Serve.
-  'GET /v1/door-knocking/quota': {
-    Request: {}
-    Response: DoorKnockingQuotaResponse
-  }
   // Creating a list buys its Geoapify route in the same transaction, so this
   // is the only paid call the feature makes and the request carries the walk
   // settings (`mode`, `loop`) the route is optimized for. It can fail on
@@ -1448,6 +1530,17 @@ export type APIEndpoints = {
   // renders forward.
   'POST /v1/door-knocking/turfs/:id/complete': {
     Request: {}
+    Response: DoorKnockingTurf
+  }
+  // Buys the turf's Geoapify route — the walk ORDER for doors that were
+  // already frozen when the turf was drawn. The only paid call the feature
+  // makes from the client now that creating a campaign does not.
+  //
+  // Idempotent: a turf that already has a route gets that route back and
+  // nothing is bought. The client's own guard is the button being disabled
+  // while this is in flight.
+  'POST /v1/door-knocking/turfs/:id/route': {
+    Request: BuildDoorKnockingRoute
     Response: DoorKnockingTurf
   }
   // A body rather than an archive/unarchive pair, matching the route: restore
@@ -1737,6 +1830,15 @@ export type APIEndpoints = {
       clientSecret?: string
       redirectUrl?: string
     }
+  }
+
+  // The purchase-only success screen's "Your receipt": the Pro subscription's
+  // latest paid invoice, read live from Stripe. Amount is in DOLLARS. 404
+  // until the completion webhook has stored the subscription on the campaign;
+  // 502 when Stripe is unreachable.
+  'GET /v1/payments/purchase/pro-receipt': {
+    Request: {}
+    Response: ProReceipt
   }
 
   'GET /v1/community-issues': {

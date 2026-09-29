@@ -10,6 +10,7 @@ import {
 import { zCoerceDate } from '../shared/Date.schema'
 import { PhoneBankingOutreachDetailSchema } from '../phoneBanking/PhoneBankingList.schema'
 import { DoorKnockingOutreachDetailSchema } from '../doorKnocking/DoorKnockingTurf.schema'
+import { OutreachRobocallDetailSchema } from './RobocallPurchase.schema'
 import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
 
 // Social shares the canonical outreach vocabulary (OutreachPurpose.schema.ts)
@@ -254,5 +255,9 @@ export const OutreachDetailSchema = z.object({
   // tombstoned list leaves the envelope standing, and the drawer degrades to
   // the id-only rendering it had before this block existed.
   doorKnocking: DoorKnockingOutreachDetailSchema.optional(),
+  // Present on a robocall row: the recording and caller-ID number a saved
+  // draft has to hand back so the resume can schedule it without recording
+  // again.
+  robocall: OutreachRobocallDetailSchema.optional(),
 })
 export type OutreachDetail = z.infer<typeof OutreachDetailSchema>

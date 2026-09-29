@@ -8,7 +8,7 @@ any script that needs a dev user in a known product state.
 | Route                                 | Purpose                                                                 |
 | ------------------------------------- | ----------------------------------------------------------------------- |
 | `POST /v1/test-fixtures/users`        | Mint a `qa-<uuid>@goodparty.org` user in a state: `free-win`, `pro-win`, `serve`, `serve-won-race` |
-| `DELETE /v1/test-fixtures/users`      | On-demand cleanup (DB + Clerk); the 6-hourly `deleteTestUsers` cron is the safety net |
+| `DELETE /v1/test-fixtures/users`      | On-demand cleanup (DB + Clerk); the 6-hourly `sweepTestUsers` cron is the safety net |
 | `POST /v1/test-fixtures/users/:id/session` | Re-mint the 1h session token for runs longer than an hour          |
 
 The create/session responses carry credentials by contract (password, session
@@ -34,7 +34,10 @@ do NOT log a browser into the webapp.
   local part is what `isTestUser` matches; staff `@goodparty.org` accounts
   never take that shape and are never swept.
 - Fixture users are swept by `UsersService.deleteTestUsers` after ~24h — QA
-  runs should still delete their own users.
+  runs should still delete their own users. The `sweepTestUsers` cron that
+  drives it runs **only on the dev and prod deploys**, so a PR preview never
+  sweeps: previews share the dev Clerk instance's Backend API budget, and one
+  full-catalog pass per open PR is what exhausts it.
 - `serve-won-race` sets `details.wonGeneral` + a **past** `electionDate` last,
   mirroring the user-facing election-result flow; reordering that risks the
   stale-election-result reset clearing the win.

@@ -57,6 +57,7 @@ import {
   CvStatusPollMessageSchema,
   ExtractChatAttachmentMessageSchema,
   Nightly10DlcReportMessageSchema,
+  PeerlyVendorEscalationMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
@@ -427,6 +428,13 @@ export class QueueConsumerService {
           )
           return await this.nightly10DlcReport.handleNightlyReport(reportData)
         })
+      case QueueType.PEERLY_VENDOR_ESCALATION:
+        this.logger.info('received peerlyVendorEscalation message')
+        return await this.withLegacyErrorSwallowing(message, async () =>
+          this.nightly10DlcReport.handleVendorEscalations(
+            PeerlyVendorEscalationMessageSchema.parse(queueMessage.data),
+          ),
+        )
       case QueueType.CV_STATUS_POLL:
         this.logger.info('received cvStatusPoll message')
         // Acks immediately — the paced scan runs detached because it outlives

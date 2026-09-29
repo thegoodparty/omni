@@ -4,7 +4,10 @@ import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { AUDIENCE_PAGE_SIZE } from '@/contacts/utils/audienceResolution.util'
+import {
+  AUDIENCE_PAGE_SIZE,
+  MAX_AUDIENCE_RECIPIENTS,
+} from '@/contacts/utils/audienceResolution.util'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -51,6 +54,16 @@ const repeatPhones = (count: number, tag: string) =>
     cellPhone: `512555${String(index).padStart(4, '0')}`,
   }))
 
+// One findContactsForFilter page. resolveFilterAudience reads `people`, and
+// `pagination.totalResults` on the first page for its pre-flight cap — a stub
+// without the count throws before any assertion runs. The count defaults to
+// this page's own length, which keeps every case here far below the cap; pass
+// it explicitly to describe a filter matching more rows than one page carries.
+const page = (people: unknown[], totalResults?: number) => ({
+  people,
+  pagination: { totalResults: totalResults ?? people.length },
+})
+
 describe('OutreachServeSmsCreateService', () => {
   let service: OutreachServeSmsCreateService
   let prisma: { outreach: { create: ReturnType<typeof vi.fn> } }
@@ -67,7 +80,7 @@ describe('OutreachServeSmsCreateService', () => {
       outreach: { create: vi.fn().mockResolvedValue({ id: OUTREACH_ID }) },
     }
     contacts = {
-      findContactsForFilter: vi.fn().mockResolvedValue({ people: people(120) }),
+      findContactsForFilter: vi.fn().mockResolvedValue(page(people(120))),
     }
     organizations = {
       findFirst: vi.fn().mockResolvedValue({ id: 1, slug: ORG }),
@@ -163,9 +176,9 @@ describe('OutreachServeSmsCreateService', () => {
 
     it('reports the duplicate-phone count off the generator return value', async () => {
       // Two people share a number: the second is dropped and counted.
-      contacts.findContactsForFilter.mockResolvedValue({
-        people: [...people(40), { id: 'person-dupe', cellPhone: '5125550000' }],
-      })
+      contacts.findContactsForFilter.mockResolvedValue(
+        page([...people(40), { id: 'person-dupe', cellPhone: '5125550000' }]),
+      )
 
       const result = await service.createDraft(ORG, request())
 
@@ -175,8 +188,8 @@ describe('OutreachServeSmsCreateService', () => {
 
     it('pages until a short page rather than stopping at the first', async () => {
       contacts.findContactsForFilter
-        .mockResolvedValueOnce({ people: people(AUDIENCE_PAGE_SIZE) })
-        .mockResolvedValueOnce({ people: people(30, AUDIENCE_PAGE_SIZE) })
+        .mockResolvedValueOnce(page(people(AUDIENCE_PAGE_SIZE)))
+        .mockResolvedValueOnce(page(people(30, AUDIENCE_PAGE_SIZE)))
 
       const result = await service.createDraft(ORG, request())
 
@@ -224,9 +237,9 @@ describe('OutreachServeSmsCreateService', () => {
     it('scrubs before the minimum is measured, so the floor sees the real audience', async () => {
       // 25 matched, one opted out — 24 reachable, below the floor.
       texts.findOptedOutPersonIds.mockResolvedValue(['person-0'])
-      contacts.findContactsForFilter.mockResolvedValue({
-        people: people(MIN_SERVE_SMS_RECIPIENTS),
-      })
+      contacts.findContactsForFilter.mockResolvedValue(
+        page(people(MIN_SERVE_SMS_RECIPIENTS)),
+      )
 
       await expect(service.createDraft(ORG, request())).rejects.toThrow(
         /reaches 24 constituents/,
@@ -241,14 +254,16 @@ describe('OutreachServeSmsCreateService', () => {
         Array.from({ length: AUDIENCE_PAGE_SIZE }, (_, i) => `optout-${i}`),
       )
       contacts.findContactsForFilter
-        .mockResolvedValueOnce({ people: people(AUDIENCE_PAGE_SIZE) })
-        .mockResolvedValueOnce({
-          people: Array.from({ length: AUDIENCE_PAGE_SIZE }, (_, i) => ({
-            id: `optout-${i}`,
-            cellPhone: `919555${String(i).padStart(4, '0')}`,
-          })),
-        })
-        .mockResolvedValueOnce({ people: people(5, AUDIENCE_PAGE_SIZE) })
+        .mockResolvedValueOnce(page(people(AUDIENCE_PAGE_SIZE)))
+        .mockResolvedValueOnce(
+          page(
+            Array.from({ length: AUDIENCE_PAGE_SIZE }, (_, i) => ({
+              id: `optout-${i}`,
+              cellPhone: `919555${String(i).padStart(4, '0')}`,
+            })),
+          ),
+        )
+        .mockResolvedValueOnce(page(people(5, AUDIENCE_PAGE_SIZE)))
 
       const result = await service.createDraft(ORG, request())
 
@@ -259,7 +274,7 @@ describe('OutreachServeSmsCreateService', () => {
 
   describe(`the ${MIN_SERVE_SMS_RECIPIENTS}-recipient floor`, () => {
     it('rejects below the minimum and names the number', async () => {
-      contacts.findContactsForFilter.mockResolvedValue({ people: people(24) })
+      contacts.findContactsForFilter.mockResolvedValue(page(people(24)))
 
       await expect(service.createDraft(ORG, request())).rejects.toThrow(
         /reaches 24 constituents.*at least 25/s,
@@ -268,9 +283,9 @@ describe('OutreachServeSmsCreateService', () => {
     })
 
     it('accepts exactly the minimum', async () => {
-      contacts.findContactsForFilter.mockResolvedValue({
-        people: people(MIN_SERVE_SMS_RECIPIENTS),
-      })
+      contacts.findContactsForFilter.mockResolvedValue(
+        page(people(MIN_SERVE_SMS_RECIPIENTS)),
+      )
 
       const result = await service.createDraft(ORG, request())
 
@@ -279,7 +294,7 @@ describe('OutreachServeSmsCreateService', () => {
     })
 
     it('rejects an empty audience with the same message', async () => {
-      contacts.findContactsForFilter.mockResolvedValue({ people: [] })
+      contacts.findContactsForFilter.mockResolvedValue(page([]))
 
       await expect(service.createDraft(ORG, request())).rejects.toThrow(
         /reaches 0 constituents/,
@@ -362,22 +377,40 @@ describe('OutreachServeSmsCreateService', () => {
     })
   })
 
-  // The audience helper is A3's and carries three circuit breakers. These pin
-  // the two that a Serve create can actually reach (the recipient cap needs
-  // 100k fixture rows), because the counts they guard are what gets charged —
-  // and because the rest of this file's fixtures are single short pages that
-  // never arm a breaker at all.
+  // The audience helper is A3's and carries three circuit breakers plus a
+  // page-1 pre-flight. These pin the ones a Serve create can actually reach,
+  // because the counts they guard are what gets charged — and because the rest
+  // of this file's fixtures are single short pages that never arm anything.
+  // The pre-flight needs no large fixture: it reads `pagination.totalResults`,
+  // which `page()` takes as its second argument.
   describe('the audience helper’s guards, through createDraft', () => {
+    it('refuses a filter whose matched count is over the cap, before paging', async () => {
+      // This path has a request waiting on it, so the pre-flight must stay
+      // armed here. A future edit that passed skipPreflightCap from this
+      // service would restore the two-minute hang this guard exists to remove,
+      // and nothing else in this suite would notice.
+      contacts.findContactsForFilter.mockResolvedValue(
+        page(people(120), MAX_AUDIENCE_RECIPIENTS + 1),
+      )
+
+      await expect(service.createDraft(ORG, request())).rejects.toThrow(
+        new RegExp(`over the ${MAX_AUDIENCE_RECIPIENTS} constituent limit`),
+      )
+      // One fetch, and nothing charged.
+      expect(contacts.findContactsForFilter).toHaveBeenCalledOnce()
+      expect(prisma.outreach.create).not.toHaveBeenCalled()
+    })
+
     it('still resolves a dedup-heavy list rather than rejecting it', async () => {
       contacts.findContactsForFilter
         // A full page of fresh numbers...
-        .mockResolvedValueOnce({ people: people(AUDIENCE_PAGE_SIZE) })
+        .mockResolvedValueOnce(page(people(AUDIENCE_PAGE_SIZE)))
         // ...then a full page that repeats every one of them. One such page is
         // legitimate: people-api's ordering clusters a household together.
-        .mockResolvedValueOnce({
-          people: repeatPhones(AUDIENCE_PAGE_SIZE, 'household'),
-        })
-        .mockResolvedValueOnce({ people: people(10, AUDIENCE_PAGE_SIZE) })
+        .mockResolvedValueOnce(
+          page(repeatPhones(AUDIENCE_PAGE_SIZE, 'household')),
+        )
+        .mockResolvedValueOnce(page(people(10, AUDIENCE_PAGE_SIZE)))
 
       const result = await service.createDraft(ORG, request())
 
@@ -388,17 +421,11 @@ describe('OutreachServeSmsCreateService', () => {
 
     it('surfaces the stall guard rather than quoting a truncated audience', async () => {
       contacts.findContactsForFilter
-        .mockResolvedValueOnce({ people: people(AUDIENCE_PAGE_SIZE) })
-        .mockResolvedValueOnce({
-          people: repeatPhones(AUDIENCE_PAGE_SIZE, 'a'),
-        })
-        .mockResolvedValueOnce({
-          people: repeatPhones(AUDIENCE_PAGE_SIZE, 'b'),
-        })
-        .mockResolvedValueOnce({
-          people: repeatPhones(AUDIENCE_PAGE_SIZE, 'c'),
-        })
-        .mockResolvedValue({ people: [] })
+        .mockResolvedValueOnce(page(people(AUDIENCE_PAGE_SIZE)))
+        .mockResolvedValueOnce(page(repeatPhones(AUDIENCE_PAGE_SIZE, 'a')))
+        .mockResolvedValueOnce(page(repeatPhones(AUDIENCE_PAGE_SIZE, 'b')))
+        .mockResolvedValueOnce(page(repeatPhones(AUDIENCE_PAGE_SIZE, 'c')))
+        .mockResolvedValue(page([]))
 
       await expect(service.createDraft(ORG, request())).rejects.toThrow(
         /consecutive full pages returned no phone/,

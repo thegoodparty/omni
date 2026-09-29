@@ -444,3 +444,36 @@ def test_the_latch_floor_is_its_own_and_leaves_the_shared_one_alone():
     assert ol.RECOVERY_PCT > ol.LATCH_BREAK_PCT, (
         "recovery must stay a strictly higher bar than break, or there is no band"
     )
+
+
+# --- cross-repo contract (DATA-2422) -----------------------------------------
+
+# gp-data-platform's semantic catalog reads these out of the persisted state file
+# to mark a metric's build approval as needing re-verification while its declared
+# instrument is dormant. Renaming or dropping one silently turns that warning off
+# and the catalog goes back to reading green over a dead instrument, which is the
+# exact failure the evidence link exists to remove.
+CROSS_REPO_KEYS = {"metric", "since", "latched"}
+
+
+def test_latch_record_keeps_its_cross_repo_keys():
+    series = {"Dashboard - Campaign Plan Viewed": _weeks([700, 680, 660, 690, 20, 18])}
+    record = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=42))[
+        "Dashboard - Campaign Plan Viewed"
+    ]
+    assert CROSS_REPO_KEYS <= set(record)
+    assert record["metric"] == "win_active_candidates_30d"
+    assert record["latched"] is True
+    # `since` is the FIRST broken week of the run, which is what the catalog
+    # renders as "has not fired since". The latch itself only fires a week later.
+    assert record["since"] == (W0 + timedelta(days=28)).isoformat()
+
+
+def test_a_not_yet_latched_record_still_carries_the_keys():
+    # The catalog filters on `latched`, so an unlatched record must be readable
+    # and must say False rather than omitting the key.
+    series = {"Dashboard - Campaign Plan Viewed": _weeks([700, 680, 660, 690, 20])}
+    record = ol.update_latches({}, series, WATCHED, today=W0 + timedelta(days=35))[
+        "Dashboard - Campaign Plan Viewed"
+    ]
+    assert CROSS_REPO_KEYS <= set(record) and record["latched"] is False

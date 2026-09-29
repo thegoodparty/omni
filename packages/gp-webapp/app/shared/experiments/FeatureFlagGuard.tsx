@@ -8,16 +8,23 @@ import { useFlagOn } from './FeatureFlagsProvider'
 interface FeatureFlagGuardProps {
   flagKey: string
   redirectTo?: string
+  // Pass false when a route behind the flag is not itself the experiment's
+  // treatment surface — the guard would otherwise expose every user who lands
+  // on it, including ones who never saw the surface being measured.
+  trackExposure?: boolean
   children: ReactNode
 }
 
 export default function FeatureFlagGuard({
   flagKey,
   redirectTo = '/dashboard',
+  trackExposure = true,
   children,
 }: FeatureFlagGuardProps): React.JSX.Element | null {
   const router = useRouter()
-  const { ready: flagsReady, on: flagEnabled } = useFlagOn(flagKey)
+  const { ready: flagsReady, on: flagEnabled } = useFlagOn(flagKey, {
+    trackExposure,
+  })
 
   useEffect(() => {
     if (flagsReady && !flagEnabled) {

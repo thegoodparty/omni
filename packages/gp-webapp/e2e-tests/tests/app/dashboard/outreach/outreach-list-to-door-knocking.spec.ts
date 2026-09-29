@@ -144,9 +144,11 @@ test.describe('outreach list handoff to door knocking', () => {
     await expect(audience).not.toContainText('All contacts')
 
     // And the flow is still only a flow — reaching the who step with the list
-    // picked has written nothing. Two steps remain before anything is: the
-    // polygon, and then the route step's Build route, which is the single
-    // transaction that writes the turf, the route and the outreach envelope.
+    // picked has written nothing. Three steps remain before anything is:
+    // the talking points, the campaign's name, and then the draw step's
+    // Create campaign, which is the single transaction that writes the
+    // turfs and their outreach envelopes. No route: that is bought at the
+    // first knock now, from the turf's own card.
     //
     // The CTA carries the filtered audience's size, which is also what makes
     // this wait for the pack rather than race it.

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { GLOBAL_ALERTS } from '../alerts'
-import { Alert } from './alerts.types'
+import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
+import { RECORDING_RULES } from './provisioned-alerts'
 
 // Mirrors grafana.ts's `alert.timeRangeSeconds ?? 600` — the window the
 // alerting engine actually fetches when an alert does not pin its own.
@@ -200,16 +201,71 @@ describe('public-person-profiles-error-ratio', () => {
  * evaluation decompresses, and an evaluation decompresses its whole fetch
  * window, so a rule's daily read volume is proportional to window ÷ interval
  * and to nothing else about the query.
+ *
+ * It is also, conveniently, the rule's daily read volume expressed as a
+ * multiple of what we ingest — which is the unit the allowance is denominated
+ * in. A rule at 96 reads 96x our ingest per day.
  */
-const rereadFactor = (alert: Alert) =>
-  (alert.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS) /
-  (alert.evaluationIntervalSeconds ?? DEFAULT_EVALUATION_SECONDS)
+const rereadFactor = (alert: Alert | RecordingRule) =>
+  'metric' in alert
+    ? (alert.fromSeconds - alert.toSeconds) / alert.intervalSeconds
+    : (alert.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS) /
+      (alert.evaluationIntervalSeconds ?? DEFAULT_EVALUATION_SECONDS)
 
-// The two 6h rules sat at 360 on the 60s default and were between them the
-// largest single line in the Loki query bill. This ceiling is what stops a
-// wide fetch window being paired with a fast interval again; it is not a
-// target, and a rule near it is still worth a second look.
-const MAX_REREAD_FACTOR = 100
+/**
+ * Everything we provision that reads a log stream on a schedule.
+ *
+ * The alerts and the recording rules together, because they spend one budget.
+ * A rule moved onto a recorded metric stops appearing in the first list and
+ * starts appearing in the second, and the total is what has to hold.
+ */
+const scheduledLokiReads = (): (Alert | RecordingRule)[] => [
+  ...GLOBAL_ALERTS.filter((alert) => alert.type === 'log'),
+  ...RECORDING_RULES,
+]
+
+/**
+ * The most of the allowance any single rule may be budgeted for.
+ *
+ * WHY THIS NUMBER IS NOT 100, WHICH IS WHAT IT USED TO BE. The plan includes
+ * log queries up to 100x ingest, so a per-rule ceiling of 100 permitted any one
+ * rule to consume the entire allowance and still pass. The four Geoapify budget
+ * tiers each did exactly that, at 96 apiece — passing individually, and together
+ * budgeted at 384% of everything we are allowed to read. On 2026-09-29 the
+ * account was measured at 4.4x the allowance with production perfectly healthy.
+ *
+ * A per-rule cap can only ever be a sanity check; the real constraint is the
+ * total below. This is set to leave no rule able to take a fifth of the budget
+ * on its own.
+ */
+const MAX_REREAD_FACTOR = 24
+
+/**
+ * The most of the allowance every scheduled read may be budgeted for, together.
+ *
+ * The allowance is 100x ingest and it is shared three ways this number has to
+ * respect: every rule in the set, BOTH environments (dev and prod provision the
+ * same definitions and each reads its own stream, so the pair spends the sum),
+ * and ad-hoc queries — measured at 149 GB/day on 2026-09-29, about 14% of the
+ * allowance, which nothing in a test can bound.
+ *
+ * Calibration, so this is a measurement rather than a preference: on 2026-09-29
+ * the set totalled 787 and the account read 3,038 GB/day against a 1,056 GB/day
+ * allowance, i.e. ~3.9 GB/day per unit of factor. 130 therefore predicts ~500
+ * GB/day, or roughly half the allowance, leaving the other half for humans and
+ * for whatever the next alert needs. The set totals 121 today.
+ *
+ * The factor is a per-rule lower bound rather than an exact cost, which the
+ * calibration absorbs on average and is worth knowing when reading one line of
+ * the breakdown: the two ratio rules evaluate their stream three times inside a
+ * single expression (numerator, denominator, volume floor), so each costs about
+ * three times what its factor says.
+ *
+ * If this test fails, the answer is almost never a bigger number here. It is a
+ * recording rule: one Loki read a minute, shared by every alert that wants a
+ * window wider than a minute. See RECORDING_RULES in provisioned-alerts.ts.
+ */
+const MAX_TOTAL_REREAD_FACTOR = 130
 
 describe('people-person-id-repoint-collision', () => {
   const alert = GLOBAL_ALERTS.find(
@@ -288,11 +344,38 @@ describe('people-person-id-repoint-collision', () => {
 
 describe('evaluation intervals', () => {
   it('never pairs a wide fetch window with a fast interval', () => {
-    const offenders = GLOBAL_ALERTS.filter(
-      (alert) => rereadFactor(alert) > MAX_REREAD_FACTOR,
-    ).map((alert) => `${alert.slug}: ${rereadFactor(alert)} re-reads/day`)
+    const offenders = scheduledLokiReads()
+      .filter((rule) => rereadFactor(rule) > MAX_REREAD_FACTOR)
+      .map((rule) => `${rule.slug}: ${rereadFactor(rule)} re-reads/day`)
 
     expect(offenders).toEqual([])
+  })
+
+  // The test that was missing. Every rule above can pass its own ceiling while
+  // the set as a whole is many times over the allowance, because the allowance
+  // is one number shared by all of them — and it was: 787 against 100 on
+  // 2026-09-29, spending 4.4x what the plan includes while production was fine.
+  it('leaves most of the query allowance unspent, across every rule', () => {
+    const reads = scheduledLokiReads()
+    const total = reads.reduce((sum, rule) => sum + rereadFactor(rule), 0)
+
+    const breakdown = reads
+      .map((rule) => `${rule.slug}: ${rereadFactor(rule)}`)
+      .sort()
+      .join('\n')
+
+    expect(total, `total ${total}x ingest\n${breakdown}`).toBeLessThanOrEqual(
+      MAX_TOTAL_REREAD_FACTOR,
+    )
+  })
+
+  // Not a cost property but the one that makes the cost property readable: a
+  // rule that says `type: 'log'` and then selects a Prometheus metric, or the
+  // reverse, would be counted in the wrong set above.
+  it('keeps every log rule on a Loki stream selector', () => {
+    for (const alert of GLOBAL_ALERTS.filter((a) => a.type === 'log')) {
+      expect(alert.expr, alert.slug).toContain('service_name="gp-api"')
+    }
   })
 
   // `for` is counted in whole evaluations, so an interval that does not divide
@@ -310,6 +393,44 @@ describe('evaluation intervals', () => {
 
       expect(forSeconds % alert.evaluationIntervalSeconds!).toEqual(0)
     }
+  })
+})
+
+// The two structural properties of a recording rule, asserted over every one
+// we provision rather than only over the route pair in controller-alerts.test.
+// A rule that reads a wider window than its interval is the defect that
+// produced 2,690 GB/day and the 2026-09-28 429s; a rule that reads up to `now`
+// loses lines permanently. Neither is visible in Grafana when it is wrong.
+describe('recording rules', () => {
+  it('reads each log line exactly once', () => {
+    for (const rule of RECORDING_RULES) {
+      const width = [...rule.expr.matchAll(/\[(\d+)([smhd])\]/g)].map(
+        ([, amount, unit]) => toSeconds(amount!, unit!),
+      )
+
+      expect(width, rule.slug).toHaveLength(1)
+      expect(rule.fromSeconds - rule.toSeconds, rule.slug).toEqual(width[0])
+      expect(width[0], rule.slug).toEqual(rule.intervalSeconds)
+    }
+  })
+
+  // Log lines reach Loki several seconds after the request they describe, so a
+  // window ending at `now` misses the newest ones and never sees them again:
+  // the next evaluation's window starts where this one ended.
+  it('ends its window before now, to clear the ingestion lag', () => {
+    for (const rule of RECORDING_RULES) {
+      expect(rule.toSeconds, rule.slug).toBeGreaterThan(0)
+    }
+  })
+
+  // Two rules writing one metric interleave two measurements into one series,
+  // and nothing about the result looks wrong.
+  it('writes one metric per rule', () => {
+    const metrics = RECORDING_RULES.map((rule) => rule.metric)
+    expect(new Set(metrics).size).toEqual(metrics.length)
+
+    const slugs = RECORDING_RULES.map((rule) => rule.slug)
+    expect(new Set(slugs).size).toEqual(slugs.length)
   })
 })
 
@@ -369,14 +490,21 @@ describe('geoapify daily budget tiers', () => {
     }
   })
 
-  // Identical text is what lets Loki's result cache serve tiers 2-4 from the
-  // work tier 1 did — the reason four rules cost about what one does.
+  // Four rules asking the same question should ask it in the same words: a
+  // per-tier edit is how an escalation starts measuring four slightly
+  // different things. This used to be justified by Loki's result cache serving
+  // tiers 2-4 from tier 1's work, which per-rule attribution showed it did not
+  // (13.6 / 11.2 / 11.2 / 7.2 GB/h on 2026-09-29) — they read a recorded
+  // Prometheus metric now, so the cost argument is gone and only this one is
+  // left.
   it('shares one expression across the tiers', () => {
     expect(new Set(tiers.map((a) => a.expr)).size).toBe(1)
   })
 
-  // Below the fast-burn ceiling a runaway would trip first, so the two alerts
-  // stay in their intended order rather than racing.
+  // Both read the same recorded credit metric, so the comparison is between
+  // two numbers measured the same way. Below the fast-burn ceiling a runaway
+  // would trip first, so the two alerts stay in their intended order rather
+  // than racing.
   it('sits above the 6h fast-burn ceiling it complements', () => {
     const ceiling = GLOBAL_ALERTS.find(
       (a) => a.slug === 'door-knocking-route-planner-spend-ceiling',
@@ -562,5 +690,38 @@ describe('alert-notification-delivery-failing', () => {
   // known cause would imply the filter gets to see it.
   it('declares no known causes, since the filter must never classify it', () => {
     expect(alert.knownCauses).toBeUndefined()
+  })
+})
+
+describe('loki query budget', () => {
+  const alerts = GLOBAL_ALERTS.filter((alert) =>
+    alert.slug.startsWith('loki-query-budget-'),
+  )
+
+  it('registers both tiers', () => {
+    expect(alerts.map((alert) => alert.slug).sort()).toEqual([
+      'loki-query-budget-critical',
+      'loki-query-budget-half',
+    ])
+  })
+
+  // These three guard one regression. Shipped on 2026-09-29 averaging over an
+  // hour and holding for 30m, both rules flapped: the ratio crossed 0.8
+  // several times an hour, and since Alertmanager re-notifies a still-firing
+  // alert only every 2d, every page came from a resolve/re-fire cycle rather
+  // than from the overage. The allowance is billed monthly, so a crossing that
+  // settles inside a couple of hours was never going to reach an invoice.
+  it.each(alerts)('$slug averages over hours, not minutes', (alert) => {
+    expect(widestRangeSeconds(alert.expr)).toBeGreaterThanOrEqual(6 * 3600)
+  })
+
+  it.each(alerts)('$slug must stay over for hours to page', (alert) => {
+    const [, amount, unit] = /^(\d+)([smhd])$/.exec(alert.for) ?? []
+    expect(toSeconds(amount ?? '', unit ?? '')).toBeGreaterThanOrEqual(2 * 3600)
+  })
+
+  it.each(alerts)('$slug fetches the whole window it averages', (alert) => {
+    const fetched = alert.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+    expect(fetched).toBeGreaterThanOrEqual(widestRangeSeconds(alert.expr))
   })
 })

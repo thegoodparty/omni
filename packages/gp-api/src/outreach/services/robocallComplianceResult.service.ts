@@ -35,4 +35,11 @@ export class RobocallComplianceResultService extends createPrismaBase(
   findPassing(audioKey: string): Promise<RobocallComplianceResult | null> {
     return this.findFirst({ where: { audioKey, passed: true } })
   }
+
+  // Cleared when a draft holding this recording is deleted: the audio object is
+  // gone, so its verdict must not outlive it and bless a re-uploaded key.
+  // deleteMany (not delete) so an already-absent verdict is not an error.
+  async deleteByAudioKey(audioKey: string): Promise<void> {
+    await this.model.deleteMany({ where: { audioKey } })
+  }
 }

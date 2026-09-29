@@ -7,8 +7,10 @@ import { z } from 'zod'
 // the server re-derives them from the stored draft before authorizing.
 export const RobocallAuthorizeRequestSchema = z.object({
   // The vaulted card the hold is placed on. Confirmed to belong to the paying
-  // user's Stripe customer server-side before any charge.
-  paymentMethodId: z.string().min(1),
+  // user's Stripe customer server-side before any charge. Optional only when a
+  // promotion code remembered on the draft covers the whole estimate: nothing
+  // is held, so no card is needed; a partially covered draft still requires it.
+  paymentMethodId: z.string().min(1).optional(),
 })
 export type RobocallAuthorizeRequest = z.infer<
   typeof RobocallAuthorizeRequestSchema
@@ -36,7 +38,11 @@ export const RobocallAuthorizeResponseSchema = z.object({
   // render the exact lifecycle position without a second read.
   settleState: z.string(),
   // The frozen estimate the hold was placed for, present only when authorized.
+  // A fully covered run authorizes 0 with no hold.
   authorizedAmountInCents: z.number().int().min(0).nullable(),
+  // The promotion discount folded into that amount, present only when a code
+  // was consumed by this authorize.
+  promoDiscountInCents: z.number().int().min(0).nullable(),
 })
 export type RobocallAuthorizeResponse = z.infer<
   typeof RobocallAuthorizeResponseSchema
