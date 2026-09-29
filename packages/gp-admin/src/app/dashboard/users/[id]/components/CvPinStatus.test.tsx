@@ -673,6 +673,27 @@ describe('CvPinStatus', () => {
       expect(mockSetInternalTestingApproval).not.toHaveBeenCalled()
     })
 
+    it('reports a toggle that never reached the API and suggests a refresh', async () => {
+      mockSetInternalTestingApproval.mockRejectedValue(
+        new Error(
+          'Failed to find Server Action "def456". This request might be ' +
+            'from an older or newer deployment.'
+        )
+      )
+      const user = userEvent.setup()
+      renderWidget(internalUser)
+
+      await user.click(await screen.findByRole('checkbox'))
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          expect.stringContaining('refresh the page')
+        )
+      )
+      expect(mockCaptureException).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('checkbox')).not.toBeChecked()
+    })
+
     it('surfaces a grant failure via toast and stays unchecked', async () => {
       mockSetInternalTestingApproval.mockRejectedValue(
         new Error('Internal testing approval is limited to internal accounts')

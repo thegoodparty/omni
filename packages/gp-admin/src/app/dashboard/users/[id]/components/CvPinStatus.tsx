@@ -150,10 +150,12 @@ function CvPinStatusContent() {
           : 'Internal testing approval removed'
       )
     } catch (error) {
+      Sentry.captureException(error)
       showToast(
-        error instanceof Error
-          ? error.message
-          : 'Failed to update internal testing approval'
+        describeActionFailure(
+          error,
+          'Failed to update internal testing approval'
+        )
       )
     }
     setSavingApproval(false)
