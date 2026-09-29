@@ -259,6 +259,11 @@ export default function ChiefOfStaffChatBody({
   // overlay covers the viewport, so this is not reachable by mouse; it is
   // reachable by keyboard, because the overlay traps no focus.
   const [refiningList, setRefiningList] = useState<ShowListMap | null>(null)
+  // The turn a saved boundary owes the conversation, held until the stream it
+  // may have been drawn during finishes. See the effect that drains it.
+  const [pendingBoundaryNote, setPendingBoundaryNote] = useState<string | null>(
+    null,
+  )
   const [introProgress, setIntroProgress] = useState(0)
   // True once anything has been sent this session (visible OR hidden). Gates the
   // with-greeting starter chips off after a hidden kickoff (which adds no user
@@ -956,17 +961,29 @@ export default function ChiefOfStaffChatBody({
   const handleBoundarySaved = useCallback(
     ({ cleared }: { cleared: boolean }) => {
       if (!refiningList) return
-      void deliver(
+      setPendingBoundaryNote(
         boundarySavedMessage({
           listId: refiningList.listId,
           name: refiningList.name,
           cleared,
         }),
-        { hidden: true },
       )
     },
-    [refiningList, deliver],
+    [refiningList],
   )
+
+  // Queued rather than sent, because a boundary can be saved while a turn is
+  // still streaming — the drawer is mounted by this component precisely so it
+  // survives that — and `deliver` refuses a send with one in flight. Dropping
+  // it there would lose the model's only signal that a shape exists, and the
+  // holder would get the pre-boundary answer back with no way to tell why.
+  // Same wait-it-out shape as the kickoff effect above.
+  useEffect(() => {
+    if (!pendingBoundaryNote) return
+    if (loading || creatingRef.current || sending) return
+    setPendingBoundaryNote(null)
+    void deliver(pendingBoundaryNote, { hidden: true })
+  }, [pendingBoundaryNote, loading, sending, deliver])
 
   const sendContent = useCallback(
     (content: string) => deliver(content, { hidden: false }),

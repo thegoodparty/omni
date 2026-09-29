@@ -1642,6 +1642,90 @@ describe('<ChiefOfStaffChatBody>', () => {
       await screen.findByText('That leaves 412 constituents.')
     })
 
+    // The drawer is mounted by the body so it survives a turn committing
+    // (see the test below), which means a save can land mid-stream — and
+    // `deliver` refuses a send with one in flight. Dropped there, the model
+    // never learns the shape exists and answers the pre-boundary list back.
+    it('holds the boundary turn until an in-flight stream finishes', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      mockSavedList({
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-86, 44],
+              [-85, 44],
+              [-85, 45],
+              [-86, 45],
+              [-86, 44],
+            ],
+          ],
+        },
+      })
+      api.mock('PUT /v1/voters/voter-file/filter/:id', {
+        status: 200,
+        data: { id: LIST.listId } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      createMock.mockResolvedValue({ conversationId: 'conv_mid' })
+      let endTurn: () => void
+      const turnEnded = new Promise<void>((resolve) => {
+        endTurn = resolve
+      })
+      streamMessageMock.mockReturnValueOnce(
+        (async function* () {
+          yield { type: 'tool_call', toolName: 'show_list_map', args: LIST }
+          await turnEnded
+          yield { type: 'done', assistantMessageId: 'a_mid' }
+        })(),
+      )
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'That leaves 412 constituents.' },
+          { type: 'done', assistantMessageId: 'a_after' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_mid',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active />)
+      await user.type(screen.getByLabelText(/ask a question/i), 'map it')
+      await user.click(screen.getByRole('button', { name: /send/i }))
+
+      // Draw and save while the first turn is still streaming.
+      await user.click(
+        await screen.findByRole('button', { name: /edit area/i }),
+      )
+      await user.click(
+        await within(await screen.findByTestId('boundary-overlay')).findByRole(
+          'button',
+          { name: /^save$/i },
+        ),
+      )
+
+      // Nothing sent yet: the stream still holds the send path.
+      expect(streamMessageMock).toHaveBeenCalledTimes(1)
+
+      endTurn!()
+
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: expect.stringContaining('I drew an area on the map'),
+          }),
+        ),
+      )
+    })
+
     // An absent row reads as unlocked, so gating on the lock alone showed
     // the button while the list was still in flight — and the overlay seeds
     // its ring into useState once, at mount. Opened in that window it came
