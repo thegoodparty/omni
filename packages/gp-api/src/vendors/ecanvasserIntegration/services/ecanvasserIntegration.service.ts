@@ -17,7 +17,6 @@ import {
 } from '../ecanvasserIntegration.types'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import { WrapperType } from 'src/shared/types/utility.types'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { EcanvasserService } from './ecanvasser.service'
 // Type-only: the runtime instance is injected via ECANVASSER_ATTRIBUTION_SERVICE
 // so this file carries no runtime import of the attribution service, which would
@@ -64,7 +63,6 @@ export class EcanvasserIntegrationService extends createPrismaBase(
     private readonly ecanvasser: EcanvasserService,
     @Inject(forwardRef(() => CrmCampaignsService))
     private readonly crm: WrapperType<CrmCampaignsService>,
-    private slack: SlackService,
     @Inject(ECANVASSER_ATTRIBUTION_SERVICE)
     private readonly attribution: EcanvasserAttributionService,
   ) {
@@ -424,11 +422,13 @@ export class EcanvasserIntegrationService extends createPrismaBase(
       }
       return updated
     } catch (error) {
+      // Logged, not alerted. A failed sync here is nearly always an expired
+      // per-candidate eCanvasser API key, and nobody renews those. The module
+      // goes away once native-door-knocking reaches 100%. A Slack message per
+      // failing integration, across 114 of them on every nightly syncAll, would
+      // drown the channel it posts to. The failure is still on the row in
+      // `error` and on the admin list endpoint.
       this.logger.error({ error }, 'Failed to sync with ecanvasserIntegration')
-      await this.slack.errorMessage({
-        message: `Failed to sync with ecanvasser for campaign ${ecanvasser.campaignId}`,
-        error,
-      })
       return this.model.update({
         where: { id: ecanvasser.id },
         data: {
