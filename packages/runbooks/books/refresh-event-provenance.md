@@ -44,9 +44,10 @@ Core columns produced by the backfill walk:
   from outside this repo (vendor autocapture, gp-marketing).
 - `call_site_retired_date` — date the call-site count last dropped to zero (targeted
   `git log -S` on the key-path), populated only when `call_site_count` is `0`. Known gap:
-  `git log -S` matches single-line literals and the diff is scanned line by line, so a
-  Prettier-wrapped key-path (`EVENTS.A.B\n  .C`) resolves no date and the column stays
-  empty even though the count is a true `0`.
+  `git log -S` needs the dotted path as one literal string in the blob, so a
+  Prettier-wrapped key-path (`EVENTS.A.B\n  .C`) matches no commit and the column stays
+  empty even though the count is a true `0`. (The commit filter itself is wrap-tolerant —
+  the constraint is the pickaxe, not the pattern.)
 - `instrumented_author_email` / `retired_author_email` — git author email (`%ae`) of the
   commit that instrumented and the commit that retired the event, for follow-up. Empty when
   the event is still in code (no retirement) or predates the walk window.

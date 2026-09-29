@@ -95,6 +95,13 @@ Never post to Slack during this self-load — it's read-only (`slack_read_channe
 
 With `run_date` in hand, load all three queues scoped to that run.
 
+**Read the gotchas book before ruling on anything.** `books/analytics-governance-gotchas.md`
+is a symptom table of the traps that have produced confident, wrong verdicts in this
+process — blank vs zero call-site counts, the rank-0 counter blind spot, a 30-day window
+straddling a retirement, the rolling baseline absorbing a sustained break. Scanning it
+first is cheaper than re-deriving one of them from scratch, which is what DATA-2575 was
+filed for.
+
 ## Queue A — instrumentation gaps
 
 **Get the batch:**
@@ -540,12 +547,21 @@ ticket, or the reviewer's own follow-up message.
 
 Once all three queues are dispositioned:
 
-1. `git status` should show at most `instrumentation_gaps.json` and (if Queue B had any
+1. **Record any new trap.** If a queue item turned out to be a **tooling artifact rather
+   than a product finding** — our counter blind, a window straddling a dated change, a
+   provenance column read the wrong way — add a one-liner to
+   `books/analytics-governance-gotchas.md` before closing the session: the symptom, the
+   mitigation, and a Status of `invariant` or `state · as-of YYYY-MM`. Put the full
+   explanation in the owning book (usually `monitor-analytics-event-health.md` or
+   `refresh-event-provenance.md`) and link it rather than restating it. Skip if the
+   symptom is already a row.
+2. `git status` should show at most `instrumentation_gaps.json` and (if Queue B had any
    accept/dismiss, or Queue C had any case 1 edit or dismissal) `monitored_events.yaml`
    under `packages/runbooks/scripts/python/instrumentation_data/` /
-   `packages/runbooks/scripts/python/`.
-2. Stage exactly those files.
-3. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the run,
+   `packages/runbooks/scripts/python/`, plus `books/analytics-governance-gotchas.md` if
+   step 1 added a row.
+3. Stage exactly those files.
+4. Invoke the **`ship-pr`** skill to open one PR against `main`. Title it for the run,
    e.g. `chore(governance): triage <run_date> — gap + watchlist + alignment review`. In
    the body, list:
    - Queue A: which gap ids were ticketed (with ClickUp links), which were handed to
