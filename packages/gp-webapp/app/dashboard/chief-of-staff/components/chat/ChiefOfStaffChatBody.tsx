@@ -893,7 +893,6 @@ export default function ChiefOfStaffChatBody({
         )
       } else {
         lastUserContentRef.current = trimmed
-        onMessageSent?.()
       }
       const id = await ensureConversationId()
       if (!id) {
@@ -904,6 +903,11 @@ export default function ChiefOfStaffChatBody({
         return false
       }
       if (!opts?.hidden) {
+        // After the `!id` guard, not before it: a failed conversation create
+        // returns null and bails above, and counting that as a sent message
+        // would overstate the very open-to-send funnel this callback exists
+        // to measure (ENG-10767).
+        onMessageSent?.()
         setMessages((prev) => [
           ...prev,
           {

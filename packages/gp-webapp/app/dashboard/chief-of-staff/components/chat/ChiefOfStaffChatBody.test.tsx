@@ -774,6 +774,34 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() => expect(onMessageSent).toHaveBeenCalledTimes(1))
   })
 
+  // The funnel event has to mean "delivered", not "attempted": the callback
+  // exists to measure open-to-send, so a send that never reached a
+  // conversation must not inflate it.
+  it('does not report a send whose conversation create failed', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockRejectedValue(new Error('network down'))
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    // The create is attempted and fails, so the turn never streams.
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(
+        screen.getByText('Could not start chat. Try again.'),
+      ).toBeInTheDocument(),
+    )
+    expect(streamMessageMock).not.toHaveBeenCalled()
+    expect(onMessageSent).not.toHaveBeenCalled()
+  })
+
   it('does not report a hidden kickoff through onMessageSent', async () => {
     const onMessageSent = vi.fn()
     listConversationsMock.mockResolvedValue([])
