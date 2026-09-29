@@ -497,3 +497,39 @@ class TestRunStatusQaEvalTranscriptField:
             "failure-only path with no verdict to couple to"
         )
         mock_sender.send_result.assert_called_once()
+
+
+class TestEvalRunSuppressesTheResultsCallback:
+    """Same rule as the publish path: gp-api has no run row for a judge
+    dispatch, so a terminal-status callback would only produce an
+    `Experiment run not found` error. Our own terminal log line and metric
+    still fire — a failed eval run stays visible to us."""
+
+    def test_eval_ticket_sends_no_callback_but_still_cleans_up(self):
+        app, _, mock_sender, mock_store = _create_app(ticket=_make_ticket().model_copy(update={"is_eval": True}))
+        client = TestClient(app)
+
+        resp = client.post(
+            "/internal/run-status",
+            json={"status": "failed", "reason_code": "timeout", "detail": "Exceeded time limit"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["callback_sent"] is False
+        mock_sender.send_result.assert_not_called()
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "run-001")
+
+    def test_ticket_without_the_eval_flag_still_sends(self):
+        app, _, mock_sender, _ = _create_app()
+        client = TestClient(app)
+
+        resp = client.post(
+            "/internal/run-status",
+            json={"status": "failed", "reason_code": "timeout", "detail": "Exceeded time limit"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["callback_sent"] is True
+        mock_sender.send_result.assert_called_once()

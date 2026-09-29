@@ -234,7 +234,9 @@ CloudWatch metric namespace is literally `PMFEngine`.
 - **`task_reaper`** — EventBridge target for ECS Task-State-Change (STOPPED). If a
   task stops with a **non-zero exit code** (OOM/eviction/failed-to-start) the runner
   never published a result, so the reaper sends a `failed` callback. A clean exit is
-  left alone — the runner reported its own result.
+  left alone — the runner reported its own result. Run ids prefixed `_judge-` are
+  skipped: those runs have no gp-api row to reconcile, so their own poll timeout is
+  what detects a dead task.
 
 **Why the cap is exact:** exactly one scheduler runs at a time and is the sole
 RunTask caller, counting `desiredStatus=RUNNING` tasks against the SSM cap each tick.

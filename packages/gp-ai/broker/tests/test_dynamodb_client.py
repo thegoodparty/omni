@@ -6,6 +6,7 @@ import pytest
 from moto import mock_aws
 
 from broker.dynamodb_client import (
+    ExperimentOverrideRef,
     InputFileRef,
     ScopeTicket,
     ScopeTicketStore,
@@ -329,3 +330,69 @@ class TestInputFilesRoundTrip:
         result = store.get_ticket("token-noif")
         assert result is not None
         assert result.input_files is None
+
+
+class TestJudgeFieldsRoundTrip:
+    def test_defaults_are_off(self):
+        ticket = _make_ticket()
+        assert ticket.is_eval is False
+        assert ticket.experiment_override is None
+
+    def test_no_judge_fields_writes_no_extra_attributes(self, moto_ddb):
+        """The item a product run's ticket writes must be exactly what it
+        writes today — the judge attributes only appear when set."""
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        store.put_ticket(_make_ticket(pk="token-plain", run_id="run-PLAIN"))
+
+        item = moto_ddb.get_item(TableName="scope-tickets", Key={"pk": {"S": "token-plain"}})["Item"]
+        assert "is_eval" not in item
+        assert "experiment_override" not in item
+
+        result = store.get_ticket("token-plain")
+        assert result is not None
+        assert result.is_eval is False
+        assert result.experiment_override is None
+
+    def test_judge_fields_roundtrip_through_dynamodb(self, moto_ddb):
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        override = ExperimentOverrideRef(
+            manifest_key="_judge/voter_targeting/abc123/manifest.json",
+            instruction_key="_judge/voter_targeting/abc123/instruction.md",
+        )
+        ticket = _make_ticket(
+            pk="token-judge",
+            run_id="_judge-run-001",
+            is_eval=True,
+            experiment_override=override,
+        )
+
+        store.put_ticket(ticket)
+
+        result = store.get_ticket("token-judge")
+        assert result is not None
+        assert result.is_eval is True
+        assert result.experiment_override == override
+
+    def test_override_without_the_eval_flag_is_refused(self):
+        """An override only ever comes from a judge dispatch, which has no
+        gp-api run row — so a ticket carrying one must also suppress the
+        callback, and a mismatch is a wiring bug worth failing at mint."""
+        with pytest.raises(ValueError):
+            _make_ticket(
+                is_eval=False,
+                experiment_override=ExperimentOverrideRef(
+                    manifest_key="_judge/voter_targeting/abc123/manifest.json",
+                    instruction_key="_judge/voter_targeting/abc123/instruction.md",
+                ),
+            )
+
+    def test_eval_flag_is_independent_of_the_override(self, moto_ddb):
+        """A sweep's base arm runs the published bytes with no override, and
+        its callback still has to be suppressed."""
+        store = ScopeTicketStore("scope-tickets", dynamodb_client=moto_ddb)
+        store.put_ticket(_make_ticket(pk="token-base-arm", run_id="_judge-base-001", is_eval=True))
+
+        result = store.get_ticket("token-base-arm")
+        assert result is not None
+        assert result.is_eval is True
+        assert result.experiment_override is None

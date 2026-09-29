@@ -2443,3 +2443,44 @@ class TestQaPublishCrossSurfaceContract:
 
         assert producer_qa_keys == {"qa_verdict", "qa_raw_output", "qa_eval_transcript"}
         assert producer_qa_keys == consumer_qa_fields
+
+
+class TestEvalRunSuppressesTheResultsCallback:
+    """A judge dispatch has no `experiment_run` row in gp-api, so a results
+    callback would make `handleAgentExperimentResult` log `Experiment run not
+    found` once per run — twenty errors into our error rate per sweep. The
+    suppression is at the send, not at gp-api's log level, and minting real
+    rows instead is out because `onExperimentRunCompleted` would persist the
+    eval's artifact into a real org's product data."""
+
+    def test_eval_ticket_publishes_the_artifact_but_sends_no_callback(self):
+        app, mock_s3, mock_sender, mock_store = _create_app(ticket=_make_ticket().model_copy(update={"is_eval": True}))
+        client = TestClient(app)
+
+        resp = client.post(
+            "/artifact/publish",
+            json={"artifact": _valid_artifact()},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["callback_sent"] is False
+        # The artifact still lands in S3 — that is what the judge reads.
+        assert mock_s3.put_object.call_count == 2
+        mock_sender.send_result.assert_not_called()
+        # Ticket cleanup is unrelated to the callback and must still happen.
+        mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "run-001")
+
+    def test_ticket_without_the_eval_flag_still_sends(self):
+        app, _, mock_sender, _ = _create_app()
+        client = TestClient(app)
+
+        resp = client.post(
+            "/artifact/publish",
+            json={"artifact": _valid_artifact()},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["callback_sent"] is True
+        mock_sender.send_result.assert_called_once()

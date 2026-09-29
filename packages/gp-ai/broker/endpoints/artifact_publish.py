@@ -585,16 +585,33 @@ def artifact_publish(
     # verdict consumer (its callback schema strips it). The verdict's system of
     # record is the durable S3 verdict.json write above plus the runner's
     # Braintrust span.
-    callback_sender.send_result(
-        run_id=ticket.run_id,
-        organization_slug=ticket.organization_slug,
-        experiment_id=ticket.experiment_id,
-        status="success",
-        artifact_key=run_key,
-        artifact_bucket=bucket,
-        duration_seconds=req.duration_seconds,
-        cost_usd=req.cost_usd,
-    )
+    # An eval run has no `experiment_run` row in gp-api — the judge dispatches
+    # straight to SQS — so the callback has nowhere to land. Sending it anyway
+    # makes gp-api's consumer log `Experiment run not found` once per run, i.e.
+    # twenty errors into our error rate and alerting per sweep. Suppress the
+    # send rather than muting the log, because a missing row for a real product
+    # run is still a genuine error worth seeing. Minting real rows instead is
+    # not an option: the completion path fires `onExperimentRunCompleted`, and
+    # the product services hooked to it (communityIssues, raceOpponentPersist,
+    # raceOpponentResearchPersist, campaignStrategy) would write the eval's
+    # test artifact into a real org's product data.
+    if ticket.is_eval:
+        logger.info(
+            "results_callback_suppressed reason=eval_run run_id=%s experiment_id=%s status=success",
+            ticket.run_id,
+            ticket.experiment_id,
+        )
+    else:
+        callback_sender.send_result(
+            run_id=ticket.run_id,
+            organization_slug=ticket.organization_slug,
+            experiment_id=ticket.experiment_id,
+            status="success",
+            artifact_key=run_key,
+            artifact_bucket=bucket,
+            duration_seconds=req.duration_seconds,
+            cost_usd=req.cost_usd,
+        )
 
     try:
         store.delete_ticket_and_run_lock(broker_token, ticket.run_id)
@@ -622,5 +639,8 @@ def artifact_publish(
     return PublishResponse(
         artifact_key=run_key,
         artifact_bucket=bucket,
-        callback_sent=True,
+        # Nothing reads this field today (the runner tracks its own send), but
+        # reporting True for a suppressed eval run would be a plain lie to any
+        # future reader.
+        callback_sent=not ticket.is_eval,
     )
