@@ -122,6 +122,8 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
     inside: [
+      'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
+      'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
     ],
