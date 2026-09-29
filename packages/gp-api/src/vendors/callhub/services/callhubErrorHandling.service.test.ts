@@ -116,5 +116,46 @@ describe('CallhubErrorHandlingService', () => {
         expect(thrown).not.toBeInstanceOf(CallhubPermanentError)
       },
     )
+
+    // CallHub reports its calls-per-second throttle as a 400, not a 429, so the
+    // status alone reads it as permanent. The robocall send sweep acts on that
+    // by voiding the hold and terminating a paid run (outreachId 83747,
+    // 2026-09-29), which is why the body has to be consulted.
+    const classifyBody = (
+      status: number,
+      data: Record<string, unknown>,
+    ): unknown => {
+      try {
+        service.handleApiError({
+          error: axiosError(status, data),
+          logger: createMockLogger(),
+        })
+      } catch (e) {
+        return e
+      }
+    }
+
+    it('classifies a 400 over_cps_limit throttle as transient', () => {
+      const thrown = classifyBody(400, { detail: 'over_cps_limit' })
+
+      expect(thrown).toBeInstanceOf(BadGatewayException)
+      expect(thrown).not.toBeInstanceOf(CallhubPermanentError)
+    })
+
+    it('still classifies other 400 detail codes as permanent', () => {
+      expect(
+        classifyBody(400, { detail: 'Status already changed!' }),
+      ).toBeInstanceOf(CallhubPermanentError)
+      expect(classifyBody(400, { detail: 'low_credit' })).toBeInstanceOf(
+        CallhubPermanentError,
+      )
+    })
+
+    // The detail is vendor-supplied, so it is not guaranteed to be a string.
+    it('treats a non-string detail as permanent rather than throwing', () => {
+      expect(
+        classifyBody(400, { detail: { code: 'over_cps_limit' } }),
+      ).toBeInstanceOf(CallhubPermanentError)
+    })
   })
 })
