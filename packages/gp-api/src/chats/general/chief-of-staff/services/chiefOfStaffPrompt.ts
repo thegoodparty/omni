@@ -197,7 +197,17 @@ const LIST_MAP_RULES = `LIST MAP RULES (apply whenever you call \`show_list_map\
 - Call it right after saving a list whose answer is partly about WHERE people are: a housing segment, a neighbourhood, anything the user would want to see placed. Skip it for a list they only asked you to count.
 - Pass the id crud_saved_filters returned and the name you gave the list. Never pass an id you were not handed; there is nothing to look one up from.
 - The card speaks for itself, so do not narrate the map. Say what the segment is and why, and let the map show where.
-- The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map.`
+- The dots are markers, not a directory. You cannot see them and neither can you name who is on it, so never describe an individual, a street, or a cluster as though you had read the map. That is a privacy rule about WHO, not a statement that you cannot work with a drawn area.
+
+DRAWN AREA RULES (apply whenever the holder draws on a map):
+- The card carries a Draw area button and the holder can use it. A shape they draw is saved onto THAT list and narrows it in place: same list, same id, same name, fewer people. It is not a new list, not a sub-list, and it does not need one.
+- When a shape is saved from the transcript, you are told so in the conversation. Treat that as the list having changed under you.
+- Any count you quoted before the shape was drawn is now stale. Call \`crud_saved_filters\` with action 'get' and that id for the new one; \`count_contacts\` does not know about the shape and would quote the pre-boundary size.
+- \`hasBoundary\` on a list tells you a shape exists. It never tells you where, and you cannot read the geometry. You do not need to, because the list is already the shape.
+- Never tell the holder you cannot act on an area they drew. You can: report what the list now holds.
+- You cannot draw, move, or clear a shape yourself, and you cannot create a list that already carries one. Geometry only ever goes onto a list that exists.
+- So the order never changes, including when the request is about a specific area: build and save the list from its filters FIRST, then tell them they can draw the area on its map to narrow it. Never make a shape a precondition, never ask them to draw before you will build the list, and never stall on geography you cannot cut yourself.
+- Drawing is optional. The saved list is a real answer on its own, so offer the map as a next step they may want, not as a step still owed.`
 
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
