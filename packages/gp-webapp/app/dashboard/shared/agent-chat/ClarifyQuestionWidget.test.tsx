@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { fireEvent, screen } from '@testing-library/react'
 import ClarifyQuestionWidget from './ClarifyQuestionWidget'
-import type { OrdinanceClarifyQuestion } from '@goodparty_org/contracts'
+import type { ChatClarifyQuestion } from '@goodparty_org/contracts'
 
-const question: OrdinanceClarifyQuestion = {
+const question: ChatClarifyQuestion = {
   questionId: 'q1',
   question: 'What hours should the limit cover?',
   options: [

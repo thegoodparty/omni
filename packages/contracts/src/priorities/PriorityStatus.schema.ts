@@ -38,6 +38,24 @@ export const PRIORITY_STEP_LABELS: Record<PriorityStepId, string> = {
 }
 
 /**
+ * Why each step is on the list, in one line, for an official who is looking at
+ * a step and wondering what it is for. Not what the agent wrote in it.
+ */
+export const PRIORITY_STEP_PURPOSE: Record<PriorityStepId, string> = {
+  define:
+    'Until you can state it in one sentence, no one can agree or disagree ' +
+    'with you.',
+  evidence: 'Separates what you can prove from what you have been told.',
+  listen_problem: "The people living with it know things the records don't.",
+  options: 'Puts the real choices side by side, including doing nothing.',
+  listen_options: 'Tells you where the support is before you commit to one.',
+  method:
+    'Nothing happens without an ordinance, a budget line, or a program to ' +
+    'carry it.',
+  plan: 'Dates and owners are what turn a decision into something that happens.',
+}
+
+/**
  * `stale` is the one that matters: it is how the agent says "we settled this,
  * then learned something that puts it back in doubt" without losing what was
  * written.

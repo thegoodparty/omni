@@ -671,6 +671,7 @@ export {
 export {
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
+  PRIORITY_STEP_PURPOSE,
   PRIORITY_STATUS_VERSION,
   PriorityStepIdSchema,
   PriorityStepStateSchema,
@@ -685,6 +686,15 @@ export {
 } from './priorities/PriorityStatus.schema'
 
 export { mintProposalKey } from './chats/proposalKey'
+
+export {
+  ChatSourceSchema,
+  type ChatSource,
+  ChatClarifyOptionSchema,
+  type ChatClarifyOption,
+  ChatClarifyQuestionSchema,
+  type ChatClarifyQuestion,
+} from './chats/ClarifyQuestion.schema'
 
 export {
   CHAT_CARD_KINDS,

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   PRIORITY_STEP_LABELS,
   emptyPriorityStatus,
@@ -158,7 +158,7 @@ describe('PriorityWorkspace', () => {
     // Mid-turn: the rail has moved although `done` has not arrived.
     await waitFor(() =>
       expect(
-        within(railRow(PRIORITY_STEP_LABELS.define)).getByText('Settled'),
+        within(railRow(PRIORITY_STEP_LABELS.define)).getByText('Done'),
       ).toBeInTheDocument(),
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
@@ -195,7 +195,9 @@ describe('PriorityWorkspace', () => {
 
     await waitFor(() =>
       expect(
-        within(railRow(PRIORITY_STEP_LABELS.define)).getByText('Needs a look'),
+        within(railRow(PRIORITY_STEP_LABELS.define)).getByText(
+          'Needs another look',
+        ),
       ).toBeInTheDocument(),
     )
   })
@@ -251,7 +253,7 @@ describe('PriorityWorkspace', () => {
 
     renderWorkspace()
 
-    expect(await screen.findByText('Settled the problem')).toBeInTheDocument()
+    expect(await screen.findByText('Done with the problem')).toBeInTheDocument()
     expect(screen.getByText('Back to your options')).toBeInTheDocument()
   })
 
@@ -284,6 +286,146 @@ describe('PriorityWorkspace', () => {
       mintProposalKey(CONVERSATION_ID, 'tc-proposal'),
     )
     expect(card).toHaveAttribute('data-conversation-id', CONVERSATION_ID)
+  })
+
+  it('renders a clarify question, and answering it sends an ordinary turn', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'One thing before we go on.' },
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-clarify',
+            payload: {
+              questionId: 'q1',
+              question: 'Which blocks do you want repaired first?',
+              options: [
+                { label: 'The two by the school' },
+                { label: 'Maple Ave end to end' },
+              ],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+    ])
+
+    // Hold the answer's turn open, so the bubble it pushes is still on screen
+    // when the assertion runs rather than replaced by the commit poll.
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf([{ type: 'done', assistantMessageId: 'a2' }], gate.promise),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Which blocks do you want repaired first?'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByText('The two by the school'))
+
+    await waitFor(() =>
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          content: 'The two by the school',
+        }),
+      ),
+    )
+    // A normal turn, so the answer reads back as the official's own message
+    // alongside the option they picked, not as a hidden send.
+    await waitFor(() =>
+      expect(screen.getAllByText('The two by the school')).toHaveLength(2),
+    )
+    gate.resolve()
+  })
+
+  it('reloads an answered clarify question with its choice checked', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-clarify',
+            payload: {
+              questionId: 'q1',
+              question: 'Which blocks do you want repaired first?',
+              options: [{ label: 'The two by the school' }],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: 'The two by the school',
+        createdAt: '2026-09-01T00:01:00.000Z',
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Which blocks do you want repaired first?'),
+    ).toBeInTheDocument()
+    const choice = screen.getByRole('radio', { name: 'The two by the school' })
+    expect(choice).toBeChecked()
+    expect(choice).toBeDisabled()
+    // Answered, so there is nothing left to write in.
+    expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
+  })
+
+  it('reloads a written-in answer as what the official said', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-clarify',
+            payload: {
+              questionId: 'q1',
+              question: 'Which blocks do you want repaired first?',
+              options: [{ label: 'The two by the school' }],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: 'Whichever the engineer says is most urgent',
+        createdAt: '2026-09-01T00:01:00.000Z',
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Which blocks do you want repaired first?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('radio', { name: 'The two by the school' }),
+    ).not.toBeChecked()
+    expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
   })
 
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {
