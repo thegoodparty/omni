@@ -538,6 +538,17 @@
     padding: 5px 10px;
   }
 
+  .elevated-note {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--ink-3);
+  }
+
+  td.num.fresh {
+    color: var(--good);
+    font-weight: 500;
+  }
+
   .empty-queue {
     padding: 14px;
     background: var(--surface);
@@ -1005,6 +1016,9 @@
     'status',
     'event_count_30d',
     'last_seen_date',
+    'instrumented_date',
+    'days_since_instrumented',
+    'provenance',
     'divergence',
     'okr',
     'elevated',
@@ -1021,6 +1035,9 @@
 
   const EVIDENCE_LABELS = {
     event_type: 'Event',
+    instrumented_date: 'Instrumented',
+    days_since_instrumented: 'Age',
+    provenance: 'Provenance',
     status: 'Status',
     event_count_30d: '30d',
     last_seen_date: 'Last seen',
@@ -1040,6 +1057,21 @@
 
   const cell = (key, value) => {
     if (key === 'elevated') return el('td', null, value ? 'yes' : '')
+    // Days, not a bare number: on the never-observed cause this column is the whole
+    // ruling, and "3" next to "94" has to read as an age at a glance.
+    if (key === 'days_since_instrumented') {
+      if (value === null || value === undefined) return el('td', 'num', '')
+      const td = el('td', 'num', value + 'd')
+      if (value <= 14) td.classList.add('fresh')
+      return td
+    }
+    if (key === 'provenance') {
+      const td = el('td')
+      const chip = el('span', 'chip low', value)
+      if (value === 'not found in code') chip.className = 'chip warn'
+      add(td, chip)
+      return td
+    }
     if (key === 'instrumented_pr' && value) {
       const td = el('td', 'mono')
       const link = el('a', null, String(value).split('/').pop())
@@ -1286,6 +1318,10 @@
 
     const evidence = renderEvidence(item.evidence || [])
     if (evidence) add(body, evidence)
+
+    if (item.elevated_note) {
+      add(body, el('p', 'elevated-note', item.elevated_note))
+    }
 
     add(body, renderVerdicts(item, row, summary))
 

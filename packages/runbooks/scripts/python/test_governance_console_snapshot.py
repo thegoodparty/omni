@@ -133,6 +133,8 @@ def test_build_flag_queue_evidence_carries_what_a_ruling_needs():
         "last_seen_date": "2026-09-13",
         "divergence": "declared not-in-use but still firing",
         "instrumented_pr": "", "okr": None, "elevated": False,
+        "instrumented_date": None, "days_since_instrumented": None,
+        "provenance": "not found in code",
     }]
 
 
@@ -234,6 +236,92 @@ def test_alignment_case_2_drafts_upstream_rather_than_editing_here():
 
     assert item["recommended"] == "draft_upstream"
     assert "dismiss" in item["verbs"]
+
+
+# --- provenance + elevation evidence ------------------------------------------
+
+
+def test_provenance_state_distinguishes_the_four_walk_outcomes():
+    assert gcs.provenance_state({
+        "instrumented_commit": "abc", "instrumented_pr": "12",
+        "instrumented_date": "2026-09-01"}) == "full"
+    # Pre-monorepo: the walk found the commit, but its (#123) does not resolve in omni.
+    assert gcs.provenance_state({
+        "instrumented_commit": "abc", "instrumented_pr": "",
+        "instrumented_date": "2026-09-01"}) == "commit only"
+    # Written by the instrument-analytics-event skill, not yet verified by the walk.
+    assert gcs.provenance_state({
+        "instrumented_commit": "", "instrumented_pr": "12",
+        "instrumented_date": "2026-09-01"}) == "provisional"
+    # The pickaxe never found the literal: a runtime-built name, or a backend event.
+    assert gcs.provenance_state({
+        "instrumented_commit": "", "instrumented_pr": "",
+        "instrumented_date": ""}) == "not found in code"
+    assert gcs.provenance_state(None) == "not found in code"
+
+
+def test_evidence_carries_when_it_was_instrumented_and_how_long_ago():
+    report = {
+        "run_date": "2026-09-28",
+        "flagged": [_record(event_type="A", rank=7,
+                            status="instrumented_never_observed")],
+        "dismissed_causes": {},
+    }
+    code = {"A": {"instrumented_commit": "abc", "instrumented_pr": "2002",
+                  "instrumented_date": "2026-09-25"}}
+
+    [item] = gcs.build_flag_queue(report, code)
+
+    [row] = item["evidence"]
+    assert row["instrumented_date"] == "2026-09-25"
+    assert row["days_since_instrumented"] == 3
+    assert row["provenance"] == "full"
+
+
+def test_days_since_is_none_when_nothing_knows_the_date():
+    report = {
+        "run_date": "2026-09-28",
+        "flagged": [_record(event_type="A", rank=7,
+                            status="instrumented_never_observed")],
+        "dismissed_causes": {},
+    }
+
+    [item] = gcs.build_flag_queue(report, {})
+
+    [row] = item["evidence"]
+    assert row["instrumented_date"] is None
+    assert row["days_since_instrumented"] is None
+    assert row["provenance"] == "not found in code"
+
+
+def test_a_never_fired_cause_explains_why_none_of_it_is_elevated():
+    report = {
+        "run_date": "2026-09-28",
+        "flagged": [_record(event_type="A", rank=7, family=None,
+                            status="instrumented_never_observed")],
+        "dismissed_causes": {},
+    }
+
+    [item] = gcs.build_flag_queue(report, {})
+
+    assert "never fired" in item["elevated_note"]
+
+
+def test_a_partly_elevated_cause_says_how_many_and_why():
+    report = {
+        "run_date": "2026-09-28",
+        "flagged": [
+            _record(event_type="A", rank=2, family="win_onboarding", elevated=True,
+                    call_site_count=0, call_site_retired_date="2026-09-01"),
+            _record(event_type="B", rank=2, family="win_outreach", elevated=False,
+                    call_site_count=0, call_site_retired_date="2026-09-01"),
+        ],
+        "dismissed_causes": {},
+    }
+
+    [item] = gcs.build_flag_queue(report, {})
+
+    assert item["elevated_note"].startswith("1 of 2")
 
 
 # --- changes ------------------------------------------------------------------

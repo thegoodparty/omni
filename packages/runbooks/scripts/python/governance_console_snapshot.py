@@ -23,7 +23,7 @@ import argparse
 import json
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 PY = Path(__file__).resolve().parent
@@ -33,6 +33,7 @@ import analytics_event_health as aeh  # noqa: E402
 
 GAPS = PY / "instrumentation_data" / "instrumentation_gaps.json"
 REPORT = PY / "instrumentation_data" / "analytics_event_health_report.json"
+CODE_CSV = PY / "instrumentation_data" / "amplitude_event_provenance.csv"
 EXPLORER = (
     PY.parent.parent.parent
     / "prototypes/app/p/analytics-event-explorer/data/event-explorer.json"
@@ -202,6 +203,61 @@ def build_overview(report: Mapping, explorer: Mapping) -> dict:
     }
 
 
+# --- code provenance ----------------------------------------------------------
+#
+# A blank PR link currently means three unrelated things, so the page names the state
+# instead of showing an empty cell. The walk produces four outcomes and they carry
+# different rulings: "instrumented last Thursday and quiet" is timing, "never found in
+# code at all" is usually a runtime-built name or a backend event the walk does not
+# cover, and those are not the same finding.
+def provenance_state(row: Mapping | None) -> str:
+    """How much the provenance walk knows about where this event was instrumented."""
+    row = row or {}
+    commit = bool(row.get("instrumented_commit"))
+    pr = bool(row.get("instrumented_pr"))
+    if commit and pr:
+        return "full"
+    if commit:
+        # Mostly pre-monorepo: the (#123) in the subject does not resolve to an omni PR.
+        return "commit only"
+    if pr:
+        # A hint written per-PR by instrument-analytics-event; the walk overwrites it.
+        return "provisional"
+    return "not found in code"
+
+
+def _days_between(earlier: str | None, later: str | None) -> int | None:
+    if not earlier or not later:
+        return None
+    try:
+        return (date.fromisoformat(later) - date.fromisoformat(earlier)).days
+    except ValueError:
+        return None
+
+
+def _elevated_note(members: Sequence[Mapping], elevated: Sequence[str]) -> str:
+    """Why this cause has the elevation it has, so a column of blanks reads as a fact.
+
+    ``is_elevated`` keys off curated-watchlist membership, the win_onboarding family,
+    win_compliance_or* prefixes, or an onboarding / activation / compliance name.
+    """
+    total = len(members)
+    if elevated:
+        return (
+            f"{len(elevated)} of {total} elevated: on the curated watchlist, or in an "
+            "onboarding, activation or compliance family."
+        )
+    if all(not m.get("family") for m in members):
+        return (
+            "None elevated, and none can be: these have never fired, so they have no "
+            "catalog row and no family for the elevation rules to read."
+        )
+    return (
+        f"None of {total} elevated: not on the curated watchlist, and neither the "
+        "family nor the name matches an onboarding, activation or compliance rule."
+    )
+
+
 # --- the flags queue ----------------------------------------------------------
 
 
@@ -215,7 +271,17 @@ def _verbs(verbs: Mapping[str, str], dismissable: bool) -> dict:
     return {k: v for k, v in verbs.items() if dismissable or k != "dismiss"}
 
 
-def build_flag_queue(report: Mapping) -> list[dict]:
+def _flag_evidence(record: Mapping, code: Mapping, run_date: str | None) -> dict:
+    row = {col: record.get(col) for col in EVIDENCE_COLS}
+    provenance = code.get(record["event_type"])
+    instrumented = (provenance or {}).get("instrumented_date") or None
+    row["instrumented_date"] = instrumented
+    row["days_since_instrumented"] = _days_between(instrumented, run_date)
+    row["provenance"] = provenance_state(provenance)
+    return row
+
+
+def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]:
     """The flagged set as one row per cause, in the digest's own grouping and order.
 
     A cause, not an event, is the unit: one deploy that stranded twenty-two name
@@ -227,6 +293,8 @@ def build_flag_queue(report: Mapping) -> list[dict]:
     same list. The digest splits them out because it is a push stream with a headline
     number to protect; the console is a pull surface where the whole state is the point.
     """
+    code = code or {}
+    run_date = report.get("run_date")
     records = list(report.get("flagged") or [])
     by_cause: dict[str, list[Mapping]] = {}
     for record in records:
@@ -252,8 +320,11 @@ def build_flag_queue(report: Mapping) -> list[dict]:
             "elevated": group["elevated"],
             "dismissable": dismissable,
             "dismissed": {"reason": reason} if reason is not None else None,
+            "elevated_note": _elevated_note(
+                by_cause.get(cause, []), group["elevated"]
+            ),
             "evidence": [
-                {col: record.get(col) for col in EVIDENCE_COLS}
+                _flag_evidence(record, code, run_date)
                 for record in sorted(by_cause.get(cause, []),
                                      key=lambda r: r["event_type"])
             ],
@@ -387,7 +458,11 @@ def _newest_gap_date(gaps: Mapping) -> str:
 
 
 def build_snapshot(
-    report: Mapping, gaps: Mapping, explorer: Mapping, previous: Mapping | None
+    report: Mapping,
+    gaps: Mapping,
+    explorer: Mapping,
+    previous: Mapping | None,
+    code: Mapping | None = None,
 ) -> dict:
     """Join every input into the one file the page renders.
 
@@ -405,7 +480,7 @@ def build_snapshot(
         )
 
     queues = [
-        {"queue": "flags", "items": build_flag_queue(report)},
+        {"queue": "flags", "items": build_flag_queue(report, code)},
         {"queue": "gaps", "items": build_gap_queue(gaps)},
         {"queue": "proposals", "items": build_proposal_queue(report)},
         {"queue": "alignment", "items": build_alignment_queue(report)},
@@ -437,10 +512,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--report", type=Path, default=REPORT)
     parser.add_argument("--gaps", type=Path, default=GAPS)
     parser.add_argument("--explorer", type=Path, default=EXPLORER)
+    parser.add_argument("--code", type=Path, default=CODE_CSV)
     parser.add_argument("-o", "--out", type=Path, required=True)
     args = parser.parse_args(argv)
 
-    for path in (args.report, args.gaps, args.explorer):
+    for path in (args.report, args.gaps, args.explorer, args.code):
         if not path.exists():
             print(f"missing input: {path}", file=sys.stderr)
             return 1
@@ -448,7 +524,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     previous = _load(args.out) if args.out.exists() else None
     try:
         snapshot = build_snapshot(
-            _load(args.report), _load(args.gaps), _load(args.explorer), previous
+            _load(args.report),
+            _load(args.gaps),
+            _load(args.explorer),
+            previous,
+            aeh.load_code_axis(args.code),
         )
     except StaleReport as exc:
         print(str(exc), file=sys.stderr)
