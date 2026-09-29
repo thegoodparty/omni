@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlacesService } from './places.service'
-import { PlaceFilterDto } from './places.schema'
+import { DEFAULT_PLACE_PAGE_SIZE, PlaceFilterDto } from './places.schema'
 
 describe('PlacesService', () => {
   let service: PlacesService
@@ -140,5 +140,26 @@ describe('PlacesService', () => {
       expect(place?.others).toHaveLength(1)
       expect(place?.others?.[0]?.slug).toBe('st/city')
     })
+  })
+
+  // The last collection endpoint to get a bound; `?state=TX` used to pull
+  // every place in the state with children, parents and races included.
+  it('bounds an unfiltered place query', async () => {
+    findMany.mockResolvedValue([{ id: 'p1' }])
+    await service.getPlaces({} as PlaceFilterDto)
+
+    const args = findMany.mock.calls[0]?.[0]
+    expect(args.take).toBe(DEFAULT_PLACE_PAGE_SIZE)
+    expect(args.skip).toBe(0)
+    expect(args.orderBy).toEqual({ id: 'asc' })
+  })
+
+  it('offsets by whole pages', async () => {
+    findMany.mockResolvedValue([{ id: 'p1' }])
+    await service.getPlaces({ page: 3, pageSize: 40 } as PlaceFilterDto)
+
+    const args = findMany.mock.calls[0]?.[0]
+    expect(args.skip).toBe(80)
+    expect(args.take).toBe(40)
   })
 })

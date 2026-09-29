@@ -4,7 +4,7 @@ import {
   createElectionDbBase,
   ELECTION_MODELS,
 } from '@/electionDb/electionDbBase.util'
-import { PlaceFilterDto } from './places.schema'
+import { DEFAULT_PLACE_PAGE_SIZE, PlaceFilterDto } from './places.schema'
 import { Prisma } from '@/generated/election-prisma'
 import {
   hasChildren,
@@ -29,6 +29,8 @@ const DISTRICT_MTFCC: Record<string, boolean> = {
 export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
   async getPlaces(filterDto: PlaceFilterDto) {
     const {
+      page = 1,
+      pageSize = DEFAULT_PLACE_PAGE_SIZE,
       includeChildren,
       includeChildRaces,
       includeParent,
@@ -84,9 +86,21 @@ export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
     let places: PlaceWithCategories[] = []
 
     if (!categorizeChildren) {
-      places = await this.runQuery(baseWhere, placeSelectBase, placeQueryObj)
+      places = await this.runQuery(
+        baseWhere,
+        placeSelectBase,
+        placeQueryObj,
+        page,
+        pageSize,
+      )
     } else {
-      places = await this.runQuery(baseWhere, placeSelectBase, placeQueryObj)
+      places = await this.runQuery(
+        baseWhere,
+        placeSelectBase,
+        placeQueryObj,
+        page,
+        pageSize,
+      )
 
       for (const place of places) {
         place.counties = []
@@ -235,15 +249,26 @@ export class PlacesService extends createElectionDbBase(ELECTION_MODELS.Place) {
     where: Prisma.PlaceWhereInput | object,
     placeSelectBase: Prisma.PlaceSelect | undefined,
     placeQueryObj: T,
+    page: number,
+    pageSize: number,
   ) {
+    // `id` because pagination needs a total order on a unique column.
+    const paging = {
+      orderBy: { id: Prisma.SortOrder.asc },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }
+
     return placeSelectBase
       ? this.model.findMany({
           where,
           select: placeQueryObj,
+          ...paging,
         })
       : this.model.findMany({
           where,
           include: placeQueryObj,
+          ...paging,
         })
   }
 }

@@ -38,7 +38,8 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
   get instance(): ElectionDbPrismaClient {
     if (!this.activeClient) {
       throw new Error(
-        'election-db client not initialized — ELECTION_DATABASE_URL is unresolved',
+        'election-db client not initialized — check ELECTION_DATABASE_URL and ' +
+          'the boot logs for the initialization error',
       )
     }
     return this.activeClient
@@ -60,9 +61,10 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
     try {
       this.activeClient = await this.buildClient(url)
     } catch (err) {
-      this.logger.warn(
+      this.logger.error(
         { err },
-        'election-db not initialized at boot; will connect lazily on first query',
+        'election-db client could not be initialized — every election-backed ' +
+          'route will fail until this is resolved',
       )
     }
   }
@@ -109,13 +111,29 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
     try {
       await client.$connect()
     } catch (err) {
+      // Two different failures wear the same catch, and storing the client is
+      // right for only one of them.
+      //
+      // Prisma raises PrismaClientInitializationError for both, so the class
+      // alone cannot tell them apart — `errorCode` can. A reachability
+      // failure carries a P-code (P1001 "can't reach database server") and is
+      // transient: Aurora was cold, the next query reconnects, so keep the
+      // client. A packaging or configuration fault — a missing query engine
+      // binary, an unparseable URL — carries no code and can never succeed,
+      // so rethrow and leave `activeClient` unset. `.instance` then names the
+      // real problem instead of every query dying on the same opaque engine
+      // error, which is how a missing engine reached preview and failed 116
+      // E2E tests on specs that touch no election data.
+      const unrecoverable =
+        err instanceof Prisma.PrismaClientInitializationError && !err.errorCode
+      if (unrecoverable) {
+        throw err
+      }
       // Error, not debug: boot still succeeds by design, so this line is the
-      // only signal that every election route is about to 500. It was debug
-      // once, and a missing query engine — which no retry can fix — read as a
-      // routine reconnect while an entire E2E suite failed on unrelated specs.
+      // only signal that election routes are degraded.
       this.logger.error(
         { err },
-        'election-db unavailable — every election-backed route will fail until this is resolved',
+        'election-db connect failed; retrying lazily on first query',
       )
     }
     return client

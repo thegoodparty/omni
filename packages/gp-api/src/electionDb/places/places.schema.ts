@@ -13,6 +13,12 @@ const raceColumns = Object.values(
 const toUpper = (val: unknown) =>
   typeof val === 'string' ? val.toUpperCase() : val
 
+// The last collection endpoint without a bound: `?state=TX` could pull every
+// place in a state with children, parents and races eagerly loaded. Same fix
+// as candidacies, officeholders and persons.
+export const DEFAULT_PLACE_PAGE_SIZE = 1000
+export const MAX_PLACE_PAGE_SIZE = 5000
+
 const placeFilterSchema = z.object({
   state: z
     .preprocess(toUpper, z.string())
@@ -74,6 +80,10 @@ const placeFilterSchema = z.object({
         message: `Invalid race column provided. Allowed columns are: ${raceColumns.join(', ')}`,
       },
     ),
+  // Optional, not defaulted: the service applies the default so the bound
+  // holds for in-process callers that build the filter directly.
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PLACE_PAGE_SIZE).optional(),
 })
 ///  .strict()
 
