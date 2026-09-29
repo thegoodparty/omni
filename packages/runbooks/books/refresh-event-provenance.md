@@ -51,6 +51,15 @@ Core columns produced by the backfill walk:
 - `instrumented_author_email` / `retired_author_email` — git author email (`%ae`) of the
   commit that instrumented and the commit that retired the event, for follow-up. Empty when
   the event is still in code (no retirement) or predates the walk window.
+- `instrumented_pr` / `retired_pr` — full GitHub link to the PR that added and removed the
+  instrumentation. **The link is not always an omni PR.** omni's history was grafted from the
+  predecessor repos, so a grafted commit's squash subject carries the *source* repo's `(#N)`
+  and the link points there (`thegoodparty/gp-webapp/pull/708`, say). Which repo a commit came
+  from is read off the `sync(<repo>)` graft merges, not off a cutover date — the predecessor
+  repos kept syncing in after omni's first PR, so an imported commit can be dated later than
+  the cutover. Every write re-derives this, so a link stored under the wrong repo heals on the
+  next walk; the skill's single-row `upsert` has no history to consult and leaves existing
+  links alone.
 
 ## Troubleshooting
 
