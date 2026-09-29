@@ -608,20 +608,23 @@ make_anthropic_client = llm_judge.make_anthropic_client
 
 def judge_candidates(
     candidates: Sequence[dict], rubric: str, *, client, model: str,
+    gotchas: str = "",
     max_tokens: int | None = None,
 ) -> dict[str, dict]:
     """One batched judgment call over the capped candidate set. Client is injected so this
     is unit-testable without network. Forces the report_gap_verdicts tool for a validated
     result. Mirrors qa_validate.py's AnthropicJudge."""
     return llm_judge.judge_batch(
-        candidates, system=judge_system_prompt(rubric), tool=JUDGE_TOOL, client=client,
+        candidates, system=judge_system_prompt(rubric, gotchas), tool=JUDGE_TOOL,
+        client=client,
         model=model, message_builder=build_judge_messages, max_tokens=max_tokens,
         results_field="results", noun="candidates", validate=_validated_judge_batch,
     )
 
 
 def judge_all(
-    candidates: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25
+    candidates: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25,
+    gotchas: str = "",
 ) -> dict[str, dict]:
     """Judge candidates in bounded chunks, merging verdicts. One call per chunk keeps each
     request within the token/response budget on a whole-repo seed; the weekly run (<=25
@@ -629,7 +632,8 @@ def judge_all(
     out: dict[str, dict] = {}
     for i in range(0, len(candidates), chunk_size):
         chunk = candidates[i : i + chunk_size]
-        out.update(judge_candidates(chunk, rubric, client=client, model=model))
+        out.update(judge_candidates(chunk, rubric, client=client, model=model,
+                                    gotchas=gotchas))
     return out
 
 
@@ -1268,7 +1272,9 @@ def run_seed(
         return dict(prior), "skipped: rubric unavailable", 0
     try:
         client = client_factory(api_key)
-        verdicts = judge_all(candidates, rubric, client=client, model=model, chunk_size=chunk_size)
+        verdicts = judge_all(candidates, rubric, client=client, model=model,
+                             chunk_size=chunk_size,
+                             gotchas=governance_gotchas.load_gotchas())
     except Exception as exc:  # noqa: BLE001 — judgment must never break the seed run
         return dict(prior), f"failed: {exc}", 0
     new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)

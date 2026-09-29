@@ -725,6 +725,51 @@ def test_judge_system_prompt_includes_rubric():
     assert "RUBRIC-BODY-MARKER" in sp
 
 
+def test_judge_all_threads_gotchas_to_every_chunk():
+    """The seed path judges the whole repo in chunks; a chunk without the book is a
+    judgement made blind to the traps this book exists to surface."""
+    seen = []
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen.append(system)
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    candidates = [{"id": f"/c{i}", "surface_type": "route", "location": f"c{i}.tsx"}
+                  for i in range(3)]
+    try:
+        ig.judge_all(candidates, "RUBRIC-BODY", client=_Client(), model="m",
+                     chunk_size=2, gotchas="GOTCHAS-BODY-MARKER")
+    except RuntimeError:
+        pass
+    assert seen, "judge_all never reached the API call"
+    assert all("GOTCHAS-BODY-MARKER" in s for s in seen)
+
+
+def test_judge_candidates_passes_gotchas_into_the_prompt():
+    seen = {}
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    try:
+        ig.judge_candidates([{"id": "/a", "surface_type": "route", "location": "a.tsx"}],
+                            "RUBRIC-BODY", client=_Client(), model="m",
+                            gotchas="GOTCHAS-BODY-MARKER")
+    except RuntimeError:
+        pass
+    assert "RUBRIC-BODY" in seen["system"]
+    assert "GOTCHAS-BODY-MARKER" in seen["system"]
+
+
 def test_judge_system_prompt_includes_gotchas_when_given(tmp_path):
     sp = ig.judge_system_prompt("RUBRIC-BODY", gotchas="GOTCHAS-BODY-MARKER")
     assert "RUBRIC-BODY" in sp
