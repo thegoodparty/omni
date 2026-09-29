@@ -92,8 +92,10 @@ Rules:
 - **`supersession:`** — always present with an explicit value, including `original` for
   a net-new standalone event. Never leave lineage to be inferred from a blank line.
 - **A named successor must exist in code.** Before writing `superseded by <event>`,
-  confirm that successor has a provenance row and has fired. If it has neither, the
-  change has not shipped and the record is a prediction, not history. **Refuse the
+  confirm that successor has a provenance row and has fired. **Both halves are
+  required: if either is missing** the change has not shipped and the record is a
+  prediction, not history. A successor with provenance that has never fired is the
+  common case here, because code can land before the first event arrives. **Refuse the
   combination `not in use:` plus a successor with no provenance**, because it asserts a
   completed transition that provably has not happened. Naming an unbuilt successor is
   still allowed on its own: leave the predecessor `in use:` and record lineage only (see
@@ -178,8 +180,8 @@ without it); preserve its purpose line verbatim; write
 `supersession: superseded by <new> (<reason>)`; then **explicitly confirm its status** —
 `not in use: <today> (#PR)` (common) or still `in use` during transition (leave its
 existing `in use:` line untouched, lineage only). **Default the prompt to `not in
-use` only when the successor has code provenance and has fired; when it has neither,
-default to `in use` (transition, lineage only) and say why.** The old unconditional
+use` only when the successor has code provenance **and** has fired; if either is
+missing, default to `in use` (transition, lineage only) and say which half is absent.** The old unconditional
 default is what carried three live events to `not in use` on 2026-09-23 for a change
 that had not shipped.
 
@@ -348,9 +350,11 @@ Adds and removes are routed independently — the caller never pairs a removal w
   predecessor `not in use`. This records a rename that has not happened, and the two
   halves land in the monitor as unrelated findings with nothing connecting them
   (2026-09-23, three live events).
-- Defaulting to `not in use` when the named successor has no provenance. The default in
-  the predecessor-update step assumes a shipped change; when the successor does not
-  exist yet, the answer is `in use` with lineage only.
+- Defaulting to `not in use` when the named successor lacks provenance **or** has never
+  fired. The default in the predecessor-update step assumes a shipped change; if either
+  half of that check is missing, the answer is `in use` with lineage only. Provenance
+  alone is not enough: code can be merged before the first event arrives, and the
+  predecessor is not dead until the successor is actually firing.
 - Saying "renamed" in a supersession reason. There is no rename; see the block rules.
 - Auto-pairing an add and a removal in the same PR — supersession is only ever a human
   assertion.
