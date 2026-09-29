@@ -91,13 +91,45 @@ Rules:
   Never invent a path you have not seen in the router.
 - **`supersession:`** — always present with an explicit value, including `original` for
   a net-new standalone event. Never leave lineage to be inferred from a blank line.
+- **A named successor must exist in code.** Before writing `superseded by <event>`,
+  confirm that successor has a provenance row and has fired. **Both halves are
+  required: if either is missing** the change has not shipped and the record is a
+  prediction, not history. A successor with provenance that has never fired is the
+  common case here, because code can land before the first event arrives. **Refuse the
+  combination `not in use:` plus a successor with no provenance**, because it asserts a
+  completed transition that provably has not happened. Naming an unbuilt successor is
+  still allowed on its own: leave the predecessor `in use:` and record lineage only (see
+  the predecessor update under Mode: NEW), which is the documented transition state.
+- **More than one successor needs a stated reason.** One event carrying a property beats
+  N events. A split turns every cross-cutting total into a union of names, and missing
+  one undercounts silently with no error, which is the shape that let three per-channel
+  completion events go dark unnoticed for a month. If you write `superseded by A and B`,
+  the reason must say why a property on a single event will not do. Splitting by product
+  is never that reason; that is what the `product:` tag is for.
 - **Change reason** rides the line that records the change: the `superseded by` line, or
   the `not in use:` line for a pure retirement. Never the purpose line.
 - **Date line** — use today's date. Exactly one of `in use:` / `not in use:` is present.
   Append the PR as `(#NNNN)` when one is detected (resolve once via
   `gh pr view --json number` on the current branch; omit if none).
+- **`not in use:` requires a PR reference.** The PR that removed the call site is what
+  makes a retirement true; without it the line records an intention. `in use:` may omit
+  the PR, a retirement may not. If you cannot name the PR, the event is not retired:
+  leave it `in use:` and record lineage only.
 - **Status is never inferred from supersession.** A superseded event can still fire from
   old/cached clients — always confirm `in use` vs `not in use` with the human.
+- **Say supersession, never rename.** An Amplitude event type is immutable. What people
+  call a rename is three separate things: a new event type is created and starts being
+  ingested, the old one is retired keeping its history, and a supersession record links
+  them. Nothing carries across. Writing "renamed" in the reason invites the reader to
+  assume the history came too, which is how a live predecessor gets declared dead before
+  any code ships.
+- **Record merge state on a high-volume supersession.** Only Amplitude's merge, which is
+  UI-only and cannot be scripted, makes predecessor and successor one series. Until it
+  runs, any chart spanning the cutover has to union both names. Say which happened in the
+  `superseded by` reason, either `history merged <YYYY-MM-DD>` or `history NOT merged;
+  charts must union both names`, so the record never describes a lineage no chart can
+  follow. Note that a merge joins event types but does not backfill properties: a chart
+  reading a property added at the cutover still sees nothing before it.
 
 Also write a **`product:win | product:serve | product:shared`** tag, derived from the
 event name and confirmed by the human, plus any cross-cutting tag the human adds
@@ -147,7 +179,11 @@ front.
 without it); preserve its purpose line verbatim; write
 `supersession: superseded by <new> (<reason>)`; then **explicitly confirm its status** —
 `not in use: <today> (#PR)` (common) or still `in use` during transition (leave its
-existing `in use:` line untouched, lineage only). Default the prompt to `not in use`.
+existing `in use:` line untouched, lineage only). **Default the prompt to `not in
+use` only when the successor has code provenance **and** has fired; if either is
+missing, default to `in use` (transition, lineage only) and say which half is absent.** The old unconditional
+default is what carried three live events to `not in use` on 2026-09-23 for a change
+that had not shipped.
 
 ### Mode: EXISTING (update)
 
@@ -310,6 +346,16 @@ Adds and removes are routed independently — the caller never pairs a removal w
 
 - Inferring `not in use` from a supersession — always confirm; old clients may still
   fire the predecessor.
+- Writing `superseded by X` where X has never been ingested, then stamping the
+  predecessor `not in use`. This records a rename that has not happened, and the two
+  halves land in the monitor as unrelated findings with nothing connecting them
+  (2026-09-23, three live events).
+- Defaulting to `not in use` when the named successor lacks provenance **or** has never
+  fired. The default in the predecessor-update step assumes a shipped change; if either
+  half of that check is missing, the answer is `in use` with lineage only. Provenance
+  alone is not enough: code can be merged before the first event arrives, and the
+  predecessor is not dead until the successor is actually firing.
+- Saying "renamed" in a supersession reason. There is no rename; see the block rules.
 - Auto-pairing an add and a removal in the same PR — supersession is only ever a human
   assertion.
 - Regenerating the purpose line on a later run — it is immutable after creation.
