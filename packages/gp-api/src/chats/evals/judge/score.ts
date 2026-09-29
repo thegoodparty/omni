@@ -302,13 +302,21 @@ const measure = (
     latencyMs: armMean((r) => r.telemetry.latencyMs),
     toolErrors: armMean((r) => r.telemetry.toolErrors),
     pairs: usable.length,
-    pricingMismatch: pairs.some(
-      (p) =>
-        !sharesPricing(
-          p.base.telemetry.cost.pricingVersion,
-          p.candidate.telemetry.cost.pricingVersion,
-        ),
-    ),
+    // Compared only when both arms actually carry a cost. `cost` is
+    // optional: a run on a model `pricing.ts` has no rates for keeps its
+    // verdict and loses only its cost line. An absent cost is therefore not
+    // a pricing MISMATCH — there is no second version for it to disagree
+    // with — and it already surfaces as `unpriceableReason`, so counting it
+    // here too would report one gap as two problems.
+    pricingMismatch: pairs.some((p) => {
+      const base = p.base.telemetry.cost?.pricingVersion
+      const candidate = p.candidate.telemetry.cost?.pricingVersion
+      return (
+        base !== undefined &&
+        candidate !== undefined &&
+        !sharesPricing(base, candidate)
+      )
+    }),
     liveWebCases: pairs.filter((p) => p.base.liveWeb || p.candidate.liveWeb)
       .length,
   }

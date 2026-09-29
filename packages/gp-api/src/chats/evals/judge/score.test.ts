@@ -542,7 +542,10 @@ describe('the measured layer', () => {
     telemetry: {
       ...record.telemetry,
       tokens: { input, output: 0, cacheRead: 0, cacheWrite: 0 },
-      cost: { ...record.telemetry.cost, usdAtCapture: storedUsd },
+      cost: {
+        usdAtCapture: storedUsd,
+        pricingVersion: record.telemetry.cost?.pricingVersion ?? '2026-09',
+      },
     },
   })
 
