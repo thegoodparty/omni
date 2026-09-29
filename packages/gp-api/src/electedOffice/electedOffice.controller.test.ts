@@ -1,5 +1,9 @@
 import { useTestService } from '@/test-service'
 import { IncomingRequest } from '@/authentication/authentication.types'
+import {
+  AUTH_PROVIDER_TOKEN,
+  AuthProvider,
+} from '@/authentication/interfaces/auth-provider.interface'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { Campaign, User } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -993,15 +997,22 @@ describe('ElectedOfficeController', () => {
         service.app.get(OrganizationsService),
         'resolveOverrideDistrictId',
       ).mockResolvedValue('resolved-district')
+      // SessionGuard only populates req.m2mToken for an mt_-prefixed bearer it
+      // can verify, and the harness authenticates as a session user, so the
+      // M2M caller has to be stood up here for M2MOnly to admit the request.
+      vi.spyOn(
+        service.app.get<AuthProvider>(AUTH_PROVIDER_TOKEN),
+        'verifyM2MToken',
+      ).mockResolvedValue({ id: 'mt_test', subject: 'test-machine' })
 
-      const controller = service.app.get(ElectedOfficeController)
-      const result = await controller.setDistrict(created.data.id, {
-        state: 'CA',
-        L2DistrictType: 'CITY',
-        L2DistrictName: 'OAKLAND',
-      })
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}/district`,
+        { state: 'CA', L2DistrictType: 'CITY', L2DistrictName: 'OAKLAND' },
+        { headers: { Authorization: 'Bearer mt_test' } },
+      )
 
-      expect(result.overrideDistrictId).toBe('resolved-district')
+      expect(result.status).toBe(200)
+      expect(result.data.overrideDistrictId).toBe('resolved-district')
 
       const organization = await service.prisma.organization.findUnique({
         where: { slug: `eo-${created.data.id}` },
