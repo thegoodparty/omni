@@ -1889,8 +1889,17 @@ describe('<ChiefOfStaffChatBody> saved-list invalidation', () => {
     listMessagesMock.mockResolvedValue([])
   }
 
+  // `testQueryClient` is a shared singleton, and `vi.spyOn` on an
+  // already-spied method hands back the SAME mock with its accumulated call
+  // history. Both directions need the clear, not just the negative one: an
+  // uncleared positive assertion can be satisfied by a prior test's calls
+  // instead of its own render, which passes for the wrong reason and would
+  // keep passing if this behavior broke.
+  const spyOnInvalidate = () =>
+    vi.spyOn(testQueryClient, 'invalidateQueries').mockClear()
+
   it('drops the contacts queries when a saved-filter call finishes', async () => {
-    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    const invalidate = spyOnInvalidate()
     streamSavedFilters()
 
     render(<ChiefOfStaffChatBody active pendingMessage="save that list" />)
@@ -1913,12 +1922,7 @@ describe('<ChiefOfStaffChatBody> saved-list invalidation', () => {
   })
 
   it('leaves them alone for an unrelated tool', async () => {
-    // `testQueryClient` is a shared singleton and spyOn returns the SAME mock
-    // when the method is already spied, so this inherits the previous test's
-    // call list. Clear it so the negative assertion is about this turn only.
-    const invalidate = vi
-      .spyOn(testQueryClient, 'invalidateQueries')
-      .mockClear()
+    const invalidate = spyOnInvalidate()
     listConversationsMock.mockResolvedValue([])
     createMock.mockResolvedValue({ conversationId: 'conv_sf' })
     streamMessageMock.mockReturnValue(
