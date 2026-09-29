@@ -36,7 +36,7 @@ export const DOOR_KNOCKING_CREDITS_METRIC = 'gp_api:door_knocking_credits:sum1m'
  * recording-rule writer needs a wide frame; a Loki instant query returning one
  * series per label set is `timeseries-multi` and is rejected with `unsupported
  * time series type timeseries-multi`. That is what silently killed the two
- * route recording rules for a month. This query aggregates with a bare `sum()`
+ * route recording rules. This query aggregates with a bare `sum()`
  * to a single unlabelled series, which is the shape the writer accepts.
  *
  * `or vector(0)` IS LOAD-BEARING AND IS NOT COSMETIC. Without it the rule

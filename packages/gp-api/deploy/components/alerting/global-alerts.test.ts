@@ -490,7 +490,7 @@ describe('recorded metrics', () => {
 
   /**
    * The constraint that killed the route recording rules, written down as a
-   * test so the next person meets it in CI rather than in a month of silence.
+   * test so the next person meets it in CI rather than in a silent outage.
    *
    * Grafana's recording-rule writer requires a wide frame. A Loki query that
    * returns one series per label set is `timeseries-multi` and is rejected with

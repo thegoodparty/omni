@@ -125,7 +125,7 @@ const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 // reported `health: ok` and `lastError: null` on nearly every poll, because a
 // minute after a failed write there is nothing left to write, so nothing looked
 // wrong. 168 alert rules across both environments read a metric that did not
-// exist, all with `noDataState: OK`, and none of them could fire for a month.
+// exist, all with `noDataState: OK`, and none of them could fire.
 // Cost fell and detection died in the same change.
 //
 // Now: the alerts read Loki again, but there are six rules rather than 75, and
@@ -393,7 +393,7 @@ const errorLinesLink = `${GRAFANA_URL}/explore?schemaVersion=1&panes=${errorLine
  * pages on. The two are distinguishable again. They were not while these
  * alerts read a Prometheus metric, because PromQL answers a missing metric and
  * a healthy route with the same empty result — which is exactly how a total
- * alerting outage looked like silence for a month.
+ * alerting outage looked exactly like silence.
  */
 export const routeErrorAlerts = (): Alert[] =>
   routeAlertGroups().map((group) => {

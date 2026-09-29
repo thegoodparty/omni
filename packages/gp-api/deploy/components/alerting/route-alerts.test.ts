@@ -252,7 +252,7 @@ describe('the grouped route alerts', () => {
   // Grafana's writer rejects the `timeseries-multi` a Loki instant query
   // returns, and they reported `health: ok` throughout. So 168 alert rules
   // read a metric nobody wrote and, with `noDataState: OK`, none of them could
-  // fire for a month. A PromQL metric selector here is that outage; a stream
+  // fire at all. A PromQL metric selector here is that outage; a stream
   // selector is what makes a broken query raise an execution error instead of
   // looking like silence.
   it('reads the Loki stream rather than a recorded metric', () => {

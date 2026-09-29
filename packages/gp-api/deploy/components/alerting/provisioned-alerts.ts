@@ -32,7 +32,7 @@ const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
  * rejects — silently, because a rule that writes nothing looks identical to a
  * rule with nothing to write. Two route recording rules were added on
  * 2026-09-28 and never wrote a datapoint, taking 168 alert rules blind with
- * them for a month. So a recording rule here has to aggregate to ONE
+ * them. So a recording rule here has to aggregate to ONE
  * unlabelled series, and anything that needs a dimension preserved reads Loki
  * directly. The route alerts do, which is what `routeAlertGroups` exists to
  * make affordable.

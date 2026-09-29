@@ -1310,7 +1310,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     // `health: ok` and `lastError: null` on nearly every poll, because a minute
     // after a failed write there is nothing left to write. 168 alert rules read
     // the metric that did not exist, every one with `noDataState: OK`, and none
-    // could fire for a month. Nothing noticed, because a blind alert and a
+    // could fire. Nothing noticed, because a blind alert and a
     // quiet alert look identical.
     //
     // Watching the RULE's health could not have caught it and still cannot.
