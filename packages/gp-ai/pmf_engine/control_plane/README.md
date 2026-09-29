@@ -107,7 +107,7 @@ Two of those fields are less obvious than they look:
 
 **The gate is on the run, not on the override arm.** A sweep's base arm carries
 a judge run id and no `_judge_override` at all, and it gets every consequence
-the prefix implies — suppressed callbacks, no reaper, no `latest.json` write,
+the prefix implies — suppressed callbacks, no reaper callback, no `latest.json` write,
 no gp-api row — so `parse_dispatch_message` applies the same checks to any run
 id carrying the prefix:
 
@@ -168,8 +168,16 @@ gp-api's results queue for a judge run keys on it:
 - `scheduler_handler._send_callback` drops the `started` and launch-`failed`
   callbacks (reporting success, since the return value only drives job-state
   bookkeeping and there is no row to orphan).
-- `task_reaper` sends no reconciling callback for a dead task; the judge's own
-  poll timeout is then the sole detector, not a backstop.
+- `task_reaper` sends no reconciling callback for a dead task, and stops at
+  exactly that: the judge branch sits at the send, so the abnormal-stop
+  diagnosis (exit code, stopCode, stoppedReason) is logged for a judge run the
+  same way it is for a product one. Nothing about the reaper bounds a *live*
+  task either way — it is an EventBridge target on `lastStatus=STOPPED` and
+  holds `sqs:SendMessage` and nothing else, so it only ever sees tasks that
+  have already stopped. What bounds a runaway task is the runner's own
+  `asyncio.wait_for(timeout=config.timeout_seconds)` plus `_hard_exit(1)`,
+  identical for judge and product runs. The judge's poll timeout stops the
+  sweep *watching*; it was never what stops the task.
 - A content-level override rejection in dispatch goes to the DLQ rather than
   calling back.
 - So does every other rejection. The check lives inside `send_error_callback`

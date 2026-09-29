@@ -73,6 +73,14 @@ overstates it by roughly ten times and would silently invalidate every
 stored comparison. Switching caching on therefore fails loudly and needs
 rates added to `pricing.ts`.
 
+A background record's counts come from the `type: result` line of the run's
+`conversation.jsonl`, under `usage`: `input_tokens`, `output_tokens`,
+`cache_read_input_tokens`, `cache_creation_input_tokens` (written by
+`_usage_counts` in `packages/gp-ai/pmf_engine/runner/harness/claude_sdk.py`).
+The harness prices its turns in-process, so before those were logged the only
+token-derived figure on the line was a dollar amount and `priceUsd()` over a
+background record re-derived 0 on both arms.
+
 An unknown model throws too. The cost delta is printed beside a verdict as
 evidence, and a guessed or zero rate makes that evidence fiction.
 

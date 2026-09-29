@@ -96,6 +96,84 @@ def _price_turn(model: str, usage: dict) -> float:
     ) / 1_000_000
 
 
+# The four token classes a run is billed on, under the CLI's own key names
+# (verified against the bundled CLI's zero-usage literal, which is
+# `{input_tokens, cache_creation_input_tokens, cache_read_input_tokens,
+# output_tokens, server_tool_use, service_tier, cache_creation, ...}`).
+#
+# `_price_turn` above consumes AssistantMessage.usage in-process, so before
+# these were logged the only token-derived number that ever reached
+# conversation.jsonl was a dollar figure. A dollar figure is a snapshot of one
+# price list. The Universal Judge re-derives its cost delta from raw counts
+# precisely so a price change cannot masquerade as a branch difference, and
+# with no counts on the line it re-derived 0 against 0 for every background
+# agent — the stored snapshot right, the comparison meaningless.
+_USAGE_TOKEN_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+)
+
+# Ceiling on a logged count. Not a guess at a plausible token total — it is
+# JavaScript's Number.MAX_SAFE_INTEGER, the point past which the judge, which
+# reads these counts in TypeScript, silently loses integer precision. A value
+# beyond it would satisfy `z.number().int()` and still be wrong, which is worse
+# than being clamped. Also keeps a bignum out of a durable log line.
+_MAX_LOGGED_TOKEN_COUNT = 2**53 - 1
+
+
+def _usage_counts(usage: object) -> dict[str, int]:
+    """The four billed token classes out of a ResultMessage usage dict.
+
+    Projected onto a fixed four keys rather than dumped verbatim: the CLI's
+    usage object also carries `server_tool_use`, `service_tier`, `speed`,
+    `iterations` and friends, and pinning the shape keeps a vendor field out of
+    a durable log that other tools parse. Every key is always present, even at
+    zero: prompt caching is off today, and a consumer that saw a cache key
+    merely absent would read the run as uncached forever — the judge's pricing
+    table deliberately throws rather than pricing a cache read at the full
+    input rate (roughly a tenfold overstatement), and that guard only fires if
+    the count arrives. Counts are clamped non-negative because that is what the
+    judge's record schema admits; a negative would be rejected at ingest and
+    take the whole record with it.
+
+    NOTE: this is the aggregate the CLI reports as the session's usage
+    (`this.totalUsage`). Whether it includes subagent API calls cannot be
+    settled without a paid fan-out run, and nothing here detects it: every test
+    injects a synthetic usage dict, so if this were last-turn-only rather than
+    the session total, a re-derived cost would be understated by orders of
+    magnitude and no assertion would notice. `total_cost_usd` sits on the same
+    line, which makes the comparison *available* to whoever first runs a real
+    fan-out agent — it is not an automatic signal, and treating it as one is
+    the mistake to avoid. `ResultMessage.model_usage` carries the per-model
+    split with its own costUSD if it comes to that.
+
+    This cannot raise. It is evaluated while building the record passed to
+    `_log_jsonl`, which is OUTSIDE that function's try/except, so an
+    AttributeError on an unexpected usage type would propagate out of the
+    harness after the agent had already finished and throw away a real
+    artifact. The parameter is `object` rather than `dict | None` because that
+    is the real contract: it arrives straight off the wire, so the type is
+    checked here rather than trusted from an annotation.
+    """
+    counts = usage if isinstance(usage, dict) else {}
+    out: dict[str, int] = {}
+    for key in _USAGE_TOKEN_KEYS:
+        try:
+            value = int(counts.get(key))
+        except Exception:
+            # Deliberately not a narrow tuple. `int()` fails differently per
+            # input type and the surprises aren't all ValueError/TypeError:
+            # `json.loads` accepts the non-standard `Infinity` literal by
+            # default, and `int(float("inf"))` raises OverflowError, which is
+            # an ArithmeticError. The guarantee above is "cannot raise", so the
+            # catch has to be the same width as the guarantee.
+            value = 0
+        out[key] = min(max(value, 0), _MAX_LOGGED_TOKEN_COUNT)
+    return out
+
+
 def reset_accumulated_cost() -> None:
     global _accumulated_cost_usd
     _accumulated_cost_usd = 0.0
@@ -538,7 +616,16 @@ async def run_agent(
             _accumulated_cost_usd = total_cost
 
             _log_jsonl(
-                {"type": "result", "total_cost_usd": total_cost, "num_turns": num_turns, "session_id": session_id}
+                {
+                    "type": "result",
+                    "total_cost_usd": total_cost,
+                    "num_turns": num_turns,
+                    "session_id": session_id,
+                    # Added beside the cost, never in place of it: the cost is
+                    # what the run was billed under the price list of the day,
+                    # the counts are what a later comparison re-derives from.
+                    "usage": _usage_counts(message.usage),
+                }
             )
 
             if message.is_error:
