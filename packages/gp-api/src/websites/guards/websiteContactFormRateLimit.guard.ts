@@ -21,10 +21,11 @@ import type { FastifyRequest } from 'fastify'
  * across gp-api instances, and `request.ip` is only the real client when
  * fastify runs with `trustProxy` so the upstream load balancer's
  * `X-Forwarded-For` is honoured. Candidate sites reach this route through
- * their own Next route handler, which does not forward the visitor's address,
- * so submissions from a candidate site share that handler's egress address.
- * The real answer is an edge (WAF) rate limit in front of the route; this
- * guard is the stopgap until that lands, mirroring
+ * their own Next route handler, which forwards the visitor's address on that
+ * header (`helpers/clientAddress.ts` in `packages/candidate-sites`), so a
+ * visitor gets their own bucket rather than sharing the handler's egress
+ * address. The real answer is an edge (WAF) rate limit in front of the route;
+ * this guard is the stopgap until that lands, mirroring
  * `BriefingsPdfRateLimitGuard`.
  *
  * Memory bound (same strategy as the sibling guards): a caller that rotates
