@@ -181,6 +181,12 @@ export const OutreachProposalCard = ({
 
   const send = useMutation({
     mutationFn: async (): Promise<Outreach> => {
+      // The server sizes the send from this number, so it must describe the
+      // list and channel actually selected. Falling back to the agent's count
+      // here once sent a list sized for an audience the official had moved off.
+      if (count === null) {
+        throw new Error('The recipient count for this list is not ready yet')
+      }
       const { kind: _kind, proposalKey: _key, ...body } = proposal
       const res = await clientRequest(
         'PUT /v1/outreach/by-proposal-key/:proposalKey',
@@ -192,7 +198,7 @@ export const OutreachProposalCard = ({
           message,
           savedFilterId: listId,
           listName,
-          count: count ?? proposal.count,
+          count,
           deepLinkOnly,
         },
       )
@@ -362,7 +368,7 @@ export const OutreachProposalCard = ({
               size="small"
               loading={send.isPending}
               loadingText={SERVE_OUTREACH_PROPOSAL_COPY.sending}
-              disabled={send.isPending || send.isSuccess}
+              disabled={send.isPending || send.isSuccess || count === null}
               onClick={() => send.mutate()}
             >
               {SERVE_OUTREACH_PROPOSAL_COPY.send}
