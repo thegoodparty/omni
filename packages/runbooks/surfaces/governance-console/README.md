@@ -65,6 +65,30 @@ The suggestion line under each row is held to the same bar, and its own test. A 
 explains itself plainly and then justifies its suggestion in our vocabulary reads worse
 than one that does neither.
 
+### Click an event name to open its card
+
+The same card the analytics event explorer shows, opened in a row under the one you
+clicked: the verdict in plain words, what it is, where it fires, nine weeks of volume,
+when it entered and left the code, what reads it, and a link straight into Amplitude.
+
+It is the same card on purpose. These two pages describe the same events to the same
+people, and a second, differently-worded description of one event is a way for them to
+disagree. The console lifts it from the explorer snapshot rather than rebuilding it, the
+way it already lifts the area rollup.
+
+It carries cards only for events under an open decision, because the whole catalog is
+most of a megabyte of page nobody opens. An event with no catalog entry says so and
+still offers the Amplitude link, which is the normal state for anything declared in
+Govern and never observed.
+
+**This is what makes several of the caveats actionable.** "Find the replacement event
+named in the declaration" needs the supersession note; "ask whether that gap is unusual
+for this event" needs the weekly series. Both used to be a tab away, and a check that
+costs a tab is a check that gets skipped.
+
+Only the name is clickable. The table is also a picking surface, and a row where every
+cell does something is a row you cannot click safely.
+
 ### A dismissal has to say why
 
 `dismiss` is the one verdict with no expiry. Its row is read by the next run and every
@@ -222,6 +246,24 @@ digest raising the item again.
 
 Per-event "I looked at this one and it is fine" has no home yet. That file is phase 2
 and is the only genuinely new mechanism in the whole ticket.
+
+## Staying consistent with the explorer
+
+The two pages share no code, so consistency is a thing someone has to keep doing. What
+is aligned today:
+
+| | |
+| --- | --- |
+| Colour tokens | identical in light and dark. Dark had drifted in 13 values and was re-aligned to the explorer's. |
+| The event card | same fields, same order, same wording, same links |
+| Status wording | the card uses the explorer's verdicts (Working, Silent, Do not trust this, Never seen, Retired, Auto-tracked) |
+| Sparkline | same 9-week bars, same tooltip |
+| Fonts | Public Sans and IBM Plex Mono, same stacks |
+
+Deliberately different: the **evidence table shows raw status strings** where the card
+shows the plain verdict. The table is a scanning surface with a STATUS header, read by
+one operator who knows them; the card is a reading surface. If that stops being true,
+the table should move to the plain words too.
 
 ## Things that will surprise you
 

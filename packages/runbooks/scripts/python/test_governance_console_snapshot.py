@@ -195,6 +195,67 @@ def test_an_undismissable_cause_is_not_offered_the_dismiss_verb():
     assert item["recommended"] == "ticket"
 
 
+# --- event cards --------------------------------------------------------------
+
+
+def _explorer_event(event_type, **over):
+    base = {
+        "event_type": event_type, "display_name": event_type, "area": "A",
+        "description": "d", "status": "active", "fires_on": "somewhere",
+        "url": "", "fires_on_source": "", "anchor_confidence": "",
+        "anchor_flag_reason": "", "count_30d": 5, "count_total": 50,
+        "last_seen": "2026-09-20", "first_seen": "2026-01-01", "series": [1, 2],
+        "tags": [], "okr": "", "supersession": "", "declared_intent": "",
+        "watchlist_status": "", "questions": [], "used_by": [],
+        "provenance": {"instrumented_date": "2026-01-01"},
+        "internal_only": "must not travel",
+    }
+    base.update(over)
+    return base
+
+
+def test_queue_event_types_collects_flag_members_and_proposed_events():
+    queues = [
+        {"queue": "flags", "items": [{"id": "c", "events": ["A", "B"]}]},
+        {"queue": "proposals", "items": [{"id": "C"}]},
+        {"queue": "gaps", "items": [{"id": "some/path#form"}]},
+    ]
+
+    assert gcs.queue_event_types(queues) == {"A", "B", "C"}
+
+
+def test_build_event_cards_carries_only_the_events_under_a_decision():
+    """The whole catalog would be most of a megabyte of page nobody opens."""
+    explorer = {"events": [_explorer_event("A"), _explorer_event("Unrelated")]}
+
+    cards = gcs.build_event_cards(explorer, {"A"})
+
+    assert set(cards) == {"A"}
+    assert "internal_only" not in cards["A"]
+    assert cards["A"]["description"] == "d"
+
+
+def test_an_event_the_catalog_never_saw_simply_has_no_card():
+    """Normal for anything declared in Govern and never observed, which is a third of
+    the flagged set. The page falls back to the evidence row it already shows."""
+    explorer = {"events": [_explorer_event("A")]}
+
+    cards = gcs.build_event_cards(explorer, {"A", "NeverArrived"})
+
+    assert set(cards) == {"A"}
+
+
+def test_the_snapshot_carries_cards_for_its_own_queues():
+    report = _min_report(flagged=[_record(event_type="A")])
+    explorer = {"events": [_explorer_event("A"), _explorer_event("B")],
+                "series_weeks": ["2026-09-14"]}
+
+    snapshot = gcs.build_snapshot(report, {}, explorer, None)
+
+    assert set(snapshot["event_cards"]) == {"A"}
+    assert snapshot["series_weeks"] == ["2026-09-14"]
+
+
 # --- what a verb does ---------------------------------------------------------
 
 

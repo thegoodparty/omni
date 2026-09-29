@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -493,6 +493,59 @@ def build_overview(report: Mapping, explorer: Mapping) -> dict:
     }
 
 
+# --- event cards --------------------------------------------------------------
+#
+# The explorer's per-event card, carried for exactly the events this run's queues
+# mention, so clicking a name in an evidence table opens the same card people already
+# know from the explorer instead of sending them to another tab.
+#
+# It is lifted from the explorer snapshot rather than rebuilt, for the same reason the
+# area rollup is: one producer, so the two pages cannot describe the same event
+# differently. Only the events under an open decision are carried; the whole catalog
+# would be most of a megabyte of page nobody opens.
+#
+# The card is what makes several of the caveats actionable. "Find the replacement event
+# named in the declaration" needs the supersession note; "ask whether that gap is
+# unusual for this event" needs the weekly series. Both were a tab away.
+CARD_FIELDS = (
+    "display_name", "area", "description", "status", "fires_on", "url",
+    "fires_on_source", "anchor_confidence", "anchor_flag_reason",
+    "count_30d", "count_total", "last_seen", "first_seen", "series",
+    "tags", "okr", "supersession", "declared_intent", "watchlist_status",
+    "questions", "used_by", "provenance",
+)
+
+
+def queue_event_types(queues: Sequence[Mapping]) -> set[str]:
+    """Every event named anywhere in this run's queues.
+
+    Flags carry their members in ``events``; a proposal is itself an event; a gap is
+    about a surface and names none.
+    """
+    names: set[str] = set()
+    for queue in queues:
+        for item in queue["items"]:
+            names.update(item.get("events") or [])
+            if queue["queue"] == "proposals":
+                names.add(item["id"])
+    return names
+
+
+def build_event_cards(explorer: Mapping, wanted: Iterable[str]) -> dict:
+    """``{event_type: card}`` for the wanted events the explorer snapshot knows about.
+
+    An event with no explorer row simply has no card, and the page falls back to the
+    evidence row it already shows. That is the normal state for anything declared in
+    Govern and never observed, which is a third of the flagged set.
+    """
+    wanted = set(wanted)
+    return {
+        event["event_type"]: {k: event[k] for k in CARD_FIELDS if k in event}
+        for event in (explorer.get("events") or [])
+        if event.get("event_type") in wanted
+    }
+
+
 # --- code provenance ----------------------------------------------------------
 #
 # A blank PR link currently means three unrelated things, so the page names the state
@@ -798,6 +851,7 @@ def build_snapshot(
     ]
     overview = build_overview(report, explorer)
     overview["totals"]["open_decisions"] = sum(len(q["items"]) for q in queues)
+    cards = build_event_cards(explorer, queue_event_types(queues))
 
     return {
         "run_date": run_date,
@@ -808,6 +862,8 @@ def build_snapshot(
         # Once at the top, not on every item: the same four sentences on 25 rows is
         # 20 KB of the same four sentences.
         "verb_effects": VERB_EFFECTS,
+        "series_weeks": explorer.get("series_weeks") or 0,
+        "event_cards": cards,
         "queues": queues,
         "settled": _settled_gaps(gaps),
         "prior_flagged": current_flagged_map(report),
