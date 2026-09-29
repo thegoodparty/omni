@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PlacesService } from './places.service'
-import { DEFAULT_PLACE_PAGE_SIZE, PlaceFilterDto } from './places.schema'
+import {
+  DEFAULT_PLACE_PAGE_SIZE,
+  MAX_MOST_ELECTIONS_COUNT,
+  MostElectionsDto,
+  PlaceFilterDto,
+} from './places.schema'
 
 describe('PlacesService', () => {
   let service: PlacesService
@@ -161,5 +166,29 @@ describe('PlacesService', () => {
     const args = findMany.mock.calls[0]?.[0]
     expect(args.skip).toBe(80)
     expect(args.take).toBe(40)
+  })
+
+  // `count` reaches a raw SQL LIMIT, so the schema is the only thing standing
+  // between a caller and an unbounded scan.
+  describe('most-elections count bound', () => {
+    const parse = (count: string) =>
+      MostElectionsDto.schema.safeParse({ count })
+
+    it('accepts what the marketing site actually asks for', () => {
+      expect(parse('3').success).toBe(true)
+    })
+
+    it('accepts the cap', () => {
+      expect(parse(String(MAX_MOST_ELECTIONS_COUNT)).success).toBe(true)
+    })
+
+    it('rejects a count past the cap', () => {
+      expect(parse(String(MAX_MOST_ELECTIONS_COUNT + 1)).success).toBe(false)
+    })
+
+    it('still rejects zero and negatives', () => {
+      expect(parse('0').success).toBe(false)
+      expect(parse('-5').success).toBe(false)
+    })
   })
 })

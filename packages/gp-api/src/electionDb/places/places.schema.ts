@@ -87,13 +87,22 @@ const placeFilterSchema = z.object({
 })
 ///  .strict()
 
+// `count` is interpolated into a raw SQL LIMIT, so an unbounded value is the
+// same unbounded-scan hazard the paginated endpoints were fixed for. The cap
+// is deliberately far above any real caller — the marketing site asks for 3 —
+// so it only ever rejects an ask that was never legitimate.
+export const MAX_MOST_ELECTIONS_COUNT = 100
+
 const mostElectionsSchema = z.object({
   count: z
     .string()
     .transform(Number)
-    .refine((n) => Number.isInteger(n) && n > 0, {
-      message: 'count must be a positive integer',
-    }),
+    .refine(
+      (n) => Number.isInteger(n) && n > 0 && n <= MAX_MOST_ELECTIONS_COUNT,
+      {
+        message: `count must be a positive integer no greater than ${MAX_MOST_ELECTIONS_COUNT}`,
+      },
+    ),
 })
 
 export class PlaceFilterDto extends createZodDto(placeFilterSchema) {}

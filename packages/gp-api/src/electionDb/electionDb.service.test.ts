@@ -1,11 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Prisma } from '@/generated/election-prisma'
+import { ElectionDbService } from './electionDb.service'
 
-const connect = vi.fn()
-const disconnect = vi.fn()
+// vi.hoisted, not a plain const: vi.mock is lifted above the imports, so a
+// factory closing over a normally-declared binding would read it before
+// initialization.
+const { connect, disconnect } = vi.hoisted(() => ({
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+}))
 
 // Only PrismaClient is replaced; the real `Prisma` namespace is kept so the
-// error classes the service discriminates on are the genuine ones. Touching
-// a real socket here would make the suite pay a connect timeout per run.
+// error classes the service discriminates on are the genuine ones. Touching a
+// real socket here would make the suite pay a connect timeout every run and
+// leak an undisconnected client.
 vi.mock('@/generated/election-prisma', async () => {
   const actual = await vi.importActual<
     typeof import('@/generated/election-prisma')
@@ -20,18 +28,16 @@ vi.mock('@/generated/election-prisma', async () => {
   }
 })
 
-const { ElectionDbService } = await import('./electionDb.service')
-const { Prisma } = await import('@/generated/election-prisma')
-
-const URL = 'postgresql://u:p@localhost:5432/election'
+const DB_URL = 'postgresql://u:p@localhost:5432/election'
 
 describe('ElectionDbService', () => {
-  let service: InstanceType<typeof ElectionDbService>
+  let service: ElectionDbService
 
   beforeEach(() => {
     connect.mockReset()
     connect.mockResolvedValue(undefined)
-    process.env.ELECTION_DATABASE_URL = URL
+    disconnect.mockReset()
+    process.env.ELECTION_DATABASE_URL = DB_URL
     service = new ElectionDbService()
   })
 
@@ -67,8 +73,8 @@ describe('ElectionDbService', () => {
   // No error code means a packaging or configuration fault — a missing query
   // engine, an unparseable URL — which no retry can fix. Storing that client
   // is how a missing engine failed 116 E2E tests on specs that touch no
-  // election data, each dying on the same opaque engine error instead of the
-  // guard's message.
+  // election data, each dying on the same opaque engine error rather than
+  // the guard's message.
   it('discards the client when it can never work', async () => {
     connect.mockRejectedValue(
       new Prisma.PrismaClientInitializationError(
