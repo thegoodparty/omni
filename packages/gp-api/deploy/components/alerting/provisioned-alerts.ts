@@ -1,6 +1,36 @@
 import { GLOBAL_ALERTS } from '../alerts'
-import { controllerAlerts } from './controller-alerts'
+import { RecordingRule } from './alerts.types'
+import { controllerAlerts, ROUTE_RECORDING_RULES } from './controller-alerts'
+import { DOOR_KNOCKING_SPEND_RECORDING_RULE } from './door-knocking-spend'
 import { CONTROLLER_NAMES } from '../../../src/generated/route-types'
+
+/**
+ * Every scheduled read of a Loki stream this repo provisions.
+ *
+ * WHY THEY ARE ENUMERATED IN ONE PLACE, and why the enumeration is checked. A
+ * Loki-backed rule re-reads its whole fetch window on every evaluation, and
+ * only the stream selector and that window decide the bytes — so a rule's daily
+ * read volume, as a multiple of what we ingest, is exactly `window ÷ interval`.
+ * The plan includes log queries up to 100x ingest, and that allowance is
+ * shared: by every rule, by both environments, and by whatever a human types
+ * into Explore. A limit that is only ever applied one rule at a time therefore
+ * cannot say whether the estate fits, which is how four rules that each passed
+ * a 100x per-rule ceiling came to be budgeted at 384% of the whole allowance
+ * and spent 4.4x of it (2026-09-29).
+ *
+ * A recording rule is the way out of that arithmetic: it reads one minute of
+ * logs once a minute — the floor, 1x ingest — writes the result to Prometheus,
+ * and every alert that wants a wider window assembles it there, where the read
+ * costs nothing. Its cost does not grow with the number of alerts consuming it.
+ *
+ * `global-alerts.test.ts` sums `window ÷ interval` across these and the
+ * log-backed alerts and fails when the total leaves too little of the allowance
+ * for anything else.
+ */
+export const RECORDING_RULES: RecordingRule[] = [
+  ...ROUTE_RECORDING_RULES,
+  DOOR_KNOCKING_SPEND_RECORDING_RULE,
+]
 
 /**
  * Every alert slug this repo provisions, from both sources.

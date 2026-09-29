@@ -1,6 +1,7 @@
 import { ControllerName } from '../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
+import { doorKnockingCredits } from './alerting/door-knocking-spend'
 
 /**
  * Which product's users each controller serves, and therefore who hears about
@@ -483,6 +484,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     // would let the engine see only 10 minutes of logs and miss this
     // low-frequency event.
     timeRangeSeconds: 3600,
+    // An hour of logs on the 60s default re-read the same hour 1,440 times a
+    // day — 60x our ingest for one rule, against a query allowance of 100x that
+    // every rule and both environments share. At 5m it is 12x. `for` is 5m, so
+    // the rule still fires on its first evaluation past the threshold and the
+    // worst case is ~5 minutes later than before, on an event whose remedy is
+    // a human reading a log line.
+    evaluationIntervalSeconds: 300,
     message: [
       'A paid P2P outreach draft failed to submit to Peerly in the last hour. Money was taken; the draft reverted to pending_payment and the Stripe webhook will retry automatically.',
       'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId/campaignId and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
@@ -516,6 +524,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // see only 10 minutes and miss it (same reason as the paid-not-scheduled
     // alert above).
     timeRangeSeconds: 3600,
+    // 12x ingest rather than 60x, for the reason given on the sibling above.
+    // These events are money-integrity ones that need a human, not a rollback,
+    // so ~5 minutes of extra detection latency costs nothing real.
+    evaluationIntervalSeconds: 300,
     message: [
       'A robocall send/settlement CRITICAL was logged in the last hour — a money- or delivery-integrity event that needs a human.',
       'Click *View in Grafana* and search "CRITICAL robocall" for the log line: it names the outreachId and the exact failure (send_failed / uncollectable capture / schema mismatch / dial commit-miss / ETag mismatch / orphaned-hold). The uncollectable and commit-miss cases are the money-sensitive ones — a delivered run we could not capture, or a campaign that may be dialing with no record.',
@@ -526,7 +538,7 @@ export const GLOBAL_ALERTS: Alert[] = [
   {
     slug: 'door-knocking-route-planner-spend-ceiling',
     name: '[Win] Door-knocking route planner spend ceiling',
-    type: 'log',
+    type: 'metric',
     // No per-organization spend cap exists — a 500-waypoint daily budget used
     // to sit beside this and was removed — and nothing sums across
     // organizations, so the total bill scales with how many orgs hold the
@@ -537,23 +549,16 @@ export const GLOBAL_ALERTS: Alert[] = [
     // Reads the DoorKnockingSpend log line rather than
     // geoapify_credits_total: the log is exact and immune to the
     // counter resets a deploy causes, and it's the same source as the per-org
-    // spend queries in docs/door-knocking.md.
+    // spend queries in docs/door-knocking.md. It reaches that line through the
+    // recorded metric rather than by scanning Loki itself — same measurement,
+    // one read a minute shared with the four budget tiers instead of a 6h
+    // window re-scanned every 5 minutes. See alerting/door-knocking-spend.ts.
     //
-    // 6h, not the quota's 24h, and matching the widest window any existing log
-    // alert here evaluates. The runaway this is built to catch — a loop, a
-    // wider flag rollout than intended — burns fast, and a [24h] vector
-    // re-scanned every minute is four times the read for a slower signal, on
-    // an alert whose execErrState is Alerting (a query timeout pages).
-    expr: [
-      'sum(sum_over_time(',
-      '{service_name="gp-api", deployment_environment_name="$ENV"}',
-      // Cheap line filter before | json, as the sibling log alerts do.
-      '|= "DoorKnockingSpend"',
-      '| json',
-      '| event = "DoorKnockingSpend"',
-      '| unwrap credits',
-      '[6h]))',
-    ].join(' '),
+    // 6h, not the quota's 24h. The runaway this is built to catch — a loop, a
+    // wider flag rollout than intended — burns fast, and the tiers are what
+    // watch the pool. Assembling the window in PromQL costs nothing, so the
+    // choice is now purely about what signal is wanted.
+    expr: doorKnockingCredits('6h'),
     // Roughly 900 stops routed inside six hours — about six maximum-size
     // turfs, and close enough to two organizations' entire default daily
     // allowance to serve as one. A stop costs a little over ten credits all
@@ -567,11 +572,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The [6h] range vector needs a matching fetch window; the default 600s
     // would let the engine see only 10 minutes and never accumulate the sum.
     timeRangeSeconds: 21600,
-    // Reading 6h on the 60s default re-read the same six hours 1,440 times a
-    // day, which made this one of the two most expensive rules we run. A
-    // ceiling measured over 6h does not need minute resolution: at 5m the
-    // worst case is that a runaway is caught ~4 minutes later, against a
-    // Geoapify daily pool this threshold leaves most of intact anyway.
+    // Reading 6h of logs on the 60s default re-read the same six hours 1,440
+    // times a day, which made this one of the two most expensive rules we ran.
+    // Now that the 6h window is assembled from a recorded metric the read is
+    // free, and 5m stays only because the firing behaviour was tuned under it.
     evaluationIntervalSeconds: 300,
     message: [
       'Door-knocking has burned more than 10,000 Geoapify credits in the last 6 hours — roughly two organizations\u2019 entire daily allowance, and well above any legitimate pilot rate.',
@@ -798,10 +802,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     // >= the [6h] vector, or the engine's default ten minutes means a rule that
     // only ever sees 03:54-04:04 and reports zero the rest of the day.
     timeRangeSeconds: 21600,
-    // 24 re-reads/day against the MAX_REREAD_FACTOR of 100 in
-    // global-alerts.test.ts. A daily sweep does not need minute resolution, and
-    // a 6h window on the 60s default would re-read those hours 360 times.
-    evaluationIntervalSeconds: 900,
+    // 12 re-reads a day. A `0 4 * * *` sweep does not need minute resolution,
+    // and a 6h window on the 60s default would re-read those hours 360 times —
+    // 360x our ingest for one rule, against an allowance of 100x shared by
+    // every rule in both environments. `for` is 0m and nothing retries this, so
+    // the only cost is that the page can arrive up to 30 minutes after the
+    // nightly sweep emitted the line, on a finding whose remedy is manual.
+    evaluationIntervalSeconds: 1800,
     message: [
       'The nightly person-id sweep found a user whose civics id has moved, and could not follow it: the destination id already holds another user’s rows. The link was left stale deliberately, for a human.',
       'Nothing retries this. The stale link survives every subsequent sweep, so the symptom persists until someone acts — that user’s public /people page renders the unclaimed civics spine (wrong name, wrong headshot, no bio) instead of their profile, and if they are under a takedown it silently stops being enforced, because `isRemoved` matches on an id they no longer render under.',
@@ -966,9 +973,13 @@ export const GLOBAL_ALERTS: Alert[] = [
     // the 6h count this alert is built on.
     timeRangeSeconds: 21600,
     // As above: 6h of logs re-read every 60s was one of our two costliest
-    // rules. `for` is 30m here, so a 5m interval still gives the rule six
-    // evaluations before it fires and barely moves detection latency.
-    evaluationIntervalSeconds: 300,
+    // rules, and at 5m it was still 72x our daily ingest against a query
+    // allowance of 100x that every rule and both environments share. At 30m it
+    // is 12x. `for` is 30m, so the rule now fires on the first evaluation past
+    // the threshold instead of the sixth: detection moves from ~30 minutes
+    // after the fifth campaign to ~30-60. This watches a 6h trend with no
+    // automatic remedy, so that is the right thing to make slow.
+    evaluationIntervalSeconds: 1800,
     message: [
       'More than 5 distinct campaigns hit a "no matched district" outcome in the last 6h — well above the ~0 baseline.',
       'This usually means the auto-district-matching pipeline broke *silently*: election-api is returning a position with no associated district (or a 404) rather than an error. Likely causes: a district-association / dbt mart regression, or an election-api data/deploy issue that stopped attaching districts. Note that upstream election-api errors (5xx) are excluded here — those page via the per-route error alerts instead.',
