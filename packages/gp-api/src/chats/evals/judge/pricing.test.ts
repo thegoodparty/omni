@@ -84,9 +84,9 @@ describe('re-deriving cost rather than trusting it', () => {
   // list; re-deriving from tokens is what keeps the delta about the branch.
   it('matches the fixture snapshot under the current table', () => {
     const [base] = CHAT_PAIR
-    expect(base.telemetry.cost.pricingVersion).toBe(PRICING_VERSION)
+    expect(base.telemetry.cost?.pricingVersion).toBe(PRICING_VERSION)
     expect(priceUsd(base.telemetry.tokens, base.variant.model)).toBeCloseTo(
-      base.telemetry.cost.usdAtCapture,
+      base.telemetry.cost?.usdAtCapture ?? NaN,
       3,
     )
   })

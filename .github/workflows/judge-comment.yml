@@ -1,0 +1,332 @@
+name: Universal Judge comment
+
+# The way an engineer actually asks: `/judge` on their own PR.
+#
+# CANNOT BE EXERCISED UNTIL THIS FILE IS ON main. GitHub only fires
+# `issue_comment` from the workflow file on the default branch, so no comment on
+# a `universal-judge` build-track PR will start this. It is written and ready;
+# judge-request.yml's `pull_request` path is what proves the machinery until the
+# integration branch lands.
+#
+# THIS IS THE FIRST issue_comment WORKFLOW IN THE REPOSITORY, which is why the
+# next three paragraphs are here rather than assumed.
+#
+# WHAT MAKES IT DANGEROUS: `issue_comment` runs the workflow file from the
+# default branch, with the repository's secrets and a write token, and anyone
+# who can see a public repository can leave a comment on it. The two escalations
+# that follow from that are handled before any code from the PR is fetched:
+#
+#   * someone without write access cannot start it — the two-stage gate on the
+#     `parse` job below;
+#   * a fork's code cannot run with our credentials — judge.yml skips fork PRs
+#     before its checkout step, and `pull_request_target` is not used anywhere
+#     in the judge.
+#
+# WHY NOT `github.actor`: on this event `actor` is the commenter, so it would
+# identify the right person, but it says nothing about their relationship to the
+# repository. Neither, on its own, does `author_association` — see the gate.
+#
+# The comment body itself is never interpolated into a shell. It reaches bash
+# through `env` and leaves the parser as either a validated agent selector or a
+# rejection.
+
+on:
+  issue_comment:
+    types: [created]
+
+# GUARD 2 of 3, and the half of it that is unambiguously in force.
+#
+# Keyed per PR with cancel-in-progress. Workflow-level concurrency covers the
+# whole run, `sweep` included, so a second request for the same PR really does
+# cancel a sweep that is already spending rather than running a second one
+# beside it. Concurrency groups are repository-wide, so a `/judge` comment, a
+# manual dispatch and a push all contend for one slot per PR instead of one slot
+# per entry point — which is what makes cancellation reachable by a request that
+# does not itself spend: a bare `/judge` is plan-only and still lands here.
+#
+# THE INVARIANT EVERY ENTRY POINT MUST PRESERVE: resolve to
+# `universal-judge-pr-<pr number>`. judge-request.yml reaches the same key by a
+# different expression (`github.event.pull_request.number || inputs.pr_number`,
+# because it serves two events), and that is not a textual identity a reader
+# should be expected to re-derive — it is the thing a new caller has to get
+# right, or its runs quietly stop contending with everyone else's.
+#
+# THE GROUP CARRIES THE GATE, AND IT HAS TO, because of when each layer is
+# evaluated. A workflow-level group is computed when the run is CREATED, which
+# happens for every `issue_comment: created` in the repository; the
+# authorisation `if:` on `parse` runs later, when the job is about to start. So
+# a group keyed only on the PR number lets any account on GitHub — no access,
+# no `/judge` in the body, a bare "lgtm" — create a run that joins the group,
+# cancel a live sweep mid-flight, and then skip green. That is up to ~$264 of
+# spend destroyed by a stranger, repeatably, with no verdict to show for it.
+#
+# So a comment that is not a plausible request is keyed on its own run id
+# instead, where it matches nothing and cancels nothing. The real
+# push-permission check cannot run at this layer — it needs a runner — so the
+# key rests on the association pre-filter and the `/judge` prefix. The residual
+# is that an org member at read level can cancel a sweep, which is a far
+# smaller set than everyone, and no part of it can start one.
+#
+# What cancelling does NOT do is refund. It stops further model calls; the
+# tokens the cancelled sweep already burned are already billed. That is also
+# why the gate above matters more than the cancellation it protects.
+#
+# It is here, on the caller, as well as on judge.yml's jobs on purpose.
+# Workflow-level concurrency on an ordinary triggered workflow is documented and
+# unambiguous; job-level concurrency inside a CALLED reusable workflow is
+# neither documented as working nor as not working, and this is not a guard to
+# leave resting on an inference. The groups inside judge.yml stay as the layer
+# that survives a future caller that forgets this block.
+concurrency:
+  group: >-
+    ${{ (github.event.issue.pull_request != null
+    && startsWith(github.event.comment.body, '/judge')
+    && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    && format('universal-judge-pr-{0}', github.event.issue.number)
+    || format('universal-judge-noop-{0}', github.run_id) }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Deciding whether someone may ask, and what they asked for. No checkout,
+  # nothing from the PR, nothing that costs anything.
+  parse:
+    name: Parse the request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Narrower than the workflow: this job writes no comment and reads no PR
+    # body. `contents: read` rather than `permissions: {}` because the first
+    # step does have one question to ask: the collaborator-permission lookup is
+    # listed under Metadata (read) in the REST docs, metadata comes along with
+    # any grant, and `permissions: {}` is documented as turning every
+    # permission off. If the lookup ever comes back 403 for someone who really
+    # can push, this block is the one line to widen — and until then it fails
+    # closed and says so, which is the right way round for a job whose answer
+    # authorises spending.
+    permissions:
+      contents: read
+    # `issue.pull_request` is present only on comments that are on a pull
+    # request, so this drops every issue comment in the repository before a
+    # runner is even assigned.
+    #
+    # THE MEMBER GATE, first stage. The design doc left this open as "members
+    # only, or a named list?" — this is "anyone who can push".
+    #
+    # `author_association` IS A CHEAP PRE-FILTER AND NOTHING MORE. GitHub
+    # defines MEMBER as "member of the organization that owns the repository"
+    # and COLLABORATOR as "has been invited to collaborate on the repository" —
+    # neither implies any permission level. So this set admits any thegoodparty
+    # member with no access to omni at all, and any outside collaborator at
+    # read or triage, either of whom could otherwise spend ~$264 with
+    # `/judge all --live`. It is kept because it is free, it is computed by
+    # GitHub rather than supplied by the request, and it turns away the whole
+    # internet before a runner is assigned. The check that actually decides is
+    # the push-permission lookup in the first step.
+    #
+    # CONTRIBUTOR is deliberately absent even as a pre-filter: having had a PR
+    # merged once is not authority to spend on the org's Anthropic account.
+    if: >-
+      github.event.issue.pull_request != null
+      && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    outputs:
+      requested: ${{ steps.parse.outputs.requested }}
+      agents: ${{ steps.parse.outputs.agents }}
+      live: ${{ steps.parse.outputs.live }}
+    steps:
+      # THE MEMBER GATE, second stage, and the one that is a permission check.
+      # `admin`, `maintain` and `write` are the levels that can push; `read`
+      # and `triage` cannot, and neither can a bare org member with no access
+      # to this repository at all.
+      #
+      # It answers through an output the parser reads rather than by writing
+      # `requested=false` itself, because step outputs are namespaced per step:
+      # a `requested` written here would never reach the job output that
+      # `judge` gates on. That is the release-summary.yml gate idiom — one step
+      # decides, later steps read it — and it keeps the denial a green step
+      # that says why rather than a red X on someone's PR.
+      #
+      # A lookup that errors denies. If the token cannot answer the question,
+      # the honest reading is "unknown", and unknown must not spend.
+      - name: Check push permission
+        id: perm
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ACTOR: ${{ github.event.comment.user.login }}
+        run: |
+          set -euo pipefail
+
+          # Newlines out before echoing, the same as judge.yml's `skip()`:
+          # `::notice::` is a line-oriented protocol and the step summary is
+          # markdown. Nothing reaching this can carry one today, so it closes a
+          # class rather than a hole — but the two functions should not
+          # disagree about whether that matters.
+          deny() {
+            local msg="${1//$'\n'/ }"
+            msg="${msg//$'\r'/ }"
+            echo "::notice::$msg"
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            { echo '### Universal Judge: not run'; echo ''; echo "$msg"; } \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+
+          # stderr is kept so the HTTP status can be read back and the two
+          # failures told apart. A 404 is "not a collaborator"; anything else is
+          # the lookup itself failing, and telling an engineer they have no
+          # access to omni when the real problem is this job's token would cost
+          # exactly the afternoon this file is elsewhere careful about.
+          #
+          # omni is public, so a complete stranger comes back 200 with `read`
+          # rather than 404 — the `case` below is what turns them away, and the
+          # 404 branch is narrower than it looks.
+          if ! perm="$(gh api "repos/$GH_REPO/collaborators/$ACTOR/permission" \
+            --jq .permission 2>"$RUNNER_TEMP/perm-error")"; then
+            cat "$RUNNER_TEMP/perm-error" >&2
+            if grep -q 'HTTP 404' "$RUNNER_TEMP/perm-error"; then
+              deny "@$ACTOR is not a collaborator on this repository, so the judge is not starting."
+            fi
+            deny "the permission lookup for @$ACTOR failed; the status is in the log. A sweep spends real money and a check that cannot be answered is a no. If this is happening to everyone it is this job's \`permissions\` block, not anyone's access — the endpoint is listed under Metadata (read)."
+          fi
+
+          case "$perm" in
+            admin|maintain|write) ;;
+            *)
+              deny "@$ACTOR has '$perm' on this repository; a judge sweep needs write."
+              ;;
+          esac
+
+          echo "allowed=true" >> "$GITHUB_OUTPUT"
+          echo "@$ACTOR has '$perm'"
+
+      - name: Parse the command
+        id: parse
+        if: steps.perm.outputs.allowed == 'true'
+        env:
+          # Through the environment, never into the `run` block. A comment body
+          # is the most untrusted string this repository handles, and
+          # `${{ github.event.comment.body }}` inside a script is the textbook
+          # way to hand a stranger the runner.
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+
+          # Only the first line, and it must start the comment. Quoting somebody
+          # else's `/judge` in a reply should not fire a second sweep.
+          #
+          # Sliced in the shell rather than piped to `head -n 1`: a comment body
+          # has no length limit worth relying on, and with `pipefail` set a
+          # `head` that closes the pipe on line one leaves the writer with
+          # EPIPE — so a long comment would fail the step instead of being read.
+          line="${BODY%%$'\n'*}"
+          line="${line%$'\r'}"
+          # Tabs to spaces before the dispatch check below, which needs a
+          # literal space after `/judge`. A pasted comment really can carry
+          # `/judge<tab>all`, and dropping that would be the one failure mode
+          # this file otherwise always explains: no notice, no summary, nothing
+          # in the log. Parameter expansion rather than `tr` to stay in this
+          # shell.
+          line="${line//$'\t'/ }"
+          case "$line" in
+            /judge|/judge\ *) ;;
+            *) echo "requested=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+
+          rest="${line#/judge}"
+          rest="$(printf '%s' "$rest" | tr -s '[:space:]' ' ')"
+          rest="${rest# }"
+          rest="${rest% }"
+
+          # A live sweep is an explicit word, on every path. Bare `/judge`
+          # answers with the plan and the price and tells you how to confirm it,
+          # which is one extra comment in exchange for never being surprised by
+          # an `all` on the invoice.
+          # Looped, one occurrence at a time, because the matches can overlap:
+          # `--live --live` shares a separator, so a single `s/ --live / /g`
+          # pass consumes it and leaves a stray `--live` behind to be rejected
+          # by the allowlist below. That fails toward not spending, which is
+          # the right direction, but it answers an unambiguous request with
+          # "that is not a request it can read".
+          live=false
+          while [[ " $rest " == *" --live "* ]]; do
+            live=true
+            rest="$(printf '%s' " $rest " | sed 's/ --live / /')"
+            rest="$(printf '%s' "$rest" | tr -s '[:space:]' ' ')"
+            rest="${rest# }"; rest="${rest% }"
+          done
+
+          agents="${rest:-auto}"
+          # The allowlist, and the reason nothing downstream has to be careful:
+          # agent ids are lowercase snake_case, plus the literals `all` and
+          # `auto`. Everything else — a flag, a space, a shell metacharacter, a
+          # command substitution — is rejected here and never becomes an argument.
+          #
+          # A MISS IS NOT AN ERROR. `/judge --all`, or a trailing comma, is a
+          # typo, and a typo must not put a red X on a PR that is otherwise
+          # fine: this file's own rule is that a failure someone can do nothing
+          # about reads as "the judge is broken". So it declines, says what the
+          # usage is, and exits clean.
+          #
+          # The rejected text is deliberately NOT echoed into the annotation.
+          # `$line` is attacker-controlled on this event, and a workflow
+          # command is a line-oriented protocol.
+          # Bounded as well as shaped. A comment body runs to tens of
+          # kilobytes, and `a,a,a,...` all the way up is a valid selector by
+          # shape alone; it would become a job output, a reusable-workflow
+          # input and a command-line argument. It takes write access to get
+          # here and the CLI would reject the ids anyway, so this is tidiness
+          # rather than a vector — but the rejection belongs at the gate.
+          if ! [[ "$agents" =~ ^[a-z0-9_]+(,[a-z0-9_]+)*$ ]] || [ "${#agents}" -gt 256 ]; then
+            echo "requested=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::not a judge request; the usage is in the run summary"
+            {
+              echo '### Universal Judge: that is not a request it can read'
+              echo ''
+              echo 'Usage: `/judge [agent-id[,agent-id...]|all|auto] [--live]`'
+              echo ''
+              echo 'Agent ids are lowercase snake_case. `auto` judges whatever the'
+              echo 'branch touched and is the default; `all` is the expensive one.'
+              echo 'Without `--live` you get the plan and the price and nothing is'
+              echo 'spent.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          {
+            echo "requested=true"
+            echo "agents=$agents"
+            echo "live=$live"
+          } >> "$GITHUB_OUTPUT"
+          echo "requested agents=$agents live=$live"
+
+  judge:
+    name: Judge
+    needs: parse
+    # `needs.parse.result` is spelled out for a reader, not because it is
+    # load-bearing: GitHub applies a default `success()` to any `if:` with no
+    # status function in it, so a failed `parse` already blocks this. A comment
+    # that fails either stage of the gate also leaves `requested` empty rather
+    # than `false`. Two redundant checks on the path to spending money is the
+    # right number; a guard should not be one emptiness away from holding.
+    if: >-
+      needs.parse.result == 'success'
+      && needs.parse.outputs.requested == 'true'
+    uses: ./.github/workflows/judge.yml
+    with:
+      # On an `issue_comment` the PR is the issue. `format` because the event
+      # carries a number and the reusable input is declared as a string.
+      pr_number: ${{ format('{0}', github.event.issue.number) }}
+      agents: ${{ needs.parse.outputs.agents }}
+      # A job output is a string, so this is a string comparison and not a
+      # truthiness test on the word "true". The input downstream is affirmative
+      # — `live`, not `dry_run` — so anything this does not resolve to exactly
+      # `true` is a plan and not a spend.
+      live: ${{ needs.parse.outputs.live == 'true' }}
+      requested_by: ${{ github.event.comment.user.login }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
