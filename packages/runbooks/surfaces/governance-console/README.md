@@ -81,15 +81,27 @@ most of a megabyte of page nobody opens. An event with no catalog entry says so 
 still offers the Amplitude link, which is the normal state for anything declared in
 Govern and never observed.
 
-**Two fields on the card look like opposites and are not.** "Name removed from the
-code" is set only when the event's name string has gone from the tree. "Sent from"
-counts what still calls that name. An event sits under *call sites removed* with its
-name still in the registry and nothing calling it, and both statements are true. That is
-the whole finding rank 2 exists to catch, and a card showing only the first half reads
-as an argument with the queue that opened it, so the card shows both and says so in a
-line underneath. Live case on 2026-09-28:
-`Onboarding V2 - Strategic Landscape Displayed`, whose caller went in `e5e863545`
-(2026-09-01) while `analyticsHelper.ts:799` still declares the name.
+**One field says how far a removal got, because two fields read as a contradiction.**
+Deleting an event is two steps: the code that sends it goes first, the name in the
+registry second. The card used to print a field per step, so a half-finished deletion
+showed "name: still declared" beside "sent from: nothing" and read as two facts
+arguing. It stopped the person who designed the system twice.
+
+`In the code` now says it once, in one of four states:
+
+| | |
+| --- | --- |
+| `declared, and called from 3 places` | live |
+| `declared, but nothing has called it since 2026-09-01` | call site gone, name left behind |
+| `removed on 2026-07-14` | both gone |
+| `no call site we can find, so nothing to follow` | no resolvable key path |
+
+The two underlying columns can never both be set, which is what makes one field the
+honest shape: the count works by finding the name in the registry and counting its
+references, so deleting the name leaves nothing to count and the column goes empty.
+Worked example, live on 2026-09-28: `Onboarding V2 - Strategic Landscape Displayed`,
+declared at `analyticsHelper.ts:799`, caller deleted in `e5e863545` (2026-09-01). Stages
+and counts: `books/refresh-event-provenance.md`.
 
 `call_site_count` is a number on the card, never the string the CSV hands back. Blank
 becomes null, because "the walk resolved no key path" and "it resolved one and found no
