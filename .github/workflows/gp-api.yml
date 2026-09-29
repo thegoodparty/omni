@@ -78,6 +78,9 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}
         run: npx tsc -p tsconfig.deploy.json
 
+      - name: Check env contract
+        run: npm run check:env-contract -w ${{ env.WORKSPACE }}
+
       - name: Check Prisma migrations
         working-directory: ${{ env.WORKSPACE }}
         run: |
