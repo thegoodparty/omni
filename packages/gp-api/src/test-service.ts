@@ -20,7 +20,6 @@ import {
   testPostgresUri,
   withDatabase,
 } from './test-postgres'
-import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
 import { ElectionsService } from './elections/services/elections.service'
 import { District } from './elections/types/elections.types'
 
@@ -200,21 +199,12 @@ export const useTestService = (): TestServiceContext => {
       },
     )
 
-    // election-api calls now require a Clerk M2M token (ElectionApiTokenService).
-    // Route tests don't set GP_API_MACHINE_SECRET, so stub the token —
-    // otherwise authHeader() throws and every election-api-backed endpoint
-    // (e.g. district resolution behind contacts count) returns a 502.
-    const electionApiTokenService = app.get(ElectionApiTokenService)
-    vi.spyOn(electionApiTokenService, 'authHeader').mockResolvedValue({
-      Authorization: 'Bearer test-election-api-token',
-    })
-
-    // ...and stub the two lookups that token was only ever buying access to.
-    // Stubbing the token alone left the REQUEST live, so any suite that did not
-    // stub election-api itself was quietly reading the dev deployment. That was
-    // invisible until election-api began enforcing M2M unconditionally, at
-    // which point the 401 surfaced as a 502 on every route that resolves a
-    // district (door-knocking, phone-banking, outreach — 138 tests).
+    // Stub the two election lookups route tests reach through. These used to
+    // be HTTP calls to election-api and are now in-process reads against the
+    // election database, which no test has: ElectionDbService fails soft at
+    // boot and `.instance` throws at query time, so without these every route
+    // that resolves a district (door-knocking, phone-banking, outreach — 138
+    // tests) would fail.
     //
     // Both are only reached when the org carries the corresponding id, so this
     // cannot manufacture a district for an org that has none — the "no

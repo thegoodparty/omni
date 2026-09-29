@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common'
 import { HttpModule } from '@nestjs/axios'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
-import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { PersonsModule } from '@/electionDb/persons/persons.module'
 import { CronModule } from '@/cron/cron.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ElectionsModule } from '@/elections/elections.module'
@@ -42,9 +42,10 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
 // CronModule provides the daily-run lock for the reconcile backstop; CrmModule
 // provides the HubSpot client for the claim-request counter; SegmentModule
 // provides the track() that carries a claim request to the CRM as an event;
-// ClerkModule provides ElectionApiTokenService so VoterDensityProxyService and
-// PersonLookupService can authenticate their election-api reads. UsersService is
-// global, so no explicit UsersModule import is needed for the User write.
+// PersonsModule provides the election-db PersonsService that VoterDensityProxy
+// and PersonLookup read the civics spine through (ElectionDbModule is global,
+// but feature modules are not). UsersService is global, so no explicit
+// UsersModule import is needed for the User write.
 @Module({
   imports: [
     HttpModule,
@@ -53,7 +54,7 @@ const serveDatabricksProviderFactory = (): DatabricksProvider | null => {
     CronModule,
     CrmModule,
     ElectionsModule,
-    ClerkModule,
+    PersonsModule,
     SegmentModule,
   ],
   controllers: [PublicPersonProfilesController, PersonProfilesController],

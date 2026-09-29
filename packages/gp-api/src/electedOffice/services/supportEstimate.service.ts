@@ -1,20 +1,33 @@
 import { Injectable } from '@nestjs/common'
-import { SupportEstimate } from '@goodparty_org/contracts'
-import { ElectedOfficeSupportApiService } from './electedOfficeSupportApi.service'
+import {
+  ElectedOfficeSupport,
+  ElectedOfficeSupportSchema,
+  SupportEstimate,
+} from '@goodparty_org/contracts'
+import { ElectedOfficeSupportService } from '@/electionDb/electedOfficeSupport/electedOfficeSupport.service'
 
 @Injectable()
 export class SupportEstimateService {
-  constructor(private readonly supportApi: ElectedOfficeSupportApiService) {}
+  constructor(
+    private readonly electedOfficeSupport: ElectedOfficeSupportService,
+  ) {}
 
-  // Reads the office's constituent-support row from election-api (populated by
-  // the data team's ETL) and shapes it for the Serve dashboard hero. Returns
-  // null until a usable row exists, so the UI can show a "no estimate yet"
-  // state rather than fabricated numbers.
+  // Reads the office's constituent-support row from the election database
+  // (populated by the data team's ETL) and shapes it for the Serve dashboard
+  // hero. Returns null until a usable row exists, so the UI can show a "no
+  // estimate yet" state rather than fabricated numbers.
   async getSupportEstimate(
     electedOfficeId: string,
   ): Promise<SupportEstimate | null> {
-    const support = await this.supportApi.getByElectedOfficeId(electedOfficeId)
-    if (!support || support.totalConstituents <= 0) {
+    const row =
+      await this.electedOfficeSupport.getByElectedOfficeId(electedOfficeId)
+    if (!row) {
+      return null
+    }
+    // Narrow the Prisma row to the published contract: createdAt/updatedAt
+    // are not part of it and must not reach a gp-api response.
+    const support: ElectedOfficeSupport = ElectedOfficeSupportSchema.parse(row)
+    if (support.totalConstituents <= 0) {
       return null
     }
     const rawPercent =

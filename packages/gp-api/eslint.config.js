@@ -167,6 +167,19 @@ module.exports = defineConfig([
       '@typescript-eslint/no-unsafe-enum-comparison': 'off',
     },
   },
+  // The election schema is owned by ETL, not by us: every Prisma relation on it
+  // is PascalCase (`Position`, `Race`, `OfficeHolder`). Destructuring a query
+  // result therefore binds a PascalCase variable, which naming-convention
+  // rejects for the variable/parameter selectors. We cannot rename the
+  // relations, so scope the rule off here rather than scatter inline disables
+  // through every ported service. The unsafe-* family stays on.
+  {
+    files: ['src/electionDb/**/*.ts'],
+
+    rules: {
+      '@typescript-eslint/naming-convention': 'off',
+    },
+  },
   {
     files: ['seed/**/*.ts', 'e2e-tests/**/*.ts'],
 

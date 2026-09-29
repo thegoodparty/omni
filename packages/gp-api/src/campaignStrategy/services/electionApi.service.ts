@@ -1,26 +1,28 @@
-import { HttpService } from '@nestjs/axios'
-import { BadGatewayException, Injectable } from '@nestjs/common'
-import { isAxiosError } from 'axios'
+import {
+  BadGatewayException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { lastValueFrom } from 'rxjs'
 import { z } from 'zod'
 import { ApiCandidate, RaceContextFromApi } from '../types/electionApi.types'
 import { ElectionCode } from '@/elections/types/elections.types'
+import { CampaignStrategyContextResponse } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.schema'
+import { CampaignStrategyContextService } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
-import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
 
 // Both CAP experiments share one input contract; the campaign_strategy_context
-// slice is the experiment-facing shape election-api hydrates.
+// slice is the experiment-facing shape the election data layer hydrates.
 type StrategyContext =
   AgentJobContracts['opposition_research']['Input']['campaign_strategy_context']
 
-// Distinguishable error for the 404 case (election-api has no Race row
-// for the candidate's brHashId). Callers in CampaignStrategyService use
-// this to break the infinite-poll loop by persisting a "no data" marker
-// instead of retrying generation every 3 seconds.
+// Distinguishable error for the "no Race row for the candidate's brHashId"
+// case. Callers in CampaignStrategyService use this to break the infinite-poll
+// loop by persisting a "no data" marker instead of retrying generation every
+// 3 seconds.
 export class ElectionApiRaceNotFoundError extends Error {
   constructor(public readonly brHashId: string) {
-    super(`election-api has no Race row for brHashId=${brHashId}`)
+    super(`No Race row for brHashId=${brHashId}`)
     this.name = 'ElectionApiRaceNotFoundError'
   }
 }
@@ -36,16 +38,15 @@ const ApiCandidateSchema = z.object({
   is_incumbent: z.boolean().nullable(),
 })
 
+// Narrowing, not transport validation: `.parse()` drops every key the prompts
+// do not consume, so a new column on the election-side Race row cannot leak
+// into a gp-api response or an LLM prompt by accident.
 const ApiResponseSchema = z.object({
   candidate_count: z.number(),
   candidate_office: z.string().nullable(),
   candidates: z.array(ApiCandidateSchema),
   civics_win_number: z.number().nullable(),
   contacts_needed_estimate: z.number().nullable(),
-  // `nullish` rather than `nullable`: the field is absent from an
-  // election-api deployed before it was added, and a hard parse failure
-  // there would take down every consumer of this endpoint rather than
-  // degrade the one feature that reads it.
   election_code: z.nativeEnum(ElectionCode).nullish(),
   general_election_date: z.string().nullable(),
   number_of_seats: z.number().nullable(),
@@ -119,10 +120,10 @@ const isTestCandidateRaw = (c: ApiCandidateRaw): boolean =>
   c.email !== null &&
   c.email.toLowerCase().includes(TEST_CANDIDATE_EMAIL_MARKER)
 
-// election-api returns the roster already in the snake_case shape the
-// experiment expects, so candidates pass through untouched (test rows
-// filtered). Deliberately omits civics_win_number and win_number_estimate —
-// the CAP experiments dropped those.
+// The roster already arrives in the snake_case shape the experiment expects,
+// so candidates pass through untouched (test rows filtered). Deliberately
+// omits civics_win_number and win_number_estimate — the CAP experiments
+// dropped those.
 const toStrategyContext = (data: ApiResponse): StrategyContext => {
   const candidates = data.candidates.filter((c) => !isTestCandidateRaw(c))
   return {
@@ -150,63 +151,53 @@ const toStrategyContext = (data: ApiResponse): StrategyContext => {
 
 @Injectable()
 export class ElectionApiService {
-  private static readonly PATH = 'v1/campaign-strategy-context'
-  private readonly baseUrl: string
-
   constructor(
-    private readonly httpService: HttpService,
     private readonly logger: PinoLogger,
-    private readonly tokenService: ElectionApiTokenService,
+    private readonly campaignStrategyContext: CampaignStrategyContextService,
   ) {
     this.logger.setContext(ElectionApiService.name)
-    const baseUrl = process.env.ELECTION_API_URL
-    if (!baseUrl) {
-      throw new Error('ELECTION_API_URL is not set')
-    }
-    this.baseUrl = baseUrl
   }
 
   private async fetchRaw(brHashId: string): Promise<ApiResponse> {
-    const url = `${this.baseUrl}/${ElectionApiService.PATH}`
+    let raw: CampaignStrategyContextResponse
     try {
-      const headers = await this.tokenService.authHeader()
-      const { data } = await lastValueFrom(
-        this.httpService.post<unknown>(url, { brHashId }, { headers }),
-      )
-      const parsed = ApiResponseSchema.safeParse(data)
-      if (!parsed.success) {
-        this.logger.error(
-          { issues: parsed.error.issues },
-          'election-api response failed schema validation',
-        )
-        throw new BadGatewayException(
-          'election-api returned an unexpected response shape',
-        )
-      }
-      return parsed.data
+      raw = await this.campaignStrategyContext.getCampaignStrategyContext({
+        brHashId,
+      })
     } catch (error) {
-      if (error instanceof BadGatewayException) throw error
-      const status = isAxiosError(error) ? error.response?.status : undefined
-      if (status === 404) {
-        // Throw at debug-log level (the caller decides whether to escalate).
-        // This is usually a dev-env data gap that resolves on the next
-        // election-api dbt run; not noisy-error-worthy on its own.
+      if (error instanceof NotFoundException) {
+        // Warn, not error: usually a dev-env data gap that resolves on the
+        // next dbt run, and the caller decides whether to escalate.
         this.logger.warn(
           { brHashId },
-          'election-api has no Race row for brHashId; caller should mark race as unavailable',
+          'no Race row for brHashId; caller should mark race as unavailable',
         )
         throw new ElectionApiRaceNotFoundError(brHashId)
       }
       this.logger.error(
         {
           brHashId,
-          status,
           message: error instanceof Error ? error.message : String(error),
         },
-        'election-api campaign-strategy-context request failed',
+        'campaign-strategy-context lookup failed',
       )
-      throw new BadGatewayException('election-api request failed')
+      // The election database is a separate, fail-soft cluster, so an outage
+      // stays a gateway failure: CampaignStrategyService keys off this to end
+      // the poll loop rather than retry forever.
+      throw new BadGatewayException('election data lookup failed')
     }
+
+    const parsed = ApiResponseSchema.safeParse(raw)
+    if (!parsed.success) {
+      this.logger.error(
+        { issues: parsed.error.issues },
+        'campaign-strategy-context result failed schema validation',
+      )
+      throw new BadGatewayException(
+        'election data lookup returned an unexpected shape',
+      )
+    }
+    return parsed.data
   }
 
   async getRaceContext(brHashId: string): Promise<RaceContextFromApi> {

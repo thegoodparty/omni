@@ -7,160 +7,83 @@ import {
   RaceListItemArraySchema,
   ZipCodesArraySchema,
 } from '@goodparty_org/contracts'
-import { HttpService } from '@nestjs/axios'
-import {
-  BadGatewayException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
-import { isAxiosError } from 'axios'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { lastValueFrom } from 'rxjs'
 import { serializeError } from 'serialize-error'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
-import { ElectionApiTokenService } from '@/vendors/clerk/services/electionApiToken.service'
-import { ElectionApiRoutes } from '../constants/elections.const'
+import { CampaignStrategyContextService } from '@/electionDb/campaignStrategyContext/campaign-strategy-context.service'
+import { DistrictsService } from '@/electionDb/districts/districts.service'
+import { PersonsService } from '@/electionDb/persons/persons.service'
+import { PositionsService } from '@/electionDb/positions/positions.service'
+import { PositionWithOptionalDistrict as ElectionDbPosition } from '@/electionDb/positions/positions.types'
+import { ProjectedTurnoutService } from '@/electionDb/projectedTurnout/projectedTurnout.service'
+import { RacesService as ElectionDbRacesService } from '@/electionDb/races/races.service'
+import { VoterIssuesService } from '@/electionDb/voterIssues/voterIssues.service'
+import { ZipToPositionService } from '@/electionDb/zipToPosition/zipToPosition.service'
+import { ElectionCode as PrismaElectionCode } from '@/generated/election-prisma'
 import {
   BuildRaceTargetDetailsInput,
   CampaignStrategyContextResponse,
   District,
   DistrictNameItem,
   DistrictTypeItem,
+  ElectionCode,
   FilingFeeByBrHashResult,
   PositionWithOptionalDistrict,
-  ProjectedTurnout,
   RaceTargetDetailsResult,
   RaceTargetMetrics,
   VoterIssue,
   VoterIssueLevel,
 } from '../types/elections.types'
 
+// The columns `GET /districts/:id` served. The row carries createdAt/updatedAt
+// too; selecting explicitly keeps them out of gp-api responses now that there
+// is no wire shape narrowing them away.
+const DISTRICT_SELECT = {
+  id: true,
+  state: true,
+  L2DistrictType: true,
+  L2DistrictName: true,
+  registeredVoters: true,
+  uniqueCellphones: true,
+  uniqueLandlines: true,
+}
+
+// Widened lookup over the generated enum so an unrecognised code resolves to
+// undefined rather than needing a cast.
+const ELECTION_CODES: Record<string, PrismaElectionCode | undefined> =
+  PrismaElectionCode
+
 @Injectable()
 export class ElectionsService {
-  private static readonly BASE_URL = process.env.ELECTION_API_URL
   private static readonly VOTER_CONTACT_MULTIPLIER = 5
   private static readonly WIN_NUMBER_MULTIPLIER = 0.5
-  private static readonly API_VERSION = 'v1'
+  // The voter-issues query schema defaulted `limit` to 10; the service itself
+  // has no default, so the boundary's value lives here now.
+  private static readonly VOTER_ISSUES_LIMIT = 10
 
   constructor(
-    private readonly httpService: HttpService,
+    private readonly positions: PositionsService,
+    private readonly districts: DistrictsService,
+    private readonly zipToPosition: ZipToPositionService,
+    private readonly voterIssues: VoterIssuesService,
+    private readonly persons: PersonsService,
+    private readonly projectedTurnout: ProjectedTurnoutService,
+    private readonly races: ElectionDbRacesService,
+    private readonly campaignStrategyContext: CampaignStrategyContextService,
     private readonly slack: SlackService,
     private readonly logger: PinoLogger,
-    private readonly tokenService: ElectionApiTokenService,
   ) {
     this.logger.setContext(ElectionsService.name)
-    if (!ElectionsService.BASE_URL) {
-      throw new Error(`Please set ELECTION_API_URL in your .env.
-        Recommendation is to point it at dev if you are developing`)
-    }
   }
 
-  private async electionApiGet<Res, Q extends object>(
-    path: string,
-    query?: Q,
-  ): Promise<Res | null> {
-    const fullUrl = `${ElectionsService.BASE_URL}/${ElectionsService.API_VERSION}/${path}`
-    const rawParams = (query ?? {}) as Record<
-      string,
-      string | number | boolean | string[] | null | undefined
-    >
-    // Object.keys/fromEntries returns string[] — TypeScript deliberately widens key types
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const filteredParams = Object.fromEntries(
-      Object.entries(rawParams).filter(
-        ([, v]) => v !== undefined && v !== null,
-      ),
-    ) as Record<string, string | number | boolean | string[]>
-    this.logger.debug({ filteredParams }, `Election API GET ${path} params: `)
-    try {
-      const headers = await this.tokenService.authHeader()
-      const { data, status } = (await lastValueFrom(
-        this.httpService.get(fullUrl, {
-          headers,
-          params: query,
-          paramsSerializer: (params) =>
-            Object.entries(params)
-              .filter(([, v]) => v !== undefined && v !== null)
-              .flatMap(([k, v]) =>
-                Array.isArray(v)
-                  ? v.map((item) => `${k}=${encodeURIComponent(String(item))}`)
-                  : [`${k}=${encodeURIComponent(String(v))}`],
-              )
-              .join('&'),
-        }),
-      )) as { data: Res; status: number }
-      if (status >= 200 && status < 300) return data
-      this.logger.warn(`Election API GET ${path}} responded ${status}`)
-      return null
-    } catch (error: unknown) {
-      const baseMessage = `Election API GET ${path} failed`
-      if (isAxiosError(error)) {
-        // Axios error response is untyped — AxiosError.response.data is unknown
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        const data = error.response?.data as Record<string, unknown> | undefined
-        const apiMessage =
-          typeof data?.message === 'string' ? data.message : undefined
-        const finalMessage = apiMessage
-          ? `${baseMessage}: ${apiMessage}`
-          : `${baseMessage}: ${error.message}`
-        // A 404 from election-api is an expected "resource not found" outcome
-        // (e.g. an org points at a position/district that no longer resolves) —
-        // routine data variance, not an upstream fault. Surface it as a 404,
-        // which the gp-api controller error alerts deliberately exclude, rather
-        // than a 502 that pages on every failed district match. Log at warn so
-        // telemetry still captures it. Genuine faults (5xx, network) stay 502.
-        if (error.response?.status === 404) {
-          this.logger.warn(finalMessage)
-          throw new NotFoundException(apiMessage ?? finalMessage)
-        }
-        this.logger.error(finalMessage)
-        throw new BadGatewayException(finalMessage)
-      }
-      const finalMessage = `${baseMessage}: ${String(error)}`
-      this.logger.error(`Election API GET ${fullUrl} failed: ${String(error)}`)
-      throw new BadGatewayException(finalMessage)
-    }
-  }
-
-  private async electionApiPost<Res, Body extends object>(
-    path: string,
-    body: Body,
-  ): Promise<Res | null> {
-    const fullUrl = `${ElectionsService.BASE_URL}/${ElectionsService.API_VERSION}/${path}`
-    this.logger.debug({ body }, `Election API POST ${path} body: `)
-    try {
-      const headers = await this.tokenService.authHeader()
-      const { data, status } = (await lastValueFrom(
-        this.httpService.post(fullUrl, body, { headers }),
-      )) as { data: Res; status: number }
-      if (status >= 200 && status < 300) return data
-      this.logger.warn(`Election API POST ${path} responded ${status}`)
-      return null
-    } catch (error: unknown) {
-      const baseMessage = `Election API POST ${path} failed`
-      if (isAxiosError(error)) {
-        // Axios error response is untyped — AxiosError.response.data is unknown
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        const data = error.response?.data as Record<string, unknown> | undefined
-        const apiMessage =
-          typeof data?.message === 'string' ? data.message : undefined
-        const finalMessage = apiMessage
-          ? `${baseMessage}: ${apiMessage}`
-          : `${baseMessage}: ${error.message}`
-        // See electionApiGet: a 404 is an expected not-found, not a fault — map
-        // it to a 404 (excluded from error alerts) instead of a paging 502.
-        if (error.response?.status === 404) {
-          this.logger.warn(finalMessage)
-          throw new NotFoundException(apiMessage ?? finalMessage)
-        }
-        this.logger.error(finalMessage)
-        throw new BadGatewayException(finalMessage)
-      }
-      const finalMessage = `${baseMessage}: ${String(error)}`
-      this.logger.error(`Election API POST ${fullUrl} failed: ${String(error)}`)
-      throw new BadGatewayException(finalMessage)
-    }
+  // The election schema types `Position.name` as nullable; the column is NOT
+  // NULL, and gp-api consumers have always been handed a string.
+  private toPositionResponse(
+    position: ElectionDbPosition,
+  ): PositionWithOptionalDistrict {
+    return { ...position, name: position.name ?? '' }
   }
 
   private buildSlackErrorMessage(
@@ -173,23 +96,7 @@ export class ElectionsService {
       .map(([key, value]) => `- *${key}*: ${String(value)}`)
       .join('\n')
 
-    const errorDetails = isAxiosError(error)
-      ? JSON.stringify(
-          {
-            status: error.response?.status,
-            // Axios error response is untyped — AxiosError.response.data is unknown
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-            data: error.response?.data as Record<
-              string,
-              string | number | boolean
-            >,
-          },
-          null,
-          2,
-        )
-      : error instanceof Error
-        ? error.message
-        : String(error)
+    const errorDetails = error instanceof Error ? error.message : String(error)
 
     return `*${title}*\n${contextLines}\n\n\`\`\`\n${errorDetails}\n\`\`\``
   }
@@ -212,17 +119,16 @@ export class ElectionsService {
   async getPositionByBallotReadyId(
     ballotreadyPositionId: string,
     options?: { includeDistrict?: boolean },
-  ) {
-    return this.electionApiGet<
-      PositionWithOptionalDistrict,
-      { includeDistrict: boolean }
-    >(
-      ElectionApiRoutes.positions.findByBrId.path + `/${ballotreadyPositionId}`,
-      { includeDistrict: options?.includeDistrict ?? false },
-    )
+  ): Promise<PositionWithOptionalDistrict | null> {
+    const position = await this.positions.getPositionByBallotReadyId({
+      brPositionId: ballotreadyPositionId,
+      includeDistrict: options?.includeDistrict ?? false,
+    })
+    return this.toPositionResponse(position)
   }
-  // Resolve election-api's internal Position id from a value that may be
-  // either a BallotReady position id — how elected-office orgs historically
+
+  // Resolve the election database's internal Position id from a value that may
+  // be either a BallotReady position id — how elected-office orgs historically
   // stored positionId (admin magic-link prefill) — or an already-internal id.
   // Falls back to the input when the BallotReady lookup finds nothing, so the
   // result is safe to hand to getNextElectionForPosition / getPositionById.
@@ -242,17 +148,25 @@ export class ElectionsService {
   async getPositionById(
     positionId: string,
     options?: { includeDistrict?: boolean },
-  ) {
-    return this.electionApiGet<
-      PositionWithOptionalDistrict,
-      { includeDistrict: boolean }
-    >(`${ElectionApiRoutes.positions.findById.path}/${positionId}`, {
+  ): Promise<PositionWithOptionalDistrict | null> {
+    const position = await this.positions.getPositionById({
+      id: positionId,
       includeDistrict: options?.includeDistrict ?? false,
     })
+    return this.toPositionResponse(position)
   }
 
   async getDistrict(id: string): Promise<District | null> {
-    return this.electionApiGet<District, object>(`districts/${id}`, {})
+    const district = await this.districts.findUnique({
+      where: { id },
+      select: DISTRICT_SELECT,
+    })
+    // The route this replaced 404'd on a miss, and callers that tolerate one
+    // already catch. Returning null instead would silently widen them.
+    if (!district) {
+      throw new NotFoundException('District not found')
+    }
+    return district
   }
 
   async searchPositions(query: {
@@ -262,29 +176,25 @@ export class ElectionsService {
     displayOfficeLevels?: string[]
     timeframe?: 'future' | 'past'
   }): Promise<RaceListItem[]> {
-    const result = await this.electionApiGet<RaceListItem[], typeof query>(
-      'positions/search',
-      query,
-    )
-    return RaceListItemArraySchema.parse(result ?? [])
+    const result = await this.zipToPosition.search(query)
+    return RaceListItemArraySchema.parse(result)
   }
 
   async getZipCodesByBrPositionId(brPositionId: string): Promise<string[]> {
-    const result = await this.electionApiGet<string[], object>(
-      `${ElectionApiRoutes.positions.zipCodes.path}/${brPositionId}/zip-codes`,
-      {},
-    )
-    return ZipCodesArraySchema.parse(result ?? [])
+    const result =
+      await this.zipToPosition.getZipCodesByBrPositionId(brPositionId)
+    return ZipCodesArraySchema.parse(result)
   }
 
   async getVoterIssues(params: {
     districtId: string
     level?: VoterIssueLevel
   }): Promise<VoterIssue[] | null> {
-    return this.electionApiGet<
-      VoterIssue[],
-      { districtId: string; level?: VoterIssueLevel }
-    >('voter-issues', params)
+    return this.voterIssues.getVoterIssues({
+      districtId: params.districtId,
+      limit: ElectionsService.VOTER_ISSUES_LIMIT,
+      ...(params.level !== undefined && { level: params.level }),
+    })
   }
 
   async getDistrictId(
@@ -292,46 +202,48 @@ export class ElectionsService {
     l2DistrictType: string,
     l2DistrictName: string,
   ): Promise<string | null> {
-    const districts = await this.electionApiGet<
-      { id: string }[],
-      {
-        state: string
-        L2DistrictType: string
-        L2DistrictName: string
-        districtColumns: string
-      }
-    >(ElectionApiRoutes.districts.list.path, {
-      state,
+    const districts = await this.districts.getDistricts({
+      state: state.toUpperCase(),
       L2DistrictType: l2DistrictType,
       L2DistrictName: this.cleanDistrictName(l2DistrictName),
       districtColumns: 'id',
+      excludeInvalid: false,
     })
-    return districts?.[0]?.id ?? null
+    const [first] = districts
+    return first && 'id' in first && typeof first.id === 'string'
+      ? first.id
+      : null
   }
 
   /**
-   * Resolve the civics person id linked to a gp-api user via election-api's
-   * `person.gp_api_user_id` filter. Powers gp-api's own backfill of
-   * `User.person_id`: the data platform writes only the election-api column,
+   * Resolve the civics person id linked to a gp-api user via the election
+   * database's `person.gp_api_user_id`. Powers gp-api's own backfill of
+   * `User.person_id`: the data platform writes only the election-side column,
    * and gp-api pulls it here and writes its own DB — no data-team → gp-api
-   * write. The gp-api User.id is numeric; election-api stores it as text, so
-   * pass `String(gpApiUserId)`. Returns null on ANY failure (404 / 5xx /
-   * network) so the caller degrades gracefully — the column is empty until the
-   * data platform's ETL populates it, so this is a graceful no-op until then.
+   * write. The gp-api User.id is numeric; the person row stores it as text, so
+   * pass `String(gpApiUserId)`. Returns null on ANY failure so the caller
+   * degrades gracefully — the column is empty until the data platform's ETL
+   * populates it, so this is a graceful no-op until then.
    */
   async getPersonIdByGpApiUserId(
     gpApiUserId: number | string,
   ): Promise<string | null> {
     try {
-      const result = await this.electionApiGet<
-        { id: string }[],
-        { gpApiUserId: string; columns: string }
-      >('persons', { gpApiUserId: String(gpApiUserId), columns: 'id' })
-      return result?.[0]?.id ?? null
+      const result = await this.persons.getPersons({
+        gpApiUserId: String(gpApiUserId),
+        columns: 'id',
+        ids: undefined,
+        includeOfficeHolders: false,
+        includeCandidacies: false,
+      })
+      const [first] = result
+      return first && 'id' in first && typeof first.id === 'string'
+        ? first.id
+        : null
     } catch (error) {
       this.logger.warn(
         { error, gpApiUserId },
-        'Election API GET persons?gpApiUserId failed',
+        'Person lookup by gpApiUserId failed',
       )
       return null
     }
@@ -360,33 +272,31 @@ export class ElectionsService {
       officeName,
     } = params
 
-    const path = ballotreadyPositionId
-      ? `${ElectionApiRoutes.positions.findByBrId.path}/${ballotreadyPositionId}`
-      : `${ElectionApiRoutes.positions.findById.path}/${positionId}`
-
     let positionWithDistrict: PositionWithOptionalDistrict | null = null
     try {
-      positionWithDistrict = await this.electionApiGet<
-        PositionWithOptionalDistrict,
-        {
-          electionDate: string | undefined
-          includeDistrict: boolean
-          includeFilingFee: boolean
-        }
-      >(path, {
-        electionDate: electionDate ?? undefined,
-        includeDistrict: true,
-        includeFilingFee: true,
-      })
+      const position = ballotreadyPositionId
+        ? await this.positions.getPositionByBallotReadyId({
+            brPositionId: ballotreadyPositionId,
+            electionDate,
+            includeDistrict: true,
+            includeFilingFee: true,
+          })
+        : await this.positions.getPositionById({
+            id: positionId ?? '',
+            electionDate,
+            includeDistrict: true,
+            includeFilingFee: true,
+          })
+      positionWithDistrict = this.toPositionResponse(position)
 
-      const { district } = positionWithDistrict ?? {}
-      if (!positionWithDistrict || !district) {
+      const { district } = positionWithDistrict
+      if (!district) {
         throw new NotFoundException(
           'No position and/or associated district was found',
         )
       }
 
-      // Turnout comes from the district-keyed endpoint, the same one the
+      // Turnout comes from the district-keyed lookup, the same one the
       // override-district path uses, rather than a relation embedded in the
       // position response. It returns null on any failure, so a miss degrades
       // to the sentinels below instead of throwing.
@@ -431,11 +341,11 @@ export class ElectionsService {
       }
     } catch (error) {
       const { district } = positionWithDistrict ?? {}
-      // A NotFoundException means election-api simply had no position/district
-      // to match — routine data variance, not a system fault. We still log
-      // every failure at info (with failureKind) so telemetry dashboards keep
-      // their aggregate "no matched district" stats, but we only page botDev
-      // for genuine errors so routine misses don't create alert noise.
+      // A NotFoundException means there was simply no position/district to
+      // match — routine data variance, not a system fault. We still log every
+      // failure at info (with failureKind) so telemetry dashboards keep their
+      // aggregate "no matched district" stats, but we only page botDev for
+      // genuine errors so routine misses don't create alert noise.
       const isNoMatch = error instanceof NotFoundException
       this.logger.info({
         event: 'DistrictMatch',
@@ -454,7 +364,7 @@ export class ElectionsService {
       })
       if (!isNoMatch) {
         const message = this.buildSlackErrorMessage(
-          'Election API error: getPositionMatchedRaceTargetDetails',
+          'Election data error: getPositionMatchedRaceTargetDetails',
           {
             ballotreadyPositionId,
             positionId,
@@ -484,10 +394,26 @@ export class ElectionsService {
             L2DistrictName: this.cleanDistrictName(data.L2DistrictName),
           }
     try {
-      const projectedTurnout = await this.electionApiGet<
-        ProjectedTurnout,
-        typeof query
-      >(ElectionApiRoutes.projectedTurnout.find.path, query)
+      const projectedTurnout = await this.projectedTurnout.getProjectedTurnout({
+        ...('districtId' in query
+          ? { districtId: query.districtId }
+          : {
+              state: query.state,
+              L2DistrictType: query.L2DistrictType,
+              L2DistrictName: query.L2DistrictName,
+            }),
+        // The query schema this replaced made electionDate required, and the
+        // lookup only reads it to derive a year/code when neither is given.
+        electionDate: query.electionDate ?? '',
+        ...(query.electionYear !== undefined
+          ? {
+              electionYear: Number(query.electionYear),
+              electionCode: query.electionCode
+                ? ELECTION_CODES[query.electionCode]
+                : undefined,
+            }
+          : {}),
+      })
 
       if (!projectedTurnout) {
         throw new NotFoundException('No projectedTurnout found')
@@ -497,10 +423,10 @@ export class ElectionsService {
 
       return this.calculateRaceTargetMetrics(turnout)
     } catch (error) {
-      // A NotFoundException here (no projectedTurnout / election-api 404) is an
-      // expected no-match, not a fault — skip the botDev page so routine misses
-      // don't create alert noise. Genuine upstream errors still page. Either
-      // way we return null so callers fall back gracefully.
+      // A NotFoundException here (no projectedTurnout row) is an expected
+      // no-match, not a fault — skip the botDev page so routine misses don't
+      // create alert noise. Genuine errors still page. Either way we return
+      // null so callers fall back gracefully.
       if (!(error instanceof NotFoundException)) {
         const context: Record<string, string | number | undefined> =
           'districtId' in data
@@ -516,7 +442,7 @@ export class ElectionsService {
           context.electionYear = data.electionYear
         }
         const message = this.buildSlackErrorMessage(
-          'Election API error: buildRaceTargetDetails',
+          'Election data error: buildRaceTargetDetails',
           context,
           error,
         )
@@ -532,28 +458,23 @@ export class ElectionsService {
 
   /**
    * Resolve a filing fee for a race identified by its BallotReady race hash
-   * (`Race.br_hash_id` in election-api). A direct race-hash lookup, used when
-   * the caller holds the hash (the campaign stores it on `details.raceId`, set
-   * by the office picker) rather than resolving via the position. Returns
-   * `null` on any error — callers must fall back to the Position-based path or
-   * accept no filing fee. We deliberately don't throw so this stays an opt-in
+   * (`Race.br_hash_id`). A direct race-hash lookup, used when the caller holds
+   * the hash (the campaign stores it on `details.raceId`, set by the office
+   * picker) rather than resolving via the position. Returns `null` on any
+   * error — callers must fall back to the Position-based path or accept no
+   * filing fee. We deliberately don't throw so this stays an opt-in
    * enrichment.
    */
   async fetchFilingFeeByRaceHash(
     brHashId: string,
   ): Promise<FilingFeeByBrHashResult | null> {
     if (!brHashId) return null
-    const route = ElectionApiRoutes.races.filingFeeByBrHashId
-    const path = `${route.path}/${encodeURIComponent(brHashId)}/${route.filingFeeSuffix}`
     try {
-      return await this.electionApiGet<FilingFeeByBrHashResult, object>(
-        path,
-        {},
-      )
+      return await this.races.findFilingFeeByBrHashId(brHashId)
     } catch (error) {
       this.logger.warn(
         { error, brHashId },
-        'Election API GET races/by-br-hash-id filing-fee failed',
+        'Filing-fee lookup by BR race hash failed',
       )
       return null
     }
@@ -563,78 +484,70 @@ export class ElectionsService {
    * Resolve a position's election cadence (`Race.frequency`) and election day
    * by BR race hash (the hash gp-api stores on `campaign.details.raceId`).
    * Feeds elected-office term derivation. Returns null on a missing hash or
-   * any election-api failure — the caller leaves term fields unset rather
-   * than blocking office creation on this enrichment.
+   * any lookup failure — the caller leaves term fields unset rather than
+   * blocking office creation on this enrichment.
    */
   async getElectionFrequencyByBrHashId(
     brHashId: string,
   ): Promise<RaceFrequencyByBrHash | null> {
     if (!brHashId) return null
-    const route = ElectionApiRoutes.races.frequencyByBrHashId
-    const path = `${route.path}/${encodeURIComponent(brHashId)}/${route.frequencySuffix}`
     try {
-      const result = await this.electionApiGet<RaceFrequencyByBrHash, object>(
-        path,
-        {},
-      )
-      return result ? RaceFrequencyByBrHashSchema.parse(result) : null
+      const result = await this.races.findFrequencyByBrHashId(brHashId)
+      return RaceFrequencyByBrHashSchema.parse(result)
     } catch (error) {
       this.logger.warn(
         { error, brHashId },
-        'Election API GET races/by-br-hash-id frequency failed',
+        'Election-frequency lookup by BR race hash failed',
       )
       return null
     }
   }
 
   /**
-   * Resolve a position's next upcoming election day from election-api by
-   * internal position id. Used to date a re-election campaign at the position's
-   * nearest future general election. Returns null on a missing id or any
-   * election-api failure so the caller can fall back rather than block.
+   * Resolve a position's next upcoming election day by internal position id.
+   * Used to date a re-election campaign at the position's nearest future
+   * general election. Returns null on a missing id or any lookup failure so
+   * the caller can fall back rather than block.
    */
   async getNextElectionForPosition(
     positionId: string,
   ): Promise<NextElectionForPosition | null> {
     if (!positionId) return null
-    const route = ElectionApiRoutes.positions.nextElection
-    const path = `${route.path}/${positionId}/${route.suffix}`
     try {
-      const result = await this.electionApiGet<NextElectionForPosition, object>(
-        path,
-        {},
-      )
-      return result ? NextElectionForPositionSchema.parse(result) : null
+      const result = await this.positions.getNextElectionForPosition(positionId)
+      return NextElectionForPositionSchema.parse(result)
     } catch (error) {
       this.logger.warn(
         { error, positionId },
-        'Election API GET positions/:id/next-election failed',
+        'Next-election lookup for position failed',
       )
       return null
     }
   }
 
   /**
-   * Fetch per-race civics context from election-api by BR race hash. The
-   * upstream `/campaign-strategy-context` endpoint returns voter counts,
-   * candidate roster, win-number variants, and election dates joined
-   * through Race → Position → District. Returns null when the hash doesn't
-   * resolve to a Race or election-api is unreachable — caller falls back
-   * to whatever data it had before.
+   * Fetch per-race civics context by BR race hash: voter counts, candidate
+   * roster, win-number variants, and election dates joined through Race →
+   * Position → District. Returns null when the hash doesn't resolve to a Race
+   * — caller falls back to whatever data it had before.
    */
   async fetchCampaignStrategyContext(
     brHashId: string,
   ): Promise<CampaignStrategyContextResponse | null> {
     if (!brHashId) return null
     try {
-      return await this.electionApiPost<
-        CampaignStrategyContextResponse,
-        { brHashId: string }
-      >(ElectionApiRoutes.campaignStrategyContext.path, { brHashId })
+      const { election_code: electionCode, ...rest } =
+        await this.campaignStrategyContext.getCampaignStrategyContext({
+          brHashId,
+        })
+      return {
+        ...rest,
+        election_code: electionCode ? ElectionCode[electionCode] : null,
+      }
     } catch (error) {
       this.logger.warn(
         { error, brHashId },
-        'Election API POST campaign-strategy-context failed',
+        'Campaign strategy context lookup failed',
       )
       return null
     }
@@ -644,36 +557,36 @@ export class ElectionsService {
     state: string,
     electionYear: string | number,
     excludeInvalid = true,
-  ) {
+  ): Promise<DistrictTypeItem[] | null> {
     const shouldExclude = excludeInvalid === true
-    const query = {
-      state,
+    const rows = await this.districts.getDistrictTypes({
+      state: state.toUpperCase(),
       excludeInvalid: shouldExclude,
-      ...(shouldExclude ? { electionYear } : {}),
-    }
-    return await this.electionApiGet<DistrictTypeItem[], typeof query>(
-      ElectionApiRoutes.districts.types.path,
-      query,
-    )
+      ...(shouldExclude ? { electionYear: Number(electionYear) } : {}),
+    })
+    return rows.map((row) => ({
+      id: String(row.id),
+      L2DistrictType: String(row.L2DistrictType),
+    }))
   }
 
   async getValidDistrictNames(
     l2DistrictType: string,
-    state?: string,
-    electionYear?: string | number,
+    state: string,
+    electionYear: string | number,
     excludeInvalid = true,
-  ) {
+  ): Promise<DistrictNameItem[] | null> {
     const shouldExclude = excludeInvalid === true
-    const query = {
+    const rows = await this.districts.getDistrictNames({
       L2DistrictType: l2DistrictType,
-      state,
+      state: state.toUpperCase(),
       excludeInvalid: shouldExclude,
-      ...(shouldExclude ? { electionYear } : {}),
-    }
-    return await this.electionApiGet<DistrictNameItem[], typeof query>(
-      ElectionApiRoutes.districts.names.path,
-      query,
-    )
+      ...(shouldExclude ? { electionYear: Number(electionYear) } : {}),
+    })
+    return rows.map((row) => ({
+      id: String(row.id),
+      L2DistrictName: String(row.L2DistrictName),
+    }))
   }
 
   cleanDistrictName(l2DistrictName: string) {

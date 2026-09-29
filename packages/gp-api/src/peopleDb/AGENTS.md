@@ -249,7 +249,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/voterQuery.service.ts`                | List/search/person/aggregates/overlap/sample/precincts              |
 | `services/voterDownload.service.ts`             | Streaming CSV export (`streamPeopleCsv`)                            |
 | `services/stats.service.ts`                     | District aggregate stats, computed from the voter rows              |
-| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from election-api                      |
+| `services/electionApiDistrict.service.ts`       | District resolution/scoping, from `src/electionDb/`                 |
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                           |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                       |
 | `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                     |

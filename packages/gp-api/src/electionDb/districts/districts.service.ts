@@ -1,0 +1,100 @@
+import {
+  buildColumnSelect,
+  createElectionDbBase,
+  ELECTION_MODELS,
+} from '@/electionDb/electionDbBase.util'
+import {
+  GetDistrictNamesDto,
+  GetDistrictsDTO,
+  GetDistrictTypesDTO,
+} from './districts.schema'
+import { Prisma, ElectionCode as EC } from '@/generated/election-prisma'
+import { NotFoundException } from '@nestjs/common'
+
+export class DistrictsService extends createElectionDbBase(
+  ELECTION_MODELS.District,
+) {
+  async getDistrictTypes(dto: GetDistrictTypesDTO) {
+    return this.listDistinct(dto, Prisma.DistrictScalarFieldEnum.L2DistrictType)
+  }
+
+  async getDistrictNames(dto: GetDistrictNamesDto) {
+    return this.listDistinct(dto, Prisma.DistrictScalarFieldEnum.L2DistrictName)
+  }
+
+  async getDistricts(dto: GetDistrictsDTO) {
+    const { districtColumns } = dto
+
+    // Feeds the excludeInvalid existence filter in buildDistrictWhere.
+    const turnoutWhere = this.buildTurnoutWhere(dto)
+    const where = this.buildDistrictWhere(dto, turnoutWhere)
+
+    const districtSelect: Prisma.DistrictSelect | undefined = districtColumns
+      ? (buildColumnSelect(districtColumns) as Prisma.DistrictSelect)
+      : undefined
+
+    const districts = districtSelect
+      ? await this.model.findMany({ where, select: districtSelect })
+      : await this.model.findMany({ where })
+
+    if (!districts || districts.length === 0) {
+      throw new NotFoundException(
+        `No districts found for query: ${JSON.stringify(where)}`,
+      )
+    }
+
+    return districts
+  }
+
+  private buildTurnoutWhere(dto: {
+    electionYear?: number | null
+    electionCode?: EC | null
+    excludeInvalid?: boolean | null
+  }): Prisma.ProjectedTurnoutWhereInput {
+    return {
+      ...(dto.electionYear && { electionYear: dto.electionYear }),
+      ...(dto.electionCode && { electionCode: dto.electionCode }),
+      ...(dto.excludeInvalid && { projectedTurnout: { gt: 0 } }),
+    }
+  }
+
+  private buildDistrictWhere(
+    dto: {
+      state?: string | null
+      L2DistrictType?: string | null
+      L2DistrictName?: string | null
+      excludeInvalid?: boolean | null
+    },
+    turnoutWhere: Prisma.ProjectedTurnoutWhereInput,
+  ) {
+    const hasTurnoutFilters = Object.keys(turnoutWhere).length > 0
+    const shouldRequireMatchingTurnout =
+      dto?.excludeInvalid === true && hasTurnoutFilters
+    return {
+      ...(dto.state && { state: dto.state }),
+      ...(dto.L2DistrictType && { L2DistrictType: dto.L2DistrictType }),
+      ...(dto.L2DistrictName && { L2DistrictName: dto.L2DistrictName }),
+      // Only constrain districts by existence of matching ProjectedTurnouts
+      // when excludeInvalid is true. Otherwise, allow districts to return
+      // even if there is no associated ProjectedTurnout (e.g., past years).
+      ...(shouldRequireMatchingTurnout && {
+        ProjectedTurnouts: { some: turnoutWhere },
+      }),
+    }
+  }
+
+  private async listDistinct<K extends 'L2DistrictType' | 'L2DistrictName'>(
+    dto: GetDistrictTypesDTO | GetDistrictsDTO,
+    field: K,
+  ) {
+    const turnoutWhere = this.buildTurnoutWhere(dto)
+    const where = this.buildDistrictWhere(dto, turnoutWhere)
+
+    return await this.model.findMany({
+      where,
+      select: { id: true, [field]: true } as Prisma.DistrictSelect,
+      distinct: [field],
+      orderBy: { [field]: Prisma.SortOrder.asc },
+    })
+  }
+}

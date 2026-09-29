@@ -69,7 +69,7 @@ describe('VoterRecommendedListsService', () => {
     expect(rankPrecincts).toHaveBeenCalledWith(district, filters, idOverrides)
   })
 
-  // District resolution is an election-api hop, not a warehouse read, so it
+  // District resolution hits the election database, not the warehouse, so it
   // deliberately emits no line — asserting that keeps a future "wrap
   // everything" edit from inventing a voter read that never touched the
   // warehouse and skewing the latency attribution.

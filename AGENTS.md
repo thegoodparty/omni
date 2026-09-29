@@ -133,7 +133,9 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   PR, not an access request. Nothing here needs a prod secret value in hand. Read
   `docs/secrets.md` before touching one.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
-  (gp-api, election-api).
+  (gp-api, election-api). gp-api's `src/electionDb/` mirrors this with
+  `createElectionDbBase(ELECTION_MODELS.ModelName)` against a second, read-only
+  Prisma client for the election database.
 - **Contracts are the cross-service source of truth.** Any shape that crosses a
   service boundary (S2S payloads, SQS messages, webhook bodies) lives in
   `@goodparty_org/contracts`. Change the contract in the _same_ PR as the
