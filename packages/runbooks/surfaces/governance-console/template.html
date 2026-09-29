@@ -807,8 +807,20 @@
     outline-offset: -1px;
   }
 
+  .reason.required {
+    border-color: var(--crit);
+    box-shadow: inset 0 0 0 1px var(--crit);
+  }
+
   .row.is-judged {
     border-left-color: var(--accent);
+  }
+
+  /* A verdict held back for want of a reason. Marked on the row as well as the box,
+     so a row left waiting by "take all suggestions" is findable without scrolling
+     every one of them. */
+  .row.needs-reason {
+    border-left-color: var(--crit);
   }
 
   .chip.verdict {
@@ -1422,6 +1434,20 @@
 
   const keyOf = (item) => item.queue + '\u0000' + item.id
 
+  // A dismissal is the one verdict with no expiry. Every queue's `dismissed:` row is
+  // read by the next run and every run after it, and nothing ever asks again. So an
+  // unexplained dismissal is a permanent silence nobody can audit, and the reason is a
+  // precondition rather than a prompt. The other verbs all lead somewhere a person
+  // looks again -- a ticket, an investigation, a file that still shows the row -- so an
+  // empty reason there costs a little context and nothing else.
+  const NEEDS_REASON = new Set(['dismiss'])
+
+  const REASON_PLACEHOLDER =
+    'Why (goes into the record, so write it for next quarter you)'
+
+  const REASON_REQUIRED =
+    'Required: a dismissal never expires, so say why or nobody can audit the silence.'
+
   let onJudgmentChange = () => {}
 
   // Every row's setter, so "approve all recommended" can drive the same path a click
@@ -1447,8 +1473,13 @@
     const reason = el('input', 'reason')
     reason.type = 'text'
     reason.id = 'reason-' + key.replace(/[^A-Za-z0-9_-]/g, '-')
-    reason.placeholder = 'Why (goes into the record, so write it for next quarter you)'
+    reason.placeholder = REASON_PLACEHOLDER
     reason.value = (judgments[key] && judgments[key].reason) || ''
+
+    // A verdict chosen but not yet recorded, because it needs a reason and has none.
+    // Held rather than written: recording it and asking afterwards means a page reload
+    // keeps the unexplained version, which is the thing being prevented.
+    let pending = null
 
     const chip = el('span', 'chip verdict')
     chip.hidden = true
@@ -1456,24 +1487,38 @@
 
     const paint = () => {
       const current = judgments[key]
+      const held = current ? current.verdict : pending
       bar.querySelectorAll('button[data-verdict]').forEach((btn) => {
         btn.setAttribute(
           'aria-pressed',
-          current && current.verdict === btn.dataset.verdict ? 'true' : 'false',
+          held === btn.dataset.verdict ? 'true' : 'false',
         )
       })
       row.classList.toggle('is-judged', Boolean(current))
+      row.classList.toggle('needs-reason', Boolean(pending))
       chip.hidden = !current
       if (current) chip.textContent = verbs[current.verdict] || current.verdict
-      reason.hidden = !current
-      clear.hidden = !current
+      reason.hidden = !current && !pending
+      reason.classList.toggle('required', Boolean(pending))
+      reason.placeholder = pending ? REASON_REQUIRED : REASON_PLACEHOLDER
+      clear.hidden = !current && !pending
     }
 
     const set = (verdict, { toggle = true } = {}) => {
-      if (!verbs[verdict]) return
+      if (!verbs[verdict]) return 'skipped'
       if (toggle && judgments[key] && judgments[key].verdict === verdict) {
         delete judgments[key]
+        pending = null
+      } else if (NEEDS_REASON.has(verdict) && !reason.value.trim()) {
+        delete judgments[key]
+        pending = verdict
+        saveJudgments()
+        paint()
+        reason.focus()
+        onJudgmentChange()
+        return 'needs-reason'
       } else {
+        pending = null
         judgments[key] = {
           queue: item.queue,
           id: item.id,
@@ -1488,6 +1533,7 @@
       saveJudgments()
       paint()
       onJudgmentChange()
+      return 'took'
     }
 
     Object.entries(verbs).forEach(([verdict, label]) => {
@@ -1507,6 +1553,7 @@
     clear.type = 'button'
     clear.addEventListener('click', () => {
       delete judgments[key]
+      pending = null
       reason.value = ''
       saveJudgments()
       paint()
@@ -1515,8 +1562,24 @@
     bar.appendChild(clear)
 
     reason.addEventListener('input', () => {
+      const text = reason.value.trim()
+      if (pending) {
+        // The held verdict commits the moment it has something to stand on.
+        if (text) set(pending, { toggle: false })
+        return
+      }
       if (!judgments[key]) return
-      judgments[key].reason = reason.value.trim()
+      if (!text && NEEDS_REASON.has(judgments[key].verdict)) {
+        // Emptying the box takes the dismissal back rather than leaving a silent one
+        // behind. The verdict is held, so one keystroke restores it.
+        pending = judgments[key].verdict
+        delete judgments[key]
+        saveJudgments()
+        paint()
+        onJudgmentChange()
+        return
+      }
+      judgments[key].reason = text
       saveJudgments()
       onJudgmentChange()
     })
@@ -1527,9 +1590,10 @@
       recommended: item.recommended,
       // Approve-all never overwrites a decision already made by hand.
       approve: () => {
-        if (judgments[key] || !item.recommended || !verbs[item.recommended]) return false
-        set(item.recommended, { toggle: false })
-        return true
+        if (judgments[key] || !item.recommended || !verbs[item.recommended]) {
+          return 'skipped'
+        }
+        return set(item.recommended, { toggle: false })
       },
     })
 
@@ -1573,6 +1637,14 @@
     }
 
     const apply = (verdict) => {
+      if (NEEDS_REASON.has(verdict) && !reason.value.trim()) {
+        reason.classList.add('required')
+        reason.placeholder = REASON_REQUIRED
+        reason.focus()
+        return
+      }
+      reason.classList.remove('required')
+      reason.placeholder = 'Why these ones'
       picked.forEach((eventType) => {
         judgments[eventKey(item, eventType)] = {
           queue: item.queue,
@@ -1753,13 +1825,19 @@
       )
       approve.type = 'button'
       approve.addEventListener('click', () => {
-        const taken = setters
+        // A suggested dismissal cannot be taken in bulk: it needs a reason, and one
+        // typed on behalf of twelve rows is not a reason. Those rows are left marked
+        // and waiting rather than silently skipped.
+        const outcomes = setters
           .filter((s) => s.queue === queue.queue)
           .map((s) => s.approve())
-          .filter(Boolean).length
-        approve.textContent = taken
-          ? 'Took ' + taken
-          : 'Already ruled on'
+        const took = outcomes.filter((o) => o === 'took').length
+        const waiting = outcomes.filter((o) => o === 'needs-reason').length
+        approve.textContent = took
+          ? 'Took ' + took + (waiting ? ', ' + waiting + ' need a reason' : '')
+          : waiting
+            ? waiting + ' need a reason'
+            : 'Already ruled on'
         approve.disabled = true
       })
       head.appendChild(approve)

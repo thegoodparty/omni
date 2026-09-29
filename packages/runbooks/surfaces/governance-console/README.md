@@ -24,6 +24,44 @@ settled.
 The failure mode is deliberately visible: if you never paste the handoff, nothing
 happened, and Thursday's digest says so. A background sync would fail more quietly.
 
+### What the row already knows, so you do not have to work it out
+
+Every row says which signal its finding comes from, what the detector concludes from
+that signal, and whether the signal has a known residual. Where there is one, it also
+carries the tell: how to recognise that this row is the residual rather than the
+finding.
+
+This is the part that makes the next session cheaper. The first real run cleared three
+of twenty-six decisions, and one of the three took forty minutes, all of it spent
+re-deriving the rank-0 counter blind spot that `monitor-analytics-event-health.md`
+already explains. The bottleneck is confidence per row, not the number of rows, so a
+signal verified once belongs on every row that derives from it.
+
+**"No known residual" is the half that does the work.** It is what tells you to stop
+looking and rule on the evidence in front of you.
+
+None of this text is a fact of its own. Every residual is a row in
+`books/analytics-governance-gotchas.md`, which is where one gets added when it is found
+and deleted when it is fixed. The caveats are the path from that file to the person
+ruling. Three of the four queues derive every row from the same detector, so their
+caveat prints once above the list; flags print theirs per row, because each cause has a
+different signal.
+
+### A dismissal has to say why
+
+`dismiss` is the one verdict with no expiry. Its row is read by the next run and every
+run after it, and nothing ever asks again, so an unexplained dismissal is a permanent
+silence nobody can audit. The page holds the verdict rather than recording it until the
+reason box has something in it — the button shows as pressed, the row is marked red, and
+nothing reaches the handoff. One keystroke commits it; emptying the box takes it back.
+
+The other three verbs prompt for a reason and accept an empty one. Each of them leads
+somewhere a person looks again, so a missing reason costs some context and nothing else.
+
+`Take all N suggestions` will not take a suggested dismissal, because a reason typed on
+behalf of twelve rows is not a reason. It leaves those rows marked and waiting, and says
+so on the button.
+
 ### Ruling on part of a cause
 
 A cause is normally one ruling, but some causes hold more than one decision. On a flag
