@@ -114,9 +114,6 @@ export class AdminCampaignsService {
       attributes.isVerified = isVerified
       attributes.dateVerified = isVerified === null ? null : new Date()
     }
-    if (typeof isPro !== 'undefined') {
-      attributes.isPro = isPro
-    }
     if (typeof didWin !== 'undefined') {
       attributes.didWin = didWin
     }
@@ -139,6 +136,15 @@ export class AdminCampaignsService {
       if (subscriptionId) {
         await this.stripe.cancelSubscription(subscriptionId)
       }
+    }
+
+    // A comped Pro upgrade has to be the same transition as a paid one.
+    // Writing `isPro` straight to the row skipped `setIsPro`, so it never
+    // stamped `details.isProUpdatedAt` (HubSpot's `pro_upgrade_date`), never
+    // granted the free-texts offer and never announced in Slack; the CRM sync
+    // then published the campaign as Pro with no upgrade date, permanently.
+    if (typeof isPro !== 'undefined') {
+      await this.campaigns.setIsPro(id, isPro, false)
     }
 
     const updatedCampaign = await this.campaigns.update({
