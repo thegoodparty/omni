@@ -62,6 +62,26 @@ somewhere a person looks again, so a missing reason costs some context and nothi
 behalf of twelve rows is not a reason. It leaves those rows marked and waiting, and says
 so on the button.
 
+### `govern` has to show the commit
+
+`govern` is the one verb that leaves this repo. It writes prod Amplitude, and what it
+usually writes is "this event is dead", which every consumer downstream then believes.
+The other three land in a file in a PR and are undone by editing it, so they stay one
+click.
+
+So a `govern` verdict is held until the box carries code-removal proof: a commit sha, a
+commit or PR URL, or `#1234`. Prose is refused, because "the code is gone, I checked" is
+exactly the unevidenced claim the rule exists to stop — absent data is not removal.
+
+Not every Govern write is a retirement. One that is not says so in the same box, as
+`no removal: <why>`, and the handoff carries the statement. Evidenced either way, and
+never a silent exception.
+
+`Take all N suggestions` cannot take a `govern`. Bulk-taking the flags queue today would
+declare 22 events dead on one click and nobody's evidence; instead those rows are left
+marked and the button says how many need proof. The proof travels in the handoff under
+the verdict, which is where the apply step reads it.
+
 ### Telling the page a batch was applied
 
 `Copy handoff` stamps the judgments it carried. When Claude has written them, `Mark N

@@ -812,14 +812,23 @@
     box-shadow: inset 0 0 0 1px var(--crit);
   }
 
+  .reason.proof {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  .fields > .reason[hidden] {
+    display: none;
+  }
+
   .row.is-judged {
     border-left-color: var(--accent);
   }
 
-  /* A verdict held back for want of a reason. Marked on the row as well as the box,
-     so a row left waiting by "take all suggestions" is findable without scrolling
-     every one of them. */
-  .row.needs-reason {
+  /* A verdict held back for want of a reason or of code-removal proof. Marked on the
+     row as well as on the box, so a row left waiting by "take all suggestions" is
+     findable without scrolling every one of them. */
+  .row.is-held {
     border-left-color: var(--crit);
   }
 
@@ -1468,6 +1477,32 @@
   const REASON_REQUIRED =
     'Required: a dismissal never expires, so say why or nobody can audit the silence.'
 
+  // `govern` is the one verb that leaves this repo. It writes prod Amplitude, and what
+  // it usually writes is "this event is dead", which every consumer downstream then
+  // believes. The other three verbs land in a file in a PR and are undone by editing
+  // it, so they stay one click.
+  //
+  // The rule it enforces is the standing one: absent data is not removal, so an event
+  // is retired only against the commit or PR that deleted the call site
+  // (analytics-governance-gotchas.md, "Retirement declared from absent data"). Not
+  // every Govern write is a retirement, so a write that is not one says so in the same
+  // box and the handoff carries the statement -- evidenced either way, and never a
+  // silent exception.
+  const NEEDS_PROOF = new Set(['govern'])
+
+  const PROOF_SHAPES = [
+    /\b[0-9a-f]{7,40}\b/i,
+    /github\.com\/[\w.-]+\/[\w.-]+\/(commit|pull)\//i,
+    /#\d+/,
+    /^no removal:\s*\S/i,
+  ]
+
+  const isProof = (text) => PROOF_SHAPES.some((shape) => shape.test(String(text).trim()))
+
+  const PROOF_PLACEHOLDER =
+    'Code-removal proof: the deleting commit, PR or URL. Or "no removal: <why this ' +
+    'Govern write is not a retirement>".'
+
   let onJudgmentChange = () => {}
 
   // Every row's setter, so "approve all recommended" can drive the same path a click
@@ -1512,16 +1547,31 @@
     }
 
     const bar = el('div', 'verdicts')
+    const fields = el('div', 'fields')
+
     const reason = el('input', 'reason')
     reason.type = 'text'
     reason.id = 'reason-' + key.replace(/[^A-Za-z0-9_-]/g, '-')
     reason.placeholder = REASON_PLACEHOLDER
     reason.value = (judgments[key] && judgments[key].reason) || ''
 
-    // A verdict chosen but not yet recorded, because it needs a reason and has none.
-    // Held rather than written: recording it and asking afterwards means a page reload
-    // keeps the unexplained version, which is the thing being prevented.
+    const proof = el('input', 'reason proof')
+    proof.type = 'text'
+    proof.id = 'proof-' + key.replace(/[^A-Za-z0-9_-]/g, '-')
+    proof.placeholder = PROOF_PLACEHOLDER
+    proof.value = (judgments[key] && judgments[key].proof) || ''
+    proof.hidden = true
+
+    // A verdict chosen but not yet recorded, because a precondition is unmet. Held
+    // rather than written: recording it and asking afterwards means a page reload keeps
+    // the unevidenced version, which is the thing being prevented.
     let pending = null
+
+    const missing = (verdict) => {
+      if (NEEDS_REASON.has(verdict) && !reason.value.trim()) return 'reason'
+      if (NEEDS_PROOF.has(verdict) && !isProof(proof.value)) return 'proof'
+      return null
+    }
 
     const chip = el('span', 'chip verdict')
     chip.hidden = true
@@ -1529,7 +1579,7 @@
 
     const paint = () => {
       const current = judgments[key]
-      const held = current ? current.verdict : pending
+      const held = current ? current.verdict : pending && pending.verdict
       bar.querySelectorAll('button[data-verdict]').forEach((btn) => {
         btn.setAttribute(
           'aria-pressed',
@@ -1537,7 +1587,7 @@
         )
       })
       row.classList.toggle('is-judged', Boolean(current))
-      row.classList.toggle('needs-reason', Boolean(pending))
+      row.classList.toggle('is-held', Boolean(pending))
       row.classList.toggle('is-applied', Boolean(current && current.applied_at))
       chip.hidden = !current
       chip.classList.toggle('applied', Boolean(current && current.applied_at))
@@ -1546,9 +1596,15 @@
           (verbs[current.verdict] || current.verdict) +
           (current.applied_at ? ' · applied' : '')
       }
+
+      const want = pending && pending.want
       reason.hidden = !current && !pending
-      reason.classList.toggle('required', Boolean(pending))
-      reason.placeholder = pending ? REASON_REQUIRED : REASON_PLACEHOLDER
+      reason.classList.toggle('required', want === 'reason')
+      reason.placeholder = want === 'reason' ? REASON_REQUIRED : REASON_PLACEHOLDER
+      // The proof box appears only for the verb that needs it, so the other three stay
+      // a single click.
+      proof.hidden = !NEEDS_PROOF.has(held)
+      proof.classList.toggle('required', want === 'proof')
       clear.hidden = !current && !pending
     }
 
@@ -1557,15 +1613,17 @@
       if (toggle && judgments[key] && judgments[key].verdict === verdict) {
         delete judgments[key]
         pending = null
-      } else if (NEEDS_REASON.has(verdict) && !reason.value.trim()) {
-        delete judgments[key]
-        pending = verdict
-        saveJudgments()
-        paint()
-        reason.focus()
-        onJudgmentChange()
-        return 'needs-reason'
       } else {
+        const want = missing(verdict)
+        if (want) {
+          delete judgments[key]
+          pending = { verdict, want }
+          saveJudgments()
+          paint()
+          ;(want === 'proof' ? proof : reason).focus()
+          onJudgmentChange()
+          return want === 'proof' ? 'needs-proof' : 'needs-reason'
+        }
         pending = null
         judgments[key] = {
           queue: item.queue,
@@ -1574,6 +1632,7 @@
           verdict,
           verdict_label: verbs[verdict],
           reason: reason.value.trim(),
+          proof: NEEDS_PROOF.has(verdict) ? proof.value.trim() : undefined,
           took_suggestion: verdict === item.recommended,
           decided_at: new Date().toISOString(),
         }
@@ -1603,34 +1662,40 @@
       delete judgments[key]
       pending = null
       reason.value = ''
+      proof.value = ''
       saveJudgments()
       paint()
       onJudgmentChange()
     })
     bar.appendChild(clear)
 
-    reason.addEventListener('input', () => {
-      const text = reason.value.trim()
-      if (pending) {
-        // The held verdict commits the moment it has something to stand on.
-        if (text) set(pending, { toggle: false })
-        return
-      }
-      if (!judgments[key]) return
-      if (!text && NEEDS_REASON.has(judgments[key].verdict)) {
-        // Emptying the box takes the dismissal back rather than leaving a silent one
-        // behind. The verdict is held, so one keystroke restores it.
-        pending = judgments[key].verdict
-        delete judgments[key]
+    // Typing into the field a held verdict is waiting on commits it the moment it has
+    // something to stand on. Emptying it again takes the verdict back rather than
+    // leaving an unevidenced one behind -- the verdict is held, so one keystroke
+    // restores it.
+    const watch = (input, field) => {
+      input.addEventListener('input', () => {
+        if (pending) {
+          if (!missing(pending.verdict)) set(pending.verdict, { toggle: false })
+          return
+        }
+        const current = judgments[key]
+        if (!current) return
+        if (missing(current.verdict)) {
+          pending = { verdict: current.verdict, want: missing(current.verdict) }
+          delete judgments[key]
+          saveJudgments()
+          paint()
+          onJudgmentChange()
+          return
+        }
+        current[field] = input.value.trim()
         saveJudgments()
-        paint()
         onJudgmentChange()
-        return
-      }
-      judgments[key].reason = text
-      saveJudgments()
-      onJudgmentChange()
-    })
+      })
+    }
+    watch(reason, 'reason')
+    watch(proof, 'proof')
 
     repainters.push(paint)
 
@@ -1648,7 +1713,8 @@
     })
 
     paint()
-    add(block, bar, reason)
+    add(fields, reason, proof)
+    add(block, bar, fields)
     return block
   }
 
@@ -1667,6 +1733,12 @@
     reason.type = 'text'
     reason.id = 'picked-reason-' + item.id.replace(/[^A-Za-z0-9_-]/g, '-')
     reason.placeholder = 'Why these ones'
+
+    const proof = el('input', 'reason proof')
+    proof.type = 'text'
+    proof.id = 'picked-proof-' + item.id.replace(/[^A-Za-z0-9_-]/g, '-')
+    proof.placeholder = PROOF_PLACEHOLDER
+    proof.hidden = true
 
     const chip = el('span', 'chip verdict picked-chip')
     chip.hidden = true
@@ -1697,7 +1769,15 @@
         reason.focus()
         return
       }
+      // Picking events out of a cause and retiring just those is still a retirement,
+      // so it carries the same proof. One commit covers the set it deleted.
+      if (NEEDS_PROOF.has(verdict) && !isProof(proof.value)) {
+        proof.classList.add('required')
+        proof.focus()
+        return
+      }
       reason.classList.remove('required')
+      proof.classList.remove('required')
       reason.placeholder = 'Why these ones'
       picked.forEach((eventType) => {
         judgments[eventKey(item, eventType)] = {
@@ -1709,11 +1789,13 @@
           verdict,
           verdict_label: (item.verbs || {})[verdict] || verdict,
           reason: reason.value.trim(),
+          proof: NEEDS_PROOF.has(verdict) ? proof.value.trim() : undefined,
           decided_at: new Date().toISOString(),
         }
       })
       saveJudgments()
       reason.value = ''
+      proof.value = ''
       paintSummary()
       onJudgmentChange()
     }
@@ -1722,6 +1804,13 @@
       const btn = el('button', null, label)
       btn.type = 'button'
       btn.addEventListener('click', () => apply(verdict))
+      // Hovering or focusing the one verb that needs proof reveals the box, so the
+      // requirement is visible before the click rather than after it.
+      const reveal = () => {
+        if (NEEDS_PROOF.has(verdict) && !bar.hidden) proof.hidden = false
+      }
+      btn.addEventListener('mouseenter', reveal)
+      btn.addEventListener('focus', reveal)
       bar.appendChild(btn)
     })
 
@@ -1736,7 +1825,7 @@
     bar.appendChild(clear)
 
     const wrap = el('div', 'picked-wrap')
-    add(wrap, tally, bar, reason)
+    add(wrap, tally, bar, reason, proof)
     reason.hidden = true
 
     paintSummary()
@@ -1751,6 +1840,7 @@
           : ''
         bar.hidden = !n
         reason.hidden = !n
+        if (!n) proof.hidden = true
       },
     }
   }
@@ -1879,19 +1969,25 @@
       )
       approve.type = 'button'
       approve.addEventListener('click', () => {
-        // A suggested dismissal cannot be taken in bulk: it needs a reason, and one
-        // typed on behalf of twelve rows is not a reason. Those rows are left marked
+        // Neither gated verb can be taken in bulk. A reason typed on behalf of twelve
+        // rows is not a reason, and a bulk Govern write is precisely how a batch of
+        // events gets declared dead on nobody's evidence. Those rows are left marked
         // and waiting rather than silently skipped.
         const outcomes = setters
           .filter((s) => s.queue === queue.queue)
           .map((s) => s.approve())
         const took = outcomes.filter((o) => o === 'took').length
-        const waiting = outcomes.filter((o) => o === 'needs-reason').length
+        const held = {
+          'needs-reason': outcomes.filter((o) => o === 'needs-reason').length,
+          'needs-proof': outcomes.filter((o) => o === 'needs-proof').length,
+        }
+        const waiting = [
+          held['needs-reason'] && held['needs-reason'] + ' need a reason',
+          held['needs-proof'] && held['needs-proof'] + ' need proof',
+        ].filter(Boolean).join(', ')
         approve.textContent = took
-          ? 'Took ' + took + (waiting ? ', ' + waiting + ' need a reason' : '')
-          : waiting
-            ? waiting + ' need a reason'
-            : 'Already ruled on'
+          ? 'Took ' + took + (waiting ? ', ' + waiting : '')
+          : waiting || 'Already ruled on'
         approve.disabled = true
       })
       head.appendChild(approve)
@@ -1943,6 +2039,10 @@
               (cause.took_suggestion ? '' : '  [overridden]'),
           )
           lines.push('  reason: ' + (cause.reason || '(none given)'))
+          // The evidence travels with the verdict. A Govern write applied without it
+          // is the exact mistake the gate exists to stop, and the handoff is where the
+          // apply step reads it.
+          if (cause.proof) lines.push('  proof: ' + cause.proof)
         } else if (events.length) {
           lines.push('- (no cause-level ruling): ' + id)
         }
@@ -1952,9 +2052,15 @@
         // lines nobody would read.
         const groups = new Map()
         events.forEach((row) => {
-          const groupKey = row.verdict + '\u0000' + (row.reason || '')
+          const groupKey =
+            row.verdict + '\u0000' + (row.reason || '') + '\u0000' + (row.proof || '')
           if (!groups.has(groupKey)) {
-            groups.set(groupKey, { verdict: row.verdict, reason: row.reason, events: [] })
+            groups.set(groupKey, {
+              verdict: row.verdict,
+              reason: row.reason,
+              proof: row.proof,
+              events: [],
+            })
           }
           groups.get(groupKey).events.push(row.event)
         })
@@ -1965,6 +2071,7 @@
             '  - ' + group.verdict + ' (' + n + (n === 1 ? ' event' : ' events') + '): ' +
               (group.reason || '(no reason given)'),
           )
+          if (group.proof) lines.push('    proof: ' + group.proof)
           group.events.sort().forEach((event) => lines.push('      ' + event))
         })
       })
