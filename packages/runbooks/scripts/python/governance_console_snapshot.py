@@ -531,19 +531,52 @@ def queue_event_types(queues: Sequence[Mapping]) -> set[str]:
     return names
 
 
-def build_event_cards(explorer: Mapping, wanted: Iterable[str]) -> dict:
+def _call_site_count(raw) -> int | None:
+    """The CSV hands back strings, and this is the one column where that is dangerous.
+
+    Blank means the walk resolved no key path; "0" means it resolved one and found no
+    callers. They are different findings, so blank becomes None and never 0. Left as a
+    string, the page compared `"0" === 0` (false) and `"1" > 0` (true by coercion), so
+    the distinction worked by luck in one direction and failed silently in the other.
+    """
+    if raw is None or raw == "":
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_event_cards(
+    explorer: Mapping, wanted: Iterable[str], code: Mapping | None = None
+) -> dict:
     """``{event_type: card}`` for the wanted events the explorer snapshot knows about.
 
     An event with no explorer row simply has no card, and the page falls back to the
     evidence row it already shows. That is the normal state for anything declared in
     Govern and never observed, which is a third of the flagged set.
+
+    The call-site pair is joined on from the provenance CSV, because without it the card
+    appears to contradict the row it was opened from. `retired_date` is set only when the
+    event's NAME has gone from the tree; `call_site_count` counts what still CALLS that
+    name. An event can sit under "call sites removed" while its card says "still in the
+    code", and both are true: the constant survives, nothing calls it. That is the whole
+    finding rank 2 exists to catch, and a card that shows one half of it is a card that
+    argues with its own queue.
     """
     wanted = set(wanted)
-    return {
-        event["event_type"]: {k: event[k] for k in CARD_FIELDS if k in event}
-        for event in (explorer.get("events") or [])
-        if event.get("event_type") in wanted
-    }
+    code = code or {}
+    cards = {}
+    for event in explorer.get("events") or []:
+        name = event.get("event_type")
+        if name not in wanted:
+            continue
+        card = {k: event[k] for k in CARD_FIELDS if k in event}
+        row = code.get(name) or {}
+        card["call_site_count"] = _call_site_count(row.get("call_site_count"))
+        card["call_site_retired_date"] = row.get("call_site_retired_date") or None
+        cards[name] = card
+    return cards
 
 
 # --- code provenance ----------------------------------------------------------
@@ -851,7 +884,7 @@ def build_snapshot(
     ]
     overview = build_overview(report, explorer)
     overview["totals"]["open_decisions"] = sum(len(q["items"]) for q in queues)
-    cards = build_event_cards(explorer, queue_event_types(queues))
+    cards = build_event_cards(explorer, queue_event_types(queues), code)
 
     return {
         "run_date": run_date,

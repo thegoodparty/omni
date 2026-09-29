@@ -245,6 +245,59 @@ def test_an_event_the_catalog_never_saw_simply_has_no_card():
     assert set(cards) == {"A"}
 
 
+def test_a_card_carries_the_call_site_pair_not_just_the_name_dates():
+    """Without it the card argues with the queue that opened it.
+
+    `retired_date` is set only when the event's NAME has gone from the tree; the call
+    site count is what still CALLS that name. An event under "call sites removed" has a
+    surviving constant and no caller, and a card showing only the first half reads as a
+    flat contradiction. Live case on 2026-09-28:
+    `Onboarding V2 - Strategic Landscape Displayed`.
+    """
+    explorer = {"events": [_explorer_event("A")]}
+    code = {"A": {"call_site_count": 0, "call_site_retired_date": "2026-09-01"}}
+
+    cards = gcs.build_event_cards(explorer, {"A"}, code)
+
+    assert cards["A"]["call_site_count"] == 0
+    assert cards["A"]["call_site_retired_date"] == "2026-09-01"
+
+
+def test_an_unresolvable_key_path_stays_null_on_the_card_never_zero():
+    """Null means the walk found no key path; zero means it found one with no callers.
+
+    Collapsing them would put "nothing calls this" on an event nobody ever measured.
+    """
+    explorer = {"events": [_explorer_event("A")]}
+    code = {"A": {"call_site_count": None, "call_site_retired_date": ""}}
+
+    cards = gcs.build_event_cards(explorer, {"A"}, code)
+
+    assert cards["A"]["call_site_count"] is None
+    assert cards["A"]["call_site_retired_date"] is None
+
+
+def test_the_call_site_count_reaches_the_page_as_a_number():
+    """The CSV hands back strings, and the page compares this one against 0.
+
+    `"0" === 0` is false and `"1" > 0` is true by coercion, so a string count worked by
+    luck in one direction and silently failed in the other.
+    """
+    explorer = {"events": [_explorer_event("A"), _explorer_event("B"),
+                           _explorer_event("C")]}
+    code = {
+        "A": {"call_site_count": "0"},
+        "B": {"call_site_count": "3"},
+        "C": {"call_site_count": ""},
+    }
+
+    cards = gcs.build_event_cards(explorer, {"A", "B", "C"}, code)
+
+    assert cards["A"]["call_site_count"] == 0
+    assert cards["B"]["call_site_count"] == 3
+    assert cards["C"]["call_site_count"] is None
+
+
 def test_the_snapshot_carries_cards_for_its_own_queues():
     report = _min_report(flagged=[_record(event_type="A")])
     explorer = {"events": [_explorer_event("A"), _explorer_event("B")],

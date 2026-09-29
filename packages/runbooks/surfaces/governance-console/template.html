@@ -1079,6 +1079,16 @@
     overflow-wrap: anywhere;
   }
 
+  .eventcard .cardnote {
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    border-left: 3px solid var(--line-2);
+    border-radius: 0 4px 4px 0;
+    font-size: 12px;
+    color: var(--ink-2);
+    background: var(--surface);
+  }
+
   .eventcard .muted {
     color: var(--ink-3);
   }
@@ -1702,6 +1712,20 @@
     return node
   }
 
+  // What still calls this event's name, as opposed to whether the name itself is
+  // there. A null count means the walk could not resolve a key path at all, which is
+  // not zero and must never read as one.
+  const callSites = (card) => {
+    const n = card.call_site_count
+    if (n === null || n === undefined) {
+      return el('span', 'muted', 'could not be resolved in the code')
+    }
+    if (n > 0) return n === 1 ? '1 place in the code' : n + ' places in the code'
+    return card.call_site_retired_date
+      ? 'nothing, since ' + card.call_site_retired_date
+      : 'nothing, and we could not date when that changed'
+  }
+
   const cardLink = (label, href) => {
     const a = el('a', 'btn', label)
     a.href = href
@@ -1752,14 +1776,32 @@
     add(top, cardField('Weekly volume', vol))
     add(box, top)
 
+    // Two different measurements, and they can disagree without either being wrong.
+    // `retired_date` is set only when the event's NAME has gone from the tree; the call
+    // site count is what still CALLS that name. An event sits under "call sites
+    // removed" with its name still in the registry, so the card has to show both or it
+    // reads as an argument with its own queue.
     const p = card.provenance || {}
     const mid = el('div', 'fields')
-    add(mid, cardField('Added to the code', p.instrumented_date))
-    add(mid, cardField('Removed from the code',
-      p.retired_date || el('span', 'muted', 'still in the code')))
+    add(mid, cardField('Name added to the code', p.instrumented_date))
+    add(mid, cardField('Name removed from the code',
+      p.retired_date || el('span', 'muted', 'still declared')))
+    add(mid, cardField('Sent from', callSites(card)))
     add(mid, cardField('Last fired', card.last_seen))
     add(mid, cardField('First fired', card.first_seen))
     add(box, mid)
+
+    // Spell the disagreement out where it happens, rather than leaving the reader to
+    // reconcile two fields that look like opposites.
+    if (card.call_site_count === 0 && !p.retired_date) {
+      add(
+        box,
+        el('p', 'cardnote',
+          'The name is still declared in the code and nothing calls it any more. ' +
+          'Those are separate facts, which is why one field can say declared and the ' +
+          'other say nothing sends it.'),
+      )
+    }
 
     const used = (card.questions || []).concat(
       (card.used_by || []).map((u) => u.label),

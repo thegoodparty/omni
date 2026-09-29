@@ -81,6 +81,20 @@ most of a megabyte of page nobody opens. An event with no catalog entry says so 
 still offers the Amplitude link, which is the normal state for anything declared in
 Govern and never observed.
 
+**Two fields on the card look like opposites and are not.** "Name removed from the
+code" is set only when the event's name string has gone from the tree. "Sent from"
+counts what still calls that name. An event sits under *call sites removed* with its
+name still in the registry and nothing calling it, and both statements are true. That is
+the whole finding rank 2 exists to catch, and a card showing only the first half reads
+as an argument with the queue that opened it, so the card shows both and says so in a
+line underneath. Live case on 2026-09-28:
+`Onboarding V2 - Strategic Landscape Displayed`, whose caller went in `e5e863545`
+(2026-09-01) while `analyticsHelper.ts:799` still declares the name.
+
+`call_site_count` is a number on the card, never the string the CSV hands back. Blank
+becomes null, because "the walk resolved no key path" and "it resolved one and found no
+callers" are different findings.
+
 **This is what makes several of the caveats actionable.** "Find the replacement event
 named in the declaration" needs the supersession note; "ask whether that gap is unusual
 for this event" needs the weekly series. Both used to be a tab away, and a check that
