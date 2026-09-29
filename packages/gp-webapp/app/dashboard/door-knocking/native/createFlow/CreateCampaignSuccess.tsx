@@ -1,7 +1,7 @@
-import { Button, DoorOpenIcon } from '@styleguide'
+import { Button, ConfettiBurst, DoorOpenIcon } from '@styleguide'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
-import { ConfettiField } from 'app/dashboard/pro-upgrade/components/ConfettiField'
-import { TurfRowCard } from '../TurfRowCard'
+import { CHANNEL_META } from 'app/dashboard/outreach/v2/channelMeta'
+import { TurfSummaryRow } from '../TurfSummaryRow'
 
 // The flow's terminal screen. Its own component with plain props rather than
 // markup inside `CreateListFlow`, because the other three outreach flows each
@@ -22,13 +22,21 @@ import { TurfRowCard } from '../TurfRowCard'
 type Props = {
   campaignName: string
   turfs: DoorKnockingTurf[]
-  onStartKnocking: (turf: DoorKnockingTurf) => void
+  // The campaign's own envelope. Carried into the walk so that closing it
+  // lands on this campaign's details drawer rather than back here — this
+  // screen is a one-time confirmation and there is nothing to return to.
+  anchorOutreachId: number | null
+  onStartKnocking: (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => void
   onDone: () => void
 }
 
 export const CreateCampaignSuccess = ({
   campaignName,
   turfs,
+  anchorOutreachId,
   onStartKnocking,
   onDone,
 }: Props) => {
@@ -36,19 +44,29 @@ export const CreateCampaignSuccess = ({
 
   return (
     <div className="flex flex-col gap-6 py-8">
-      {/* `relative` so the confetti has something to be absolute against,
-          and the burst drops through the icon rather than the whole sheet —
-          the campaign is what was just finished, and the icon is what says
-          so. It runs once because the keyframes are `1 forwards` and this
-          stage mounts once; nothing re-triggers it. */}
-      <div className="relative flex flex-col items-center gap-3 text-center">
-        <ConfettiField />
-        {/* The house treatment for a step-completed mark: a tinted circle at
-            10% with the matching foreground, same as phone banking's own
-            ready screen. */}
-        <span className="relative flex size-12 shrink-0 items-center justify-center rounded-full bg-success/10 text-success [&_svg]:size-6">
-          <DoorOpenIcon />
-        </span>
+      <div className="flex flex-col items-center gap-3 text-center">
+        {/* The burst bursts FROM the channel icon, because the campaign is
+            what was just finished and the icon is what says so. `play` is
+            true on mount and never re-flipped, so it fires once — this
+            stage mounts once and nothing re-triggers it.
+
+            The box is sized larger than the circle because the burst
+            overflows its center, the same allowance the polls success
+            screen makes. */}
+        <div className="flex size-20 items-center justify-center">
+          <ConfettiBurst play>
+            {/* The channel's own mark, identical to the outreach hub's door
+                knocking tile: `CHANNEL_META.doorKnocking.iconTint` on
+                `ChannelCard`'s circle treatment. It was a success-green
+                circle, which made the one screen that names the channel the
+                one screen that did not look like it. */}
+            <span
+              className={`flex size-12 shrink-0 items-center justify-center rounded-full text-foreground [&_svg]:size-5 ${CHANNEL_META.doorKnocking.iconTint}`}
+            >
+              <DoorOpenIcon />
+            </span>
+          </ConfettiBurst>
+        </div>
         <div>
           <h2 className="text-2xl font-semibold">Your campaign is ready</h2>
           <p className="mt-1 text-base font-medium">{campaignName}</p>
@@ -63,15 +81,22 @@ export const CreateCampaignSuccess = ({
 
       <div className="flex flex-col gap-2">
         {turfs.map((turf) => (
-          <TurfRowCard
+          // The details drawer's card, not a row of its own. A candidate
+          // reaches that drawer within a tap of this screen, and a turf that
+          // changed shape between the two read as a different object. The
+          // bar sits at 0% here by definition, which is the honest reading
+          // of a campaign one second old rather than a reason to hide it.
+          // The drawer's own row, not a second arrangement of the same
+          // parts. A candidate reaches that drawer within a tap of this
+          // screen, so everything but the primary press is identical —
+          // including Mark as done, which is theirs to reach here too.
+          <TurfSummaryRow
             key={turf.id}
             turf={turf}
-            actions={
+            action={
               <Button
                 size="small"
-                variant="outline"
-                className="shrink-0"
-                onClick={() => onStartKnocking(turf)}
+                onClick={() => onStartKnocking(turf, anchorOutreachId)}
               >
                 Start knocking
               </Button>
@@ -80,7 +105,12 @@ export const CreateCampaignSuccess = ({
         ))}
       </div>
 
-      <Button onClick={onDone}>Done</Button>
+      {/* Capped and centred rather than the column's full width: at the
+          sheet's 608px the full-bleed button read as a banner, and the
+          turfs above it each carry their own press. */}
+      <Button className="mx-auto w-full max-w-xs" onClick={onDone}>
+        Done
+      </Button>
     </div>
   )
 }

@@ -58,6 +58,7 @@ const baseProps = {
   },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
+  onDone: vi.fn(),
   districtBounds: null as [[number, number], [number, number]] | null,
   districtHouseholds: 1500,
   savedLists: [],

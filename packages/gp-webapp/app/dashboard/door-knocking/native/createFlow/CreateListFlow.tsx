@@ -149,6 +149,10 @@ interface CreateListFlowProps {
   precinctOptions: PrecinctOptionsResult
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // The success screen's Done. Separate from `onClose` because the page
+  // refreshes the route it returns to for this one only — a cancelled flow
+  // wrote nothing for the hub to have missed.
+  onDone: () => void
   // The pack's bounding box, framed by the draw step's static-map preview
   // card. Null while the pack decodes; the preview omits the image in that
   // window rather than rendering against no rect.
@@ -236,7 +240,13 @@ interface CreateListFlowProps {
   // Carries the created row because the page opens the walk on it directly.
   // One turf's Start knocking, from the success screen. This is the press
   // that will buy the route once the walk-or-drive prompt exists.
-  onStartKnocking: (turf: DoorKnockingTurf) => void
+  // The anchor rides along so the page can send the walk's exit to this
+  // campaign's details drawer rather than back to a success screen that is
+  // a one-time confirmation.
+  onStartKnocking: (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays a plain
   // presentational flow and its tests don't need an organization provider.
@@ -379,6 +389,7 @@ export default function CreateListFlow({
   precinctOptions,
   onStepChange,
   onClose,
+  onDone,
   districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
@@ -1818,8 +1829,19 @@ export default function CreateListFlow({
             <CreateCampaignSuccess
               campaignName={name.trim()}
               turfs={createdTurfs}
+              // The CAMPAIGN's envelope, not each turf's own. Closing a
+              // walk started here reopens this campaign's details drawer,
+              // and that drawer is keyed on the anchor — `campaignOutreachId`
+              // when this flow was entered through "Draw more turfs", the
+              // first turf bought otherwise.
+              anchorOutreachId={
+                campaignOutreachId ??
+                createdAnchorRef.current ??
+                createdTurfs[0]?.outreachId ??
+                null
+              }
               onStartKnocking={onStartKnocking}
-              onDone={onClose}
+              onDone={onDone}
             />
           )}
         </div>

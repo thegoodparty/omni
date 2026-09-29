@@ -1071,15 +1071,15 @@ describe('OutreachDetailsDrawer — door knocking', () => {
       />,
     )
 
-    // "Logged", never "reached": three of the outcomes behind this number
-    // are doors where nobody spoke to anybody.
-    expect(await screen.findByText('6 of 9 people logged')).toBeInTheDocument()
-    // Twice over: the campaign's progress card, and the turf's own card in
-    // the section above it.
-    expect(screen.getAllByText('67%')).toHaveLength(2)
-    expect(screen.getByText('Logged')).toBeInTheDocument()
-    expect(screen.getByText('Remaining')).toBeInTheDocument()
-    expect(screen.getByText('3')).toBeInTheDocument()
+    // ONCE, on the turf's own card. There used to be a drawer-level
+    // Progress card under this section saying the same thing again, shown
+    // only on a solo campaign — which is the one shape where the card above
+    // it already answered. Its figures were the anchor turf's, so it could
+    // never have become the multi-turf rollup either.
+    expect(await screen.findByText('3 stops, 9 people')).toBeInTheDocument()
+    expect(screen.getAllByText('67%')).toHaveLength(1)
+    expect(screen.queryByText('6 of 9 people logged')).not.toBeInTheDocument()
+    expect(screen.queryByText('Remaining')).not.toBeInTheDocument()
     // And no Overview beside it. Its cells were Date, Name and Channel —
     // all three in the header two inches above — with a Doors/People pair
     // that was the ANCHOR turf's and so was withheld on every multi-turf
@@ -1091,7 +1091,7 @@ describe('OutreachDetailsDrawer — door knocking', () => {
   // A finished walk keeps its progress rather than swapping it for a Results
   // table, because door knocking has no outcomes surface here (ADR 0012) and a
   // walk is routinely ended with doors left unlogged.
-  it('keeps the progress section on a finished walk', async () => {
+  it('keeps its progress on a finished walk', async () => {
     api.mock('GET /v1/outreach/:id', {
       status: 200,
       data: doorKnockingDetail('completed'),
@@ -1104,7 +1104,11 @@ describe('OutreachDetailsDrawer — door knocking', () => {
       />,
     )
 
-    expect(await screen.findByText('6 of 9 people logged')).toBeInTheDocument()
+    // On the turf card now, but still there: a done walk is routinely one
+    // with doors left unlogged, so how much got covered is the answer here
+    // too and must not be swapped for a Results table.
+    expect(await screen.findByText('3 stops, 9 people')).toBeInTheDocument()
+    expect(screen.getByText('67%')).toBeInTheDocument()
   })
 
   // The archive seam. There is one `archivedAt` for a walk and it is the

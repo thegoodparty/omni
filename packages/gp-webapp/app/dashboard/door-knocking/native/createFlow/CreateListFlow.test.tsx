@@ -14,6 +14,17 @@ import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutrea
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
 
+// The success screen's turf cards carry the assignee menu, which reads the
+// viewer's organization; these tests render without an OrganizationProvider,
+// whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => undefined,
+  useOrganizationRole: () => undefined,
+}))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
@@ -122,6 +133,7 @@ const baseProps = {
   },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
+  onDone: vi.fn(),
   districtBounds: null as [[number, number], [number, number]] | null,
   districtHouseholds: 1500,
   districtHouseholdsPending: false,
