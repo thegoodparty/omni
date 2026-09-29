@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CAMPAIGN_TIME_ZONES,
   combineScheduledAt,
   DEFAULT_TIME_ZONE,
   resolveCampaignTimeZone,
@@ -12,6 +13,18 @@ describe('resolveCampaignTimeZone', () => {
     expect(resolveCampaignTimeZone('CA')).toBe('America/Los_Angeles')
     expect(resolveCampaignTimeZone('TX')).toBe('America/Chicago')
     expect(resolveCampaignTimeZone('AZ')).toBe('America/Phoenix')
+    expect(resolveCampaignTimeZone('HI')).toBe('Pacific/Honolulu')
+  })
+
+  it('answers only with zones Intl accepts', () => {
+    // date-fns-tz delegates to Intl, so an entry Intl rejects throws in the
+    // flow for every campaign in that state (HI was 'America/Honolulu').
+    for (const timeZone of CAMPAIGN_TIME_ZONES) {
+      expect(
+        () => new Intl.DateTimeFormat('en-US', { timeZone }),
+        timeZone,
+      ).not.toThrow()
+    }
   })
 
   it('is case-insensitive', () => {

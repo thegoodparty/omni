@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { formatInTimeZone } from 'date-fns-tz'
 import {
   Alert,
   AlertDescription,
@@ -61,6 +62,9 @@ interface SmsReviewStepProps {
   name: string
   audienceName: string
   sendAt: Date
+  // The campaign's zone for a Win send (the instant was built in it);
+  // omitted for Serve, whose fixed-hour stamp is browser-local.
+  timeZone?: string
   composedMessage: string
   imagePreviewUrl: string | null
   // Null only in build mode, where the reach count comes from the
@@ -90,6 +94,7 @@ export const SmsReviewStep = ({
   name,
   audienceName,
   sendAt,
+  timeZone,
   composedMessage,
   imagePreviewUrl,
   contactCount,
@@ -211,15 +216,21 @@ export const SmsReviewStep = ({
               <>
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Send date</dt>
-                  <dd className="text-foreground">{fmtDate(sendAt)}</dd>
+                  <dd className="text-foreground">
+                    {timeZone
+                      ? formatInTimeZone(sendAt, timeZone, 'EEE, MMM d, yyyy')
+                      : fmtDate(sendAt)}
+                  </dd>
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Send time</dt>
                   <dd className="text-foreground">
-                    {sendAt.toLocaleTimeString('en-US', {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                    })}
+                    {timeZone
+                      ? formatInTimeZone(sendAt, timeZone, 'h:mm a')
+                      : sendAt.toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
                   </dd>
                 </div>
               </>

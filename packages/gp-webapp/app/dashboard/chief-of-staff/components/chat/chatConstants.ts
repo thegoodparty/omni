@@ -13,6 +13,13 @@ export const COS_INTRO_MESSAGES: string[] = [
 ]
 
 /**
+ * gp-api's saved-filter write tool (ENG-10736). A `tool_result` for it means
+ * the agent may have created, updated, or deleted a saved contact list, so the
+ * contacts queries need a refetch — see ChiefOfStaffChatBody's `onEvent`.
+ */
+export const SAVED_FILTERS_TOOL = 'crud_saved_filters'
+
+/**
  * Tool names map to a human status line shown while the agent runs them. The
  * server emits these tool names in `tool_call` SSE events; unknown names fall
  * back to the raw name.
@@ -26,7 +33,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   describe_filter_dimensions: 'Checking available filters',
   count_contacts: 'Counting matches',
   list_precincts: 'Looking up precincts',
-  crud_saved_filters: 'Working on your lists',
+  [SAVED_FILTERS_TOOL]: 'Working on your lists',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',

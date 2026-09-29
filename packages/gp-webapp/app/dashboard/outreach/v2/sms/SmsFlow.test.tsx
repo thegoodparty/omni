@@ -360,9 +360,14 @@ describe('SmsFlow', () => {
       expect(screen.getByText('Scheduled!')).toBeInTheDocument(),
     )
     // The draft create carries the picked wall-clock time (default 10 AM
-    // slot) — approve opens Peerly's contact-local window at it.
+    // slot) in the CAMPAIGN's zone — Eastern here, no state on the mocked
+    // campaign — not the machine's: approve opens Peerly's window at it in
+    // that same zone, so the offset must be Eastern whatever TZ runs this.
     expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
-      expect.objectContaining({ scheduledLocalTime: '10:00' }),
+      expect.objectContaining({
+        scheduledLocalTime: '10:00',
+        date: expect.stringMatching(/T10:00:00-0[45]:00$/),
+      }),
       expect.anything(),
     )
     expect(completeFreePurchase).toHaveBeenCalledWith(

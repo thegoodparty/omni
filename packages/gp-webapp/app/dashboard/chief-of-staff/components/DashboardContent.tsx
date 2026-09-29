@@ -11,6 +11,7 @@ import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskList from './TaskList'
 import FooterChatBar from './chat/FooterChatBar'
 import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
+import { useAttachmentsEnabled } from '../../shared/agent-chat/hooks/useAttachmentsEnabled'
 import { useBriefingDispatch } from '../data/use-briefing-dispatch'
 import type { OnboardingCardKey } from '../data/contracts'
 
@@ -29,6 +30,7 @@ export default function DashboardContent(): React.JSX.Element {
   // Owned here so the banner and the task list below it cannot disagree about
   // whether a briefing is generating.
   const { inFlight: briefingInFlight } = useBriefingDispatch()
+  const attachmentsEnabled = useAttachmentsEnabled('chief_of_staff')
 
   const firstName = user?.firstName || undefined
 
@@ -81,6 +83,7 @@ export default function DashboardContent(): React.JSX.Element {
         firstName={firstName}
         onOpen={openNewChat}
         onOpenConversation={openConversation}
+        showAttachIcon={attachmentsEnabled.enabled}
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS } from 'helpers/analyticsHelper'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
@@ -707,6 +707,127 @@ describe('<ChiefOfStaffChatBody>', () => {
     )
     // The kickoff message is hidden, no user bubble for it in the transcript.
     expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
+  })
+
+  // The contacts assistant bar takes the user's first message before this
+  // surface is open, so it arrives as a prop rather than through the composer.
+  it('sends a pendingMessage as a VISIBLE first turn', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_p' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Here is your list.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'young supporters'),
+      msg('assistant', 'Here is your list.', { id: 'a1' }),
+    ])
+
+    render(<ChiefOfStaffChatBody active pendingMessage="young supporters" />)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'young supporters' }),
+      ),
+    )
+    // Unlike a kickoff, the user's own request stays on screen.
+    await waitFor(() =>
+      expect(screen.getByText('young supporters')).toBeInTheDocument(),
+    )
+  })
+
+  it('does not re-send the pendingMessage on a re-render that keeps it set', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_p' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    const { rerender } = render(
+      <ChiefOfStaffChatBody active pendingMessage="young supporters" />,
+    )
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+    rerender(<ChiefOfStaffChatBody active pendingMessage="young supporters" />)
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('reports every visible send through onMessageSent, and no hidden one', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_m' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    await waitFor(() => expect(onMessageSent).toHaveBeenCalledTimes(1))
+  })
+
+  // The funnel event has to mean "delivered", not "attempted": the callback
+  // exists to measure open-to-send, so a send that never reached a
+  // conversation must not inflate it.
+  it('does not report a send whose conversation create failed', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockRejectedValue(new Error('network down'))
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    // The create is attempted and fails, so the turn never streams.
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(
+        screen.getByText('Could not start chat. Try again.'),
+      ).toBeInTheDocument(),
+    )
+    expect(streamMessageMock).not.toHaveBeenCalled()
+    expect(onMessageSent).not.toHaveBeenCalled()
+  })
+
+  it('does not report a hidden kickoff through onMessageSent', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_h' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Canned kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingKickoff="__kickoff__"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '__kickoff__' }),
+      ),
+    )
+    expect(onMessageSent).not.toHaveBeenCalled()
   })
 
   it('fires the kickoff into an override conversation without minting a new one', async () => {
@@ -1739,5 +1860,93 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
       EVENTS.ChiefOfStaff.UploadGuardShown,
       {},
     )
+  })
+})
+
+// Ported from the deleted AssistantDrawer.test.tsx: the contacts assistant used
+// to own this invalidation, and it moved here with the surface consolidation
+// because the agent can cut a list from any surface that mounts this body.
+describe('<ChiefOfStaffChatBody> saved-list invalidation', () => {
+  const streamSavedFilters = (): void => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_sf' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        {
+          type: 'tool_call',
+          toolName: 'crud_saved_filters',
+          args: { action: 'create' },
+        },
+        {
+          type: 'tool_result',
+          toolName: 'crud_saved_filters',
+          result: { id: 5 },
+        },
+        { type: 'text', delta: 'Saved your list.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+  }
+
+  // `testQueryClient` is a shared singleton, and `vi.spyOn` on an
+  // already-spied method hands back the SAME mock with its accumulated call
+  // history. Both directions need the clear, not just the negative one: an
+  // uncleared positive assertion can be satisfied by a prior test's calls
+  // instead of its own render, which passes for the wrong reason and would
+  // keep passing if this behavior broke.
+  const spyOnInvalidate = () =>
+    vi.spyOn(testQueryClient, 'invalidateQueries').mockClear()
+
+  it('drops the contacts queries when a saved-filter call finishes', async () => {
+    const invalidate = spyOnInvalidate()
+    streamSavedFilters()
+
+    render(<ChiefOfStaffChatBody active pendingMessage="save that list" />)
+
+    // The lists index.
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['custom-segments', 'eo-test-org'],
+      }),
+    )
+    // The per-list detail sheet.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['list-detail', 'eo-test-org'],
+    })
+    // The members, not just the summary: the agent can rewrite a list's
+    // filters, and the map in this very transcript draws who is in it.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['list-people', 'eo-test-org'],
+    })
+  })
+
+  it('leaves them alone for an unrelated tool', async () => {
+    const invalidate = spyOnInvalidate()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_sf' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'tool_call', toolName: 'count_contacts', args: {} },
+        {
+          type: 'tool_result',
+          toolName: 'count_contacts',
+          result: { count: 3 },
+        },
+        { type: 'text', delta: 'About 3.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(<ChiefOfStaffChatBody active pendingMessage="how many?" />)
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.getByText('About 3.')).toBeInTheDocument(),
+    )
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ['custom-segments', 'eo-test-org'],
+    })
   })
 })

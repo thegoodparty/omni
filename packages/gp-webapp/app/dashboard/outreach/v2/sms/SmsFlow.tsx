@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { format } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachDetail,
@@ -48,6 +48,10 @@ import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import {
+  combineScheduledAt,
+  resolveCampaignTimeZone,
+} from '../robocall/scheduleTimeZone'
 import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
@@ -309,6 +313,13 @@ const successDate = (d: Date) =>
 const successTime = (d: Date) =>
   d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 
+// A Win send is an instant in the campaign's zone, so it is read back in
+// that zone; Serve's fixed-hour stamp is browser-local and takes no zone.
+const sendDateLabel = (d: Date, timeZone?: string) =>
+  timeZone ? formatInTimeZone(d, timeZone, 'EEE, MMM d, yyyy') : successDate(d)
+const sendTimeLabel = (d: Date, timeZone?: string) =>
+  timeZone ? formatInTimeZone(d, timeZone, 'h:mm a') : successTime(d)
+
 // "visa" → "Visa" — Stripe reports card brands lowercase.
 const cardBrandLabel = (brand: string) =>
   brand.charAt(0).toUpperCase() + brand.slice(1)
@@ -318,12 +329,14 @@ const cardBrandLabel = (brand: string) =>
 export const SuccessScreen = ({
   contactCount,
   sendAt,
+  timeZone,
   outreachId,
   paid,
   onDone,
 }: {
   contactCount: number
   sendAt: Date | null
+  timeZone?: string
   outreachId: number | null
   // Free-texts sends skip the receipt entirely — there is no charge, and
   // the endpoint 404s rows without a checkout session.
@@ -358,7 +371,7 @@ export const SuccessScreen = ({
           Your sms campaign will reach {contactCount.toLocaleString()}{' '}
           recipients
           {sendAt
-            ? ` starting ${successDate(sendAt)} at ${successTime(sendAt)}.`
+            ? ` starting ${sendDateLabel(sendAt, timeZone)} at ${sendTimeLabel(sendAt, timeZone)}.`
             : ' soon.'}
         </p>
       </div>
@@ -449,6 +462,10 @@ export const SmsFlow = ({
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  // gp-api reads the picked wall-clock window in the campaign state's zone
+  // (Peerly `requested_timezone`), so the step captions that zone rather
+  // than the browser's.
+  const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
@@ -710,18 +727,18 @@ export const SmsFlow = ({
   // onto the day it hands back, so the picked date IS the scheduled moment.
   const fixedMorningSchedule = surface.scheduleMode === 'serveFixedMorning'
 
+  // The picked wall-clock time is read in the campaign's zone, not the
+  // browser's: gp-api hands Peerly that same zone, so a candidate scheduling
+  // from another timezone still gets the hour they picked where their voters
+  // are. Serve stamps its fixed hour onto the day itself (browser-local).
   const scheduledAt = useMemo(() => {
     if (!date) return null
     if (fixedMorningSchedule) return date
     const slot = TIME_OPTIONS.find((t) => t.id === timeSlot)
     const timeStr = timeSlot === 'custom' ? customTime : slot?.time
-    if (!timeStr) return null
-    const [hh, mm] = timeStr.split(':').map(Number)
-    if (hh === undefined || mm === undefined || Number.isNaN(hh)) return null
-    const d = new Date(date)
-    d.setHours(hh, mm, 0, 0)
-    return d
-  }, [date, timeSlot, customTime, fixedMorningSchedule])
+    if (!timeStr || !/^\d{2}:\d{2}$/.test(timeStr)) return null
+    return combineScheduledAt(date, timeStr, timeZone)
+  }, [date, timeSlot, customTime, fixedMorningSchedule, timeZone])
 
   // Both windows are Peerly's, so both are Win-only. Serve's calendar
   // disables every date it will not accept (2 business days out, 30-day
@@ -733,11 +750,15 @@ export const SmsFlow = ({
   // 8 PM cap, not the 9 PM compliance cutoff: the chosen time opens Peerly's
   // send window and the window always closes at 9 PM, so a later start
   // would leave a zero-width window (server clamps too).
+  const scheduledHour =
+    scheduledAt && Number(formatInTimeZone(scheduledAt, timeZone, 'HH'))
+  const scheduledMinute =
+    scheduledAt && Number(formatInTimeZone(scheduledAt, timeZone, 'mm'))
   const outsideWindow =
-    !fixedMorningSchedule && scheduledAt
-      ? scheduledAt.getHours() < 9 ||
-        scheduledAt.getHours() > 20 ||
-        (scheduledAt.getHours() === 20 && scheduledAt.getMinutes() > 0)
+    !fixedMorningSchedule && scheduledHour !== null && scheduledMinute !== null
+      ? scheduledHour < 9 ||
+        scheduledHour > 20 ||
+        (scheduledHour === 20 && scheduledMinute > 0)
       : false
 
   // Serve's entire send sequence: no Peerly phone list, one org-scoped
@@ -1068,14 +1089,22 @@ export const SmsFlow = ({
             message: composedMessage,
             script: composedMessage,
             title: `P2P Outreach - Campaign ${campaign.id}`,
-            // Offset-annotated local time, not toISOString(): the server
-            // slices the first 10 chars as the user's send DAY for Peerly,
-            // and the UTC rendering puts evening sends on the next day.
-            date: format(scheduledAt, "yyyy-MM-dd'T'HH:mm:ssXXX"),
-            // The wall-clock time as picked — approve opens Peerly's
-            // contact-local send window at it ("6 PM" means 6 PM wherever
-            // the contact lives).
-            scheduledLocalTime: format(scheduledAt, 'HH:mm'),
+            // Offset-annotated time in the campaign's zone, not
+            // toISOString(): the server slices the first 10 chars as the
+            // send DAY for Peerly, and the UTC rendering puts evening sends
+            // on the next day.
+            date: formatInTimeZone(
+              scheduledAt,
+              timeZone,
+              "yyyy-MM-dd'T'HH:mm:ssXXX",
+            ),
+            // The wall-clock time as picked — approve opens Peerly's send
+            // window at it, read in the same campaign zone.
+            scheduledLocalTime: formatInTimeZone(
+              scheduledAt,
+              timeZone,
+              'HH:mm',
+            ),
             ...(audience.selectedListId
               ? { voterFileFilterId: audience.selectedListId }
               : {}),
@@ -1447,6 +1476,7 @@ export const SmsFlow = ({
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
           sendAt={scheduledAt}
+          timeZone={fixedMorningSchedule ? undefined : timeZone}
           outreachId={draftOutreachId}
           paid={paidSend}
           onDone={onClose}
@@ -1578,6 +1608,7 @@ export const SmsFlow = ({
               onTimeSlotChange={setTimeSlot}
               customTime={customTime}
               onCustomTimeChange={setCustomTime}
+              timeZone={timeZone}
               earliestSend={earliestSend}
               calendarFloor={earliestSend}
               violates48h={violates48h}
@@ -1650,6 +1681,7 @@ export const SmsFlow = ({
             name={name}
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
+            timeZone={fixedMorningSchedule ? undefined : timeZone}
             composedMessage={composedMessage}
             imagePreviewUrl={previewUrl}
             contactCount={

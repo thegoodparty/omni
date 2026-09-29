@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { TIME_OPTIONS } from './SmsScheduleStep'
+import { TIME_OPTIONS, timeZoneCaption } from './SmsScheduleStep'
+
+describe('timeZoneCaption', () => {
+  it('names the zone generically, without a daylight/standard split', () => {
+    expect(timeZoneCaption('America/Chicago')).toBe('Central Time')
+    expect(timeZoneCaption('America/Los_Angeles')).toBe('Pacific Time')
+  })
+
+  it('falls back to the zone id when Intl rejects it', () => {
+    expect(timeZoneCaption('Not/AZone')).toBe('Not/AZone')
+  })
+})
 
 // The chosen time is the Peerly window START and the window always closes
 // at the 9 PM compliance cutoff, so the last bookable slot is 8 PM — a

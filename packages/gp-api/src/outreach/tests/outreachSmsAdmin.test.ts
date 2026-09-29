@@ -360,6 +360,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       expect(res.data.approvalStatus).toBe('canvass_requested')
       const updated = await service.prisma.outreach.findFirstOrThrow({
@@ -394,6 +395,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
         startTime: '18:00',
+        state: null,
       })
       // Activation carries the same window so a job whose schedule was
       // minted before the send time was honored gets realigned.
@@ -401,6 +403,33 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         campaignId,
         date: SEND_LOCAL_DATE,
         startTime: '18:00',
+        state: null,
+      })
+    })
+
+    it("threads the row's state into the booking and the activation window", async () => {
+      const row = await seedOutreach({ scheduledLocalTime: '18:00' })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { didState: 'CA' },
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+        state: 'CA',
+      })
+      expect(activateJob).toHaveBeenCalledWith('peerly-job-1', {
+        campaignId,
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+        state: 'CA',
       })
     })
 
@@ -424,6 +453,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
           date: SEND_LOCAL_DATE,
           startTime: booked,
+          state: null,
         })
       },
     )
@@ -490,6 +520,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       const updated = await service.prisma.outreach.findFirstOrThrow({
         where: { id: row.id },
@@ -878,6 +909,38 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         campaignId,
         date: NEW_LOCAL_DATE,
         startTime: '18:00',
+        state: null,
+      })
+    })
+
+    it("re-mints and rebooks in the row's state zone", async () => {
+      const row = await seedOutreach({ approvedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: {
+          didState: 'CA',
+          approvedBy: 'cas@goodparty.org',
+          canvassRequestedAt: subDays(new Date(), 1),
+        },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(updateJobSchedule).toHaveBeenCalledWith({
+        jobId: 'peerly-job-1',
+        campaignId,
+        date: NEW_LOCAL_DATE,
+        startTime: '09:00',
+        state: 'CA',
+      })
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: NEW_LOCAL_DATE,
+        startTime: '09:00',
+        state: 'CA',
       })
     })
 
@@ -895,6 +958,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         campaignId,
         date: NEW_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       expect(clearCanvassers).not.toHaveBeenCalled()
       expect(requestCanvassers).not.toHaveBeenCalled()
@@ -934,6 +998,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: NEW_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       // The stale booking must be cleared before the new day is requested —
       // Peerly allows one open canvasser request per job.
@@ -1063,6 +1128,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         campaignId,
         date: NEW_LOCAL_DATE,
         startTime: '09:00',
+        state: null,
       })
       expect(clearCanvassers).not.toHaveBeenCalled()
       expect(requestCanvassers).not.toHaveBeenCalled()
