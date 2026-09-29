@@ -109,9 +109,13 @@ export class ElectionDbService implements OnModuleInit, OnModuleDestroy {
     try {
       await client.$connect()
     } catch (err) {
-      this.logger.debug(
+      // Error, not debug: boot still succeeds by design, so this line is the
+      // only signal that every election route is about to 500. It was debug
+      // once, and a missing query engine — which no retry can fix — read as a
+      // routine reconnect while an entire E2E suite failed on unrelated specs.
+      this.logger.error(
         { err },
-        'Initial election-db connect failed; will retry lazily on first query',
+        'election-db unavailable — every election-backed route will fail until this is resolved',
       )
     }
     return client
