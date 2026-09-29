@@ -4,7 +4,10 @@ import {
   createElectionDbBase,
   ELECTION_MODELS,
 } from '@/electionDb/electionDbBase.util'
-import { CandidacyFilterDto } from './candidacies.schema'
+import {
+  CandidacyFilterDto,
+  DEFAULT_CANDIDACY_PAGE_SIZE,
+} from './candidacies.schema'
 import { Prisma } from '@/generated/election-prisma'
 
 @Injectable()
@@ -21,6 +24,11 @@ export class CandidaciesService extends createElectionDbBase(
       includeStances,
       includeRace,
       raceColumns,
+      // Defaulted here as well as in the Zod DTO: the bound is a safety
+      // property, so a caller that builds the filter by hand must not be able
+      // to opt out of it by omitting the fields.
+      page = 1,
+      pageSize = DEFAULT_CANDIDACY_PAGE_SIZE,
     } = filterDto
 
     // raceSlug and positionId both constrain the related Race; merge them into a
@@ -54,12 +62,21 @@ export class CandidaciesService extends createElectionDbBase(
     // The column allowlist already keeps PII out of the explicit-`select` path.
     // The default/`include` path returns every scalar field, so omit PII there
     // too — otherwise a plain `GET /candidacies` leaks candidate emails.
+    // `id` rather than a business key: pagination needs a total order, and it
+    // is the only column guaranteed unique, so no page can repeat or skip a row.
+    const paging = {
+      orderBy: { id: Prisma.SortOrder.asc },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }
+
     return candidacySelectBase
-      ? this.model.findMany({ where, select: candidacySelection })
+      ? this.model.findMany({ where, select: candidacySelection, ...paging })
       : this.model.findMany({
           where,
           omit: { email: true },
           include: candidacySelection,
+          ...paging,
         })
   }
 

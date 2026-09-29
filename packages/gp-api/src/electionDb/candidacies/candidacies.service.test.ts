@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CandidaciesService } from './candidacies.service'
-import { CandidacyFilterDto } from './candidacies.schema'
+import {
+  CandidacyFilterDto,
+  DEFAULT_CANDIDACY_PAGE_SIZE,
+} from './candidacies.schema'
+
+const PAGING = {
+  orderBy: { id: 'asc' },
+  skip: 0,
+  take: DEFAULT_CANDIDACY_PAGE_SIZE,
+}
 
 describe('CandidaciesService.getCandidacies', () => {
   let service: CandidaciesService
@@ -24,6 +33,7 @@ describe('CandidaciesService.getCandidacies', () => {
       where: {},
       omit: { email: true },
       include: undefined,
+      ...PAGING,
     })
   })
 
@@ -50,6 +60,41 @@ describe('CandidaciesService.getCandidacies', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: {},
       select: { id: true, firstName: true },
+      ...PAGING,
     })
+  })
+
+  // `GET /candidacies` previously ran an unbounded findMany, so an unfiltered
+  // M2M call could pull the whole table with relations eagerly loaded.
+  it('bounds an unfiltered query rather than scanning the table', async () => {
+    await service.getCandidacies({} as CandidacyFilterDto)
+
+    const args = findMany.mock.calls[0]?.[0]
+    expect(args.take).toBe(DEFAULT_CANDIDACY_PAGE_SIZE)
+    expect(args.skip).toBe(0)
+  })
+
+  it('stays bounded when the filter is built without the DTO defaults', async () => {
+    await service.getCandidacies({
+      state: 'TX',
+      includeStances: true,
+      includeRace: true,
+    } as CandidacyFilterDto)
+
+    const args = findMany.mock.calls[0]?.[0]
+    expect(args.take).toBe(DEFAULT_CANDIDACY_PAGE_SIZE)
+  })
+
+  it('offsets by whole pages and orders on a unique column', async () => {
+    await service.getCandidacies({
+      page: 3,
+      pageSize: 50,
+    } as CandidacyFilterDto)
+
+    const args = findMany.mock.calls[0]?.[0]
+    expect(args.skip).toBe(100)
+    expect(args.take).toBe(50)
+    // A non-unique order would let a row repeat or vanish across pages.
+    expect(args.orderBy).toEqual({ id: 'asc' })
   })
 })

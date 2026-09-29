@@ -24,6 +24,15 @@ const raceColumns = Object.values(
   Prisma.RaceScalarFieldEnum,
 ) as (keyof typeof Prisma.RaceScalarFieldEnum)[]
 
+// `GET /candidacies` ran an unbounded `findMany`, so a broad filter like
+// `?state=TX` — or none at all — could materialize the whole table, with
+// stances, issues and races eagerly loaded. Same bug `GET /races` already
+// fixed; same shape of fix. The default is deliberately generous so a
+// realistically-filtered caller still gets its full result in one page, while
+// an unfiltered scan stays bounded. Callers needing more walk pages via `page`.
+export const DEFAULT_CANDIDACY_PAGE_SIZE = 1000
+export const MAX_CANDIDACY_PAGE_SIZE = 5000
+
 export const candidacyFilterSchema = z
   .object({
     state: z
@@ -71,6 +80,14 @@ export const candidacyFilterSchema = z
           message: `Invalid race column provided. Allowed columns are: ${raceColumns.join(', ')}`,
         },
       ),
+    page: z.coerce.number().int().min(1).optional().default(1),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_CANDIDACY_PAGE_SIZE)
+      .optional()
+      .default(DEFAULT_CANDIDACY_PAGE_SIZE),
   })
   .strict()
 
