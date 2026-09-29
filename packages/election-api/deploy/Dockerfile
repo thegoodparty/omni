@@ -2,7 +2,7 @@
 FROM public.ecr.aws/vend/moby/buildkit:buildx-stable-1 AS buildkit
 
 # Stage 1: Install dependencies and build application
-FROM public.ecr.aws/docker/library/node:22.23.0-alpine AS builder
+FROM node:22.23.0-alpine AS builder
 
 RUN apk add --no-cache \
     libc6-compat \
@@ -88,7 +88,7 @@ RUN npm run generate
 RUN npx nest build
 
 # Stage 2: Create a minimal runtime image
-FROM public.ecr.aws/docker/library/node:22.23.0-alpine
+FROM node:22.23.0-alpine
 
 RUN apk add --no-cache \
     libc6-compat \
