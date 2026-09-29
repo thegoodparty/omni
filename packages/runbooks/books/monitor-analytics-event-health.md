@@ -298,12 +298,16 @@ never demoting an OKR-anchored red item.
 
 That judge, and the gap judge in `instrumentation_gaps.py`, are each **one forced-tool-call
 request with a fixed system prompt** — no tools, no filesystem. So they cannot follow a
-pointer to a doc; the text has to be in the prompt. `governance_gotchas.py` pastes
+pointer to a doc; the text has to be in the prompt. `governance_gotchas.py` pastes the
+**Judgment traps** table of
 [analytics-governance-gotchas.md](analytics-governance-gotchas.md) into both, because both
 rule before any human reads the digest and a trap the judge does not know about becomes a
-tier or a confirmed gap nobody has reason to question (DATA-2575). A missing or corrupt book
-degrades to the rubric alone rather than failing the run. The judges only read it — the book
-is written in the `/triage-instrumentation-gaps` review, with a human approving each row. The judge needs `ANTHROPIC_API_KEY` and reads its
+tier or a confirmed gap nobody has reason to question (DATA-2575). Only that table: the
+book's other half is tooling defects awaiting a Python fix and process rules about git
+archaeology, none of which a judge can act on, so it stays out of the prompt (62% of the
+file, and it would be paid twice a week). A missing or corrupt book degrades to the rubric
+alone rather than failing the run. The judges only read it — the book is written in the
+`/triage-instrumentation-gaps` review, with a human approving each row. The judge needs `ANTHROPIC_API_KEY` and reads its
 model from `DIGEST_TRIAGE_MODEL` (default `claude-sonnet-5`); when the key is unset or the
 judge call fails, the digest posts anyway on the deterministic rules tier, with a
 `⚙️ triage judgment unavailable this run` line in the parent.

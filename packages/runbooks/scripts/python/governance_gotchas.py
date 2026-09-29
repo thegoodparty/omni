@@ -39,8 +39,33 @@ _HEADER = (
 )
 
 
+START_MARKER = "<!-- judge-input:start -->"
+END_MARKER = "<!-- judge-input:end -->"
+
+
+def judge_input_section(text: str) -> str:
+    """The slice of the book between the judge-input markers.
+
+    The book carries two tables. Only the judgment traps — rows that change a verdict
+    someone is about to reach — belong in a prompt. The rest are tooling defects awaiting
+    a Python fix and process rules about git archaeology and systems of record: real
+    knowledge, but nothing a judge can act on, so paying prompt weight for it twice a week
+    buys nothing.
+
+    Missing markers fall back to the WHOLE file, deliberately. The two failure directions
+    are not symmetric: a marker typo that sends slightly too much context costs tokens,
+    while one that sends nothing silently blinds both judges to every trap. A test asserts
+    the committed book has both markers, so a typo fails CI rather than either.
+    """
+    start = text.find(START_MARKER)
+    end = text.find(END_MARKER)
+    if start == -1 or end == -1 or end < start:
+        return text
+    return text[start + len(START_MARKER):end].strip()
+
+
 def load_gotchas(path: Path | None = None) -> str:
-    """The book's text, or ``""`` if it cannot be read.
+    """The book's judge-input section, or ``""`` if the file cannot be read.
 
     The default is resolved at call time, not bound as a default argument: callers invoke
     this with no argument, so a definition-time binding would make the path impossible to
@@ -50,9 +75,10 @@ def load_gotchas(path: Path | None = None) -> str:
     same way ``digest_triage.run_triage`` guards its own rubric read.
     """
     try:
-        return (path or DEFAULT_GOTCHAS_PATH).read_text()
+        text = (path or DEFAULT_GOTCHAS_PATH).read_text()
     except (OSError, ValueError):
         return ""
+    return judge_input_section(text)
 
 
 def gotchas_prompt_section(text: str) -> str:
