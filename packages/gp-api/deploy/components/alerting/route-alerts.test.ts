@@ -283,21 +283,48 @@ describe('the grouped route alerts', () => {
 
   // Grafana evaluates a rule group as a unit, so the group's interval is the
   // one that actually runs, and the per-alert field only decides which group
-  // grafana.ts puts it in. If the two disagree the rules evaluate on a cadence
-  // nothing has budgeted for, and the ratio asserted above is fiction.
-  it('evaluates on the interval its rule group is provisioned with', () => {
+  // grafana.ts puts it in. It buckets by that field, so an interval missing
+  // from this list would provision a group nothing has budgeted for, and the
+  // ratio asserted above is fiction.
+  it('evaluates on an interval a rule group is provisioned for', () => {
     for (const alert of ALERTS) {
-      expect(alert.evaluationIntervalSeconds, alert.slug).toBe(
-        ROUTE_EVALUATION_SECONDS,
+      expect(ROUTE_EVALUATION_SECONDS, alert.slug).toContain(
+        alert.evaluationIntervalSeconds,
       )
     }
   })
 
-  // Zero, not one minute, because `for` is counted in whole evaluations and
-  // the interval is ten of them. A `for` of '1m' would not mean a minute here;
-  // it would mean the rule has to breach on two consecutive evaluations, so up
-  // to twenty minutes before anyone hears. The 10-minute window is already the
-  // debounce.
+  // THE LATENCY PROPERTY, AS A TEST, because it is the one a cost change would
+  // quietly take back. Detection latency is the evaluation interval, so every
+  // rule that just counts errors has to be on the minute — that is what this
+  // collapse was for once the six rules made it affordable.
+  //
+  // The thresholded rule is the deliberate exception and is asserted as one
+  // rather than exempted silently: `> 2` over a minute cannot see a fault
+  // running two errors a minute, and no other rule covers that shape (the
+  // ratio rule needs 10% of non-404 traffic; two a minute here is under 2%).
+  // Its threshold was measured per 10-minute window — see
+  // ROUTE_ERROR_THRESHOLDS — so it keeps the window it was calibrated on.
+  it('detects within a minute unless a threshold needs to accumulate', () => {
+    for (const group of GROUPS) {
+      const alert = ALERTS.find((a) => a.slug === group.slug)
+      expect(alert, group.slug).toBeDefined()
+      expect(alert!.evaluationIntervalSeconds, group.slug).toBe(
+        group.threshold > 0 ? 600 : 60,
+      )
+    }
+
+    // Not all six, or the property above holds trivially if the thresholds
+    // ever go away.
+    expect(GROUPS.filter((g) => g.threshold === 0).length).toBeGreaterThan(0)
+  })
+
+  // Zero, and the reason is stronger on a minute window than it was on ten.
+  // `for` counts whole evaluations, so '1m' means "breach twice in a row" —
+  // and the second evaluation reads the NEXT minute. Every error event measured
+  // on these routes arrived inside a single minute (5 in one, 47 in one, 7 in
+  // eight seconds), with the following minute clean, so any `for` above zero
+  // would silence the exact bursts these rules exist to catch.
   it('waits no extra evaluation before firing', () => {
     for (const alert of ALERTS) {
       expect(alert.for, alert.slug).toBe('0m')

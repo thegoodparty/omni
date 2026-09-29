@@ -11,10 +11,7 @@ import {
   buildKnownCausesAnnotation,
   KNOWN_CAUSES_ANNOTATION,
 } from './alerting/alert-notification'
-import {
-  routeErrorAlerts,
-  ROUTE_EVALUATION_SECONDS,
-} from './alerting/route-alerts'
+import { routeErrorAlerts } from './alerting/route-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
@@ -620,22 +617,41 @@ export const createGrafanaResources = async ({
     })
   }
 
-  // ONE GROUP, where there used to be one per controller. Grafana evaluates a
-  // rule group as a unit, so the group is also the cadence, and these six rules
-  // all want the same slow one — see ROUTE_EVALUATION_SECONDS in
-  // alerting/route-alerts.ts for why the interval is the whole cost story.
+  // TWO GROUPS, where there used to be one per controller. Grafana evaluates a
+  // rule group as a unit, so the group IS the cadence — which is why the two
+  // window shapes cannot share one. The five counting rules evaluate every
+  // minute and the one thresholded rule every ten; `routeWindow` in
+  // alerting/route-alerts.ts is where that split is argued.
+  //
+  // Bucketed the same way the global rules are, and the minute bucket keeps the
+  // bare resource name so the group a rule moves between is the exception
+  // rather than both of them.
   //
   // This replaces 75 `<controller>-rules` groups. Pulumi will delete those on
   // the next deploy, which also deletes their alert history and any silence
   // keyed to an old `<controller>-route-errors` slug. Routing is unaffected:
   // the notification policy matches on `environment`, not on slug.
-  const routeAlerts = routeErrorAlerts()
-  new grafana.alerting.RuleGroup('route-error-rules', {
-    name: 'Route errors',
-    folderUid: alertFolder.uid,
-    intervalSeconds: ROUTE_EVALUATION_SECONDS,
-    rules: routeAlerts.map(alertToRule),
-  })
+  const routeAlertsByInterval = new Map<number, Alert[]>()
+  for (const alert of routeErrorAlerts()) {
+    const interval = alert.evaluationIntervalSeconds ?? 60
+    routeAlertsByInterval.set(interval, [
+      ...(routeAlertsByInterval.get(interval) ?? []),
+      alert,
+    ])
+  }
+
+  for (const [intervalSeconds, alerts] of routeAlertsByInterval) {
+    const isDefault = intervalSeconds === 60
+    new grafana.alerting.RuleGroup(
+      isDefault ? 'route-error-rules' : `route-error-rules-${intervalSeconds}s`,
+      {
+        name: isDefault ? 'Route errors' : `Route errors (${intervalSeconds}s)`,
+        folderUid: alertFolder.uid,
+        intervalSeconds,
+        rules: alerts.map(alertToRule),
+      },
+    )
+  }
 
   const { probes } = await grafana.syntheticmonitoring.getProbes()
 

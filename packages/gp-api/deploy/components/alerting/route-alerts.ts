@@ -140,20 +140,84 @@ const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 // at the floor is 75x ingest; six is six. `global-alerts.test.ts` sums this
 // across the estate and fails a PR that spends too much of the allowance.
 
-// The window each rule judges, and the interval it judges it on. Equal, so
-// every log line is read exactly once: the floor for a rule that cannot afford
-// to miss an error. The 10-minute window is unchanged from what these rules
-// have always judged; the interval used to be the 60s default, which re-read
-// the same ten minutes ten times over.
+// The window each rule judges, and the interval it judges it on. Always equal,
+// so every log line is read exactly once — the floor above — which is why a
+// window here is one number rather than a pair that could drift apart.
 //
-// The cost of the slower interval is detection latency: an error is seen at
-// the next evaluation, so up to ten minutes later. That is accepted for an
-// error count. Nothing here is a liveness check — `health-check-probe-failure`
-// is, and it is unaffected.
-const LOOKBACK_RANGE = '10m'
-const LOOKBACK_PROSE = '10 minutes'
-const LOOKBACK_SECONDS = 600
-export const ROUTE_EVALUATION_SECONDS = 600
+// TWO WINDOWS, BECAUSE A THRESHOLD IS AN ACCUMULATION AND A COUNT OF ONE IS
+// NOT. Both shapes cost the same single unit, window divided by interval, so
+// the split is free and the choice is entirely about what the rule means.
+//
+// At threshold 0 the window decides latency and nothing else. Gapless minute
+// windows tile the same timeline the ten-minute ones did, so every error still
+// falls inside exactly one evaluation — narrowing cannot miss one, it only
+// sees it within a minute instead of within ten. That is the whole reason this
+// changed, and it covers five of the six rules.
+//
+// At a threshold above 0 the window is load-bearing, and this is the case that
+// keeps ten minutes. `> 2` over ten minutes catches a fault running two errors
+// a minute, at twenty per window. The same threshold over one minute never
+// fires on that fault at all, and nothing else would: the ratio rule that
+// covers "this route is down" needs 10% of non-404 traffic, while two a minute
+// against the ~104 a minute this route serves is under 2%. Narrowing it would
+// open a gap no other rule closes, so it keeps the window its threshold was
+// measured against — see ROUTE_ERROR_THRESHOLDS in alerts.ts.
+//
+// WHAT NARROWING DOES NOT COST, measured rather than assumed. A narrower
+// window at a fixed threshold can only ever fire less often, because a
+// one-minute count is part of the ten-minute count that contains it — so no
+// quiet window turns into a page. And bursts, which is what a threshold exists
+// to catch, survive it: replayed at minute resolution on the thresholded route,
+// 2026-09-14 was 5 errors inside 14:39 and 47 inside 14:50, 2026-09-25 was
+// 269/449/105 in three consecutive minutes, and the 2026-09-29 burst was 7
+// inside 8 seconds. Every measured event on that route arrived inside a single
+// minute, so a minute window would have caught each one ~9 minutes sooner.
+//
+// THE PRICE OF A MINUTE, stated because it is the one thing that gets worse.
+// A rule reading [now-60s, now] cannot see lines that have not arrived yet, and
+// gp-api's logs reach Loki about 5 seconds behind the request — measured at
+// 4.6s on 2026-09-29 against a stream taking ~32 lines a second, so that is
+// ingestion lag and not a gap in traffic. Because consecutive windows tile
+// without overlap, an error in the last ~5 seconds of a window is read by no
+// evaluation at all: roughly 8% of them, where ten minutes loses 0.8%. Any
+// fault producing more than one error is unaffected; a genuinely isolated one
+// has about a one-in-twelve chance of passing unseen. Buying that back needs a
+// window wider than the interval, and the budget has no room for it — the five
+// fast rules at factor 2 is 10 where 5 fit, which lands the estate exactly on
+// MAX_TOTAL_REREAD_FACTOR with nothing left for the next alert.
+type RouteWindow = { range: string; prose: string; seconds: number }
+
+const MINUTE_WINDOW: RouteWindow = {
+  range: '1m',
+  // "60 seconds" and not "1 minute": the notification has to state a plural
+  // unit, because the test that stops a rule promising a window it did not
+  // query parses the number back out of this prose.
+  prose: '60 seconds',
+  seconds: 60,
+}
+
+const BURST_WINDOW: RouteWindow = {
+  range: '10m',
+  prose: '10 minutes',
+  seconds: 600,
+}
+
+/**
+ * The window a group judges, which follows from whether it counts or
+ * thresholds.
+ *
+ * Derived from the threshold rather than listed per group, because the
+ * threshold IS the reason a group needs the wider one — at 0 there is nothing
+ * to accumulate, so a wider window would add nothing but delay.
+ */
+export const routeWindow = (threshold: number): RouteWindow =>
+  threshold > 0 ? BURST_WINDOW : MINUTE_WINDOW
+
+/** Every distinct interval the route rules are evaluated on. */
+export const ROUTE_EVALUATION_SECONDS = [
+  MINUTE_WINDOW.seconds,
+  BURST_WINDOW.seconds,
+]
 
 // The label the rules group by, named once because the `keep` below has to
 // agree with it exactly and a mismatch is silent — `sum by` on a label the
@@ -191,7 +255,11 @@ const ROUTE_LABEL = 'request_endpoint'
 // line, and the endpoint alternation is a regex over a list that can run to a
 // hundred entries. Filtering first means the expensive one only ever sees
 // errors.
-const routeErrorExpr = (statusFilter: string, endpointPattern: string) =>
+const routeErrorExpr = (
+  statusFilter: string,
+  endpointPattern: string,
+  range: string,
+) =>
   [
     `sum by (${ROUTE_LABEL}) (count_over_time(`,
     `{service_name="gp-api", deployment_environment_name="$ENV"}`,
@@ -199,7 +267,7 @@ const routeErrorExpr = (statusFilter: string, endpointPattern: string) =>
     `| ${statusFilter}`,
     `| ${ROUTE_LABEL} =~ \`${endpointPattern}\``,
     `| keep ${ROUTE_LABEL}`,
-    `[${LOOKBACK_RANGE}]))`,
+    `[${range}]))`,
   ].join(' ')
 
 /**
@@ -346,9 +414,10 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
 // for the route that fired. Built around a sentinel because the endpoint is a
 // Grafana template expanded at fire time (`urlquery` is a Go text/template
 // builtin) and must not be URL-encoded with the rest, and `$ENV` is restored
-// after encoding so buildAlertDescription still substitutes it. An hour, not
-// the 10m window: one error keeps a page open ~20 minutes and it is read
-// later still.
+// after encoding so buildAlertDescription still substitutes it. An hour rather
+// than the rule's own window, and the gap is wider now that five of the six
+// judge a single minute: one error keeps a page open ~20 minutes and it is read
+// later still, so a link scoped to the window would open on nothing.
 const GRAFANA_URL = 'https://goodparty.grafana.net'
 const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
 const ENDPOINT_SENTINEL = '__ENDPOINT__'
@@ -401,6 +470,8 @@ export const routeErrorAlerts = (): Alert[] =>
       ? serverErrorFilter
       : anyErrorFilter
 
+    const window = routeWindow(group.threshold)
+
     // Grafana evaluates this as `> threshold`, so on a raised one the message
     // has to say how many it took. Left to the default prose, a rule that needs
     // three errors still reads "returned server errors", and the reader goes
@@ -420,23 +491,33 @@ export const routeErrorAlerts = (): Alert[] =>
         qualifier.length > 0 ? ` (${qualifier.join(', ')})` : ''
       }`,
       type: 'log' as const,
-      expr: routeErrorExpr(statusFilter, routeEndpointPattern(group.endpoints)),
+      expr: routeErrorExpr(
+        statusFilter,
+        routeEndpointPattern(group.endpoints),
+        window.range,
+      ),
       threshold: group.threshold,
-      // Zero, not one minute, because `for` is counted in whole evaluations and
-      // the interval below is ten of them. A `for` of '1m' would not mean a
-      // minute here; it would mean the rule has to breach on two consecutive
-      // evaluations, so up to twenty minutes before anyone hears. The 10-minute
-      // window is already the debounce.
+      // Zero, and MORE load-bearing on the minute window than it was on the
+      // ten. `for` is counted in whole evaluations, so a `for` of '1m' means
+      // "breach on two consecutive evaluations" — which on the minute rules is
+      // two minutes rather than the twenty it used to mean, but now costs
+      // something it did not before. Every error event measured on these routes
+      // arrived inside a single minute (see routeWindow above): 5 in one
+      // minute, 47 in one minute, 7 in eight seconds. A second consecutive
+      // breaching evaluation looks at the NEXT minute, which in every one of
+      // those cases was clean — so a `for` above zero would have silenced the
+      // exact bursts these rules exist to catch. On the thresholded rule the
+      // count is the debounce; on the others one error is meant to page.
       for: '0m',
       // Grafana renders annotations per alert instance, so this is what turns
       // one rule back into a page that names the route that actually broke.
       summaryDetail: '`{{ $labels.request_endpoint }}`',
-      timeRangeSeconds: LOOKBACK_SECONDS,
-      evaluationIntervalSeconds: ROUTE_EVALUATION_SECONDS,
+      timeRangeSeconds: window.seconds,
+      evaluationIntervalSeconds: window.seconds,
       message: [
         group.serverErrorsOnly
-          ? `\`{{ $labels.request_endpoint }}\` returned ${countProse}server errors, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.`
-          : `\`{{ $labels.request_endpoint }}\` returned ${countProse}unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
+          ? `\`{{ $labels.request_endpoint }}\` returned ${countProse}server errors, or no status at all, in the last ${window.prose} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.`
+          : `\`{{ $labels.request_endpoint }}\` returned ${countProse}unexpected error responses, or no status at all, in the last ${window.prose} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
         `<${errorLinesLink}|Open this route's error lines> to read the exception each failing request logged (type, message, stack trace) before deciding what to fix. *View in Grafana* shows only the count that fired.`,
         `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
       ].join('\n\n'),

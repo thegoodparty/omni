@@ -294,6 +294,14 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
  * Controllers whose generated route alert needs a burst rather than a single
  * error, keyed to the count a 10-minute window must EXCEED.
  *
+ * AN ENTRY HERE ALSO BUYS THE 10-MINUTE WINDOW, which is not a separate knob:
+ * `routeWindow` in alerting/route-alerts.ts derives the window from the
+ * threshold, because a threshold is an accumulation and there is nothing to
+ * accumulate at 0. Every other group judges a single minute and pages that
+ * much sooner. So setting a threshold costs that controller nine minutes of
+ * detection latency on top of the errors it stops paging for — both halves of
+ * the trade are argued where the window is chosen.
+ *
  * The default of 0 pages on one qualifying error, and that is right nearly
  * everywhere: on a controller that errors a handful of times a month, the
  * first error IS the incident and waiting for a second only delays the page.

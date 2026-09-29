@@ -10,7 +10,7 @@ There are two categories of alerts:
 
 Six rules cover every owned route in the service:
 
-- **Error count**: Fires when requests to a route return error status codes (≥ 400, excluding 400/401/403/404/409/498) **or no status at all** within a 10-minute window. A group whose controllers are in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
+- **Error count**: Fires when requests to a route return error status codes (≥ 400, excluding 400/401/403/404/409/498) **or no status at all** within a 60-second window. A group whose controllers are in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault). A group carrying a `ROUTE_ERROR_THRESHOLDS` entry judges 10 minutes instead, because a threshold needs something to accumulate -- see [The window follows the threshold](#the-window-follows-the-threshold).
 
 These are generated from the controllers in the codebase -- you don't write them by hand -- and bucketed into the smallest number of Loki queries that can still say the right thing. See [Route alerts are six grouped rules](#route-alerts-are-six-grouped-rules). A controller's routes are covered only if it has an owner (see [Ownership](#ownership)); the few deliberately left uncovered are listed in `CONTROLLERS_WITHOUT_ROUTE_ALERTS`.
 
@@ -42,11 +42,21 @@ The allowance is shared and account-wide, so this is the one alerting knob where
 
 `routeAlertGroups()` in `deploy/components/alerting/route-alerts.ts` buckets every owned controller by the only three things that ever differ between these rules: the owner set, whether `SERVER_ERRORS_ONLY` applies, and the `ROUTE_ERROR_THRESHOLDS` entry. All three are properties of the rule rather than of the series it returns, so controllers that agree on all three share one rule; the anchored endpoint alternation is what keeps them apart. That is six rules today, where there was one per controller.
 
-Each is `sum by (request_endpoint) (count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | <status filter> | request_endpoint =~ "<the group's routes>" | keep request_endpoint [10m]))`, evaluated every 600 seconds.
+Each is `sum by (request_endpoint) (count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Request completed" | <status filter> | request_endpoint =~ "<the group's routes>" | keep request_endpoint [<window>]))`, where the window is `[1m]` evaluated every 60 seconds on the five counting rules and `[10m]` every 600 seconds on the one thresholded rule.
 
 **Paging is still per route.** `sum by (request_endpoint)` returns one series per failing route, Grafana raises one alert instance per series, and `summaryDetail` puts the endpoint in the title. A grouped rule pages exactly as a per-controller rule did. What it no longer does is name the controller, which the endpoint already implies, and 75 alert slugs became six -- alert history and any silence keyed to an old slug did not survive that. Routing is unaffected: the notification policy matches on `environment`, not on slug.
 
-**The window equals the interval.** Ten minutes fetched every ten minutes means each log line is read exactly once, which is the floor for a rule that cannot afford to miss an error -- see [Query cost](#query-cost). The price is detection latency: an error is seen at the next evaluation, so up to ten minutes later. That is accepted for an error count. Nothing here is a liveness check; `health-check-probe-failure` is, and it is unaffected.
+**The window equals the interval.** A window fetched once per window means each log line is read exactly once, which is the floor for a rule that cannot afford to miss an error -- see [Query cost](#query-cost). That floor is one unit of the allowance whatever the window's width, so a minute costs exactly what ten minutes costs and detection latency is free to pick. Detection latency is then the interval: within a minute on the counting rules, within ten on the thresholded one.
+
+**What a minute costs instead.** A rule reading `[now-60s, now]` cannot see lines that have not arrived yet, and gp-api's logs land in Loki about 5 seconds behind the request. Consecutive windows tile without overlap, so an error in the last ~5 seconds of a window is read by no evaluation at all -- roughly 8% of them, where a ten-minute window loses 0.8%. Any fault producing more than one error is unaffected; a genuinely isolated one has about a one-in-twelve chance of passing unseen. Buying that back needs a window wider than the interval, and [Query cost](#query-cost) has no room for it.
+
+### The window follows the threshold
+
+A `ROUTE_ERROR_THRESHOLDS` entry moves its group to a 10-minute window, and the threshold is the reason. `> 2` over ten minutes catches a fault running two errors a minute, at twenty per window; the same threshold over one minute never fires on that fault at all, and no other rule covers the shape -- the paired ratio rule needs 10% of non-404 traffic, while two a minute against the ~104 a minute `public-person-profiles` serves is under 2%. Set a threshold back to 0 and the group returns to the minute window automatically; `routeWindow` in `route-alerts.ts` derives one from the other so the pair cannot drift.
+
+Narrowing costs nothing on the counting rules, which is why they moved. A one-minute count is part of the ten-minute count containing it, so at a fixed threshold a narrower window can only ever fire less often -- no quiet window becomes a page. And bursts survive it: replayed at minute resolution on the thresholded route, 2026-09-14 was 5 errors inside 14:39 and 47 inside 14:50, 2026-09-25 was 269/449/105 in three consecutive minutes, and 2026-09-29 was 7 inside 8 seconds. Every measured event arrived inside a single minute.
+
+Nothing here is a liveness check; `health-check-probe-failure` is, and it is unaffected.
 
 **`noDataState` is `OK`, and reading Loki is what makes that safe.** A Loki rule that cannot evaluate raises an execution error, which `execErrState: 'Alerting'` pages on; only a rule that evaluated fine and matched nothing reports no data. So "this route is fine" and "this alert is broken" are distinguishable states.
 
@@ -128,7 +138,7 @@ maps to OK, not Alerting.
 
 The generated rule pages on the first qualifying error in its window, and on a controller that errors a handful of times a month that first error _is_ the incident. `ROUTE_ERROR_THRESHOLDS` in `deploy/components/alerts.ts` raises that bar per controller, keyed to the count a 10-minute window must exceed. Only `public-person-profiles` carries one today (`> 2`), set from 30 days of its own measured errors: every non-incident window held 1 or 2, while the two real incidents opened at 5 and 83. The cost is real and is stated there -- a fault that never produces more than two errors in ten minutes no longer pages on that route.
 
-A threshold is one of the three group keys, so setting one moves that controller into a rule of its own. The other tunable is which statuses count, below.
+A threshold is one of the three group keys, so setting one moves that controller into a rule of its own -- and onto the 10-minute window, for the reason in [The window follows the threshold](#the-window-follows-the-threshold). Raising the bar therefore also costs that controller nine minutes of detection latency, which is part of the trade and not a side effect to discover later. The other tunable is which statuses count, below.
 
 ## Which statuses count as unexpected
 
