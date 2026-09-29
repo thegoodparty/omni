@@ -14,7 +14,6 @@ import {
 import {
   controllerAlerts,
   recordingRuleExpression,
-  ROUTE_RECORDING_RULES,
 } from './alerting/controller-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
@@ -22,7 +21,10 @@ import {
   PolicyTree,
   samePolicyTree,
 } from './alerting/alert-routing'
-import { provisionedAlertSlugs } from './alerting/provisioned-alerts'
+import {
+  provisionedAlertSlugs,
+  RECORDING_RULES,
+} from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
 
@@ -571,18 +573,19 @@ export const createGrafanaResources = async ({
     )
   }
 
-  // The Loki reads that back every generated route alert. Provisioned before
-  // the alerts that consume them so the ordering in this file reads the way
-  // the data flows; Pulumi does not order them and does not need to, since a
-  // Grafana alert rule referencing a metric that does not exist yet simply
+  // Every scheduled Loki read we do: the two that back the generated route
+  // alerts, and the one that backs door knocking's credit spend. Provisioned
+  // before the alerts that consume them so the ordering in this file reads the
+  // way the data flows; Pulumi does not order them and does not need to, since
+  // a Grafana alert rule referencing a metric that does not exist yet simply
   // reports no data (which `noDataState: 'OK'` treats as healthy) until the
   // first recording interval has run.
   //
   // WHY THESE ARE NOT IN A RuleGroup: recording rules are their own resource
   // kind in Grafana, evaluated on their own trigger interval rather than a
-  // group's. See ROUTE_RECORDING_RULES in alerting/controller-alerts.ts for
-  // what they cost and what they replaced.
-  for (const rule of ROUTE_RECORDING_RULES) {
+  // group's. See RECORDING_RULES in alerting/provisioned-alerts.ts for what
+  // they cost and what they replaced.
+  for (const rule of RECORDING_RULES) {
     new grafana.alerting.v0alpha1.RecordingRule(`${rule.slug}-recording`, {
       metadata: {
         // Environment-scoped, because both stacks provision into the same
