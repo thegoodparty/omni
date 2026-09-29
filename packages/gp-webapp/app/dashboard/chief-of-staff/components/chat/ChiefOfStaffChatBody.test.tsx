@@ -2199,11 +2199,16 @@ describe('<ChiefOfStaffChatBody> widgets', () => {
 
     endTurn!()
 
-    expect(
-      await screen.findByText('Call them first.', {}, { timeout: 5000 }),
-    ).toBeInTheDocument()
-    await waitFor(() =>
-      expect(screen.getAllByText(CONTACT.name)).toHaveLength(1),
+    // Re-query on every attempt. When the turn commits, the streaming row is
+    // rebuilt under its history key, so a node found a moment earlier can be
+    // detached by the time it is asserted on — which is what made this flaky.
+    // What matters is the settled state: the text and the card, once each.
+    await waitFor(
+      () => {
+        expect(screen.getAllByText('Call them first.')).toHaveLength(1)
+        expect(screen.getAllByText(CONTACT.name)).toHaveLength(1)
+      },
+      { timeout: 5000 },
     )
   })
 
