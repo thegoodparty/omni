@@ -27,6 +27,17 @@ DEFAULT_TTL_SECONDS = 60.0
 _MANIFEST_CACHE_MAX = 256
 _TABLE_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$")
 
+# The ONLY key shape a judge override may name, pinned segment by segment.
+# A prefix test would be a hole: `_judge/../compliance_setup/manifest.json`
+# starts with `_judge/` and addresses a different experiment entirely. Because
+# no segment can contain `.`, `/` or nothing at all, traversal, absolute paths
+# and empty segments are unrepresentable rather than merely rejected.
+# Shared with dispatch_handler (which additionally binds `agent_id` to the
+# dispatch's experiment_type) so there is one definition of the shape.
+JUDGE_OVERRIDE_KEY_RE = re.compile(
+    r"^_judge/(?P<agent_id>[A-Za-z0-9_-]{1,64})/(?P<digest>[A-Za-z0-9_-]{1,64})/(?P<leaf>manifest\.json|instruction\.md)$"
+)
+
 
 class ManifestLoaderError(RuntimeError):
     """Raised when the loader cannot serve usable routing for an experiment.
@@ -159,6 +170,76 @@ class ManifestRoutingLoader:
         routing["attachment_version_ids"] = attachment_version_ids
         routing["qa_version_ids"] = qa_version_ids
         return routing
+
+    def fetch_judge_override(self, manifest_key: str, instruction_key: str) -> tuple[dict, str | None, str | None]:
+        """Read a judge override's manifest and pin both objects' S3 VersionIds.
+
+        Returns (override_manifest, manifest_version_id, instruction_version_id).
+
+        A candidate branch stages its manifest + instruction under a
+        content-addressed `_judge/<agentId>/<configDigest>/` folder because it
+        cannot publish them: `publish_experiments.py` has no per-experiment
+        filter and rewrites `index.json` last as one global atomic switch, so a
+        partial publish would unpublish every other experiment.
+
+        This method does I/O and pinning only — no policy. The caller decides
+        which of the manifest's fields it will honor, which is where the
+        "a judge run can never widen scope" invariant is enforced.
+
+        Deliberately uncached: the keys are content-addressed, so there is
+        nothing a TTL could invalidate, and one GET + one HEAD per judge
+        dispatch is cheaper than growing another warm-Lambda cache.
+
+        A missing instruction is Malformed here, unlike the published path which
+        proceeds without a pin: an override folder missing half its bytes is a
+        staging bug, and the broker has no published fallback to serve.
+        """
+        for field, key, leaf in (
+            ("manifest_key", manifest_key, "manifest.json"),
+            ("instruction_key", instruction_key, "instruction.md"),
+        ):
+            match = JUDGE_OVERRIDE_KEY_RE.fullmatch(key) if isinstance(key, str) else None
+            if match is None or match.group("leaf") != leaf:
+                raise ValueError(
+                    f"judge override {field} must be exactly "
+                    f"'_judge/<agentId>/<configDigest>/{leaf}' with each segment matching "
+                    f"[A-Za-z0-9_-]{{1,64}}: got {key!r}"
+                )
+
+        body, manifest_version_id = self._get_object(manifest_key, label=f"judge-override:{manifest_key}")
+        try:
+            manifest = json.loads(body)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ManifestLoaderMalformedError(f"judge override manifest {manifest_key} is not valid JSON: {e}") from e
+        if not isinstance(manifest, dict):
+            raise ManifestLoaderMalformedError(
+                f"judge override manifest {manifest_key} must be a JSON object, got {type(manifest).__name__}"
+            )
+
+        try:
+            response = self._s3.head_object(Bucket=self._bucket, Key=instruction_key)
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            request_id = e.response.get("ResponseMetadata", {}).get("RequestId", "")
+            if code in ("NoSuchKey", "NoSuchVersion", "404"):
+                raise ManifestLoaderMalformedError(
+                    f"judge override instruction missing: s3://{self._bucket}/{instruction_key} (code={code})"
+                ) from e
+            logger.error(
+                "S3 HeadObject failed for judge override instruction (NOT swallowed — version pin lost): "
+                "key=%s bucket=%s code=%s request_id=%s",
+                instruction_key,
+                self._bucket,
+                code,
+                request_id,
+                exc_info=True,
+            )
+            raise ManifestLoaderTransientError(
+                f"failed to head judge override instruction s3://{self._bucket}/{instruction_key}: "
+                f"{code} (request_id={request_id})"
+            ) from e
+
+        return manifest, manifest_version_id, response.get("VersionId")
 
     def known_experiments(self) -> list[str]:
         return [e["id"] for e in self._load_index()]

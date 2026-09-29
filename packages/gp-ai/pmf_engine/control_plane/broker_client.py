@@ -27,8 +27,9 @@ class BrokerClient:
         exp_ttl_seconds: int = 3600,
         prior_artifact_versions: dict[str, str] | None = None,
         input_files: list[dict] | None = None,
+        experiment_override: dict | None = None,
     ) -> dict:
-        body = {
+        body: dict = {
             "run_id": run_id,
             "organization_slug": organization_slug,
             "experiment_id": experiment_id,
@@ -39,6 +40,13 @@ class BrokerClient:
             "prior_artifact_versions": prior_artifact_versions,
             "input_files": input_files,
         }
+        # Judge override: the experiment-metadata key pair this run's ticket
+        # authorizes the broker to serve instead of `<experiment_id>/*`, still
+        # version-pinned. Added only when present, unlike its neighbours above,
+        # so a product dispatch's mint body stays byte-for-byte what it is
+        # today — the field is inert until a judge sweep sets it.
+        if experiment_override is not None:
+            body["experiment_override"] = experiment_override
         response = httpx.post(
             f"{self.broker_url}/internal/mint-run-token",
             json=body,

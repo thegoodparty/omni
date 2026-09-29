@@ -65,3 +65,35 @@ in the SQS message body and is stored on the job row.
 `COMPLETED`/`FAILED`/`AWAITING_RESUME` (terminal callback). gp-api's 45-minute
 stale sweep is scoped to `RUNNING`, so queue-wait time does not count against it;
 a separate longer backstop sweep reclaims runs orphaned in `QUEUED`.
+
+## Judge override (`_judge_override`)
+
+An eval sweep needs to run a candidate branch's manifest + instruction without
+publishing them, because `publish_experiments.py` ships the full experiment set
+and rewrites `index.json` last as one global atomic switch. So the candidate's
+bytes are staged under a content-addressed
+`_judge/<agentId>/<configDigest>/{manifest.json,instruction.md}` folder in the
+metadata bucket, and the dispatch message may carry an optional
+
+```json
+"_judge_override": { "manifest_key": "...", "instruction_key": "..." }
+```
+
+Ingest validates that key shape exactly — every segment pinned, `agentId` equal
+to `experiment_type`, both keys in one folder — then reads the override
+manifest, accepts only `model`, `max_turns`, `timeout_seconds` and
+`output_schema` from it, pins both objects' S3 VersionIds, and puts the key pair
+plus those pins on the minted ScopeTicket beside the existing `input_files`
+allowlist. Honored in `dev` only.
+
+**The invariant: a judge run can change what the agent is told to do, never what
+it is allowed to touch.** The real experiment is still resolved through the
+normal index lookup, and the scope ticket, ECS routing and `input_schema` come
+from *that* manifest. A `scope` key in an override manifest — or any other
+unrecognised key — is rejected loudly, because `derive_scope` reads
+`allowed_tables` / `max_rows` off the manifest and defaults to a hard deny, so a
+self-declared scope would let a branch grant itself any Databricks table.
+
+With no `_judge_override` present nothing about dispatch changes: the mint body
+omits the field, the enqueued routing carries no extra key, and the container
+env is byte-identical.

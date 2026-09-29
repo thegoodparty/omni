@@ -7,7 +7,7 @@ from botocore.exceptions import ClientError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from broker.dynamodb_client import ScopeTicket
+from broker.dynamodb_client import ExperimentOverrideRef, ScopeTicket
 from broker.endpoints import experiment_manifest as em
 from broker.endpoints.experiment_manifest import (
     _reset_caches_for_test,
@@ -2034,3 +2034,321 @@ class TestExperimentManifestQaManifestDedupe:
             call for call in mock_metric.call_args_list if call.args[0] == "broker_qa_manifest_decode_error"
         ]
         assert decode_calls, "expected the qa-manifest decode metric to fire on a non-dict manifest"
+
+
+# ---------------------------------------------------------------------------
+# Universal Judge: experiment override
+# ---------------------------------------------------------------------------
+
+
+_JUDGE_MANIFEST_KEY = "_judge/voter_targeting/abc123def456/manifest.json"
+_JUDGE_INSTRUCTION_KEY = "_judge/voter_targeting/abc123def456/instruction.md"
+
+
+def _override_ticket(
+    experiment_id: str = "voter_targeting",
+    manifest_key: str = _JUDGE_MANIFEST_KEY,
+    instruction_key: str = _JUDGE_INSTRUCTION_KEY,
+) -> ScopeTicket:
+    ticket = _make_ticket(experiment_id=experiment_id)
+    return ticket.model_copy(
+        update={
+            "is_eval": True,
+            "experiment_override": ExperimentOverrideRef(
+                manifest_key=manifest_key,
+                instruction_key=instruction_key,
+            ),
+        }
+    )
+
+
+def _judge_aware_responder(
+    override_manifest: dict,
+    override_instruction: str,
+    recorded_calls: list,
+    published_manifest: dict | None = None,
+    published_instruction: str | None = None,
+    index: dict | None = None,
+):
+    """Route `_judge/**` GETs to the candidate bytes and everything else to
+    the normal published responder, so a test can tell which pair was read."""
+    inner = _make_s3_responder(
+        manifest=published_manifest or {"id": "voter_targeting", "version": 1},
+        instruction=published_instruction or "# published instruction",
+        recorded_calls=recorded_calls,
+        index=index,
+    )
+
+    def _get_object(Bucket, Key, **kwargs):
+        if Key.startswith("_judge/"):
+            recorded_calls.append((Key, dict(kwargs)))
+            if Key.endswith("/manifest.json"):
+                return _s3_body(json.dumps(override_manifest))
+            if Key.endswith("/instruction.md"):
+                return _s3_body(override_instruction)
+            raise AssertionError(f"unexpected judge S3 key: {Key}")
+        return inner(Bucket=Bucket, Key=Key, **kwargs)
+
+    return _get_object
+
+
+class TestNoOverrideIsUnchanged:
+    """The first deploy after this merges must be a behavioral no-op: gp-ai
+    deploys only from `main`, so nothing runs this code until it is already
+    live for every production experiment. A ticket with no override must read
+    exactly the two published keys and touch nothing under `_judge/`."""
+
+    def test_reads_only_published_keys_and_never_the_judge_prefix(self):
+        recorded: list = []
+        app = _create_app(s3_get_object=_make_s3_responder(recorded_calls=recorded))
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={"experiment_id": "voter_targeting"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        keys = [k for k, _ in recorded]
+        assert "voter_targeting/manifest.json" in keys
+        assert "voter_targeting/instruction.md" in keys
+        assert not [k for k in keys if k.startswith("_judge/")]
+
+    def test_response_body_matches_the_pre_override_shape(self):
+        manifest = {"id": "voter_targeting", "version": 7, "max_turns": 50}
+        instruction = "# Voter Targeting\n\nStep 1"
+        app = _create_app(s3_get_object=_make_s3_responder(manifest=manifest, instruction=instruction))
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={"experiment_id": "voter_targeting"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "manifest": manifest,
+            "instruction": instruction,
+            "resolved_manifest_version_id": None,
+            "resolved_instruction_version_id": None,
+            "attachments": {},
+            "resolved_attachment_version_ids": {},
+        }
+
+    def test_request_body_cannot_smuggle_override_keys(self):
+        """The key pair is read off the ticket only. A runner that puts
+        override keys in the request body must still get the published pair."""
+        recorded: list = []
+        app = _create_app(s3_get_object=_make_s3_responder(recorded_calls=recorded))
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={
+                "experiment_id": "voter_targeting",
+                "manifest_key": _JUDGE_MANIFEST_KEY,
+                "instruction_key": _JUDGE_INSTRUCTION_KEY,
+                "experiment_override": {
+                    "manifest_key": _JUDGE_MANIFEST_KEY,
+                    "instruction_key": _JUDGE_INSTRUCTION_KEY,
+                },
+            },
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        keys = [k for k, _ in recorded]
+        assert not [k for k in keys if k.startswith("_judge/")]
+        assert "voter_targeting/manifest.json" in keys
+
+
+class TestExperimentOverride:
+    def test_serves_the_override_pair_instead_of_the_published_pair(self):
+        recorded: list = []
+        override_manifest = {"id": "voter_targeting", "version": 8, "max_turns": 25}
+        app = _create_app(
+            ticket=_override_ticket(),
+            s3_get_object=_judge_aware_responder(
+                override_manifest=override_manifest,
+                override_instruction="# candidate instruction",
+                recorded_calls=recorded,
+            ),
+        )
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={"experiment_id": "voter_targeting"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["manifest"] == override_manifest
+        assert body["instruction"] == "# candidate instruction"
+        keys = [k for k, _ in recorded]
+        assert _JUDGE_MANIFEST_KEY in keys
+        assert _JUDGE_INSTRUCTION_KEY in keys
+        assert "voter_targeting/manifest.json" not in keys
+        assert "voter_targeting/instruction.md" not in keys
+
+    def test_override_keys_are_version_pinned_like_the_published_pair(self):
+        recorded: list = []
+        app = _create_app(
+            ticket=_override_ticket(),
+            s3_get_object=_judge_aware_responder(
+                override_manifest={"id": "voter_targeting"},
+                override_instruction="# candidate",
+                recorded_calls=recorded,
+            ),
+        )
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={
+                "experiment_id": "voter_targeting",
+                "manifest_version_id": "mver-111",
+                "instruction_version_id": "iver-222",
+            },
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        by_key = dict(recorded)
+        assert by_key[_JUDGE_MANIFEST_KEY]["VersionId"] == "mver-111"
+        assert by_key[_JUDGE_INSTRUCTION_KEY]["VersionId"] == "iver-222"
+
+    def test_override_does_not_widen_past_the_key_pair(self):
+        """The experiment id stays real, so attachments still come from the
+        published prefix — the override buys exactly two objects."""
+        recorded: list = []
+        index = _default_index(attachment_keys={"voter_targeting": ["voter_targeting/attachments/catalog.md"]})
+        inner_recorded: list = []
+        published = _make_s3_responder(
+            recorded_calls=inner_recorded,
+            index=index,
+            attachments={"catalog.md": "# catalog"},
+        )
+
+        def _responder(Bucket, Key, **kwargs):
+            recorded.append((Key, dict(kwargs)))
+            if Key.startswith("_judge/"):
+                if Key.endswith("/manifest.json"):
+                    return _s3_body(json.dumps({"id": "voter_targeting"}))
+                return _s3_body("# candidate")
+            return published(Bucket=Bucket, Key=Key, **kwargs)
+
+        app = _create_app(ticket=_override_ticket(), s3_get_object=_responder)
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={"experiment_id": "voter_targeting"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["attachments"] == {"catalog.md": "# catalog"}
+        judge_keys = sorted(k for k, _ in recorded if k.startswith("_judge/"))
+        assert judge_keys == [_JUDGE_INSTRUCTION_KEY, _JUDGE_MANIFEST_KEY]
+
+    def test_override_still_enforces_the_cross_experiment_check(self):
+        app = _create_app(ticket=_override_ticket(experiment_id="voter_targeting"))
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={"experiment_id": "walking_plan"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 403
+
+    def test_override_still_enforces_the_index_registration_check(self):
+        """An override does not resurrect an unregistered experiment — the
+        orphan check runs against the real id before any key is chosen."""
+        recorded: list = []
+        app = _create_app(
+            ticket=_override_ticket(),
+            s3_get_object=_judge_aware_responder(
+                override_manifest={"id": "voter_targeting"},
+                override_instruction="# candidate",
+                recorded_calls=recorded,
+                index=_default_index(experiment_ids=["walking_plan"]),
+            ),
+        )
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={"experiment_id": "voter_targeting"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 404
+        assert not [k for k, _ in recorded if k.startswith("_judge/")]
+
+    def test_missing_override_object_404s_rather_than_falling_back(self):
+        """A staging failure must fail the run, never silently serve the
+        published bytes and report a verdict on the wrong arm."""
+
+        def _responder(Bucket, Key, **kwargs):
+            if Key == "index.json":
+                return _s3_body(json.dumps(_default_index()))
+            if Key.startswith("_judge/"):
+                raise _no_such_key(Key)
+            raise AssertionError(f"published key must not be read: {Key}")
+
+        app = _create_app(ticket=_override_ticket(), s3_get_object=_responder)
+        client = TestClient(app)
+
+        resp = client.post(
+            "/experiment/manifest",
+            json={"experiment_id": "voter_targeting"},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 404
+
+
+class TestOverrideKeyShapeIsRefusedAtParseTime:
+    @pytest.mark.parametrize(
+        "manifest_key",
+        [
+            "voter_targeting/manifest.json",
+            "_judge/voter_targeting/manifest.json",
+            "_judge/voter_targeting/../../voter_targeting/manifest.json",
+            "_judge/voter_targeting/digest/manifest.json.bak",
+            "_judge/voter_targeting/digest/instruction.md",
+            "_judge/voter targeting/digest/manifest.json",
+            "prefix_judge/a/b/manifest.json",
+            "",
+        ],
+    )
+    def test_rejects_a_manifest_key_outside_the_judge_folder(self, manifest_key):
+        with pytest.raises(ValueError):
+            ExperimentOverrideRef(manifest_key=manifest_key, instruction_key=_JUDGE_INSTRUCTION_KEY)
+
+    @pytest.mark.parametrize(
+        "instruction_key",
+        [
+            "voter_targeting/instruction.md",
+            "_judge/voter_targeting/digest/manifest.json",
+            "_judge/voter_targeting/digest/instruction.md.bak",
+            "_judge/a/b/c/instruction.md",
+        ],
+    )
+    def test_rejects_an_instruction_key_outside_the_judge_folder(self, instruction_key):
+        with pytest.raises(ValueError):
+            ExperimentOverrideRef(manifest_key=_JUDGE_MANIFEST_KEY, instruction_key=instruction_key)
+
+    def test_accepts_the_contract_shape(self):
+        ref = ExperimentOverrideRef(
+            manifest_key=_JUDGE_MANIFEST_KEY,
+            instruction_key=_JUDGE_INSTRUCTION_KEY,
+        )
+        assert ref.manifest_key == _JUDGE_MANIFEST_KEY
+        assert ref.instruction_key == _JUDGE_INSTRUCTION_KEY

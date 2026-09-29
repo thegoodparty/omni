@@ -3,6 +3,14 @@
 The Fargate runner cannot reach S3 directly (egress-only-to-broker security
 group). This endpoint is the runner's window into the metadata bucket. The
 ticket's experiment_id is the only experiment a given run is allowed to see.
+
+One exception, for the Universal Judge: a ticket may allowlist a single
+`_judge/<agentId>/<configDigest>/` key pair, and a run carrying one reads the
+candidate branch's manifest + instruction from there instead of the published
+pair. That widens the run by exactly those two objects — the experiment id
+stays real, the index registration check still applies to it, attachments and
+qa still come from its published prefix, and the scope ticket is unaffected
+because it was derived at dispatch from the published manifest.
 """
 
 import json
@@ -667,8 +675,43 @@ def experiment_manifest(
         )
         raise HTTPException(status_code=404, detail="experiment not currently registered")
 
-    manifest_key = f"{req.experiment_id}/manifest.json"
-    instruction_key = f"{req.experiment_id}/instruction.md"
+    # Universal Judge: when the ticket allowlists a `_judge/` key pair, this
+    # run reads the candidate branch's bytes from there instead of the
+    # published `<experiment_id>/*` pair. The key pair comes off the TICKET,
+    # never off the request — the runner is quarantined but not trusted, and
+    # the ticket is already the authorization object for the run (same shape
+    # as `input_files` + /inputs/read). The widening is exactly those two keys:
+    # the experiment id stays real, the index lookup above still ran against
+    # it, and attachments + qa below still resolve under the real prefix.
+    #
+    # The scope ticket is NOT derived from these bytes — it was minted at
+    # dispatch from the published manifest's scope block — so an override can
+    # change what the agent is told to do and can never change what it is
+    # allowed to touch.
+    override = ticket.experiment_override
+    if override is not None:
+        manifest_key = override.manifest_key
+        instruction_key = override.instruction_key
+        # Loud on purpose: an override read is the one path that serves a run
+        # bytes nobody published, so it should be visible in an audit rather
+        # than inferred from the absence of a normal read.
+        logger.warning(
+            "experiment_override_served experiment_id=%s run_id=%s manifest_key=%s instruction_key=%s",
+            ticket.experiment_id,
+            ticket.run_id,
+            manifest_key,
+            instruction_key,
+        )
+        _emit_metric(
+            "broker_experiment_override_served",
+            [
+                {"Name": "Environment", "Value": os.environ.get("ENVIRONMENT", "unknown")},
+                {"Name": "experiment_id", "Value": ticket.experiment_id},
+            ],
+        )
+    else:
+        manifest_key = f"{req.experiment_id}/manifest.json"
+        instruction_key = f"{req.experiment_id}/instruction.md"
 
     # The index entry lists every attachment key the publisher uploaded. Fetch
     # only those — never trust a runner-supplied basename to map into an S3

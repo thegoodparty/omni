@@ -1171,3 +1171,123 @@ class TestRuntimeFieldValidation:
         )
         routing = self._publish(manifest).routing_for("fanout_smoke_test")
         assert routing["model"] == "sonnet"
+
+
+class TestFetchJudgeOverride:
+    """`fetch_judge_override` is I/O + version pinning only. The behavior
+    allowlist that keeps a judge run from widening its own scope lives in
+    dispatch_handler; see tests/test_judge_override.py."""
+
+    OVERRIDE = {"model": "opus", "max_turns": 42, "output_schema": {"type": "object"}}
+    MANIFEST_KEY = "_judge/smoke_test/a1b2c3/manifest.json"
+    INSTRUCTION_KEY = "_judge/smoke_test/a1b2c3/instruction.md"
+
+    def _loader(self, s3: FakeS3) -> ManifestRoutingLoader:
+        return ManifestRoutingLoader(bucket=BUCKET, s3_client=s3, ttl_seconds=60.0)
+
+    def _staged(self) -> tuple[FakeS3, ManifestRoutingLoader]:
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE, version_id="override-m-1")
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n", version_id="override-i-1")
+        return s3, self._loader(s3)
+
+    def test_returns_manifest_and_both_version_pins(self):
+        _s3, loader = self._staged()
+
+        manifest, manifest_vid, instruction_vid = loader.fetch_judge_override(
+            manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY
+        )
+
+        assert manifest == self.OVERRIDE
+        assert manifest_vid == "override-m-1"
+        assert instruction_vid == "override-i-1"
+
+    def test_reads_no_index_and_no_published_experiment(self):
+        """The whole point of the content-addressed folder: nothing touches
+        index.json, so a sweep cannot race a publish or another sweep."""
+        s3, loader = self._staged()
+
+        loader.fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+        touched = {key for _op, _bucket, key in s3.calls}
+        assert touched == {self.MANIFEST_KEY, self.INSTRUCTION_KEY}
+
+    def test_is_not_cached(self):
+        """Content-addressed keys have nothing to invalidate, and a stale
+        warm-Lambda entry would be unfixable."""
+        s3, loader = self._staged()
+
+        loader.fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+        loader.fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+        assert len([c for c in s3.calls if c[0] == "get_object"]) == 2
+
+    @pytest.mark.parametrize(
+        "manifest_key",
+        [
+            "_judge/../compliance_setup/manifest.json",
+            "_judge/smoke_test/a1b2c3/../../compliance_setup/manifest.json",
+            "/_judge/smoke_test/a1b2c3/manifest.json",
+            "smoke_test/manifest.json",
+            "_judge/smoke_test/a1b2c3/instruction.md",
+        ],
+    )
+    def test_refuses_a_non_canonical_key_before_any_s3_call(self, manifest_key):
+        s3, loader = self._staged()
+
+        with pytest.raises(ValueError, match="manifest_key"):
+            loader.fetch_judge_override(manifest_key=manifest_key, instruction_key=self.INSTRUCTION_KEY)
+
+        assert s3.calls == []
+
+    def test_missing_manifest_is_malformed(self):
+        s3 = FakeS3()
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n")
+
+        with pytest.raises(ManifestLoaderMalformedError):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_missing_instruction_is_malformed(self):
+        """Unlike the published path, which proceeds unpinned: an override
+        folder missing half its bytes is a staging bug with no fallback."""
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE)
+
+        with pytest.raises(ManifestLoaderMalformedError, match="instruction missing"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_access_denied_on_instruction_is_transient(self):
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE)
+        s3.set_error(BUCKET, self.INSTRUCTION_KEY, "AccessDenied", op="HeadObject")
+
+        with pytest.raises(ManifestLoaderTransientError):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_corrupt_manifest_json_is_malformed(self):
+        s3 = FakeS3()
+        s3.set_object(BUCKET, self.MANIFEST_KEY, b"{not json")
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n")
+
+        with pytest.raises(ManifestLoaderMalformedError, match="not valid JSON"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_non_object_manifest_is_malformed(self):
+        s3 = FakeS3()
+        s3.set_object(BUCKET, self.MANIFEST_KEY, b'["model"]')
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n")
+
+        with pytest.raises(ManifestLoaderMalformedError, match="must be a JSON object"):
+            self._loader(s3).fetch_judge_override(manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY)
+
+    def test_unversioned_bucket_yields_no_pins(self):
+        s3 = FakeS3()
+        s3.set_json(BUCKET, self.MANIFEST_KEY, self.OVERRIDE, version_id=None)
+        s3.set_object(BUCKET, self.INSTRUCTION_KEY, b"# candidate\n", version_id=None)
+
+        _manifest, manifest_vid, instruction_vid = self._loader(s3).fetch_judge_override(
+            manifest_key=self.MANIFEST_KEY, instruction_key=self.INSTRUCTION_KEY
+        )
+
+        assert manifest_vid is None
+        assert instruction_vid is None
