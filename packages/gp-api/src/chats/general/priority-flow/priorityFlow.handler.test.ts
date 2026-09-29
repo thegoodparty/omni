@@ -231,6 +231,7 @@ describe('PriorityFlowHandler', () => {
   it('builds the priority tool belt', () => {
     const names = Object.keys(build().buildTools(baseCtx())).sort()
     expect(names).toEqual([
+      'ask_clarify_question',
       'present_contacts',
       'present_outreach_proposal',
       'present_past_outreach',
@@ -285,6 +286,28 @@ describe('PriorityFlowHandler', () => {
     expect(
       await tool.execute({ ...proposal, channel: 'phoneBanking' as const }),
     ).toEqual({ presented: true, deepLinkOnly: false })
+  })
+
+  it('asks a structured question without touching the status', async () => {
+    const tool = build().buildTools(baseCtx()).ask_clarify_question
+    if (tool === undefined || !('execute' in tool)) {
+      throw new Error('expected an executable tool')
+    }
+    expect(
+      await tool.execute({
+        questionId: 'q1',
+        question: 'Which blocks do you want repaired first?',
+        options: [{ label: 'The two by the school' }, { label: 'Maple Ave' }],
+      }),
+    ).toEqual({ asked: true, questionId: 'q1' })
+  })
+
+  it('tells the agent to ask with the tool rather than in prose', async () => {
+    const handler = build()
+    const ctx = await handler.loadContext('c1', USER_ID)
+    const prompt = handler.buildSystemPrompt(ctx)
+    expect(prompt).toContain('Ask it with ask_clarify_question, never in prose')
+    expect(prompt).toContain('One question at a time')
   })
 
   it('raises maxSteps above the default so a research turn can finish', () => {

@@ -1,23 +1,26 @@
 'use client'
 
-import type { ChatCard } from '@goodparty_org/contracts'
+import type { ChatCard, ChatClarifyQuestion } from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatClient'
 import { InlineSegments } from '../../../shared/agent-chat/chatUI'
+import ClarifyQuestionWidget from '../../../shared/agent-chat/ClarifyQuestionWidget'
 import {
   segmentsToLive,
   type LiveSegment,
 } from '../../../shared/agent-chat/streaming'
 import { ChatCardRenderer } from '../cards/ChatCardRenderer'
 import { toChatCard } from '../data/cards'
+import { CLARIFY_TOOL, parseClarifyQuestion } from '../data/clarify'
 import { segmentKey } from '../data/statusReplay'
 import { STATUS_TOOL, type StepChange } from '../data/statusUpdates'
 import { priorityToolLabel } from '../data/toolLabels'
 import { StatusChangeMarker } from './StatusChangeMarker'
 
-// The two things a turn can leave behind besides prose and tool pills.
+// The three things a turn can leave behind besides prose and tool pills.
 export type TurnExtra =
   | { kind: 'card'; card: ChatCard }
   | { kind: 'status'; changes: StepChange[] }
+  | { kind: 'clarify'; question: ChatClarifyQuestion }
 
 // A live extra plus how much turn text preceded the tool call that produced
 // it, so it lands at that seam once the text before it has typed out — and
@@ -153,6 +156,18 @@ export const persistedTurnBlocks = ({
       }
       return
     }
+    if (segment.toolName === CLARIFY_TOOL) {
+      const question = parseClarifyQuestion(segment.payload)
+      if (question) {
+        flushRun()
+        blocks.push({
+          kind: 'extra',
+          key: `${messageId}-clarify-${index}`,
+          extra: { kind: 'clarify', question },
+        })
+        return
+      }
+    }
     const card = toChatCard({
       toolName: segment.toolName,
       args: segment.payload,
@@ -178,10 +193,16 @@ export const TurnBlocks = ({
   blocks,
   priorityId,
   conversationId,
+  clarifyInteractive,
+  onClarifyAnswer,
 }: {
   blocks: TurnBlock[]
   priorityId: string
   conversationId: string
+  // Only the question still waiting on an answer takes input. An earlier one
+  // reads back with its options locked, above the turn that answered it.
+  clarifyInteractive: boolean
+  onClarifyAnswer: (answer: string) => void
 }): React.JSX.Element => (
   <>
     {blocks.map((block) => {
@@ -201,6 +222,16 @@ export const TurnBlocks = ({
             card={block.extra.card}
             priorityId={priorityId}
             conversationId={conversationId}
+          />
+        )
+      }
+      if (block.extra.kind === 'clarify') {
+        return (
+          <ClarifyQuestionWidget
+            key={block.key}
+            question={block.extra.question}
+            disabled={!clarifyInteractive}
+            onAnswer={onClarifyAnswer}
           />
         )
       }

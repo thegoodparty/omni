@@ -4,7 +4,7 @@ import type {
   OrdinancePresentComparables,
 } from '@goodparty_org/contracts'
 import { AssistantMarkdown } from '../../shared/agent-chat/chatUI'
-import SourceLine from './SourceLine'
+import SourceLine from '../../shared/agent-chat/SourceLine'
 
 const STATUS = {
   passed: {

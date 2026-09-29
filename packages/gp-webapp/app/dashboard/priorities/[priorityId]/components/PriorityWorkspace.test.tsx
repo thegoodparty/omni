@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import {
   PRIORITY_STEP_LABELS,
   emptyPriorityStatus,
@@ -286,6 +286,101 @@ describe('PriorityWorkspace', () => {
       mintProposalKey(CONVERSATION_ID, 'tc-proposal'),
     )
     expect(card).toHaveAttribute('data-conversation-id', CONVERSATION_ID)
+  })
+
+  it('renders a clarify question, and answering it sends an ordinary turn', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          { kind: 'text', text: 'One thing before we go on.' },
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-clarify',
+            payload: {
+              questionId: 'q1',
+              question: 'Which blocks do you want repaired first?',
+              options: [
+                { label: 'The two by the school' },
+                { label: 'Maple Ave end to end' },
+              ],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+    ])
+
+    // Hold the answer's turn open, so the bubble it pushes is still on screen
+    // when the assertion runs rather than replaced by the commit poll.
+    const gate = deferred()
+    mocks.streamMessage.mockImplementation(
+      streamOf([{ type: 'done', assistantMessageId: 'a2' }], gate.promise),
+    )
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Which blocks do you want repaired first?'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByText('The two by the school'))
+
+    await waitFor(() =>
+      expect(mocks.streamMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId: CONVERSATION_ID,
+          content: 'The two by the school',
+        }),
+      ),
+    )
+    // A normal turn, so the answer reads back as the official's own message
+    // alongside the option they picked, not as a hidden send.
+    await waitFor(() =>
+      expect(screen.getAllByText('The two by the school')).toHaveLength(2),
+    )
+    gate.resolve()
+  })
+
+  it('locks a clarify question once something has been said after it', async () => {
+    mocks.listMessages.mockResolvedValue([
+      {
+        id: 'a1',
+        conversationId: CONVERSATION_ID,
+        role: 'assistant',
+        content: '',
+        createdAt: '2026-09-01T00:00:00.000Z',
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            toolCallId: 'tc-clarify',
+            payload: {
+              questionId: 'q1',
+              question: 'Which blocks do you want repaired first?',
+              options: [{ label: 'The two by the school' }],
+            },
+          },
+        ],
+      } satisfies ChatMessageDto,
+      {
+        id: 'u1',
+        conversationId: CONVERSATION_ID,
+        role: 'user',
+        content: 'The two by the school',
+        createdAt: '2026-09-01T00:01:00.000Z',
+      } satisfies ChatMessageDto,
+    ])
+
+    renderWorkspace()
+
+    expect(
+      await screen.findByText('Which blocks do you want repaired first?'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Or write your own...')).toBeDisabled()
   })
 
   it('shows an ordinary tool as a quiet pill rather than a card', async () => {

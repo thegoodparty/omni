@@ -685,6 +685,15 @@ export {
 export { mintProposalKey } from './chats/proposalKey'
 
 export {
+  ChatSourceSchema,
+  type ChatSource,
+  ChatClarifyOptionSchema,
+  type ChatClarifyOption,
+  ChatClarifyQuestionSchema,
+  type ChatClarifyQuestion,
+} from './chats/ClarifyQuestion.schema'
+
+export {
   CHAT_CARD_KINDS,
   PROPOSAL_CHANNELS,
   ChatCardKindSchema,

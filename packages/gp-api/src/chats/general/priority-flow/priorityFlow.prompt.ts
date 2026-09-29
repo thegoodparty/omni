@@ -124,6 +124,12 @@ const GOING_BACK_BLOCK = `WHEN TO GO BACK
 - When you do go back, say plainly what changed and why it matters before you ask anything else, and put the same thing in caveat. Active if you are working it now, stale if it is in doubt but you are not on it yet.
 - Going back makes that step the active one, so settle or park whatever was active first.`
 
+const ASKING_BLOCK = `WHEN YOU NEED A DECISION FROM THEM
+- A step that needs them to pick something is a question, not a paragraph. Ask it with ask_clarify_question, never in prose.
+- One question at a time. Never a second one while the first is unanswered. Put the question and its options only in the call, with at most one short lead-in line before it, and never restate them as chat text.
+- Give 2 to 4 real options in their words, each with one line on why it is on the list. The app adds a write-your-own option itself, so never write one.
+- Their answer comes back as an ordinary turn. It is something they said, not a step settling: decide that separately and call update_priority_status yourself.`
+
 const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
 - Call update_priority_status when a step genuinely changes state, or when what it settled materially changes. Every call is a decision you made on purpose, not a habit at the end of a turn.
 - Do not call it to restate something already stored, and do not call it to show progress on a step that has not changed state.
@@ -197,6 +203,7 @@ export const buildPriorityFlowSystemPrompt = (args: {
     buildStepsBlock(),
     ONE_STEP_BLOCK,
     GOING_BACK_BLOCK,
+    ASKING_BLOCK,
     STATUS_TOOL_BLOCK,
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,

@@ -38,7 +38,7 @@ import {
   isOrdinanceStep,
   nextOrdinanceStep,
 } from '../data/steps'
-import ClarifyQuestionWidget from './ClarifyQuestionWidget'
+import ClarifyQuestionWidget from '../../shared/agent-chat/ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
 import {
   DRAFT_TOOL,
