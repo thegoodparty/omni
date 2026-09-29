@@ -113,7 +113,27 @@ def test_ordinary_uuid_run_id_is_unaffected(mock_sqs):
     assert body["data"]["runId"] == "01927f3a-1b2c-7d3e-8f40-abcdef123456"
 
 
-def test_judge_run_id_prefix_fits_the_ecs_started_by_cap():
+def test_every_run_id_the_dispatcher_will_accept_fits_the_ecs_started_by_cap():
     """ECS caps `startedBy` at 36 characters and dispatch passes the run id
-    through verbatim, so a judge run id must fit in 36 including the prefix."""
-    assert len(reaper.JUDGE_RUN_ID_PREFIX) < 36
+    through verbatim, so the reaper can only identify a run whose id fit.
+
+    Asserted against the run ids dispatch actually admits — the longest one its
+    regex accepts, and one character past it — rather than against the length
+    of the prefix, which would be true of any prefix."""
+    from pmf_engine.control_plane.manifest_loader import JUDGE_RUN_ID_MAX_LENGTH, JUDGE_RUN_ID_RE
+
+    longest = reaper.JUDGE_RUN_ID_PREFIX + "a" * (JUDGE_RUN_ID_MAX_LENGTH - len(reaper.JUDGE_RUN_ID_PREFIX))
+
+    assert len(longest) == 36
+    assert JUDGE_RUN_ID_RE.fullmatch(longest) is not None
+    assert JUDGE_RUN_ID_RE.fullmatch(longest + "a") is None
+    assert longest.startswith(reaper.JUDGE_RUN_ID_PREFIX)
+
+
+def test_the_reaper_and_the_dispatcher_share_one_prefix():
+    """The reaper is the one results-queue sender with no scope ticket to read,
+    so a prefix that drifted from the dispatcher's would make it reconcile
+    judge runs again."""
+    from pmf_engine.control_plane.manifest_loader import JUDGE_RUN_ID_PREFIX
+
+    assert reaper.JUDGE_RUN_ID_PREFIX is JUDGE_RUN_ID_PREFIX

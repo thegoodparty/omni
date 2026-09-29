@@ -411,25 +411,44 @@ def artifact_publish(
                     ),
                 ) from None
             raise
-        try:
-            s3_client.put_object(
-                Bucket=bucket,
-                Key=latest_key,
-                Body=artifact_json,
-                ContentType="application/json",
-            )
-        except Exception as latest_err:
-            logger.warning(
-                "latest.json update failed run_id=%s experiment_id=%s key=%s bucket=%s: %s. "
-                "Archive write succeeded; callback carries run-scoped key. latest.json is "
-                "a best-effort convenience pointer and is eventually consistent.",
+        # An eval run never touches the mutable pointer. `latest.json` is the
+        # org's CURRENT artifact for this experiment: `artifact_read` serves it
+        # on its legacy no-pin path, so a judge run — which may be executing
+        # unpublished candidate-branch bytes — would replace a real
+        # organization's product artifact and then be handed to the next
+        # product run that reads a prior without a pin. The suppressed results
+        # callback would make it silent. The immutable per-run archive above is
+        # what the judge reads, and it is enough. This is also the reason the
+        # invariant reads "never what it is allowed to touch": an override that
+        # cannot widen the Databricks scope but can overwrite the artifact
+        # pointer would still have written into product data.
+        if ticket.is_eval:
+            logger.info(
+                "latest_pointer_skipped reason=eval_run run_id=%s experiment_id=%s key=%s",
                 ticket.run_id,
                 ticket.experiment_id,
                 latest_key,
-                bucket,
-                latest_err,
-                exc_info=True,
             )
+        else:
+            try:
+                s3_client.put_object(
+                    Bucket=bucket,
+                    Key=latest_key,
+                    Body=artifact_json,
+                    ContentType="application/json",
+                )
+            except Exception as latest_err:
+                logger.warning(
+                    "latest.json update failed run_id=%s experiment_id=%s key=%s bucket=%s: %s. "
+                    "Archive write succeeded; callback carries run-scoped key. latest.json is "
+                    "a best-effort convenience pointer and is eventually consistent.",
+                    ticket.run_id,
+                    ticket.experiment_id,
+                    latest_key,
+                    bucket,
+                    latest_err,
+                    exc_info=True,
+                )
     except HTTPException:
         raise
     except Exception:

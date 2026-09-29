@@ -38,6 +38,48 @@ JUDGE_OVERRIDE_KEY_RE = re.compile(
     r"^_judge/(?P<agent_id>[A-Za-z0-9_-]{1,64})/(?P<digest>[A-Za-z0-9_-]{1,64})/(?P<leaf>manifest\.json|instruction\.md)$"
 )
 
+# Every run id a judge sweep dispatches carries this prefix. It is what
+# distinguishes a judge dispatch — which has no gp-api `experiment_run` row —
+# from a product one, for the two components that have to tell them apart
+# without a scope ticket to read: dispatch (whether a rejection gets a results
+# callback) and the task reaper (whether a dead task gets reconciled). gp-api
+# mints product run ids as UUIDv7, so no product run can ever carry it.
+# Defined here beside the key shape so there is one definition of the judge
+# dispatch contract.
+JUDGE_RUN_ID_PREFIX = "_judge-"
+
+# ECS caps `startedBy` at 36 characters, dispatch sets it to the run id
+# verbatim, and the task reaper reads it back to identify the run. A longer
+# judge run id mints a ticket and claims the job before RunTask rejects it on
+# validation, leaving the job stuck LAUNCHING — so the cap is enforced where
+# the run id is first seen, not discovered at launch. Product run ids are
+# UUIDv7 (exactly 36), which is where the number comes from.
+JUDGE_RUN_ID_MAX_LENGTH = 36
+
+# `fullmatch` on an explicit alphabet rather than `startswith` + a length test:
+# the dispatch envelope's own run-id check uses `re.match` with a `$`-anchored
+# pattern, and Python's `$` matches before a trailing newline, so `_judge-x\n`
+# satisfies it. A judge run id decides whether gp-api hears about this run at
+# all, so it gets the stricter check.
+JUDGE_RUN_ID_RE = re.compile(
+    rf"^{JUDGE_RUN_ID_PREFIX}[A-Za-z0-9_-]{{1,{JUDGE_RUN_ID_MAX_LENGTH - len(JUDGE_RUN_ID_PREFIX)}}}$"
+)
+
+# Size cap for a judge override manifest read. `_judge/*` is the one prefix in
+# the metadata bucket the publish pipeline does not produce, so it is also the
+# one whose object size nothing upstream bounds. An unbounded read of a large
+# staged object OOMs the Lambda, and an OOM returns no `batchItemFailures` —
+# every other record in the SQS batch is then silently lost, not just the
+# judge one. A real manifest is a few KB. Same short-circuit-on-ContentLength
+# shape as `broker/endpoints/experiment_manifest._fetch_object`.
+MAX_JUDGE_OVERRIDE_MANIFEST_BYTES = 256 * 1024
+
+# Same reasoning for the instruction, checked on its HEAD rather than read:
+# the broker will read it (capped at MAX_JUDGE_OVERRIDE_BYTES there), and
+# refusing an oversize staging here fails the sweep at dispatch instead of
+# 502ing it mid-run. An instruction is a prompt; 1 MiB is ~250k words.
+MAX_JUDGE_OVERRIDE_INSTRUCTION_BYTES = 1 * 1024 * 1024
+
 
 class ManifestLoaderError(RuntimeError):
     """Raised when the loader cannot serve usable routing for an experiment.
@@ -203,10 +245,14 @@ class ManifestRoutingLoader:
                 raise ValueError(
                     f"judge override {field} must be exactly "
                     f"'_judge/<agentId>/<configDigest>/{leaf}' with each segment matching "
-                    f"[A-Za-z0-9_-]{{1,64}}: got {key!r}"
+                    f"[A-Za-z0-9_-]{{1,64}}: got {str(key)[:200]!r}"
                 )
 
-        body, manifest_version_id = self._get_object(manifest_key, label=f"judge-override:{manifest_key}")
+        body, manifest_version_id = self._get_object(
+            manifest_key,
+            label=f"judge-override:{manifest_key}",
+            size_cap_bytes=MAX_JUDGE_OVERRIDE_MANIFEST_BYTES,
+        )
         try:
             manifest = json.loads(body)
         except (json.JSONDecodeError, ValueError) as e:
@@ -239,6 +285,16 @@ class ManifestRoutingLoader:
                 f"{code} (request_id={request_id})"
             ) from e
 
+        # The instruction's bytes are never read here — only its VersionId is
+        # needed — but its declared size is checked, because the broker WILL
+        # read it and the broker is a shared service. Failing the sweep at
+        # dispatch beats 502ing it mid-run.
+        declared = response.get("ContentLength")
+        if isinstance(declared, int) and declared > MAX_JUDGE_OVERRIDE_INSTRUCTION_BYTES:
+            raise ManifestLoaderMalformedError(
+                f"judge override instruction exceeds size cap: declared={declared} "
+                f"cap={MAX_JUDGE_OVERRIDE_INSTRUCTION_BYTES} key={instruction_key}"
+            )
         return manifest, manifest_version_id, response.get("VersionId")
 
     def known_experiments(self) -> list[str]:
@@ -497,7 +553,14 @@ class ManifestRoutingLoader:
             self._qa_version_cache,
         )
 
-    def _get_object(self, key: str, label: str) -> tuple[bytes, str | None]:
+    def _get_object(self, key: str, label: str, size_cap_bytes: int | None = None) -> tuple[bytes, str | None]:
+        """Read an object's bytes + VersionId.
+
+        `size_cap_bytes`, when set, refuses the object on its declared
+        ContentLength before any bytes are materialized, then reads at most
+        cap+1 bytes in case ContentLength lied. Oversize is Malformed, not
+        Transient: no number of retries shrinks the object.
+        """
         try:
             response = self._s3.get_object(Bucket=self._bucket, Key=key)
         except ClientError as e:
@@ -515,7 +578,19 @@ class ManifestRoutingLoader:
             if code in ("NoSuchKey", "NoSuchVersion", "404"):
                 raise ManifestLoaderMalformedError(f"S3 object missing for {label}: code={code} key={key}") from e
             raise ManifestLoaderTransientError(f"S3 GetObject failed for {label}: code={code}") from e
-        return response["Body"].read(), response.get("VersionId")
+        if size_cap_bytes is None:
+            return response["Body"].read(), response.get("VersionId")
+        declared = response.get("ContentLength")
+        if isinstance(declared, int) and declared > size_cap_bytes:
+            raise ManifestLoaderMalformedError(
+                f"S3 object for {label} exceeds size cap: declared={declared} cap={size_cap_bytes} key={key}"
+            )
+        body = response["Body"].read(size_cap_bytes + 1)
+        if len(body) > size_cap_bytes:
+            raise ManifestLoaderMalformedError(
+                f"S3 object for {label} exceeds size cap: actual>{size_cap_bytes} key={key}"
+            )
+        return body, response.get("VersionId")
 
 
 def _validate_scope(scope: dict, experiment_id: str) -> None:

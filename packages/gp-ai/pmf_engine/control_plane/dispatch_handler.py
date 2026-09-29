@@ -26,6 +26,9 @@ try:
     from .jsonschema_errors import format_validation_errors
     from .manifest_loader import (
         JUDGE_OVERRIDE_KEY_RE,
+        JUDGE_RUN_ID_MAX_LENGTH,
+        JUDGE_RUN_ID_PREFIX,
+        JUDGE_RUN_ID_RE,
         ManifestLoaderError,
         ManifestLoaderMalformedError,
         ManifestLoaderTransientError,
@@ -37,6 +40,9 @@ except ImportError:
     from jsonschema_errors import format_validation_errors  # type: ignore[no-redef]
     from manifest_loader import (  # type: ignore[no-redef]
         JUDGE_OVERRIDE_KEY_RE,
+        JUDGE_RUN_ID_MAX_LENGTH,
+        JUDGE_RUN_ID_PREFIX,
+        JUDGE_RUN_ID_RE,
         ManifestLoaderError,
         ManifestLoaderMalformedError,
         ManifestLoaderTransientError,
@@ -295,7 +301,28 @@ def send_error_callback(
 
     Wire format MUST match what the broker's CallbackSender emits so gp-api's
     AgentExperimentResultSchema (zod) parses it.
+
+    A judge run id short-circuits to False. gp-api has no `experiment_run` row
+    for such a run, so every one of these callbacks would produce exactly one
+    `Experiment run not found` error there — the error-rate and alerting storm
+    the whole eval path exists to avoid, once per arm per sweep. Putting the
+    check here rather than at the ten call sites is deliberate: it is a
+    property of the destination, not of any one failure, and one of those call
+    sites runs before `parse_dispatch_message` has even looked at the message.
+    False rather than True, because every caller reads this as "the callback
+    did not land, keep the SQS message" and the DLQ is exactly where a failed
+    judge dispatch belongs. (`scheduler_handler._send_callback` makes the
+    opposite choice in the same situation, because ITS return value advances
+    job state and there is no row to orphan by advancing it.)
     """
+    run_id_value = message.get("run_id")
+    if isinstance(run_id_value, str) and run_id_value.startswith(JUDGE_RUN_ID_PREFIX):
+        logger.info(
+            "results_callback_suppressed reason=eval_run run_id=%s error=%s",
+            run_id_value,
+            error,
+        )
+        return False
     if not callback_queue_url:
         logger.error(
             "send_error_callback: no callback_queue_url configured; "
@@ -519,8 +546,29 @@ _JUDGE_OVERRIDE_KEY_FIELDS = frozenset({"manifest_key", "instruction_key"})
 # consumed by this Lambda; `max_turns` and `output_schema` reach the agent via
 # the broker's manifest response, so they are validated here and deliberately
 # NOT forwarded as env vars.
-_JUDGE_OVERRIDE_BEHAVIOR_FIELDS = frozenset({"model", "max_turns", "timeout_seconds", "output_schema"})
+_JUDGE_OVERRIDE_BEHAVIOR_FIELDS = frozenset({"model", "max_turns", "timeout_seconds", "output_schema", "runtime"})
 _JUDGE_OVERRIDE_REQUIRED_BEHAVIOR_FIELDS = ("model", "max_turns", "output_schema")
+
+# `runtime` has to be allowed through, not refused, because the broker serves
+# the override manifest IN PLACE OF the published one and 11 of the 16 published
+# experiments declare it — all of them setting `max_thinking_tokens: 0`, several
+# also setting `max_parallel_subagents` to 3..6. Dropped, every candidate arm
+# would silently switch extended thinking ON and fan-out OFF, so the sweep would
+# score that config delta instead of the branch: exactly the failure mode the
+# write-action refusal below exists to prevent. It is also safe to allow — the
+# runner reads it off the manifest the broker serves (never an env var), and it
+# governs how hard the agent thinks, not what it may touch.
+#
+# The closed key set and the 0..20 fan-out bound come from the published
+# meta-schema (runbooks `experiments/_schema/manifest.schema.json`:
+# `additionalProperties: false`, `max_parallel_subagents` 0..20). The
+# meta-schema sets no ceiling on `max_thinking_tokens`; the one here is ours,
+# above any real model budget, so that a nonsense value fails at dispatch
+# rather than on the agent's first turn. That is the only bound stricter than
+# a publishable manifest's.
+_JUDGE_OVERRIDE_RUNTIME_FIELDS = frozenset({"max_parallel_subagents", "max_thinking_tokens"})
+_JUDGE_OVERRIDE_MAX_PARALLEL_SUBAGENTS_BOUNDS = (0, 20)
+_JUDGE_OVERRIDE_MAX_THINKING_TOKENS_BOUNDS = (0, 200_000)
 
 # Bounds mirror the published manifest meta-schema (runbooks
 # `experiments/_schema/manifest.schema.json`) so an override cannot ask for
@@ -535,6 +583,49 @@ _JUDGE_OVERRIDE_TIMEOUT_BOUNDS = (60, 14400)
 # The only ENVIRONMENT a judge override is honored in. Terraform sets this to
 # exactly "dev" or "prod" (infrastructure/environments/*/pmf-engine-control-plane).
 _JUDGE_OVERRIDE_ENVIRONMENT = "dev"
+
+
+# Error messages from this module reach gp-api through the results queue and
+# get persisted; the values they quote come off a dispatch message or an S3
+# object, neither of which is length-bounded upstream. 200 chars is enough to
+# identify what was wrong without letting a caller choose how much text we
+# store and log.
+_MAX_ERROR_VALUE_CHARS = 200
+
+
+def _truncated(value: object) -> str:
+    # repr first, then slice: a dict or list then reads as itself rather than
+    # as a quoted string of itself.
+    return repr(value)[:_MAX_ERROR_VALUE_CHARS]
+
+
+# Mirrors `runner/config._is_draft7_object_schema`. Duplicated rather than
+# imported because the runner ships in the Fargate image and this module ships
+# in the Lambda zip (`pmf_engine/scripts/build_lambda_package.sh` copies only
+# the control_plane modules) — there is no import path between them. The point
+# of checking here is fail-fast: without it `{"type": "object"}` with no
+# properties, `{"oneOf": []}`, and the legacy no-op `{"name": "string"}` shape
+# all pass dispatch and then either crash at Fargate start or, worse, let the
+# candidate arm run with a schema Draft7Validator accepts everything against —
+# so the judge would score an unconstrained artifact as valid. Keep the two in
+# sync; the runner's copy carries the full rationale.
+_COMBINATOR_KEYS = ("oneOf", "anyOf", "allOf")
+_MAX_COMBINATOR_DEPTH = 4
+
+
+def _is_draft7_object_schema(schema: object, _depth: int = 0) -> bool:
+    if _depth > _MAX_COMBINATOR_DEPTH:
+        return False
+    if not isinstance(schema, dict):
+        return False
+    if schema.get("type") == "object" and isinstance(schema.get("properties"), dict):
+        return True
+    for combinator in _COMBINATOR_KEYS:
+        branches = schema.get(combinator)
+        if isinstance(branches, list) and branches:
+            if all(_is_draft7_object_schema(b, _depth + 1) for b in branches):
+                return True
+    return False
 
 
 def _validate_judge_override(value, experiment_id: str) -> dict | None:
@@ -557,7 +648,8 @@ def _validate_judge_override(value, experiment_id: str) -> dict | None:
     unknown = keys - _JUDGE_OVERRIDE_KEY_FIELDS
     if unknown:
         raise ValueError(
-            f"_judge_override has unknown key(s) {sorted(unknown)}; allowed: {sorted(_JUDGE_OVERRIDE_KEY_FIELDS)}"
+            f"_judge_override has unknown key(s) {_truncated(sorted(unknown))}; "
+            f"allowed: {sorted(_JUDGE_OVERRIDE_KEY_FIELDS)}"
         )
 
     folders = {}
@@ -570,7 +662,7 @@ def _validate_judge_override(value, experiment_id: str) -> dict | None:
             raise ValueError(
                 f"_judge_override.{field} must be exactly "
                 f"'_judge/<agentId>/<configDigest>/{leaf}' with each segment matching "
-                f"[A-Za-z0-9_-]{{1,64}}: got {key!r}"
+                f"[A-Za-z0-9_-]{{1,64}}: got {_truncated(key)}"
             )
         if match.group("agent_id") != experiment_id:
             raise ValueError(
@@ -589,7 +681,12 @@ def _validate_judge_override(value, experiment_id: str) -> dict | None:
 
 def _bounded_int(field: str, value: object, bounds: tuple[int, int]) -> int:
     low, high = bounds
-    complaint = f"{field} must be an integer in {low}..{high}; got {value!r}"
+    # Truncated before interpolation: this message rides the error callback to
+    # gp-api's results queue and lands in a DB error column, and the value came
+    # off an S3 object nothing upstream bounds. Mirrors
+    # `_validate_input_files`, which caps its key at 1024 chars for the same
+    # reason.
+    complaint = f"{field} must be an integer in {low}..{high}; got {_truncated(value)}"
     # `isinstance(True, int)` is True in Python, so bools must be excluded
     # explicitly or `max_turns: true` would sail through as 1.
     if isinstance(value, bool) or not isinstance(value, int):
@@ -614,7 +711,7 @@ def _judge_override_behavior(manifest: dict, manifest_key: str) -> dict:
     unknown = sorted(set(manifest.keys()) - _JUDGE_OVERRIDE_BEHAVIOR_FIELDS)
     if unknown:
         raise ValueError(
-            f"judge override manifest {manifest_key} carries non-behavior field(s) {unknown}; "
+            f"judge override manifest {manifest_key} carries non-behavior field(s) {_truncated(unknown)}; "
             f"a judge override may only set {sorted(_JUDGE_OVERRIDE_BEHAVIOR_FIELDS)}"
         )
     absent = [f for f in _JUDGE_OVERRIDE_REQUIRED_BEHAVIOR_FIELDS if f not in manifest]
@@ -628,11 +725,15 @@ def _judge_override_behavior(manifest: dict, manifest_key: str) -> dict:
     if not isinstance(model, str) or not _JUDGE_OVERRIDE_MODEL_RE.fullmatch(model):
         raise ValueError(
             f"judge override manifest {manifest_key}: model must match "
-            f"{_JUDGE_OVERRIDE_MODEL_RE.pattern}; got {model!r}"
+            f"{_JUDGE_OVERRIDE_MODEL_RE.pattern}; got {_truncated(model)}"
         )
     output_schema = manifest["output_schema"]
-    if not isinstance(output_schema, dict) or not output_schema:
-        raise ValueError(f"judge override manifest {manifest_key}: output_schema must be a non-empty object")
+    if not _is_draft7_object_schema(output_schema):
+        raise ValueError(
+            f"judge override manifest {manifest_key}: output_schema must be a JSON Schema Draft-07 object — "
+            f"either type='object' with a properties dict, or a non-empty oneOf/anyOf/allOf whose every "
+            f"branch is one; got {_truncated(output_schema)}"
+        )
 
     behavior = {
         "model": model,
@@ -649,7 +750,43 @@ def _judge_override_behavior(manifest: dict, manifest_key: str) -> dict:
             manifest["timeout_seconds"],
             _JUDGE_OVERRIDE_TIMEOUT_BOUNDS,
         )
+    if "runtime" in manifest:
+        behavior["runtime"] = _judge_override_runtime(manifest["runtime"], manifest_key)
     return behavior
+
+
+def _judge_override_runtime(runtime: object, manifest_key: str) -> dict:
+    """Vet an override manifest's `runtime` block.
+
+    Absence is meaningful here in a way it is not for the other fields: no
+    `runtime` means the harness defaults, which turn extended thinking ON. A
+    candidate staged from an experiment whose published manifest sets
+    `max_thinking_tokens: 0` and omits it by accident gets a different agent,
+    not a different branch — but that is a staging bug this cannot see, so the
+    block is validated and passed through rather than defaulted.
+    """
+    if not isinstance(runtime, dict):
+        raise ValueError(
+            f"judge override manifest {manifest_key}: runtime must be an object; got {_truncated(runtime)}"
+        )
+    unknown = sorted(set(runtime.keys()) - _JUDGE_OVERRIDE_RUNTIME_FIELDS)
+    if unknown:
+        raise ValueError(
+            f"judge override manifest {manifest_key}: runtime carries unknown field(s) "
+            f"{_truncated(unknown)}; allowed: {sorted(_JUDGE_OVERRIDE_RUNTIME_FIELDS)}"
+        )
+    vetted: dict = {}
+    for field, bounds in (
+        ("max_parallel_subagents", _JUDGE_OVERRIDE_MAX_PARALLEL_SUBAGENTS_BOUNDS),
+        ("max_thinking_tokens", _JUDGE_OVERRIDE_MAX_THINKING_TOKENS_BOUNDS),
+    ):
+        if field in runtime:
+            vetted[field] = _bounded_int(
+                f"judge override manifest {manifest_key}: runtime.{field}",
+                runtime[field],
+                bounds,
+            )
+    return vetted
 
 
 def _resolve_judge_override(override: dict, experiment: dict, experiment_id: str) -> dict:
@@ -660,7 +797,8 @@ def _resolve_judge_override(override: dict, experiment: dict, experiment_id: str
     ScopeTicket, next to the existing `input_files` allowlist, and is the only
     thing that widens what the broker will serve this run.
 
-    Two refusals before any S3 read:
+    Two refusals before any S3 read, and one after it (an unpinnable object,
+    below):
 
     - Dev only, as an allowlist rather than a deny-prod check so an unexpected
       ENVIRONMENT value refuses instead of slipping through. The judge stages
@@ -674,21 +812,61 @@ def _resolve_judge_override(override: dict, experiment: dict, experiment_id: str
       silently lose them and the comparison would measure that loss instead of
       the branch.
     """
+    # `parse_dispatch_message` already refused this dispatch outside dev, via
+    # `_validate_judge_dispatch`. Repeated here because this function is what
+    # reads unpublished bytes out of S3 and hands them to a run, and it is
+    # called from a different place than the parse gate.
     env = os.environ.get("ENVIRONMENT", "").strip().lower()
     if env != _JUDGE_OVERRIDE_ENVIRONMENT:
         raise ValueError(
             f"_judge_override is only accepted when ENVIRONMENT is "
-            f"{_JUDGE_OVERRIDE_ENVIRONMENT!r}; this lambda has {env!r}"
+            f"{_JUDGE_OVERRIDE_ENVIRONMENT!r}; this lambda has {_truncated(env)}"
         )
     if _is_write_action(experiment):
         raise ValueError(
             f"_judge_override is not supported for write-action experiment {experiment_id!r}: the behavior "
             "allowlist cannot carry system_prompt / permission_mode, so the override would drop them"
         )
+    # Same reasoning, for the one write-action field that is NOT a write-action
+    # discriminator: `allowed_external_tools` widens which non-gp-api tools the
+    # agent may reach, so it can never ride an override — which means an
+    # experiment that declares it would silently lose it, and the sweep would
+    # measure that loss. No published experiment sets it today, so this refuses
+    # nothing we currently run.
+    if experiment.get("allowed_external_tools") is not None:
+        raise ValueError(
+            f"_judge_override is not supported for {experiment_id!r}: its published manifest declares "
+            "allowed_external_tools, which widens what the agent may touch and so cannot ride an override — "
+            "the candidate arm would silently lose it"
+        )
     manifest, manifest_version_id, instruction_version_id = get_manifest_loader().fetch_judge_override(
         manifest_key=override["manifest_key"],
         instruction_key=override["instruction_key"],
     )
+    # S3 returns no VersionId on an unversioned — or version-SUSPENDED —
+    # bucket, and the pin is load-bearing rather than a nicety: dispatch vets
+    # the override manifest's contents and the broker reads the same object
+    # minutes later, so unpinned, anyone who can write the key can swap the
+    # bytes in between and the behavior allowlist will have vetted something
+    # the agent never runs. Degrading to "latest" is therefore a refusal, not
+    # a fallback. The dev metadata bucket is versioned today, so this is a
+    # guard against `aws_s3_bucket_versioning` being set to `Suspended` (which
+    # keeps existing versions but stops minting new VersionIds) rather than a
+    # condition we expect to hit.
+    unpinned = [
+        field
+        for field, pin in (
+            ("manifest_key", manifest_version_id),
+            ("instruction_key", instruction_version_id),
+        )
+        if not pin
+    ]
+    if unpinned:
+        raise ValueError(
+            f"judge override {unpinned} returned no S3 VersionId, so the bytes dispatch just vetted cannot be "
+            "pinned for the broker's read. Enable versioning on the experiment-metadata bucket "
+            "(aws_s3_bucket_versioning status must be Enabled, not Suspended) before running a sweep."
+        )
     return {
         "behavior": _judge_override_behavior(manifest, override["manifest_key"]),
         "ticket_allowlist": {
@@ -767,9 +945,50 @@ def parse_dispatch_message(body: str) -> dict:
     # `_judge_override` is never agent input. Absent on every product dispatch,
     # which is what keeps the no-override path unchanged.
     judge_override = _validate_judge_override(data.get("_judge_override"), data["experiment_type"])
-    if judge_override is not None:
-        data["_judge_override"] = judge_override
+    # The judge gate is on the RUN, not on the override arm. A sweep's base arm
+    # carries a judge run id and no `_judge_override` at all, and it gets every
+    # consequence the prefix implies — suppressed callbacks, no reaper, no
+    # `latest.json` write, no gp-api row — so it has to pass the same checks.
+    # Gating only the override arm would leave the base arm ungated in prod,
+    # spending real money on a run nothing can observe or reconcile.
+    if data["run_id"].startswith(JUDGE_RUN_ID_PREFIX) or judge_override is not None:
+        _validate_judge_dispatch(data["run_id"])
+        if judge_override is not None:
+            data["_judge_override"] = judge_override
     return data
+
+
+def _validate_judge_dispatch(run_id: str) -> None:
+    """Shape and environment checks every judge dispatch must pass.
+
+    The run-id shape is `fullmatch` on an explicit alphabet rather than
+    `startswith`, for two reasons. ECS caps `startedBy` at
+    JUDGE_RUN_ID_MAX_LENGTH characters, dispatch sets it to the run id
+    verbatim, and `task_reaper` reads it back to identify the run — past the
+    cap a sweep mints a ticket and claims the job to LAUNCHING before RunTask
+    rejects it on validation, so every job sticks. And the envelope's own
+    run-id check is `re.match` against a `$`-anchored pattern, which in Python
+    also accepts a trailing newline; a judge run id decides whether gp-api
+    hears about this run at all, so it gets the stricter check.
+
+    Dev-only as an allowlist rather than a deny-prod check, so an unexpected
+    ENVIRONMENT refuses instead of slipping through. A judge run bypasses
+    gp-api entirely: in prod it would spend real money on a run with no
+    `experiment_run` row, write an artifact under a real organization's
+    experiment prefix, and suppress every signal that would surface it.
+    """
+    if JUDGE_RUN_ID_RE.fullmatch(run_id) is None:
+        raise ValueError(
+            f"a judge run_id must match {JUDGE_RUN_ID_RE.pattern} (ECS caps startedBy at "
+            f"{JUDGE_RUN_ID_MAX_LENGTH} characters and dispatch passes the run id through verbatim); "
+            f"got {_truncated(run_id)}"
+        )
+    env = os.environ.get("ENVIRONMENT", "").strip().lower()
+    if env != _JUDGE_OVERRIDE_ENVIRONMENT:
+        raise ValueError(
+            f"a judge dispatch is only accepted when ENVIRONMENT is "
+            f"{_JUDGE_OVERRIDE_ENVIRONMENT!r}; this lambda has {_truncated(env)}"
+        )
 
 
 def build_container_overrides(
@@ -893,6 +1112,13 @@ def launch_run(
     # alongside the existing `input_files` allowlist. None on every product
     # dispatch, and the mint body omits the field entirely when it is None.
     experiment_override = experiment.get("judge_override")
+    # A judge-dispatched run — override arm or base arm — has no gp-api
+    # `experiment_run` row, so the ticket must tell the broker never to send it
+    # a results callback. The run id prefix is the signal; it is also what the
+    # task reaper keys on, and `parse_dispatch_message` refuses an override
+    # that does not carry it. Product run ids are UUIDv7, so this is False on
+    # every product dispatch and the mint body omits the field entirely.
+    is_eval = message["run_id"].startswith(JUDGE_RUN_ID_PREFIX)
     try:
         broker = get_broker_client()
         mint_result = broker.mint_run_token(
@@ -902,10 +1128,19 @@ def launch_run(
             scope=scope,
             params=message["params"],
             clerk_user_id=message.get("clerk_user_id"),
+            # The one documented exception to "the scope ticket comes from the
+            # published manifest": on a judge run this reads the OVERRIDE's
+            # timeout_seconds, because the ticket has to outlive the run the
+            # agent actually gets and that run is timed by the override. It
+            # grants nothing a published manifest could not, since the
+            # override's timeout is bounded by the same 60..14400 the manifest
+            # meta-schema imposes, and mint caps the resulting TTL at
+            # MAX_TTL_SECONDS regardless. See control_plane/README.md.
             exp_ttl_seconds=experiment.get("timeout_seconds", 3600) + 300,
             prior_artifact_versions=prior_artifact_versions,
             input_files=input_files,
             experiment_override=experiment_override,
+            is_eval=is_eval,
         )
     except BrokerError as e:
         logger.warning(f"Broker rejected {experiment_id} (run={message['run_id']}): {e.status_code} {e.detail}")
@@ -1047,8 +1282,11 @@ def handler(event: dict, context) -> dict:
                 if not sent:
                     batch_item_failures.append({"itemIdentifier": message_id})
             else:
-                # No run_id or no queue URL — can't notify gp-api; send to the DLQ
-                # for operator alarms.
+                # No run_id or no queue URL — can't notify gp-api; send to the
+                # DLQ for operator alarms. A judge run id takes the branch
+                # above and lands here too: `send_error_callback` suppresses
+                # the send and reports False, so the message reaches the DLQ
+                # without a callback.
                 batch_item_failures.append({"itemIdentifier": message_id})
             continue
 
@@ -1236,6 +1474,22 @@ def handler(event: dict, context) -> dict:
                 batch_item_failures.append({"itemIdentifier": message_id})
             continue
 
+        # No judge run of a write-action experiment, override arm or base arm.
+        # `_resolve_judge_override` refuses the override arm because the
+        # behavior allowlist cannot carry system_prompt / permission_mode; the
+        # base arm needs its own refusal for a different and worse reason. A
+        # write-action run writes to gp-api through the broker's /agent/mcp
+        # proxy, which does not read `ticket.is_eval` — so a judge base arm
+        # would make real product writes on a real organization while every
+        # signal that would surface them is suppressed.
+        if message["run_id"].startswith(JUDGE_RUN_ID_PREFIX) and _is_write_action(experiment):
+            logger.error(
+                f"Judge dispatch refused for write-action experiment {experiment_id} (run: {message['run_id']})"
+            )
+            emit_dispatch_metric("JudgeWriteActionRefused", experiment_id)
+            batch_item_failures.append({"itemIdentifier": message_id})
+            continue
+
         # Judge override, resolved AFTER the real experiment's scope, routing
         # and input_schema are settled above — that ordering is the invariant:
         # the override can only add behavior on top of an already-derived scope,
@@ -1248,12 +1502,12 @@ def handler(event: dict, context) -> dict:
                 batch_item_failures.append({"itemIdentifier": message_id})
                 continue
             except (ManifestLoaderMalformedError, ValueError) as e:
-                # No error callback: a judge dispatch bypasses gp-api, so there
-                # is no experiment_run row and a callback would only log
-                # "Experiment run not found" once per rejected run. The DLQ is
-                # where a judge dispatch failure belongs.
                 logger.error(f"Judge override rejected for {experiment_id} (run: {message['run_id']}): {e}")
                 emit_dispatch_metric("JudgeOverrideRejected", experiment_id)
+                # Straight to the DLQ, with no callback: an override can only
+                # ride a judge run id, and `send_error_callback` suppresses a
+                # judge run's callback in any case, because a judge dispatch
+                # has no gp-api `experiment_run` row for one to land on.
                 batch_item_failures.append({"itemIdentifier": message_id})
                 continue
 

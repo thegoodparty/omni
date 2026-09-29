@@ -15,15 +15,17 @@ except (ImportError, OSError):
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
+# The judge run-id prefix is defined once, beside the rest of the judge
+# dispatch contract, and imported by both this reaper and dispatch_handler.
+# Both layouts are real: the Lambda zip is flat (handler = `task_reaper.handler`)
+# while the test suite imports the package.
+try:
+    from .manifest_loader import JUDGE_RUN_ID_PREFIX
+except ImportError:
+    from manifest_loader import JUDGE_RUN_ID_PREFIX  # type: ignore[no-redef]
+
 RESULTS_QUEUE_URL = os.environ.get("RESULTS_QUEUE_URL", "")
 CONTAINER_NAME = os.environ.get("CONTAINER_NAME", "pmf-engine")
-
-# Universal Judge run ids carry this prefix. The reaper is the one results-queue
-# sender with no scope ticket to read — it keys on the ECS task's
-# startedBy=run_id — so the run id itself is the only thing it can check.
-# ECS caps `startedBy` at 36 characters, and dispatch passes the run id through
-# verbatim, so a judge run id has at most 29 characters after this prefix.
-JUDGE_RUN_ID_PREFIX = "_judge-"
 
 _sqs_client = None
 

@@ -2465,11 +2465,46 @@ class TestEvalRunSuppressesTheResultsCallback:
 
         assert resp.status_code == 200
         assert resp.json()["callback_sent"] is False
-        # The artifact still lands in S3 — that is what the judge reads.
-        assert mock_s3.put_object.call_count == 2
         mock_sender.send_result.assert_not_called()
         # Ticket cleanup is unrelated to the callback and must still happen.
         mock_store.delete_ticket_and_run_lock.assert_called_once_with(BROKER_TOKEN, "run-001")
+        # The immutable per-run archive still lands — that is what the judge
+        # reads — and it is the ONLY write.
+        written = [c.kwargs["Key"] for c in mock_s3.put_object.call_args_list]
+        assert written == ["district_intel/run-001/artifact.json"]
+
+    def test_eval_run_never_touches_the_org_latest_pointer(self):
+        """`latest.json` is the org's CURRENT artifact: `artifact_read` serves
+        it on its legacy no-pin path, so a judge run — possibly executing
+        unpublished candidate-branch bytes — would replace real product data
+        and hand it to the next product run that reads a prior without a pin.
+        The suppressed callback would make that silent."""
+        app, mock_s3, _, _ = _create_app(ticket=_make_ticket().model_copy(update={"is_eval": True}))
+        client = TestClient(app)
+
+        resp = client.post(
+            "/artifact/publish",
+            json={"artifact": _valid_artifact()},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        written = [c.kwargs["Key"] for c in mock_s3.put_object.call_args_list]
+        assert not [k for k in written if k.endswith("/latest.json")]
+
+    def test_a_product_run_still_updates_the_latest_pointer(self):
+        app, mock_s3, _, _ = _create_app()
+        client = TestClient(app)
+
+        resp = client.post(
+            "/artifact/publish",
+            json={"artifact": _valid_artifact()},
+            headers={"X-Broker-Token": BROKER_TOKEN},
+        )
+
+        assert resp.status_code == 200
+        written = [c.kwargs["Key"] for c in mock_s3.put_object.call_args_list]
+        assert "district_intel/org-42/latest.json" in written
 
     def test_ticket_without_the_eval_flag_still_sends(self):
         app, _, mock_sender, _ = _create_app()

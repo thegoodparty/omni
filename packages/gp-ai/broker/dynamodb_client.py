@@ -5,19 +5,36 @@ from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 RUN_LOCK_PK_PREFIX = "run:"
 
 # The content-addressed folder a judge sweep stages a candidate branch's
 # manifest + instruction into: `_judge/<agentId>/<configDigest>/`. Each
-# segment is [A-Za-z0-9_-]+ and the basenames are fixed, so an override can
-# only ever name those two objects under that one prefix — it can never point
-# at `<experiment_id>/manifest.json`, at another experiment's folder, or at
-# anything else in the metadata bucket. The full key format is the contract in
-# `packages/contracts`; these two regexes are the broker's enforcement of it.
-_JUDGE_MANIFEST_KEY_RE = re.compile(r"_judge/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/manifest\.json")
-_JUDGE_INSTRUCTION_KEY_RE = re.compile(r"_judge/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/instruction\.md")
+# segment is [A-Za-z0-9_-]{1,64} and the basenames are fixed, so an override
+# can only ever name those two objects under that one prefix — it can never
+# point at `<experiment_id>/manifest.json`, at another experiment's folder, or
+# at anything else in the metadata bucket. This regex is what makes that true;
+# nothing about the bucket's IAM restricts the sweep's writes to `_judge/*`
+# today, so the containment is entirely this check plus the ticket allowlist.
+# One regex with named groups rather than one per leaf, so the folder-identity
+# check below has segments to compare; it is the same shape the dispatch
+# Lambda validates against
+# (`pmf_engine/control_plane/manifest_loader.JUDGE_OVERRIDE_KEY_RE`).
+JUDGE_OVERRIDE_KEY_RE = re.compile(
+    r"^_judge/(?P<agent_id>[A-Za-z0-9_-]{1,64})/(?P<digest>[A-Za-z0-9_-]{1,64})/(?P<leaf>manifest\.json|instruction\.md)$"
+)
+
+# Every run id a judge sweep dispatches carries this prefix; it is the marker
+# for "gp-api has no experiment_run row for this run". Duplicated from
+# `packages/contracts` (TypeScript) and
+# `pmf_engine/control_plane/manifest_loader.py` (a separate deployable) because
+# there is no import path between the three; the agreement is held by tests.
+JUDGE_RUN_ID_PREFIX = "_judge-"
+
+# Same alphabet the broker's own request models accept for an S3 VersionId
+# (`experiment_manifest.S3_VERSION_ID_PATTERN`).
+_S3_VERSION_ID_RE = re.compile(r"^[A-Za-z0-9._\-]{1,1024}$")
 
 
 def _run_lock_pk(run_id: str) -> str:
@@ -40,33 +57,65 @@ class InputFileRef(BaseModel):
 
 class ExperimentOverrideRef(BaseModel):
     """The one key pair a judge run is allowed to read instead of its real
-    experiment's manifest + instruction.
+    experiment's manifest + instruction, pinned to exact S3 object versions.
 
     Mirrors `InputFileRef`: the ticket is already the authorization object for
     a run, so the allowlist rides on it and `/experiment/manifest` reads the
-    keys from here, never from the request body. `_judge/` is the only prefix
-    the judge role can write, so a key outside it means a bug or an attempt to
-    read an unrelated object — either way, refuse it at parse time.
+    keys from here, never from the request body. `_judge/` is a prefix the
+    publish pipeline never writes under, so a key outside it means a bug or an
+    attempt to read an unrelated object — either way, refuse it at parse time.
+    Note that this is the enforcement, not a restatement of one: no IAM policy
+    confines the sweep's writes to `_judge/*`, so nothing else is checking.
+
+    The two VersionIds are required, not optional. Dispatch vets the override
+    manifest's contents and the broker reads the same object minutes later;
+    unpinned, anyone who can write the key could swap the bytes in between and
+    the behavior allowlist would have vetted something the agent never runs.
+    An unversioned or version-suspended bucket therefore has to fail at
+    dispatch rather than degrade to "latest" here.
     """
+
+    # An unrecognised field here would be a contract drift between the
+    # dispatch Lambda and the broker that silently dropped whatever it named.
+    model_config = ConfigDict(extra="forbid")
 
     manifest_key: str = Field(..., min_length=1, max_length=1024)
     instruction_key: str = Field(..., min_length=1, max_length=1024)
+    manifest_version_id: str = Field(..., min_length=1, max_length=1024)
+    instruction_version_id: str = Field(..., min_length=1, max_length=1024)
 
-    @field_validator("manifest_key")
-    @classmethod
-    def _validate_manifest_key(cls, v: str) -> str:
-        # fullmatch, not pydantic's `pattern=` — this is an S3 key on a
-        # security boundary and `pattern` matches unanchored.
-        if not _JUDGE_MANIFEST_KEY_RE.fullmatch(v):
-            raise ValueError("manifest_key must be _judge/<agentId>/<configDigest>/manifest.json")
-        return v
+    @model_validator(mode="after")
+    def _validate_key_pair(self) -> "ExperimentOverrideRef":
+        # fullmatch via an anchored regex, not pydantic's `pattern=` — these
+        # are S3 keys on a security boundary and `pattern` matches unanchored.
+        matches = {}
+        for field, leaf in (("manifest_key", "manifest.json"), ("instruction_key", "instruction.md")):
+            match = JUDGE_OVERRIDE_KEY_RE.fullmatch(getattr(self, field))
+            if match is None or match.group("leaf") != leaf:
+                raise ValueError(f"{field} must be _judge/<agentId>/<configDigest>/{leaf}")
+            matches[field] = match
+        if matches["manifest_key"].group("agent_id") != matches["instruction_key"].group("agent_id") or matches[
+            "manifest_key"
+        ].group("digest") != matches["instruction_key"].group("digest"):
+            # Two keys from different folders would let a ticket pair one
+            # candidate's manifest with another's instruction.
+            raise ValueError("manifest_key and instruction_key must name the same _judge/<agentId>/<configDigest>/")
+        for field in ("manifest_version_id", "instruction_version_id"):
+            if not _S3_VERSION_ID_RE.fullmatch(getattr(self, field)):
+                raise ValueError(f"{field} is not a valid S3 VersionId")
+        return self
 
-    @field_validator("instruction_key")
-    @classmethod
-    def _validate_instruction_key(cls, v: str) -> str:
-        if not _JUDGE_INSTRUCTION_KEY_RE.fullmatch(v):
-            raise ValueError("instruction_key must be _judge/<agentId>/<configDigest>/instruction.md")
-        return v
+    @property
+    def agent_id(self) -> str:
+        """The `<agentId>` segment both keys share. Callers bind it to the
+        ticket's experiment_id so an override can only belong to its own agent.
+
+        A plain split rather than a second regex match: `_validate_key_pair`
+        has already established that the key is exactly
+        `_judge/<agentId>/<digest>/<leaf>`, so there is no failure mode left
+        here to write a branch for.
+        """
+        return self.manifest_key.split("/")[1]
 
 
 class ScopeTicket(BaseModel):
@@ -100,6 +149,15 @@ class ScopeTicket(BaseModel):
         # error per run.
         if self.experiment_override is not None and not self.is_eval:
             raise ValueError("experiment_override requires is_eval=True")
+        # Bind the override to its own agent here rather than only in mint's
+        # write path, so a tampered or drifted DynamoDB item cannot be LOADED
+        # either. Without it, a ticket for experiment A could be handed
+        # experiment B's staged candidate bytes.
+        if self.experiment_override is not None and self.experiment_override.agent_id != self.experiment_id:
+            raise ValueError(
+                f"experiment_override agentId {self.experiment_override.agent_id!r} "
+                f"does not match experiment_id {self.experiment_id!r}"
+            )
         return self
 
 

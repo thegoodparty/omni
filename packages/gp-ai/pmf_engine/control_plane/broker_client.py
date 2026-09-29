@@ -28,6 +28,7 @@ class BrokerClient:
         prior_artifact_versions: dict[str, str] | None = None,
         input_files: list[dict] | None = None,
         experiment_override: dict | None = None,
+        is_eval: bool = False,
     ) -> dict:
         body: dict = {
             "run_id": run_id,
@@ -42,11 +43,15 @@ class BrokerClient:
         }
         # Judge override: the experiment-metadata key pair this run's ticket
         # authorizes the broker to serve instead of `<experiment_id>/*`, still
-        # version-pinned. Added only when present, unlike its neighbours above,
-        # so a product dispatch's mint body stays byte-for-byte what it is
-        # today — the field is inert until a judge sweep sets it.
+        # version-pinned. `is_eval` tells the broker this run has no gp-api
+        # row, so it must suppress the results callback. Both are added only
+        # when set, unlike their neighbours above, so a product dispatch's mint
+        # body stays byte-for-byte what it is today — the fields are inert
+        # until a judge sweep sets them.
         if experiment_override is not None:
             body["experiment_override"] = experiment_override
+        if is_eval:
+            body["is_eval"] = True
         response = httpx.post(
             f"{self.broker_url}/internal/mint-run-token",
             json=body,
