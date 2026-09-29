@@ -83,6 +83,21 @@ export class PrioritiesController {
     }
   }
 
+  @Get(':id')
+  @ResponseSchema(PrioritySchema)
+  async get(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { id }: PriorityIdParamDto,
+  ) {
+    const priority = await this.prioritiesService.findFirst({
+      where: { id, electedOfficeId: electedOffice.id, archivedAt: null },
+    })
+    if (!priority) {
+      throw new NotFoundException('Priority not found')
+    }
+    return toApi(priority)
+  }
+
   @Post()
   @ResponseSchema(PrioritySchema)
   async create(
