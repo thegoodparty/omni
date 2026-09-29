@@ -1,8 +1,9 @@
 // Peerly documents `requested_timezone` as LOCAL (each contact's own zone)
-// or a tz-database name in the "US/Central" form; the job Schedule's
-// `schedule_timezone` takes the same values. Split states map to their
-// predominant zone; anything unmapped (the 'USA' didState default,
-// territories) falls back to Eastern.
+// or a tz-database name in the "US/Central" form, and the Schedule's
+// `schedule_timezone` (api-docs.peerly.com/reference/create-a-new-schedule)
+// as LOCAL or one of an enumerated list — every value below is on it.
+// Split states map to their predominant zone; anything unmapped (the 'USA'
+// didState default, territories) falls back to Eastern.
 export const DEFAULT_SEND_WINDOW_TIMEZONE = 'US/Eastern'
 
 const STATE_SEND_WINDOW_TIMEZONES: Record<string, string> = {
