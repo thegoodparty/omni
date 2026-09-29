@@ -33,26 +33,37 @@ happened, and Thursday's digest says so. A background sync would fail more quiet
 
 ### What the row already knows, so you do not have to work it out
 
-Every row says which signal its finding comes from, what the detector concludes from
-that signal, and whether the signal has a known residual. Where there is one, it also
-carries the tell: how to recognise that this row is the residual rather than the
-finding.
+Every row answers four questions, in the order a reader asks them:
 
-This is the part that makes the next session cheaper. The first real run cleared three
-of twenty-six decisions, and one of the three took forty minutes, all of it spent
-re-deriving the rank-0 counter blind spot that `monitor-analytics-event-health.md`
-already explains. The bottleneck is confidence per row, not the number of rows, so a
-signal verified once belongs on every row that derives from it.
+- **What we measured.** What we actually looked at, in plain words.
+- **What that means.** What the monitor concluded from it.
+- **Where this can be wrong.** The known ways that evidence misleads, or *nothing we
+  know of*.
+- **How to check.** How to tell whether this row is one of those cases.
 
-**"No known residual" is the half that does the work.** It is what tells you to stop
+Then a separate, quieter line carries the column names, functions and ticket numbers,
+for whoever is going to go and debug it.
+
+**The prose is written for someone who has never worked on this pipeline.** That split
+is the point and it is enforced by a test: any internal name found in the four prose
+fields fails the build. The first run cleared three decisions out of twenty-six, and one
+of the three took forty minutes, because verifying it meant re-deriving a blind spot
+that was already written down in our own vocabulary, in a section heading nobody would
+think to search. A caveat only its author can read has not been written down.
+
+**"Nothing we know of" is the line that does the work.** It is what tells you to stop
 looking and rule on the evidence in front of you.
 
-None of this text is a fact of its own. Every residual is a row in
+None of this text is a fact of its own. Every entry is a row in
 `books/analytics-governance-gotchas.md`, which is where one gets added when it is found
 and deleted when it is fixed. The caveats are the path from that file to the person
-ruling. Three of the four queues derive every row from the same detector, so their
-caveat prints once above the list; flags print theirs per row, because each cause has a
-different signal.
+ruling. Three of the four queues judge every row the same way, so their caveat prints
+once above the list; flags print theirs per row, because each cause rests on different
+evidence.
+
+The suggestion line under each row is held to the same bar, and its own test. A row that
+explains itself plainly and then justifies its suggestion in our vocabulary reads worse
+than one that does neither.
 
 ### A dismissal has to say why
 

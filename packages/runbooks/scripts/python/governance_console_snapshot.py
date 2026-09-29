@@ -164,30 +164,30 @@ class StaleReport(Exception):
 FLAG_RECOMMENDATIONS = {
     "call_site_removed": (
         "govern",
-        "The call sites are gone and Govern still declares these in use. The fix is a "
-        "retirement stamp per event.",
+        "Nothing in the code sends these any more, and Amplitude still says they are "
+        "in use. Retiring them is the fix.",
     ),
     "intent_divergence": (
         "govern",
-        "The declared intent and the observed behaviour disagree. One of them is wrong "
-        "and Govern is where it is corrected.",
+        "What Amplitude says about these and what they actually do disagree. Amplitude "
+        "is where you correct it.",
     ),
     "orphaned_firing": (
         "investigate",
-        "Two different faults share this signature: old clients draining after a real "
-        "retirement, and a declaration that is simply wrong. Check last_seen per event "
-        "before writing anything.",
+        "Two different problems look identical here: old app versions still sending a "
+        "genuinely retired event, and a declaration that is simply wrong. Check when "
+        "each one last fired before writing anything.",
     ),
     "counter_blind_spot": (
         "ticket",
-        "This is our call-site counter failing to see an aliased or wrapped reference, "
-        "not a product fault. It is fixed in count_call_sites, and it cannot be "
-        "dismissed.",
+        "This is our own search failing to find code that is there, not a problem with "
+        "the product. It is fixed in our tooling, and it cannot be dismissed.",
     ),
     "okr_anchor_dormant": (
         "investigate",
-        "A number the company steers by is wrong right now. It clears on recovery or "
-        "when anchored_on changes upstream, and it cannot be dismissed.",
+        "A number the company steers by is wrong right now. It clears when the event "
+        "recovers, or when someone changes the metric's definition, and it cannot be "
+        "dismissed.",
     ),
     "anomaly_drop": (
         "investigate",
@@ -228,11 +228,12 @@ def recommend_gap(gap: Mapping) -> tuple[str, str]:
 
 
 ALIGNMENT_RECOMMENDATIONS = {
-    1: ("fix_omni", "omni is behind the declaration, so the registry is what changes."),
+    1: ("fix_omni",
+        "omni is behind what the semantic layer declares, so omni is what changes."),
     2: (
         "draft_upstream",
-        "The declaration is behind the product. The output is a drafted anchored_on "
-        "change for gp-data-platform, never an edit here.",
+        "The declaration is behind the product. The output is a proposed change for "
+        "gp-data-platform, never an edit here.",
     ),
     3: (
         "investigate",
@@ -244,174 +245,228 @@ ALIGNMENT_RECOMMENDATIONS = {
 
 # --- signal caveats -----------------------------------------------------------
 #
-# What a finding is actually derived from, and the known ways that signal misleads. The
-# point is confidence per row: the first run of the console cleared three of twenty-six
-# decisions, and one of those three took forty minutes because verifying it meant
-# re-deriving a blind spot that `monitor-analytics-event-health.md` already documented.
-# A signal verified once belongs on every row that derives from it, forever.
+# What a finding is actually based on, and the known ways that evidence misleads.
 #
-# `residual: None` is the load-bearing half. "Nothing known distorts this" is what tells
-# an operator not to go looking, and most of the forty minutes was looking.
+# Written for someone who has never worked on the governance pipeline. The first run of
+# this console cleared three decisions out of twenty-six, and one of the three took
+# forty minutes, because verifying it meant re-deriving a blind spot that was already
+# written down -- in our own vocabulary, in a doc whose section heading nobody would
+# search for. A caveat that only its author can read has not been written down.
 #
-# These restate no facts of their own. Every residual here is a row in
-# `books/analytics-governance-gotchas.md`, which is the file that gets updated when one
-# is found or fixed; this map is how a row reaches the one person who has to rule on it.
+# So: plain words in the four prose fields, and every internal name -- column, function,
+# ticket -- confined to `names`, which the page renders as a separate line for whoever
+# is going to go and debug it. If a sentence cannot be read by someone who has never
+# seen the pipeline, it belongs in `names` or in the book, not here.
+#
+# `wrong: None` is the load-bearing case. "Nothing known distorts this" is what tells
+# someone to stop looking, and the looking is what costs the forty minutes.
+#
+# These restate no facts of their own. Every entry here is a row in
+# `books/analytics-governance-gotchas.md`, which is where one gets added when it is
+# found and deleted when it is fixed; this map is how a row reaches the one person who
+# has to rule on it.
 
 GOTCHAS = "books/analytics-governance-gotchas.md"
 HEALTH_BOOK = "books/monitor-analytics-event-health.md"
 
 
-def _caveat(signal, reads, residual=None, tell=None, reference=GOTCHAS) -> dict:
+def _caveat(measured, means, wrong=None, check=None, names="", reference=GOTCHAS) -> dict:
     return {
-        "signal": signal,
-        "reads": reads,
-        "residual": residual,
-        "tell": tell,
+        "measured": measured,
+        "means": means,
+        "wrong": wrong,
+        "check": check,
+        "names": names,
         "reference": reference,
     }
 
 
 CAUSE_CAVEATS = {
     "call_site_removed": _caveat(
-        "`call_site_count` and `call_site_retired_date` in the provenance CSV",
-        "The name constant survives, nothing calls it any more, and firing has stopped.",
-        "Both known distortions of this signal are already gated: a 30-day window "
-        "straddling the removal date (`call_site_removal_straddles_window`, DATA-2427) "
-        "and a blank count, which means no resolvable key path and is never read as a "
-        "zero. What is left is under-reporting — an event whose key path will not "
-        "resolve cannot reach this cause at all.",
-        "This cause is wrong by omission, not by inclusion. Trust the members; do not "
-        "read the absence of an event from it as evidence its call sites survive.",
+        "We search the code for every place that sends each event, and record when one "
+        "was deleted. Nothing in the code sends these any more, and they have stopped "
+        "appearing in Amplitude.",
+        "The event's name is still declared, but the code that sent it is gone. These "
+        "are candidates to retire.",
+        "Both of the ways this used to mislead are now fixed. A 30-day window that "
+        "straddles the deletion date no longer reads as traffic after it, and an event "
+        "whose location in the code we cannot work out is recorded as unknown rather "
+        "than as zero. What is left is that this group can be too small: an event we "
+        "cannot find in the code never reaches it at all.",
+        "Trust the events listed here. Do not read an event's absence from this group "
+        "as evidence that its code survives.",
+        "call_site_count, call_site_retired_date, "
+        "call_site_removal_straddles_window (DATA-2427)",
     ),
     "counter_blind_spot": _caveat(
-        "`call_site_count` == 0 while the catalog says active with no anomaly",
-        "A client event cannot fire without a call site, so a zero here means our "
-        "counter is blind, not that the event is dead.",
-        "`count_call_sites` is wrap-tolerant; `git log -S<key_path>` is not. A "
-        "Prettier-wrapped key path gives a true zero and resolves no removal date, so a "
-        "genuine retirement lands in this cause looking like a counter fault. Six live "
-        "zero-count rows carry no removal date. DATA-2577 owns the fix.",
-        "Look at the siblings in this cause. An event whose siblings carry a "
-        "`call_site_retired_date` and which has none is almost certainly this, not a "
-        "new counter shape. Pickaxe the dotted path as one literal string before "
-        f"concluding otherwise ({HEALTH_BOOK} § Rank 0, step 2).",
+        "We search the code for every place that sends each event. We found none for "
+        "these, and yet Amplitude shows them firing normally, some of them thousands "
+        "of times a month.",
+        "An event cannot fire if nothing in the code sends it. So our search is wrong, "
+        "not the event. These events are alive, and this is a fault in our tooling "
+        "rather than a problem with the product.",
+        "A second, quite different situation lands here looking identical: an event "
+        "whose code really was deleted, but where we could not work out when. Six "
+        "events are in that state today, and there is an open ticket to fix it.",
+        "Look at the other events grouped with this one. If they carry a removal date "
+        "and this one does not, its code probably was deleted and we simply could not "
+        "date it. Before deciding our search has a new blind spot, search the code "
+        "history for the event's full dotted name as one unbroken string: our counter "
+        "copes with that name being split across lines and the history search does not.",
+        f"call_site_count, count_call_sites, git log -S (DATA-2577). "
+        f"Full triage in {HEALTH_BOOK} section 'Rank 0'",
     ),
     "orphaned_firing": _caveat(
-        "`event_count_30d` against a Govern `not_in_use` declaration and `retired_date`",
-        "Govern says this event is dead and the data says it is still firing.",
-        "The straddle on `retired_date` is gated (`ORPHAN_GRACE_DAYS`, DATA-2140), so a "
-        "freshly retired event no longer lands here. The shape that remains is a rename "
-        "declared in Govern and never shipped in code: the live old name arrives here "
-        "while its declared successor sits under `never observed`, and nothing connects "
-        "the two.",
-        "Check the successor named in the supersession prose. No provenance row and no "
-        "fires means the rename never shipped and the declaration is what is wrong "
-        "(DATA-2573 §3).",
+        "Someone marked these events 'not in use' in Amplitude Govern, and Amplitude "
+        "shows them still firing after that date.",
+        "The declaration and reality disagree. Either the event was retired and "
+        "something is still sending it, or the declaration is simply wrong.",
+        "A freshly retired event no longer lands here; there is a grace period for "
+        "that. What does land here is a rename that was declared but never built. "
+        "Someone marked the old event dead and named a replacement, the replacement "
+        "was never written, and the old event keeps firing because it is still the "
+        "only one there is.",
+        "Find the replacement event named in the declaration. If nothing in the code "
+        "sends it and it has never fired, the rename never happened, and it is the "
+        "declaration that needs fixing rather than the event.",
+        "event_count_30d, retired_date, ORPHAN_GRACE_DAYS (DATA-2140), DATA-2573",
     ),
     "intent_divergence": _caveat(
-        "the `divergence` column: declared Govern status against observed firing",
-        "The declaration and the behaviour disagree, so one of them is wrong.",
-        "Same unshipped-rename shape as `orphaned_firing`. A `not in use` declaration "
-        "naming a successor that was never written reads here as a product fault.",
-        "Before correcting the event, confirm the declared successor has a provenance "
-        "row and has fired.",
+        "We compare what Amplitude Govern says about an event with what the data shows "
+        "it doing.",
+        "The two disagree. Either Govern says the event is in use and its code is "
+        "gone, or Govern says it is dead and it is still firing. One of the two is "
+        "wrong, and which one decides what you do about it.",
+        "The same unbuilt-rename trap as the group above. A 'not in use' declaration "
+        "naming a replacement that was never written reads here as a problem with the "
+        "event, when the problem is the declaration.",
+        "If a replacement event is named, confirm that something in the code sends it "
+        "and that it has actually fired, before changing anything about this event.",
+        "the divergence column, DATA-2573",
     ),
     "never_observed": _caveat(
-        "the Amplitude Govern taxonomy row set, not code",
-        "There is a taxonomy row for this event and no fires behind it.",
-        "The provenance CSV takes its rows from the taxonomy, so an event declared in "
-        "Govern and never written scores identically to one instrumented last Thursday. "
-        "Measured 2026-09-28 over 69 members: 34 never written, about 32 too recent to "
-        "judge, 4 the actual finding. DATA-2573 and DATA-2508 both bear on this.",
-        "Split before ruling. The quick-select chips on this row are built from exactly "
-        "the two columns that split it: `provenance` (not found in code = never built) "
-        "and `days_since_instrumented` (inside a fortnight = too recent to call).",
+        "Amplitude holds a definition for each of these events and no data behind it. "
+        "Not one of them has ever fired.",
+        "Less than it sounds like. The list of events we check comes from the "
+        "definitions people write in Amplitude, not from the code. So an event that "
+        "somebody defined and never built scores exactly the same here as one that "
+        "shipped last Thursday and has not fired yet.",
+        "The group mixes three unrelated things. Counted on 2026-09-28, of 69 events: "
+        "34 were never built at all, about 32 shipped too recently to judge, and 4 are "
+        "the real finding.",
+        "Split it before ruling on it, which the buttons above the table do for you. "
+        "'not found in code' selects the ones nobody ever built, and the age column "
+        "separates what shipped in the last fortnight from what has been silent for "
+        "months.",
+        "instrumented_never_observed, DATA-2573, DATA-2508",
     ),
     "dormant": _caveat(
-        "`event_count_30d` == 0 over the trailing 30 days",
-        "Nothing fired in a month.",
-        "Thirty days is not a season. The monitor holds no volume baseline per event, "
-        "so a genuinely low-cadence or seasonal instrument is indistinguishable from a "
-        "broken one.",
-        "Read `last_seen_date` against the instrument's own plausible cadence before "
-        "calling it broken.",
+        "Nothing fired in the last 30 days.",
+        "The event has gone quiet. It may be broken, or it may simply be rare.",
+        "Thirty days is not a season. We hold no expectation of how often any "
+        "individual event should fire, so a genuinely infrequent one looks exactly "
+        "like a broken one.",
+        "Look at when it last fired and ask whether that gap is unusual for this "
+        "particular event. Something quarterly going quiet for a month means nothing.",
+        "event_count_30d",
     ),
     "dormant_elevated": _caveat(
-        "`event_count_30d` == 0 over the trailing 30 days, on an elevated event",
-        "Nothing fired in a month, on an instrument the elevation rules watch.",
-        "Same 30-day blindness as the dormant tail. Elevation raises the rank; it does "
-        "not add a baseline the detector could use to tell quiet from broken.",
-        "Read `last_seen_date` against the instrument's own plausible cadence before "
-        "calling it broken.",
+        "Nothing fired in the last 30 days, on events we watch more closely, because "
+        "they are on the curated watchlist or belong to onboarding, activation or "
+        "compliance.",
+        "The event has gone quiet, and it is one we care about more than most. It may "
+        "be broken, or it may simply be rare.",
+        "The same 30-day blindness as the ordinary dormant group. Watching an event "
+        "more closely raises how loudly this gets reported; it does not give us any "
+        "better idea of how often the event ought to fire.",
+        "Look at when it last fired and ask whether that gap is unusual for this "
+        "particular event.",
+        "event_count_30d, is_elevated",
     ),
     "okr_anchor_dormant": _caveat(
-        "`okr_latch.py`, held open against a fixed pre-break reference",
-        "A metric the company steers by is reading wrong right now, and stays flagged "
-        "until it recovers or the declaration changes upstream.",
-        "This row's own signal is sound — the latch exists because the 4-week rolling "
-        "baseline absorbs a sustained break and switches its own alarm off. The "
-        "residual is what it does not cover: only legs declared in the semantic layer "
-        "are latched (DATA-2421).",
-        "Do not read the absence of this cause as health for anything outside the "
-        "semantic layer. For an unlatched instrument, compare the weekly series with a "
-        "pre-break level, never with the trailing mean.",
+        "A metric the company steers by is built on this event, and the event has "
+        "broken. We hold the finding open by comparing against how it looked before "
+        "the break, rather than against a recent average.",
+        "A number the leadership reads is wrong right now. It stays flagged until the "
+        "event recovers, or until someone changes the metric's definition upstream.",
+        "This finding itself is sound. What it does not cover is everything else: only "
+        "metrics declared in the semantic layer get this treatment. Every other event "
+        "is judged against a rolling four-week average, which quietly absorbs a "
+        "break. After about a month of being broken, the broken level becomes the "
+        "normal one and the alarm switches itself off. That is how a wrong OKR ran "
+        "unnoticed for a month.",
+        "Do not read the absence of this warning as health for anything outside the "
+        "semantic layer. For those, compare the weekly numbers against a level from "
+        "before the break, never against the recent average.",
+        "okr_latch.py, anchored_on (DATA-2421)",
     ),
     "anomaly_drop": _caveat(
-        "`detect_anomaly` against a 4-week rolling baseline",
-        "Volume fell off a cliff relative to the last four weeks.",
-        "A good cliff detector and a bad liveness guard. After about four broken weeks "
-        "the broken level is the baseline, so a break that has been running a while "
-        "stops raising this and a recovery can raise it in the wrong direction.",
-        "Check when the drop started. A row that is new on a break that is old means "
-        "the baseline has already moved under it.",
+        "Volume fell sharply compared with the previous four weeks.",
+        "Something changed, suddenly. This is a good detector of a cliff.",
+        "It is a poor detector of a long-running break. After about four weeks the "
+        "broken level becomes the very average it compares against, so the alarm "
+        "stops. A break that has been running a while will not appear here at all.",
+        "Look at when the drop started. If this is surfacing now but the drop began "
+        "months ago, the comparison has already moved underneath it.",
+        "detect_anomaly",
     ),
 }
 
 
 QUEUE_CAVEATS = {
     "gaps": _caveat(
-        "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface "
-        "files, then an LLM judge on what they return",
-        "This surface looks like it should emit an event and no tracking call was "
-        "found on it.",
-        "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a "
-        "private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` "
-        "literal handed to a local helper reads as untracked. Separately, three of the "
-        "five backend patterns match zero gp-api code, so the backend queue is blind "
-        "rather than clean (DATA-2560).",
-        "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped "
-        "call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never "
-        "read an empty backend queue as coverage.",
+        "We scan product screens for places an event ought to fire, such as a form "
+        "being submitted or a step being completed, and check whether any tracking "
+        "call sits nearby. An LLM then judges what the scan found.",
+        "This screen looks like it should send an event, and we found no tracking call "
+        "on it.",
+        "Two ways. The scan recognises only three ways of sending an event, so a "
+        "screen that sends one through a private helper, or by handing the event name "
+        "to a local function, reads as untracked when it is not. Separately, three of "
+        "the five patterns we use to scan backend code match nothing in gp-api at all, "
+        "so an empty backend queue means we are not looking rather than that there is "
+        "nothing to find.",
+        "Treat a missing tracking call as weak evidence, not proof. If the snippet "
+        "shows a helper-shaped call (tryX, emit, log) or a bare event name in quotes, "
+        "it is probably tracked already. And never read an empty backend queue as "
+        "coverage.",
+        "has_tracking_call, tracked_in_hook (DATA-2560)",
     ),
     "proposals": _caveat(
-        "family membership in the committed catalog against the curated watchlist",
-        "This event is in a family we already watch and is not itself on the list.",
+        "We compare every event in the catalog against the watchlist, and list "
+        "anything belonging to a family we already watch that is not itself watched.",
+        "We watch this family of events, and this one is not being watched.",
         None,
         None,
+        "monitored_events.yaml",
     ),
     "alignment": _caveat(
-        "the behavior registry's legs against `anchored_on` in the semantic layer's "
-        "`sem_*.yml`",
-        "omni and gp-data-platform disagree about which events carry a governed metric.",
-        "A leg is judged from its own weekly rows only when it is declared with `path:` "
-        "or `excluding:`. A bare leg's liveness is read off the whole event's catalog "
-        "status, so a metric counting one slice of a busy event reads healthy while its "
-        "slice is dead — which is how the outreach terminal stayed green for weeks after "
-        "the in-product send died.",
+        "We compare the events omni associates with each governed metric against the "
+        "events gp-data-platform's semantic layer declares for that same metric.",
+        "The two repositories disagree about which events a metric is made of.",
+        "How we judge whether a metric's input is alive depends on how precisely the "
+        "metric was declared. If the declaration narrows the event, to one page or by "
+        "excluding certain values, we check that narrower slice's own numbers. If "
+        "it just names the event, we read the whole event's status. So a metric that "
+        "really counts one slice of a busy event can look perfectly healthy while its "
+        "slice is dead. That is how the outreach terminal stayed green for weeks after "
+        "the in-product send stopped working.",
         "If the metric counts less than the whole event, check whether the declaration "
-        "says so. An undeclared narrowing is invisible to this check.",
+        "actually says so. A narrowing nobody wrote down is invisible to this check.",
+        "anchored_on, sem_*.yml, sem_anchors.Leg",
     ),
 }
 
 
 def caveat_for_cause(cause: str) -> dict | None:
-    """The signal a flagged cause derives from, and how that signal is known to mislead.
+    """What a flagged cause is based on, and how that evidence is known to mislead.
 
     Keyed on the cause base, so `call_site_removed@2026-09-01` and
     `call_site_removed@2026-07-14` carry the same caveat: the qualifier separates two
-    decisions, not two signals.
+    decisions, not two kinds of evidence.
     """
     return CAUSE_CAVEATS.get(cause.partition("@")[0])
+
 
 # --- overview -----------------------------------------------------------------
 

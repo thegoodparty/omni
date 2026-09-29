@@ -156,7 +156,7 @@ def test_stranded_call_sites_recommend_a_govern_write_not_an_investigation():
     [item] = gcs.build_flag_queue(report)
 
     assert item["recommended"] == "govern"
-    assert "retirement stamp" in item["recommendation_reason"]
+    assert "Retiring them is the fix" in item["recommendation_reason"]
 
 
 def test_orphaned_firing_recommends_looking_because_it_points_both_ways():
@@ -243,7 +243,7 @@ def test_the_snapshot_carries_the_effects_once_not_per_item():
 # --- signal caveats -----------------------------------------------------------
 
 
-def test_the_counter_canary_carries_its_blind_spot_and_the_tell():
+def test_the_counter_canary_carries_its_blind_spot_and_how_to_check():
     """The worked example: the row that cost forty minutes on the first real run."""
     report = {"flagged": [
         _record(event_type="Counter", rank=0, status="active",
@@ -253,9 +253,65 @@ def test_the_counter_canary_carries_its_blind_spot_and_the_tell():
     [item] = gcs.build_flag_queue(report)
     caveat = item["caveat"]
 
-    assert "call_site_count" in caveat["signal"]
-    assert "Prettier-wrapped" in caveat["residual"]
-    assert "call_site_retired_date" in caveat["tell"]
+    assert "nothing in the code sends it" in caveat["means"]
+    assert "really was deleted" in caveat["wrong"]
+    assert "removal date" in caveat["check"]
+    assert "count_call_sites" in caveat["names"]
+
+
+PROSE_FIELDS = ("measured", "means", "wrong", "check")
+
+
+def test_no_internal_name_leaks_into_the_prose():
+    """The prose is for someone who has never worked on the pipeline.
+
+    Every column, function and ticket belongs in `names`, which the page renders as its
+    own line. A caveat only its author can read has not been written down -- which is
+    the whole reason these exist.
+    """
+    jargon = (
+        "_", "()", "instrumentation_gaps", "sem_", ".py", ".yaml",
+        "DATA-21", "DATA-24", "DATA-25",
+    )
+    caveats = list(gcs.CAUSE_CAVEATS.items()) + list(gcs.QUEUE_CAVEATS.items())
+
+    for name, caveat in caveats:
+        for field in PROSE_FIELDS:
+            text = caveat[field] or ""
+            for token in jargon:
+                assert token not in text, f"{name}.{field} leaks {token!r}: {text}"
+
+
+def test_no_internal_name_leaks_into_a_suggestion_either():
+    """The suggestion sits directly under the caveat, so it is held to the same bar.
+
+    A row that explains itself plainly and then justifies its suggestion in our own
+    vocabulary reads worse than one that does neither.
+    """
+    reasons = [why for _, why in gcs.FLAG_RECOMMENDATIONS.values()]
+    reasons += [why for _, why in gcs.ALIGNMENT_RECOMMENDATIONS.values()]
+
+    for why in reasons:
+        for token in ("_", "()", ".py", ".yaml"):
+            assert token not in why, f"suggestion leaks {token!r}: {why}"
+
+
+def test_no_caveat_renders_a_literal_double_hyphen():
+    """The page shows this prose verbatim, and `--` reads as a typo on screen."""
+    caveats = list(gcs.CAUSE_CAVEATS.items()) + list(gcs.QUEUE_CAVEATS.items())
+
+    for name, caveat in caveats:
+        for field in PROSE_FIELDS:
+            assert "--" not in (caveat[field] or ""), f"{name}.{field}"
+
+
+def test_every_caveat_says_what_was_measured_and_what_it_means():
+    caveats = list(gcs.CAUSE_CAVEATS.items()) + list(gcs.QUEUE_CAVEATS.items())
+
+    for name, caveat in caveats:
+        assert caveat["measured"], name
+        assert caveat["means"], name
+        assert caveat["names"], name
 
 
 def test_a_dated_call_site_cause_carries_the_same_caveat_as_an_undated_one():
@@ -280,11 +336,11 @@ def test_every_cause_the_monitor_can_raise_has_a_caveat():
     assert not missing, f"no signal caveat for {sorted(missing)}"
 
 
-def test_a_residual_always_comes_with_a_tell():
-    """A known-wrong signal and no way to spot it is a warning nobody can act on."""
+def test_a_known_problem_always_comes_with_a_way_to_check():
+    """A warning with no way to act on it just makes the reader anxious."""
     for cause, caveat in gcs.CAUSE_CAVEATS.items():
-        if caveat["residual"]:
-            assert caveat["tell"], f"{cause} has a residual and no tell"
+        if caveat["wrong"]:
+            assert caveat["check"], f"{cause} says it can be wrong and not how to tell"
 
 
 def test_the_proposal_queue_says_its_signal_is_clean():
@@ -294,7 +350,7 @@ def test_the_proposal_queue_says_its_signal_is_clean():
 
     [item] = gcs.build_proposal_queue(report)
 
-    assert item["caveat"]["residual"] is None
+    assert item["caveat"]["wrong"] is None
 
 
 def test_the_gap_queue_carries_the_blind_backend_detectors():
@@ -304,7 +360,7 @@ def test_the_gap_queue_carries_the_blind_backend_detectors():
 
     [item] = gcs.build_gap_queue(gaps)
 
-    assert "weak evidence, not proof" in item["caveat"]["tell"]
+    assert "weak evidence, not proof" in item["caveat"]["check"]
 
 
 def test_the_alignment_queue_carries_the_unqualified_leg_trap():
@@ -314,7 +370,7 @@ def test_the_alignment_queue_carries_the_unqualified_leg_trap():
 
     [item] = gcs.build_alignment_queue(report)
 
-    assert "excluding" in item["caveat"]["residual"]
+    assert "one slice of a busy event" in item["caveat"]["wrong"]
 
 
 def test_gap_verbs_are_the_literals_the_gap_parser_validates():

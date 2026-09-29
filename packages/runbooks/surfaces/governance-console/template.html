@@ -1285,49 +1285,63 @@
     return parent
   }
 
-  // Which signal a row derives from, and whether that signal has a known residual.
-  // Open by default and above the evidence: the cost this pays down is re-deriving a
+  // What a row's finding is based on, and where that evidence is known to mislead.
+  //
+  // Open by default and above the table: the cost this pays down is re-deriving a
   // documented blind spot before every ruling, and a caveat behind a second click is a
-  // caveat nobody reads. "No known residual" is the load-bearing half -- it is what
-  // says stop looking.
+  // caveat nobody reads.
+  //
+  // Four questions in the reader's order -- what did we measure, what does it mean,
+  // where can it be wrong, how do I check -- in plain words, with every internal name
+  // held back to a separate line at the end. Anyone should be able to read the prose
+  // without having built the pipeline; the names line is for whoever is about to go
+  // and debug it.
   // Queues whose caveat was printed once at the head, so the rows below do not repeat
   // it. Populated by renderQueue before its rows render.
   const hoisted = new Set()
 
+  const CAVEAT_PARTS = [
+    ['measured', 'What we measured.'],
+    ['means', 'What that means.'],
+    ['wrong', 'Where this can be wrong.'],
+    ['check', 'How to check.'],
+  ]
+
   const renderCaveat = (caveat) => {
     if (!caveat) return null
-    const box = el('div', 'caveat' + (caveat.residual ? ' has-residual' : ''))
+    const box = el('div', 'caveat' + (caveat.wrong ? ' has-residual' : ''))
 
-    const signal = el('p')
-    add(signal, el('b', null, 'Derived from '))
-    withCode(signal, caveat.signal + '. ' + (caveat.reads || ''))
-    add(box, signal)
-
-    if (caveat.residual) {
-      const residual = el('p')
-      add(residual, el('b', null, 'Known residual. '))
-      withCode(residual, caveat.residual)
-      add(box, residual)
-
-      if (caveat.tell) {
-        const tell = el('p')
-        add(tell, el('b', null, 'The tell. '))
-        withCode(tell, caveat.tell)
-        add(box, tell)
+    CAVEAT_PARTS.forEach(([field, label]) => {
+      // "Where this can be wrong: nothing known" is the load-bearing line, not a gap
+      // to leave blank. It is what tells someone to stop looking.
+      if (field === 'wrong' && !caveat.wrong) {
+        add(
+          box,
+          el(
+            'p',
+            'clean',
+            'Where this can be wrong. Nothing we know of. No trap has ever been ' +
+              'recorded against this check, so the evidence below is the whole ' +
+              'question.',
+          ),
+        )
+        return
       }
-    } else {
-      add(
-        box,
-        el(
-          'p',
-          'clean',
-          'No known residual. Nothing documented distorts this signal, so the ' +
-            'evidence below is the whole question.',
-        ),
-      )
-    }
+      if (!caveat[field]) return
+      const line = el('p')
+      add(line, el('b', null, label + ' '))
+      withCode(line, caveat[field])
+      add(box, line)
+    })
 
-    if (caveat.reference) add(box, el('p', 'ref', caveat.reference))
+    if (caveat.names || caveat.reference) {
+      const names = el('p', 'ref')
+      names.textContent = [
+        caveat.names && 'In the code: ' + caveat.names,
+        caveat.reference,
+      ].filter(Boolean).join('  ·  ')
+      add(box, names)
+    }
     return box
   }
 
@@ -1992,9 +2006,10 @@
           'p',
           'locked',
           item.queue === 'flags'
-            ? 'This cause cannot be dismissed. The loader refuses it and the digest ' +
-                'reports the refusal, so it has to be fixed rather than waved through.'
-            : 'This finding cannot be dismissed. It is ours to fix in the registry.',
+            ? 'This cause cannot be dismissed. A dismissal would be ignored and ' +
+                'reported, so it has to be fixed rather than waved through.'
+            : 'This finding cannot be dismissed. omni is the side that is wrong here, ' +
+                'so it is ours to fix.',
         ),
       )
     }
