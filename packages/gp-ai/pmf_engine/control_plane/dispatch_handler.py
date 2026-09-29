@@ -25,6 +25,7 @@ try:
     from .broker_client import BrokerClient, BrokerError
     from .jsonschema_errors import format_validation_errors
     from .manifest_loader import (
+        JUDGE_OVERRIDE_KEY_RE,
         ManifestLoaderError,
         ManifestLoaderMalformedError,
         ManifestLoaderTransientError,
@@ -35,6 +36,7 @@ except ImportError:
     from broker_client import BrokerClient, BrokerError
     from jsonschema_errors import format_validation_errors  # type: ignore[no-redef]
     from manifest_loader import (  # type: ignore[no-redef]
+        JUDGE_OVERRIDE_KEY_RE,
         ManifestLoaderError,
         ManifestLoaderMalformedError,
         ManifestLoaderTransientError,
@@ -482,6 +484,222 @@ def _validate_input_files(value) -> None:
             )
 
 
+# ---------------------------------------------------------------------------
+# Judge override (Universal Judge v1, Runner 2)
+# ---------------------------------------------------------------------------
+# A judge sweep runs a CANDIDATE branch's manifest + instruction without
+# publishing them, because `publish_experiments.py` has no per-experiment filter
+# and rewrites index.json last as one global atomic switch — publishing branch
+# bytes would unpublish every other experiment. The candidate's bytes are staged
+# under a content-addressed `_judge/<agentId>/<configDigest>/` folder and the
+# dispatch message names them in `_judge_override`.
+#
+# THE SECURITY INVARIANT: a judge run can change what the agent is TOLD to do,
+# never what it is ALLOWED to touch. The real experiment is still resolved
+# through the normal index lookup, and the scope ticket, ECS routing and
+# input_schema all come from THAT manifest. `derive_scope` reads allowed_tables
+# and max_rows off the manifest and defaults to a hard deny, so an override that
+# could declare its own `scope` would let any branch grant itself any Databricks
+# table. Only the behavior fields below are honored; a `scope` key, or anything
+# else unrecognised, is rejected loudly rather than dropped.
+#
+# The S3 version pin is part of that enforcement, not only race protection:
+# dispatch vets the override object's contents and the broker reads the same
+# object minutes later. Unpinned, anyone who can write the key could swap the
+# bytes between those two reads and the allowlist would have vetted something
+# the agent never runs.
+_JUDGE_OVERRIDE_KEY_FIELDS = frozenset({"manifest_key", "instruction_key"})
+
+# Exactly the fields the Fargate runner reads off the manifest the broker serves
+# it (`runner/config.py`), so an override can change how the agent behaves and
+# what artifact shape it must produce — and nothing else. `model`, `max_turns`
+# and `output_schema` are REQUIRED because `runner/manifest_loader` hard-requires
+# them; checking here fails a mis-staged sweep at dispatch with a clear message
+# instead of at Fargate start. Note that only `model` and `timeout_seconds` are
+# consumed by this Lambda; `max_turns` and `output_schema` reach the agent via
+# the broker's manifest response, so they are validated here and deliberately
+# NOT forwarded as env vars.
+_JUDGE_OVERRIDE_BEHAVIOR_FIELDS = frozenset({"model", "max_turns", "timeout_seconds", "output_schema"})
+_JUDGE_OVERRIDE_REQUIRED_BEHAVIOR_FIELDS = ("model", "max_turns", "output_schema")
+
+# Bounds mirror the published manifest meta-schema (runbooks
+# `experiments/_schema/manifest.schema.json`) so an override cannot ask for
+# anything a publishable manifest could not. `model` is pattern-checked rather
+# than enum-checked: it becomes an ECS containerOverrides env value, so what
+# matters here is that it is one short token with no newlines or separators, and
+# duplicating the enum in a second repo would only rot.
+_JUDGE_OVERRIDE_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_JUDGE_OVERRIDE_MAX_TURNS_BOUNDS = (1, 200)
+_JUDGE_OVERRIDE_TIMEOUT_BOUNDS = (60, 14400)
+
+# The only ENVIRONMENT a judge override is honored in. Terraform sets this to
+# exactly "dev" or "prod" (infrastructure/environments/*/pmf-engine-control-plane).
+_JUDGE_OVERRIDE_ENVIRONMENT = "dev"
+
+
+def _validate_judge_override(value, experiment_id: str) -> dict | None:
+    """Validate the `_judge_override` dispatch field's shape. No S3 access.
+
+    Parallels `_validate_input_files`: shape is settled at parse time, before
+    anything reaches S3, mint or Fargate. Every path segment is pinned via
+    `JUDGE_OVERRIDE_KEY_RE` rather than the `_judge/` prefix merely being
+    checked, and the `agentId` segment must equal the experiment being
+    dispatched so an override can only ever belong to its own agent.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"_judge_override must be an object, got {type(value).__name__}")
+    keys = set(value.keys())
+    missing = _JUDGE_OVERRIDE_KEY_FIELDS - keys
+    if missing:
+        raise ValueError(f"_judge_override missing required keys: {sorted(missing)}")
+    unknown = keys - _JUDGE_OVERRIDE_KEY_FIELDS
+    if unknown:
+        raise ValueError(
+            f"_judge_override has unknown key(s) {sorted(unknown)}; allowed: {sorted(_JUDGE_OVERRIDE_KEY_FIELDS)}"
+        )
+
+    folders = {}
+    for field, leaf in (("manifest_key", "manifest.json"), ("instruction_key", "instruction.md")):
+        key = value[field]
+        if not isinstance(key, str):
+            raise ValueError(f"_judge_override.{field} must be a string, got {type(key).__name__}")
+        match = JUDGE_OVERRIDE_KEY_RE.fullmatch(key)
+        if match is None or match.group("leaf") != leaf:
+            raise ValueError(
+                f"_judge_override.{field} must be exactly "
+                f"'_judge/<agentId>/<configDigest>/{leaf}' with each segment matching "
+                f"[A-Za-z0-9_-]{{1,64}}: got {key!r}"
+            )
+        if match.group("agent_id") != experiment_id:
+            raise ValueError(
+                f"_judge_override.{field} agentId segment {match.group('agent_id')!r} "
+                f"does not match experiment_type {experiment_id!r}"
+            )
+        folders[field] = match.group("digest")
+    if folders["manifest_key"] != folders["instruction_key"]:
+        raise ValueError(
+            "_judge_override.manifest_key and instruction_key must name the same "
+            "_judge/<agentId>/<configDigest>/ folder; got digests "
+            f"{folders['manifest_key']!r} and {folders['instruction_key']!r}"
+        )
+    return {"manifest_key": value["manifest_key"], "instruction_key": value["instruction_key"]}
+
+
+def _bounded_int(field: str, value: object, bounds: tuple[int, int]) -> int:
+    low, high = bounds
+    complaint = f"{field} must be an integer in {low}..{high}; got {value!r}"
+    # `isinstance(True, int)` is True in Python, so bools must be excluded
+    # explicitly or `max_turns: true` would sail through as 1.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(complaint)
+    if not (low <= value <= high):
+        raise ValueError(complaint)
+    return value
+
+
+def _judge_override_behavior(manifest: dict, manifest_key: str) -> dict:
+    """Project an override manifest down to the allowlisted behavior fields.
+
+    `scope` is named ahead of the generic unknown-key error so the failure
+    reads as the invariant it violated rather than as a typo.
+    """
+    if "scope" in manifest:
+        raise ValueError(
+            f"judge override manifest {manifest_key} declares 'scope'. A judge run may change what the "
+            "agent is told to do, never what it is allowed to touch — scope, routing and input_schema "
+            "come from the published manifest only."
+        )
+    unknown = sorted(set(manifest.keys()) - _JUDGE_OVERRIDE_BEHAVIOR_FIELDS)
+    if unknown:
+        raise ValueError(
+            f"judge override manifest {manifest_key} carries non-behavior field(s) {unknown}; "
+            f"a judge override may only set {sorted(_JUDGE_OVERRIDE_BEHAVIOR_FIELDS)}"
+        )
+    absent = [f for f in _JUDGE_OVERRIDE_REQUIRED_BEHAVIOR_FIELDS if f not in manifest]
+    if absent:
+        raise ValueError(
+            f"judge override manifest {manifest_key} is missing field(s) {absent}, which the Fargate "
+            "runner requires of any manifest the broker serves it"
+        )
+
+    model = manifest["model"]
+    if not isinstance(model, str) or not _JUDGE_OVERRIDE_MODEL_RE.fullmatch(model):
+        raise ValueError(
+            f"judge override manifest {manifest_key}: model must match "
+            f"{_JUDGE_OVERRIDE_MODEL_RE.pattern}; got {model!r}"
+        )
+    output_schema = manifest["output_schema"]
+    if not isinstance(output_schema, dict) or not output_schema:
+        raise ValueError(f"judge override manifest {manifest_key}: output_schema must be a non-empty object")
+
+    behavior = {
+        "model": model,
+        "max_turns": _bounded_int(
+            f"judge override manifest {manifest_key}: max_turns",
+            manifest["max_turns"],
+            _JUDGE_OVERRIDE_MAX_TURNS_BOUNDS,
+        ),
+        "output_schema": output_schema,
+    }
+    if "timeout_seconds" in manifest:
+        behavior["timeout_seconds"] = _bounded_int(
+            f"judge override manifest {manifest_key}: timeout_seconds",
+            manifest["timeout_seconds"],
+            _JUDGE_OVERRIDE_TIMEOUT_BOUNDS,
+        )
+    return behavior
+
+
+def _resolve_judge_override(override: dict, experiment: dict, experiment_id: str) -> dict:
+    """Fetch + vet an override.
+
+    Returns `{"behavior": <the allowlisted fields>, "ticket_allowlist": <the
+    key pair plus both S3 VersionIds>}`. The allowlist is what rides the minted
+    ScopeTicket, next to the existing `input_files` allowlist, and is the only
+    thing that widens what the broker will serve this run.
+
+    Two refusals before any S3 read:
+
+    - Dev only, as an allowlist rather than a deny-prod check so an unexpected
+      ENVIRONMENT value refuses instead of slipping through. The judge stages
+      candidate bytes in the dev metadata bucket and its runs bypass gp-api
+      entirely, so an override reaching any other environment means something
+      upstream is wrong — and a prod judge run would write a test artifact
+      under a real organization's experiment prefix.
+    - Never for a write-action experiment. The broker serves the override
+      manifest in place of the published one, and the behavior allowlist cannot
+      carry `system_prompt` / `permission_mode`, so the candidate arm would
+      silently lose them and the comparison would measure that loss instead of
+      the branch.
+    """
+    env = os.environ.get("ENVIRONMENT", "").strip().lower()
+    if env != _JUDGE_OVERRIDE_ENVIRONMENT:
+        raise ValueError(
+            f"_judge_override is only accepted when ENVIRONMENT is "
+            f"{_JUDGE_OVERRIDE_ENVIRONMENT!r}; this lambda has {env!r}"
+        )
+    if _is_write_action(experiment):
+        raise ValueError(
+            f"_judge_override is not supported for write-action experiment {experiment_id!r}: the behavior "
+            "allowlist cannot carry system_prompt / permission_mode, so the override would drop them"
+        )
+    manifest, manifest_version_id, instruction_version_id = get_manifest_loader().fetch_judge_override(
+        manifest_key=override["manifest_key"],
+        instruction_key=override["instruction_key"],
+    )
+    return {
+        "behavior": _judge_override_behavior(manifest, override["manifest_key"]),
+        "ticket_allowlist": {
+            "manifest_key": override["manifest_key"],
+            "instruction_key": override["instruction_key"],
+            "manifest_version_id": manifest_version_id,
+            "instruction_version_id": instruction_version_id,
+        },
+    }
+
+
 # Dispatch-envelope metadata that ships inside params. The `_` prefix marks
 # a key as runner-orchestration, not agent input: stripped from params before
 # input_schema validation and before PARAMS_JSON is built, then re-attached
@@ -544,6 +762,13 @@ def parse_dispatch_message(body: str) -> dict:
             data["_input_files"] = input_files
 
     _validate_prior_artifact_versions(data.get("prior_artifact_versions"))
+    # Top-level, like prior_artifact_versions and unlike `_input_files`: the
+    # judge dispatches straight to SQS rather than through gp-api's params, and
+    # `_judge_override` is never agent input. Absent on every product dispatch,
+    # which is what keeps the no-override path unchanged.
+    judge_override = _validate_judge_override(data.get("_judge_override"), data["experiment_type"])
+    if judge_override is not None:
+        data["_judge_override"] = judge_override
     return data
 
 
@@ -663,6 +888,11 @@ def launch_run(
     # the QueuedJob into this message; mint's MintRequest field is `input_files`
     # (no leading underscore at the API boundary).
     input_files = message.get("_input_files")
+    # Judge override: the allowlist of experiment-metadata keys this run's
+    # ticket authorizes the broker to serve in place of `<experiment_id>/*`,
+    # alongside the existing `input_files` allowlist. None on every product
+    # dispatch, and the mint body omits the field entirely when it is None.
+    experiment_override = experiment.get("judge_override")
     try:
         broker = get_broker_client()
         mint_result = broker.mint_run_token(
@@ -675,6 +905,7 @@ def launch_run(
             exp_ttl_seconds=experiment.get("timeout_seconds", 3600) + 300,
             prior_artifact_versions=prior_artifact_versions,
             input_files=input_files,
+            experiment_override=experiment_override,
         )
     except BrokerError as e:
         logger.warning(f"Broker rejected {experiment_id} (run={message['run_id']}): {e.status_code} {e.detail}")
@@ -1004,6 +1235,28 @@ def handler(event: dict, context) -> dict:
             if not sent:
                 batch_item_failures.append({"itemIdentifier": message_id})
             continue
+
+        # Judge override, resolved AFTER the real experiment's scope, routing
+        # and input_schema are settled above — that ordering is the invariant:
+        # the override can only add behavior on top of an already-derived scope,
+        # never participate in deriving it.
+        override: dict | None = None
+        if message.get("_judge_override") is not None:
+            try:
+                override = _resolve_judge_override(message["_judge_override"], experiment, experiment_id)
+            except ManifestLoaderTransientError:
+                batch_item_failures.append({"itemIdentifier": message_id})
+                continue
+            except (ManifestLoaderMalformedError, ValueError) as e:
+                # No error callback: a judge dispatch bypasses gp-api, so there
+                # is no experiment_run row and a callback would only log
+                # "Experiment run not found" once per rejected run. The DLQ is
+                # where a judge dispatch failure belongs.
+                logger.error(f"Judge override rejected for {experiment_id} (run: {message['run_id']}): {e}")
+                emit_dispatch_metric("JudgeOverrideRejected", experiment_id)
+                batch_item_failures.append({"itemIdentifier": message_id})
+                continue
+
         import time as _time
 
         try:
@@ -1019,6 +1272,26 @@ def handler(event: dict, context) -> dict:
             "attachment_version_ids": experiment.get("attachment_version_ids"),
             "scope": scope,
         }
+        if override is not None:
+            # The allowlisted behavior fields become this run's effective
+            # routing, and the version pins move to the override objects
+            # because those are the bytes the broker will serve: the runner
+            # forwards MANIFEST_VERSION_ID / INSTRUCTION_VERSION_ID to the
+            # broker's manifest fetch, so keeping the published pins here would
+            # ask S3 for a VersionId belonging to a different object. `scope`
+            # above is untouched — it came from the published manifest and an
+            # override can never widen it.
+            behavior = override["behavior"]
+            allowlist = override["ticket_allowlist"]
+            routing["model"] = behavior["model"]
+            if "timeout_seconds" in behavior:
+                routing["timeout_seconds"] = behavior["timeout_seconds"]
+            routing["manifest_version_id"] = allowlist["manifest_version_id"]
+            routing["instruction_version_id"] = allowlist["instruction_version_id"]
+            # Rides `routing` rather than a new QueuedJob column so the
+            # scheduler threads it to launch_run unchanged: `_launch_one` passes
+            # the whole routing dict through as `experiment`.
+            routing["judge_override"] = allowlist
         try:
             get_job_store().put_queued_job(
                 QueuedJob(
