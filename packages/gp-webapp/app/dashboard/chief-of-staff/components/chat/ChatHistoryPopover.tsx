@@ -7,6 +7,9 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from '@styleguide'
 import { ClockIcon, Trash2Icon } from '@styleguide/components/ui/icons'
 import {
@@ -54,17 +57,24 @@ export default function ChatHistoryPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <IconButton
-          type="button"
-          size="small"
-          variant="ghost"
-          aria-label="Previous conversations"
-          className="size-10 shrink-0"
-        >
-          <ClockIcon className="size-5" aria-hidden />
-        </IconButton>
-      </PopoverTrigger>
+      {/* The bare clock icon was invisible to users hunting for their past
+          chats (ENG-11184); the tooltip names it without widening the pill. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <IconButton
+              type="button"
+              size="small"
+              variant="ghost"
+              aria-label="Previous conversations"
+              className="size-10 shrink-0"
+            >
+              <ClockIcon className="size-5" aria-hidden />
+            </IconButton>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">Previous conversations</TooltipContent>
+      </Tooltip>
       <PopoverContent side="top" align="start" className="w-72 p-2">
         <p className="px-2 py-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           Previous conversations
