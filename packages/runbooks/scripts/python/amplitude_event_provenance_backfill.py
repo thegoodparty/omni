@@ -357,9 +357,9 @@ def compute_call_site_fields(
     registry (a frontend/backend twin). Counts sum across them, so neither declaration
     shadows the other; the retirement date is the first one any dead path resolves.
 
-    ``retired_lookup`` is invoked ONLY for key-paths with zero call sites (the small subset
-    worth a targeted ``git log -S`` to attribute when the last call site was removed). Live
-    events get a null retired date with no git work.
+    ``retired_lookup`` is invoked ONLY for key-paths with zero call sites -- the ones worth
+    attributing a removal to. The lookup's history walk is lazy, so a run where every event
+    is live does no git work at all.
     """
     all_paths = [path for paths in events_map.values() for path in paths]
     counts = count_call_sites(file_texts, all_paths)
@@ -816,31 +816,103 @@ def git_call_site_file_texts(root: str, paths: Sequence[str], ref: str = "HEAD")
     return [git_show_file(root, ref, rel) for rel in rel_paths]
 
 
+# Any ``EVENTS`` key-path, with the boundary guards of ``_reference_pattern`` -- rooted
+# generically rather than on one dotted path so a SINGLE walk resolves every key-path at
+# once. The same notion of a reference the counter uses, so a zero count and the date it
+# hit zero can never disagree about what a call site is.
+_KEY_PATH_REFERENCE_RE = re.compile(
+    r"(?<![\w$.])(EVENTS(?:\s*\.\s*[A-Za-z_$][\w$]*)+)(?![\w$])(?!\s*\.)"
+)
+
+# A block-comment continuation line. ``_MAP_COMMENT_RE`` only spans a ``/* ... */`` pair,
+# and a diff carries the middle of a JSDoc block without its opener when a comment is
+# edited rather than deleted whole.
+_COMMENT_CONTINUATION_RE = re.compile(r"^\s*\*.*$", re.MULTILINE)
+
+_DOT_WS_RE = re.compile(r"\s*\.\s*")
+
+
+def key_paths_in_diff_block(block: str) -> set[str]:
+    """Canonical key-paths referenced in one side (all ``+`` or all ``-`` lines) of a commit.
+
+    Matched over the whole block, never line by line: Prettier wraps a long key-path across
+    lines (``EVENTS.A.B\\n  .C``), so no single line carries the dotted path and a per-line
+    match sees nothing (DATA-2577). Matches are normalized back to the dotted spelling.
+
+    Comments are stripped first. That is the comment-removal guard: deleting prose that
+    merely names a key-path (``// drop EVENTS.X.Y``, a JSDoc line) must not read as a
+    call-site removal and stamp a retirement date. The ``EVENTS`` membership test
+    short-circuits the overwhelming majority of commits, which touch no instrumentation.
+    """
+    if "EVENTS" not in block:
+        return set()
+    code = _COMMENT_CONTINUATION_RE.sub("", _MAP_COMMENT_RE.sub("", block))
+    return {_DOT_WS_RE.sub(".", m) for m in _KEY_PATH_REFERENCE_RE.findall(code)}
+
+
+def parse_call_site_removals(lines: Iterable[str]) -> dict[str, Commit]:
+    """``key_path -> latest commit that net-removed it``, from one ``git log -p`` stream.
+
+    The sibling of ``parse_git_log``'s 'retired' slot, kept separate because it matches each
+    commit's diff as two blocks rather than line by line -- a wrapped key-path only exists
+    across lines. Within a commit a key-path on both sides (a move, or a Prettier re-wrap)
+    nets to zero and is ignored, so reformatting never looks like a removal. Latest commit
+    date wins, which for a key-path at zero call sites at the ref is the date it hit zero.
+    """
+    out: dict[str, Commit] = {}
+    cur: Commit | None = None
+    added: list[str] = []
+    removed: list[str] = []
+
+    def flush() -> None:
+        if cur is None:
+            return
+        for path in key_paths_in_diff_block("\n".join(removed)) - key_paths_in_diff_block(
+            "\n".join(added)
+        ):
+            best = out.get(path)
+            if best is None or int(cur["ts"]) > int(best["ts"]):
+                out[path] = cur
+
+    for line in lines:
+        if line.startswith(_HEADER_PREFIX):
+            flush()
+            cur = _commit_from_header(line)
+            added, removed = [], []
+        elif cur is None:
+            continue
+        elif line.startswith("+") and not line.startswith("+++"):
+            added.append(line[1:])
+        elif line.startswith("-") and not line.startswith("---"):
+            removed.append(line[1:])
+    flush()
+    return out
+
+
 def make_call_site_retired_lookup(
     root: str, ref: str, paths: Sequence[str]
 ) -> Callable[[str], str | None]:
-    """A ``key_path -> retired_date`` lookup for zero-count events, via a pickaxe walk.
+    """A ``key_path -> retired_date`` lookup for zero-count events, via one history walk.
 
-    ``git log -S<key_path>`` streams only commits that changed the key-path's occurrence
-    count. Reusing ``parse_git_log`` with a key-path-capturing pattern, the 'retired' slot is
-    the latest commit that net-removed it -- exactly the date the count last hit zero (there is
-    no later add, or the HEAD count would not be zero). Returns the date string, or None.
+    The walk is NOT pickaxed. ``git log -S<key_path>`` needs the dotted path as one literal
+    string in the blob, which a Prettier-wrapped key-path never is, so the walk returned no
+    commits and the column stayed blank on a genuine zero (DATA-2577). Pickaxing a single
+    segment instead would restore the wrapped case but lose commits that leave that segment's
+    count unchanged while changing this path's, so the bound is dropped altogether: one
+    full-history pass resolves EVERY key-path at once, which is also cheaper than the
+    per-path pickaxe walks it replaces (one pass, not one per zero-count event).
 
-    The pattern anchors on a call-argument position (preceded by ``(`` or ``,``) or a
-    line-leading position (Prettier wraps a long ``trackEvent(`` call so the key-path sits on
-    its own line) -- never bare prose. Without this, removing a comment that merely names the
-    key-path (``// drop EVENTS.X.Y``) would register as a net-remove and stamp a spurious
-    retirement date. Mirrors the call-context anchoring of ``compile_event_pattern``; the
-    prefix guarantees a non-identifier char precedes the key-path, so no separate lookbehind
-    is needed.
+    Lazy and memoized: an all-live run still does no git work, and the first zero-count
+    event pays for all of them.
     """
+    dates: dict[str, Commit] | None = None
 
     def lookup(key_path: str) -> str | None:
-        lines = run_git_log(root, None, paths, ref, pickaxe=key_path)
-        pattern = re.compile(r"(?:[(,]\s*|^\s*)(" + re.escape(key_path) + r")(?![\w$.])", re.MULTILINE)
-        entry = parse_git_log(lines, pattern).get(key_path)
-        retired = entry["retired"] if entry else None
-        return retired["date"] if retired else None
+        nonlocal dates
+        if dates is None:
+            dates = parse_call_site_removals(run_git_log(root, None, paths, ref))
+        commit = dates.get(key_path)
+        return commit["date"] if commit else None
 
     return lookup
 
