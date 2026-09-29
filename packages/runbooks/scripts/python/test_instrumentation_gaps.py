@@ -725,6 +725,76 @@ def test_judge_system_prompt_includes_rubric():
     assert "RUBRIC-BODY-MARKER" in sp
 
 
+def test_run_seed_threads_the_gotchas_book_into_the_prompt(tmp_path, monkeypatch):
+    """The seed CALL SITE, not just judge_all's parameter. Testing the helper with an
+    explicit ``gotchas=`` proves nothing about whether run_seed passes one — deleting the
+    argument at the call site left every other test green, twice."""
+    import governance_gotchas as gg
+
+    book = tmp_path / "book.md"
+    book.write_text("GOTCHAS-BODY-MARKER")
+    monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", book)
+    rubric = tmp_path / "SKILL.md"
+    rubric.write_text("RUBRIC-BODY")
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    seen = {}
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    ig.run_seed(
+        tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
+        api_key="sk-ant-x", model="m", rubric_path=rubric,
+        client_factory=lambda _k: _Client(),
+    )
+    assert "system" in seen, "run_seed never reached the API call"
+    assert "RUBRIC-BODY" in seen["system"]
+    assert "GOTCHAS-BODY-MARKER" in seen["system"]
+
+
+def test_every_judge_prompt_call_site_passes_gotchas():
+    """Structural guard for the whole class of bug this PR kept reproducing.
+
+    Four times running, the substance was right and one call site silently defaulted
+    ``gotchas`` to "" — the read step only, then the weekly path only, then the weekly
+    happy path, then the seed call site. Each fix was a new one-off test. This asserts the
+    invariant instead: any call that builds a judge system prompt, or hands candidates to
+    the batching helpers, must pass a gotchas argument. A new judgment path added later
+    fails here rather than shipping blind.
+    """
+    import ast
+    import inspect
+
+    watched = {"judge_system_prompt", "triage_system_prompt", "judge_all",
+               "judge_candidates", "_judge_items"}
+    offenders = []
+    for module in (ig, __import__("digest_triage")):
+        tree = ast.parse(inspect.getsource(module))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = getattr(node.func, "attr", getattr(node.func, "id", None))
+            if name not in watched:
+                continue
+            passes_gotchas = (
+                any(k.arg == "gotchas" for k in node.keywords)
+                or len(node.args) >= 2 and name in {"judge_system_prompt",
+                                                    "triage_system_prompt"}
+            )
+            if not passes_gotchas:
+                offenders.append(f"{module.__name__}: {name}() at line {node.lineno}")
+    assert not offenders, (
+        "judge prompt built without the gotchas book:\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_judge_all_threads_gotchas_to_every_chunk():
     """The seed path judges the whole repo in chunks; a chunk without the book is a
     judgement made blind to the traps this book exists to surface."""
