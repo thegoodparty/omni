@@ -1258,54 +1258,6 @@ describe('NativeDoorKnockingPage create flow', () => {
     expect(screen.queryByText('Turf 2')).toBeNull()
   })
 
-  // The hub seeds its campaign list from a server component into plain
-  // `useState`, and closing here navigates rather than re-rendering it — so
-  // a cached RSC payload lands the candidate on an Active campaigns table
-  // with the campaign they just made missing from it.
-  it('refreshes the route it returns to when Done is pressed', async () => {
-    api.mock('GET /v1/door-knocking/turfs', { status: 200, data: [] })
-    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
-    api.mock('POST /v1/voters/voter-file/filter', {
-      status: 200,
-      data: { id: 9 },
-    })
-    api.mock('POST /v1/door-knocking/turfs', {
-      status: 200,
-      data: {
-        ...turf,
-        id: 5,
-        outreachId: 77,
-        voterFileFilterId: 9,
-        name: 'Introduction walk',
-        color: '#2563eb',
-        stopCount: 12,
-      },
-    })
-    render(page())
-    await mapReady()
-
-    await openFlowAndDraw()
-    fireEvent.click(
-      screen.getByRole('button', { name: /^Draw (turfs|another turf)$/ }),
-    )
-    const tapMap = screen.getByRole('button', { name: 'tap the map' })
-    drawFirstTurf()
-    nameThisTurf('Turf 1')
-    fireEvent.click(tapMap)
-    fireEvent.click(tapMap)
-    fireEvent.click(tapMap)
-    fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Create campaign' }),
-    )
-    await screen.findByText('Your campaign is ready')
-
-    vi.mocked(router.refresh).mockClear()
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
-
-    await waitFor(() => expect(router.refresh).toHaveBeenCalled())
-  })
-
   it('keeps the success screen when the travel question is dismissed', async () => {
     // The flow used to come down beside the QUESTION rather than beside the
     // walk, so cancelling left a bare map: no flow, no walk, and this page

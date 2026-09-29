@@ -3,6 +3,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import type { Campaign } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import type { OutreachDetail } from '@goodparty_org/contracts'
@@ -336,6 +337,66 @@ describe('OutreachHubPage — resuming a draft from its drawer', () => {
     expect(vi.mocked(trackEvent)).not.toHaveBeenCalledWith(
       EVENTS.Outreach.Draft.Resumed,
       expect.anything(),
+    )
+  })
+})
+
+// The list arrives as a server-rendered snapshot held in `useState`, so it
+// is only as fresh as the last time this route's RSC ran — and coming back
+// from another route can be served from the client router cache without
+// re-running it. Anything written while away is missing until something
+// asks again.
+describe('OutreachHubPage — a list written while away', () => {
+  beforeEach(() => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseMembershipState.mockReturnValue({
+      ready: true,
+      state: membership({ tier: 'free', texting: 'needs_verification' }),
+      tcrCompliance: null,
+    })
+    mockFetchOutreachDetail.mockReset()
+  })
+
+  const freshRow = {
+    ...sentRow,
+    id: 4242,
+    name: 'Introduction walk',
+    outreachType: 'doorKnocking',
+  } as unknown as typeof sentRow
+
+  it('asks the server once on mount, so a campaign made while away appears', async () => {
+    // The seeded snapshot predates the campaign; the refetch is what puts it
+    // on the table.
+    api.mock('GET /v1/outreach', { status: 200, data: [sentRow, freshRow] })
+    renderHub([sentRow])
+
+    expect(
+      await within(desktopTable()).findByText('Introduction walk'),
+    ).toBeInTheDocument()
+  })
+
+  it('opens a deep link to a campaign the snapshot never carried', async () => {
+    // The consume-once ref used to be set BEFORE the lookup, so a link to a
+    // row the snapshot lacked spent the param and could never open — which
+    // is exactly the campaign a candidate has this second created and been
+    // handed back from a walk.
+    api.mock('GET /v1/outreach', { status: 200, data: [sentRow, freshRow] })
+    mockFetchOutreachDetail.mockResolvedValue({
+      id: 4242,
+      name: 'Introduction walk',
+    })
+
+    render(
+      <OutreachHubPage
+        pathname="/dashboard/outreach"
+        campaign={campaign}
+        outreaches={[sentRow]}
+        initialOutreachId={4242}
+      />,
+    )
+
+    expect(await screen.findByTestId('details-drawer')).toHaveTextContent(
+      'Introduction walk',
     )
   })
 })

@@ -1005,23 +1005,6 @@ export default function NativeDoorKnockingPage({
     // the campaign that was just walked is a row on the hub.
     router.push(hubPath)
   }
-  // Done on the success screen: the same teardown, plus a refresh of the
-  // route we land on.
-  //
-  // The hub seeds its campaign list from a server component into plain
-  // `useState` (`OutreachProvider`'s `initValue`), and closing here is a
-  // `back()` or a `push()` — both of which can be served from the client
-  // router cache without re-running that server component. So the candidate
-  // lands on an Active campaigns table with the campaign they just made
-  // missing from it. Same navigate-then-refresh the website create flow
-  // uses on save and exit.
-  //
-  // Only on Done. Cancelling wrote nothing, so there is nothing for the hub
-  // to have missed and no reason to pay for the round trip.
-  const finishFlow = () => {
-    closeFlow()
-    router.refresh()
-  }
 
   // The one door into a walk, and the one place the travel question is
   // asked. Four surfaces reach it: the rail card's Knock, the details
@@ -1525,7 +1508,6 @@ export default function NativeDoorKnockingPage({
                   precinctOptions={precinctOptions}
                   onStepChange={changeFlowStep}
                   onClose={closeFlow}
-                  onDone={finishFlow}
                   districtBounds={districtBounds}
                   districtHouseholds={filterResult?.households ?? 0}
                   // The count above is derived from the pack, so it reads 0 for

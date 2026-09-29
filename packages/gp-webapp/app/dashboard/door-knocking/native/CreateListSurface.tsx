@@ -220,9 +220,6 @@ export interface CreateListSurfaceProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
-  // Done on the success screen, as against exiting the flow: the page adds
-  // a refresh so the hub it returns to shows the campaign just created.
-  onDone: () => void
   // The pack's bounding box, threaded to the draw step's static-map
   // preview card. Null while the pack decodes; the preview omits the image
   // in that window rather than rendering against no rect.
@@ -345,7 +342,6 @@ export default function CreateListSurface({
   onFiltersChange,
   onStepChange,
   onClose,
-  onDone,
   districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
@@ -539,7 +535,6 @@ export default function CreateListSurface({
         onStepChange(next)
       }}
       onClose={onClose}
-      onDone={onDone}
       districtBounds={districtBounds}
       districtHouseholds={districtHouseholds}
       districtHouseholdsPending={districtHouseholdsPending}

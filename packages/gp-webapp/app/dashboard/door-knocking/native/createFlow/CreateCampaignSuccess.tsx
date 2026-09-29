@@ -30,6 +30,11 @@ type Props = {
     turf: DoorKnockingTurf,
     anchorOutreachId: number | null,
   ) => void
+  // The rows render from a local snapshot of what the create just wrote, so
+  // a lifecycle write inside one of them invalidates queries this screen
+  // does not read. Without this the card stays live after Mark as done —
+  // still offering to start a walk on a turf that is already finished.
+  onTurfCompleted: (turfId: number) => void
   onDone: () => void
 }
 
@@ -38,6 +43,7 @@ export const CreateCampaignSuccess = ({
   turfs,
   anchorOutreachId,
   onStartKnocking,
+  onTurfCompleted,
   onDone,
 }: Props) => {
   const doorTotal = turfs.reduce((sum, turf) => sum + turf.doorCount, 0)
@@ -93,6 +99,7 @@ export const CreateCampaignSuccess = ({
           <TurfSummaryRow
             key={turf.id}
             turf={turf}
+            onTurfCompleted={onTurfCompleted}
             action={
               <Button
                 size="small"

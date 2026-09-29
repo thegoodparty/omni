@@ -177,7 +177,6 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     }}
     onStepChange={onStepChange}
     onClose={vi.fn()}
-    onDone={vi.fn()}
     districtBounds={null}
     districtHouseholds={0}
     districtHouseholdsPending={false}

@@ -149,10 +149,6 @@ interface CreateListFlowProps {
   precinctOptions: PrecinctOptionsResult
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
-  // The success screen's Done. Separate from `onClose` because the page
-  // refreshes the route it returns to for this one only — a cancelled flow
-  // wrote nothing for the hub to have missed.
-  onDone: () => void
   // The pack's bounding box, framed by the draw step's static-map preview
   // card. Null while the pack decodes; the preview omits the image in that
   // window rather than rendering against no rect.
@@ -389,7 +385,6 @@ export default function CreateListFlow({
   precinctOptions,
   onStepChange,
   onClose,
-  onDone,
   districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
@@ -1834,6 +1829,17 @@ export default function CreateListFlow({
               // and that drawer is keyed on the anchor — `campaignOutreachId`
               // when this flow was entered through "Draw more turfs", the
               // first turf bought otherwise.
+              // Patch the snapshot the rows render from. `completed` is what
+              // `turfStage` reads, so the card goes muted and drops its
+              // footer rather than offering a walk on a finished turf.
+              onTurfCompleted={(turfId) =>
+                setCreatedTurfs(
+                  (earlier) =>
+                    earlier?.map((turf) =>
+                      turf.id === turfId ? { ...turf, completed: true } : turf,
+                    ) ?? earlier,
+                )
+              }
               anchorOutreachId={
                 campaignOutreachId ??
                 createdAnchorRef.current ??
@@ -1841,7 +1847,7 @@ export default function CreateListFlow({
                 null
               }
               onStartKnocking={onStartKnocking}
-              onDone={onDone}
+              onDone={onClose}
             />
           )}
         </div>
