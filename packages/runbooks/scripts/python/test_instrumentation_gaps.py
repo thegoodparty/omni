@@ -782,6 +782,37 @@ def test_judge_system_prompt_omits_gotchas_header_when_book_is_missing():
     assert "Known gotchas" not in sp
 
 
+def test_run_judgment_sends_the_gotchas_book_to_the_judge(tmp_path, monkeypatch):
+    """The weekly path's happy case. Without this, dropping ``load_gotchas()`` from
+    ``run_judgment``'s system_factory leaves every test green — the degraded-path test
+    below passes precisely when the book is absent."""
+    import governance_gotchas as gg
+
+    book = tmp_path / "book.md"
+    book.write_text("GOTCHAS-BODY-MARKER")
+    monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", book)
+    rubric = tmp_path / "SKILL.md"
+    rubric.write_text("RUBRIC-BODY")
+    seen = {}
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    verdicts, status = ig.run_judgment(
+        [{"id": "/a", "surface_type": "route", "location": "a.tsx"}],
+        api_key="k", model="m", rubric_path=rubric, client_factory=lambda _k: _Client(),
+    )
+    assert verdicts == {}
+    assert status.startswith("failed:")
+    assert "RUBRIC-BODY" in seen["system"]
+    assert "GOTCHAS-BODY-MARKER" in seen["system"]
+
+
 def test_run_judgment_still_judges_when_the_gotchas_book_is_unreadable(tmp_path, monkeypatch):
     """The book is documentation; a missing one must never cost us the judgment pass."""
     import governance_gotchas as gg
