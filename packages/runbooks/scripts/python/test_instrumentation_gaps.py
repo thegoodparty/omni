@@ -795,30 +795,6 @@ def test_every_judge_prompt_call_site_passes_gotchas():
     )
 
 
-def test_judge_all_threads_gotchas_to_every_chunk():
-    """The seed path judges the whole repo in chunks; a chunk without the book is a
-    judgement made blind to the traps this book exists to surface."""
-    seen = []
-
-    class _Msgs:
-        def create(self, *, system, **kw):
-            seen.append(system)
-            raise RuntimeError("stop after prompt assembly")
-
-    class _Client:
-        messages = _Msgs()
-
-    candidates = [{"id": f"/c{i}", "surface_type": "route", "location": f"c{i}.tsx"}
-                  for i in range(3)]
-    try:
-        ig.judge_all(candidates, "RUBRIC-BODY", client=_Client(), model="m",
-                     chunk_size=2, gotchas="GOTCHAS-BODY-MARKER")
-    except RuntimeError:
-        pass
-    assert seen, "judge_all never reached the API call"
-    assert all("GOTCHAS-BODY-MARKER" in s for s in seen)
-
-
 def test_judge_candidates_passes_gotchas_into_the_prompt():
     seen = {}
 
@@ -1057,6 +1033,42 @@ def test_judge_all_chunks_and_merges():
     out = ig.judge_all(cands, "RUBRIC", client=client, model="m", chunk_size=2)
     assert set(out) == {f"/x{i}" for i in range(5)}
     assert client.calls == 3  # 2 + 2 + 1
+
+
+class _SystemRecordingPerChunkClient(_PerChunkClient):
+    """_PerChunkClient, but keeps every system prompt it was called with.
+
+    Succeeding on each call is the point. A fake that raises on the first one stops
+    judge_all after chunk 1, and then "every chunk carries the book" is asserted over a
+    single element and holds vacuously — which is what the first version of the test
+    below did.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.systems = []
+
+    def create(self, **kwargs):
+        self.systems.append(kwargs["system"])
+        return super().create(**kwargs)
+
+
+def test_judge_all_threads_gotchas_to_every_chunk():
+    """The seed path judges the whole repo in chunks; a chunk without the book is a
+    judgement made blind to the traps this book exists to surface."""
+    candidates = [{"id": f"/c{i}", "surface_type": "route", "location": f"c{i}.tsx",
+                   "snippet": ""} for i in range(5)]
+    client = _SystemRecordingPerChunkClient()
+
+    ig.judge_all(candidates, "RUBRIC-BODY", client=client, model="m",
+                 chunk_size=2, gotchas="GOTCHAS-BODY-MARKER")
+
+    # 5 candidates at chunk_size 2 is three calls. Asserting the count first is what
+    # keeps the "every chunk" assertions below from passing vacuously.
+    assert client.calls == 3
+    assert len(client.systems) == 3
+    assert all("GOTCHAS-BODY-MARKER" in s for s in client.systems)
+    assert all("RUBRIC-BODY" in s for s in client.systems)
 
 
 def test_select_candidates_limit_none_returns_all():
