@@ -6,10 +6,22 @@ import {
 } from 'src/prisma/util/prisma.util'
 import { CandidacyFilterDto } from './candidacies.schema'
 import { Prisma } from '../generated/prisma'
+import { coalesceKey, InFlightCoalescer } from '../shared/util/coalesce.util'
 
 @Injectable()
 export class CandidaciesService extends createPrismaBase(MODELS.Candidacy) {
+  // Unpaginated like the other two state-wide lists, and measured in the same
+  // fourteen-identical-copies burst that emptied the connection pool on
+  // 2026-09-25 and 2026-09-29. See coalesce.util.ts.
+  private readonly listReads = new InFlightCoalescer()
+
   async getCandidacies(filterDto: CandidacyFilterDto) {
+    return this.listReads.run(coalesceKey('candidacies', filterDto), () =>
+      this.readCandidacies(filterDto),
+    )
+  }
+
+  private async readCandidacies(filterDto: CandidacyFilterDto) {
     const {
       slug,
       raceSlug,

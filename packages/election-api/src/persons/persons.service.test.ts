@@ -91,6 +91,41 @@ describe('PersonsService', () => {
     expect(args.where).toEqual({ id: { in: [a, b] } })
   })
 
+  // A whole state is multi-megabyte and takes seconds, and prod callers ask
+  // for the same one up to fourteen times at once; each copy used to hold its
+  // own connection out of the task's 25 until the pool was empty and unrelated
+  // reads failed with P2024. Identical concurrent reads now share one query.
+  it('issues one query for identical concurrent state-wide reads', async () => {
+    const filter = {
+      state: 'CA',
+      columns: 'id,slug',
+      includeOfficeHolders: false,
+      includeCandidacies: false,
+    } as PersonFilterDto
+
+    const results = await Promise.all(
+      Array.from({ length: 14 }, () => service.getPersons({ ...filter })),
+    )
+
+    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(results.every((r) => r === results[0])).toBe(true)
+  })
+
+  it('does not share a query between different states', async () => {
+    const filter = {
+      columns: 'id,slug',
+      includeOfficeHolders: false,
+      includeCandidacies: false,
+    } as PersonFilterDto
+
+    await Promise.all([
+      service.getPersons({ ...filter, state: 'CA' }),
+      service.getPersons({ ...filter, state: 'IL' }),
+    ])
+
+    expect(findMany).toHaveBeenCalledTimes(2)
+  })
+
   it('filters by gpApiUserId (gp-api user linkage lookup)', async () => {
     await service.getPersons({
       gpApiUserId: '12345',

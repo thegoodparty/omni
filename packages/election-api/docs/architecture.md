@@ -85,6 +85,11 @@ See `ai-rules/system-map.md` for the full cross-repo map.
 - **`createZodDto(zodSchema)`** — `nestjs-zod` decorator-friendly DTO. Bind to `@Query()`/`@Param()`/`@Body()`; the global `ZodValidationPipe` enforces it. Inputs that come from query strings often need `z.preprocess(...)` to coerce strings to booleans/numbers.
 - **`AllExceptionsFilter`** (`src/shared/filters/allExceptions.filter.ts`) — global filter that returns the real error message for non-`HttpException` errors. Safe because the API is internal-only; aids debugging from gp-api.
 - **`buildColumnSelect`** (`src/prisma/util/prisma.util.ts`) — builds a typed Prisma `select` clause from a comma-separated string of column names, used by endpoints that let callers pick fields.
+- **`InFlightCoalescer` + `coalesceKey`** (`src/shared/util/coalesce.util.ts`) — concurrent identical reads share one database round-trip. Wraps the three unpaginated state-wide lists (`GET /v1/persons`, `/v1/officeholders`, `/v1/candidacies`), where one response is 0.6–6.9 MB and takes 8–13 s while holding one of the task's 25 Prisma connections, and prod callers ask for the same one up to fourteen times at once. That fan-out emptied the pool on 2026-09-25 and 2026-09-29 and unrelated reads then failed with Prisma `P2024`, which is what turned into 502s on the public voter-density heat map. It is **not** a cache — an entry exists only while its promise is pending — so there is no staleness. Coalesced callers share one object graph, so the result must be treated as read-only.
+
+### Unpaginated lists are a connection-pool risk
+
+The state-wide list endpoints return the whole set by contract, because the callers building the public /people sitemaps need it. The consequence is that a single request can hold a connection for ten seconds, and the pool is 25 per task (`PRISMA_CONNECTION_LIMIT`, `PRISMA_POOL_TIMEOUT`, both read in `src/prisma/prisma.service.ts`). Before adding another endpoint of this shape, or widening one, ask how many can be in flight at once — and note that Postgres is not the limit here: through both pool-exhaustion events the database sat under 20% CPU with ~1 ms read latency and connections pinned at exactly two tasks times twenty-five.
 
 ## ADRs
 

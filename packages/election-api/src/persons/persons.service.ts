@@ -6,6 +6,7 @@ import {
 } from 'src/prisma/util/prisma.util'
 import { PersonFilterDto } from './persons.schema'
 import { PositionLevel, Prisma } from '../generated/prisma'
+import { coalesceKey, InFlightCoalescer } from '../shared/util/coalesce.util'
 
 // Candidacy carries PII (`email`); never expose it when nesting candidacies
 // under a Person on this public endpoint. The Race is pulled with a narrow,
@@ -84,7 +85,21 @@ export interface VoterDensityCell {
 
 @Injectable()
 export class PersonsService extends createPrismaBase(MODELS.Person) {
+  // A whole state is multi-megabyte and slow: `?state=IL&columns=id,slug`
+  // measured 3.4 MB and 8.5 s in prod, and `state=CA` 2.3 MB / 9.0 s, each
+  // holding one of the task's 25 Prisma connections for the duration. Callers
+  // ask the same question up to fourteen times concurrently, which emptied the
+  // pool and made unrelated reads — the public voter-density heat map among
+  // them — fail with P2024. See coalesce.util.ts for the measurements.
+  private readonly listReads = new InFlightCoalescer()
+
   async getPersons(filterDto: PersonFilterDto) {
+    return this.listReads.run(coalesceKey('persons', filterDto), () =>
+      this.readPersons(filterDto),
+    )
+  }
+
+  private async readPersons(filterDto: PersonFilterDto) {
     const {
       slug,
       personId,
