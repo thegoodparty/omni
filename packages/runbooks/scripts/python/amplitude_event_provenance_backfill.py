@@ -15,7 +15,9 @@ the one Databricks read), and WRITES the CSV + JSON into this repo. It never wri
 Extraction note: ``trackEvent(...)`` in omni is called with *constant references*, so we anchor
 on the authoritative event universe and match those literals against added/removed diff lines in
 a single ``git log -p`` pass. Deploy-ref anchored (``origin/main``, fetched first). PR
-attribution is pure git via the merge-commit ancestry walk.
+attribution is pure git via the merge-commit ancestry walk, and a PR link is rendered under
+whichever repo actually merged it -- omni's history was grafted from the predecessor repos,
+so an older commit's number is theirs, not omni's (``build_pr_origin_map``).
 
 Usage::
 
@@ -90,7 +92,18 @@ JOB_NAME = "amplitude_event_provenance_backfill"
 
 # PR provenance is stored as a full GitHub link, not a bare number, so the CSV is
 # directly clickable and unambiguous about which repo the PR lives in.
-PR_URL_BASE = "https://github.com/thegoodparty/omni/pull"
+GITHUB_ORG = "thegoodparty"
+OMNI_SLUG = "omni"
+
+# omni's history was grafted from the predecessor repos, so a commit older than the graft
+# carries the SOURCE repo's "(#N)" in its squash subject -- rendering those under omni gave a
+# real but unrelated link (DATA-2576). The graft landed through "sync(<repo>): merge <branch>
+# into <branch>" merges whose second parent is that repo's imported tip, so which repo a
+# commit came from is recorded in history and never has to be guessed. A cutover DATE would
+# be wrong regardless: the predecessor repos kept syncing in after omni's first PR, so an
+# imported commit can be dated later than the cutover.
+_SYNC_MERGE_RE = re.compile(r"^sync\(([A-Za-z0-9._-]+)\):")
+_OWN_PR_URL_RE = re.compile(rf"^https?://github\.com/{GITHUB_ORG}/[A-Za-z0-9._-]+/pull/(\d+)/?$")
 
 # Committed outputs. Resolved from this file so paths are cwd-independent:
 # scripts/python/<this file> -> scripts/python/instrumentation_data/.
@@ -115,12 +128,30 @@ def parse_pr_number(subject: str | None) -> str | None:
     return match.group(1) if match else None
 
 
-def pr_url(value: str | None) -> str | None:
-    """Normalize a PR reference to a full GitHub link. Idempotent.
+def parse_sync_repo(subject: str | None) -> str | None:
+    """The predecessor repo named by a graft merge subject, else None.
 
-    A bare number becomes ``{PR_URL_BASE}/<n>``; an already-formed http(s) URL passes
-    through unchanged; None / empty becomes None. Applied at write time so the walk, the
-    skill's upsert, and the committed file all converge on the link form.
+    ``sync(gp-webapp): merge develop into develop`` -> ``gp-webapp``. These merges are how
+    each pre-monorepo repo's history entered omni, so their subjects are the record of which
+    repo a grafted commit came from.
+    """
+    match = _SYNC_MERGE_RE.match(subject or "")
+    return match.group(1) if match else None
+
+
+def pr_url(value: str | None, repo: str | None = None) -> str | None:
+    """Normalize a PR reference to a full GitHub link under ``repo``. Idempotent.
+
+    ``repo`` is the GitHub repository the number belongs to -- omni for anything it merged
+    itself, the predecessor repo for an imported commit (see ``build_pr_origin_map``). A bare
+    number renders under it; one of our own links is RE-rendered under it, so a row written
+    before the graft was accounted for heals on the next write. ``repo=None`` means the caller
+    does not know: a bare number still renders under omni (the only repo that merges PRs now),
+    but an existing link is left exactly as it is rather than being reassigned to omni. Any
+    URL outside our org passes through untouched, and None / empty becomes None.
+
+    Applied at write time so the walk, the skill's upsert, and the committed file all converge
+    on the link form.
     """
     if value is None:
         return None
@@ -128,8 +159,11 @@ def pr_url(value: str | None) -> str | None:
     if text == "":
         return None
     if text.startswith("http://") or text.startswith("https://"):
-        return text
-    return f"{PR_URL_BASE}/{text}"
+        own = _OWN_PR_URL_RE.match(text)
+        if repo is None or not own:
+            return text
+        text = own.group(1)
+    return f"https://github.com/{GITHUB_ORG}/{repo or OMNI_SLUG}/pull/{text}"
 
 
 def classify_code_status(present_in_head: bool | None, has_history: bool) -> str:
@@ -927,6 +961,46 @@ def git_merge_pr(root: str, sha: str, deploy_ref: str) -> str | None:
     return parse_pr_number(subject)
 
 
+def build_pr_origin_map(root: str, deploy_ref: str = DEPLOY_REF) -> dict[str, str]:
+    """{commit sha -> predecessor repo slug} for every commit grafted in from a pre-monorepo repo.
+
+    A PR number parsed off a commit subject belongs to whichever repo merged that commit, and
+    for grafted history that is not omni. omni absorbed each predecessor repo through
+    ``sync(<repo>)`` merges whose second parent is that repo's imported tip, so walking those
+    tips partitions the grafted commits by source repo -- derived from the history in hand, not
+    from a hardcoded cutover. A sha absent from the map is omni-native.
+
+    Returns {} when git errors or the graft merges are absent, which degrades to the
+    everything-is-omni rendering rather than failing the walk.
+    """
+    log = subprocess.run(
+        ["git", "-C", root, "log", deploy_ref, "--merges", f"--format=%P{_FIELD_SEP}%s"],
+        capture_output=True,
+        text=True,
+    )
+    if log.returncode != 0:
+        return {}
+    tips: dict[str, list[str]] = {}
+    for line in log.stdout.splitlines():
+        parents, _, subject = line.partition(_FIELD_SEP)
+        repo = parse_sync_repo(subject)
+        # A graft merge's SECOND parent is the imported tip; the first is omni's own mainline.
+        shas = parents.split()
+        if repo and len(shas) > 1:
+            tips.setdefault(repo, []).append(shas[1])
+
+    origin: dict[str, str] = {}
+    for repo, repo_tips in tips.items():
+        listed = subprocess.run(
+            ["git", "-C", root, "rev-list", *repo_tips], capture_output=True, text=True
+        )
+        if listed.returncode != 0:
+            continue
+        for sha in listed.stdout.split():
+            origin.setdefault(sha, repo)
+    return origin
+
+
 def make_merge_walk_resolver(root: str, deploy_ref: str) -> Callable[[str], str | None]:
     """A ``sha -> PR`` resolver bound to a checkout + deploy ref, for ``resolve_pr_gaps``."""
     return lambda sha: git_merge_pr(root, sha, deploy_ref)
@@ -945,7 +1019,9 @@ def fetch_event_universe(cursor: Any, taxonomy_table: str = TAXONOMY_TABLE) -> l
     return [str(r[0]) for r in cursor.fetchall()]
 
 
-def write_provenance(rows: Sequence[dict], csv_path: str = DEFAULT_CSV_PATH) -> None:
+def write_provenance(
+    rows: Sequence[dict], csv_path: str = DEFAULT_CSV_PATH, pr_origin: Mapping[str, str] | None = None
+) -> None:
     """Write the full provenance dataset to a CSV, sorted by event_type.
 
     Full rewrite (the dataset is ~434 rows): a deterministic column and row order keeps the
@@ -953,6 +1029,13 @@ def write_provenance(rows: Sequence[dict], csv_path: str = DEFAULT_CSV_PATH) -> 
     event names containing commas or apostrophes correctly. ``lineterminator="\\n"`` forces
     LF (the csv default is CRLF), so the committed file matches the repo's line-ending hook
     and regenerating it produces no spurious diff.
+
+    ``pr_origin`` ({sha -> predecessor repo}, from ``build_pr_origin_map``) decides which
+    repository each PR link points at: a commit in the map is grafted history, so its number
+    is that repo's, and anything else is omni's. Passing it normalizes every row on every
+    write, which is what repairs links stored before DATA-2576. Omitting it (the skill's
+    single-row upsert, which never reads history) leaves existing links untouched rather than
+    reassigning them all to omni.
     """
     ordered = sorted(rows, key=lambda r: r["event_type"])
     path = Path(csv_path)
@@ -962,8 +1045,9 @@ def write_provenance(rows: Sequence[dict], csv_path: str = DEFAULT_CSV_PATH) -> 
         writer.writeheader()
         for row in ordered:
             out = dict(row)
-            out["instrumented_pr"] = pr_url(out.get("instrumented_pr"))
-            out["retired_pr"] = pr_url(out.get("retired_pr"))
+            for commit_key, pr_key in _PR_FIELDS:
+                repo = None if pr_origin is None else pr_origin.get(out.get(commit_key) or "", OMNI_SLUG)
+                out[pr_key] = pr_url(out.get(pr_key), repo)
             writer.writerow({c: ("" if out.get(c) is None else out[c]) for c in PROVENANCE_COLUMNS})
 
 
@@ -1162,6 +1246,7 @@ def run_backfill(
     state_path: str = DEFAULT_STATE_PATH,
     ref: str = DEPLOY_REF,
     pr_resolver: Callable[[str], str | None] | None = None,
+    pr_origin: Mapping[str, str] | None = None,
 ) -> list[dict]:
     """Fetch the universe, walk git once, write the CSV + watermark file. Returns the rows."""
     updated_at = now.replace(tzinfo=None).isoformat(timespec="seconds")
@@ -1182,7 +1267,7 @@ def run_backfill(
         print(f"Merge-walk PR backfill: filled {filled} *_pr gaps", file=sys.stderr)
 
     augment_call_site_columns(rows, root, ref)
-    write_provenance(rows, csv_path)
+    write_provenance(rows, csv_path, pr_origin)
     write_watermark(
         state_path,
         git_head_sha(root, ref),
@@ -1232,6 +1317,7 @@ def run_refresh(
     state_path: str = DEFAULT_STATE_PATH,
     ref: str = DEPLOY_REF,
     pr_resolver: Callable[[str], str | None] | None = None,
+    pr_origin: Mapping[str, str] | None = None,
 ) -> list[dict]:
     """Incremental refresh bounded by the SHA watermark; full backfill when there is none.
 
@@ -1258,6 +1344,7 @@ def run_refresh(
             state_path=state_path,
             ref=ref,
             pr_resolver=pr_resolver,
+            pr_origin=pr_origin,
         )
 
     last_sha = watermark["last_processed_sha"]
@@ -1312,7 +1399,7 @@ def run_refresh(
 
     rows = list(existing.values())
     augment_call_site_columns(rows, root, ref)
-    write_provenance(rows, csv_path)
+    write_provenance(rows, csv_path, pr_origin)
     write_watermark(
         state_path,
         git_head_sha(root, ref),
@@ -1369,6 +1456,16 @@ def _run_walk(args: argparse.Namespace) -> None:
         print(f"Fetching {args.ref} ...", file=sys.stderr)
         git_fetch(root, args.ref)
     pr_resolver = None if args.no_pr_resolve else make_merge_walk_resolver(root, args.ref)
+    pr_origin = build_pr_origin_map(root, args.ref)
+    if pr_origin:
+        repos = sorted(set(pr_origin.values()))
+        print(
+            f"PR origin map: {len(pr_origin)} grafted commits from {len(repos)} "
+            f"pre-monorepo repo(s) ({', '.join(repos)})",
+            file=sys.stderr,
+        )
+    else:
+        print("PR origin map: empty -- every PR link will render under omni", file=sys.stderr)
 
     import databricks_oauth as dbc  # lazy: pure logic imports without the SDK
 
@@ -1378,7 +1475,8 @@ def _run_walk(args: argparse.Namespace) -> None:
     try:
         with connection.cursor() as cursor:
             rows = run_refresh(cursor, root, since, datetime.now(UTC),
-                               csv_path=args.csv, state_path=args.state, ref=args.ref, pr_resolver=pr_resolver)
+                               csv_path=args.csv, state_path=args.state, ref=args.ref,
+                               pr_resolver=pr_resolver, pr_origin=pr_origin)
     finally:
         connection.close()
     print(_summarize(rows), file=sys.stderr)
