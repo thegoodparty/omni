@@ -469,8 +469,7 @@ export const extractHttpUrls = (text: string): string[] => {
 // to enable attachments (chief_of_staff scope only, gated by the
 // serve-chat-attachments flag): the paperclip opens the system file picker
 // directly, and pasting text that contains a URL attaches each link — there is
-// no separate URL form. `guardAcknowledged`/`onGuardAcknowledge` control the
-// one-time safety notice shown above the form.
+// no separate URL form.
 export function ChatComposer({
   value,
   onChange,
@@ -485,8 +484,6 @@ export function ChatComposer({
   onAttachFile,
   onAttachLink,
   onRemoveAttachment,
-  guardAcknowledged,
-  onGuardAcknowledge,
 }: {
   value: string
   onChange: (value: string) => void
@@ -506,9 +503,6 @@ export function ChatComposer({
   // Called for each http(s) URL found in text pasted into the composer.
   onAttachLink?: (url: string) => void
   onRemoveAttachment?: (attachmentId: string) => void
-  // Guard copy notice. Show when `false`; hide permanently after acknowledge.
-  guardAcknowledged?: boolean
-  onGuardAcknowledge?: () => void
 }): React.JSX.Element {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -623,27 +617,6 @@ export function ChatComposer({
     submit()
   }
 
-  const guardBanner =
-    attachmentsEnabled && guardAcknowledged === false ? (
-      <div
-        role="note"
-        className="mb-1 flex items-center justify-between gap-2 rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
-      >
-        <span>
-          Don&apos;t upload closed-session, privileged, or active-litigation
-          material.
-        </span>
-        <button
-          type="button"
-          aria-label="Dismiss"
-          onClick={onGuardAcknowledge}
-          className="shrink-0 rounded-full hover:text-foreground"
-        >
-          <XMarkIcon className="size-3.5" aria-hidden />
-        </button>
-      </div>
-    ) : null
-
   const fileInput = attachmentsEnabled ? (
     <input
       ref={fileInputRef}
@@ -662,7 +635,6 @@ export function ChatComposer({
   if (dictation) {
     return (
       <>
-        {guardBanner}
         {fileInput}
         <form onSubmit={handleSubmit}>
           <ChatPill
@@ -679,7 +651,6 @@ export function ChatComposer({
 
   return (
     <>
-      {guardBanner}
       {fileInput}
       <form
         className="flex min-h-12 flex-col gap-0 rounded-3xl border border-border bg-card py-1 pr-1 pl-4"

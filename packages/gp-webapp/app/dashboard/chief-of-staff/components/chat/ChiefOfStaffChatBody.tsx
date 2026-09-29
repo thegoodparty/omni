@@ -270,29 +270,22 @@ export default function ChiefOfStaffChatBody({
 
   const [attachments, setAttachments] = useState<ChatAttachmentState[]>([])
 
+  // The safety notice fires as a toast after the first successful attach,
+  // once per user (per browser). localStorage failure means the toast repeats
+  // on later attaches, which errs toward showing the notice.
   const GUARD_KEY = 'serve-chat-attachments-guard'
-  const [guardAcknowledged, setGuardAcknowledged] = useState<boolean>(() => {
+  const maybeShowUploadGuard = useCallback((): void => {
     try {
-      return window.localStorage.getItem(GUARD_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
-
-  const handleGuardAcknowledge = useCallback((): void => {
-    try {
+      if (window.localStorage.getItem(GUARD_KEY) === '1') return
       window.localStorage.setItem(GUARD_KEY, '1')
     } catch {
       // private mode / storage disabled
     }
-    setGuardAcknowledged(true)
+    toast(
+      "Don't upload closed-session, privileged, or active-litigation material.",
+    )
+    void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, {})
   }, [])
-
-  useEffect(() => {
-    if (attachmentsEnabled.enabled && guardAcknowledged === false) {
-      void trackEvent(EVENTS.ChiefOfStaff.UploadGuardShown, {})
-    }
-  }, [attachmentsEnabled.enabled, guardAcknowledged])
 
   const reportedFailedIdsRef = useRef(new Set<string>())
   useEffect(() => {
@@ -604,6 +597,7 @@ export default function ChiefOfStaffChatBody({
         setAttachments((prev) =>
           prev.map((a) => (a.id === tempId ? result : a)),
         )
+        maybeShowUploadGuard()
         void trackEvent(EVENTS.ChiefOfStaff.DocumentAttached, {
           sourceType: 'file',
           fileType: file.type || (file.name.split('.').pop() ?? ''),
@@ -624,7 +618,7 @@ export default function ChiefOfStaffChatBody({
         )
       }
     },
-    [conversationId, ensureConversationId],
+    [conversationId, ensureConversationId, maybeShowUploadGuard],
   )
 
   const handleAttachLink = useCallback(
@@ -662,6 +656,7 @@ export default function ChiefOfStaffChatBody({
               return true
             })
           })
+          maybeShowUploadGuard()
           void trackEvent(EVENTS.ChiefOfStaff.LinkSubmitted, {
             linkHost,
             fetchSucceeded: true,
@@ -705,7 +700,7 @@ export default function ChiefOfStaffChatBody({
         })
       }
     },
-    [conversationId, ensureConversationId],
+    [conversationId, ensureConversationId, maybeShowUploadGuard],
   )
 
   // Drag-and-drop anywhere on the chat surface attaches the dropped files
@@ -1290,8 +1285,6 @@ export default function ChiefOfStaffChatBody({
                   onAttachFile: (file) => void handleAttachFile(file),
                   onAttachLink: (url) => void handleAttachLink(url),
                   onRemoveAttachment: (id) => void handleRemoveAttachment(id),
-                  guardAcknowledged,
-                  onGuardAcknowledge: handleGuardAcknowledge,
                 }
               : {})}
           />
