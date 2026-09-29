@@ -725,6 +725,45 @@ def test_judge_system_prompt_includes_rubric():
     assert "RUBRIC-BODY-MARKER" in sp
 
 
+def test_judge_system_prompt_includes_gotchas_when_given(tmp_path):
+    sp = ig.judge_system_prompt("RUBRIC-BODY", gotchas="GOTCHAS-BODY-MARKER")
+    assert "RUBRIC-BODY" in sp
+    assert "GOTCHAS-BODY-MARKER" in sp
+
+
+def test_judge_system_prompt_omits_gotchas_header_when_book_is_missing():
+    sp = ig.judge_system_prompt("RUBRIC-BODY", gotchas="")
+    assert "RUBRIC-BODY" in sp
+    assert "Known gotchas" not in sp
+
+
+def test_run_judgment_still_judges_when_the_gotchas_book_is_unreadable(tmp_path, monkeypatch):
+    """The book is documentation; a missing one must never cost us the judgment pass."""
+    import governance_gotchas as gg
+
+    monkeypatch.setattr(gg, "DEFAULT_GOTCHAS_PATH", tmp_path / "nope.md")
+    rubric = tmp_path / "SKILL.md"
+    rubric.write_text("# rubric\n")
+    seen = {}
+
+    class _Msgs:
+        def create(self, *, system, **kw):
+            seen["system"] = system
+            raise RuntimeError("stop after prompt assembly")
+
+    class _Client:
+        messages = _Msgs()
+
+    verdicts, status = ig.run_judgment(
+        [{"id": "/a", "surface_type": "route", "location": "a.tsx"}],
+        api_key="k", model="m", rubric_path=rubric, client_factory=lambda _k: _Client(),
+    )
+    assert verdicts == {}
+    assert status.startswith("failed:")
+    assert "# rubric" in seen["system"]
+    assert "Known gotchas" not in seen["system"]
+
+
 def test_parse_judge_response_validates_and_filters_unknown_ids():
     payload = {
         "results": [

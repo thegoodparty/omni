@@ -294,7 +294,16 @@ informational** rollup, plus a threaded reply with the full detail (per-event an
 numbers, watchlist proposals, informational transitions, and the status breakdown). Each
 item's tier comes from `digest_triage.py`: a deterministic rules pass (OKR flag, watchlist
 membership, health rank) that a rubric-guided Claude judge may then move by one tier —
-never demoting an OKR-anchored red item. The judge needs `ANTHROPIC_API_KEY` and reads its
+never demoting an OKR-anchored red item.
+
+That judge, and the gap judge in `instrumentation_gaps.py`, are each **one forced-tool-call
+request with a fixed system prompt** — no tools, no filesystem. So they cannot follow a
+pointer to a doc; the text has to be in the prompt. `governance_gotchas.py` pastes
+[analytics-governance-gotchas.md](analytics-governance-gotchas.md) into both, because both
+rule before any human reads the digest and a trap the judge does not know about becomes a
+tier or a confirmed gap nobody has reason to question (DATA-2575). A missing or corrupt book
+degrades to the rubric alone rather than failing the run. The judges only read it — the book
+is written in the `/triage-instrumentation-gaps` review, with a human approving each row. The judge needs `ANTHROPIC_API_KEY` and reads its
 model from `DIGEST_TRIAGE_MODEL` (default `claude-sonnet-5`); when the key is unset or the
 judge call fails, the digest posts anyway on the deterministic rules tier, with a
 `⚙️ triage judgment unavailable this run` line in the parent.

@@ -38,6 +38,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+import governance_gotchas
 import llm_judge
 import ts_imports
 import ts_scopes
@@ -543,9 +544,21 @@ _JUDGE_INSTRUCTIONS = (
 )
 
 
-def judge_system_prompt(rubric: str) -> str:
-    """Rubric text (single-sourced from SKILL.md) plus the fixed judging instructions."""
-    return f"{rubric}\n\n---\n\n{_JUDGE_INSTRUCTIONS}"
+def judge_system_prompt(rubric: str, gotchas: str = "") -> str:
+    """Rubric text (single-sourced from SKILL.md), the known-gotchas book, then the fixed
+    judging instructions.
+
+    The gotchas book is pasted in rather than referenced because this judge is one
+    forced-tool-call request with no filesystem — see ``governance_gotchas``. It sits before
+    the instructions so the final word remains "the rubric is authoritative", and it is
+    omitted entirely when unavailable so no empty header reaches the model (DATA-2575).
+    """
+    parts = [rubric]
+    section = governance_gotchas.gotchas_prompt_section(gotchas)
+    if section:
+        parts.append(section)
+    parts.append(_JUDGE_INSTRUCTIONS)
+    return "\n\n---\n\n".join(parts)
 
 
 def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
@@ -634,7 +647,9 @@ def run_judgment(
     return llm_judge.run_graceful(
         candidates, api_key=api_key, model=model, tool=JUDGE_TOOL,
         message_builder=build_judge_messages,
-        system_factory=lambda: judge_system_prompt(load_rubric(rubric_path)),
+        system_factory=lambda: judge_system_prompt(
+            load_rubric(rubric_path), governance_gotchas.load_gotchas()
+        ),
         unavailable_status="skipped: rubric unavailable",
         client_factory=client_factory,
         results_field="results", noun="candidates", validate=_validated_judge_batch,

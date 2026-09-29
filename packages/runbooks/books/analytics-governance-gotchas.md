@@ -11,6 +11,15 @@ already misled someone into a confident, wrong verdict.
   fact lives in exactly one place.
 - **How to use it:** scan the Symptom column for what you are seeing, then follow the
   mitigation.
+- **Who reads it:** you, and the two judges inside the scheduled run. `governance_gotchas.py`
+  pastes this whole file into the system prompt of the gap judge (`instrumentation_gaps.py`)
+  and the digest tier judge (`digest_triage.py`), which both rule before any human sees the
+  digest. So a row here changes the automated assessment, not just the human review of it —
+  write for both audiences, keep rows short, and never put anything in a row you would not
+  want an automated verdict leaning on.
+- **Who writes it:** only a human-in-the-loop session — the
+  `/triage-instrumentation-gaps` review proposes rows and the reviewer approves them. The
+  scheduled runs read this file and never write to it.
 - **Maintenance:** when you hit a new trap, add a one-liner here; put the full explanation
   in the owning domain doc.
 - **Name rows in the words a searcher would type, not ours.** This file exists because the

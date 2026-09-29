@@ -547,14 +547,47 @@ ticket, or the reviewer's own follow-up message.
 
 Once all three queues are dispositioned:
 
-1. **Record any new trap.** If a queue item turned out to be a **tooling artifact rather
-   than a product finding** — our counter blind, a window straddling a dated change, a
-   provenance column read the wrong way — add a one-liner to
-   `books/analytics-governance-gotchas.md` before closing the session: the symptom, the
-   mitigation, and a Status of `invariant` or `state · as-of YYYY-MM`. Put the full
-   explanation in the owning book (usually `monitor-analytics-event-health.md` or
-   `refresh-event-provenance.md`) and link it rather than restating it. Skip if the
-   symptom is already a row.
+1. **Propose gotchas-book updates for sign-off.** Same shape as Queue B's watchlist
+   proposals: you propose, the reviewer picks, you apply. Never edit the book
+   unilaterally.
+
+   Run through this session's rulings and collect anything that turned out to be a
+   **tooling artifact rather than a product finding** — our counter blind, a window
+   straddling a dated change, a provenance column that meant something other than its
+   name, a judge that ruled on a premise the data does not support. Also collect any
+   **existing row this session contradicted**: a `state · as-of` row whose numbers have
+   moved, or one whose fix has since shipped.
+
+   Present them as **"Proposed updates to the gotchas book, from this session"** — one
+   block each, ready to paste:
+
+   ```
+   ADD     | <symptom, in the words a searcher would type>
+   Mitigation: <one line, linking the owning book rather than restating it>
+   Status:     invariant | state · as-of YYYY-MM
+   Evidence:   <the queue item / event / measurement this came from>
+
+   UPDATE  | <existing row>
+   Change:     <what is now wrong, and the re-measured value>
+   ```
+
+   Then: list them with a one-line why each, and let the reviewer say yes / no / edit —
+   **do not add unilaterally.** Apply only the approved ones to
+   `books/analytics-governance-gotchas.md`, and skip any symptom already covered by a row.
+
+   Two things to get right, because both are the point of the book:
+
+   - **Name the row by the symptom, not by our vocabulary.** A row headed by a rank or a
+     cause key is a row the next person cannot find — see the book's own maintenance rules.
+   - **Re-measure before writing a number.** A figure carried over from a ticket or an
+     earlier session is exactly the stale fact the Status column exists to flag.
+
+   If nothing came up, say so in one line and move on. A session with no new traps is the
+   normal case.
+
+   **Updates to this book happen only here, with a human in the loop.** The scheduled
+   Monday/Thursday runs read the book (it is pasted into both judges' prompts — see
+   `governance_gotchas.py`) and never write to it.
 2. `git status` should show at most `instrumentation_gaps.json` and (if Queue B had any
    accept/dismiss, or Queue C had any case 1 edit or dismissal) `monitored_events.yaml`
    under `packages/runbooks/scripts/python/instrumentation_data/` /
