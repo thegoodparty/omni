@@ -159,8 +159,16 @@ channel-shaped hole in it:
 | `text`         | the `pending_payment` draft is created (review entry)  |
 | `robocall`     | the `pending_payment` draft is created (pay step)      |
 | `socialMedia`  | Save — the same press as Completed, immediately before |
-| `doorKnocking` | per turf, on the create flow's paid press              |
+| `doorKnocking` | per turf, on the create flow's press                   |
 | `phoneBanking` | the call list is created                               |
+
+A **gated** candidate (`outreach-pro-gating-v2`, milestone 2) never reaches the
+review or pay step, so for text and robocall the event fires off the `draft`
+row the gate saves instead — that row IS the campaign, existing and having
+reached nobody, which is what this event reports. Resuming that draft converts
+it in place, so the review and pay paths skip the fire (`resumed`) rather than
+counting one campaign as two. Without this the free-tier candidate — the one
+the activation work most needs to see — would be the one going unreported.
 
 The gap between Created and Completed is what differs: seconds on social,
 minutes on a paid send, and days on the two one-to-one channels, where the list

@@ -185,6 +185,23 @@ export const RobocallFlow = ({
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
+    // A gated candidate's campaign is created by the draft save, not by the
+    // pending_payment row the pay step writes — which they never reach.
+    onCampaignCreated: (draft) =>
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated.win, {
+        ...outreachEventProps({
+          channel: 'robocall',
+          recipientCount: audience.reachableCount ?? 0,
+          outreachCampaignId: draft.id,
+          ...(audience.selectedListId !== null
+            ? { listId: audience.selectedListId }
+            : {}),
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
+      }),
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
@@ -297,6 +314,9 @@ export const RobocallFlow = ({
   // created, and it is reported from here rather than from the pay step
   // because the audience and the tracker origin live in flow state.
   const handleDraftCreated = (outreachId: number) => {
+    // NOT on a resume: the pay step converts a saved `draft` row in place,
+    // and that row already reported itself created when the gate saved it.
+    if (resumed) return
     trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated.win, {
       ...outreachEventProps({
         channel: 'robocall',

@@ -502,6 +502,27 @@ export const SmsFlow = ({
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
+    // A gated candidate's campaign is created by the draft save, not by the
+    // pending_payment row the review step writes — which they never reach.
+    onCampaignCreated: (draft) =>
+      trackEvent(
+        surfaceEvent(
+          EVENTS.Dashboard.VoterContact.CampaignCreated,
+          surface.isServe,
+        ),
+        outreachEventProps({
+          channel: 'text',
+          recipientCount: audience.reachableCount ?? 0,
+          outreachCampaignId: draft.id,
+          ...(audience.selectedListId !== null
+            ? { listId: audience.selectedListId }
+            : {}),
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
+      ),
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
@@ -1079,25 +1100,30 @@ export const SmsFlow = ({
           // has an audience — everything except the payment that completes it.
           // Fired per draft, so going Back to change the audience and coming
           // forward again reports the second campaign it really creates.
-          trackEvent(
-            surfaceEvent(
-              EVENTS.Dashboard.VoterContact.CampaignCreated,
-              surface.isServe,
-            ),
-            outreachEventProps({
-              channel: 'text',
-              recipientCount: phoneList.leadsLoaded,
-              sendDate: scheduledAt,
-              outreachCampaignId: outreach.id,
-              ...(audience.selectedListId !== null
-                ? { listId: audience.selectedListId }
-                : {}),
-              audienceSource: audience.selectedRecommendation
-                ? 'recommended'
-                : 'savedList',
-              ...(tracker ? { tracker } : {}),
-            }),
-          )
+          //
+          // NOT on a resume: this create converts a saved `draft` row in
+          // place, and that row already reported itself created when the
+          // gate saved it.
+          if (!resumed)
+            trackEvent(
+              surfaceEvent(
+                EVENTS.Dashboard.VoterContact.CampaignCreated,
+                surface.isServe,
+              ),
+              outreachEventProps({
+                channel: 'text',
+                recipientCount: phoneList.leadsLoaded,
+                sendDate: scheduledAt,
+                outreachCampaignId: outreach.id,
+                ...(audience.selectedListId !== null
+                  ? { listId: audience.selectedListId }
+                  : {}),
+                audienceSource: audience.selectedRecommendation
+                  ? 'recommended'
+                  : 'savedList',
+                ...(tracker ? { tracker } : {}),
+              }),
+            )
         } else {
           setDraftCreateError(true)
         }
