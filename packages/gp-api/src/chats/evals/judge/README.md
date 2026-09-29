@@ -13,8 +13,8 @@ and the shorter [review doc](https://goodparty.clickup.com/90132012119/v/dc/2ky4
 
 ## What is here so far
 
-This is wave 0: the contracts every other build track compiles against, and
-nothing else. No runner, no judge, no report yet.
+Wave 0 laid down the contracts every other build track compiles against.
+The chat runner is the first arm on top of them; no judge or report yet.
 
 | File                  | What it is                                                                     |
 | --------------------- | ------------------------------------------------------------------------------ |
@@ -23,6 +23,7 @@ nothing else. No runner, no judge, no report yet.
 | `fixtures/records.ts` | Synthetic records, one pair per shape the layers above a runner must handle.   |
 | `cli.ts`              | Agent selection and `--dry-run`. Skeleton.                                     |
 | `pricing.ts`          | Versioned token rates. Re-derive cost from here; never compare stored dollars. |
+| `runners/chat.ts`     | Drives one real chat turn through the HTTP routes and emits one record.        |
 
 ## If you are building a track
 
