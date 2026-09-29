@@ -1075,9 +1075,9 @@ export const GLOBAL_ALERTS: Alert[] = [
     // The rule that was missing on 2026-08-24, when GET /v1/public-person
     // -profiles/voter-density began answering every single request with a 500
     // and continued for four days. 1,498,324 of them. Nothing fired, because
-    // `public-person-profiles` is in CONTROLLERS_WITHOUT_ROUTE_ALERTS, so its
-    // generated rule is provisioned disabled. It ended when the table it reads
-    // was created, not when anyone responded.
+    // `public-person-profiles` had no owner in CONTROLLER_OWNERS at the time,
+    // and a controller with no owner gets no route rule at all. It ended when
+    // the table it reads was created, not when anyone responded.
     //
     // Same shape as public-campaigns-lookup-error-ratio above. This controller
     // is ALSO in ALERT_OWNERSHIP, so it has a generated route alert too, and

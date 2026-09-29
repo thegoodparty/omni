@@ -50,7 +50,7 @@ describe('parseControllerFile', () => {
   // The fallback that makes this class of gap unshippable rather than merely
   // fixed. A controller routing through a decorator this generator does not
   // model lands in CONTROLLER_NAMES with an empty ROUTE_MAP, which satisfies
-  // the coverage tests in deploy/components/alerting/controller-alerts.test.ts
+  // the coverage tests in deploy/components/alerting/route-alerts.test.ts
   // while generating no rule and giving CONTROLLER_OWNERS nothing to enable —
   // the exact state `mcp` was in. There is no alert to be wrong, so nothing
   // downstream can report it; generation is the only place that can.

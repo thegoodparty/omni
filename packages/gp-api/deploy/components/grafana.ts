@@ -581,13 +581,12 @@ export const createGrafanaResources = async ({
     )
   }
 
-  // Every scheduled Loki read we do: the two that back the generated route
-  // alerts, and the one that backs door knocking's credit spend. Provisioned
-  // before the alerts that consume them so the ordering in this file reads the
-  // way the data flows; Pulumi does not order them and does not need to, since
-  // a Grafana alert rule referencing a metric that does not exist yet simply
-  // reports no data (which `noDataState: 'OK'` treats as healthy) until the
-  // first recording interval has run.
+  // The one scheduled Loki read that is not an alert rule: door knocking's
+  // credit spend. Provisioned before the alerts that consume it so the ordering
+  // in this file reads the way the data flows; Pulumi does not order them and
+  // does not need to, since a Grafana alert rule referencing a metric that does
+  // not exist yet simply reports no data (which `noDataState: 'OK'` treats as
+  // healthy) until the first recording interval has run.
   //
   // WHY THESE ARE NOT IN A RuleGroup: recording rules are their own resource
   // kind in Grafana, evaluated on their own trigger interval rather than a
