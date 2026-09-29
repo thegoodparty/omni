@@ -778,6 +778,7 @@ export const SmsFlow = ({
     image,
     draftOutreachId,
     audience,
+    tracker,
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,

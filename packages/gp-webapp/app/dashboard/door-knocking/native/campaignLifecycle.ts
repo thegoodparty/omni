@@ -4,7 +4,11 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
-import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
+import {
+  CAMPAIGN_TURFS_QUERY_KEY,
+  campaignTurfsQueryOptions,
+  TURFS_QUERY_KEY,
+} from './turfQueries'
 import { turfStage } from './turfLifecycle'
 
 // The turfs a campaign-level Done would finish on the candidate's behalf, and
@@ -57,19 +61,31 @@ export const useCampaignLifecycle = (
   const mutation = useMutation({
     mutationFn: async (action: CampaignLifecycleAction) => {
       if (action === 'complete') {
+        // Snapshot which turfs this press is about to finish BEFORE the
+        // request, and carry it forward — `onSuccess` must not re-read the
+        // cache. `getQueryData` answers `undefined` for a campaign whose
+        // drawer was never opened, or whose entry was GC'd after the default
+        // 5-minute gcTime, and an empty snapshot fires ZERO completion events
+        // with no error to notice. `ensureQueryData` reads the same cache
+        // when it is warm and fetches when it is cold, so the analytics no
+        // longer depend on a surface having been visited.
+        const before = await queryClient.ensureQueryData(
+          campaignTurfsQueryOptions(anchorOutreachId),
+        )
+        const finishing = new Set(unfinishedTurfs(before).map((t) => t.id))
         const { data } = await clientRequest(
           'POST /v1/door-knocking/campaigns/:anchorId/complete',
           { anchorId: String(anchorOutreachId) },
         )
-        return data
+        return { turfs: data, finishing }
       }
       const { data } = await clientRequest(
         'POST /v1/door-knocking/campaigns/:anchorId/archive',
         { anchorId: String(anchorOutreachId), archived: action === 'archive' },
       )
-      return data
+      return { turfs: data, finishing: new Set<number>() }
     },
-    onSuccess: async (turfs, action) => {
+    onSuccess: async ({ turfs, finishing }, action) => {
       // One completion event per turf this press actually finished. A
       // door-knocking campaign is many turfs under one anchor, and the TURF is
       // the list a candidate walks — the same unit phone banking's call list
@@ -77,16 +93,8 @@ export const useCampaignLifecycle = (
       // were already done are excluded by the `active` snapshot below, which
       // is why this reads the pre-press cache rather than the response.
       if (action === 'complete') {
-        const wasActive = new Set(
-          unfinishedTurfs(
-            queryClient.getQueryData<DoorKnockingTurf[]>([
-              ...CAMPAIGN_TURFS_QUERY_KEY,
-              anchorOutreachId,
-            ]) ?? [],
-          ).map((turf) => turf.id),
-        )
         for (const turf of turfs) {
-          if (!wasActive.has(turf.id)) continue
+          if (!finishing.has(turf.id)) continue
           trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
             ...outreachEventProps({
               channel: 'doorKnocking',
@@ -112,13 +120,25 @@ export const useCampaignLifecycle = (
     },
   })
 
+  // The mutation carries a `finishing` snapshot beside the turfs so the
+  // completion events cannot depend on a warm cache; callers only ever wanted
+  // the turfs, so it is unwrapped here rather than widening their contract.
+  const run = (
+    action: CampaignLifecycleAction,
+    options?: CampaignLifecycleCallbacks,
+  ) =>
+    mutation.mutate(action, {
+      onSuccess: options?.onSuccess
+        ? ({ turfs }) => options.onSuccess?.(turfs)
+        : undefined,
+    })
+
   return {
     markDone: (options?: CampaignLifecycleCallbacks) =>
-      mutation.mutate('complete', options),
+      run('complete', options),
     moveToArchive: (options?: CampaignLifecycleCallbacks) =>
-      mutation.mutate('archive', options),
-    restore: (options?: CampaignLifecycleCallbacks) =>
-      mutation.mutate('restore', options),
+      run('archive', options),
+    restore: (options?: CampaignLifecycleCallbacks) => run('restore', options),
     pendingAction: mutation.isPending ? mutation.variables : null,
   }
 }

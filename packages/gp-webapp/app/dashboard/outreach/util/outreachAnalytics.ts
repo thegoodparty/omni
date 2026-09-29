@@ -87,8 +87,19 @@ export interface OutreachEventInput {
   tracker?: OutreachTrackerOrigin
 }
 
-const toSendDate = (value: string | Date): string =>
-  (value instanceof Date ? value.toISOString() : value).slice(0, 10)
+// A Date is reduced to its LOCAL calendar day, never `toISOString()`'s UTC
+// one. Door knocking, phone banking and the manual logs all pass `new Date()`
+// at the moment of completion, and an evening in any US timezone is already
+// tomorrow in UTC — so a walk finished at 8pm on the 29th reported the 30th.
+// A string is passed through: every caller that has one has already formatted
+// the day it means (Serve SMS formats its local date precisely to avoid this),
+// and re-parsing it here would put the same shift back.
+const toSendDate = (value: string | Date): string => {
+  if (typeof value === 'string') return value.slice(0, 10)
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${value.getFullYear()}-${month}-${day}`
+}
 
 /**
  * The shared payload for `Outreach - Campaign Completed` and

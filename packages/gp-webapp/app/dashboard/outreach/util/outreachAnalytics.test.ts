@@ -84,6 +84,20 @@ describe('outreachEventProps', () => {
     )
   })
 
+  // An evening in any US timezone is already tomorrow in UTC, so reducing a
+  // Date with toISOString() reported a walk finished on the 29th as the 30th.
+  it('reduces a Date to its local day, not its UTC one', () => {
+    // 8pm on the 29th in a UTC-5 zone is 01:00 on the 30th UTC.
+    const evening = new Date(2026, 8, 29, 20, 0, 0)
+    expect(
+      outreachEventProps({
+        channel: 'doorKnocking',
+        isServe: false,
+        sendDate: evening,
+      }).sendDate,
+    ).toBe('2026-09-29')
+  })
+
   it('carries a tracker origin as both halves or neither', () => {
     expect(
       outreachEventProps({ channel: 'text', isServe: false }),

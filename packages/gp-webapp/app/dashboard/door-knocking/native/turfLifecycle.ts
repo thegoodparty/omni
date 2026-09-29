@@ -138,7 +138,7 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf, isServe: boolean) => {
       await complete()
       return setArchived(true)
     },
-    onSuccess: async (_data, action) => {
+    onSuccess: async (completed, action) => {
       // A finished turf IS a finished outreach campaign on this channel. Door
       // knocking is one-to-one, so the list the candidate walked is the unit —
       // the same unit a phone-banking call list is — and every path that
@@ -151,8 +151,13 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf, isServe: boolean) => {
           ...outreachEventProps({
             channel: 'doorKnocking',
             isServe: isServe,
-            campaignName: turf.name,
-            recipientCount: turf.loggedCount,
+            campaignName: completed?.data.name ?? turf.name,
+            // The SERVER's count, not the `turf` row this hook closed over.
+            // That row is whatever the rail last fetched, and a walk's knocks
+            // land as interactions without refetching it — so a fifty-door
+            // list started and finished in one evening reported 0 people
+            // reached. Both lifecycle routes answer with the fresh turf.
+            recipientCount: completed?.data.loggedCount ?? turf.loggedCount,
             sendDate: new Date(),
             listId: turf.id,
           }),

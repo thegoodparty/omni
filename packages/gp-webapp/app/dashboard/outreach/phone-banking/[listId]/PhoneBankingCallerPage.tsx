@@ -716,6 +716,7 @@ export default function PhoneBankingCallerPage({
                 ...outreachEventProps({
                   channel: 'phoneBanking',
                   isServe: isServe,
+                  campaignName: list.name,
                   recipientCount: totalPeopleCount({ entries: list.entries }),
                   sendDate: new Date(),
                   listId,
