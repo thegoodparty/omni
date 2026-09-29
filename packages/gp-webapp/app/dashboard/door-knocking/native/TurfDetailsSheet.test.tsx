@@ -990,6 +990,7 @@ describe('TurfDetailsSheet edit', () => {
     expect(sent.body).toEqual({ name: 'Oak Ave', color: '#16a34a' })
     expect(successSnackbar).toHaveBeenCalledWith('List updated')
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListEdited, {
+      product: 'win',
       turfId: 1,
       renamed: true,
       recolored: true,

@@ -469,7 +469,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       await this.tryTrack(
         updated.campaign.user.id,
         EVENTS.Outreach.CampaignApproved,
-        { channel: 'sms' },
+        { channel: 'sms', medium: 'text' },
       )
     }
     return this.toQueueItem(

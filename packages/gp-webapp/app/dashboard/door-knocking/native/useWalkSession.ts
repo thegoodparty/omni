@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 
 export interface WalkTurf {
   id: number
@@ -28,7 +29,12 @@ export interface WalkSession {
 //
 // The tally is a ref, not state: logging a door mid-walk shouldn't re-render
 // the page around the walk view.
-export const useWalkSession = (): WalkSession => {
+// `isServe` is a parameter rather than a `useDoorKnockingServeMode()` read,
+// because both callers mount this ABOVE the provider that answers it — the
+// dashboard page and the volunteer walk page each know their own surface and
+// only wrap the tree below in `DoorKnockingSurface`. Reading the context here
+// would silently report Win for every Serve walk.
+export const useWalkSession = (isServe: boolean): WalkSession => {
   const [turf, setTurf] = useState<WalkTurf | null>(null)
   const sessionRef = useRef<{ startedAt: number; doorsLogged: number } | null>(
     null,
@@ -37,7 +43,11 @@ export const useWalkSession = (): WalkSession => {
   const start = (next: WalkTurf, entry: WalkEntry) => {
     sessionRef.current = { startedAt: Date.now(), doorsLogged: 0 }
     setTurf(next)
-    trackEvent(EVENTS.DoorKnocking.SessionStarted, { turfId: next.id, entry })
+    trackEvent(EVENTS.DoorKnocking.SessionStarted, {
+      product: outreachProduct(isServe),
+      turfId: next.id,
+      entry,
+    })
   }
 
   const recordDoor = () => {
@@ -52,6 +62,7 @@ export const useWalkSession = (): WalkSession => {
     if (!session || turfId === undefined) return 0
 
     const properties = {
+      product: outreachProduct(isServe),
       turfId,
       doorsLogged: session.doorsLogged,
       durationSeconds: Math.round((Date.now() - session.startedAt) / 1000),
@@ -63,17 +74,12 @@ export const useWalkSession = (): WalkSession => {
     }
 
     trackEvent(EVENTS.DoorKnocking.SessionCompleted, properties)
-    // Door-knocking activation is counted off this canonical outreach event,
-    // so a native walk that doesn't fire it may as well not have happened as
-    // far as the metric goes. `method` separates walks logged here from the
-    // totals candidates type into the manual "log progress" modal, which
-    // fires the same event for the same medium.
-    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
-      medium: 'doorKnocking',
-      method: 'native',
-      recipientCount: session.doorsLogged,
-      price: 0,
-    })
+    // `Outreach - Campaign Completed` is deliberately NOT fired here.
+    // A session ends whenever a canvasser stops for the evening, so firing it
+    // counted one campaign per sitting and a fifty-door list walked over three
+    // evenings as three. The completion event now hangs off the TURF being
+    // finished (`turfLifecycle.ts`), which is what `walkCompletion.ts` already
+    // stamps on a walk that genuinely ran out of doors.
     return session.doorsLogged
   }
 

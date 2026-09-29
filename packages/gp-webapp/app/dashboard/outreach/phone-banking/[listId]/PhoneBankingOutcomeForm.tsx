@@ -16,6 +16,7 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachEventProps } from '../../util/outreachAnalytics'
 import {
   OUTCOME_DOT_CLASS,
   OUTCOME_LABEL,
@@ -82,7 +83,14 @@ export default function PhoneBankingOutcomeForm({
         ? savedDraft.engagement
         : savedDraft.outcome
     trackEvent(EVENTS.Outreach.PhoneBanking.CallLogged, {
-      listId,
+      // The channel/fanout pair every outreach event carries, so one call
+      // rolls into "voters reached" without a chart naming phone banking.
+      // `listId` is the parent call list, already on this payload.
+      ...outreachEventProps({
+        channel: 'phoneBanking',
+        isServe: isServe,
+        listId,
+      }),
       contactId: personId,
       listRank: entrySeq,
       answerStatus: savedOutcome,

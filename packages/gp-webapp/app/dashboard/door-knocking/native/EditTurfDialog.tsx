@@ -16,7 +16,9 @@ import {
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import {
   CAMPAIGN_TURFS_QUERY_KEY,
   MAX_TURF_NAME_LENGTH,
@@ -45,6 +47,7 @@ export default function EditTurfDialog({
   open,
   onOpenChange,
 }: EditTurfDialogProps) {
+  const serveMode = useDoorKnockingServeMode()
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [name, setName] = useState(turf.name)
@@ -67,6 +70,7 @@ export default function EditTurfDialog({
       }).then((res) => res.data),
     onSuccess: async (_data, input) => {
       trackEvent(EVENTS.DoorKnocking.ListEdited, {
+        product: outreachProduct(serveMode),
         turfId: turf.id,
         renamed: input.name !== turf.name,
         recolored: input.color !== turf.color,
