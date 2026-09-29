@@ -500,6 +500,53 @@
     border-left: 3px solid var(--line-2);
   }
 
+  /* Why this row can be trusted, and where its signal is known to be wrong. The one
+     block on the page that is about our tooling rather than about the product. */
+  .caveat {
+    margin: 10px 0 0;
+    padding: 9px 11px;
+    border-radius: 4px;
+    border-left: 3px solid var(--line-2);
+    background: var(--surface-2);
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+
+  .caveat.has-residual {
+    border-left-color: var(--warn);
+  }
+
+  .caveat p {
+    margin: 0 0 6px;
+  }
+
+  .caveat p:last-child {
+    margin-bottom: 0;
+  }
+
+  .caveat b {
+    color: var(--ink);
+  }
+
+  .caveat code {
+    padding: 0 3px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--bg);
+  }
+
+  .caveat .clean {
+    color: var(--good);
+  }
+
+  .caveat .ref {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+  }
+
   .evidence {
     margin-top: 10px;
     border: 1px solid var(--line);
@@ -1106,6 +1153,63 @@
     return section
   }
 
+  // Caveat and recommendation text is written with `backticks` around column and
+  // function names, because the same sentences live in the book they came from.
+  // Render them rather than showing the markup.
+  const withCode = (parent, text) => {
+    String(text || '').split('`').forEach((part, i) => {
+      if (!part) return
+      parent.appendChild(i % 2 ? el('code', null, part) : document.createTextNode(part))
+    })
+    return parent
+  }
+
+  // Which signal a row derives from, and whether that signal has a known residual.
+  // Open by default and above the evidence: the cost this pays down is re-deriving a
+  // documented blind spot before every ruling, and a caveat behind a second click is a
+  // caveat nobody reads. "No known residual" is the load-bearing half -- it is what
+  // says stop looking.
+  // Queues whose caveat was printed once at the head, so the rows below do not repeat
+  // it. Populated by renderQueue before its rows render.
+  const hoisted = new Set()
+
+  const renderCaveat = (caveat) => {
+    if (!caveat) return null
+    const box = el('div', 'caveat' + (caveat.residual ? ' has-residual' : ''))
+
+    const signal = el('p')
+    add(signal, el('b', null, 'Derived from '))
+    withCode(signal, caveat.signal + '. ' + (caveat.reads || ''))
+    add(box, signal)
+
+    if (caveat.residual) {
+      const residual = el('p')
+      add(residual, el('b', null, 'Known residual. '))
+      withCode(residual, caveat.residual)
+      add(box, residual)
+
+      if (caveat.tell) {
+        const tell = el('p')
+        add(tell, el('b', null, 'The tell. '))
+        withCode(tell, caveat.tell)
+        add(box, tell)
+      }
+    } else {
+      add(
+        box,
+        el(
+          'p',
+          'clean',
+          'No known residual. Nothing documented distorts this signal, so the ' +
+            'evidence below is the whole question.',
+        ),
+      )
+    }
+
+    if (caveat.reference) add(box, el('p', 'ref', caveat.reference))
+    return box
+  }
+
   // --- queue ------------------------------------------------------------------
 
   // Column order is declared here, not taken from the JSON: the snapshot is written
@@ -1334,8 +1438,8 @@
       add(
         rec,
         el('b', null, 'Suggested: ' + verbs[item.recommended]),
-        document.createTextNode(' ' + (item.recommendation_reason || '')),
       )
+      withCode(rec, ' ' + (item.recommendation_reason || ''))
       add(block, rec)
     }
 
@@ -1572,6 +1676,9 @@
       )
     }
 
+    const caveat = hoisted.has(item.queue) ? null : renderCaveat(item.caveat)
+    if (caveat) add(body, caveat)
+
     const rows = item.evidence || []
     const selectable = item.queue === 'flags' && rows.length > 1
     const picker = selectable ? renderEventVerdicts(item, row, summary) : null
@@ -1610,6 +1717,18 @@
       ),
     )
     add(section, head)
+
+    // Three of the four queues derive every row from the same detector, so the caveat
+    // is a property of the queue, not of the item. Printed once above the list rather
+    // than seven times inside it -- a warning repeated on every row stops being read.
+    // Flags keep theirs on the row, where each cause has a different signal.
+    const shared = queue.items.length && queue.items.every(
+      (item) => JSON.stringify(item.caveat) === JSON.stringify(queue.items[0].caveat),
+    )
+    if (shared && queue.items[0].caveat) {
+      hoisted.add(queue.queue)
+      add(section, renderCaveat(queue.items[0].caveat))
+    }
 
     if (!queue.items.length) {
       add(section, el('div', 'empty-queue', meta.empty))

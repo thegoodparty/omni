@@ -180,7 +180,7 @@
    "ai_content_generation_start"
   ]
  },
- "generated_at": "2026-09-29T04:20:45+00:00",
+ "generated_at": "2026-09-29T19:53:38+00:00",
  "overview": {
   "by_area": [
    {
@@ -573,7 +573,7 @@
   "totals": {
    "events": 658,
    "flagged": 174,
-   "open_decisions": 26
+   "open_decisions": 25
   }
  },
  "prior_flagged": {
@@ -756,6 +756,13 @@
   {
    "items": [
     {
+     "caveat": {
+      "reads": "A client event cannot fire without a call site, so a zero here means our counter is blind, not that the event is dead.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "`count_call_sites` is wrap-tolerant; `git log -S<key_path>` is not. A Prettier-wrapped key path gives a true zero and resolves no removal date, so a genuine retirement lands in this cause looking like a counter fault. Six live zero-count rows carry no removal date. DATA-2577 owns the fix.",
+      "signal": "`call_site_count` == 0 while the catalog says active with no anomaly",
+      "tell": "Look at the siblings in this cause. An event whose siblings carry a `call_site_retired_date` and which has none is almost certainly this, not a new counter shape. Pickaxe the dotted path as one literal string before concluding otherwise (books/monitor-analytics-event-health.md \u00a7 Rank 0, step 2)."
+     },
      "count": 5,
      "dismissable": false,
      "dismissed": null,
@@ -850,6 +857,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "Govern says this event is dead and the data says it is still firing.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The straddle on `retired_date` is gated (`ORPHAN_GRACE_DAYS`, DATA-2140), so a freshly retired event no longer lands here. The shape that remains is a rename declared in Govern and never shipped in code: the live old name arrives here while its declared successor sits under `never observed`, and nothing connects the two.",
+      "signal": "`event_count_30d` against a Govern `not_in_use` declaration and `retired_date`",
+      "tell": "Check the successor named in the supersession prose. No provenance row and no fires means the rename never shipped and the declaration is what is wrong (DATA-2573 \u00a73)."
+     },
      "count": 11,
      "dismissable": true,
      "dismissed": null,
@@ -1027,6 +1041,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "The name constant survives, nothing calls it any more, and firing has stopped.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "Both known distortions of this signal are already gated: a 30-day window straddling the removal date (`call_site_removal_straddles_window`, DATA-2427) and a blank count, which means no resolvable key path and is never read as a zero. What is left is under-reporting \u2014 an event whose key path will not resolve cannot reach this cause at all.",
+      "signal": "`call_site_count` and `call_site_retired_date` in the provenance CSV",
+      "tell": "This cause is wrong by omission, not by inclusion. Trust the members; do not read the absence of an event from it as evidence its call sites survive."
+     },
      "count": 22,
      "dismissable": true,
      "dismissed": null,
@@ -1375,6 +1396,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "The name constant survives, nothing calls it any more, and firing has stopped.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "Both known distortions of this signal are already gated: a 30-day window straddling the removal date (`call_site_removal_straddles_window`, DATA-2427) and a blank count, which means no resolvable key path and is never read as a zero. What is left is under-reporting \u2014 an event whose key path will not resolve cannot reach this cause at all.",
+      "signal": "`call_site_count` and `call_site_retired_date` in the provenance CSV",
+      "tell": "This cause is wrong by omission, not by inclusion. Trust the members; do not read the absence of an event from it as evidence its call sites survive."
+     },
      "count": 9,
      "dismissable": true,
      "dismissed": null,
@@ -1524,6 +1552,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "The name constant survives, nothing calls it any more, and firing has stopped.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "Both known distortions of this signal are already gated: a 30-day window straddling the removal date (`call_site_removal_straddles_window`, DATA-2427) and a blank count, which means no resolvable key path and is never read as a zero. What is left is under-reporting \u2014 an event whose key path will not resolve cannot reach this cause at all.",
+      "signal": "`call_site_count` and `call_site_retired_date` in the provenance CSV",
+      "tell": "This cause is wrong by omission, not by inclusion. Trust the members; do not read the absence of an event from it as evidence its call sites survive."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -1561,6 +1596,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "The name constant survives, nothing calls it any more, and firing has stopped.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "Both known distortions of this signal are already gated: a 30-day window straddling the removal date (`call_site_removal_straddles_window`, DATA-2427) and a blank count, which means no resolvable key path and is never read as a zero. What is left is under-reporting \u2014 an event whose key path will not resolve cannot reach this cause at all.",
+      "signal": "`call_site_count` and `call_site_retired_date` in the provenance CSV",
+      "tell": "This cause is wrong by omission, not by inclusion. Trust the members; do not read the absence of an event from it as evidence its call sites survive."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -1600,6 +1642,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "The name constant survives, nothing calls it any more, and firing has stopped.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "Both known distortions of this signal are already gated: a 30-day window straddling the removal date (`call_site_removal_straddles_window`, DATA-2427) and a blank count, which means no resolvable key path and is never read as a zero. What is left is under-reporting \u2014 an event whose key path will not resolve cannot reach this cause at all.",
+      "signal": "`call_site_count` and `call_site_retired_date` in the provenance CSV",
+      "tell": "This cause is wrong by omission, not by inclusion. Trust the members; do not read the absence of an event from it as evidence its call sites survive."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -1639,6 +1688,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "Volume fell off a cliff relative to the last four weeks.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "A good cliff detector and a bad liveness guard. After about four broken weeks the broken level is the baseline, so a break that has been running a while stops raising this and a recovery can raise it in the wrong direction.",
+      "signal": "`detect_anomaly` against a 4-week rolling baseline",
+      "tell": "Check when the drop started. A row that is new on a break that is old means the baseline has already moved under it."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -1678,6 +1734,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "The declaration and the behaviour disagree, so one of them is wrong.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "Same unshipped-rename shape as `orphaned_firing`. A `not in use` declaration naming a successor that was never written reads here as a product fault.",
+      "signal": "the `divergence` column: declared Govern status against observed firing",
+      "tell": "Before correcting the event, confirm the declared successor has a provenance row and has fired."
+     },
      "count": 11,
      "dismissable": true,
      "dismissed": null,
@@ -1861,6 +1924,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "Nothing fired in a month, on an instrument the elevation rules watch.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "Same 30-day blindness as the dormant tail. Elevation raises the rank; it does not add a baseline the detector could use to tell quiet from broken.",
+      "signal": "`event_count_30d` == 0 over the trailing 30 days, on an elevated event",
+      "tell": "Read `last_seen_date` against the instrument's own plausible cadence before calling it broken."
+     },
      "count": 10,
      "dismissable": true,
      "dismissed": null,
@@ -2035,6 +2105,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "There is a taxonomy row for this event and no fires behind it.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The provenance CSV takes its rows from the taxonomy, so an event declared in Govern and never written scores identically to one instrumented last Thursday. Measured 2026-09-28 over 69 members: 34 never written, about 32 too recent to judge, 4 the actual finding. DATA-2573 and DATA-2508 both bear on this.",
+      "signal": "the Amplitude Govern taxonomy row set, not code",
+      "tell": "Split before ruling. The quick-select chips on this row are built from exactly the two columns that split it: `provenance` (not found in code = never built) and `days_since_instrumented` (inside a fortnight = too recent to call)."
+     },
      "count": 69,
      "dismissable": true,
      "dismissed": null,
@@ -3024,6 +3101,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "Nothing fired in a month.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "Thirty days is not a season. The monitor holds no volume baseline per event, so a genuinely low-cadence or seasonal instrument is indistinguishable from a broken one.",
+      "signal": "`event_count_30d` == 0 over the trailing 30 days",
+      "tell": "Read `last_seen_date` against the instrument's own plausible cadence before calling it broken."
+     },
      "count": 33,
      "dismissable": true,
      "dismissed": null,
@@ -3514,6 +3598,13 @@
   {
    "items": [
     {
+     "caveat": {
+      "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+      "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+      "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3540,6 +3631,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+      "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+      "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3566,6 +3664,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+      "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+      "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3592,32 +3697,13 @@
      }
     },
     {
-     "count": 1,
-     "dismissable": true,
-     "dismissed": null,
-     "evidence": [
-      {
-       "first_seen": "2026-09-28",
-       "judge_reason": "Embeddable multi-step wizard with position tracking but no per-stage Viewed/Completed event firing evident.",
-       "last_seen": "2026-09-28",
-       "location": "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx",
-       "rubric_rule": "multi-step flow: Viewed/Completed per stage",
-       "surface_type": "wizard_stage"
-      }
-     ],
-     "id": "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx#wizard_stage",
-     "label": "Where do users drop off across the Pro upgrade wizard steps when embedded in the outreach sheet?",
-     "queue": "gaps",
-     "rank": 0,
-     "recommendation_reason": "Embeddable multi-step wizard with position tracking but no per-stage Viewed/Completed event firing evident.",
-     "recommended": "accept",
-     "verbs": {
-      "accept": "Accept",
-      "defer": "Defer",
-      "dismiss": "Dismiss"
-     }
-    },
-    {
+     "caveat": {
+      "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+      "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+      "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3644,6 +3730,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+      "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+      "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3670,6 +3763,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+      "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+      "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3696,6 +3796,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+      "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+      "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3727,6 +3834,13 @@
   {
    "items": [
     {
+     "caveat": {
+      "reads": "This event is in a family we already watch and is not itself on the list.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": null,
+      "signal": "family membership in the committed catalog against the curated watchlist",
+      "tell": null
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3749,6 +3863,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This event is in a family we already watch and is not itself on the list.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": null,
+      "signal": "family membership in the committed catalog against the curated watchlist",
+      "tell": null
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3771,6 +3892,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This event is in a family we already watch and is not itself on the list.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": null,
+      "signal": "family membership in the committed catalog against the curated watchlist",
+      "tell": null
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3793,6 +3921,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This event is in a family we already watch and is not itself on the list.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": null,
+      "signal": "family membership in the committed catalog against the curated watchlist",
+      "tell": null
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3815,6 +3950,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This event is in a family we already watch and is not itself on the list.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": null,
+      "signal": "family membership in the committed catalog against the curated watchlist",
+      "tell": null
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3837,6 +3979,13 @@
      }
     },
     {
+     "caveat": {
+      "reads": "This event is in a family we already watch and is not itself on the list.",
+      "reference": "books/analytics-governance-gotchas.md",
+      "residual": null,
+      "signal": "family membership in the committed catalog against the curated watchlist",
+      "tell": null
+     },
      "count": 1,
      "dismissable": true,
      "dismissed": null,
@@ -3869,6 +4018,13 @@
  "run_date": "2026-09-28",
  "settled": [
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": {
@@ -3898,6 +4054,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -3925,6 +4088,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -3952,6 +4122,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -3979,6 +4156,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4006,6 +4190,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": {
@@ -4035,6 +4226,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4062,6 +4260,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": {
@@ -4091,6 +4296,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": {
@@ -4120,6 +4332,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4147,6 +4366,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4174,6 +4400,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4201,6 +4434,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4228,6 +4468,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4255,6 +4502,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4282,6 +4536,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4309,6 +4570,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4336,6 +4604,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4363,6 +4638,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4390,6 +4672,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4417,6 +4706,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4444,6 +4740,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4471,6 +4774,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4498,6 +4808,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": {
@@ -4527,6 +4844,47 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
+   "count": 1,
+   "dismissable": true,
+   "dismissed": null,
+   "disposition": "accepted",
+   "evidence": [
+    {
+     "first_seen": "2026-09-28",
+     "judge_reason": "Embeddable multi-step wizard with position tracking but no per-stage Viewed/Completed event firing evident.",
+     "last_seen": "2026-09-28",
+     "location": "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx",
+     "rubric_rule": "multi-step flow: Viewed/Completed per stage",
+     "surface_type": "wizard_stage"
+    }
+   ],
+   "id": "packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx#wizard_stage",
+   "label": "Where do users drop off across the Pro upgrade wizard steps when embedded in the outreach sheet?",
+   "queue": "gaps",
+   "rank": 0,
+   "recommendation_reason": "Embeddable multi-step wizard with position tracking but no per-stage Viewed/Completed event firing evident.",
+   "recommended": "accept",
+   "verbs": {
+    "accept": "Accept",
+    "defer": "Defer",
+    "dismiss": "Dismiss"
+   }
+  },
+  {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": {
@@ -4556,6 +4914,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4583,6 +4948,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4610,6 +4982,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4637,6 +5016,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4664,6 +5050,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4691,6 +5084,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4718,6 +5118,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4745,6 +5152,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4772,6 +5186,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4799,6 +5220,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4826,6 +5254,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4853,6 +5288,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4880,6 +5322,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": null,
@@ -4907,6 +5356,13 @@
    }
   },
   {
+   "caveat": {
+    "reads": "This surface looks like it should emit an event and no tracking call was found on it.",
+    "reference": "books/analytics-governance-gotchas.md",
+    "residual": "The detectors match `trackEvent(`, `AnalyticsService` and `.track(` only, so a private wrapper (`this.tryTrack(...)`) or a bare `'Product Area - Action'` literal handed to a local helper reads as untracked. Separately, three of the five backend patterns match zero gp-api code, so the backend queue is blind rather than clean (DATA-2560).",
+    "signal": "the sweep's `has_tracking_call` and `tracked_in_hook` detectors over surface files, then an LLM judge on what they return",
+    "tell": "An absent tracking call is weak evidence, not proof. Weigh a wrapper-shaped call (`tryX`, `emit`, `log`) in the snippet against the verdict, and never read an empty backend queue as coverage."
+   },
    "count": 1,
    "dismissable": true,
    "dismissed": {

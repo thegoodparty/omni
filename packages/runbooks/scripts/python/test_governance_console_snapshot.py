@@ -4,7 +4,13 @@ import importlib.util
 import json
 from pathlib import Path
 
+import analytics_event_health as aeh
 import governance_console_snapshot as gcs
+
+
+def aeh_cause_labels():
+    """Every cause key the monitor can emit, base form."""
+    return set(aeh.CAUSE_LABELS)
 
 
 def _record(**over):
@@ -187,6 +193,83 @@ def test_an_undismissable_cause_is_not_offered_the_dismiss_verb():
     assert "dismiss" not in item["verbs"]
     assert set(item["verbs"]) == {"govern", "ticket", "investigate"}
     assert item["recommended"] == "ticket"
+
+
+# --- signal caveats -----------------------------------------------------------
+
+
+def test_the_counter_canary_carries_its_blind_spot_and_the_tell():
+    """The worked example: the row that cost forty minutes on the first real run."""
+    report = {"flagged": [
+        _record(event_type="Counter", rank=0, status="active",
+                call_site_count=0, event_count_30d=1471),
+    ], "dismissed_causes": {}}
+
+    [item] = gcs.build_flag_queue(report)
+    caveat = item["caveat"]
+
+    assert "call_site_count" in caveat["signal"]
+    assert "Prettier-wrapped" in caveat["residual"]
+    assert "call_site_retired_date" in caveat["tell"]
+
+
+def test_a_dated_call_site_cause_carries_the_same_caveat_as_an_undated_one():
+    """The qualifier separates two decisions, not two signals."""
+    report = {"flagged": [
+        _record(event_type="A", rank=2, status="dormant",
+                call_site_count=0, call_site_retired_date="2026-09-01"),
+        _record(event_type="B", rank=2, status="dormant",
+                call_site_count=0, call_site_retired_date="2026-07-14"),
+    ], "dismissed_causes": {}}
+
+    first, second = gcs.build_flag_queue(report)
+
+    assert first["id"] != second["id"]
+    assert first["caveat"] == second["caveat"] == gcs.CAUSE_CAVEATS["call_site_removed"]
+
+
+def test_every_cause_the_monitor_can_raise_has_a_caveat():
+    """A row with no caveat is a row whose signal has to be re-derived by hand."""
+    missing = set(aeh_cause_labels()) - set(gcs.CAUSE_CAVEATS)
+
+    assert not missing, f"no signal caveat for {sorted(missing)}"
+
+
+def test_a_residual_always_comes_with_a_tell():
+    """A known-wrong signal and no way to spot it is a warning nobody can act on."""
+    for cause, caveat in gcs.CAUSE_CAVEATS.items():
+        if caveat["residual"]:
+            assert caveat["tell"], f"{cause} has a residual and no tell"
+
+
+def test_the_proposal_queue_says_its_signal_is_clean():
+    """The absence of a residual is the load-bearing half: it says stop looking."""
+    report = {"proposals": [{"event_type": "A", "family": "f",
+                             "first_seen_date": "2026-09-01"}]}
+
+    [item] = gcs.build_proposal_queue(report)
+
+    assert item["caveat"]["residual"] is None
+
+
+def test_the_gap_queue_carries_the_blind_backend_detectors():
+    gaps = {"a#b": {"id": "a#b", "disposition": "new", "rank": 0,
+                    "dashboard_question": "q", "location": "a", "surface_type": "b",
+                    "judge_reason": "r", "reason": ""}}
+
+    [item] = gcs.build_gap_queue(gaps)
+
+    assert "weak evidence, not proof" in item["caveat"]["tell"]
+
+
+def test_the_alignment_queue_carries_the_unqualified_leg_trap():
+    report = {"anchor_alignment": [
+        {"key": "m", "metric": "m", "case": 2, "summary": "s"},
+    ]}
+
+    [item] = gcs.build_alignment_queue(report)
+
+    assert "excluding" in item["caveat"]["residual"]
 
 
 def test_gap_verbs_are_the_literals_the_gap_parser_validates():
