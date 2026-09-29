@@ -63,8 +63,15 @@ export const selectAgents = (
   }
 }
 
-export const formatPlan = (selection: Selection): string => {
-  const { wired, judgeable, blocked } = coverage()
+// Takes the registry explicitly rather than reading the global one, so the
+// coverage line always describes the same set the selection came from. The
+// default made it right by coincidence in production and wrong anywhere else,
+// including in its own test.
+export const formatPlan = (
+  selection: Selection,
+  agents: readonly AgentEntry[] = AGENTS,
+): string => {
+  const { wired, judgeable, blocked } = coverage(agents)
   const lines: string[] = []
 
   lines.push(`Universal Judge — plan (${selection.selected.length} agents)`)
@@ -105,9 +112,12 @@ export const parseArgs = (argv: string[]): CliArgs => {
   }
 }
 
-export const run = (argv: string[]): string => {
+export const run = (
+  argv: string[],
+  agents: readonly AgentEntry[] = AGENTS,
+): string => {
   const args = parseArgs(argv)
-  const plan = formatPlan(selectAgents(args.agents))
+  const plan = formatPlan(selectAgents(args.agents, agents), agents)
   if (args.dryRun) return plan
   throw new Error(
     'only --dry-run is implemented: the runners, the judge and the report ' +

@@ -90,7 +90,7 @@ describe('selectAgents', () => {
 
 describe('formatPlan', () => {
   it('names blocked agents with their reason', () => {
-    const plan = formatPlan(selectAgents({ kind: 'all' }, AGENTS))
+    const plan = formatPlan(selectAgents({ kind: 'all' }, AGENTS), AGENTS)
     expect(plan).toContain('briefing_annotation')
     expect(plan).toContain('no handler yet')
   })
@@ -98,14 +98,23 @@ describe('formatPlan', () => {
   it('lists unknown ids', () => {
     const plan = formatPlan(
       selectAgents({ kind: 'list', ids: ['nope'] }, AGENTS),
+      AGENTS,
     )
     expect(plan).toContain('nope')
   })
 
-  // The coverage line is the anti-stall mechanic, so it is always printed.
-  it('always prints coverage', () => {
-    const plan = formatPlan(selectAgents({ kind: 'all' }, AGENTS))
-    expect(plan).toMatch(/coverage: \d+ of \d+ agents wired/)
+  // The coverage line is the anti-stall mechanic, so it has to describe the
+  // registry it was given. Asserting the exact numbers, because a shape match
+  // like /\d+ of \d+/ passes whichever registry it counted and so cannot
+  // tell a correct line from one reporting the global list by accident.
+  it('reports coverage for the registry it was given', () => {
+    const plan = formatPlan(selectAgents({ kind: 'all' }, AGENTS), AGENTS)
+    expect(plan).toContain('coverage: 1 of 2 agents wired (1 blocked)')
+  })
+
+  it('does not fall back to the real registry', () => {
+    const plan = formatPlan(selectAgents({ kind: 'all' }, AGENTS), AGENTS)
+    expect(plan).not.toContain('of 20 agents wired')
   })
 })
 
@@ -125,6 +134,12 @@ describe('parseArgs', () => {
 describe('run', () => {
   it('prints a plan for a dry run', () => {
     expect(run(['--agents=all', '--dry-run'])).toContain('coverage:')
+  })
+
+  it('threads a caller-supplied registry all the way to the coverage line', () => {
+    expect(run(['--agents=all', '--dry-run'], AGENTS)).toContain(
+      'coverage: 1 of 2 agents wired (1 blocked)',
+    )
   })
 
   // Failing loudly beats half-running a sweep whose pieces do not exist.
