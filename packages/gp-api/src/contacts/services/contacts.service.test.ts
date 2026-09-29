@@ -502,7 +502,7 @@ describe('ContactsService', () => {
         )
       })
 
-      it('excludes the party and ethnicity columns for an elected-office org', async () => {
+      it('excludes the party, ethnicity, and voter id columns for an elected-office org', async () => {
         const org = makeOrganization({
           slug: 'eo-office-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -523,6 +523,7 @@ describe('ContactsService', () => {
             excludeColumns: [
               'Parties_Description',
               'EthnicGroups_EthnicGroup1Desc',
+              'LALVOTERID',
             ],
           }),
           res,

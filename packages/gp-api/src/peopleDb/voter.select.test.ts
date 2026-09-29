@@ -46,6 +46,12 @@ describe('DOWNLOAD_COLUMNS', () => {
   it('marks the ethnicity column excludable', () => {
     expect(EXCLUDABLE_VOTER_COLUMNS).toContain('EthnicGroups_EthnicGroup1Desc')
   })
+
+  // Not a demographic, so the regex above will never catch it either: the L2
+  // vendor id leaves a Serve CSV only because it is listed here.
+  it('marks the L2 voter id column excludable', () => {
+    expect(EXCLUDABLE_VOTER_COLUMNS).toContain('LALVOTERID')
+  })
 })
 
 describe('excludeColumns filtering (mirrors peopleDownload.service usage)', () => {
