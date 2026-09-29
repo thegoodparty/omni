@@ -94,6 +94,9 @@ describe('buildVariantFilter', () => {
     ).toMatchObject({
       hasCellPhone: true,
     })
+    // Landline and not any phone: a robocall dials landlines and nothing
+    // else, so sizing the card on any phone promised reach the channel
+    // cannot deliver.
     expect(
       buildVariantFilter(
         'persuadeAffinity',
@@ -101,7 +104,7 @@ describe('buildVariantFilter', () => {
         null,
         ElectionCode.General,
       ),
-    ).toMatchObject({ hasAnyPhone: true })
+    ).toMatchObject({ hasLandline: true })
     expect(
       buildVariantFilter(
         'persuadeAffinity',
@@ -121,14 +124,32 @@ describe('buildVariantFilter', () => {
   })
 
   it('never sets both hasAnyPhone and a specific phone flag', () => {
+    // Phone banking is the channel that genuinely wants any phone. Robocall
+    // used to stand here, which stopped being the right fixture the moment
+    // its specific flag became the correct answer.
+    const filter = buildVariantFilter(
+      'persuadeAffinity',
+      'phoneBanking',
+      null,
+      ElectionCode.General,
+    )
+    expect(filter?.hasAnyPhone).toBe(true)
+    expect(filter?.hasCellPhone).toBeUndefined()
+    expect(filter?.hasLandline).toBeUndefined()
+  })
+
+  it('does not widen robocall back to any phone', () => {
+    // The two flags are alternatives, not an intersection: `hasAnyPhone`
+    // alongside `hasLandline` would re-admit the cell-only voters this
+    // channel cannot dial.
     const filter = buildVariantFilter(
       'persuadeAffinity',
       'robocall',
       null,
       ElectionCode.General,
     )
+    expect(filter?.hasAnyPhone).toBeUndefined()
     expect(filter?.hasCellPhone).toBeUndefined()
-    expect(filter?.hasLandline).toBeUndefined()
   })
 
   it('builds the exact persuade-undecided shape, no extra keys', () => {

@@ -218,6 +218,7 @@ export class DatabricksVoterService {
       buildListDetailAggregatesSql({
         district,
         filters: dto.filters,
+        search: dto.search,
         idOverrides: dto.idOverrides,
         contactsMadeIdOverrides: dto.contactsMadeIdOverrides,
       }),
