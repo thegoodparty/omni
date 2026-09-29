@@ -24,6 +24,23 @@ settled.
 The failure mode is deliberately visible: if you never paste the handoff, nothing
 happened, and Thursday's digest says so. A background sync would fail more quietly.
 
+### Ruling on part of a cause
+
+A cause is normally one ruling, but some causes hold more than one decision. On a flag
+row with more than one event, the evidence table takes checkboxes and a row of
+quick-select chips built from that cause's own data: `all`, `none`, one per distinct
+provenance state, and `older than 30d` where it applies. Pick a set, then apply a verb
+to just those events.
+
+Today's `never observed` is why this exists. One click on `not found in code` selects
+34 of its 69 events, which are the Serve and Win outreach names declared in Govern and
+never built. They need a different verb from the thirty instrumented in the last
+fortnight that simply have not fired yet.
+
+A per-event ruling coexists with the cause-level one, so "retire the cluster, except
+these four" is expressible. In the handoff, events ruled together under the same verb
+and reason collapse into one block rather than repeating the verdict per line.
+
 **`Reviewed, fine` on a flag has nowhere to land yet.** The other three verdicts write
 to files that already exist and are already read back. Per-event review needs
 `analytics_event_health_dispositions.json`, which is the one genuinely new mechanism in

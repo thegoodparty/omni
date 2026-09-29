@@ -538,6 +538,105 @@
     padding: 5px 10px;
   }
 
+  /* --- per-event picking --- */
+
+  .picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .picker-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .pick-chip {
+    padding: 2px 9px;
+    font: inherit;
+    font-size: 11px;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .pick-chip:hover {
+    color: var(--ink);
+    border-color: var(--ink-3);
+  }
+
+  th.pick,
+  td.pick {
+    width: 1%;
+    padding-right: 0;
+    white-space: nowrap;
+  }
+
+  tr.is-picked {
+    background: var(--surface-2);
+  }
+
+  .picked-wrap {
+    margin-top: 10px;
+  }
+
+  .picked-tally {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .picked {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  .picked button {
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .picked button:hover {
+    color: var(--ink);
+    border-color: var(--ink-3);
+  }
+
+  .picked .clear {
+    margin-left: auto;
+    font-weight: 400;
+    color: var(--ink-3);
+    background: none;
+    border-color: transparent;
+  }
+
+  .chip.picked-chip {
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+  }
+
+  .row.has-picked {
+    border-left-color: var(--accent);
+  }
+
   .elevated-note {
     margin: 8px 0 0;
     font-size: 12px;
@@ -1087,7 +1186,10 @@
     return el('td', null, value === null || value === undefined ? '' : value)
   }
 
-  const renderEvidence = (rows) => {
+  // `selectable` turns the evidence table into a picker. Only the flags queue gets it,
+  // and only where a cause holds more than one event: a cause is normally one ruling,
+  // and a checkbox on a single-row table is furniture.
+  const renderEvidence = (rows, { selectable = false, onSelect = null } = {}) => {
     if (!rows.length) return null
     const present = Object.keys(rows[0])
     const ordered = EVIDENCE_ORDER.filter((k) => present.includes(k)).concat(
@@ -1099,17 +1201,47 @@
     if (!keys.length) return null
 
     const box = el('div', 'evidence')
+    const selected = new Set()
+    const boxes = new Map()
+
+    const announce = () => onSelect && onSelect([...selected])
+
+    const setChecked = (eventType, on) => {
+      const input = boxes.get(eventType)
+      if (!input) return
+      input.checked = on
+      input.closest('tr').classList.toggle('is-picked', on)
+      if (on) selected.add(eventType)
+      else selected.delete(eventType)
+    }
+
+    if (selectable) add(box, renderPicker(rows, setChecked, announce))
+
     const scroll = el('div', 'scroll')
     const table = el('table')
 
     const thead = el('thead')
     const hrow = el('tr')
+    if (selectable) add(hrow, el('th', 'pick', ''))
     keys.forEach((k) => add(hrow, el('th', null, EVIDENCE_LABELS[k] || k)))
     add(thead, hrow)
 
     const tbody = el('tbody')
     rows.forEach((row) => {
       const tr = el('tr')
+      if (selectable) {
+        const td = el('td', 'pick')
+        const input = document.createElement('input')
+        input.type = 'checkbox'
+        input.setAttribute('aria-label', 'Select ' + row.event_type)
+        input.addEventListener('change', () => {
+          setChecked(row.event_type, input.checked)
+          announce()
+        })
+        boxes.set(row.event_type, input)
+        add(td, input)
+        tr.appendChild(td)
+      }
       keys.forEach((k) => add(tr, cell(k, row[k])))
       tbody.appendChild(tr)
     })
@@ -1118,6 +1250,39 @@
     add(scroll, table)
     add(box, scroll)
     return box
+  }
+
+  // Quick-select chips, built from the data rather than hardcoded: whatever distinct
+  // provenance states or age bands this cause actually contains. "Everything not found
+  // in code" is one click because that is how a mixed cause splits.
+  const renderPicker = (rows, setChecked, announce) => {
+    const bar = el('div', 'picker')
+    add(bar, el('span', 'picker-label', 'Select'))
+
+    const chip = (label, match) => {
+      const btn = el('button', 'pick-chip', label)
+      btn.type = 'button'
+      btn.addEventListener('click', () => {
+        rows.forEach((row) => setChecked(row.event_type, match(row)))
+        announce()
+      })
+      bar.appendChild(btn)
+    }
+
+    chip('all', () => true)
+    chip('none', () => false)
+
+    const provenances = [...new Set(rows.map((r) => r.provenance).filter(Boolean))]
+    if (provenances.length > 1) {
+      provenances.forEach((p) => chip(p, (row) => row.provenance === p))
+    }
+
+    const dated = rows.filter((r) => r.days_since_instrumented !== null)
+    if (dated.length && dated.some((r) => r.days_since_instrumented > 30)) {
+      chip('older than 30d', (row) => row.days_since_instrumented > 30)
+    }
+
+    return bar
   }
 
   // --- judgment store ---------------------------------------------------------
@@ -1269,6 +1434,97 @@
     return block
   }
 
+  // A verdict on a hand-picked subset of a cause. Keyed by cause AND event, so it never
+  // collides with the cause-level ruling, and the two can coexist: "retire the cluster,
+  // except these four, which need looking at".
+  const eventKey = (item, eventType) =>
+    item.queue + '\u0000' + item.id + '\u0000' + eventType
+
+  const renderEventVerdicts = (item, row, summary) => {
+    const bar = el('div', 'picked')
+    bar.hidden = true
+
+    const tally = el('span', 'picked-tally')
+    const reason = el('input', 'reason')
+    reason.type = 'text'
+    reason.id = 'picked-reason-' + item.id.replace(/[^A-Za-z0-9_-]/g, '-')
+    reason.placeholder = 'Why these ones'
+
+    const chip = el('span', 'chip verdict picked-chip')
+    chip.hidden = true
+    summary.appendChild(chip)
+
+    let picked = []
+
+    const countRuled = () =>
+      Object.values(judgments).filter(
+        (j) => j.scope === 'event' && j.id === item.id,
+      ).length
+
+    const paintSummary = () => {
+      const n = countRuled()
+      chip.hidden = !n
+      chip.textContent = n === 1 ? '1 event ruled' : n + ' events ruled'
+      row.classList.toggle('has-picked', n > 0)
+    }
+
+    const apply = (verdict) => {
+      picked.forEach((eventType) => {
+        judgments[eventKey(item, eventType)] = {
+          queue: item.queue,
+          id: item.id,
+          scope: 'event',
+          event: eventType,
+          label: item.label,
+          verdict,
+          verdict_label: (item.verbs || {})[verdict] || verdict,
+          reason: reason.value.trim(),
+          decided_at: new Date().toISOString(),
+        }
+      })
+      saveJudgments()
+      reason.value = ''
+      paintSummary()
+      onJudgmentChange()
+    }
+
+    Object.entries(item.verbs || {}).forEach(([verdict, label]) => {
+      const btn = el('button', null, label)
+      btn.type = 'button'
+      btn.addEventListener('click', () => apply(verdict))
+      bar.appendChild(btn)
+    })
+
+    const clear = el('button', 'clear', 'unrule these')
+    clear.type = 'button'
+    clear.addEventListener('click', () => {
+      picked.forEach((eventType) => delete judgments[eventKey(item, eventType)])
+      saveJudgments()
+      paintSummary()
+      onJudgmentChange()
+    })
+    bar.appendChild(clear)
+
+    const wrap = el('div', 'picked-wrap')
+    add(wrap, tally, bar, reason)
+    reason.hidden = true
+
+    paintSummary()
+
+    return {
+      node: wrap,
+      onSelect: (events) => {
+        picked = events
+        const n = events.length
+        tally.textContent = n
+          ? (n === 1 ? '1 event selected' : n + ' events selected') + ', rule on just these:'
+          : ''
+        bar.hidden = !n
+        reason.hidden = !n
+      },
+    }
+  }
+
   const renderRow = (item) => {
     const tone = severity(item.rank)
     const row = el('details', 'row sev-' + tone)
@@ -1316,8 +1572,15 @@
       )
     }
 
-    const evidence = renderEvidence(item.evidence || [])
+    const rows = item.evidence || []
+    const selectable = item.queue === 'flags' && rows.length > 1
+    const picker = selectable ? renderEventVerdicts(item, row, summary) : null
+    const evidence = renderEvidence(rows, {
+      selectable,
+      onSelect: picker && picker.onSelect,
+    })
     if (evidence) add(body, evidence)
+    if (picker) add(body, picker.node)
 
     if (item.elevated_note) {
       add(body, el('p', 'elevated-note', item.elevated_note))
@@ -1402,18 +1665,52 @@
     ]
     const queues = ['flags', 'gaps', 'proposals', 'alignment']
     queues.forEach((queue) => {
-      const inQueue = rows
-        .filter((row) => row.queue === queue)
-        .sort((a, b) => a.verdict.localeCompare(b.verdict) || a.id.localeCompare(b.id))
+      const inQueue = rows.filter((row) => row.queue === queue)
       if (!inQueue.length) return
       lines.push('## ' + queue)
-      inQueue.forEach((row) => {
-        // The verdict value, not its label: these are the literals each queue's own
-        // parser validates against, and a label would have to be translated back.
-        lines.push(
-          '- ' + row.verdict + ': ' + row.id + (row.took_suggestion ? '' : '  [overridden]'),
-        )
-        lines.push('  reason: ' + (row.reason || '(none given)'))
+
+      // Group by the item a ruling is about, so a cause and the events picked out of it
+      // arrive together. Applying them apart would risk retiring a cluster and then
+      // re-opening four of its members, in that order.
+      const ids = [...new Set(inQueue.map((row) => row.id))].sort()
+      ids.forEach((id) => {
+        const cause = inQueue.find((row) => row.id === id && row.scope !== 'event')
+        const events = inQueue
+          .filter((row) => row.id === id && row.scope === 'event')
+          .sort((a, b) => a.verdict.localeCompare(b.verdict) || a.event.localeCompare(b.event))
+
+        if (cause) {
+          // The verdict value, not its label: these are the literals each queue's own
+          // parser validates against, and a label would have to be translated back.
+          lines.push(
+            '- ' + cause.verdict + ': ' + id +
+              (cause.took_suggestion ? '' : '  [overridden]'),
+          )
+          lines.push('  reason: ' + (cause.reason || '(none given)'))
+        } else if (events.length) {
+          lines.push('- (no cause-level ruling): ' + id)
+        }
+
+        // One ruling over 34 picked events is one decision, so it prints as one block.
+        // Repeating the verdict and reason per event turned a single call into 68
+        // lines nobody would read.
+        const groups = new Map()
+        events.forEach((row) => {
+          const groupKey = row.verdict + '\u0000' + (row.reason || '')
+          if (!groups.has(groupKey)) {
+            groups.set(groupKey, { verdict: row.verdict, reason: row.reason, events: [] })
+          }
+          groups.get(groupKey).events.push(row.event)
+        })
+
+        groups.forEach((group) => {
+          const n = group.events.length
+          lines.push(
+            '  - ' + group.verdict + ' (' + n + (n === 1 ? ' event' : ' events') + '): ' +
+              (group.reason || '(no reason given)'),
+          )
+          group.events.sort().forEach((event) => lines.push('      ' + event))
+        })
       })
       lines.push('')
     })
