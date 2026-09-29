@@ -21,7 +21,7 @@ const STATE_TIME_ZONES: Record<string, string> = {
   DE: 'America/New_York',
   FL: 'America/New_York',
   GA: 'America/New_York',
-  HI: 'America/Honolulu',
+  HI: 'Pacific/Honolulu',
   ID: 'America/Denver',
   IL: 'America/Chicago',
   IN: 'America/New_York',
@@ -65,6 +65,12 @@ const STATE_TIME_ZONES: Record<string, string> = {
 }
 
 export const DEFAULT_TIME_ZONE = 'America/New_York'
+
+// Every zone the table can answer with; the test walks each through Intl,
+// which is what date-fns-tz delegates to and what threw on a bad HI entry.
+export const CAMPAIGN_TIME_ZONES: readonly string[] = [
+  ...new Set([...Object.values(STATE_TIME_ZONES), DEFAULT_TIME_ZONE]),
+]
 
 // How far ahead of now a candidate may schedule a send. Must match
 // ROBOCALL_MAX_SCHEDULE_DAYS in gp-api's shared/util/robocallHold.util.ts —
