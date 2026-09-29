@@ -111,6 +111,18 @@ describe('outreachChannel', () => {
     expect(outreachChannel('events')).toBe('event')
   })
 
+  // The flow shell, the audience hook and the gate each named the channels
+  // before this vocabulary existed, which is how one text send ended up with
+  // four spellings across two properties.
+  it("folds the surfaces' own spellings onto the same vocabulary", () => {
+    expect(outreachChannel('sms')).toBe('text')
+    expect(outreachChannel('texting')).toBe('text')
+    expect(outreachChannel('social')).toBe('socialMedia')
+    expect(outreachChannel('door')).toBe('doorKnocking')
+    expect(outreachChannel('phone-bank')).toBe('phoneBanking')
+    expect(outreachChannel('Phone Banking')).toBe('phoneBanking')
+  })
+
   it('leaves an unknown type as the catch-all rather than dropping the event', () => {
     expect(outreachChannel('something-new')).toBe('general')
   })

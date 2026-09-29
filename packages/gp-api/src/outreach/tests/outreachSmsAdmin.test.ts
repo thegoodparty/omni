@@ -379,7 +379,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(track).toHaveBeenCalledWith(
         service.user.id,
         'Voter Outreach - Campaign Approved',
-        { channel: 'sms' },
+        { channel: 'sms', medium: 'text' },
       )
     })
 

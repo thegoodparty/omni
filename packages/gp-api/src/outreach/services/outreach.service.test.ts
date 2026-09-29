@@ -422,7 +422,7 @@ describe('OutreachService', () => {
       expect(firstOrThrow(scheduled)).toEqual([
         mockCampaign.userId,
         EVENTS.Outreach.CampaignScheduled,
-        { channel: 'sms', outreachId: 44, recipientCount: 250 },
+        { channel: 'sms', medium: 'text', outreachId: 44, recipientCount: 250 },
         undefined,
         // Deterministic messageId: a Segment replay dedups to one event.
         '44:campaign_scheduled',

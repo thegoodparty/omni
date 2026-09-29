@@ -130,6 +130,44 @@ Amplitude refuses metadata on an unplanned event.
 only**. Un-completing a task is a correction, not an activation signal, and an
 event named Completed must not fire on one.
 
+## One channel property, not two
+
+`medium` and `channel` both meant "which channel", on disjoint sets of events —
+`medium` on the completion events, `channel` on the funnel and lifecycle ones —
+and no event carried both. The values disagreed too: a text send had four
+spellings (`text`, `p2p`, `sms`, `texting`), social had two (`socialMedia`,
+`social`), and `channel` carried a cased `Phone Banking` with a space.
+
+That mattered most on the v2 funnel, which runs Flow Step Viewed → Flow Step
+Completed → Campaign Completed. The first two carried `channel` and the last
+`medium`, with different spellings, so building that funnel meant switching
+both property name and value on the final step. That is the same fork this
+document argues against, one event apart instead of one property apart.
+
+**`medium` is the standard**, because Campaign Completed carries the query
+volume worth protecting. `medium` is now sent **alongside** `channel` on the
+events that only had `channel`, so every existing chart keeps working:
+
+| Event                                        | Where it fires                          |
+| -------------------------------------------- | --------------------------------------- |
+| `Voter Outreach - Flow Step Viewed`          | `OutreachFlowShell`                     |
+| `Voter Outreach - Flow Step Completed`       | `OutreachFlowShell`                     |
+| `Voter Outreach - Recommended List Accepted` | `useOutreachAudience`, `CreateListFlow` |
+| `Voter Outreach - Recommended List Failed`   | `useOutreachAudience`                   |
+| `Voter Outreach - Campaign Approved`         | gp-api `outreachSmsAdmin`               |
+| `Voter Outreach - Campaign Scheduled`        | gp-api outreach/social/robocall         |
+
+Dropping `channel` is a later pass, once nothing reads it.
+
+Each surface keeps its own prop type — the flow shell's is
+`'sms' | 'robocall' | 'social'`, the audience hook's is a `ReachabilityKey` —
+and `outreachChannel()` folds those spellings onto the one vocabulary, so a
+surface never has to rename its own prop to report a correct `medium`.
+
+`Briefing Assistant - Share Completed` and
+`Voter Data - Custom Voter File: Select Channel` keep `channel` alone: they are
+different features and their `channel` is not an outreach channel.
+
 ## Events
 
 ### `Outreach - Campaign Completed` (live; extended)

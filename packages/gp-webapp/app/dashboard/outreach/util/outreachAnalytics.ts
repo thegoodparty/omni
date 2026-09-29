@@ -23,6 +23,16 @@ const OUTREACH_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
   socialMedia: 'socialMedia',
   directMail: 'directMail',
   events: 'event',
+  // The flow shell, the audience hook and the gate each named the channels
+  // themselves before this vocabulary existed, so a text send had four
+  // spellings across two properties and social had two. These fold those in:
+  // every surface can keep its own prop type and still report one `medium`.
+  sms: 'text',
+  texting: 'text',
+  social: 'socialMedia',
+  door: 'doorKnocking',
+  'phone-bank': 'phoneBanking',
+  'Phone Banking': 'phoneBanking',
 }
 
 export const outreachChannel = (type: string): TaskChannel =>

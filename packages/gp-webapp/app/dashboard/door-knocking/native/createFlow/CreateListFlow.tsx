@@ -622,6 +622,7 @@ export default function CreateListFlow({
         trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
           variant: recommendation.variant,
           channel: 'doorKnocking',
+          medium: 'doorKnocking',
           intent: recommendation.intent,
           count: recommendation.count,
           voteGoalShare: recommendation.voteGoalShare,
@@ -1192,6 +1193,7 @@ export default function CreateListFlow({
           trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
             variant: recommendedMeta.variant,
             channel: 'doorKnocking',
+            medium: 'doorKnocking',
             intent: recommendedMeta.intent,
             count: recommendedMeta.count,
             voteGoalShare: recommendedMeta.voteGoalShare,
