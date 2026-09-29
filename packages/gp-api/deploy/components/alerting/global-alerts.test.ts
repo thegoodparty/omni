@@ -692,3 +692,36 @@ describe('alert-notification-delivery-failing', () => {
     expect(alert.knownCauses).toBeUndefined()
   })
 })
+
+describe('loki query budget', () => {
+  const alerts = GLOBAL_ALERTS.filter((alert) =>
+    alert.slug.startsWith('loki-query-budget-'),
+  )
+
+  it('registers both tiers', () => {
+    expect(alerts.map((alert) => alert.slug).sort()).toEqual([
+      'loki-query-budget-critical',
+      'loki-query-budget-half',
+    ])
+  })
+
+  // These three guard one regression. Shipped on 2026-09-29 averaging over an
+  // hour and holding for 30m, both rules flapped: the ratio crossed 0.8
+  // several times an hour, and since Alertmanager re-notifies a still-firing
+  // alert only every 2d, every page came from a resolve/re-fire cycle rather
+  // than from the overage. The allowance is billed monthly, so a crossing that
+  // settles inside a couple of hours was never going to reach an invoice.
+  it.each(alerts)('$slug averages over hours, not minutes', (alert) => {
+    expect(widestRangeSeconds(alert.expr)).toBeGreaterThanOrEqual(6 * 3600)
+  })
+
+  it.each(alerts)('$slug must stay over for hours to page', (alert) => {
+    const [, amount, unit] = /^(\d+)([smhd])$/.exec(alert.for) ?? []
+    expect(toSeconds(amount ?? '', unit ?? '')).toBeGreaterThanOrEqual(2 * 3600)
+  })
+
+  it.each(alerts)('$slug fetches the whole window it averages', (alert) => {
+    const fetched = alert.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+    expect(fetched).toBeGreaterThanOrEqual(widestRangeSeconds(alert.expr))
+  })
+})
