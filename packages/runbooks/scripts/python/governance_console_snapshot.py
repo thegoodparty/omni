@@ -74,6 +74,70 @@ ALIGNMENT_VERBS = {
     "defer": "Defer",
 }
 
+# What each verb actually DOES, in plain words, for the review panel and the button
+# tooltips. The labels above name the button you press; these name the consequence.
+#
+# The distinction is the whole point. "Fix in Govern" tells you which control you
+# touched; "Write the retirement to Amplitude, and every consumer will read these as
+# dead" tells you what you are about to do to other people. A page that only ever shows
+# the first is one where the person who built the system cannot read back his own
+# decisions -- which is exactly what happened on the first run.
+#
+# One sentence, active voice, no internal names. Anything permanent says so, because
+# permanence is the property that decides how carefully a row is worth reading.
+VERB_EFFECTS = {
+    "flags": {
+        "govern": (
+            "Write this to Amplitude Govern. A retirement here tells every consumer "
+            "the events are dead."
+        ),
+        # Not a verb. The same verb when the operator has declared in the proof box
+        # that the write is not a retirement (`no removal:`). The page swaps the
+        # sentence, so a correction is never described back to its author as a
+        # retirement -- which is the one thing they just said it was not.
+        "govern:correction": (
+            "Correct this event's declaration in Amplitude Govern. Nothing is retired."
+        ),
+        "dismiss": (
+            "Stop the digest ever raising this cause again. There is no expiry and "
+            "nothing revisits it."
+        ),
+        "ticket": "File it in the Data backlog, and stop the digest nagging about it.",
+        "investigate": "Leave it open, on the record that you are looking into it.",
+    },
+    "gaps": {
+        "accept": (
+            "Agree the surface is missing an event. It becomes a ticket, or gets "
+            "instrumented directly."
+        ),
+        "dismiss": (
+            "Record that this surface does not need an event. Permanent: the sweep "
+            "stops offering it."
+        ),
+        "defer": "Leave it for a later run. It comes back next time.",
+    },
+    "proposals": {
+        "accept": "Add the event to the watchlist, so the monitor tracks it from now on.",
+        "dismiss": (
+            "Record that this event should not be watched. Permanent: it stops being "
+            "proposed."
+        ),
+        "defer": "Leave it for a later run. It comes back next time.",
+    },
+    "alignment": {
+        "fix_omni": (
+            "Change omni's behavior registry to match what the semantic layer declares."
+        ),
+        "draft_upstream": (
+            "Draft an anchored_on change for gp-data-platform. Nothing in omni changes."
+        ),
+        "dismiss": (
+            "Record that this mismatch is fine. Permanent: it stops being raised."
+        ),
+        "defer": "Leave it for a later run. It comes back next time.",
+    },
+}
+
 EVIDENCE_COLS = (
     "event_type", "status", "event_count_30d", "last_seen_date",
     "divergence", "instrumented_pr", "okr", "elevated",
@@ -686,6 +750,9 @@ def build_snapshot(
         "source": "health report + instrumentation gaps + explorer snapshot",
         "overview": overview,
         "changes": build_changes(report, previous),
+        # Once at the top, not on every item: the same four sentences on 25 rows is
+        # 20 KB of the same four sentences.
+        "verb_effects": VERB_EFFECTS,
         "queues": queues,
         "settled": _settled_gaps(gaps),
         "prior_flagged": current_flagged_map(report),

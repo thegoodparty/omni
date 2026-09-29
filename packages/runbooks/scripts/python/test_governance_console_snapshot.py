@@ -195,6 +195,51 @@ def test_an_undismissable_cause_is_not_offered_the_dismiss_verb():
     assert item["recommended"] == "ticket"
 
 
+# --- what a verb does ---------------------------------------------------------
+
+
+def test_every_verb_on_every_queue_says_what_it_does():
+    """A verb with no effect line is a button whose consequence is unreadable."""
+    verbs = {
+        "flags": set(gcs.FLAG_VERBS),
+        "gaps": set(gcs.GAP_VERBS),
+        "proposals": set(gcs.PROPOSAL_VERBS),
+        "alignment": set(gcs.ALIGNMENT_VERBS),
+    }
+
+    for queue, expected in verbs.items():
+        # A key with a colon is a variant of a verb, not a verb: `govern:correction` is
+        # what `govern` reads as once the operator declares it is not a retirement.
+        plain = {k for k in gcs.VERB_EFFECTS[queue] if ":" not in k}
+        assert plain == expected, queue
+
+
+def test_a_govern_correction_is_not_described_as_a_retirement():
+    retire = gcs.VERB_EFFECTS["flags"]["govern"]
+    correct = gcs.VERB_EFFECTS["flags"]["govern:correction"]
+
+    assert "dead" in retire
+    assert "dead" not in correct
+    assert "Nothing is retired" in correct
+
+
+def test_a_permanent_verb_says_that_it_is_permanent():
+    """Permanence is the property that decides how carefully a row is worth reading."""
+    for queue, effects in gcs.VERB_EFFECTS.items():
+        assert "no expiry" in effects["dismiss"] or "Permanent" in effects["dismiss"], (
+            f"{queue} dismiss does not say it is permanent"
+        )
+
+
+def test_the_snapshot_carries_the_effects_once_not_per_item():
+    report = _min_report(flagged=[_record(event_type="A")])
+
+    snapshot = gcs.build_snapshot(report, {}, {}, None)
+
+    assert snapshot["verb_effects"] == gcs.VERB_EFFECTS
+    assert "verb_effects" not in snapshot["queues"][0]["items"][0]
+
+
 # --- signal caveats -----------------------------------------------------------
 
 

@@ -912,6 +912,86 @@
     border-color: var(--line-2);
   }
 
+  /* The readable half of the handoff. Wide, calm, and scrollable, because it is read
+     top to bottom before a decision goes out. */
+  .review {
+    width: 100%;
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 4px 2px;
+  }
+
+  .review-section {
+    margin-top: 10px;
+  }
+
+  .review-section:first-child {
+    margin-top: 0;
+  }
+
+  .review-head {
+    position: sticky;
+    top: 0;
+    margin: 0 0 6px;
+    padding: 6px 0;
+    font-size: 12px;
+    color: var(--ink-3);
+    background: var(--surface);
+  }
+
+  .review-head b {
+    color: var(--ink);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .review-item {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border-left: 3px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    background: var(--surface-2);
+  }
+
+  .review-item.is-waiting {
+    border-left-color: var(--crit);
+  }
+
+  .review-effect {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .review-on {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .review-note {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--ink-2);
+    overflow-wrap: anywhere;
+  }
+
+  .review-note.quiet {
+    color: var(--ink-3);
+    font-style: italic;
+  }
+
+  .review-note b {
+    color: var(--ink);
+  }
+
+  .review-empty {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+
   .handoff textarea {
     width: 100%;
     min-height: 160px;
@@ -1463,6 +1543,20 @@
 
   const keyOf = (item) => item.queue + '\u0000' + item.id
 
+  // The labels on the buttons name the control you press ("Fix in Govern"). These name
+  // what happens to other people when you press it. Both are needed: the label has to
+  // be short enough to sit on a button, and the consequence is what you actually want
+  // to know before pressing it.
+  const NOT_A_RETIREMENT = /^no removal:\s*/i
+
+  const effectOf = (queue, verdict, proof) => {
+    const effects = (DATA.verb_effects || {})[queue] || {}
+    if (proof && NOT_A_RETIREMENT.test(proof) && effects[verdict + ':correction']) {
+      return effects[verdict + ':correction']
+    }
+    return effects[verdict] || ''
+  }
+
   // A dismissal is the one verdict with no expiry. Every queue's `dismissed:` row is
   // read by the next run and every run after it, and nothing ever asks again. So an
   // unexplained dismissal is a permanent silence nobody can audit, and the reason is a
@@ -1610,7 +1704,13 @@
 
     const set = (verdict, { toggle = true } = {}) => {
       if (!verbs[verdict]) return 'skipped'
-      if (toggle && judgments[key] && judgments[key].verdict === verdict) {
+      const current = judgments[key]
+      // Clicking the verb a second time un-rules the row -- unless the row was already
+      // applied, where the same click would silently erase the record of a change
+      // Claude has already made. Changing an applied row to a DIFFERENT verb is still
+      // allowed, because that is a correction; `clear` is still the way to drop one
+      // outright. Both leave something on screen.
+      if (toggle && current && current.verdict === verdict && !current.applied_at) {
         delete judgments[key]
         pending = null
       } else {
@@ -1648,9 +1748,12 @@
       btn.type = 'button'
       btn.dataset.verdict = verdict
       btn.setAttribute('aria-pressed', 'false')
+      const effect = effectOf(item.queue, verdict)
       if (verdict === item.recommended) {
         btn.classList.add('is-suggested')
-        btn.title = 'Suggested'
+        btn.title = effect ? 'Suggested. ' + effect : 'Suggested'
+      } else if (effect) {
+        btn.title = effect
       }
       btn.addEventListener('click', () => set(verdict))
       bar.appendChild(btn)
@@ -1702,7 +1805,11 @@
     setters.push({
       queue: item.queue,
       key,
+      label: item.label,
       recommended: item.recommended,
+      // What this row is holding back, if anything, so the review panel can say what
+      // is NOT going out as well as what is.
+      pendingOf: () => pending,
       // Approve-all never overwrites a decision already made by hand.
       approve: () => {
         if (judgments[key] || !item.recommended || !verbs[item.recommended]) {
@@ -2080,6 +2187,141 @@
     return lines.join('\n').trimEnd()
   }
 
+  // --- review -----------------------------------------------------------------
+  //
+  // What the handoff says, in words about consequences rather than words about
+  // buttons. The handoff text is what Claude parses; this is what a person reads
+  // before sending it. Both are built from the same judgments, so they cannot
+  // disagree about what is going out.
+  //
+  // It exists because the first run produced a page on which the person who built the
+  // system could not read back his own decisions: every row said which control had
+  // been pressed and none of them said what would happen.
+
+  // One block per decision. Events ruled together under the same verb, reason and
+  // proof are one decision and read as one, the way they do in the handoff.
+  const decisionBlocks = (rows) => {
+    const out = []
+    const seen = new Map()
+    rows.forEach((row) => {
+      const groupKey = [
+        row.queue, row.id, row.verdict, row.reason || '', row.proof || '',
+      ].join('\u0000')
+      if (!seen.has(groupKey)) {
+        const block = {
+          queue: row.queue,
+          id: row.id,
+          label: row.label,
+          verdict: row.verdict,
+          verdict_label: row.verdict_label,
+          reason: row.reason,
+          proof: row.proof,
+          events: [],
+        }
+        seen.set(groupKey, block)
+        out.push(block)
+      }
+      if (row.scope === 'event') seen.get(groupKey).events.push(row.event)
+    })
+    return out
+  }
+
+  const decisionNode = (block) => {
+    const node = el('div', 'review-item')
+    const n = block.events.length
+
+    add(
+      node,
+      el('p', 'review-effect',
+        effectOf(block.queue, block.verdict, block.proof) ||
+          block.verdict_label || block.verdict),
+    )
+    add(
+      node,
+      el('p', 'review-on',
+        n
+          ? (n === 1 ? '1 event in ' : n + ' events in ') + block.label
+          : block.label),
+    )
+
+    // A Govern write says what it is standing on, because that is the one decision
+    // here whose evidence someone may have to answer for later.
+    if (block.proof) {
+      const proof = el('p', 'review-note')
+      const declared = NOT_A_RETIREMENT.test(block.proof)
+      add(proof, el('b', null, declared ? 'You said: ' : 'Evidence: '))
+      proof.appendChild(document.createTextNode(
+        block.proof.replace(NOT_A_RETIREMENT, '')))
+      add(node, proof)
+    }
+    if (block.reason) add(node, el('p', 'review-note', 'Because: ' + block.reason))
+    if (!block.proof && !block.reason) {
+      add(node, el('p', 'review-note quiet', 'No note given.'))
+    }
+    return node
+  }
+
+  const reviewSection = (title, note, nodes) => {
+    if (!nodes.length) return null
+    const box = el('div', 'review-section')
+    const head = el('p', 'review-head')
+    add(head, el('b', null, title), document.createTextNode(' ' + note))
+    add(box, head)
+    nodes.forEach((node) => add(box, node))
+    return box
+  }
+
+  const renderReview = () => {
+    const panel = el('div', 'review')
+    panel.hidden = true
+
+    const draw = () => {
+      panel.textContent = ''
+      const all = Object.values(judgments)
+      const going = decisionBlocks(all.filter((j) => !j.applied_at))
+      const done = decisionBlocks(all.filter((j) => j.applied_at))
+      const waiting = setters
+        .map((setter) => ({ setter, pending: setter.pendingOf && setter.pendingOf() }))
+        .filter((row) => row.pending)
+
+      add(panel, reviewSection(
+        'Going out',
+        going.length === 1 ? '— one decision' : '— ' + going.length + ' decisions',
+        going.map(decisionNode),
+      ))
+
+      add(panel, reviewSection(
+        'Waiting on you',
+        '— not included, because each needs something before it can be sent',
+        waiting.map(({ setter, pending }) => {
+          const node = el('div', 'review-item is-waiting')
+          add(node, el('p', 'review-effect',
+            (effectOf(setter.queue, pending.verdict) || pending.verdict) + ' — held'))
+          add(node, el('p', 'review-on', setter.label))
+          add(node, el('p', 'review-note', pending.want === 'proof'
+            ? 'Needs the commit or PR that deleted the code, or a note saying this is '
+              + 'not a retirement.'
+            : 'Needs a reason. A dismissal never expires, so an unexplained one cannot '
+              + 'be audited.'))
+          return node
+        }),
+      ))
+
+      add(panel, reviewSection(
+        'Already applied',
+        '— sent in an earlier batch this run, kept here as a record',
+        done.map(decisionNode),
+      ))
+
+      if (!going.length && !waiting.length && !done.length) {
+        add(panel, el('p', 'review-empty',
+          'Nothing ruled on yet. Decisions collect here as you make them.'))
+      }
+    }
+
+    return { node: panel, draw }
+  }
+
   const renderHandoff = () => {
     const bar = el('div', 'handoff')
     const tally = el('span', 'tally')
@@ -2087,12 +2329,15 @@
     const hint = el('span', 'hint')
     const mark = el('button', 'ghost', 'Mark applied')
     const copy = el('button', null, 'Copy handoff')
-    const show = el('button', 'ghost', 'Show')
+    const review = el('button', 'ghost', 'Review')
+    const show = el('button', 'ghost', 'Raw text')
     const box = el('textarea')
+    const panel = renderReview()
 
     copy.type = 'button'
     show.type = 'button'
     mark.type = 'button'
+    review.type = 'button'
     box.readOnly = true
     box.id = 'handoff-text'
     box.hidden = true
@@ -2109,6 +2354,8 @@
           : 'Rule on a row above and it collects here. Nothing leaves this browser until you copy it.'
       copy.disabled = !open
       show.disabled = !open
+      review.disabled = !open && !applied
+      if (!panel.node.hidden) panel.draw()
       const out = copiedKeys().length
       mark.hidden = !out
       mark.disabled = !out
@@ -2159,12 +2406,26 @@
       refresh()
     })
 
-    show.addEventListener('click', () => {
-      box.hidden = !box.hidden
-      show.textContent = box.hidden ? 'Show' : 'Hide'
+    review.addEventListener('click', () => {
+      panel.node.hidden = !panel.node.hidden
+      review.textContent = panel.node.hidden ? 'Review' : 'Hide review'
+      if (!panel.node.hidden) {
+        panel.draw()
+        box.hidden = true
+        show.textContent = 'Raw text'
+      }
     })
 
-    add(bar, tally, done, hint, show, mark, copy, box)
+    show.addEventListener('click', () => {
+      box.hidden = !box.hidden
+      show.textContent = box.hidden ? 'Raw text' : 'Hide raw text'
+      if (!box.hidden) {
+        panel.node.hidden = true
+        review.textContent = 'Review'
+      }
+    })
+
+    add(bar, tally, done, hint, review, show, mark, copy, panel.node, box)
     onJudgmentChange = refresh
     refresh()
     return bar

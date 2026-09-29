@@ -11,10 +11,17 @@ Design doc: `docs/superpowers/specs/2026-09-28-event-health-console-design.md`
 
 ## How you act on a row
 
-Rule on a row with the buttons: dismiss with a reason, ticket it, look into it, or
-reviewed. The judgment is recorded the moment you click, in this browser, keyed by the
-run it was made against. Nothing is submitted, and a half-finished session loses
-nothing.
+Rule on a row with the buttons. Each queue has its own verbs, in its own words: a flag
+can be fixed in Govern, dismissed, ticketed or looked into; a gap can be accepted,
+dismissed or deferred. The judgment is recorded the moment you click, in this browser,
+keyed by the run it was made against. Nothing is submitted, and a half-finished session
+loses nothing.
+
+**A button label names the control; hovering it names the consequence.** "Fix in
+Govern" tells you which thing you are touching. The tooltip, and the review panel, say
+what it does to other people: *Write this to Amplitude Govern. A retirement here tells
+every consumer the events are dead.* Those sentences live in one place,
+`VERB_EFFECTS` in the snapshot builder, so the tooltip and the review cannot drift.
 
 When you are done, the bar at the bottom holds the batch. Copy it, paste it into Claude
 Code, and it writes each judgment to the file its queue owns, files the tickets, and
@@ -64,23 +71,59 @@ so on the button.
 
 ### `govern` has to show the commit
 
-`govern` is the one verb that leaves this repo. It writes prod Amplitude, and what it
-usually writes is "this event is dead", which every consumer downstream then believes.
-The other three land in a file in a PR and are undone by editing it, so they stay one
-click.
+`govern` is the one verb that leaves this repo. It writes production Amplitude, and what
+it usually writes is "this event is dead", which every consumer downstream immediately
+believes. The other three land in a file in a PR and are undone by editing it, so they
+stay one click.
 
 So a `govern` verdict is held until the box carries code-removal proof: a commit sha, a
 commit or PR URL, or `#1234`. Prose is refused, because "the code is gone, I checked" is
-exactly the unevidenced claim the rule exists to stop — absent data is not removal.
+exactly the unevidenced claim the rule exists to stop. Absent data is not removal.
 
-Not every Govern write is a retirement. One that is not says so in the same box, as
-`no removal: <why>`, and the handoff carries the statement. Evidenced either way, and
-never a silent exception.
+**Why there is a second accepted answer.** "Fix in Govern" is not always a retirement,
+and `intent_divergence` is where that bites. One cause covers two opposite situations:
+
+| What the monitor found | What fixing it means |
+| --- | --- |
+| `declared in-use but code removed + quiet` | Govern says alive, the code is gone. Retire it, against the deleting commit. |
+| `declared not-in-use but still firing` | Govern says dead, the event is alive. Un-declare it. Nothing was deleted, so no commit exists. |
+
+Requiring a commit for every Govern write would make the second row impossible to
+record — and that is the more urgent one, since consumers are being told a live event is
+dead. So the box also takes `no removal: <why>`. That is a positive claim, not a waiver:
+it says "this write is not a retirement", it goes into the handoff so the apply step
+knows not to write a retirement status, and the review panel then describes the decision
+as a correction rather than a retirement. What the box will not take is vague prose.
 
 `Take all N suggestions` cannot take a `govern`. Bulk-taking the flags queue today would
-declare 22 events dead on one click and nobody's evidence; instead those rows are left
-marked and the button says how many need proof. The proof travels in the handoff under
-the verdict, which is where the apply step reads it.
+declare 22 events dead on one click and nobody's evidence; those rows are left marked and
+the button says how many need proof.
+
+### Reading back what you decided, before you send it
+
+`Review` opens the readable version of the handoff: one block per decision, headed by
+what that decision does rather than which button produced it. Under each, the row it
+applies to and the evidence or reason you gave. `Raw text` still shows the literal text
+Claude parses — both are built from the same judgments, so they cannot disagree about
+what is going out.
+
+It has three parts, and the second two matter as much as the first:
+
+- **Going out** — every decision the handoff will carry.
+- **Waiting on you** — rows where a verdict is held for want of a reason or proof, so
+  what is *missing* is as visible as what is ready. Without this a held row is invisible
+  from the bottom of the page.
+- **Already applied** — decisions sent in an earlier batch this run, kept as a record.
+
+This exists because of a specific failure. On the first real run the page showed which
+control had been pressed and never what would happen, so the person who built the system
+could not read back his own decisions. Events ruled together under the same verb, reason
+and proof are one decision and read as one, the way they do in the handoff.
+
+An applied decision cannot be un-ruled by clicking its verb a second time — that click
+would silently erase the record of a change Claude has already made. Choosing a
+different verb is allowed, because that is a correction and it goes back into the
+handoff; `clear` is still the explicit way to drop one.
 
 ### Telling the page a batch was applied
 
