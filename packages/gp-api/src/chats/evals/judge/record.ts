@@ -62,16 +62,59 @@ export const TraceStepSchema = z.object({
 })
 export type TraceStep = z.infer<typeof TraceStepSchema>
 
+// Raw counts, split by how each kind is billed. Cache tokens are always
+// present and always zero today, because prompt caching is not enabled —
+// which is the reason to carry them now rather than later. The day it is
+// switched on, a record without these fields prices a cache read at the full
+// input rate, overstating it by roughly ten times, and every stored
+// comparison silently becomes wrong with nothing to detect it.
+export const TokenUsageSchema = z.object({
+  input: z.number().int().nonnegative(),
+  output: z.number().int().nonnegative(),
+  cacheRead: z.number().int().nonnegative(),
+  cacheWrite: z.number().int().nonnegative(),
+})
+export type TokenUsage = z.infer<typeof TokenUsageSchema>
+
+// Cost is stored as a snapshot plus the table that produced it, never as a
+// bare number to be compared. A cached base arm can predate its candidate by
+// months, so comparing two stored figures measures the price list as much as
+// the branch. Re-derive with `priceUsd` from pricing.ts instead; this field
+// is for showing what a run cost at the time.
+export const CostSchema = z.object({
+  usdAtCapture: z.number().nonnegative(),
+  pricingVersion: z.string().min(1),
+})
+export type Cost = z.infer<typeof CostSchema>
+
 export const TelemetrySchema = z.object({
   latencyMs: z.number().int().nonnegative(),
-  tokensIn: z.number().int().nonnegative(),
-  tokensOut: z.number().int().nonnegative(),
-  costUsd: z.number().nonnegative(),
+  tokens: TokenUsageSchema,
+  cost: CostSchema,
   toolCalls: z.number().int().nonnegative(),
   toolErrors: z.number().int().nonnegative(),
   retries: z.number().int().nonnegative(),
 })
 export type Telemetry = z.infer<typeof TelemetrySchema>
+
+// Where this run came from in GitHub, so a stored record traces back to the
+// change it judged rather than only to a commit hash.
+//
+// `workflowRunId` is deliberately not called `runId`: that name is taken by
+// the agent run above, and naming them alike is how someone ends up looking
+// up the wrong thing. Absent on a local run, which has no CI to point at.
+export const CiContextSchema = z.object({
+  repo: z.string().min(1),
+  // A sweep can be dispatched without a PR, so this is optional.
+  prNumber: z.number().int().positive().optional(),
+  workflowRunId: z.string().min(1),
+  workflowRunAttempt: z.number().int().positive(),
+  // Stored rather than rebuilt from repo and id, because it is the link a
+  // person actually follows. Treat it as a convenience: Actions logs expire,
+  // so the identifiers above are the part that survives.
+  workflowRunUrl: z.string().url(),
+})
+export type CiContext = z.infer<typeof CiContextSchema>
 
 // What the agent actually read, hashed. For chat that is the rendered system
 // prompt plus sorted tool names; for background the manifest plus
@@ -125,6 +168,7 @@ export const RunRecordSchema = z
     // we cannot hold still. The report says which cases saw the live world.
     liveWeb: z.boolean(),
     status: RunStatusSchema,
+    ci: CiContextSchema.optional(),
   })
   .refine((r) => (r.status === 'infraError') === (r.output === null), {
     message:

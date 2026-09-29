@@ -1,3 +1,4 @@
+import { PRICING_VERSION } from '../pricing'
 import type { RunRecord } from '../record'
 
 // Synthetic records, one pair per shape of thing the layers above a runner
@@ -24,6 +25,7 @@ interface Overrides {
   toolQueries?: string[]
   dataVersion?: string
   liveWeb?: boolean
+  ci?: boolean
 }
 
 // Nine build tracks import these same objects, and vitest runs suites in one
@@ -78,15 +80,37 @@ const record = (
   ],
   telemetry: {
     latencyMs: 12_000,
-    tokensIn: 31_213,
-    tokensOut: 227,
-    costUsd: 0.097,
+    // The real measured shape of a Chief of Staff turn. Cache counts are
+    // zero because prompt caching is not enabled, not because they are
+    // unmodelled — a consumer that ignores them breaks the day it is.
+    tokens: {
+      input: 31_213,
+      output: 227,
+      cacheRead: 0,
+      cacheWrite: 0,
+    },
+    cost: {
+      usdAtCapture: 0.097,
+      pricingVersion: PRICING_VERSION,
+    },
     toolCalls: o.toolCalls ?? 1,
     toolErrors: o.toolErrors ?? 0,
     retries: 0,
   },
   toolQueries: o.toolQueries ?? [],
   ...(o.dataVersion === undefined ? {} : { dataVersion: o.dataVersion }),
+  ...(o.ci
+    ? {
+        ci: {
+          repo: 'thegoodparty/omni',
+          prNumber: 2198,
+          workflowRunId: '36592029654',
+          workflowRunAttempt: 1,
+          workflowRunUrl:
+            'https://github.com/thegoodparty/omni/actions/runs/36592029654',
+        },
+      }
+    : {}),
   liveWeb: o.liveWeb ?? false,
   status: o.status ?? 'produced',
 })
@@ -96,9 +120,13 @@ const pair = (base: RunRecord, candidate: RunRecord): [RunRecord, RunRecord] =>
 
 // The ordinary case: a clean chat turn on both arms, different digests, the
 // candidate's answer a little fuller. This is what the judge is for.
+//
+// Carries CI provenance, because a sweep run from a PR is the normal path and
+// the report has to be able to link a verdict back to the change that caused
+// it. The other pairs leave `ci` absent, which is what a local run looks like.
 export const CHAT_PAIR: [RunRecord, RunRecord] = pair(
-  record('cos-priorities', 'base'),
-  record('cos-priorities', 'candidate'),
+  record('cos-priorities', 'base', { ci: true }),
+  record('cos-priorities', 'candidate', { ci: true }),
 )
 
 // A chat turn that queried the voter mart. Carries the generated SQL and the

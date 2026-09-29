@@ -112,15 +112,49 @@ export const parseArgs = (argv: string[]): CliArgs => {
   }
 }
 
+export interface CliResult {
+  plan: string
+  // Non-zero when the request itself was malformed — an id that is not an
+  // agent. Reported as a status rather than thrown, so the plan still
+  // prints, and surfaced here rather than left for a caller to grep out of
+  // the prose: a workflow parsing this output to price a sweep would
+  // otherwise under-report it, or sweep nothing and go green.
+  exitCode: number
+}
+
 export const run = (
   argv: string[],
   agents: readonly AgentEntry[] = AGENTS,
-): string => {
+): CliResult => {
   const args = parseArgs(argv)
-  const plan = formatPlan(selectAgents(args.agents, agents), agents)
-  if (args.dryRun) return plan
-  throw new Error(
-    'only --dry-run is implemented: the runners, the judge and the report ' +
-      'land in their own tracks',
-  )
+  const selection = selectAgents(args.agents, agents)
+  if (!args.dryRun) {
+    throw new Error(
+      'only --dry-run is implemented: the runners, the judge and the report ' +
+        'land in their own tracks',
+    )
+  }
+  return {
+    plan: formatPlan(selection, agents),
+    exitCode: selection.unknown.length > 0 ? 1 : 0,
+  }
+}
+
+// Entry point. Without this the module exports `run` and never calls it, so
+// `npx tsx cli.ts --agents=all --dry-run` prints nothing and exits 0 — which
+// is how a workflow that shells out to this file goes green having done
+// nothing, and how a local smoke test that imports `run` directly proves the
+// function works while proving nothing about the command.
+//
+// `require.main === module` is the house pattern here (see scripts/), and gp-api
+// is CommonJS, so import.meta is not available.
+if (require.main === module) {
+  try {
+    const result = run(process.argv.slice(2))
+    console.log(result.plan)
+    process.exitCode = result.exitCode
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exitCode = 1
+  }
 }

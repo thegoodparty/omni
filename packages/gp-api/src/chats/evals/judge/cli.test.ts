@@ -133,13 +133,33 @@ describe('parseArgs', () => {
 
 describe('run', () => {
   it('prints a plan for a dry run', () => {
-    expect(run(['--agents=all', '--dry-run'])).toContain('coverage:')
+    expect(run(['--agents=all', '--dry-run']).plan).toContain('coverage:')
   })
 
   it('threads a caller-supplied registry all the way to the coverage line', () => {
-    expect(run(['--agents=all', '--dry-run'], AGENTS)).toContain(
+    expect(run(['--agents=all', '--dry-run'], AGENTS).plan).toContain(
       'coverage: 1 of 2 agents wired (1 blocked)',
     )
+  })
+
+  it('succeeds on a well-formed request', () => {
+    expect(run(['--agents=all', '--dry-run'], AGENTS).exitCode).toBe(0)
+  })
+
+  // A typo is a malformed request, not a quiet no-op. Exiting 0 here is how
+  // a caller sweeps nothing and reports success.
+  it('fails when an id is not an agent', () => {
+    const result = run(['--agents=chief_of_staff,typo', '--dry-run'], AGENTS)
+    expect(result.exitCode).toBe(1)
+    expect(result.plan).toContain('typo')
+  })
+
+  // Asking for a blocked agent is a reasonable thing to do and nothing is
+  // wrong, so it reports and succeeds.
+  it('succeeds when the only match is blocked', () => {
+    const result = run(['--agents=briefing_annotation', '--dry-run'], AGENTS)
+    expect(result.exitCode).toBe(0)
+    expect(result.plan).toContain('briefing_annotation')
   })
 
   // Failing loudly beats half-running a sweep whose pieces do not exist.

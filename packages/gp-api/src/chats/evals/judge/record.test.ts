@@ -60,6 +60,84 @@ describe('RunRecordSchema', () => {
   })
 })
 
+describe('CI provenance', () => {
+  // The point of carrying this: a record should lead back to the change it
+  // judged, not just to a commit hash floating free of any PR.
+  it('links a record to the PR and the workflow run', () => {
+    const [base] = CHAT_PAIR
+    expect(base.ci?.prNumber).toBe(2198)
+    expect(base.ci?.workflowRunUrl).toContain('/actions/runs/')
+  })
+
+  // The naming trap this field exists to avoid.
+  it('keeps the workflow run distinct from the agent run', () => {
+    const [base] = CHAT_PAIR
+    expect(base.ci?.workflowRunId).not.toBe(base.runId)
+  })
+
+  // A local run has no CI to point at, so the absence has to be legal.
+  it('is optional', () => {
+    const [, candidate] = ALL_PAIRS.BACKGROUND_PAIR
+    expect(candidate.ci).toBeUndefined()
+    expect(RunRecordSchema.safeParse(candidate).success).toBe(true)
+  })
+
+  it('rejects a malformed run url', () => {
+    const [base] = CHAT_PAIR
+    const result = RunRecordSchema.safeParse({
+      ...base,
+      ci: { ...base.ci, workflowRunUrl: 'not-a-url' },
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('cost and tokens', () => {
+  // Cache counts are zero today because caching is off. Carrying the fields
+  // now is what stops every stored cost going quietly wrong the day it is
+  // switched on.
+  it('splits tokens by how they are billed', () => {
+    const [base] = CHAT_PAIR
+    expect(base.telemetry.tokens).toEqual({
+      input: 31_213,
+      output: 227,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
+  })
+
+  // The stored figure is a snapshot, so it only means anything alongside the
+  // table that produced it.
+  it('stamps cost with the pricing version that produced it', () => {
+    const [base] = CHAT_PAIR
+    expect(base.telemetry.cost.pricingVersion).toBeTruthy()
+  })
+
+  it('rejects a cost with no pricing version', () => {
+    const [base] = CHAT_PAIR
+    const result = RunRecordSchema.safeParse({
+      ...base,
+      telemetry: {
+        ...base.telemetry,
+        cost: { usdAtCapture: 0.1, pricingVersion: '' },
+      },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects negative token counts', () => {
+    const [base] = CHAT_PAIR
+    const result = RunRecordSchema.safeParse({
+      ...base,
+      telemetry: {
+        ...base.telemetry,
+        tokens: { ...base.telemetry.tokens, cacheRead: -1 },
+      },
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
 describe('fixture immutability', () => {
   // Nine build tracks import these same objects. A test that mutated one
   // would corrupt another track's input with no visible link between them,
