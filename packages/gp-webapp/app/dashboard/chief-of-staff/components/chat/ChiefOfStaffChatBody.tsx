@@ -47,6 +47,7 @@ import {
 import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
 import ChatListMap from './ChatListMap'
 import ChatBoundaryDrawer from './ChatBoundaryDrawer'
+import { boundarySavedMessage } from './boundarySavedMessage'
 import { useAttachmentsEnabled } from '../../../shared/agent-chat/hooks/useAttachmentsEnabled'
 import type { ChatScope } from '../../../shared/agent-chat/chatClient'
 import {
@@ -946,6 +947,27 @@ export default function ChiefOfStaffChatBody({
     ],
   )
 
+  // The one thing that tells the conversation a shape was drawn. The write
+  // itself goes browser -> API and touches nothing the model can see, so
+  // without this turn the next message arrives in the context that existed
+  // before the holder drew and the assistant answers about the pre-boundary
+  // list. Hidden, because the holder did not type it; persisted, because a
+  // resumed conversation has to carry the same fact.
+  const handleBoundarySaved = useCallback(
+    ({ cleared }: { cleared: boolean }) => {
+      if (!refiningList) return
+      void deliver(
+        boundarySavedMessage({
+          listId: refiningList.listId,
+          name: refiningList.name,
+          cleared,
+        }),
+        { hidden: true },
+      )
+    },
+    [refiningList, deliver],
+  )
+
   const sendContent = useCallback(
     (content: string) => deliver(content, { hidden: false }),
     [deliver],
@@ -1405,6 +1427,7 @@ export default function ChiefOfStaffChatBody({
         <ChatBoundaryDrawer
           list={refiningList}
           onClose={() => setRefiningList(null)}
+          onSaved={handleBoundarySaved}
         />
       )}
     </div>

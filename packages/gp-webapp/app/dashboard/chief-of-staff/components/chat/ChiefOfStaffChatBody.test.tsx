@@ -1569,6 +1569,79 @@ describe('<ChiefOfStaffChatBody>', () => {
       ).toHaveLength(0)
     })
 
+    // The whole point of the drawer being here. The write goes browser ->
+    // API and touches nothing the model can see, so before this the
+    // transcript gained no turn and the next question was answered against
+    // the list as it stood before the shape — the assistant telling holders
+    // it could not read an area they had just drawn.
+    it('sends a hidden turn naming the list when a boundary saves', async () => {
+      const user = userEvent.setup()
+      mockListPeople(2)
+      // A ring already on the row, around the mocked people, so Save is live
+      // the moment the overlay mounts: the drawing gesture itself needs a
+      // real canvas, and what this pins is what happens after the write.
+      mockSavedList({
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-86, 44],
+              [-85, 44],
+              [-85, 45],
+              [-86, 45],
+              [-86, 44],
+            ],
+          ],
+        },
+      })
+      api.mock('PUT /v1/voters/voter-file/filter/:id', {
+        status: 200,
+        data: { id: LIST.listId } as never,
+      })
+      listConversationsMock.mockResolvedValue([])
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          { type: 'text', delta: 'That leaves 412 constituents.' },
+          { type: 'done', assistantMessageId: 'a_after' },
+        ]),
+      )
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'map it'),
+        msg('assistant', 'Here.', {
+          id: 'a_map',
+          segments: [
+            { kind: 'text', text: 'Here.' },
+            { kind: 'tool', toolName: 'show_list_map', payload: LIST },
+          ],
+        }),
+      ])
+
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c_saved" />)
+
+      await user.click(
+        await screen.findByRole('button', { name: /edit area/i }),
+      )
+      await user.click(
+        await within(await screen.findByTestId('boundary-overlay')).findByRole(
+          'button',
+          { name: /^save$/i },
+        ),
+      )
+
+      // Named and id'd, because `crud_saved_filters` get takes an id and
+      // that is where the post-boundary count comes from.
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: `I drew an area on the map and saved it to my list "${LIST.name}" (list ${LIST.listId}). Where does that leave the list?`,
+          }),
+        ),
+      )
+      // Hidden: the holder drew, they did not type.
+      expect(screen.queryByText(/I drew an area on the map/)).toBeNull()
+      await screen.findByText('That leaves 412 constituents.')
+    })
+
     // An absent row reads as unlocked, so gating on the lock alone showed
     // the button while the list was still in flight — and the overlay seeds
     // its ring into useState once, at mount. Opened in that window it came
