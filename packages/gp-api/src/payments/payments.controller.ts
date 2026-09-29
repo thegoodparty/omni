@@ -63,7 +63,7 @@ export class PaymentsController {
       // answered 400 for a failure on OUR side of the line — the event is past
       // signature verification here, so it is genuinely from Stripe and only our
       // handling of it can still break. EXCLUDED_STATUS_CODES in
-      // deploy/components/alerting/controller-alerts.ts drops 400 on purpose, so
+      // deploy/components/alerting/route-alerts.ts drops 400 on purpose, so
       // a webhook that could not write the payment it was told about paged
       // nobody and appeared in no error rate.
       //

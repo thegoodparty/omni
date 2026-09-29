@@ -11,10 +11,7 @@ import {
   buildKnownCausesAnnotation,
   KNOWN_CAUSES_ANNOTATION,
 } from './alerting/alert-notification'
-import {
-  controllerAlerts,
-  recordingRuleExpression,
-} from './alerting/controller-alerts'
+import { routeErrorAlerts } from './alerting/route-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
@@ -24,9 +21,9 @@ import {
 import {
   provisionedAlertSlugs,
   RECORDING_RULES,
+  recordingRuleExpression,
 } from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
-import { CONTROLLER_NAMES } from '../../src/generated/route-types'
 
 export interface GrafanaConfig {
   environment: 'dev' | 'prod'
@@ -471,19 +468,27 @@ export const createGrafanaResources = async ({
       for: alert.for,
       isPaused: alert.disabled ?? false,
       // NoData IS the healthy steady state here, which is why this is not the
-      // trade-off it looks like. The route recording rules `sum by` over an
-      // error filter, so a route with no errors produces no series at all and
-      // its alert reads no data — nearly always, for nearly every route.
+      // trade-off it looks like. The route alerts `sum by` over an error
+      // filter, so a route with no errors produces no series at all and its
+      // alert reads no data — nearly always, for nearly every route.
       // `NoData -> Alerting` would page on every healthy route continuously.
       //
-      // The gap it leaves is real: if a recording rule stops recording, the
-      // metric goes absent and the route alerts go quiet rather than loud.
-      // That gap is covered by `alerting-rule-evaluations-failing`, which
-      // watches the ruler's own failure ratio in Prometheus and so survives
-      // the Loki failure that would cause it. Covering it here instead would
-      // reproduce the 2026-09-28 flood — 74 rules each naming a route that is
-      // fine — which is the failure mode that alert exists to replace with one
-      // page. Reconsidered 2026-09-28 when the recording rules landed; keep.
+      // WHAT MAKES `OK` SAFE IS THAT THE QUERY READS LOKI. A Loki rule that
+      // cannot evaluate raises an execution error, and `execErrState` pages on
+      // it; only a rule that evaluated fine and matched nothing reports NoData.
+      // So "no errors" and "alerting is broken" are different states again.
+      // They were not between 2026-09-28 and 2026-09-29, when these alerts read
+      // a Prometheus metric instead: PromQL answers a missing metric and a
+      // healthy route with the same empty result, so a recording rule that
+      // never wrote a datapoint took 168 rules blind and looked exactly like
+      // quiet. Moving the queries back onto Loki is what closed that, not this
+      // field — see the estate note in alerting/route-alerts.ts.
+      //
+      // The one family still reading a recorded metric is door knocking's
+      // credit spend, and `recorded-metric-not-writing` in alerts.ts watches
+      // that metric's existence directly. That is deliberately one page rather
+      // than `NoData -> Alerting` on five rules, which would reproduce the
+      // 2026-09-28 flood in miniature.
       noDataState: 'OK',
       execErrState: 'Alerting',
       annotations: {
@@ -573,13 +578,12 @@ export const createGrafanaResources = async ({
     )
   }
 
-  // Every scheduled Loki read we do: the two that back the generated route
-  // alerts, and the one that backs door knocking's credit spend. Provisioned
-  // before the alerts that consume them so the ordering in this file reads the
-  // way the data flows; Pulumi does not order them and does not need to, since
-  // a Grafana alert rule referencing a metric that does not exist yet simply
-  // reports no data (which `noDataState: 'OK'` treats as healthy) until the
-  // first recording interval has run.
+  // The one scheduled Loki read that is not an alert rule: door knocking's
+  // credit spend. Provisioned before the alerts that consume it so the ordering
+  // in this file reads the way the data flows; Pulumi does not order them and
+  // does not need to, since a Grafana alert rule referencing a metric that does
+  // not exist yet simply reports no data (which `noDataState: 'OK'` treats as
+  // healthy) until the first recording interval has run.
   //
   // WHY THESE ARE NOT IN A RuleGroup: recording rules are their own resource
   // kind in Grafana, evaluated on their own trigger interval rather than a
@@ -613,20 +617,40 @@ export const createGrafanaResources = async ({
     })
   }
 
-  for (const controller of CONTROLLER_NAMES) {
-    const rules = controllerAlerts(controller).map(alertToRule)
-    // Grafana's RuleGroup schema requires `rules` to have at least 1 item:
-    // > Attribute rule requires 1 item minimum, but config has only 0 declared.
-    // CONTROLLER_NAMES is auto-generated from src and can include controllers
-    // with no public routes (currently `mcp`), which produce zero alerts.
-    // An empty RuleGroup adds no value, so skip them rather than fail preview.
-    if (rules.length === 0) continue
-    new grafana.alerting.RuleGroup(`${controller}-rules`, {
-      name: `${controller} routes`,
-      folderUid: alertFolder.uid,
-      intervalSeconds: 60,
-      rules,
-    })
+  // TWO GROUPS, where there used to be one per controller. Grafana evaluates a
+  // rule group as a unit, so the group IS the cadence — which is why the two
+  // window shapes cannot share one. The five counting rules evaluate every
+  // minute and the one thresholded rule every ten; `routeWindow` in
+  // alerting/route-alerts.ts is where that split is argued.
+  //
+  // Bucketed the same way the global rules are, and the minute bucket keeps the
+  // bare resource name so the group a rule moves between is the exception
+  // rather than both of them.
+  //
+  // This replaces 75 `<controller>-rules` groups. Pulumi will delete those on
+  // the next deploy, which also deletes their alert history and any silence
+  // keyed to an old `<controller>-route-errors` slug. Routing is unaffected:
+  // the notification policy matches on `environment`, not on slug.
+  const routeAlertsByInterval = new Map<number, Alert[]>()
+  for (const alert of routeErrorAlerts()) {
+    const interval = alert.evaluationIntervalSeconds ?? 60
+    routeAlertsByInterval.set(interval, [
+      ...(routeAlertsByInterval.get(interval) ?? []),
+      alert,
+    ])
+  }
+
+  for (const [intervalSeconds, alerts] of routeAlertsByInterval) {
+    const isDefault = intervalSeconds === 60
+    new grafana.alerting.RuleGroup(
+      isDefault ? 'route-error-rules' : `route-error-rules-${intervalSeconds}s`,
+      {
+        name: isDefault ? 'Route errors' : `Route errors (${intervalSeconds}s)`,
+        folderUid: alertFolder.uid,
+        intervalSeconds,
+        rules: alerts.map(alertToRule),
+      },
+    )
   }
 
   const { probes } = await grafana.syntheticmonitoring.getProbes()
