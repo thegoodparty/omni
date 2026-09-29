@@ -8,7 +8,7 @@ import { doorKnockingCredits } from './alerting/door-knocking-spend'
  * it when it breaks.
  *
  * Being in here is what enables a controller's generated route alert at all —
- * `controllerAlerts` ends with `disabled: !owners.length`. That has been true
+ * `routeAlertGroups` skips a controller with no owner. That has been true
  * since 2026-03-01, and the map was seeded on 2026-03-05 with five `serve-bugs`
  * entries and an empty `win-bugs`. It gained exactly one entry in the six months
  * after, while gp-api went from 40 `@Controller` decorators to 99 — so what used
@@ -181,7 +181,7 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * Every entry is now a claim of that kind, which was not true until 2026-09-17.
  * `mcp` sat here because it had no ROUTE_MAP entries at all — its only handler
  * is `@All()`, which generate-route-types.ts did not recognise — so
- * `controllerAlerts` returned nothing for it and there was no rule to enable.
+ * no group could claim it and there was no rule to enable.
  * Being listed here made it look reviewed while POST /v1/mcp served 24,736 real
  * requests in 30 days and answered 19 of them with nothing. The generator now
  * expands `@All()` and refuses outright to emit a controller with no routes, so
@@ -219,7 +219,7 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
  * cannot reach` warn line, which is deliberate: it is a data fix, not a page.
  *
  * And, since 2026-08-25, a completion with NO status — see `noStatusFilter` in
- * alerting/controller-alerts.ts. That is a request gp-api never answered, so
+ * alerting/route-alerts.ts. That is a request gp-api never answered, so
  * it is a fault on any controller and it carries none of the 4xx noise this
  * list exists to suppress.
  *
@@ -857,7 +857,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     // generated rules and unlike public-person-profiles-error-ratio below,
     // this one does not admit `response_statusCode = ""`, so a request the
     // gateway kills mid-flight is invisible to it — see noStatusFilter in
-    // controller-alerts.ts for why that is the one failure a status range
+    // route-alerts.ts for why that is the one failure a status range
     // cannot see. A pure timeout wave on this route would score 0% and page
     // nobody. Closing it is a one-line change on each half, but it moves the
     // firing profile of a live rule, and the numbers quoted above were
@@ -1104,7 +1104,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     // that safe: it is unchanged, it is what catches the outage the generated
     // rule now sleeps through the first minutes of, and against the August
     // failure it reads 100%. Do not delete it to "simplify" the pair — a test
-    // in controller-alerts.test.ts fails if you do, and says why.
+    // in route-alerts.test.ts fails if you do, and says why.
     //
     // `sum by (request_endpoint)` rather than one ratio for the controller:
     // Grafana turns each returned series into its own alert instance, so a
@@ -1140,7 +1140,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     // under the threshold. So: roughly two pages a month, and nothing to mute.
     //
     // Both halves admit `response_statusCode = ""` for the reason
-    // controller-alerts.ts spells out at `noStatusFilter`: a request the
+    // route-alerts.ts spells out at `noStatusFilter`: a request the
     // gateway kills mid-flight completes with a null status, Loki's json
     // parser drops a null field, and every status-RANGE filter therefore
     // misses it. The generated rules were widened after two door-knocking
@@ -1298,5 +1298,55 @@ export const GLOBAL_ALERTS: Alert[] = [
       'The likeliest cause is the datasource refusing queries: Loki answers HTTP 429 when the account is far enough past its query allowance, which fails every log-backed rule at once. Check `loki-query-budget-critical`, then Grafana Alerting → the rule list for the actual evaluation error.',
     ].join('\n\n'),
     notify: BOTH,
+  },
+  {
+    slug: 'recorded-metric-not-writing',
+    name: 'A recording rule has stopped writing its metric',
+    type: 'metric',
+    // THE ALERT THAT WOULD HAVE CAUGHT 2026-09-28. Two Grafana-managed
+    // recording rules were added that day and never wrote a single datapoint:
+    // the writer requires a wide frame and a Loki query returning one series
+    // per label set is `timeseries-multi`, which it rejects. The rules reported
+    // `health: ok` and `lastError: null` on nearly every poll, because a minute
+    // after a failed write there is nothing left to write. 168 alert rules read
+    // the metric that did not exist, every one with `noDataState: OK`, and none
+    // could fire for a month. Nothing noticed, because a blind alert and a
+    // quiet alert look identical.
+    //
+    // Watching the RULE's health could not have caught it and still cannot.
+    // This watches the OUTPUT, which is the only thing that distinguishes a
+    // rule that works from a rule that merely runs.
+    //
+    // It works only because the recording rule ends in `or vector(0)`, so the
+    // metric carries an explicit zero in every minute with no spend. Without
+    // that, absence means "no door knocking happened", which is most minutes,
+    // and this rule would page constantly. Any recording rule added here has to
+    // hold the same property or it cannot be watched this way — which is a
+    // reason to prefer reading Loki directly, as the route alerts now do.
+    //
+    // 30 minutes rather than something tighter: the rule writes once a minute,
+    // and a handful of consecutive failed evaluations is a transient the ruler
+    // recovers from on its own. A gap this long is a broken rule.
+    expr: 'absent_over_time(gp_api:door_knocking_credits:sum1m{environment="$ENV"}[30m])',
+    threshold: 0,
+    // Ten minutes of pending on top of the 30-minute window, so the first
+    // deploy after this lands does not page. At that moment the metric has
+    // genuinely never existed, `absent_over_time` returns 1, and the rule goes
+    // pending — then the recording rule writes its first sample within a minute
+    // or two and it resolves without notifying anyone. If the rule does NOT
+    // write, the pending period elapses and it pages, which is the whole point.
+    //
+    // Verified against live Prometheus on 2026-09-29: this expression returns 1
+    // today, because the metric does not exist. It is meant to.
+    for: '10m',
+    // Must cover the range vector or the engine fetches the default ten
+    // minutes and `absent_over_time` reports on a window it cannot see.
+    timeRangeSeconds: 1800,
+    message: [
+      'The `gp_api:door_knocking_credits:sum1m` recording rule has written nothing for 30 minutes. **Every Geoapify budget alert is blind.** The four daily budget tiers and the 6h fast-burn ceiling all read this metric, so door-knocking spend is currently unwatched — including the case where the account runs dry and list creation starts answering 502 for every organization at once.',
+      'This does not mean spend is high. It means we cannot see spend. Read the raw log line directly while this is broken: `sum(sum_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingSpend" | json | event = "DoorKnockingSpend" | unwrap credits [24h]))` in Explore on `grafanacloud-logs`, against the 50,000-credit pool in `GEOAPIFY_DAILY_CREDIT_POOL`.',
+      'Check Grafana Alerting → Recording rules for the rule named `gp-api door-knocking Geoapify credits per minute`. A `health: ok` with no output is the known failure: Grafana rejects a Loki result that is not a single unlabelled series with `unsupported time series type timeseries-multi`, and reports nothing. If the expression has been changed so it can return more than one series, that is the cause. Full history in deploy/components/alerting/provisioned-alerts.ts.',
+    ].join('\n\n'),
+    notify: WIN,
   },
 ]

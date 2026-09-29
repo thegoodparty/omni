@@ -3,6 +3,7 @@ import { GLOBAL_ALERTS } from '../alerts'
 import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
 import { RECORDING_RULES } from './provisioned-alerts'
+import { routeErrorAlerts } from './route-alerts'
 
 // Mirrors grafana.ts's `alert.timeRangeSeconds ?? 600` — the window the
 // alerting engine actually fetches when an alert does not pin its own.
@@ -165,7 +166,7 @@ describe('public-person-profiles-error-ratio', () => {
   // range cannot see: a request the gateway kills mid-flight completes with a
   // null status, which Loki's json parser drops, so `>= 500` misses it. The
   // generated rules learned this from two door-knocking timeouts that went
-  // unseen in August (see noStatusFilter in controller-alerts.ts), and a
+  // unseen in August (see noStatusFilter in route-alerts.ts), and a
   // hand-written rule gets no benefit from that unless it says so itself.
   it('counts a request that was killed before it could answer', () => {
     expect(alert!.expr).toContain(
@@ -215,12 +216,22 @@ const rereadFactor = (alert: Alert | RecordingRule) =>
 /**
  * Everything we provision that reads a log stream on a schedule.
  *
- * The alerts and the recording rules together, because they spend one budget.
- * A rule moved onto a recorded metric stops appearing in the first list and
- * starts appearing in the second, and the total is what has to hold.
+ * THE ROUTE ALERTS ARE IN HERE NOW, AND THEIR ABSENCE WAS THE SECOND BUG. This
+ * list walked `GLOBAL_ALERTS` only, so the generated route rules — which are
+ * not members of it — were invisible to the one test that exists to stop the
+ * estate outspending its allowance. On 2026-09-28 those rules were 75 reads of
+ * the entire gp-api stream every minute, 750x ingest, and this test passed
+ * while Grafana Cloud started answering 429 and every rule in the estate fired
+ * at once. A budget check that cannot see the largest line item is not a budget
+ * check.
+ *
+ * The three sources spend one budget, so they are summed as one. A rule moved
+ * onto a recorded metric stops appearing in the log lists and starts appearing
+ * in the recording list, and the total is what has to hold either way.
  */
 const scheduledLokiReads = (): (Alert | RecordingRule)[] => [
   ...GLOBAL_ALERTS.filter((alert) => alert.type === 'log'),
+  ...routeErrorAlerts().filter((alert) => alert.type === 'log'),
   ...RECORDING_RULES,
 ]
 
@@ -253,7 +264,16 @@ const MAX_REREAD_FACTOR = 24
  * the set totalled 787 and the account read 3,038 GB/day against a 1,056 GB/day
  * allowance, i.e. ~3.9 GB/day per unit of factor. 130 therefore predicts ~500
  * GB/day, or roughly half the allowance, leaving the other half for humans and
- * for whatever the next alert needs. The set totals 121 today.
+ * for whatever the next alert needs. The set totals 125 today.
+ *
+ * WHAT THE REMAINING HEADROOM WILL AND WILL NOT BUY, since this is where the
+ * next person will want to spend it. 118 of those 125 are the eleven
+ * hand-written log alerts; the six route alerts are 6 and the door-knocking
+ * recording rule is 1. Another rule at the per-rule ceiling of 24 does not fit,
+ * and neither does putting the four Geoapify tiers back on Loki — a 24h window
+ * cannot be evaluated more than once an hour without breaching that ceiling on
+ * its own, so four of them is 96. That is why door-knocking spend is the one
+ * thing still read through a recording rule.
  *
  * The factor is a per-rule lower bound rather than an exact cost, which the
  * calibration absorbs on average and is worth knowing when reading one line of
@@ -378,12 +398,25 @@ describe('evaluation intervals', () => {
     }
   })
 
+  it('keeps every route alert on a Loki stream selector', () => {
+    for (const alert of routeErrorAlerts()) {
+      expect(alert.type, alert.slug).toBe('log')
+      expect(alert.expr, alert.slug).toContain('service_name="gp-api"')
+    }
+  })
+
   // `for` is counted in whole evaluations, so an interval that does not divide
   // it evenly pushes firing latency out to the next evaluation without saying
   // so anywhere. Keeping the two commensurate means the `for` a reader sees is
   // the delay they actually get.
+  //
+  // The route alerts are the case that makes this load-bearing rather than
+  // tidy: they evaluate every 600s, so a `for` of '1m' would not mean a minute,
+  // it would mean the rule has to breach twice and nobody hears for twenty.
+  // They pass by setting `for` to zero and letting the 10-minute window be the
+  // debounce.
   it('keeps `for` a whole number of evaluation intervals', () => {
-    const slowAlerts = GLOBAL_ALERTS.filter(
+    const slowAlerts = [...GLOBAL_ALERTS, ...routeErrorAlerts()].filter(
       (alert) => alert.evaluationIntervalSeconds !== undefined,
     )
     expect(slowAlerts.length).toBeGreaterThan(0)
@@ -391,13 +424,93 @@ describe('evaluation intervals', () => {
     for (const alert of slowAlerts) {
       const forSeconds = toSeconds(alert.for.slice(0, -1), alert.for.slice(-1))
 
-      expect(forSeconds % alert.evaluationIntervalSeconds!).toEqual(0)
+      expect(forSeconds % alert.evaluationIntervalSeconds!, alert.slug).toEqual(
+        0,
+      )
+    }
+  })
+})
+
+/**
+ * Every `gp_api:` series an alert selects, as the alert that selects it.
+ *
+ * The prefix is the convention for a metric this repo records rather than one a
+ * service exports, so a match here is a claim that some recording rule produces
+ * it. Nothing else in Prometheus is named this way.
+ */
+const recordedMetricReaders = (): { slug: string; metric: string }[] =>
+  GLOBAL_ALERTS.flatMap((alert) =>
+    [...alert.expr.matchAll(/gp_api:[a-z_:0-9]+/g)].map(([metric]) => ({
+      slug: alert.slug,
+      metric,
+    })),
+  )
+
+describe('recorded metrics', () => {
+  /**
+   * THE CHEAP HALF OF THE 2026-09-28 GUARD, and it is important to be exact
+   * about which half.
+   *
+   * This catches an alert wired to a metric nothing produces: a typo, a rename,
+   * or a recording rule deleted out from under its consumers. It would NOT have
+   * caught the actual outage, because the rules existed, were named correctly,
+   * and were read correctly — they simply never wrote, and no assertion over
+   * these definitions can see that. Writing is observed in production by
+   * `recorded-metric-not-writing`, which watches the metric rather than the
+   * rule, and that alert is the real guard.
+   *
+   * Both are needed and neither substitutes for the other: this one fails a PR,
+   * that one pages an on-call.
+   */
+  it('reads only metrics a provisioned recording rule writes', () => {
+    const produced = new Set(RECORDING_RULES.map((rule) => rule.metric))
+    const orphans = recordedMetricReaders()
+      .filter(({ metric }) => !produced.has(metric))
+      .map(({ slug, metric }) => `${slug} reads ${metric}`)
+
+    expect(orphans).toEqual([])
+  })
+
+  /**
+   * A recording rule is only watchable if absence means one thing.
+   *
+   * `recorded-metric-not-writing` pages when the metric has no samples for 30
+   * minutes. That is only a fault signal if the rule writes in every interval,
+   * including the intervals where the underlying logs match nothing — which for
+   * door-knocking spend is most of them. `or vector(0)` is what makes the
+   * pipeline emit an explicit zero instead of an empty result, so dropping it
+   * would not break the budget tiers, it would break the thing watching them,
+   * and it would do so silently.
+   */
+  it('makes every recording rule write in every interval', () => {
+    for (const rule of RECORDING_RULES) {
+      expect(rule.expr, rule.slug).toContain('or vector(0)')
+    }
+  })
+
+  /**
+   * The constraint that killed the route recording rules, written down as a
+   * test so the next person meets it in CI rather than in a month of silence.
+   *
+   * Grafana's recording-rule writer requires a wide frame. A Loki query that
+   * returns one series per label set is `timeseries-multi` and is rejected with
+   * `unsupported time series type timeseries-multi` — reported nowhere the rule
+   * itself can be seen to be unhealthy. A bare `sum(...)` collapses to a single
+   * unlabelled series, which the writer accepts; `sum by (...)` does not.
+   *
+   * So a recording rule here may not group. Anything that needs a dimension
+   * preserved reads Loki directly, the way the route alerts do.
+   */
+  it('never groups a recording rule, which the writer cannot accept', () => {
+    for (const rule of RECORDING_RULES) {
+      expect(rule.expr, rule.slug).not.toMatch(/\bby\s*\(/)
+      expect(rule.expr, rule.slug).not.toMatch(/\bwithout\s*\(/)
     }
   })
 })
 
 // The two structural properties of a recording rule, asserted over every one
-// we provision rather than only over the route pair in controller-alerts.test.
+// we provision rather than only over the route pair that used to live in route-alerts.test.
 // A rule that reads a wider window than its interval is the defect that
 // produced 2,690 GB/day and the 2026-09-28 429s; a rule that reads up to `now`
 // loses lines permanently. Neither is visible in Grafana when it is wrong.

@@ -25,14 +25,33 @@ export const DOOR_KNOCKING_CREDITS_METRIC = 'gp_api:door_knocking_credits:sum1m'
  * vector by traffic, whereas `DoorKnockingSpend` is written once per planned
  * route — a few dozen lines a day — and the outer `sum` collapses them anyway.
  *
- * The window ends 60s before now for the reason ROUTE_RECORDING_LAG_SECONDS
- * gives in controller-alerts.ts: log lines reach Loki several seconds after the
- * request they describe, and a window ending at `now` misses them permanently,
- * because the next window starts where this one ended.
+ * The window ends 60s before now because log lines reach Loki several seconds
+ * after the request they describe: pino hands the line to the OTel SDK,
+ * `BatchLogRecordProcessor` holds it for up to its scheduled delay, and then it
+ * is exported. A window ending at `now` misses those lines permanently, because
+ * the next window starts where this one ended. Reading a window that has
+ * already closed costs exactly the same and cannot drop anything.
+ *
+ * THE ONLY RECORDING RULE LEFT, and the only one whose shape can work. Grafana's
+ * recording-rule writer needs a wide frame; a Loki instant query returning one
+ * series per label set is `timeseries-multi` and is rejected with `unsupported
+ * time series type timeseries-multi`. That is what silently killed the two
+ * route recording rules for a month. This query aggregates with a bare `sum()`
+ * to a single unlabelled series, which is the shape the writer accepts.
+ *
+ * `or vector(0)` IS LOAD-BEARING AND IS NOT COSMETIC. Without it the rule
+ * writes nothing in any minute with no door-knocking spend, which is most
+ * minutes — and a metric that is absent because nothing was spent is
+ * indistinguishable from a metric that is absent because the rule is broken.
+ * That is the exact confusion that let a dead recording rule look healthy.
+ * Writing an explicit zero every minute makes absence mean one thing, which is
+ * what `recorded-metric-not-writing` in alerts.ts alerts on. Verified against
+ * prod Loki: the clause returns a single unlabelled `0` when the pipeline
+ * matches no lines.
  *
  * Deliberately not a member of `RECORDING_RULES` in `provisioned-alerts.ts`,
  * which is where the two lists are joined: `alerts.ts` imports the helper below,
- * and that list has to import `controller-alerts.ts`, which imports `alerts.ts`.
+ * and that list has to import `route-alerts.ts`, which imports `alerts.ts`.
  */
 export const DOOR_KNOCKING_SPEND_RECORDING_RULE: RecordingRule = {
   slug: 'door-knocking-credits',
@@ -45,7 +64,7 @@ export const DOOR_KNOCKING_SPEND_RECORDING_RULE: RecordingRule = {
     '| json',
     '| event = "DoorKnockingSpend"',
     '| unwrap credits',
-    '[1m]))',
+    '[1m])) or vector(0)',
   ].join(' '),
   fromSeconds: 120,
   toSeconds: 60,
@@ -60,9 +79,11 @@ export const DOOR_KNOCKING_SPEND_RECORDING_RULE: RecordingRule = {
  * touches Loki any more. Widening a window here is free, which is exactly why
  * it should still be a deliberate change.
  *
- * A window with no spend in it returns no data rather than zero, which
- * `grafana.ts` maps to OK. That is the right answer for a budget alarm and it
- * is the behaviour the Loki version had, for the same reason.
+ * A window with no spend in it now sums to zero rather than returning no data,
+ * because the recording rule writes an explicit zero every minute. Both answer
+ * OK on a `> threshold` comparison, so no alert changes behaviour; what changes
+ * is that these five rules reporting nothing is now a detectable state rather
+ * than the steady one.
  */
 export const doorKnockingCredits = (window: string) =>
   `sum_over_time(${DOOR_KNOCKING_CREDITS_METRIC}{environment="$ENV"}[${window}])`
