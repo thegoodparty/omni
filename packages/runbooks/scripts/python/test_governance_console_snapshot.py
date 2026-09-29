@@ -324,6 +324,32 @@ def test_a_partly_elevated_cause_says_how_many_and_why():
     assert item["elevated_note"].startswith("1 of 2")
 
 
+def test_evidence_puts_the_oldest_first_and_the_undated_last():
+    report = {
+        "run_date": "2026-09-28",
+        "flagged": [
+            _record(event_type="fresh", rank=7,
+                    status="instrumented_never_observed"),
+            _record(event_type="undated", rank=7,
+                    status="instrumented_never_observed"),
+            _record(event_type="ancient", rank=7,
+                    status="instrumented_never_observed"),
+        ],
+        "dismissed_causes": {},
+    }
+    code = {
+        "fresh": {"instrumented_commit": "a", "instrumented_pr": "1",
+                  "instrumented_date": "2026-09-25"},
+        "ancient": {"instrumented_commit": "b", "instrumented_pr": "2",
+                    "instrumented_date": "2026-06-28"},
+    }
+
+    [item] = gcs.build_flag_queue(report, code)
+
+    assert [r["event_type"] for r in item["evidence"]] == [
+        "ancient", "fresh", "undated"]
+
+
 # --- changes ------------------------------------------------------------------
 
 

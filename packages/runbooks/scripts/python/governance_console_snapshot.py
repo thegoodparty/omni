@@ -281,6 +281,24 @@ def _flag_evidence(record: Mapping, code: Mapping, run_date: str | None) -> dict
     return row
 
 
+def _sorted_evidence(rows: list[dict]) -> list[dict]:
+    """Oldest first, undated last, alphabetical within a tie.
+
+    Age is the axis that splits a cause: on never-observed, two events silent since June
+    sat sixty alphabetical rows below events instrumented last Thursday. Undated rows go
+    last as their own block rather than being treated as infinitely old, because "never
+    found in code" is a different finding from "old", and they read better together.
+    """
+    return sorted(
+        rows,
+        key=lambda r: (
+            r["days_since_instrumented"] is None,
+            -(r["days_since_instrumented"] or 0),
+            r["event_type"],
+        ),
+    )
+
+
 def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]:
     """The flagged set as one row per cause, in the digest's own grouping and order.
 
@@ -323,11 +341,10 @@ def build_flag_queue(report: Mapping, code: Mapping | None = None) -> list[dict]
             "elevated_note": _elevated_note(
                 by_cause.get(cause, []), group["elevated"]
             ),
-            "evidence": [
-                _flag_evidence(record, code, run_date)
-                for record in sorted(by_cause.get(cause, []),
-                                     key=lambda r: r["event_type"])
-            ],
+            "evidence": _sorted_evidence(
+                [_flag_evidence(record, code, run_date)
+                 for record in by_cause.get(cause, [])]
+            ),
         })
     return items
 
