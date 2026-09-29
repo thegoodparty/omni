@@ -36,6 +36,21 @@ Regenerate the committed Amplitude event git-provenance dataset (the curated sum
 
 Core columns produced by the backfill walk:
 
+- `retired_date` / `retired_commit` / `retired_pr` — when the event's **name** left the
+  codebase. Written only when the name string is absent from the instrumentation paths
+  at HEAD and the walk has history for it (`classify_code_status` returning `removed`).
+  It is silent about whether anything still *calls* that name.
+- **`retired_date` and `call_site_retired_date` answer different questions, and routinely
+  disagree.** One asks *is the name still written down?*; the other asks *does anything
+  still use it?* An event can have an empty `retired_date` (the constant is still in the
+  registry) and a `call_site_retired_date` (nothing has called it since that date), and
+  both are correct — that is a removed call site behind a surviving constant, which is
+  exactly what rank 2 exists to catch (DATA-2046). Live example 2026-09-29:
+  `Onboarding V2 - Strategic Landscape Displayed` is declared at
+  `packages/gp-webapp/helpers/analyticsHelper.ts:799`, and the code that called it was
+  deleted in `e5e863545` (2026-09-01). **Never read an empty `retired_date` as evidence
+  the instrument is live.** The plain-words version, for searching: "still in the code"
+  means the name is still there, not that anything sends the event.
 - `call_site_count` — number of `EVENTS.X.Y` call sites at the deploy ref (non-test
   instrumentation paths). Key-paths resolve from BOTH registries — `gp-webapp`'s
   `helpers/analyticsHelper.ts` and `gp-api`'s `src/vendors/segment/segment.types.ts` —

@@ -274,7 +274,13 @@ is aligned today:
 | Sparkline | same 9-week bars, same tooltip |
 | Fonts | Public Sans and IBM Plex Mono, same stacks |
 
-Deliberately different: the **evidence table shows raw status strings** where the card
+Deliberately different, in two places. The console's `dormant` verdict says "The name
+is still in the code" where the explorer says "The code is still there" — one word, and
+it is the exact ambiguity the fields under it resolve. The explorer carries no
+call-site data so it cannot contradict itself the same way, but its copy has the same
+looseness and should probably follow.
+
+And the **evidence table shows raw status strings** where the card
 shows the plain verdict. The table is a scanning surface with a STATUS header, read by
 one operator who knows them; the card is a reading surface. If that stops being true,
 the table should move to the plain words too.
