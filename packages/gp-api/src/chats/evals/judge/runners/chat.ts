@@ -161,15 +161,21 @@ const errorStep = (trace: TraceStep[], error: string): TraceStep[] => [
 ]
 
 interface PricedRun {
-  cost: Cost
-  // Set when the model has no rates on record. pricing.ts throws rather than
-  // guessing, because the cost delta is printed beside a verdict as evidence.
-  // A run nobody can cost is therefore a harness failure, not a result — and
-  // letting the throw escape would lose the record entirely, which is worse.
+  // Omitted when the model has no rates on record. pricing.ts throws rather
+  // than guessing, because the cost delta is printed beside a verdict as
+  // evidence and a guessed rate makes that evidence fiction.
+  //
+  // An unpriceable run is NOT a harness failure. Cost is measured evidence
+  // and measured evidence never gates a verdict, so the run keeps its status
+  // and its answer and loses only its cost line. This matters in practice:
+  // every chat scope declares a `claude-opus-4-7` fallback that pricing.ts
+  // has no rates for, so treating it as fatal would silently discard a real
+  // answer every time a turn fell back.
+  cost?: Cost
   unpriceable?: string
 }
 
-const priceRun = (tokens: TokenUsage, model: string): PricedRun => {
+export const priceRun = (tokens: TokenUsage, model: string): PricedRun => {
   try {
     return {
       cost: {
@@ -179,10 +185,7 @@ const priceRun = (tokens: TokenUsage, model: string): PricedRun => {
     }
   } catch (err) {
     if (!(err instanceof UnpriceableRunError)) throw err
-    return {
-      cost: { usdAtCapture: 0, pricingVersion: PRICING_VERSION },
-      unpriceable: err.message,
-    }
+    return { unpriceable: err.message }
   }
 }
 
@@ -314,9 +317,11 @@ export const runChatCase = async (
   }
   const model = llm.capture.model || request.variant.model
   const priced = priceRun(tokens, model)
-  const status = priced.unpriceable
-    ? 'infraError'
-    : classifyChatStatus(outcome.output, outcome.streamErrored, fallbackReplies)
+  const status = classifyChatStatus(
+    outcome.output,
+    outcome.streamErrored,
+    fallbackReplies,
+  )
   const answer = status === 'infraError' ? null : outcome.output
   if (status !== 'infraError' && answer === null) {
     throw new Error(
@@ -358,7 +363,7 @@ export const runChatCase = async (
     telemetry: {
       latencyMs: differenceInMilliseconds(endedAt, startedAt),
       tokens,
-      cost: priced.cost,
+      ...(priced.cost === undefined ? {} : { cost: priced.cost }),
       toolCalls: toolSteps.length,
       toolErrors: toolSteps.filter((step) => step.error !== undefined).length,
       // withModelFallback retries inside LlmService and reports no count, so

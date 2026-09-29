@@ -1,3 +1,4 @@
+import { PRICING_VERSION } from '../pricing'
 import { describe, expect, it } from 'vitest'
 import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
 import { toolBudgetExhaustedNote } from '@/llm/services/llm.service'
@@ -6,9 +7,37 @@ import {
   TOOL_BUDGET_FALLBACK_REPLY,
   ciContextFromEnv,
   classifyChatStatus,
+  priceRun,
 } from './chat'
 
 const env = (vars: Record<string, string>): NodeJS.ProcessEnv => vars
+
+describe('pricing a run', () => {
+  const tokens = { input: 31_213, output: 227, cacheRead: 0, cacheWrite: 0 }
+
+  it('prices a model the table knows', () => {
+    const priced = priceRun(tokens, 'claude-sonnet-4-6')
+    expect(priced.cost?.usdAtCapture).toBeCloseTo(0.097, 3)
+    expect(priced.cost?.pricingVersion).toBe(PRICING_VERSION)
+    expect(priced.unpriceable).toBeUndefined()
+  })
+
+  // Every chat scope declares a claude-opus-4-7 fallback that pricing.ts has
+  // no rates for, so this is a live path and not a hypothetical.
+  it('omits cost for a model it cannot price, rather than storing zero', () => {
+    const priced = priceRun(tokens, 'claude-opus-4-7')
+    expect(priced.cost).toBeUndefined()
+    expect(priced.unpriceable).toMatch(/claude-opus-4-7/)
+  })
+
+  // A stored 0 under a real pricing version reads as "this run was free",
+  // and sharesPricing would call two arms comparably priced when one was
+  // never priced at all.
+  it('never reports an unpriceable run as costing nothing', () => {
+    const priced = priceRun(tokens, 'claude-opus-4-7')
+    expect(priced.cost?.usdAtCapture).not.toBe(0)
+  })
+})
 
 describe('TOOL_BUDGET_FALLBACK_REPLY', () => {
   it('is still the reply the tool-budget note instructs', () => {

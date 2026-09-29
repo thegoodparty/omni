@@ -137,8 +137,11 @@ describe('runChatCase', () => {
         cacheRead: 0,
         cacheWrite: 0,
       })
-      expect(record.telemetry.cost.usdAtCapture).toBeCloseTo(EXPECTED_USD, 6)
-      expect(record.telemetry.cost.pricingVersion).toBe(PRICING_VERSION)
+      expect(record.telemetry.cost?.usdAtCapture ?? NaN).toBeCloseTo(
+        EXPECTED_USD,
+        6,
+      )
+      expect(record.telemetry.cost?.pricingVersion).toBe(PRICING_VERSION)
       expect(record.telemetry.latencyMs).toBe(
         differenceInMilliseconds(
           parseISO(record.endedAt),
@@ -150,20 +153,25 @@ describe('runChatCase', () => {
   )
 
   it(
-    'refuses to cost a run on a model nobody has priced',
+    'keeps the answer when nobody can price the model',
     async () => {
       // Every chat scope's chain falls back to claude-opus-4-7, which has no
       // rates on record. A guessed rate would make the cost delta printed
-      // beside a verdict fiction, so the run is reported as a harness failure
-      // rather than as a result.
+      // beside a verdict fiction, so the run goes unpriced — but cost is
+      // measured evidence, and measured evidence never gates a verdict. The
+      // answer survives and only the cost line is missing.
       const record = await runFor('chief_of_staff', {
         script: { ...textOnlyScript, model: 'claude-opus-4-7' },
       })
 
-      expect(record.status).toBe('infraError')
-      expect(record.output).toBeNull()
-      expect(record.telemetry.cost.usdAtCapture).toBe(0)
+      expect(record.status).toBe('produced')
+      expect(record.output?.value).toBeTruthy()
+      // Absent, not zero: a stored 0 under a real pricing version reads as
+      // "this run was free".
+      expect(record.telemetry.cost).toBeUndefined()
       expect(record.trace.at(-1)?.error).toContain('no price on record')
+      // Still judgeable, which is the whole point of the change.
+      expect(isComparable(record)).toBe(true)
     },
     TURN_TIMEOUT_MS,
   )

@@ -59,6 +59,16 @@ come after the merge. `RUN_LLM_EVALS=1` is not for this code.
 A record carries raw token counts, the model and a `pricingVersion`, plus
 `cost.usdAtCapture`, which is only a snapshot.
 
+`cost` is **optional**. It is absent when nobody could price the run — an
+unpriced model, or cache tokens with no rate. Absent rather than zero,
+because a stored 0 under a real `pricingVersion` reads as "this run was
+free" and `sharesPricing()` would call two arms comparably priced when one
+was never priced at all. And absent rather than fatal: cost is measured
+evidence, measured evidence never gates a verdict, so an unpriceable run
+keeps its status and its answer and loses only its cost line. This is a live
+path, not a hypothetical — every chat scope declares a `claude-opus-4-7`
+fallback that `pricing.ts` has no rates for.
+
 **Compare with `priceUsd()` from `pricing.ts`. Do not compare
 `usdAtCapture` between two records.** A cached base arm can predate its
 candidate by months, so comparing two stored figures measures Anthropic's
