@@ -190,6 +190,86 @@ describe('PriorityStatusService.applyUpdate', () => {
     expect(row.currentStep).toBe('define')
   })
 
+  it('opening a step demotes the step that was active', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        { id: 'evidence', state: 'active', summary: 'Half the blocks so far' },
+      ],
+      nextAction: 'Pull the repair backlog',
+    })
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [{ id: 'options', state: 'active' }],
+      nextAction: 'Price the two repair programs',
+    })
+
+    expect(stepOf(result.status, 'evidence').state).toBe('open')
+    expect(stepOf(result.status, 'evidence').summary).toBe(
+      'Half the blocks so far',
+    )
+    expect(stepOf(result.status, 'options').state).toBe('active')
+    expect(result.currentStep).toBe('options')
+  })
+
+  it('keeps the last active step when one call sets two', async () => {
+    const id = await createPriority()
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [
+        { id: 'define', state: 'active' },
+        { id: 'evidence', state: 'active' },
+      ],
+      nextAction: 'Pull the rent-burden numbers',
+    })
+
+    expect(stepOf(result.status, 'define').state).toBe('open')
+    expect(stepOf(result.status, 'evidence').state).toBe('active')
+    expect(result.currentStep).toBe('evidence')
+  })
+
+  it('leaves the active step alone when a call opens no new one', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [{ id: 'evidence', state: 'active' }],
+      nextAction: 'Pull the repair backlog',
+    })
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'settled', summary: 'Rents, not stock' }],
+      nextAction: 'Pull the repair backlog',
+    })
+
+    expect(stepOf(result.status, 'evidence').state).toBe('active')
+    expect(result.currentStep).toBe('evidence')
+  })
+
+  it('going back leaves the other settled steps settled', async () => {
+    const id = await createPriority()
+    await statusService.applyUpdate(id, {
+      steps: [
+        { id: 'define', state: 'settled', summary: 'Rents, not stock' },
+        { id: 'evidence', state: 'settled', summary: '41% rent burdened' },
+        { id: 'listen_problem', state: 'active' },
+      ],
+      nextAction: 'Book the tenants-union call',
+    })
+
+    const result = await statusService.applyUpdate(id, {
+      steps: [{ id: 'define', state: 'active', caveat: 'Council cut scope' }],
+      nextAction: 'Redefine the problem against the new council scope',
+    })
+
+    expect(stepOf(result.status, 'define')).toMatchObject({
+      state: 'active',
+      summary: 'Rents, not stock',
+      caveat: 'Council cut scope',
+    })
+    expect(stepOf(result.status, 'evidence').state).toBe('settled')
+    expect(stepOf(result.status, 'listen_problem').state).toBe('open')
+    expect(result.currentStep).toBe('define')
+  })
+
   it('leaves currentStep null when every step is settled', async () => {
     const id = await createPriority()
 

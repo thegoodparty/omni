@@ -6,7 +6,6 @@ export interface PriorityView {
   title: string
   description: string
   source: 'win_import' | 'user_stated'
-  targetDate: string | null
 }
 
 export interface PrioritiesToolProvider {
@@ -14,14 +13,12 @@ export interface PrioritiesToolProvider {
   create: (input: {
     title: string
     description: string
-    targetDate?: string | null
   }) => Promise<PriorityView>
   update: (
     id: string,
     patch: {
       title?: string
       description?: string
-      targetDate?: string | null
     },
   ) => Promise<PriorityView | null>
   archive: (id: string) => Promise<boolean>
@@ -36,7 +33,6 @@ const crudPrioritiesInputSchema = z.object({
   id: z.string().min(1).optional(),
   title: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
-  targetDate: z.string().date().nullish(),
 })
 
 export type CrudPrioritiesInput = z.infer<typeof crudPrioritiesInputSchema>
@@ -47,10 +43,10 @@ export const buildCrudPrioritiesTool = (deps: {
   description:
     "Manage the elected official's durable policy/community priorities. " +
     "Use action 'list' to read the active priorities, 'create' to add a " +
-    'new one (title + description, optional targetDate as YYYY-MM-DD), ' +
-    "'update' to edit an existing priority by id, and 'archive' to " +
-    'soft-delete one by id. Priorities persist across conversations and ' +
-    'are the official’s standing goals, not one-off tasks.',
+    "new one (title + description), 'update' to edit an existing priority " +
+    "by id, and 'archive' to soft-delete one by id. Priorities persist " +
+    'across conversations and are the official’s standing goals, not ' +
+    'one-off tasks.',
   inputSchema: crudPrioritiesInputSchema,
   execute: async (input) => {
     switch (input.action) {
@@ -63,14 +59,12 @@ export const buildCrudPrioritiesTool = (deps: {
         return deps.provider.create({
           title: input.title,
           description: input.description,
-          targetDate: input.targetDate,
         })
       case 'update': {
         if (!input.id) return { error: 'update requires id' }
         const updated = await deps.provider.update(input.id, {
           title: input.title,
           description: input.description,
-          targetDate: input.targetDate,
         })
         return updated ?? { error: 'Priority not found', id: input.id }
       }

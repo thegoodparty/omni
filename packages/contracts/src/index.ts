@@ -668,6 +668,7 @@ export {
 export {
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
+  PRIORITY_STEP_PURPOSE,
   PRIORITY_STATUS_VERSION,
   PriorityStepIdSchema,
   PriorityStepStateSchema,

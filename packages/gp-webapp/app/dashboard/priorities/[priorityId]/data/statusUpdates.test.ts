@@ -121,7 +121,7 @@ describe('describeStepChange', () => {
         to: 'settled',
         backwards: false,
       }),
-    ).toBe('Settled what we know')
+    ).toBe('Done with what we know')
   })
 
   it('says a step went back when it did', () => {

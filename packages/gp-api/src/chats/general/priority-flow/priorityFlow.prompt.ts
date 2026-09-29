@@ -1,4 +1,3 @@
-import { format } from 'date-fns'
 import {
   PRIORITY_STEP_IDS,
   PRIORITY_STEP_LABELS,
@@ -13,29 +12,72 @@ export const PRIORITY_FLOW_GUARDRAIL_DECLINE =
 
 const DASH = '—'
 
-// What each step has to settle before it can be called settled. The agent
-// works whichever one the conversation is actually on, so these are targets,
-// not an order of operations.
-const STEP_GOALS: Record<PriorityStepId, string> = {
-  define:
-    'Name the problem in one or two sentences the official would say out ' +
-    'loud, specific enough that someone could disagree with it.',
-  evidence:
-    'Establish what is actually known: the numbers, the records, the ' +
-    'reports. Separate what is verified from what is assumed.',
-  listen_problem:
-    'Decide who has to be heard on the problem, and get their view. ' +
-    'Residents affected, staff who run it, groups already working on it.',
-  options:
-    'Lay out the real options, including doing nothing, with what each one ' +
-    'costs and who it helps.',
-  listen_options:
-    'Find out which option people actually back, and who objects. Test it ' +
-    'against the people who will live with it.',
-  method:
-    'Settle how this gets done: the ordinance, the budget line, the ' +
-    'program, the partnership. The path, not the wish.',
-  plan: 'Put dates, owners and first steps on the chosen path.',
+interface StepGuide {
+  means: string
+  settled: string
+  unlocks: string
+}
+
+const STEP_GUIDE: Record<PriorityStepId, StepGuide> = {
+  define: {
+    means:
+      'What is actually wrong, in one or two sentences the official would ' +
+      'say out loud.',
+    settled:
+      'they have named one problem, specific enough that someone could ' +
+      'disagree with it.',
+    unlocks: 'you know what to go looking for.',
+  },
+  evidence: {
+    means:
+      'The numbers, the records and the reports that say how big this is ' +
+      'and who it hits.',
+    settled:
+      'what is verified is separated from what is assumed, and the gaps ' +
+      'are named rather than filled in.',
+    unlocks: 'you can say who is affected, so you know who to hear from.',
+  },
+  listen_problem: {
+    means:
+      'The people who have to be heard on the problem: residents living ' +
+      'with it, staff who run it, groups already working on it.',
+    settled:
+      'they are named and their view is recorded, or the official has ' +
+      'decided who they are asking and when.',
+    unlocks: 'options built on what people actually said.',
+  },
+  options: {
+    means:
+      'The real paths open to them, including doing nothing, with what ' +
+      'each one costs and who it helps.',
+    settled: 'there are at least two the official would defend in public.',
+    unlocks: 'something concrete to put in front of constituents.',
+  },
+  listen_options: {
+    means:
+      'Which option people back and who objects, tested against the ' +
+      'people who will live with it.',
+    settled:
+      'the support and the objections are both on record against a named ' +
+      'option.',
+    unlocks: 'a choice they can defend.',
+  },
+  method: {
+    means:
+      'How this actually gets done: the ordinance, the budget line, the ' +
+      'program, the partnership.',
+    settled:
+      'one route is chosen and it is a route this office can take, not a ' +
+      'wish.',
+    unlocks: 'dates that mean something.',
+  },
+  plan: {
+    means: 'Dates, owners and the first steps on the chosen route.',
+    settled:
+      'the official knows what they are doing this week and who else is ' +
+      'on the hook.',
+    unlocks: 'nothing. This is the last step.',
+  },
 }
 
 const ROLE_BLOCK = `ROLE (do not violate)
@@ -58,20 +100,35 @@ const COPY_BLOCK = `HOW TO WRITE
 const buildStepsBlock = (): string =>
   [
     'THE SEVEN STEPS',
-    ...PRIORITY_STEP_IDS.map(
-      (id) => `- ${id} (${PRIORITY_STEP_LABELS[id]}): ${STEP_GOALS[id]}`,
-    ),
+    'Each one has a bar. A step is settled when it clears its bar, not ' +
+      'when it has been discussed.',
+    ...PRIORITY_STEP_IDS.flatMap((id) => [
+      `- ${id} (${PRIORITY_STEP_LABELS[id]})`,
+      `  What it is: ${STEP_GUIDE[id].means}`,
+      `  Settled when: ${STEP_GUIDE[id].settled}`,
+      `  Unlocks: ${STEP_GUIDE[id].unlocks}`,
+    ]),
   ].join('\n')
 
-const SPINE_BLOCK = `THE STEPS ARE A SPINE, NOT A WIZARD
-- Work whichever step the conversation is actually on. Do not march through them in order, do not refuse to answer because a step is "not next", and do not announce which step you are on.
-- If something new puts an earlier settled step back in doubt, move it back. Call update_priority_status to set it stale, or active if you are working it again, and say plainly why in the summary or caveat. Moving a step back is good judgement, not backtracking, and never apologize for it.
-- More than one step can be live at once. Say what you think and let them steer.`
+const ONE_STEP_BLOCK = `ONE STEP AT A TIME
+- Exactly one step is active at any moment. Never two. Work it to a conclusion, settle it, then open the next one.
+- Before you set a step active, the step that was active has to be settled or stale. Set a second one active without doing that and the first drops back to open, so its work reads as abandoned.
+- Do not set a later step active because the conversation brushed against it. Weighing an option while you are still establishing the problem does not open the options step.
+- Take the steps in the order above unless one is genuinely blocked. If it is blocked, say what is blocking it and work the step that unblocks it.
+- If they jump ahead, answer them properly. Then bring it back: say what is still unsettled and what would settle it. Name the thing, never the step.`
+
+const GOING_BACK_BLOCK = `WHEN TO GO BACK
+- Moving a settled step back is good judgement, not backtracking, and it is why this is a conversation and not a form. Never apologize for it.
+- The bar is high. New information has to meaningfully invalidate what that step concluded, and resolving it has to need more conversation. A detail added, a number confirmed, or the topic coming up again is not enough.
+- If the conclusion still holds, leave the step settled and put the new information in its summary instead.
+- When you do go back, say plainly what changed and why it matters before you ask anything else, and put the same thing in caveat. Active if you are working it now, stale if it is in doubt but you are not on it yet.
+- Going back makes that step the active one, so settle or park whatever was active first.`
 
 const STATUS_TOOL_BLOCK = `KEEPING THE STATUS HONEST
-- Call update_priority_status whenever a step genuinely changes state, or when what it settled changes. Do not call it to restate something already stored, and do not call it at the end of every turn out of habit.
+- Call update_priority_status when a step genuinely changes state, or when what it settled materially changes. Every call is a decision you made on purpose, not a habit at the end of a turn.
+- Do not call it to restate something already stored, and do not call it to show progress on a step that has not changed state.
 - Summaries are in the official's words, not yours. Write what they decided, not what you concluded.
-- nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Never leave it vague and never leave it empty.`
+- nextAction is always ONE short sentence they could act on today. "Call the public works director and ask what the backlog actually is" is right. "Continue gathering evidence" is not. Leave it empty only when every step is settled.`
 
 const GUARDRAILS_BLOCK = `GUARDRAILS (apply before answering)
 - You only help with this priority and the work around it.
@@ -94,9 +151,6 @@ const priorityBlock = (ctx: PriorityFlowContext): string =>
     `Title: ${optional(ctx.title)}`,
     `Description: ${optional(ctx.description)}`,
     `Where it came from: ${ctx.source}`,
-    `Target date: ${
-      ctx.targetDate === null ? DASH : format(ctx.targetDate, 'd MMM yyyy')
-    }`,
     `Office: ${optional(ctx.officeTitle)}`,
     `City/District: ${optional(ctx.jurisdiction)}`,
     '</priority>',
@@ -141,7 +195,8 @@ export const buildPriorityFlowSystemPrompt = (args: {
     ROLE_BLOCK,
     COPY_BLOCK,
     buildStepsBlock(),
-    SPINE_BLOCK,
+    ONE_STEP_BLOCK,
+    GOING_BACK_BLOCK,
     STATUS_TOOL_BLOCK,
     GUARDRAILS_BLOCK,
     `TOOLS AVAILABLE TO YOU\n${args.toolNames.map((n) => `- ${n}`).join('\n')}`,

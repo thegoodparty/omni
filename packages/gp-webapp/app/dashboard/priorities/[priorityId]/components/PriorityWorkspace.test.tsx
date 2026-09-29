@@ -158,7 +158,7 @@ describe('PriorityWorkspace', () => {
     // Mid-turn: the rail has moved although `done` has not arrived.
     await waitFor(() =>
       expect(
-        within(railRow(PRIORITY_STEP_LABELS.define)).getByText('Settled'),
+        within(railRow(PRIORITY_STEP_LABELS.define)).getByText('Done'),
       ).toBeInTheDocument(),
     )
     expect(mocks.fetchPriorityStatus).not.toHaveBeenCalled()
@@ -195,7 +195,9 @@ describe('PriorityWorkspace', () => {
 
     await waitFor(() =>
       expect(
-        within(railRow(PRIORITY_STEP_LABELS.define)).getByText('Needs a look'),
+        within(railRow(PRIORITY_STEP_LABELS.define)).getByText(
+          'Needs another look',
+        ),
       ).toBeInTheDocument(),
     )
   })
@@ -251,7 +253,7 @@ describe('PriorityWorkspace', () => {
 
     renderWorkspace()
 
-    expect(await screen.findByText('Settled the problem')).toBeInTheDocument()
+    expect(await screen.findByText('Done with the problem')).toBeInTheDocument()
     expect(screen.getByText('Back to your options')).toBeInTheDocument()
   })
 

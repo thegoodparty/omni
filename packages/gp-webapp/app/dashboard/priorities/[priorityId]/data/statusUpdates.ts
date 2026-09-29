@@ -122,7 +122,7 @@ const lower = (id: PriorityStepId): string =>
  * like it had lost its place.
  */
 export const describeStepChange = (change: StepChange): string => {
-  if (change.to === 'settled') return `Settled ${lower(change.id)}`
+  if (change.to === 'settled') return `Done with ${lower(change.id)}`
   if (change.to === 'stale') {
     return `${PRIORITY_STEP_LABELS[change.id]} needs another look`
   }

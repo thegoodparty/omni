@@ -10,7 +10,6 @@ const PRIORITY: PriorityView = {
   title: 'Housing',
   description: 'Build more homes',
   source: 'win_import',
-  targetDate: null,
 }
 
 const makeProvider = (
@@ -42,13 +41,11 @@ describe('crud_priorities tool', () => {
       action: 'create',
       title: 'Transit',
       description: 'More buses',
-      targetDate: '2026-12-31',
     })
 
     expect(provider.create).toHaveBeenCalledWith({
       title: 'Transit',
       description: 'More buses',
-      targetDate: '2026-12-31',
     })
     expect(out).toEqual(PRIORITY)
   })
@@ -62,7 +59,6 @@ describe('crud_priorities tool', () => {
     expect(provider.update).toHaveBeenCalledWith('p1', {
       title: 'Renamed',
       description: undefined,
-      targetDate: undefined,
     })
   })
 

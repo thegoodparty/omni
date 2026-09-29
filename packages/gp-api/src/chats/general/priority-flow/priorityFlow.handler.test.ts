@@ -1,6 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BadRequestException, NotFoundException } from '@nestjs/common'
-import { emptyPriorityStatus } from '@goodparty_org/contracts'
+import {
+  PRIORITY_STEP_IDS,
+  PRIORITY_STEP_LABELS,
+  emptyPriorityStatus,
+} from '@goodparty_org/contracts'
 import { ChatScope, type Organization } from '../../../generated/prisma'
 import { ChatScopeRegistry } from '../services/chatScopeRegistry.service'
 import {
@@ -43,7 +47,6 @@ const baseCtx = (): PriorityFlowContext => ({
   title: 'Sidewalk repairs on Maple Ave',
   description: 'Cracked sidewalks are unsafe for residents with strollers.',
   source: 'user_stated',
-  targetDate: null,
   status: emptyPriorityStatus(),
   anchorSummaries: [],
   districtFilters: null,
@@ -300,7 +303,22 @@ describe('PriorityFlowHandler', () => {
     )
     expect(prompt).toContain('plan (The plan): open. Nothing recorded yet.')
     expect(prompt).toContain('Nothing has been left in this thread yet.')
-    expect(prompt).toContain('THE STEPS ARE A SPINE, NOT A WIZARD')
+    expect(prompt).toContain('ONE STEP AT A TIME')
+    expect(prompt).toContain('WHEN TO GO BACK')
+  })
+
+  it('defines every step with what it is, its bar and what it unlocks', () => {
+    const prompt = build().buildSystemPrompt(baseCtx())
+    for (const id of PRIORITY_STEP_IDS) {
+      expect(prompt).toContain(`- ${id} (${PRIORITY_STEP_LABELS[id]})`)
+    }
+    expect(prompt.match(/ {2}What it is: /g)).toHaveLength(7)
+    expect(prompt.match(/ {2}Settled when: /g)).toHaveLength(7)
+    expect(prompt.match(/ {2}Unlocks: /g)).toHaveLength(7)
+    expect(prompt).toContain('Exactly one step is active at any moment')
+    expect(prompt).toContain(
+      'New information has to meaningfully invalidate what that step',
+    )
   })
 
   it('renders the thread block from the resolved anchor summaries', () => {

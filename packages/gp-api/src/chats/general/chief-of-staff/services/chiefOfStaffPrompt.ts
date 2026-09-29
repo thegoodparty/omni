@@ -331,8 +331,7 @@ const officeContextBlock = (ctx: ChiefOfStaffContext): string =>
 const formatPriority = (p: PriorityRecord): string => {
   const title = sanitizeUntrustedContent(p.title)
   const description = optional(p.description)
-  const target = p.targetDate ? ` (target: ${optional(p.targetDate)})` : ''
-  return `- ${title}${target}: ${description}`
+  return `- ${title}: ${description}`
 }
 
 const prioritiesBlock = (priorities: PriorityRecord[]): string => {

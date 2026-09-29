@@ -2,8 +2,6 @@ import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import { PriorityRecord, PrioritiesToolPort } from './prioritiesPort'
 
-const isoDate = /^\d{4}-\d{2}-\d{2}$/
-
 // One tool covers all four operations so the model has a single, discoverable
 // surface for managing the official's priorities. The electedOfficeId is bound
 // server-side (from resolved context), never taken from model input.
@@ -17,7 +15,6 @@ const crudPrioritiesInputSchema = z.object({
   id: z.string().min(1).optional(),
   title: z.string().min(1).optional(),
   description: z.string().min(1).optional(),
-  targetDate: z.string().regex(isoDate).nullable().optional(),
 })
 
 export type CrudPrioritiesOutput =
@@ -51,9 +48,6 @@ export const buildCrudPrioritiesTool = (deps: {
           electedOfficeId,
           title: input.title,
           description: input.description,
-          ...(input.targetDate !== undefined && {
-            targetDate: input.targetDate,
-          }),
         }),
       }
     }
@@ -66,9 +60,6 @@ export const buildCrudPrioritiesTool = (deps: {
           ...(input.title !== undefined && { title: input.title }),
           ...(input.description !== undefined && {
             description: input.description,
-          }),
-          ...(input.targetDate !== undefined && {
-            targetDate: input.targetDate,
           }),
         }),
       }

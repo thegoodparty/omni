@@ -12,7 +12,6 @@ const priority = (overrides: Partial<Priority> = {}): Priority => ({
   description: 'Two blocks flood every heavy rain.',
   source: 'user_stated',
   sourceCampaignPositionId: null,
-  targetDate: null,
   currentStep: 'define',
   nextAction: null,
   createdAt: '2026-09-01T00:00:00.000Z',
@@ -127,7 +126,7 @@ describe('PrioritiesHub', () => {
     expect(screen.queryByText(/next action/i)).not.toBeInTheDocument()
   })
 
-  it('names the step a priority is on, and says settled when there is none', () => {
+  it('names the step a priority is on, and says the plan is ready when there is none', () => {
     render(
       <PrioritiesHub
         priorities={[
@@ -138,7 +137,7 @@ describe('PrioritiesHub', () => {
       />,
     )
     expect(screen.getByText('What we know')).toBeInTheDocument()
-    expect(screen.getByText('Settled')).toBeInTheDocument()
+    expect(screen.getByText('Plan ready')).toBeInTheDocument()
   })
 
   it('gives every row its own archive control', () => {

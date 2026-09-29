@@ -17,7 +17,6 @@ import {
   PrioritySchema,
   parsePriorityStatus,
 } from '@goodparty_org/contracts'
-import { parseISO } from 'date-fns'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.decorator'
 import { UseElectedOffice } from 'src/electedOffice/decorators/UseElectedOffice.decorator'
@@ -26,7 +25,6 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { z } from 'zod'
 import { ElectedOffice, Priority, PrioritySource } from '../generated/prisma'
-import { toDateOnlyString } from 'src/shared/util/date.util'
 import {
   CreatePriorityDto,
   PriorityIdParamDto,
@@ -42,7 +40,6 @@ const toApi = (record: Priority): PriorityDto => ({
   description: record.description,
   source: record.source,
   sourceCampaignPositionId: record.sourceCampaignPositionId,
-  targetDate: toDateOnlyString(record.targetDate) ?? null,
   currentStep: record.currentStep,
   nextAction: record.nextAction,
   createdAt: record.createdAt.toISOString(),
@@ -106,11 +103,7 @@ export class PrioritiesController {
   ) {
     const created = await this.prioritiesService.create(
       electedOffice.id,
-      {
-        title: body.title,
-        description: body.description,
-        targetDate: body.targetDate ? parseISO(body.targetDate) : null,
-      },
+      { title: body.title, description: body.description },
       PrioritySource.user_stated,
     )
     return toApi(created)
@@ -126,12 +119,6 @@ export class PrioritiesController {
     const updated = await this.prioritiesService.update(id, electedOffice.id, {
       title: body.title,
       description: body.description,
-      targetDate:
-        body.targetDate === undefined
-          ? undefined
-          : body.targetDate
-            ? parseISO(body.targetDate)
-            : null,
     })
     if (!updated) {
       throw new NotFoundException('Priority not found')

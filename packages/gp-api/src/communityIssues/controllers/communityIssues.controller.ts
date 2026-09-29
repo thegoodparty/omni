@@ -25,7 +25,6 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { ElectedOffice, Priority, User } from '../../generated/prisma'
-import { toDateOnlyString } from 'src/shared/util/date.util'
 import {
   CommunityIssueDetailSchema,
   CommunityIssueListQueryDto,
@@ -49,7 +48,6 @@ const toApi = (record: Priority): PriorityDto => ({
   description: record.description,
   source: record.source,
   sourceCampaignPositionId: record.sourceCampaignPositionId,
-  targetDate: toDateOnlyString(record.targetDate) ?? null,
   currentStep: record.currentStep,
   nextAction: record.nextAction,
   createdAt: record.createdAt.toISOString(),
