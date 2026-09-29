@@ -86,6 +86,9 @@ export {
   type OrganizationRole,
   ORGANIZATION_ROLE_VALUES,
   OrganizationRoleSchema,
+  type PrioritySource,
+  PRIORITY_SOURCE_VALUES,
+  PrioritySourceSchema,
 } from './generated/enums'
 
 export {
@@ -663,6 +666,41 @@ export {
 } from './adminBriefings/AdminBriefing.schema'
 
 export {
+  PRIORITY_STEP_IDS,
+  PRIORITY_STEP_LABELS,
+  PRIORITY_STATUS_VERSION,
+  PriorityStepIdSchema,
+  PriorityStepStateSchema,
+  PriorityStepSchema,
+  PriorityStatusSchema,
+  emptyPriorityStatus,
+  parsePriorityStatus,
+  type PriorityStepId,
+  type PriorityStepState,
+  type PriorityStep,
+  type PriorityStatus,
+} from './priorities/PriorityStatus.schema'
+
+export { mintProposalKey } from './chats/proposalKey'
+
+export {
+  CHAT_CARD_KINDS,
+  PROPOSAL_CHANNELS,
+  ChatCardKindSchema,
+  ProposalChannelSchema,
+  OutreachProposalSchema,
+  PastOutreachRefSchema,
+  ContactRefSchema,
+  ChatCardSchema,
+  type ChatCardKind,
+  type ProposalChannel,
+  type OutreachProposal,
+  type PastOutreachRef,
+  type ContactRef,
+  type ChatCard,
+} from './chats/ChatCard.schema'
+
+export {
   PrioritySchema,
   type Priority,
   CreatePriorityInputSchema,
@@ -711,6 +749,7 @@ export {
   type ChatAnchorSnapshot,
   CommunityIssueChatAnchorSchema,
   OrdinanceChatAnchorSchema,
+  PriorityChatAnchorSchema,
   ChatAnchorSchema,
   type ChatAnchor,
   CreateChatRequestSchema,
@@ -1065,6 +1104,7 @@ export {
   createIdFilterSchema,
   createNumericFilterSchema,
   createPrecinctFilterSchema,
+  MAX_PRECINCT_FILTER_VALUES,
   PRECINCT_PAIR_DELIMITER,
   encodePrecinctPair,
   decodePrecinctPair,
@@ -1128,6 +1168,8 @@ export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
   CONTACTS_MADE_DIM_KEY,
+  PACK_DIM_WIDTHS,
+  PRECINCT_DIM_KEY,
   CONTACTS_MADE_BUCKETS,
   PACK_CONTACTS_MADE_MAX,
   PACK_FORMAT_REVISION,

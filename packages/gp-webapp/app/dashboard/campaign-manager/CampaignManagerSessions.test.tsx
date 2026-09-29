@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render } from 'helpers/test-utils/render'
-import { screen } from '@testing-library/react'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CAMPAIGN_MANAGER_START_STORY_SENTINEL } from '@goodparty_org/contracts'
 import {
   CampaignManagerChatProvider,
   useCampaignManagerChat,
 } from './CampaignManagerChatProvider'
-import { CAMPAIGN_MANAGER_BALLOT_KICKOFF } from './campaignManagerChat'
+import {
+  CAMPAIGN_MANAGER_BALLOT_KICKOFF,
+  CAMPAIGN_MANAGER_HISTORY_KEY,
+} from './campaignManagerChat'
 
 interface SurfaceProps {
   open?: boolean
@@ -16,6 +19,7 @@ interface SurfaceProps {
   opener?: string[]
   openerKey?: string | null
   defaultIntro?: string[]
+  onNewChat?: () => void
 }
 const surfaceProps: SurfaceProps[] = []
 vi.mock('../chief-of-staff/components/chat/ChiefOfStaffChatSurface', () => ({
@@ -39,6 +43,7 @@ vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
 }))
 
 const createConversation = vi.fn()
+const listConversations = vi.fn()
 vi.mock('./campaignManagerChat', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./campaignManagerChat')>()
   return {
@@ -47,6 +52,7 @@ vi.mock('./campaignManagerChat', async (importOriginal) => {
       ...actual.campaignManagerChatApi,
       createConversation: (...args: unknown[]) =>
         createConversation(...args) as never,
+      listConversations: () => listConversations() as never,
     },
   }
 })
@@ -65,8 +71,12 @@ function Controls(): React.JSX.Element {
   )
 }
 
-const setup = () => {
+// Seeds both the mock and the query cache: the provider resumes from the
+// cached list synchronously at click time, so tests never race the fetch.
+const setup = (conversations: Array<{ conversationId: string }> = []) => {
   surfaceProps.length = 0
+  listConversations.mockResolvedValue(conversations)
+  testQueryClient.setQueryData(CAMPAIGN_MANAGER_HISTORY_KEY, conversations)
   render(
     <CampaignManagerChatProvider>
       <Controls />
@@ -77,11 +87,12 @@ const setup = () => {
 
 const surface = (): SurfaceProps => surfaceProps.at(-1) as SurfaceProps
 
-// The manager runs Chief of Staff's session model. These are the properties
-// that model is: an open is a NEW chat, nothing is created until the candidate
-// sends something, and an earlier chat is reached by id from history.
+// The manager's session model (ENG-11184): a general open RESUMES the most
+// recent conversation so the manager keeps its memory across opens; only a
+// candidate with no history, a kickoff entry, or the header's New chat lands
+// on a fresh chat, whose conversation is created on the first message.
 describe('campaign manager conversation sessions', () => {
-  it('opens a new chat, deferring the create to the first message', async () => {
+  it('opens a new chat when there is no history, deferring the create to the first message', async () => {
     const user = setup()
 
     await user.click(screen.getByText('open manager'))
@@ -89,6 +100,31 @@ describe('campaign manager conversation sessions', () => {
     expect(surface().open).toBe(true)
     expect(surface().initialConversationId).toBeNull()
     expect(createConversation).not.toHaveBeenCalled()
+  })
+
+  it('resumes the most recent conversation on a general open', async () => {
+    const user = setup([
+      { conversationId: 'conv-newest' },
+      { conversationId: 'conv-older' },
+    ])
+
+    await user.click(screen.getByText('open manager'))
+
+    expect(surface().open).toBe(true)
+    expect(surface().initialConversationId).toBe('conv-newest')
+    // A resumed transcript replays as-is — no greeting typed over it.
+    expect(surface().opener).toBeUndefined()
+  })
+
+  it('starts over on a fresh chat from the surface New chat action', async () => {
+    const user = setup([{ conversationId: 'conv-newest' }])
+
+    await user.click(screen.getByText('open manager'))
+    act(() => surface().onNewChat?.())
+
+    expect(surface().initialConversationId).toBeNull()
+    expect(surface().opener?.[0]).toContain('Renee')
+    expect(surface().pendingKickoff).toBeUndefined()
   })
 
   it('greets on a new chat via the opener, not only the first chat ever', async () => {
@@ -111,7 +147,9 @@ describe('campaign manager conversation sessions', () => {
   })
 
   it('starts each kickoff entry on its own new chat, with no opener', async () => {
-    const user = setup()
+    // History present: a kickoff must still get a fresh conversation, never
+    // append the story intake to the resumed thread.
+    const user = setup([{ conversationId: 'conv-newest' }])
 
     await user.click(screen.getByText('start story'))
     expect(surface().pendingKickoff).toBe(CAMPAIGN_MANAGER_START_STORY_SENTINEL)

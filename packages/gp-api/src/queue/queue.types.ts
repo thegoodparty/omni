@@ -270,9 +270,11 @@ export type PeerlyVendorEscalationMessage = z.infer<
 >
 
 // scanKey is the ET date-hour slot the cron fired in (also the FIFO
-// deduplicationId suffix), carried for log correlation only.
+// deduplicationId suffix), carried for log correlation only. `fresh` routes
+// the message to the fresh-submission fast poll instead of the full scan.
 export const CvStatusPollMessageSchema = z.object({
   scanKey: z.string(),
+  fresh: z.boolean().optional(),
 })
 export type CvStatusPollMessage = z.infer<typeof CvStatusPollMessageSchema>
 

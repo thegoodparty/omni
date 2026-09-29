@@ -10,6 +10,9 @@ const ENVIRONMENTS = ['preview', 'dev', 'prod'] as const
 
 const AWS_REGION = 'us-west-2'
 
+// Our one Grafana Cloud stack, which dev and prod both provision into.
+const GRAFANA_STACK_ID = 1532096
+
 const ssm = new SSM({ region: AWS_REGION })
 
 let PULUMI_CONFIG_PASSPHRASE: string | undefined
@@ -143,6 +146,16 @@ const setupStack = async (env: string) => {
   run(`pulumi config set environment ${env}`, { stdio: setupStdio })
   run(`pulumi config set imageUri ${imageUri}`, { stdio: setupStdio })
   run('pulumi config set grafana:url https://goodparty.grafana.net', {
+    stdio: setupStdio,
+  })
+  // Grafana's app-platform APIs address resources by namespace, and the
+  // provider builds that as `stacks-<stackId>`. Left unset, its autodiscovery
+  // falls back to `default` — the namespace a self-hosted Grafana uses — and
+  // Grafana Cloud rejects every write to it as a bare HTTP 403, with no hint
+  // that the namespace is what it objected to. Only the newer resource kinds
+  // go through that API, which is why the legacy alert rules provision fine
+  // without this and the recording rules do not.
+  run(`pulumi config set grafana:stackId ${GRAFANA_STACK_ID}`, {
     stdio: setupStdio,
   })
   run(

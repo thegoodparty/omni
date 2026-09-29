@@ -93,7 +93,7 @@ def build_values(rows: list[dict]) -> list[list[str]]:
 GAPS_COLUMNS = [
     "rank", "surface", "surface_type", "disposition", "reason",
     "judge_reason", "rubric_rule", "dashboard_question", "location",
-    "first_seen", "last_seen",
+    "first_seen", "last_seen", "resolved_at", "resolved_cause",
 ]
 # The tab column name "surface" is the entry's user-facing id; every other column is a
 # direct state key.

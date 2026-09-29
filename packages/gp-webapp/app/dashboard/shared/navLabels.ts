@@ -9,6 +9,7 @@ import {
   SendIcon,
   SparklesIcon,
   SwordsIcon,
+  TargetIcon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 
@@ -30,6 +31,7 @@ export const NAV_HEADER_ICONS = {
   book: BookOpenIcon,
   profile: CircleUserRoundIcon,
   megaphone: MegaphoneIcon,
+  target: TargetIcon,
 }
 
 export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
@@ -45,6 +47,7 @@ export const NAV_LABELS = {
   publicProfile: 'Public Profile',
   voterOutreach: 'Voter Outreach',
   constituentOutreach: 'Constituent Outreach',
+  priorities: 'Priorities',
   // The Team page's H1 (ENG-11061: the sidebar account-menu item that links
   // here reads plain "Team", matching Profile / Account Settings — this is
   // the page-title-only half of the pair, not shared with a nav item anymore).

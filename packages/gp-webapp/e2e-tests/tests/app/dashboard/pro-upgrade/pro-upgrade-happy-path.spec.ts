@@ -7,6 +7,7 @@ import {
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { eventually } from 'tests/utils/eventually'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
+import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
 // Pro-upgrade happy path: an already-filed candidate drives the full wizard
 // funnel through an embedded Stripe subscription to Pro, then lands on the
@@ -33,6 +34,15 @@ import { waitForDashboardReady } from 'src/helpers/dashboard'
 // read. The authed axios `client` is untyped, so annotate to avoid `any`.
 type CampaignProState = { isPro?: boolean }
 type TcrComplianceMine = { status?: string | null }
+
+// The legacy wizard these specs assert only renders while
+// outreach-pro-gating-v2 is off — pinned here so the suite reads the same
+// whatever the flag's live dev rollout is (the 2026-09-28 dev ramp turned
+// every PR's shard red when these ran against the v2 purchase-only flow).
+// The v2 flow needs its own specs pinned on; tracked as follow-up.
+test.beforeEach(async ({ page }) => {
+  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'off' })
+})
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)

@@ -15,6 +15,9 @@ export interface ChatMessageSegment {
   // Structured tool-call args for widget tool calls (e.g.
   // ask_clarify_question), so the widget replays from the transcript on reload.
   payload?: unknown
+  // The provider's id for this tool call. A card's outreach id is derived from
+  // it, so a reload has to arrive at the same value the live stream did.
+  toolCallId?: string | null
   // Citation fields — present only when kind === 'citation'.
   attachmentId?: string | null
   page?: number | null
@@ -61,7 +64,12 @@ export type ChatErrorCode =
 export type ChatStreamEvent =
   | { type: 'text'; delta: string }
   | { type: 'tool_input_start'; toolName: string }
-  | { type: 'tool_call'; toolName: string; args?: unknown }
+  | {
+      type: 'tool_call'
+      toolName: string
+      args?: unknown
+      toolCallId?: string
+    }
   | { type: 'tool_result'; toolName: string; result?: unknown }
   | { type: 'ping' }
   | {

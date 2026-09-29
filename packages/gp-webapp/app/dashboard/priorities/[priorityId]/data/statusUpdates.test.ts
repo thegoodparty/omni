@@ -1,0 +1,164 @@
+import { describe, expect, it } from 'vitest'
+import { emptyPriorityStatus } from '@goodparty_org/contracts'
+import {
+  applyStatusUpdate,
+  describeStepChange,
+  parseStatusToolResult,
+  parseStatusUpdate,
+} from './statusUpdates'
+
+describe('parseStatusUpdate', () => {
+  it('accepts a call that omits nextAction', () => {
+    expect(
+      parseStatusUpdate({ steps: [{ id: 'define', state: 'active' }] }),
+    ).toEqual({ steps: [{ id: 'define', state: 'active' }] })
+  })
+
+  it('rejects an unknown step id', () => {
+    expect(
+      parseStatusUpdate({ steps: [{ id: 'nope', state: 'active' }] }),
+    ).toBeNull()
+  })
+})
+
+describe('applyStatusUpdate', () => {
+  it('leaves untouched steps exactly as they were', () => {
+    const current = emptyPriorityStatus()
+    const { status } = applyStatusUpdate(current, {
+      steps: [{ id: 'define', state: 'active' }],
+    })
+    expect(status.steps).toHaveLength(7)
+    expect(status.steps.find((s) => s.id === 'evidence')).toEqual({
+      id: 'evidence',
+      state: 'open',
+      summary: '',
+    })
+  })
+
+  it('keeps a stored summary when the patch omits one', () => {
+    const current = {
+      ...emptyPriorityStatus(),
+      steps: emptyPriorityStatus().steps.map((s) =>
+        s.id === 'define'
+          ? { ...s, state: 'settled' as const, summary: 'Potholes on Maple' }
+          : s,
+      ),
+    }
+    const { status } = applyStatusUpdate(current, {
+      steps: [{ id: 'define', state: 'stale' }],
+    })
+    expect(status.steps.find((s) => s.id === 'define')?.summary).toBe(
+      'Potholes on Maple',
+    )
+  })
+
+  it('clears a caveat on an empty string and keeps it when omitted', () => {
+    const base = emptyPriorityStatus()
+    const withCaveat = {
+      ...base,
+      steps: base.steps.map((s) =>
+        s.id === 'evidence' ? { ...s, caveat: 'Thin sample' } : s,
+      ),
+    }
+    const kept = applyStatusUpdate(withCaveat, {
+      steps: [{ id: 'evidence', state: 'active' }],
+    })
+    expect(kept.status.steps.find((s) => s.id === 'evidence')?.caveat).toBe(
+      'Thin sample',
+    )
+    const cleared = applyStatusUpdate(withCaveat, {
+      steps: [{ id: 'evidence', state: 'settled', caveat: '' }],
+    })
+    expect(
+      cleared.status.steps.find((s) => s.id === 'evidence')?.caveat,
+    ).toBeUndefined()
+  })
+
+  it('reports a settled step going back as backwards', () => {
+    const base = emptyPriorityStatus()
+    const settled = {
+      ...base,
+      steps: base.steps.map((s) =>
+        s.id === 'options' ? { ...s, state: 'settled' as const } : s,
+      ),
+    }
+    const { changes } = applyStatusUpdate(settled, {
+      steps: [{ id: 'options', state: 'active' }],
+    })
+    expect(changes).toEqual([
+      { id: 'options', from: 'settled', to: 'active', backwards: true },
+    ])
+  })
+
+  it('reports forward movement as not backwards', () => {
+    const { changes } = applyStatusUpdate(emptyPriorityStatus(), {
+      steps: [{ id: 'define', state: 'settled' }],
+    })
+    expect(changes[0]?.backwards).toBe(false)
+  })
+
+  it('records no change when only the summary moved', () => {
+    const base = emptyPriorityStatus()
+    const active = {
+      ...base,
+      steps: base.steps.map((s) =>
+        s.id === 'plan' ? { ...s, state: 'active' as const } : s,
+      ),
+    }
+    const { changes } = applyStatusUpdate(active, {
+      steps: [{ id: 'plan', state: 'active', summary: 'Three meetings' }],
+    })
+    expect(changes).toEqual([])
+  })
+})
+
+describe('describeStepChange', () => {
+  it('names a settled step', () => {
+    expect(
+      describeStepChange({
+        id: 'evidence',
+        from: 'active',
+        to: 'settled',
+        backwards: false,
+      }),
+    ).toBe('Settled what we know')
+  })
+
+  it('says a step went back when it did', () => {
+    expect(
+      describeStepChange({
+        id: 'options',
+        from: 'settled',
+        to: 'active',
+        backwards: true,
+      }),
+    ).toBe('Back to your options')
+  })
+
+  it('says a stale step needs another look', () => {
+    expect(
+      describeStepChange({
+        id: 'evidence',
+        from: 'settled',
+        to: 'stale',
+        backwards: true,
+      }),
+    ).toBe('What we know needs another look')
+  })
+})
+
+describe('parseStatusToolResult', () => {
+  it('reads the merged status the tool returns', () => {
+    const result = parseStatusToolResult({
+      status: emptyPriorityStatus(),
+      currentStep: 'define',
+      nextAction: 'Pick two blocks to walk',
+    })
+    expect(result?.nextAction).toBe('Pick two blocks to walk')
+    expect(result?.status.steps).toHaveLength(7)
+  })
+
+  it('returns null for something that is not a status', () => {
+    expect(parseStatusToolResult({ presented: true })).toBeNull()
+  })
+})

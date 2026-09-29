@@ -16,6 +16,7 @@ import {
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { MarketingRevalidationService } from '@/personProfiles/services/marketing-revalidation.service'
 import { CrmUsersService } from './crmUsers.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { UserAvatarService } from './userAvatar.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { UserRole } from '../../generated/prisma'
@@ -2494,6 +2495,92 @@ describe('UsersService', () => {
       // page 1 leaves 497, page 2 leaves 499 -> cumulative 996.
       expect(getUserList.mock.calls[1]?.[0]).toMatchObject({ offset: 497 })
       expect(getUserList.mock.calls[2]?.[0]).toMatchObject({ offset: 996 })
+    })
+  })
+
+  describe('sweepTestUsers', () => {
+    let clerkClient: ClerkClient
+
+    beforeEach(async () => {
+      clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+      await service.prisma.cronRun.deleteMany({
+        where: { jobName: 'testUserSweep' },
+      })
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+    })
+
+    it('does not sweep on a PR-preview stack', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'preview')
+      const sweep = vi
+        .spyOn(usersService, 'deleteTestUsers')
+        .mockResolvedValue(undefined)
+      const getUserList = vi.spyOn(clerkClient.users, 'getUserList')
+
+      await usersService.sweepTestUsers()
+
+      expect(sweep).not.toHaveBeenCalled()
+      expect(getUserList).not.toHaveBeenCalled()
+    })
+
+    it('fails closed when the deploy environment is absent', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', undefined)
+      const sweep = vi
+        .spyOn(usersService, 'deleteTestUsers')
+        .mockResolvedValue(undefined)
+
+      await usersService.sweepTestUsers()
+
+      expect(sweep).not.toHaveBeenCalled()
+    })
+
+    it.each(['dev', 'prod'])('sweeps on the %s deploy', async (environment) => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', environment)
+      const sweep = vi
+        .spyOn(usersService, 'deleteTestUsers')
+        .mockResolvedValue(undefined)
+
+      await usersService.sweepTestUsers()
+
+      expect(sweep).toHaveBeenCalledTimes(1)
+    })
+
+    it('runs once when both prod replicas fire the same slot', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      const sweep = vi
+        .spyOn(usersService, 'deleteTestUsers')
+        .mockResolvedValue(undefined)
+
+      await usersService.sweepTestUsers()
+      await usersService.sweepTestUsers()
+
+      expect(sweep).toHaveBeenCalledTimes(1)
+    })
+
+    it('seals the claim it took, even when the pass throws', async () => {
+      vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+      vi.spyOn(usersService, 'deleteTestUsers').mockRejectedValue(
+        new Error('boom'),
+      )
+      const cronLock = service.app.get(CronLockService)
+      const tryClaimHourlyRun = vi.spyOn(cronLock, 'tryClaimHourlyRun')
+      const markHourlyCompleted = vi.spyOn(cronLock, 'markHourlyCompleted')
+
+      await expect(usersService.sweepTestUsers()).rejects.toThrow('boom')
+
+      // markHourlyCompleted derives its WHERE clause from getUtcHourStart(now),
+      // so sealing with a fresh `new Date()` would miss the claimed row
+      // whenever the pass crosses a UTC hour boundary. Assert the same pinned
+      // instant reaches both calls rather than merely that a Date did.
+      const claimedAt = tryClaimHourlyRun.mock.calls[0]?.[1]
+      expect(claimedAt).toBeInstanceOf(Date)
+      expect(markHourlyCompleted).toHaveBeenCalledWith(
+        'testUserSweep',
+        claimedAt,
+      )
     })
   })
 

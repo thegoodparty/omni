@@ -1,3 +1,22 @@
+# Layer 0: the roots walked at all. Moved out of Python (DATA-2539) so that what is swept and
+# what is deliberately not swept are one reviewable decision in one file.
+scan_roots:
+  - path: packages/gp-webapp
+    detectors: webapp
+  - path: packages/gp-api/src
+    detectors: api
+  - path: packages/election-api/src
+    detectors: api
+
+# Deliberately not swept, and not an oversight:
+#   gp-ai        Python service with its own telemetry, not a client surface
+#   nest-common  shared library, no user-facing surfaces of its own
+#   contracts    Zod types only
+#   gp-sdk       generated API client
+#   styleguide   presentational components, instrumented by their consumers
+#   runbooks     this tooling
+# gp-admin, prototypes and candidate-sites are excluded below with their own reasons.
+
 # Layer 1 of the three exclusion layers (DATA-2151): class-level path/package excludes,
 # applied at enumeration time so whole areas never become candidates. The moment-level
 # skip rubric lives in .claude/skills/instrument-analytics-event/SKILL.md (never copied
@@ -18,3 +37,4 @@ exclude_globs:
   - "packages/gp-webapp/app/logout/**"
   - "packages/gp-webapp/app/impersonate/**"
   - "packages/gp-webapp/app/post-auth-redirect/**"
+  - "packages/gp-webapp/e2e-tests/**"   # Playwright helpers, not product surfaces

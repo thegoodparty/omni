@@ -623,13 +623,19 @@ export const SmsFlow = ({
   // Serve's office comes from the org's position name, not from a campaign
   // row it does not have; the hook owns that derivation.
   const serveIntroFor = useServeSmsIdentification(candidateFirstName)
+  // Win's office prefers positionName (the org's elections-DB position,
+  // already on campaigns/mine) over details.normalizedOffice, which is empty
+  // for org-era onboardings and read "candidate for local office" — the same
+  // chain gp-api's own draft grounding resolves (resolveOffice). `||`, not
+  // `??`: resolvePositionContext can pass an empty customPositionName
+  // through, and it must not mask a populated normalizedOffice.
   const introFor = (t: SocialTone) =>
     surface.isServe
       ? serveIntroFor(t)
       : identificationIntro(
           t,
           candidateFirstName,
-          campaign?.details?.normalizedOffice ?? '',
+          campaign?.positionName || campaign?.details?.normalizedOffice || '',
         )
   // Paid-for-by is a campaign-finance disclaimer naming a candidate
   // committee, which a Serve org does not have. Nulled at the source rather

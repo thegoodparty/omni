@@ -50,6 +50,8 @@ const toApi = (record: Priority): PriorityDto => ({
   source: record.source,
   sourceCampaignPositionId: record.sourceCampaignPositionId,
   targetDate: toDateOnlyString(record.targetDate) ?? null,
+  currentStep: record.currentStep,
+  nextAction: record.nextAction,
   createdAt: record.createdAt.toISOString(),
   updatedAt: record.updatedAt.toISOString(),
 })

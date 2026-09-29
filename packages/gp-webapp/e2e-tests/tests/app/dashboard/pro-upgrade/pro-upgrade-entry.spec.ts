@@ -5,10 +5,20 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { waitForDashboardReady } from 'src/helpers/dashboard'
+import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
 // Scoped to non-Pro (read-only cached user, no paid user minted); the
 // Pro/banner-hidden inverse is asserted in the Pro happy-path spec, per
 // ENG-10478.
+// The legacy wizard these specs assert only renders while
+// outreach-pro-gating-v2 is off — pinned here so the suite reads the same
+// whatever the flag's live dev rollout is (the 2026-09-28 dev ramp turned
+// every PR's shard red when these ran against the v2 purchase-only flow).
+// The v2 flow needs its own specs pinned on; tracked as follow-up.
+test.beforeEach(async ({ page }) => {
+  await setFlagOverrides(page, { 'outreach-pro-gating-v2': 'off' })
+})
+
 test.describe('Pro upgrade dashboard entry (non-Pro)', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)

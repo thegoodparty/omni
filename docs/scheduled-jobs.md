@@ -105,6 +105,37 @@ Some jobs use a feature-flag gate instead (`isAutomationEnabled()` in
 `meetingBriefings` / `ordinanceDispatch`); use whichever the surrounding feature
 already uses.
 
+### Not prod-only? Then allowlist — never `!== 'preview'`
+
+A job whose whole point is a non-prod environment still must not run on every
+**PR-preview** stack. `OTEL_SERVICE_ENVIRONMENT` is `preview` on all of them at
+once, they all hold the `GP_API_DEV` secret, and there are commonly ~25 open at
+a time — so an ungated vendor job fires ~25 identical passes on the same
+instant against one shared budget. `UsersService.sweepTestUsers` is the case:
+it exists to clean the **dev** Clerk instance, so the prod-only guard above
+would have switched it off entirely.
+
+Allowlist the deploys that should run it, rather than excluding preview:
+
+```ts
+const SWEEP_DEPLOY_ENVIRONMENTS = new Set(['dev', 'prod'])
+...
+if (!SWEEP_DEPLOY_ENVIRONMENTS.has(process.env.OTEL_SERVICE_ENVIRONMENT ?? '')) {
+  return
+}
+```
+
+Same fail-closed reasoning as `IS_NON_PROD_DEPLOY` in
+`src/shared/util/appEnvironment.util.ts`: an absent or unexpected value (local,
+vitest, a typo) is not in the set, so it skips. A skipped sweep is recoverable;
+a stampede against a vendor rate limit is not. Read `process.env` live rather
+than importing the module constant, so a test can `vi.stubEnv` the gate.
+
+**`CronLockService` does not substitute for this.** The lock lives in the job's
+own database, and every preview stack has its own — so it dedupes replicas
+within one deploy, never across deploys. The environment gate is the fix; the
+lock is what then stops prod's two replicas duplicating the pass.
+
 ## Worked example
 
 ```ts
@@ -141,8 +172,8 @@ async sweepUnsubmittedUsecases() {
 - [ ] `CronLockService` at the slot width that matches the schedule.
 - [ ] Completion marked in a `finally`.
 - [ ] Per-record `try`/`catch` inside the loop.
-- [ ] Prod-only guard (or the feature's automation flag) if it spends money or
-      hits a vendor.
+- [ ] Prod-only guard, a deploy allowlist, or the feature's automation flag if
+      it spends money or hits a vendor. Never leave it running on previews.
 - [ ] A test that two invocations in the same slot produce **one** execution.
       `communityIssues/services/communityIssueDispatch.service.test.ts` shows how
       callers fake the lock; `cron/services/cronLock.service.test.ts` covers the

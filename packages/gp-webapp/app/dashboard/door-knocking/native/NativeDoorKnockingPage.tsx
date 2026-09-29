@@ -40,10 +40,8 @@ import {
 } from './turfDrafts'
 import { StartKnockingDialog } from './StartKnockingDialog'
 import { DoorKnockingSurface } from './doorKnockingSurface'
-import {
-  HARD_STOP_LIMIT,
-  type CreateFlowStep,
-} from './createFlow/CreateListFlow'
+import { type CreateFlowStep } from './createFlow/CreateListFlow'
+import { HARD_STOP_LIMIT } from './createFlow/stopCap'
 import {
   filtersToDimSelections,
   unpreviewableFilterKeys,
@@ -256,6 +254,16 @@ export default function NativeDoorKnockingPage({
   // `unpreviewableFilterKeys` below reads to disclose that the map cannot
   // shade by them.
   const [precincts, setPrecincts] = useState<string[]>([])
+  // The precinct values actually in effect, which is NOT always the hand-cut
+  // selection above: a picked saved list and an accepted recommendation each
+  // carry their own clause, and the three are mutually exclusive by
+  // construction. `CreateListSurface` is where all three are already merged
+  // for the preview request, so it reports the winner up rather than the
+  // page reassembling it from state it does not hold. The map reads this,
+  // and the who step's pills read `precincts`, which is why they stay two
+  // things: a picked list's precincts must not appear as ticked pills in a
+  // builder the candidate never opened.
+  const [effectivePrecincts, setEffectivePrecincts] = useState<string[]>([])
   const [ring, setRing] = useState<PolygonRing | null>(null)
   // The multi-turf drafts committed in the drawing surface this session,
   // BEFORE the paid press on the route step. Lives here (not in the flow)
@@ -857,10 +865,14 @@ export default function NativeDoorKnockingPage({
   const selections = useMemo(() => {
     if (!packQuery.data) return null
     if (flowStep) {
-      return filtersToDimSelections(filters, packQuery.data.manifest)
+      return filtersToDimSelections(
+        filters,
+        packQuery.data.manifest,
+        effectivePrecincts,
+      )
     }
     return new Map<string, Set<number>>()
-  }, [flowStep, filters, packQuery.data])
+  }, [flowStep, filters, packQuery.data, effectivePrecincts])
   const filterResult = useMemo<FilterResult | null>(
     () =>
       packQuery.data && selections
@@ -1486,6 +1498,7 @@ export default function NativeDoorKnockingPage({
                   filters={filters}
                   onFiltersChange={setFilters}
                   precincts={precincts}
+                  onEffectivePrecinctsChange={setEffectivePrecincts}
                   onPrecinctsChange={setPrecincts}
                   precinctOptions={precinctOptions}
                   onStepChange={changeFlowStep}
@@ -1571,11 +1584,6 @@ export default function NativeDoorKnockingPage({
                   updateDraft(activeDraft.clientId, { assigneeId })
                 }}
                 onSave={() => closeDrawing()}
-                // The cap is about the shape being drawn RIGHT NOW: a
-                // committed turf was under it when it committed, and the one
-                // in progress is what can still be fixed. Deliberately not
-                // also gated on having a turf — see the panel's footer.
-                saveDisabled={(turfStats?.stops ?? 0) > HARD_STOP_LIMIT}
                 onCancel={cancelDrawing}
                 dirty={sessionDirty}
                 onMapControlsOffsetChange={setMapControlsOffset}

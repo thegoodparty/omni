@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
 import {
@@ -14,6 +15,7 @@ import {
   Outreach,
   OutreachStatus,
   OutreachType,
+  Prisma,
   User,
 } from '../../generated/prisma'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
@@ -406,6 +408,21 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         )
       if (!filter) {
         throw new NotFoundException('Voter file filter not found')
+      }
+    }
+
+    // A priority belongs to an elected office, which belongs to exactly one
+    // organization — so the caller's own org is the whole tenancy boundary.
+    if (createOutreachDto.priorityId) {
+      const priority = await this.client.priority.findFirst({
+        where: {
+          id: createOutreachDto.priorityId,
+          electedOffice: { organizationSlug: campaign.organizationSlug },
+        },
+        select: { id: true },
+      })
+      if (!priority) {
+        throw new NotFoundException('Priority not found')
       }
     }
 
@@ -1350,6 +1367,76 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   // the Win controller keeps that decoration on top of the shared query.
   async findByOrganizationSlug(organizationSlug: string) {
     return this.findByScope({ organizationSlug, campaignId: null })
+  }
+
+  // Scoped by organizationSlug rather than campaignId: a proposal can come
+  // out of either product's chat, and a Serve row carries no campaign at all.
+  // No legacy null-slug branch the way setArchived needs one — proposalKey
+  // only exists on rows written after the column did.
+  async findByProposalKey(proposalKey: string, organizationSlug: string) {
+    return this.model.findFirst({
+      where: { proposalKey, organizationSlug },
+      include: { voterFileFilter: true },
+    })
+  }
+
+  /**
+   * Idempotent create behind a chat card's Send button. The key is minted
+   * from the tool call, so a double click, a reload and a retry all arrive
+   * with the same one and must all resolve to the same row.
+   *
+   * `create` is the channel's own real create — this wrapper never writes the
+   * row itself. It must put `proposalKey` into the INSERT it already makes,
+   * because the unique index is the only thing that makes two simultaneous
+   * sends produce one artifact: a key stamped on afterwards would leave the
+   * loser's list or draft standing with nothing pointing at it.
+   *
+   * The probe handles the common repeat; the index handles two callers that
+   * clear that probe at the same instant.
+   *
+   * Guarding on the key alone, rather than the usual `(key, status)` breadth,
+   * is what the constraint already forces: the index leaves no second row for
+   * a terminally-failed send to be retried into, so narrowing the guard by
+   * status would only build an insert the database then rejects. A retry
+   * after a failed send mints a fresh key.
+   */
+  async createWithProposalKey(
+    proposalKey: string,
+    organizationSlug: string,
+    create: () => Promise<void>,
+  ) {
+    const existing = await this.findByProposalKey(proposalKey, organizationSlug)
+    if (existing) {
+      return existing
+    }
+
+    try {
+      await create()
+    } catch (err) {
+      if (
+        !(err instanceof Prisma.PrismaClientKnownRequestError) ||
+        err.code !== 'P2002'
+      ) {
+        throw err
+      }
+    }
+
+    const outreach = await this.model.findUnique({
+      where: { proposalKey },
+      include: { voterFileFilter: true },
+    })
+    if (!outreach) {
+      throw new InternalServerErrorException(
+        'Outreach create did not persist its proposal key',
+      )
+    }
+    // Reached either by losing the race or by the key belonging to another
+    // organization all along. Both answer the same way, and neither hands
+    // back a row the caller cannot see.
+    if (outreach.organizationSlug !== organizationSlug) {
+      throw new ConflictException('Proposal key is already in use')
+    }
+    return outreach
   }
 
   async resolveP2pJobGeography(

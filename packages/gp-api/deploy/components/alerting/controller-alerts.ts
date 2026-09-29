@@ -1,5 +1,5 @@
 import { ControllerName, ROUTE_MAP } from '../../../src/generated/route-types'
-import { Alert } from './alerts.types'
+import { Alert, RecordingRule } from './alerts.types'
 import {
   ALERT_OWNERSHIP,
   ROUTE_ERROR_THRESHOLDS,
@@ -96,17 +96,191 @@ const anyErrorFilter = orNoStatus(
 )
 const serverErrorFilter = orNoStatus('response_statusCode >= 500')
 
-// These rules take the default `Alert.timeRangeSeconds` (600s), and that fetch
-// caps the range vector however wide it is written: the `[1h]` this carried
-// only ever saw 10 minutes, while the message promised an hour. Someone
-// triaging the 2026-08-20 door-knocking page swept a full hour of logs for
-// errors that could only ever have come from the last ten minutes.
+// ---------------------------------------------------------------------------
+// The two queries that read Loki
+// ---------------------------------------------------------------------------
+
+// WHAT REPLACED WHAT. Until 2026-09-28 each of these rules ran its own Loki
+// query: 74 controllers, each selecting the entire
+// `{service_name="gp-api", deployment_environment_name="prod"}` stream and then
+// narrowing to its own routes with `| json | request_endpoint =~ ...`. Loki
+// bills decompressed bytes and only the stream selector and the fetch window
+// change that number, so every one of those rules paid for all of gp-api's
+// logs in order to look at its slice, once a minute. Measured over the 24h to
+// 2026-09-28: 2,690 GB/day from the route rules alone. Grafana Cloud started
+// returning 429 and, because `exec_err_state` is `Alerting` (deliberately, and
+// it stays), all 154 rules fired at once claiming their own route was broken.
+// Production was healthy the whole time.
 //
-// Widening the fetch to honor the prose is the other way to close the gap, but
-// it would retune the firing and re-fire behavior of every generated route
-// alert at once — which the field's own docs say to do deliberately, not in
-// passing. So the vector and the prose state the window that actually applies,
-// and both read from here so they cannot drift apart again.
+// Now: these two recording rules read the stream once a minute between them,
+// `sum by (request_endpoint)` splits the result, and each controller's alert
+// evaluates a PromQL selection over the recorded metric. Prometheus is not
+// metered by bytes read, so the number of alert rules no longer appears in the
+// bill anywhere.
+export const ANY_ERROR_METRIC = 'gp_api:route_errors:count1m'
+export const SERVER_ERROR_METRIC = 'gp_api:route_server_errors:count1m'
+
+// A ONE-MINUTE COUNT, RECORDED EVERY MINUTE, and the two numbers have to match.
+// A rule's Loki cost is its fetch window divided by its evaluation interval —
+// the number of times a day it re-reads the same bytes. At 1:1 each log line is
+// read exactly once, which is the floor. The 10-minute window the alerts still
+// want is then assembled for free in PromQL with `sum_over_time`, because
+// summing ten recorded samples costs nothing.
+const ROUTE_RECORDING_WINDOW = '1m'
+const ROUTE_RECORDING_INTERVAL_SECONDS = 60
+
+// WHY THE WINDOW ENDS A MINUTE AGO rather than at `now`. Log lines reach Loki
+// several seconds after the request they describe: pino hands the line to the
+// OTel SDK, `BatchLogRecordProcessor` holds it for up to its scheduled delay,
+// and then it is exported. A rule reading [now-60s, now] therefore misses the
+// lines from the last few seconds — and, unlike the old 10-minute overlapping
+// window, never sees them again, because the next evaluation's window starts
+// where this one ended. Reading a window that has already closed costs exactly
+// the same and cannot drop anything.
+//
+// The price is 60s of detection latency, which is the one thing this whole
+// change makes worse. It is paid once, not per rule, and it is small against a
+// page a human reads minutes later.
+//
+// If Grafana ever ignores a non-zero `to`, this degrades safely rather than
+// breaking: the query becomes an instant evaluation at `now` over a `[1m]`
+// vector, which is the same count without the lag.
+const ROUTE_RECORDING_LAG_SECONDS = 60
+
+// The label this groups by, named once because the `keep` below has to agree
+// with it exactly and a mismatch is silent — `sum by` on a label the vector no
+// longer carries collapses all 421 routes into one unlabelled series, and the
+// alerts, which match on `request_endpoint`, would then find nothing.
+const ROUTE_LABEL = 'request_endpoint'
+
+// WHY THERE IS NO `| json`, AND WHY `keep` IS NOT OPTIONAL.
+//
+// The fields this filter reads are not in the JSON body as far as Loki is
+// concerned. Grafana Cloud promotes OTel log-record attributes to structured
+// metadata, so `request_endpoint`, `response_statusCode` and `responseTimeMs`
+// are already labels on every line before any parser runs. `| json` therefore
+// collided with all three and Loki renamed its output to
+// `response_statusCode_extracted` and friends — meaning the filter was reading
+// the structured metadata all along and the parser contributed nothing to the
+// result. Verified against prod: with and without `| json`, the same 1h window
+// returns the identical series, null-status clause included.
+//
+// What it did contribute is label cardinality. Structured metadata already
+// carries `requestId`, `trace_id`, `span_id` and `request_url`, all unique per
+// request, and every extracted duplicate added another. That label set is the
+// identity of the vector `count_over_time` counts, so the inner vector was
+// roughly one series per log line.
+//
+// `| keep` discards every label but this one, after the filter has used the
+// others. That puts the inner cardinality at the number of distinct endpoints
+// in the window — 119 across a full unfiltered hour of prod, against a ceiling
+// of ROUTE_MAP's 421 plus the handful of no-route sentinels like
+// `POST undefined`. It is bounded by the route table rather than by traffic,
+// which is the property that matters: it cannot grow under load. Confirmed
+// working against our own Grafana Cloud Loki rather than taken from the docs.
+//
+// This is NOT what Bugbot's `max_query_series` reasoning claimed. That cap
+// applies to the series a query RETURNS, and `sum by` already held the result
+// to ~100; the unbounded inner vector was measured passing 30k lines without
+// erroring. The real cost was per-line parsing and label hashing on a query
+// that runs every minute forever, and an inner width set by request volume
+// instead of by anything we control.
+const routeRecordingExpr = (statusFilter: string) =>
+  [
+    `sum by (${ROUTE_LABEL}) (count_over_time(`,
+    `{service_name="gp-api", deployment_environment_name="$ENV"}`,
+    `|= "Request completed"`,
+    `| ${statusFilter}`,
+    `| keep ${ROUTE_LABEL}`,
+    `[${ROUTE_RECORDING_WINDOW}]))`,
+  ].join(' ')
+
+/**
+ * The two Loki reads that back every generated route alert.
+ *
+ * Two rather than one because `SERVER_ERRORS_ONLY` controllers apply a
+ * different status filter, and LogQL has no conditional that would let one
+ * query carry both. Two reads a minute is 2x ingest; the 74 rules they replace
+ * were 740x.
+ */
+export const ROUTE_RECORDING_RULES: RecordingRule[] = [
+  {
+    slug: 'route-errors',
+    name: 'gp-api route errors per minute',
+    metric: ANY_ERROR_METRIC,
+    expr: routeRecordingExpr(anyErrorFilter),
+    fromSeconds: ROUTE_RECORDING_LAG_SECONDS + 60,
+    toSeconds: ROUTE_RECORDING_LAG_SECONDS,
+    intervalSeconds: ROUTE_RECORDING_INTERVAL_SECONDS,
+  },
+  {
+    slug: 'route-server-errors',
+    name: 'gp-api route server errors per minute',
+    metric: SERVER_ERROR_METRIC,
+    expr: routeRecordingExpr(serverErrorFilter),
+    fromSeconds: ROUTE_RECORDING_LAG_SECONDS + 60,
+    toSeconds: ROUTE_RECORDING_LAG_SECONDS,
+    intervalSeconds: ROUTE_RECORDING_INTERVAL_SECONDS,
+  },
+]
+
+/**
+ * The `expressions` entry for one recording rule, as the JSON string the
+ * Grafana resource takes.
+ *
+ * THE KEYS HERE ARE THE PROVIDER'S DIALECT, NOT THE API'S. The provider
+ * parses this blob by hand, picking out these exact snake_case keys, and
+ * re-marshals them onto the wire as the camelCase the API documents
+ * (`datasource_uid` leaves as `datasourceUID`). Writing the API's own
+ * spelling here is therefore silently wrong: the provider matches nothing,
+ * sends an expression with those fields absent, and the rule either records
+ * nothing or is rejected. The provider's own published example is the
+ * reference — `node_modules/@pulumiverse/grafana/alerting/
+ * recordingRuleV0Alpha1.d.ts`.
+ *
+ * Built here rather than inline in the component so it can be asserted
+ * against directly, which is worth doing because almost none of this fails
+ * loudly.
+ */
+export const recordingRuleExpression = (
+  rule: RecordingRule,
+  environment: string,
+) =>
+  JSON.stringify({
+    model: {
+      editorMode: 'code',
+      expr: rule.expr.replace(/\$ENV/g, environment),
+      // Instant, not range: a range query returns a series of points per
+      // evaluation and a recording rule wants one value per label set.
+      instant: true,
+      range: false,
+      intervalMs: 1000,
+      maxDataPoints: 43200,
+      legendFormat: '__auto',
+      refId: 'A',
+    },
+    datasource_uid: LOKI_DATASOURCE_UID,
+    // Duration strings, not integers, and this is what broke the two deploys
+    // on 2026-09-28. The provider reads these with a Go `.(string)` type
+    // assertion; a number fails it, leaves both ends empty, and makes the
+    // provider drop `relativeTimeRange` from the request altogether. Grafana
+    // then rejects the rule with `query expressions must have a relative time
+    // range` — reported as a bare HTTP 403, which reads like a missing
+    // permission and is why this was first chased as one.
+    relative_time_range: {
+      from: `${rule.fromSeconds}s`,
+      to: `${rule.toSeconds}s`,
+    },
+    query_type: 'instant',
+    // Marks which expression is the rule's output. Without it the rule saves
+    // cleanly and records nothing at all.
+    source: true,
+  })
+
+// The window the alerts judge, unchanged from what the Loki rules used. It is
+// now assembled in PromQL from ten recorded samples rather than fetched from
+// Loki, so widening it is free — which is exactly why it should still be
+// changed deliberately rather than because it became cheap.
 const LOOKBACK_RANGE = '10m'
 const LOOKBACK_PROSE = '10 minutes'
 
@@ -121,6 +295,10 @@ const LOOKBACK_PROSE = '10 minutes'
 // after encoding so buildAlertDescription still substitutes it. An hour, not
 // the 10m window: one error keeps a page open ~20 minutes and it is read
 // later still.
+//
+// This link is now the only Loki query in the route-alerting path, and it runs
+// when a human clicks it rather than once a minute forever. That is the shape
+// every Loki query here should have.
 const GRAFANA_URL = 'https://goodparty.grafana.net'
 const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
 const ENDPOINT_SENTINEL = '__ENDPOINT__'
@@ -155,6 +333,24 @@ const errorLinesPane = encodeURIComponent(
 
 const errorLinesLink = `${GRAFANA_URL}/explore?schemaVersion=1&panes=${errorLinesPane}`
 
+/**
+ * One controller's routes as a Prometheus label-matcher pattern.
+ *
+ * TWO LAYERS OF ESCAPING, which is the whole reason this is a named function.
+ * The endpoint first has its regex metacharacters escaped, and then those
+ * backslashes have to survive being written inside a PromQL double-quoted
+ * string, which unescapes `\\` to `\` the way Go does. A single backslash would
+ * be an invalid string escape and the rule would not parse.
+ *
+ * Anchored explicitly even though Prometheus already anchors `=~` on its own:
+ * an unanchored `GET /v1/contacts` would swallow `GET /v1/contacts/:id`, and a
+ * reader should be able to see that it does not without knowing that rule.
+ */
+export const promEndpointPattern = (endpoints: readonly string[]): string =>
+  `^(?:${endpoints
+    .map((endpoint) => endpoint.replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&'))
+    .join('|')})$`
+
 export const controllerAlerts = (controller: ControllerName): Alert[] => {
   // Every group that claims this controller, not the first one found. A shared
   // surface is owned by both products, and `find` silently told the second one
@@ -163,7 +359,7 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
     Object.keys(ALERT_OWNERSHIP) as (keyof typeof ALERT_OWNERSHIP)[]
   ).filter((group) => ALERT_OWNERSHIP[group].includes(controller))
   const serverErrorsOnly = SERVER_ERRORS_ONLY.includes(controller)
-  const statusCodeFilter = serverErrorsOnly ? serverErrorFilter : anyErrorFilter
+  const metric = serverErrorsOnly ? SERVER_ERROR_METRIC : ANY_ERROR_METRIC
   const routes = ROUTE_MAP[controller]
 
   if (routes.length === 0) return []
@@ -179,38 +375,27 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
   // window that actually fired.
   const countProse = threshold > 0 ? `more than ${threshold} ` : ''
 
-  // One rule per controller rather than one per route, because Loki bills the
-  // bytes a query decompresses and only the stream selector and time range
-  // decide that — `|= "Request completed" | json | request_endpoint = ...`
-  // all run on data already read and paid for. So a per-route rule cost the
-  // same as reading the entire gp-api stream, every owned route re-read that
-  // same stream once a minute, and the pile of them is what took us past the
-  // 100:1 query-to-ingest allowance and onto a query overage bill. `sum by`
-  // reads that stream once and splits the result, and Grafana turns each
-  // returned series back into its own alert instance, so paging stays
-  // per-route. See docs/observability.md § Query cost.
-  //
-  // Anchored because an unanchored `GET /v1/contacts` would also swallow
-  // `GET /v1/contacts/:id`. A raw string carries the pattern so the escapes
-  // below reach Loki's regex engine rather than being eaten as LogQL string
-  // escapes; no endpoint contains a backtick to break out of it.
-  const endpointPattern = routes
-    .map(({ endpoint }) => endpoint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|')
+  const endpointPattern = promEndpointPattern(
+    routes.map(({ endpoint }) => endpoint),
+  )
 
-  const routeBase = [
-    `{service_name="gp-api", deployment_environment_name="$ENV"}`,
-    `|= "Request completed"`,
-    `| json`,
-    `| request_endpoint =~ \`^(?:${endpointPattern})$\``,
-  ].join(' ')
+  // One rule per controller rather than one per route, and the rule reads a
+  // recorded metric rather than Loki. `sum by` still returns one series per
+  // route and Grafana still turns each series into its own alert instance, so
+  // paging stays per-route — the only thing that changed is where the number
+  // comes from. See ROUTE_RECORDING_RULES above and docs/observability.md.
+  const recordedErrors = [
+    `sum by (request_endpoint) (sum_over_time(`,
+    `${metric}{environment="$ENV", request_endpoint=~"${endpointPattern}"}`,
+    `[${LOOKBACK_RANGE}]))`,
+  ].join('')
 
   return [
     {
       slug: `${controller}-route-errors`,
       name: `[${controller}] Route errors detected`,
-      type: 'log' as const,
-      expr: `sum by (request_endpoint) (count_over_time(${routeBase} | ${statusCodeFilter} [${LOOKBACK_RANGE}]))`,
+      type: 'metric' as const,
+      expr: recordedErrors,
       threshold,
       for: '1m',
       // Grafana renders annotations per alert instance, so this is what turns

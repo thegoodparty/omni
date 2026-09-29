@@ -238,7 +238,11 @@ const consumeScriptItem = async (
   if (item.kind === 'toolCall') {
     const id = `call-${toolCallIds.length + 1}`
     toolCallIds.push(id)
-    options.onToolCallStart?.({ name: item.name, input: item.input })
+    options.onToolCallStart?.({
+      name: item.name,
+      input: item.input,
+      toolCallId: `test-${item.name}`,
+    })
     options.onToolCallEnd?.({
       name: item.name,
       input: item.input,
@@ -799,6 +803,7 @@ describe('ChatStreamService', () => {
           type: 'tool_call',
           toolName: 'web_search',
           args: { q: 'goodparty' },
+          toolCallId: 'test-web_search',
         },
         {
           type: 'tool_result',
@@ -833,6 +838,7 @@ describe('ChatStreamService', () => {
           type: 'tool_call',
           toolName: 'web_search',
           args: { q: 'goodparty' },
+          toolCallId: 'test-web_search',
         },
         {
           type: 'tool_result',
@@ -843,7 +849,12 @@ describe('ChatStreamService', () => {
       ])
       // tool_input_start is transient: it is never persisted as a segment.
       expect(store.lastAppendedSegments).toEqual([
-        { kind: 'tool', toolName: 'web_search', payload: { q: 'goodparty' } },
+        {
+          kind: 'tool',
+          toolName: 'web_search',
+          payload: { q: 'goodparty' },
+          toolCallId: 'test-web_search',
+        },
         { kind: 'text', text: 'done' },
       ])
     })
@@ -879,6 +890,7 @@ describe('ChatStreamService', () => {
           kind: 'tool',
           toolName: 'present_comparables',
           payload: { comparables: [{ city: 'Riverton', state: 'WA' }] },
+          toolCallId: 'test-present_comparables',
         },
       ])
     })
@@ -902,7 +914,12 @@ describe('ChatStreamService', () => {
 
       expect(store.lastAppendedSegments).toEqual([
         { kind: 'text', text: 'before ' },
-        { kind: 'tool', toolName: 'web_search', payload: { q: 'goodparty' } },
+        {
+          kind: 'tool',
+          toolName: 'web_search',
+          payload: { q: 'goodparty' },
+          toolCallId: 'test-web_search',
+        },
         { kind: 'text', text: 'after' },
       ])
     })
@@ -1175,6 +1192,7 @@ describe('ChatStreamService', () => {
           kind: 'tool',
           toolName: 'present_comparables',
           payload: { comparables: [{ city: 'Yellow Springs', state: 'OH' }] },
+          toolCallId: 'test-present_comparables',
         },
       ])
 

@@ -4,6 +4,7 @@ import {
   CONTACTS_MADE_BUCKETS,
   CONTACTS_MADE_DIM_KEY,
   DoorKnockingPackManifest,
+  PRECINCT_DIM_KEY,
 } from '@goodparty_org/contracts'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
 import { DimSelections } from '../filterEngine'
@@ -217,6 +218,15 @@ const narrowsPreview = (
   filterKey: string,
   manifest: DoorKnockingPackManifest,
 ): boolean => {
+  // Precinct has no FILTER_KEY_TO_DIM entry, and cannot: that table maps an
+  // option key to fixed bucket NAMES, where a precinct selection's values
+  // are themselves the dim's vocabulary. It narrows whenever this pack
+  // carried the plane — a district past MAX_PRECINCT_FILTER_VALUES gets no
+  // plane and lands back in the disclosure, which is the same
+  // property-of-the-pack-in-hand rule contacts-made already follows.
+  if (filterKey === 'precincts') {
+    return manifest.dims.some((dim) => dim.key === PRECINCT_DIM_KEY)
+  }
   const mapping = FILTER_KEY_TO_DIM[filterKey]
   if (!mapping) return false
   const dim = manifest.dims.find((entry) => entry.key === mapping.dim)
@@ -348,6 +358,13 @@ export const unpreviewableDisclosureSentence = (
 export const filtersToDimSelections = (
   filters: VoterFileFilters,
   manifest: DoorKnockingPackManifest,
+  // The precinct selection in effect, as encoded `county|precinct` pairs.
+  // Separate from `filters` because it is the one selection that is not a
+  // boolean: the draft carries only a MARK that precincts are in play, and
+  // the values travel beside it from whichever of the three mutually
+  // exclusive sources set them (hand-cut, a picked list's clause, or an
+  // accepted recommendation's).
+  precincts: readonly string[] = [],
 ): DimSelections => {
   const dimIndex = new Map(manifest.dims.map((dim) => [dim.key, dim]))
   const allowed = new Map<string, Set<number>>()
@@ -369,6 +386,26 @@ export const filtersToDimSelections = (
     const set = allowed.get(mapping.dim) ?? new Set<number>()
     for (const index of indexes) set.add(index)
     allowed.set(mapping.dim, set)
+  }
+
+  // Matched directly against the dim's values rather than through
+  // FILTER_KEY_TO_DIM: these ARE those values, because the encoder builds
+  // the vocabulary out of `encodePrecinctPair` and the saved filter stores
+  // the same strings. Same rule as the loop above — a selection this pack
+  // cannot express adds NO entry rather than an empty one, since an empty
+  // set allows nothing and would shade an empty map where "we can't express
+  // this" has to mean "don't constrain".
+  if (precincts.length > 0) {
+    const dim = dimIndex.get(PRECINCT_DIM_KEY)
+    if (dim) {
+      const wanted = new Set(precincts)
+      const indexes = dim.values.flatMap((pair, index) =>
+        wanted.has(pair) ? [index] : [],
+      )
+      if (indexes.length > 0) {
+        allowed.set(PRECINCT_DIM_KEY, new Set(indexes))
+      }
+    }
   }
 
   return allowed

@@ -167,6 +167,7 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     onFiltersChange={vi.fn()}
     precincts={[]}
     onPrecinctsChange={vi.fn()}
+    onEffectivePrecinctsChange={vi.fn()}
     precinctOptions={{
       options: [],
       truncated: false,

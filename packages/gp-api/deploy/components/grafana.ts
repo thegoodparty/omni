@@ -11,7 +11,11 @@ import {
   buildKnownCausesAnnotation,
   KNOWN_CAUSES_ANNOTATION,
 } from './alerting/alert-notification'
-import { controllerAlerts } from './alerting/controller-alerts'
+import {
+  controllerAlerts,
+  recordingRuleExpression,
+  ROUTE_RECORDING_RULES,
+} from './alerting/controller-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
@@ -29,10 +33,12 @@ export interface GrafanaConfig {
 
 const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
 const PROM_DATASOURCE_UID = 'grafanacloud-prom'
+const USAGE_DATASOURCE_UID = 'grafanacloud-usage'
 
 const datasourceConfig = {
   log: { uid: LOKI_DATASOURCE_UID, queryType: 'range' },
   metric: { uid: PROM_DATASOURCE_UID, queryType: 'instant' },
+  usage: { uid: USAGE_DATASOURCE_UID, queryType: 'instant' },
 } as const
 
 /**
@@ -462,6 +468,20 @@ export const createGrafanaResources = async ({
       condition: 'C',
       for: alert.for,
       isPaused: alert.disabled ?? false,
+      // NoData IS the healthy steady state here, which is why this is not the
+      // trade-off it looks like. The route recording rules `sum by` over an
+      // error filter, so a route with no errors produces no series at all and
+      // its alert reads no data — nearly always, for nearly every route.
+      // `NoData -> Alerting` would page on every healthy route continuously.
+      //
+      // The gap it leaves is real: if a recording rule stops recording, the
+      // metric goes absent and the route alerts go quiet rather than loud.
+      // That gap is covered by `alerting-rule-evaluations-failing`, which
+      // watches the ruler's own failure ratio in Prometheus and so survives
+      // the Loki failure that would cause it. Covering it here instead would
+      // reproduce the 2026-09-28 flood — 74 rules each naming a route that is
+      // fine — which is the failure mode that alert exists to replace with one
+      // page. Reconsidered 2026-09-28 when the recording rules landed; keep.
       noDataState: 'OK',
       execErrState: 'Alerting',
       annotations: {
@@ -549,6 +569,45 @@ export const createGrafanaResources = async ({
         rules: alerts.map(alertToRule),
       },
     )
+  }
+
+  // The Loki reads that back every generated route alert. Provisioned before
+  // the alerts that consume them so the ordering in this file reads the way
+  // the data flows; Pulumi does not order them and does not need to, since a
+  // Grafana alert rule referencing a metric that does not exist yet simply
+  // reports no data (which `noDataState: 'OK'` treats as healthy) until the
+  // first recording interval has run.
+  //
+  // WHY THESE ARE NOT IN A RuleGroup: recording rules are their own resource
+  // kind in Grafana, evaluated on their own trigger interval rather than a
+  // group's. See ROUTE_RECORDING_RULES in alerting/controller-alerts.ts for
+  // what they cost and what they replaced.
+  for (const rule of ROUTE_RECORDING_RULES) {
+    new grafana.alerting.v0alpha1.RecordingRule(`${rule.slug}-recording`, {
+      metadata: {
+        // Environment-scoped, because both stacks provision into the same
+        // Grafana org and a shared uid would make dev and prod fight over one
+        // resource — each deploy silently repointing the other's rule at its
+        // own environment's logs.
+        uid: `gp-api-${environment}-${rule.slug}`,
+        folderUid: alertFolder.uid,
+      },
+      spec: {
+        title: `[${environment.toUpperCase()}] ${rule.name}`,
+        metric: rule.metric,
+        targetDatasourceUid: PROM_DATASOURCE_UID,
+        trigger: { interval: `${rule.intervalSeconds}s` },
+        // What `sum by (...)` keeps is all that survives the aggregation, and
+        // that deliberately does not include the environment — the stream
+        // selector pins it, so it is a constant rather than a dimension. It
+        // has to come back as a label here or dev and prod would write to the
+        // same series.
+        labels: { environment },
+        expressions: {
+          A: recordingRuleExpression(rule, environment),
+        },
+      },
+    })
   }
 
   for (const controller of CONTROLLER_NAMES) {

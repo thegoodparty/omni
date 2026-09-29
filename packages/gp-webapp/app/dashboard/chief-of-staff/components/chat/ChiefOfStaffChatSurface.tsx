@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type RefObject } from 'react'
 import {
+  Button,
   Drawer,
   DrawerContent,
   DrawerHeader,
@@ -61,6 +62,12 @@ interface Props {
    * Defaults to 'chief_of_staff'; Campaign Manager passes 'campaign_assistant'.
    */
   scope?: ChatScope
+  /**
+   * Renders a "New chat" action in the header. Called so the owner can clear
+   * its own conversation/kickoff state; the surface itself drops the active
+   * conversation and remounts the body on a fresh chat.
+   */
+  onNewChat?: () => void
 }
 
 /**
@@ -90,10 +97,15 @@ export default function ChiefOfStaffChatSurface({
   hiddenMessageContents,
   showMessageActions,
   scope,
+  onNewChat,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
   )
+  // Bumped by "New chat" and folded into the body's key: clearing selectedId
+  // alone can't remount a body that deferred-created its conversation this
+  // session (selectedId was already null, so the key would not change).
+  const [newChatNonce, setNewChatNonce] = useState(0)
 
   // Sync the active conversation when the surface opens or the caller targets
   // a specific conversation (e.g. picked from the footer's history popover).
@@ -115,6 +127,21 @@ export default function ChiefOfStaffChatSurface({
             <DrawerTitle>{title}</DrawerTitle>
             <span className="text-xs text-muted-foreground">{subtitle}</span>
           </div>
+          {onNewChat && (
+            <Button
+              type="button"
+              variant="outline"
+              size="small"
+              className="ml-auto"
+              onClick={() => {
+                setSelectedId(null)
+                setNewChatNonce((n) => n + 1)
+                onNewChat()
+              }}
+            >
+              New chat
+            </Button>
+          )}
         </DrawerHeader>
 
         <ChiefOfStaffChatBody
@@ -126,7 +153,7 @@ export default function ChiefOfStaffChatSurface({
           // and without it the key stays 'new', the body keeps the
           // conversation the first kickoff created, and the second kickoff is
           // appended to that thread instead of starting its own.
-          key={selectedId ?? openerKey ?? pendingKickoff ?? 'new'}
+          key={`${selectedId ?? openerKey ?? pendingKickoff ?? 'new'}:${newChatNonce}`}
           active={open}
           conversationIdOverride={selectedId ?? undefined}
           opener={opener}

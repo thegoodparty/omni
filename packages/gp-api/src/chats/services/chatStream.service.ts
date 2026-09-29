@@ -42,7 +42,12 @@ export type ChatStreamChunk =
   // The model has begun writing a tool call's arguments (before tool_call).
   // Transient signal for a per-tool "generating" indicator; not persisted.
   | { type: 'tool_input_start'; toolName: string }
-  | { type: 'tool_call'; toolName: string; args: unknown }
+  | {
+      type: 'tool_call'
+      toolName: string
+      args: unknown
+      toolCallId: string
+    }
   | { type: 'tool_result'; toolName: string; result: unknown }
   | {
       type: 'citation'
@@ -680,17 +685,19 @@ export class ChatStreamService {
         onToolInputStart: ({ toolName }) => {
           void queue.push({ type: 'tool_input_start', toolName })
         },
-        onToolCallStart: ({ name, input }) => {
+        onToolCallStart: ({ name, input, toolCallId }) => {
           toolCallCount += 1
           segments.push({
             kind: ChatMessageSegmentKind.tool,
             toolName: name,
             payload: toJsonPayload(input),
+            toolCallId,
           })
           void queue.push({
             type: 'tool_call',
             toolName: name,
             args: input,
+            toolCallId,
           })
         },
         onToolCallEnd: ({ name, output }) => {
