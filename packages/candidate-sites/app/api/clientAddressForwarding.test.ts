@@ -35,7 +35,13 @@ describe.each([
     mockedFetchHelper.mockResolvedValue(null)
   })
 
-  it('forwards the visitor address from x-forwarded-for', async () => {
+  it('forwards the visitor address from x-real-ip', async () => {
+    await handler(postWithHeaders({ 'x-real-ip': '198.51.100.4' }), { params })
+
+    expect(forwardedHeaders()).toEqual({ 'X-Forwarded-For': '198.51.100.4' })
+  })
+
+  it('falls back to x-forwarded-for', async () => {
     await handler(postWithHeaders({ 'x-forwarded-for': '203.0.113.7' }), {
       params,
     })
@@ -54,13 +60,7 @@ describe.each([
     expect(forwardedHeaders()).toEqual({ 'X-Forwarded-For': '203.0.113.7' })
   })
 
-  it('falls back to x-real-ip', async () => {
-    await handler(postWithHeaders({ 'x-real-ip': '198.51.100.4' }), { params })
-
-    expect(forwardedHeaders()).toEqual({ 'X-Forwarded-For': '198.51.100.4' })
-  })
-
-  it('prefers x-forwarded-for over x-real-ip', async () => {
+  it('prefers x-real-ip over a client-supplied x-forwarded-for', async () => {
     await handler(
       postWithHeaders({
         'x-forwarded-for': '203.0.113.7',
@@ -69,7 +69,13 @@ describe.each([
       { params },
     )
 
-    expect(forwardedHeaders()).toEqual({ 'X-Forwarded-For': '203.0.113.7' })
+    expect(forwardedHeaders()).toEqual({ 'X-Forwarded-For': '198.51.100.4' })
+  })
+
+  it('sends no address header when x-real-ip is blank', async () => {
+    await handler(postWithHeaders({ 'x-real-ip': '   ' }), { params })
+
+    expect(forwardedHeaders()).toEqual({})
   })
 
   it('sends no address header when the request carries none', async () => {
