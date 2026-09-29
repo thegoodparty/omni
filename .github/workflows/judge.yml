@@ -77,6 +77,15 @@ permissions:
 env:
   WORKSPACE: packages/gp-api
   CLI: src/chats/evals/judge/cli.ts
+  # The sweep runs under vitest, not tsx. The chat runner drives a real turn
+  # through `useTestService()`, which registers `beforeAll`/`beforeEach`/
+  # `afterAll` to stand up the Postgres container and the authenticated app —
+  # hooks that only exist inside a vitest process. `npx tsx` has no lifecycle
+  # to register them against, so the runner cannot boot there at all.
+  #
+  # Which is also why the sweep takes its inputs from the environment rather
+  # than argv: a test file has no argv of its own.
+  SWEEP_SUITE: src/chats/evals/judge/sweep.eval.test.ts
 
 jobs:
   # GUARD 2 of 3, second layer. Both callers declare a workflow-level group on
@@ -824,17 +833,25 @@ jobs:
           # in the file furthest from the code that makes them.
         run: |
           set -euo pipefail
-          # The ref flags land with the runner tracks; the CLI skeleton ignores
-          # flags it does not know. The same four values are also in the
-          # environment above, so whichever contract the runners settle on, the
-          # trigger is already passing what they need.
+
+          # The orchestrator suite lands with wave 2 — nothing here drives the
+          # runners yet, and the CLI refuses a non-dry run on purpose. Fail
+          # with that sentence rather than with whatever a missing path throws,
+          # because a live sweep that dies obscurely is the one failure that
+          # costs money before it reports.
+          if [ ! -f "$SWEEP_SUITE" ]; then
+            echo "::error::$WORKSPACE/$SWEEP_SUITE is not on this branch yet."
+            echo "The runners and the judge exist; the orchestrator that walks"
+            echo "a case list across both arms and writes the records does not."
+            exit 1
+          fi
+
+          # vitest, never tsx — see SWEEP_SUITE at the top of this file. The
+          # four values the sweep needs are in the environment above, which is
+          # the only channel a test file can read them from.
           #
           # stdout goes to the job log and nowhere else — see the summary step.
-          npx tsx "$CLI" \
-            --agents="$JUDGE_AGENTS" \
-            --base-ref="$JUDGE_BASE_REF" \
-            --candidate-sha="$JUDGE_CANDIDATE_SHA" \
-            --pr="$JUDGE_PR_NUMBER"
+          npx vitest run "$SWEEP_SUITE"
 
       # What was swept and where to look, and deliberately NOT the sweep's own
       # stdout. Two reasons, either sufficient. It is a program's output going
