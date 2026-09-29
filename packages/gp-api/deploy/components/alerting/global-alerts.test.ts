@@ -2,7 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { GLOBAL_ALERTS } from '../alerts'
 import { Alert, RecordingRule } from './alerts.types'
 import { GEOAPIFY_DAILY_CREDIT_POOL } from './geoapify-budget-alerts'
+import { logSignalExpr } from './log-signals'
 import { RECORDING_RULES } from './provisioned-alerts'
+
+// Since 2026-09-29 no hand-written global alert queries Loki: each reads a
+// recorded signal instead, and the LogQL that decides WHAT is counted lives on
+// the recording rule. The assertions below are about what is counted, so this is
+// where they have to look. The alert is still the right place to assert the
+// window, the threshold and the prose.
+const CAMPAIGN_ERRORS = 'gp_api:public_campaign_lookup_errors:count1m'
+const CAMPAIGN_RESOLVABLE = 'gp_api:public_campaign_lookups_resolvable:count1m'
+const PROFILE_ERRORS = 'gp_api:public_person_profile_errors:count1m'
+const PROFILE_RESOLVABLE =
+  'gp_api:public_person_profile_lookups_resolvable:count1m'
+const REPOINT_COLLISIONS = 'gp_api:person_id_repoint_collisions:count1m'
 
 // Mirrors grafana.ts's `alert.timeRangeSeconds ?? 600` — the window the
 // alerting engine actually fetches when an alert does not pin its own.
@@ -70,9 +83,25 @@ describe('public-campaigns-lookup-error-ratio', () => {
   // profile" and is ~95% of its traffic. In the numerator it would be absurd;
   // in the denominator it dilutes a total outage down to single-digit percent.
   it('counts only server errors, against resolvable lookups', () => {
-    expect(alert!.expr).toContain('response_statusCode >= 500')
-    expect(alert!.expr).not.toContain('response_statusCode >= 400')
-    expect(alert!.expr).toContain('response_statusCode != 404')
+    expect(logSignalExpr(CAMPAIGN_ERRORS)).toContain(
+      'response_statusCode >= 500',
+    )
+    expect(logSignalExpr(CAMPAIGN_ERRORS)).not.toContain(
+      'response_statusCode >= 400',
+    )
+    expect(logSignalExpr(CAMPAIGN_RESOLVABLE)).toContain(
+      'response_statusCode != 404',
+    )
+  })
+
+  // Both halves read the recorded signal, and the volume floor reads the very
+  // same series as the denominator. A floor measured against a different
+  // population from the ratio it qualifies is the bug the null-status clause
+  // was added to both halves of the sibling rule to avoid.
+  it('measures its floor against the same population as its ratio', () => {
+    const occurrences =
+      alert!.expr.match(new RegExp(CAMPAIGN_RESOLVABLE, 'g')) ?? []
+    expect(occurrences.length).toBe(2)
   })
 
   // Without a floor, a quiet window turns one stray 500 into a page.
@@ -124,9 +153,15 @@ describe('public-person-profiles-error-ratio', () => {
   // return. 1.8M such misses in a week would bury a total outage in a rounding
   // error. Against non-404s the August failure reads 100%.
   it('counts only server errors, against lookups that were meant to resolve', () => {
-    expect(alert!.expr).toContain('response_statusCode >= 500')
-    expect(alert!.expr).not.toContain('response_statusCode >= 400')
-    expect(alert!.expr).toContain('response_statusCode != 404')
+    expect(logSignalExpr(PROFILE_ERRORS)).toContain(
+      'response_statusCode >= 500',
+    )
+    expect(logSignalExpr(PROFILE_ERRORS)).not.toContain(
+      'response_statusCode >= 400',
+    )
+    expect(logSignalExpr(PROFILE_RESOLVABLE)).toContain(
+      'response_statusCode != 404',
+    )
   })
 
   // Per route, so a quiet route cannot page on a single 500. The series drops
@@ -158,7 +193,11 @@ describe('public-person-profiles-error-ratio', () => {
   // by needing to be remembered; the prefix regex covers a new route on the
   // controller the day it ships.
   it('covers routes added to the controller later', () => {
-    expect(alert!.expr).toContain('/v1/public-person-profiles(/.*)?$')
+    for (const metric of [PROFILE_ERRORS, PROFILE_RESOLVABLE]) {
+      expect(logSignalExpr(metric), metric).toContain(
+        '/v1/public-person-profiles(/.*)?$',
+      )
+    }
   })
 
   // The worst answer a route can give is none, and it is the one a status
@@ -168,7 +207,7 @@ describe('public-person-profiles-error-ratio', () => {
   // unseen in August (see noStatusFilter in controller-alerts.ts), and a
   // hand-written rule gets no benefit from that unless it says so itself.
   it('counts a request that was killed before it could answer', () => {
-    expect(alert!.expr).toContain(
+    expect(logSignalExpr(PROFILE_ERRORS)).toContain(
       '( response_statusCode >= 500 ) or ( response_statusCode = "" )',
     )
   })
@@ -179,12 +218,22 @@ describe('public-person-profiles-error-ratio', () => {
   // Three occurrences: once as a failure, and once in each of the two places
   // the non-404 population is counted — the ratio, and the floor.
   it('counts that request as traffic as well as as a failure', () => {
-    expect(alert!.expr).toContain(
+    expect(logSignalExpr(PROFILE_RESOLVABLE)).toContain(
       '( response_statusCode != 404 ) or ( response_statusCode = "" )',
     )
 
-    const occurrences = alert!.expr.match(/response_statusCode = ""/g) ?? []
-    expect(occurrences.length).toBe(3)
+    // Once in each signal, where it used to be three times in one expression:
+    // the ratio's denominator and the volume floor now read the same recorded
+    // series, so the population they measure cannot differ.
+    for (const metric of [PROFILE_ERRORS, PROFILE_RESOLVABLE]) {
+      const occurrences =
+        logSignalExpr(metric).match(/response_statusCode = ""/g) ?? []
+      expect(occurrences.length, metric).toBe(1)
+    }
+
+    const floorAndRatio =
+      alert!.expr.match(new RegExp(PROFILE_RESOLVABLE, 'g')) ?? []
+    expect(floorAndRatio.length).toBe(2)
   })
 
   // The prose is what the responder reads at 3am, and a rule that pages on a
@@ -235,10 +284,11 @@ const scheduledLokiReads = (): (Alert | RecordingRule)[] => [
  * account was measured at 4.4x the allowance with production perfectly healthy.
  *
  * A per-rule cap can only ever be a sanity check; the real constraint is the
- * total below. This is set to leave no rule able to take a fifth of the budget
- * on its own.
+ * total below. This is set at the one log-backed rule we still have, so anything
+ * wider than a 6h window on a 30-minute interval has to become a recording rule
+ * rather than a slower alert.
  */
-const MAX_REREAD_FACTOR = 24
+const MAX_REREAD_FACTOR = 12
 
 /**
  * The most of the allowance every scheduled read may be budgeted for, together.
@@ -249,23 +299,36 @@ const MAX_REREAD_FACTOR = 24
  * and ad-hoc queries — measured at 149 GB/day on 2026-09-29, about 14% of the
  * allowance, which nothing in a test can bound.
  *
- * Calibration, so this is a measurement rather than a preference: on 2026-09-29
- * the set totalled 787 and the account read 3,038 GB/day against a 1,056 GB/day
- * allowance, i.e. ~3.9 GB/day per unit of factor. 130 therefore predicts ~500
- * GB/day, or roughly half the allowance, leaving the other half for humans and
- * for whatever the next alert needs. The set totals 121 today.
+ * AND IT HAS TO BE SET AGAINST PEAK TRAFFIC, which is the part that caught us
+ * out. A rule's cost scales with the volume of the stream it selects —
+ * `{service_name="gp-api", deployment_environment_name="prod"}` — while the
+ * allowance scales with total account ingest, gp-api dev and election-api
+ * included. gp-api prod is a small share of that overnight and a large one at
+ * midday: 67.8 MB/h at 07:30 UTC on 2026-09-29, 281 MB/h at 09:30. So an
+ * unchanged rule set that measured 0.79 of the allowance at 08:30 measured 2.84
+ * at 10:30. A factor budget is therefore not scale-invariant, and it drifts
+ * upward as the product grows.
  *
- * The factor is a per-rule lower bound rather than an exact cost, which the
- * calibration absorbs on average and is worth knowing when reading one line of
- * the breakdown: the two ratio rules evaluate their stream three times inside a
- * single expression (numerator, denominator, volume floor), so each costs about
- * three times what its factor says.
+ * Calibration, at that peak rather than at the overnight floor: the set totalled
+ * 161 in effective factor and the account read 3,095 GB/day against a 1,108
+ * GB/day allowance, i.e. ~19 GB/day per unit. 40 therefore predicts ~770
+ * GB/day, about 70% of the allowance in the worst hour measured and far less
+ * the rest of the day. The set totals 27 today, all but 12 of it recording
+ * rules, which is as close to the floor as this estate gets.
  *
- * If this test fails, the answer is almost never a bigger number here. It is a
- * recording rule: one Loki read a minute, shared by every alert that wants a
- * window wider than a minute. See RECORDING_RULES in provisioned-alerts.ts.
+ * The factor is a per-rule lower bound rather than an exact cost: until
+ * 2026-09-29 the two error-ratio rules evaluated their stream three times inside
+ * one expression (numerator, denominator, volume floor), so each cost about
+ * three times what its factor said. Both read a recorded metric now, but a new
+ * rule that repeats a leg would do the same thing again.
+ *
+ * If this test fails, the answer is almost never a bigger number here, and it is
+ * not a slower interval either — that buys cost with detection latency on the
+ * rules least able to afford it. It is a recording rule: one Loki read a minute,
+ * shared by every alert that wants a window wider than a minute, at no latency
+ * cost at all. See log-signals.ts.
  */
-const MAX_TOTAL_REREAD_FACTOR = 130
+const MAX_TOTAL_REREAD_FACTOR = 40
 
 describe('people-person-id-repoint-collision', () => {
   const alert = GLOBAL_ALERTS.find(
@@ -286,11 +349,18 @@ describe('people-person-id-repoint-collision', () => {
     'person_id drift repaired; gp-api rows repointed at the surviving person',
   ]
 
-  /** The `|= "..."` and `|~ "..."` filters, as the matcher Loki would apply. */
+  /**
+   * The `|= "..."` and `|~ "..."` filters, as the matcher Loki would apply.
+   *
+   * Read off the recorded signal rather than off the alert, which is PromQL
+   * since 2026-09-29. The filters are what these tests are about, so they follow
+   * the filters.
+   */
+  const signal = logSignalExpr(REPOINT_COLLISIONS)
   const matchesExpr = (line: string) => {
-    const [, literal] = /\|= "([^"]+)"/.exec(alert!.expr) ?? []
-    const [, pattern] = /\|~ "([^"]+)"/.exec(alert!.expr) ?? []
-    if (!literal || !pattern) throw new Error(`no filters in: ${alert!.expr}`)
+    const [, literal] = /\|= "([^"]+)"/.exec(signal) ?? []
+    const [, pattern] = /\|~ "([^"]+)"/.exec(signal) ?? []
+    if (!literal || !pattern) throw new Error(`no filters in: ${signal}`)
     return line.includes(literal) && new RegExp(pattern).test(line)
   }
 
@@ -329,9 +399,7 @@ describe('people-person-id-repoint-collision', () => {
   // is applied to every line the selector returns. The cheap literal in front
   // is what keeps a 6h window affordable.
   it('narrows with a literal before applying the alternation', () => {
-    expect(alert!.expr.indexOf('|= "')).toBeLessThan(
-      alert!.expr.indexOf('|~ "'),
-    )
+    expect(signal.indexOf('|= "')).toBeLessThan(signal.indexOf('|~ "'))
   })
 
   // Unrouted alerts land on the default receiver. This one names a human

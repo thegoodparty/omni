@@ -12,6 +12,7 @@ import {
   SERVER_ERRORS_ONLY,
 } from '../alerts'
 import { buildAlertDescription } from './alert-notification'
+import { RECORDING_RULES } from './provisioned-alerts'
 import {
   ANY_ERROR_METRIC,
   ROUTE_RECORDING_RULES,
@@ -827,16 +828,25 @@ describe('route error thresholds', () => {
   // public-person-profiles that is the ratio rule, and it is what would have
   // caught the August outage on its first window. Delete it and this map
   // quietly becomes the thing that hides the next one.
+  //
+  // Searches the recording rules as well as the alerts, because since
+  // 2026-09-29 a hand-written rule names its routes in the recorded signal it
+  // reads rather than in its own expression — the alert itself is PromQL over a
+  // metric. What has to still be true is that something we wrote by hand is
+  // watching these routes, not where the route list is written down.
   it('keeps a hand-written rule covering every controller it quiets', () => {
+    const handWritten = [
+      ...GLOBAL_ALERTS.map((alert) => alert.expr),
+      ...RECORDING_RULES.map((rule) => rule.expr),
+    ]
+
     for (const controller of raised) {
       const paths = ROUTE_MAP[controller]
         .map(({ endpoint }) => endpoint.split(' ')[1])
         .filter((path): path is string => Boolean(path))
 
       expect(
-        GLOBAL_ALERTS.some((alert) =>
-          paths.some((path) => alert.expr.includes(path)),
-        ),
+        handWritten.some((expr) => paths.some((path) => expr.includes(path))),
         `${controller} has a raised route-error threshold and no hand-written rule querying its routes, so a fault below that threshold now pages nobody at all`,
       ).toBe(true)
     }

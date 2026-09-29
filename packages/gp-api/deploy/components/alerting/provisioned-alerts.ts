@@ -2,6 +2,7 @@ import { GLOBAL_ALERTS } from '../alerts'
 import { RecordingRule } from './alerts.types'
 import { controllerAlerts, ROUTE_RECORDING_RULES } from './controller-alerts'
 import { DOOR_KNOCKING_SPEND_RECORDING_RULE } from './door-knocking-spend'
+import { LOG_SIGNAL_RECORDING_RULES } from './log-signals'
 import { CONTROLLER_NAMES } from '../../../src/generated/route-types'
 
 /**
@@ -18,10 +19,17 @@ import { CONTROLLER_NAMES } from '../../../src/generated/route-types'
  * a 100x per-rule ceiling came to be budgeted at 384% of the whole allowance
  * and spent 4.4x of it (2026-09-29).
  *
+ * It is also not enough to bound the factor, which is the second thing that day
+ * taught us. A rule's cost scales with the volume of the stream it selects,
+ * while the allowance scales with total account ingest — so the same rules cost
+ * 3.5x more of the allowance at midday than at 07:00, and a budget that fits
+ * overnight does not fit at peak. See the header in `log-signals.ts`.
+ *
  * A recording rule is the way out of that arithmetic: it reads one minute of
  * logs once a minute — the floor, 1x ingest — writes the result to Prometheus,
  * and every alert that wants a wider window assembles it there, where the read
- * costs nothing. Its cost does not grow with the number of alerts consuming it.
+ * costs nothing. Its cost does not grow with the number of alerts consuming it,
+ * with how wide a window they ask for, or with how often they evaluate.
  *
  * `global-alerts.test.ts` sums `window ÷ interval` across these and the
  * log-backed alerts and fails when the total leaves too little of the allowance
@@ -30,6 +38,7 @@ import { CONTROLLER_NAMES } from '../../../src/generated/route-types'
 export const RECORDING_RULES: RecordingRule[] = [
   ...ROUTE_RECORDING_RULES,
   DOOR_KNOCKING_SPEND_RECORDING_RULE,
+  ...LOG_SIGNAL_RECORDING_RULES,
 ]
 
 /**
