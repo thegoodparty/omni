@@ -260,6 +260,90 @@ describe('OutreachProposalCard', () => {
     })
   })
 
+  // The server sizes the send from `count`, so until the picked list has
+  // been counted there is no honest number to send — and the agent's, measured
+  // against a different list, is exactly the wrong one.
+  const mockLists = () =>
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [
+        { id: 77, name: 'Riverside' },
+        { id: 88, name: 'Northside' },
+      ],
+    })
+
+  const reachFor = (sms: number, phoneBanking: number) => ({
+    status: 200 as const,
+    data: {
+      demographics: { people: 500, avgAge: null, avgIncome: null },
+      reachability: {
+        sms,
+        robocall: null,
+        phoneBanking,
+        doorKnocking: null,
+        polls: sms,
+      },
+      outreachHistory: [],
+    },
+  })
+
+  it('holds Send while a newly picked list is still being counted', async () => {
+    mockNotSent()
+    mockLists()
+    let release: (() => void) | undefined
+    const counted = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    api.mock('GET /v1/contacts/list-detail', async ({ query }) => {
+      if (String(query.segment) === '88') await counted
+      return String(query.segment) === '88'
+        ? reachFor(95, 120)
+        : reachFor(400, 412)
+    })
+
+    renderCard(proposalCard())
+    const user = userEvent.setup()
+    await screen.findByRole('button', { name: 'Send' })
+
+    await user.click(screen.getByRole('combobox', { name: 'List' }))
+    await user.click(await screen.findByRole('option', { name: 'Northside' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled(),
+    )
+
+    release?.()
+    expect(await screen.findByText(/120 constituents/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+  })
+
+  it('holds Send when the newly picked list cannot be counted', async () => {
+    mockNotSent()
+    mockLists()
+    api.mock('GET /v1/contacts/list-detail', ({ query }) =>
+      String(query.segment) === '88'
+        ? { status: 500, data: { message: 'down' } }
+        : reachFor(400, 412),
+    )
+    const bodies: Record<string, unknown>[] = []
+    api.mock('PUT /v1/outreach/by-proposal-key/:proposalKey', ({ body }) => {
+      bodies.push(body as unknown as Record<string, unknown>)
+      return { status: 200, data: outreachRow }
+    })
+
+    renderCard(proposalCard())
+    const user = userEvent.setup()
+    await screen.findByRole('button', { name: 'Send' })
+
+    await user.click(screen.getByRole('combobox', { name: 'List' }))
+    await user.click(await screen.findByRole('option', { name: 'Northside' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled(),
+    )
+    expect(bodies).toHaveLength(0)
+  })
+
   it('switches to the deep link when the channel becomes SMS', async () => {
     mockNotSent()
     mockAudience()
