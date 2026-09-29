@@ -1,0 +1,416 @@
+import { describe, expect, it } from 'vitest'
+import { createRng } from './bootstrap'
+import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
+import {
+  BACKGROUND_PAIR,
+  BLOCKED_PAIR,
+  CHAT_PAIR,
+  IDENTICAL_DIGEST_PAIR,
+  INFRA_ERROR_PAIR,
+  TOOL_ERROR_PAIR,
+  VOTER_QUERY_PAIR,
+} from './fixtures/records'
+import {
+  assignSlots,
+  blindCase,
+  IdenticalConfigError,
+  MismatchedInputError,
+  normalizeAgent,
+  renderPayload,
+  SLOTS,
+  withSwappedSlots,
+  type JudgePayload,
+  type NormalizedCase,
+} from './normalize'
+import type { RunRecord } from './record'
+
+const [BASE, CANDIDATE] = CHAT_PAIR
+
+// rng() is compared against 0.5, so these two force each orientation.
+const ALWAYS_X_IS_BASE = () => 0
+const ALWAYS_X_IS_CANDIDATE = () => 0.9
+
+const withOutput = (record: RunRecord, value: string): RunRecord => ({
+  ...record,
+  output: { kind: 'text', value },
+})
+
+const blind = (
+  base: RunRecord,
+  candidate: RunRecord,
+  rng = ALWAYS_X_IS_BASE,
+  config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
+): NormalizedCase => blindCase(base, candidate, rng, config)
+
+// Every string in a record that would tell the judge which arm it is
+// looking at, or which direction the comparison runs.
+const identityValues = (record: RunRecord): string[] => [
+  record.variant.ref,
+  record.variant.commit,
+  record.variant.configDigest,
+  record.variant.model,
+  record.runId,
+  record.sweepId,
+  record.arm,
+]
+
+const keysOf = (
+  value: unknown,
+  found: Set<string> = new Set(),
+): Set<string> => {
+  if (Array.isArray(value)) {
+    for (const item of value) keysOf(item, found)
+  } else if (value !== null && typeof value === 'object') {
+    for (const [key, inner] of Object.entries(value)) {
+      found.add(key)
+      keysOf(inner, found)
+    }
+  }
+  return found
+}
+
+describe('blinding', () => {
+  // The structural half: no field of the payload is one of the fields that
+  // carries arm identity. This fails the moment someone adds `variant` or
+  // `arm` to the payload for convenience.
+  it('gives the judge no field that names an arm', () => {
+    const { payload } = blind(BASE, CANDIDATE)
+    const keys = keysOf(payload)
+    for (const forbidden of [
+      'arm',
+      'variant',
+      'ref',
+      'commit',
+      'configDigest',
+      'runId',
+      'sweepId',
+      'telemetry',
+      'trace',
+      'toolQueries',
+      'status',
+      'attempt',
+      'slotMap',
+    ]) {
+      expect(keys).not.toContain(forbidden)
+    }
+  })
+
+  // The value half, and the one that matters: an agent that echoes its own
+  // branch, commit, model or run id into its answer would hand the judge
+  // the direction outright. Each value is asserted PRESENT in the record
+  // first, so this cannot pass by checking for something that was never
+  // there.
+  it('strips identity the agent wrote into its own output', () => {
+    const leak = (record: RunRecord): RunRecord =>
+      withOutput(
+        record,
+        [
+          `Built from ${record.variant.ref} at ${record.variant.commit}.`,
+          `I am ${record.variant.model}, run ${record.runId} of`,
+          `sweep ${record.sweepId}. Digest ${record.variant.configDigest}.`,
+        ].join(' '),
+      )
+    const base = leak(BASE)
+    const candidate = leak(CANDIDATE)
+    const { payload } = blind(base, candidate)
+    const wire = JSON.stringify(payload)
+
+    for (const record of [base, candidate]) {
+      for (const value of identityValues(record)) {
+        if (value === record.arm) continue
+        expect(JSON.stringify(record)).toContain(value)
+        expect(wire).not.toContain(value)
+      }
+    }
+  })
+
+  // Scrubbing each arm with only its own values would leave one side's text
+  // mangled and the other intact, and asymmetric mangling is itself a
+  // direction signal. So the strip list is the union of both records.
+  it('strips the other arm’s identity too, so damage is symmetric', () => {
+    const shared = `Compare ${BASE.variant.ref} with ${CANDIDATE.variant.ref}.`
+    const { payload } = blind(
+      withOutput(BASE, shared),
+      withOutput(CANDIDATE, shared),
+    )
+    const [x, y] = payload.runs
+    expect(x.finalOutput).toBe('Compare [ref] with [ref].')
+    expect(y.finalOutput).toBe(x.finalOutput)
+  })
+
+  it('replaces self-identifying model talk with a neutral label', () => {
+    const { payload } = blind(
+      withOutput(BASE, 'I am Claude, built by Anthropic.'),
+      withOutput(CANDIDATE, 'Ask GPT-4 or Gemini instead.'),
+    )
+    const [x, y] = payload.runs
+    expect(x.finalOutput).toBe('I am [assistant], built by [assistant].')
+    expect(y.finalOutput).toBe('Ask [assistant] or [assistant] instead.')
+  })
+
+  // "candidate" is the product's own vocabulary. Stripping the arm names
+  // from agent prose would gut the outputs this judge exists to compare.
+  it('leaves the words base and candidate alone in agent text', () => {
+    const text = 'Each candidate has a base of support in the district.'
+    const { payload } = blind(
+      withOutput(BASE, text),
+      withOutput(CANDIDATE, text),
+    )
+    expect(payload.runs[0].finalOutput).toBe(text)
+  })
+})
+
+describe('slot assignment', () => {
+  it('puts the base in X when the draw is low', () => {
+    expect(assignSlots(ALWAYS_X_IS_BASE)).toEqual({
+      X: 'base',
+      Y: 'candidate',
+    })
+  })
+
+  it('puts the candidate in X when the draw is high', () => {
+    expect(assignSlots(ALWAYS_X_IS_CANDIDATE)).toEqual({
+      X: 'candidate',
+      Y: 'base',
+    })
+  })
+
+  // The most dangerous possible bug in this module: a slot map that
+  // disagrees with the payload inverts every verdict, and the report still
+  // reads perfectly plausibly. Asserted over many random draws, both ways.
+  it('never lies about which slot holds which arm', () => {
+    const rng = createRng(20260929)
+    const outputs = { base: 'BASE_ANSWER', candidate: 'CANDIDATE_ANSWER' }
+    const seen = new Set<string>()
+    for (let i = 0; i < 200; i++) {
+      const normalized = blind(
+        withOutput(BASE, outputs.base),
+        withOutput(CANDIDATE, outputs.candidate),
+        rng,
+      )
+      seen.add(normalized.slotMap.X)
+      for (const slot of SLOTS) {
+        const run = normalized.payload.runs.find((r) => r.id === slot)
+        expect(run?.finalOutput).toBe(outputs[normalized.slotMap[slot]])
+      }
+    }
+    // A per-sweep draw would put every candidate in the same slot, so any
+    // position bias the judge has would land entirely on one arm.
+    expect([...seen].sort()).toEqual(['base', 'candidate'])
+  })
+})
+
+describe('withSwappedSlots', () => {
+  it('exchanges the outputs and inverts the map together', () => {
+    const normalized = blind(
+      withOutput(BASE, 'BASE_ANSWER'),
+      withOutput(CANDIDATE, 'CANDIDATE_ANSWER'),
+    )
+    const swapped = withSwappedSlots(normalized)
+    expect(swapped.slotMap).toEqual({ X: 'candidate', Y: 'base' })
+    expect(swapped.payload.runs[0]).toMatchObject({
+      id: 'X',
+      finalOutput: 'CANDIDATE_ANSWER',
+    })
+    expect(swapped.payload.runs[1]).toMatchObject({
+      id: 'Y',
+      finalOutput: 'BASE_ANSWER',
+    })
+  })
+
+  it('is its own inverse', () => {
+    const normalized = blind(BASE, CANDIDATE)
+    const twice = withSwappedSlots(withSwappedSlots(normalized))
+    expect(twice.slotMap).toEqual(normalized.slotMap)
+    expect(twice.payload).toEqual(normalized.payload)
+  })
+})
+
+describe('renderers', () => {
+  it('renders a chat question as the question itself', () => {
+    expect(renderPayload(BASE.input)).toBe(
+      'What are my top priorities right now?',
+    )
+  })
+
+  it('renders an opaque artifact as readable JSON', () => {
+    const [, candidate] = BACKGROUND_PAIR
+    const rendered = renderPayload(candidate.output ?? BASE.input)
+    expect(rendered).toContain('executive_summary')
+    expect(rendered).toContain('i2')
+  })
+
+  // A third agent shape adds a renderer, not a schema change, so an
+  // unrecognised kind must still produce something rather than nothing.
+  it('falls back to JSON for a kind it has never seen', () => {
+    expect(renderPayload({ kind: 'some-future-shape', value: { a: 1 } })).toBe(
+      '{\n  "a": 1\n}',
+    )
+  })
+
+  it('carries a background pair through with no special case', () => {
+    const [base, candidate] = BACKGROUND_PAIR
+    const { payload } = blind(base, candidate)
+    expect(payload.agentShape).toBe('background')
+    expect(payload.runs[0].finalOutput).toContain('executive_summary')
+  })
+})
+
+describe('id handles', () => {
+  const ID_A = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
+  const ID_B = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
+
+  it('gives an id shared by both arms the same handle', () => {
+    const { payload } = blind(
+      withOutput(BASE, `See record ${ID_A}.`),
+      withOutput(CANDIDATE, `See record ${ID_A} again.`),
+    )
+    expect(payload.runs[0].finalOutput).toBe('See record [id-1].')
+    expect(payload.runs[1].finalOutput).toBe('See record [id-1] again.')
+  })
+
+  it('gives different ids different handles', () => {
+    const { payload } = blind(
+      withOutput(BASE, `A ${ID_A}`),
+      withOutput(CANDIDATE, `B ${ID_B}`),
+    )
+    expect(payload.runs[0].finalOutput).toBe('A [id-1]')
+    expect(payload.runs[1].finalOutput).toBe('B [id-2]')
+  })
+})
+
+describe('truncation', () => {
+  it('cuts to the configured limit and says how much it dropped', () => {
+    const config: JudgeConfig = {
+      ...DEFAULT_JUDGE_CONFIG,
+      render: { ...DEFAULT_JUDGE_CONFIG.render, maxRenderedChars: 10 },
+    }
+    const { payload } = blind(
+      withOutput(BASE, 'a'.repeat(30)),
+      withOutput(CANDIDATE, 'b'.repeat(10)),
+      ALWAYS_X_IS_BASE,
+      config,
+    )
+    const [x, y] = payload.runs
+    expect(x.finalOutput).toBe(`${'a'.repeat(10)}\n[truncated: 20 chars]`)
+    expect(x.truncatedChars).toBe(20)
+    // Exactly at the limit is not truncated.
+    expect(y.finalOutput).toBe('b'.repeat(10))
+    expect(y.truncatedChars).toBe(0)
+  })
+})
+
+describe('refusals', () => {
+  it('refuses a pair whose arms hashed to the same config', () => {
+    const [base, candidate] = IDENTICAL_DIGEST_PAIR
+    expect(() => blind(base, candidate)).toThrow(IdenticalConfigError)
+  })
+
+  it('refuses the whole agent when both arms share a config', () => {
+    expect(() =>
+      normalizeAgent(IDENTICAL_DIGEST_PAIR, ALWAYS_X_IS_BASE),
+    ).toThrow(IdenticalConfigError)
+  })
+
+  it('refuses arms that were given different inputs', () => {
+    expect(() =>
+      blind(
+        { ...BASE, input: { kind: 'question', value: 'different' } },
+        CANDIDATE,
+      ),
+    ).toThrow(MismatchedInputError)
+  })
+
+  it('refuses to normalize two agents at once', () => {
+    expect(() =>
+      normalizeAgent([BASE, CANDIDATE, ...BACKGROUND_PAIR], ALWAYS_X_IS_BASE),
+    ).toThrow(MismatchedInputError)
+  })
+
+  it('refuses two records for the same arm, case and attempt', () => {
+    expect(() =>
+      normalizeAgent([BASE, BASE, CANDIDATE], ALWAYS_X_IS_BASE),
+    ).toThrow(MismatchedInputError)
+  })
+})
+
+describe('exclusions', () => {
+  // The rule this whole design keeps repeating: a tool failure is never a
+  // quality signal. The Databricks client resolves lazily, so a dead
+  // credential yields a coherent but worse-informed answer, and a judge
+  // shown that would confidently report a code regression.
+  it('excludes a case where one arm hit a tool error, naming the arm', () => {
+    const result = normalizeAgent(TOOL_ERROR_PAIR, ALWAYS_X_IS_BASE)
+    expect(result.judgeable).toHaveLength(0)
+    expect(result.excluded).toEqual([
+      expect.objectContaining({
+        caseId: 'cos-constituents',
+        reason: 'toolError',
+        arms: ['candidate'],
+      }),
+    ])
+  })
+
+  it('excludes an infra error as infrastructure, not as a tool error', () => {
+    const result = normalizeAgent(INFRA_ERROR_PAIR, ALWAYS_X_IS_BASE)
+    expect(result.judgeable).toHaveLength(0)
+    expect(result.excluded[0]?.reason).toBe('infraError')
+  })
+
+  // A refusal is a result. Whether declining was right is exactly what a
+  // verdict should capture, so the case stays judgeable and keeps its text.
+  it('keeps a refusal judgeable, with its output intact', () => {
+    const result = normalizeAgent(BLOCKED_PAIR, ALWAYS_X_IS_BASE)
+    expect(result.excluded).toHaveLength(0)
+    expect(result.judgeable).toHaveLength(1)
+    expect(JSON.stringify(result.judgeable[0]?.payload)).toContain(
+      'I cannot break constituents down by political party.',
+    )
+  })
+
+  it('reports a record whose other arm never arrived', () => {
+    const result = normalizeAgent([BASE], ALWAYS_X_IS_BASE)
+    expect(result.judgeable).toHaveLength(0)
+    expect(result.unpaired).toEqual([
+      {
+        agentId: 'chief_of_staff',
+        caseId: 'cos-priorities',
+        attempt: 1,
+        arm: 'base',
+      },
+    ])
+  })
+})
+
+describe('pairing', () => {
+  it('pairs attempt i with attempt i and never across attempts', () => {
+    const attempt = (record: RunRecord, n: number): RunRecord => ({
+      ...record,
+      attempt: n,
+      runId: `${record.runId}_${n}`,
+      output: { kind: 'text', value: `${record.arm}-${n}` },
+    })
+    const result = normalizeAgent(
+      [
+        attempt(BASE, 1),
+        attempt(BASE, 2),
+        attempt(CANDIDATE, 1),
+        attempt(CANDIDATE, 2),
+      ],
+      ALWAYS_X_IS_BASE,
+    )
+    expect(result.judgeable).toHaveLength(2)
+    for (const normalized of result.judgeable) {
+      const [x, y] = normalized.payload.runs
+      expect(x.finalOutput).toBe(`base-${normalized.attempt}`)
+      expect(y.finalOutput).toBe(`candidate-${normalized.attempt}`)
+    }
+  })
+
+  it('keeps the case and agent ids, which are shared by both arms', () => {
+    const result = normalizeAgent(VOTER_QUERY_PAIR, ALWAYS_X_IS_BASE)
+    const payload = result.judgeable[0]?.payload as JudgePayload
+    expect(payload.caseId).toBe('cos-housing-support')
+    expect(payload.agentId).toBe('chief_of_staff')
+  })
+})
