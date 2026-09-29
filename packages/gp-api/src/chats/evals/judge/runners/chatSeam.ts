@@ -340,17 +340,43 @@ export const assertDeltaVersion = (version: string): void => {
   }
 }
 
+const TABLE_REF = /(\b(?:FROM|JOIN)\s+)([`\w.]+)/gi
+
+// Rewrites only the parts of the statement that are not inside a string
+// literal. A city name of "FROM DOWNTOWN" would otherwise be rewritten into
+// the predicate and change which rows the query matches. Single quotes are the
+// only string form the validator lets through, and odd-indexed segments of
+// this split are exactly the quoted ones.
+const outsideLiterals = (
+  sql: string,
+  rewrite: (segment: string) => string,
+): string =>
+  sql
+    .split(/('(?:[^']|'')*')/)
+    .map((segment, index) => (index % 2 === 1 ? segment : rewrite(segment)))
+    .join('')
+
 export const pinDeltaVersion = (sql: string, version: string): string => {
   assertDeltaVersion(version)
   if (/\bVERSION\s+AS\s+OF\b/i.test(sql)) return sql
-  const from = /(\bFROM\s+)([`\w.]+)/i.exec(sql)
-  if (!from) {
+  let pinned = 0
+  // EVERY table reference, not just the first: the validator allowlists JOIN
+  // targets rather than rejecting them, so a self-join arrives here fully
+  // validated and a single-reference pin would leave its other side reading
+  // whatever version the warehouse is at when that arm runs — the exact skew
+  // this function exists to prevent.
+  const out = outsideLiterals(sql, (segment) =>
+    segment.replace(TABLE_REF, (_match, keyword: string, table: string) => {
+      pinned += 1
+      return `${keyword}${table} VERSION AS OF ${version}`
+    }),
+  )
+  if (pinned === 0) {
     throw new UnpinnableSqlError(
-      `cannot pin a Delta version: no FROM clause found in "${sql}"`,
+      `cannot pin a Delta version: no table reference found in "${sql}"`,
     )
   }
-  const end = from.index + from[0].length
-  return `${sql.slice(0, end)} VERSION AS OF ${version}${sql.slice(end)}`
+  return out
 }
 
 export interface InstrumentedProvider {

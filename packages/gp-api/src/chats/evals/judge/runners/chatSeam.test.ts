@@ -182,6 +182,29 @@ describe('pinDeltaVersion', () => {
     expect(pinDeltaVersion(pinned, '9999')).toBe(pinned)
   })
 
+  it('pins every table reference a joined query reads', () => {
+    const joined =
+      'SELECT COUNT(*) AS count FROM serve_agent_voters a ' +
+      'JOIN serve_agent_voters b ON a.id = b.household_id'
+
+    expect(pinDeltaVersion(joined, '3237')).toBe(
+      'SELECT COUNT(*) AS count FROM serve_agent_voters VERSION AS OF 3237 ' +
+        'a JOIN serve_agent_voters VERSION AS OF 3237 b ' +
+        'ON a.id = b.household_id',
+    )
+  })
+
+  it('leaves a string literal that happens to read like SQL alone', () => {
+    const literal =
+      'SELECT COUNT(*) AS count FROM serve_agent_voters ' +
+      "WHERE City = 'FROM DOWNTOWN'"
+
+    expect(pinDeltaVersion(literal, '3237')).toBe(
+      'SELECT COUNT(*) AS count FROM serve_agent_voters VERSION AS OF 3237 ' +
+        "WHERE City = 'FROM DOWNTOWN'",
+    )
+  })
+
   it('refuses to pass an unpinnable query through unpinned', () => {
     expect(() => pinDeltaVersion('SELECT 1', '3237')).toThrow(
       UnpinnableSqlError,
