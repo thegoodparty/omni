@@ -134,10 +134,18 @@ export interface BackgroundRunInput {
 // half.
 export const JUDGE_RUN_ID_PREFIX = 'judge-'
 
-// dispatch_handler validates `run_id` against [a-zA-Z0-9_-]{1,64}. A longer or
-// dirtier id is rejected at the Lambda, which — with result callbacks
-// suppressed — would look like a silent timeout 20 minutes later.
-const RUN_ID_MAX_LENGTH = 64
+// 36, not the dispatch handler's 64. The Lambda passes the run id straight to
+// ECS RunTask as `startedBy`, whose own ceiling is 36 characters — the handler
+// says so where it relies on a uuid7 fitting exactly. A longer id makes
+// RunTask fail, and with the result callback suppressed that failure is
+// invisible: the sweep waits out the whole poll window and records an
+// infraError with no reason.
+const RUN_ID_MAX_LENGTH = 36
+
+// Floor on the compressed form, so shortening the id can never buy a
+// collision. 48 bits across one sweep's cases is not a risk; less would start
+// to be.
+const MIN_DIGEST_CHARS = 12
 
 // One safe segment of an id: the same shape judgeOverrideKeys pins, so a
 // sweepId or caseId that can be a run id can also be a key.
@@ -193,6 +201,11 @@ export interface RunIdParts {
 // attempt collapse instead of paying twice. It is deliberately NOT stable
 // across sweeps: the artifact archive is written with IfNoneMatch=*, so a
 // second run reusing an id would 409 at publish time.
+//
+// 36 characters does not fit a readable sweep and case, so most ids compress
+// to a digest. Nothing is lost for analysis — the record carries sweepId,
+// caseId, arm and attempt as their own fields — only the ability to read a
+// case off an S3 prefix by eye.
 export const judgeRunId = (parts: RunIdParts): string => {
   // Interpolated straight into the id, so a non-integer would put a dot in it
   // and be rejected at the Lambda — after the dispatch, where the rejection is
@@ -204,17 +217,19 @@ export const judgeRunId = (parts: RunIdParts): string => {
   const readable =
     `${JUDGE_RUN_ID_PREFIX}${requireSegment('sweepId', parts.sweepId)}-` +
     `${requireSegment('caseId', parts.caseId)}-${tail}`
-  const runId =
-    readable.length <= RUN_ID_MAX_LENGTH
-      ? readable
-      : `${JUDGE_RUN_ID_PREFIX}${sha256(readable).slice(0, 24)}-${tail}`
-  if (runId.length > RUN_ID_MAX_LENGTH) {
+  if (readable.length <= RUN_ID_MAX_LENGTH) return readable
+
+  // Sized to fill exactly what the tail leaves, so the compressed form uses
+  // every character available to it rather than a round number that happens
+  // to fit.
+  const room = RUN_ID_MAX_LENGTH - JUDGE_RUN_ID_PREFIX.length - tail.length - 1
+  if (room < MIN_DIGEST_CHARS) {
     throw new Error(
-      `judge run id is ${runId.length} chars, over the dispatch handler's ` +
-        `${RUN_ID_MAX_LENGTH}-char limit: ${runId}`,
+      `no room for a ${MIN_DIGEST_CHARS}-char digest in a ` +
+        `${RUN_ID_MAX_LENGTH}-char run id once "${tail}" is reserved`,
     )
   }
-  return runId
+  return `${JUDGE_RUN_ID_PREFIX}${sha256(readable).slice(0, room)}-${tail}`
 }
 
 // The runner publishes under `<experiment_id>/<run_id>/`, and the experiment id
@@ -511,6 +526,16 @@ export const pollForObject = async (
         `${options.intervalMs}ms)`,
     )
   }
+  // The deadline is only checked between gets, so an interval longer than the
+  // window overshoots it by a whole interval and the recorded latency is the
+  // interval rather than the timeout.
+  if (options.intervalMs > options.timeoutMs) {
+    throw new Error(
+      `poll interval ${options.intervalMs}ms exceeds the timeout ` +
+        `${options.timeoutMs}ms, so the deadline would be overshot by a ` +
+        'whole interval',
+    )
+  }
   const startedAt = clock.now()
   for (;;) {
     const body = await store.getText(bucket, key)
@@ -681,6 +706,10 @@ export const parseTrace = (jsonl: string): TraceSummary => {
         const index = pushStep(
           tool === '' ? { kind: 'tool' } : { kind: 'tool', tool },
         )
+        // A step the cap refused to record is simply not queued. That cannot
+        // mis-align the rest, because results arrive in call order: every
+        // pre-cap call is answered before a post-cap one is, so the queue only
+        // ever holds recorded steps that are still genuinely unanswered.
         if (index !== undefined) awaitingResult.push(index)
         if (LIVE_WEB_TOOLS.has(tool)) liveWeb = true
         // Only a structured `sql` field is taken. A background agent reaches

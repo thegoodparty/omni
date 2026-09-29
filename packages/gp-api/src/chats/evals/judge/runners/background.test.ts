@@ -295,13 +295,36 @@ describe('judgeRunId', () => {
     attempt: 1,
   }
 
-  it('carries the reserved prefix and stays dispatchable', () => {
-    const runId = judgeRunId(parts)
+  it('stays readable when the ids are short enough to fit', () => {
+    const runId = judgeRunId({ ...parts, sweepId: 's1', caseId: 'c1' })
 
-    expect(runId).toBe('judge-swp1-brief-2025-11-04-candidate-1')
+    expect(runId).toBe('judge-s1-c1-candidate-1')
     expect(isJudgeRunId(runId)).toBe(true)
-    // dispatch_handler: run_id must match [a-zA-Z0-9_-]{1,64}.
-    expect(runId).toMatch(/^[A-Za-z0-9_-]{1,64}$/)
+  })
+
+  // The Lambda passes the run id to ECS RunTask as startedBy, whose ceiling is
+  // 36 — not the handler's own 64. A longer id makes RunTask fail, and with the
+  // result callback suppressed the sweep would just wait out the poll window
+  // and record an infraError with no reason.
+  it('fits the 36-char ECS startedBy ceiling', () => {
+    for (const p of [
+      parts,
+      { ...parts, sweepId: 's1', caseId: 'c1' },
+      { ...parts, arm: 'base' as Arm },
+      { ...parts, sweepId: 's'.repeat(80), caseId: 'c'.repeat(80) },
+      { ...parts, attempt: 999 },
+    ]) {
+      const runId = judgeRunId(p)
+      expect(runId.length).toBeLessThanOrEqual(36)
+      expect(runId).toMatch(/^[A-Za-z0-9_-]+$/)
+      expect(isJudgeRunId(runId)).toBe(true)
+    }
+  })
+
+  it('refuses an id with no room left for a digest', () => {
+    expect(() =>
+      judgeRunId({ ...parts, sweepId: 's'.repeat(40), attempt: 10 ** 12 }),
+    ).toThrow(/no room for a/)
   })
 
   it('refuses an attempt that is not a positive integer', () => {
@@ -332,15 +355,17 @@ describe('judgeRunId', () => {
     )
   })
 
-  it('stays under the limit for a long id, deterministically', () => {
+  it('compresses a long id deterministically', () => {
     const long = { ...parts, sweepId: 's'.repeat(80), caseId: 'c'.repeat(80) }
     const first = judgeRunId(long)
 
-    expect(first.length).toBeLessThanOrEqual(64)
     expect(first.startsWith(JUDGE_RUN_ID_PREFIX)).toBe(true)
     expect(first.endsWith('-candidate-1')).toBe(true)
     expect(judgeRunId(long)).toBe(first)
     expect(judgeRunId({ ...long, attempt: 2 })).not.toBe(first)
+    // Distinct cases must not collapse: the SQS deduplication id is the run
+    // id, so a collision would silently swallow the second dispatch.
+    expect(judgeRunId({ ...long, caseId: 'd'.repeat(80) })).not.toBe(first)
   })
 })
 
@@ -608,6 +633,17 @@ describe('pollForObject', () => {
     ).rejects.toThrow(/positive timeout and interval/)
   })
 
+  // The deadline is only checked between gets, so a longer interval overshoots
+  // the window and the recorded latency becomes the interval.
+  it('refuses an interval longer than the window it polls', async () => {
+    await expect(
+      pollForObject(fakeStore(), fakeClock(), 'b', 'k', {
+        timeoutMs: 5_000,
+        intervalMs: 60_000,
+      }),
+    ).rejects.toThrow(/exceeds the timeout/)
+  })
+
   // Deliberate: retrying a GET belongs to the adapter. Treating a broken
   // credential as "not there yet" would burn the whole window and then report
   // a timeout, which reads as a dead task rather than a dead credential.
@@ -781,6 +817,29 @@ describe('parseTrace', () => {
   // Both arrays end up inside the RunRecord the base-arm cache stores and every
   // later sweep re-downloads, and the trace is whatever the agent under test
   // wrote.
+  // Past the step cap a tool_use records no step, so the counts and the steps
+  // stop agreeing in length. The pairing must still be FIFO across the
+  // boundary: the one result belongs to the oldest unanswered call, which is
+  // the first one, not the most recent.
+  it('still pairs FIFO once the step cap has been hit', () => {
+    const call = (name: string) =>
+      '{"type":"assistant","message":{"content":[' +
+      `{"type":"tool_use","name":"${name}","input":{}}]}}`
+    const summary = parseTrace(
+      [
+        ...Array.from({ length: 5_000 }, () => call('Filler')),
+        call('PastTheCap'),
+        '{"type":"tool_result","is_error":true}',
+      ].join('\n'),
+    )
+
+    expect(summary.trace).toHaveLength(5_000)
+    expect(summary.toolCalls).toBe(5_001)
+    expect(summary.toolErrors).toBe(1)
+    expect(summary.trace[0]?.error).toBeDefined()
+    expect(summary.trace.filter((s) => s.error !== undefined)).toHaveLength(1)
+  })
+
   it('bounds what a chatty trace can turn into', () => {
     const many = Array.from(
       { length: 6_000 },
