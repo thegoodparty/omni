@@ -30,10 +30,7 @@ import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
 import { Intro } from '../social/Intro'
-import {
-  SERVE_SMS_GREETING_PREVIEW,
-  withSampleFirstName,
-} from './smsCompose.util'
+import { SMS_GREETING_PREVIEW, withSampleFirstName } from './smsCompose.util'
 
 // A 400 from complete-free-purchase carries a user-fixable message (e.g.
 // Peerly rejecting a banned link in the script) worth showing verbatim.
@@ -341,7 +338,7 @@ export const SmsReviewStep = ({
 
       {preview && isServe && (
         <p className="-mt-3 text-center text-xs text-muted-foreground">
-          {SERVE_SMS_GREETING_PREVIEW.caption}
+          {SMS_GREETING_PREVIEW.caption}
         </p>
       )}
 
