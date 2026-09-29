@@ -232,7 +232,6 @@ describe('PriorityFlowHandler', () => {
     const names = Object.keys(build().buildTools(baseCtx())).sort()
     expect(names).toEqual([
       'ask_clarify_question',
-      'present_constituents',
       'present_outreach_proposal',
       'present_outside_contact',
       'present_past_outreach',

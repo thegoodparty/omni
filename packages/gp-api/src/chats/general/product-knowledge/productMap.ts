@@ -266,7 +266,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
       'A list shown on a map here has Draw an area / Edit area beside Open list, which narrows that list to the shape without leaving the conversation',
       'A list already used for outreach is locked, so its map offers no draw button',
-      'The chat can leave cards in the conversation: a finished piece of outreach, past sends and how they did, people from your own contact records, and someone outside your records to call, with a script',
+      'The chat can leave cards in the conversation: a finished piece of outreach, past sends and how they did, and someone outside your records to call, with a script',
       'A phone banking outreach card is sent from its Send button without leaving the chat; a text or social one opens its outreach flow to finish there',
       'When there is a choice to make, the chat asks it as a multiple-choice question, with room to write your own answer',
     ],

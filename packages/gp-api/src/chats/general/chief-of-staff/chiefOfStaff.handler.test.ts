@@ -486,12 +486,14 @@ describe('ChiefOfStaffHandler', () => {
       expect(handler.buildSystemPrompt(ctx)).not.toContain('crud_saved_filters')
     })
 
-    it('offers constituents with the contacts service and proposals only with saved lists', async () => {
+    // The constituents card is built and kept, but not offered: no tool hands
+    // the model a contact id, so it could only be called with invented ones.
+    it('holds constituents back and offers proposals only with saved lists', async () => {
       const readOnly = buildCrmHandler({ contacts: buildContacts() })
       const readOnlyTools = Object.keys(
         readOnly.buildTools(await readOnly.loadContext('c1', USER_ID)),
       )
-      expect(readOnlyTools).toContain('present_constituents')
+      expect(readOnlyTools).not.toContain('present_constituents')
       expect(readOnlyTools).not.toContain('present_outreach_proposal')
 
       const withLists = buildCrmHandler({
@@ -565,7 +567,7 @@ describe('ChiefOfStaffHandler', () => {
       expect(Object.keys(tools)).toContain('ask_clarify_question')
     })
 
-    it('tells the model the two people cards apart', async () => {
+    it('never names a people card it does not offer', async () => {
       const handler = new ChiefOfStaffHandler(
         context,
         buildBriefings(),
@@ -583,8 +585,8 @@ describe('ChiefOfStaffHandler', () => {
         await handler.loadContext('c1', USER_ID),
       )
       expect(prompt).toContain('CARDS AND QUESTIONS')
-      expect(prompt).toContain('`present_constituents` is the user')
       expect(prompt).toContain('`present_outside_contact` is someone OUTSIDE')
+      expect(prompt).not.toContain('present_constituents')
     })
   })
 

@@ -234,11 +234,15 @@ const cardRulesBlock = (toolNames: string[]): string | null => {
         ]
       : []),
     '- A card speaks for itself. Say in one line why it matters and never restate what is on it.',
-    ...(has('present_constituents') || has('present_outside_contact')
+    ...(has('present_constituents') && has('present_outside_contact')
       ? [
           "- `present_constituents` is the user's OWN people, already in their contact records, by contact id. `present_outside_contact` is someone OUTSIDE their records, found by research, to call about a problem. Never swap them.",
         ]
-      : []),
+      : has('present_outside_contact')
+        ? [
+            "- `present_outside_contact` is someone OUTSIDE the user's records, found by research, to call about a problem. Never use it for the user's own constituents.",
+          ]
+        : []),
     ...(has('present_outreach_proposal')
       ? [
           '- Present outreach only when it is final: the list saved and the message written.' +

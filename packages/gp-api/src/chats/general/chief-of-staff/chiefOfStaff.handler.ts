@@ -44,7 +44,6 @@ import { VoterFileFilterService } from '@/voters/services/voterFileFilter.servic
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
-import { buildPresentConstituentsTool } from '../chat-tools/presentConstituents.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
@@ -264,7 +263,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         filterConsumers: registeredFilterConsumers(crmTools),
       })
       Object.assign(tools, crmTools)
-      tools.present_constituents = buildPresentConstituentsTool()
       // A proposal is sent against a saved list, so it is offered only where
       // the list behind it can be built.
       if (this.voterFileFilters) {

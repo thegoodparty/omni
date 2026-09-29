@@ -41,7 +41,6 @@ import {
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
-import { buildPresentConstituentsTool } from '../chat-tools/presentConstituents.tool'
 import { buildPresentOutsideContactTool } from '../chat-tools/presentOutsideContact.tool'
 import { buildPresentOutreachProposalTool } from '../chat-tools/presentOutreachProposal.tool'
 import { buildPresentPastOutreachTool } from '../chat-tools/presentPastOutreach.tool'
@@ -178,7 +177,6 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       // decides on its own when a step settles.
       ask_clarify_question: buildAskClarifyQuestionTool(),
       present_outreach_proposal: buildPresentOutreachProposalTool(),
-      present_constituents: buildPresentConstituentsTool(),
       present_outside_contact: buildPresentOutsideContactTool(),
       present_past_outreach: buildPresentPastOutreachTool(),
       read_past_outreach: buildReadPastOutreachTool({

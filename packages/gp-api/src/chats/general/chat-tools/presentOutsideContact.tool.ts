@@ -9,8 +9,8 @@ export const buildPresentOutsideContactTool = (): LlmStreamTool<
     "about a problem: the city attorney's office, the county engineer, the " +
     'state agency desk, the nonprofit that runs the shelter. Built from ' +
     'what you researched, never from a contact id. It is for somebody who ' +
-    'can act on the problem; a constituent affected by it is ' +
-    'present_constituents. Give the name, their role or organization, one ' +
+    "can act on the problem, never for one of the official's own " +
+    'constituents. Give the name, their role or organization, one ' +
     'line on why them, who to ask for when the official gets through, and ' +
     'a script they can read down the phone or send as written. Include ' +
     'every contact route you actually found and never invent one. If you ' +
