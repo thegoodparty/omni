@@ -62,6 +62,28 @@ somewhere a person looks again, so a missing reason costs some context and nothi
 behalf of twelve rows is not a reason. It leaves those rows marked and waiting, and says
 so on the button.
 
+### Telling the page a batch was applied
+
+`Copy handoff` stamps the judgments it carried. When Claude has written them, `Mark N
+applied` marks exactly those: they get a green chip, drop out of the handoff, and stay
+on the page as a record. Anything you ruled on after copying stays open, so "copy, get
+distracted, rule on four more, come back" does not sweep the four in with them.
+
+The stamp lives on the judgment, not in a variable, because the whole point of the gap
+between copying and marking is that Claude is working in it. A reload or a republish in
+that window keeps the batch.
+
+**It is a mark, not a re-check.** A gap or a proposal reaches its file the moment Claude
+writes it, but a flagged cause only leaves the queue after a governance run has read
+that file, and that is a Monday and Thursday thing. Deriving "done" from a fresh
+snapshot would report two thirds of every batch as undone for three days. The next run
+is what actually confirms it, and because judgments are keyed by run date, a new run
+starts a clean page — which is correct, since by then the report is the better answer.
+
+Applied judgments are left out of the handoff. Sending one twice would add a second
+`cause:` row for a decision already recorded, and a YAML list has no idempotency to save
+it the way the gap state does.
+
 ### Ruling on part of a cause
 
 A cause is normally one ruling, but some causes hold more than one decision. On a flag

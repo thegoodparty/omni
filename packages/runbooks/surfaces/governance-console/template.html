@@ -823,9 +823,29 @@
     border-left-color: var(--crit);
   }
 
+  /* Applied: the handoff carrying this row went out and Claude wrote it. A note in
+     this browser, not a re-check -- see the handoff bar. */
+  .row.is-applied {
+    border-left-color: var(--good);
+  }
+
+  .row.is-applied > summary .title {
+    color: var(--ink-3);
+  }
+
   .chip.verdict {
     color: var(--accent-ink);
     background: var(--accent);
+  }
+
+  .chip.verdict.applied {
+    color: var(--good);
+    background: var(--good-bg);
+  }
+
+  .handoff .applied-tally {
+    font-size: 12px;
+    color: var(--good);
   }
 
   /* --- handoff bar --- */
@@ -1454,6 +1474,28 @@
   // does rather than writing to the store behind the UI's back.
   const setters = []
 
+  // Every row's paint, so a change made from the handoff bar shows on the rows it
+  // covers and not only in the tally at the bottom.
+  const repainters = []
+
+  const repaintAll = () => repainters.forEach((paint) => paint())
+
+  // Marking a batch applied is a note in this browser, deliberately not a
+  // re-derivation. A gap or a proposal reaches its file the moment Claude writes it,
+  // but a flagged cause only leaves the queue once a governance run has read that file
+  // -- and that is a Monday and Thursday thing. So the page records that a batch went
+  // out and stops offering it again; the next run is what confirms it. Inferring
+  // "done" from a fresh snapshot would report two thirds of a batch as undone for
+  // three days.
+  //
+  // `copied_at` is stamped on the judgment rather than held in a variable, because the
+  // whole point of the gap between copying and marking is that Claude is working in
+  // it. A reload or a republish in that window must not lose which rows went out.
+  const copiedKeys = () =>
+    Object.entries(judgments)
+      .filter(([, j]) => j.copied_at && !j.applied_at)
+      .map(([key]) => key)
+
   const renderVerdicts = (item, row, summary) => {
     const key = keyOf(item)
     const verbs = item.verbs || {}
@@ -1496,8 +1538,14 @@
       })
       row.classList.toggle('is-judged', Boolean(current))
       row.classList.toggle('needs-reason', Boolean(pending))
+      row.classList.toggle('is-applied', Boolean(current && current.applied_at))
       chip.hidden = !current
-      if (current) chip.textContent = verbs[current.verdict] || current.verdict
+      chip.classList.toggle('applied', Boolean(current && current.applied_at))
+      if (current) {
+        chip.textContent =
+          (verbs[current.verdict] || current.verdict) +
+          (current.applied_at ? ' · applied' : '')
+      }
       reason.hidden = !current && !pending
       reason.classList.toggle('required', Boolean(pending))
       reason.placeholder = pending ? REASON_REQUIRED : REASON_PLACEHOLDER
@@ -1584,6 +1632,8 @@
       onJudgmentChange()
     })
 
+    repainters.push(paint)
+
     setters.push({
       queue: item.queue,
       key,
@@ -1624,17 +1674,21 @@
 
     let picked = []
 
-    const countRuled = () =>
-      Object.values(judgments).filter(
-        (j) => j.scope === 'event' && j.id === item.id,
-      ).length
-
     const paintSummary = () => {
-      const n = countRuled()
+      const mine = Object.values(judgments).filter(
+        (j) => j.scope === 'event' && j.id === item.id,
+      )
+      const n = mine.length
+      const done = mine.filter((j) => j.applied_at).length
       chip.hidden = !n
-      chip.textContent = n === 1 ? '1 event ruled' : n + ' events ruled'
+      chip.textContent =
+        (n === 1 ? '1 event ruled' : n + ' events ruled') +
+        (done ? ', ' + done + ' applied' : '')
+      chip.classList.toggle('applied', Boolean(n && done === n))
       row.classList.toggle('has-picked', n > 0)
     }
+
+    repainters.push(paintSummary)
 
     const apply = (verdict) => {
       if (NEEDS_REASON.has(verdict) && !reason.value.trim()) {
@@ -1852,8 +1906,13 @@
   // wall of JSON is not reviewable. The run date is on it because a judgment is made
   // against a run: if a newer one has landed by the time this is applied, membership
   // may have moved and the apply step has to re-check rather than assume.
+  const openJudgments = () => Object.values(judgments).filter((j) => !j.applied_at)
+
   const buildHandoff = () => {
-    const rows = Object.values(judgments)
+    // Applied judgments are left out. Sending one again would add a second `cause:`
+    // row for a decision already recorded, and a YAML list has no idempotency to save
+    // it the way the gap state does.
+    const rows = openJudgments()
     const lines = [
       'DATA-2546 triage handoff',
       'run: ' + (DATA.run_date || 'unknown'),
@@ -1917,27 +1976,49 @@
   const renderHandoff = () => {
     const bar = el('div', 'handoff')
     const tally = el('span', 'tally')
+    const done = el('span', 'applied-tally')
     const hint = el('span', 'hint')
+    const mark = el('button', 'ghost', 'Mark applied')
     const copy = el('button', null, 'Copy handoff')
     const show = el('button', 'ghost', 'Show')
     const box = el('textarea')
 
     copy.type = 'button'
     show.type = 'button'
+    mark.type = 'button'
     box.readOnly = true
     box.id = 'handoff-text'
     box.hidden = true
 
     const refresh = () => {
-      const n = Object.keys(judgments).length
-      tally.textContent = n === 1 ? '1 judgment' : n + ' judgments'
-      hint.textContent = n
+      const open = openJudgments().length
+      const applied = Object.values(judgments).filter((j) => j.applied_at).length
+      tally.textContent = open === 1 ? '1 judgment' : open + ' judgments'
+      done.textContent = applied ? applied + ' applied' : ''
+      hint.textContent = open
         ? 'Paste this into Claude Code. It writes each one to the file its queue owns, files the tickets, and opens one PR.'
-        : 'Rule on a row above and it collects here. Nothing leaves this browser until you copy it.'
-      copy.disabled = !n
-      show.disabled = !n
-      if (!n) box.hidden = true
+        : applied
+          ? 'Everything ruled on this run has been applied. The next governance run is what confirms it.'
+          : 'Rule on a row above and it collects here. Nothing leaves this browser until you copy it.'
+      copy.disabled = !open
+      show.disabled = !open
+      const out = copiedKeys().length
+      mark.hidden = !out
+      mark.disabled = !out
+      mark.textContent = 'Mark ' + out + ' applied'
+      if (!open) box.hidden = true
       box.value = buildHandoff()
+    }
+
+    // Marking is offered only after a copy, and only over the rows that copy carried.
+    // Anything ruled on since stays open, so "copy, get distracted, rule on four more,
+    // come back" does not quietly mark the four as done too.
+    const remember = () => {
+      const at = new Date().toISOString()
+      openJudgments().forEach((j) => {
+        j.copied_at = at
+      })
+      saveJudgments()
     }
 
     copy.addEventListener('click', () => {
@@ -1947,14 +2028,28 @@
         box.focus()
         box.select()
         copy.textContent = 'Select and copy'
+        remember()
+        refresh()
       }
       if (!navigator.clipboard || !navigator.clipboard.writeText) return fallback()
       navigator.clipboard.writeText(text).then(() => {
         copy.textContent = 'Copied'
+        remember()
+        refresh()
         window.setTimeout(() => {
           copy.textContent = 'Copy handoff'
         }, 1600)
       }, fallback)
+    })
+
+    mark.addEventListener('click', () => {
+      const at = new Date().toISOString()
+      copiedKeys().forEach((key) => {
+        judgments[key].applied_at = at
+      })
+      saveJudgments()
+      repaintAll()
+      refresh()
     })
 
     show.addEventListener('click', () => {
@@ -1962,7 +2057,7 @@
       show.textContent = box.hidden ? 'Show' : 'Hide'
     })
 
-    add(bar, tally, hint, show, copy, box)
+    add(bar, tally, done, hint, show, mark, copy, box)
     onJudgmentChange = refresh
     refresh()
     return bar
