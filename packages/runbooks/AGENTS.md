@@ -125,6 +125,22 @@ Subagent definitions in `agents/` are Claude Code `.md` files (YAML frontmatter 
 - Add new Python dependencies to `scripts/python/pyproject.toml`
 - Never install packages globally — always use the language-specific manager
 
+### Tests
+
+- **Test the call site, not just the function.** A test that calls a helper with the right
+  argument proves the helper works; it proves nothing about whether the real path passes
+  that argument. Wire a new parameter through and assert it at the entry point the
+  scheduled run actually uses — `run_sweep`/`run_seed`/`run_triage`, not only the batching
+  helper underneath. DATA-2575 shipped this bug four times in one PR: each round the
+  feature was broken on one path while every test stayed green.
+- **Assert a guard fails when you break the thing it guards.** Delete the line the test
+  exists to protect, watch that exact test go red, restore it. A test that passes both ways
+  is decoration. This costs one minute and is the only thing that distinguishes a guard
+  from a test that happens to pass.
+- For a parameter every call site must pass, prefer one structural test over a test per
+  site — walk the module's AST and fail on any call that omits it, so a path added later
+  fails too (`test_every_judge_prompt_call_site_passes_gotchas` is the worked example).
+
 ### Environment Variables
 
 - This repo has two `.env` files with different trust levels:

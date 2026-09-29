@@ -250,6 +250,17 @@ If the change you are working on **removes** a `trackEvent` call (a frontend/cli
 
 Adds and removes are **independent**. A removal happening in the same change as an addition does _not_ mean the new event supersedes the removed one — only treat it as a supersession if the human explicitly says so (handled by the add's `supersedes` hint in step 6, not by pairing them automatically).
 
+## Record a new trap
+
+If registering or retiring an event revealed a trap in the governance tooling — the
+provenance walk recording something other than what its column name suggests, a
+retirement that the monitor would read wrong, an event shape the call-site counter cannot
+see — add a one-liner to `packages/runbooks/books/analytics-governance-gotchas.md`: the
+symptom, the mitigation, and a Status of `invariant` or `state · as-of YYYY-MM`. Put the
+full explanation in the owning book (`refresh-event-provenance.md` for the walk and its
+columns, `monitor-analytics-event-health.md` for the status model) and link it rather than
+restating it. Skip if the symptom is already a row.
+
 ## Common mistakes
 
 - Firing a server-truth outcome from the frontend, or double-firing it on both sides — the browser only sees a job _start_; let gp-api emit the completion.

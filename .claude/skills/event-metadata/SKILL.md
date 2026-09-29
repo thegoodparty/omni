@@ -342,6 +342,19 @@ The caller passes a payload; honor it instead of re-asking:
 
 Adds and removes are routed independently — the caller never pairs a removal with an add.
 
+## Record a new trap
+
+A governance write is where a bad signal becomes official, so it is where traps surface.
+If writing this status revealed one — a provenance column that meant something other than
+what it reads like, a status the monitor assigned on evidence it does not actually have, a
+successor named in prose that was never built — add a one-liner to
+`packages/runbooks/books/analytics-governance-gotchas.md`: the symptom, the mitigation, and
+a Status of `invariant` or `state · as-of YYYY-MM`. Put the full explanation in the owning
+book and link it rather than restating it. Skip if the symptom is already a row.
+
+Read that file first when a status write rests on a monitor flag: the traps that have
+produced confident, wrong retirements are already in it (DATA-2575).
+
 ## Common mistakes
 
 - Inferring `not in use` from a supersession — always confirm; old clients may still
