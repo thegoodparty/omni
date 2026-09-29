@@ -13,6 +13,7 @@ import {
 } from './alerting/alert-notification'
 import {
   controllerAlerts,
+  recordingRuleExpression,
   ROUTE_RECORDING_RULES,
 } from './alerting/controller-alerts'
 import {
@@ -603,34 +604,7 @@ export const createGrafanaResources = async ({
         // same series.
         labels: { environment },
         expressions: {
-          A: JSON.stringify({
-            model: {
-              editorMode: 'code',
-              expr: rule.expr.replace(/\$ENV/g, environment),
-              // Instant, not range: a range query returns a series of points
-              // per evaluation and a recording rule wants one value per label
-              // set.
-              instant: true,
-              range: false,
-              intervalMs: 1000,
-              maxDataPoints: 43200,
-              legendFormat: '__auto',
-              refId: 'A',
-            },
-            datasource_uid: LOKI_DATASOURCE_UID,
-            // Integers, not duration strings. Grafana parses this blob into
-            // a struct whose fields are seconds-as-int; a string lands as 0,
-            // which silently collapses the window onto `now` and drops every
-            // log line that arrived late.
-            relative_time_range: {
-              from: rule.fromSeconds,
-              to: rule.toSeconds,
-            },
-            query_type: 'instant',
-            // Marks which expression is the rule's output. Without it the rule
-            // saves cleanly and records nothing at all.
-            source: true,
-          }),
+          A: recordingRuleExpression(rule, environment),
         },
       },
     })

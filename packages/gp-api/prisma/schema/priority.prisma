@@ -14,9 +14,20 @@ model Priority {
   targetDate DateTime? @map("target_date") @db.Date
   archivedAt DateTime? @map("archived_at")
 
+  // The agent's working status: the seven steps and what each settled.
+  // Shape + parser live in @goodparty_org/contracts (PriorityStatus.schema.ts),
+  // which is APPEND-ONLY so rows written by an older build keep parsing. Never
+  // read this column without going through parsePriorityStatus().
+  status Json?
+  // Derived from `status` by the one service that writes it, so the list page
+  // can sort and filter without parsing JSON. Never set these independently.
+  currentStep String? @map("current_step")
+  nextAction  String? @map("next_action")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  outreaches        Outreach[]
   briefingItemLinks MeetingBriefingItemLink[]
   profileIssues     PersonProfileIssue[]
 

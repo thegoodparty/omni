@@ -224,6 +224,59 @@ export const ROUTE_RECORDING_RULES: RecordingRule[] = [
   },
 ]
 
+/**
+ * The `expressions` entry for one recording rule, as the JSON string the
+ * Grafana resource takes.
+ *
+ * THE KEYS HERE ARE THE PROVIDER'S DIALECT, NOT THE API'S. The provider
+ * parses this blob by hand, picking out these exact snake_case keys, and
+ * re-marshals them onto the wire as the camelCase the API documents
+ * (`datasource_uid` leaves as `datasourceUID`). Writing the API's own
+ * spelling here is therefore silently wrong: the provider matches nothing,
+ * sends an expression with those fields absent, and the rule either records
+ * nothing or is rejected. The provider's own published example is the
+ * reference — `node_modules/@pulumiverse/grafana/alerting/
+ * recordingRuleV0Alpha1.d.ts`.
+ *
+ * Built here rather than inline in the component so it can be asserted
+ * against directly, which is worth doing because almost none of this fails
+ * loudly.
+ */
+export const recordingRuleExpression = (
+  rule: RecordingRule,
+  environment: string,
+) =>
+  JSON.stringify({
+    model: {
+      editorMode: 'code',
+      expr: rule.expr.replace(/\$ENV/g, environment),
+      // Instant, not range: a range query returns a series of points per
+      // evaluation and a recording rule wants one value per label set.
+      instant: true,
+      range: false,
+      intervalMs: 1000,
+      maxDataPoints: 43200,
+      legendFormat: '__auto',
+      refId: 'A',
+    },
+    datasource_uid: LOKI_DATASOURCE_UID,
+    // Duration strings, not integers, and this is what broke the two deploys
+    // on 2026-09-28. The provider reads these with a Go `.(string)` type
+    // assertion; a number fails it, leaves both ends empty, and makes the
+    // provider drop `relativeTimeRange` from the request altogether. Grafana
+    // then rejects the rule with `query expressions must have a relative time
+    // range` — reported as a bare HTTP 403, which reads like a missing
+    // permission and is why this was first chased as one.
+    relative_time_range: {
+      from: `${rule.fromSeconds}s`,
+      to: `${rule.toSeconds}s`,
+    },
+    query_type: 'instant',
+    // Marks which expression is the rule's output. Without it the rule saves
+    // cleanly and records nothing at all.
+    source: true,
+  })
+
 // The window the alerts judge, unchanged from what the Loki rules used. It is
 // now assembled in PromQL from ten recorded samples rather than fetched from
 // Loki, so widening it is free — which is exactly why it should still be

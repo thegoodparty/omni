@@ -33,6 +33,10 @@ import type {
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
   Priority,
+  CreatePriorityInput,
+  UpdatePriorityInput,
+  PriorityStatus,
+  OutreachProposal,
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
@@ -1154,6 +1158,48 @@ export type APIEndpoints = {
   'GET /v1/priorities': {
     Request: {}
     Response: Priority[]
+  }
+
+  'POST /v1/priorities': {
+    Request: CreatePriorityInput
+    Response: Priority
+  }
+
+  'GET /v1/priorities/:id': {
+    Request: {}
+    Response: Priority
+  }
+
+  'PUT /v1/priorities/:id': {
+    Request: UpdatePriorityInput
+    Response: Priority
+  }
+
+  'DELETE /v1/priorities/:id': {
+    Request: {}
+    Response: void
+  }
+
+  'GET /v1/priorities/:id/status': {
+    Request: {}
+    Response: {
+      status: PriorityStatus
+      currentStep: string | null
+      nextAction: string | null
+    }
+  }
+
+  // A proposal key names the outreach a chat card WOULD create. A 404 is the
+  // normal "not sent yet" answer, and the PUT is an idempotent create, so a
+  // double click cannot send twice.
+  'GET /v1/outreach/by-proposal-key/:proposalKey': {
+    Request: {}
+    Response: OutreachDetail
+  }
+
+  'PUT /v1/outreach/by-proposal-key/:proposalKey': {
+    Request: Omit<OutreachProposal, 'proposalKey'> & { priorityId: string }
+    Response: OutreachDetail
   }
 
   'GET /v1/ordinances/:slug': {

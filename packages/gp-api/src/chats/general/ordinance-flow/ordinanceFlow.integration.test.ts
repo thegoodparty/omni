@@ -258,7 +258,11 @@ describe('ordinance_flow chat (integration)', () => {
       }
       const braveTool = opts.tools?.brave_search
       if (braveTool && 'execute' in braveTool) {
-        opts.onToolCallStart?.({ name: 'brave_search', input: { query } })
+        opts.onToolCallStart?.({
+          name: 'brave_search',
+          input: { query },
+          toolCallId: 'test-tool-call',
+        })
         const output = await braveTool.execute({ query })
         opts.onToolCallEnd?.({
           name: 'brave_search',

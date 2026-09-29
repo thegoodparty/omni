@@ -64,6 +64,10 @@ const CONTROLLER_OWNERS: Partial<
   // to constituents, and polls joins it later on the same side.
   'outreach/admin/results': [SERVE],
   priorities: [SERVE],
+  // Send-from-a-chat-card. Serve because the only thing that mints a proposal
+  // key is a priority chat, and a failure here is an elected official pressing
+  // Send and getting nothing.
+  'outreach/by-proposal-key': [SERVE],
   'admin/briefings': [SERVE],
   'admin/elected-office': [SERVE],
   annotations: [SERVE],

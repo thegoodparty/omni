@@ -207,7 +207,7 @@ export const decodePrecinctPair = (
 // the UI offers whenever a district contains voters with no precinct on file
 // (0.7% nationally, and all 1,086,506 New Hampshire voters). Selecting it must
 // resolve to `Precinct IS NULL`, never be dropped.
-const MAX_PRECINCT_FILTER_VALUES = 5_000
+export const MAX_PRECINCT_FILTER_VALUES = 5_000
 
 export const createPrecinctFilterSchema = () =>
   z.object({

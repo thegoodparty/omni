@@ -122,6 +122,8 @@ const WIN_AREAS: ProductArea[] = [
     modes: ['win'],
     does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
     inside: [
+      'Opening the chat resumes their most recent conversation; New chat in the chat header starts a fresh one',
+      'The clock icon in the chat box lists previous conversations, and each one can be reopened or deleted there',
       'Each reply carries a copy button and a thumbs up / thumbs down',
       'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
     ],
@@ -288,6 +290,20 @@ const SERVE_AREAS: ProductArea[] = [
       'View all issues and View all open the full lists',
       'An issue’s detail page shows its category, rank, sources, and the briefings it touches',
     ],
+  },
+  {
+    navId: 'priorities-dashboard',
+    name: 'Priorities',
+    path: '/dashboard/priorities',
+    modes: ['serve'],
+    does: 'Hold the things you are trying to get done this term, and work one of them forward with help.',
+    inside: [
+      'Add a priority writes down what you want to get done and why it matters',
+      'An issue from Community Issues can be pulled in as a priority',
+      'Each row shows the step it is on and the next thing to do about it',
+      'Opening a priority works it forward one step at a time',
+    ],
+    gate: 'Priorities is being rolled out, so it is not on every account yet.',
   },
   {
     navId: 'ordinances-dashboard',

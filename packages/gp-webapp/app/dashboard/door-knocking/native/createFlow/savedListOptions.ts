@@ -1,7 +1,7 @@
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { DecodedPack } from '../packDecoder'
 import { runFilter } from '../filterEngine'
-import { savedListFilterKeys } from '../savedListFilters'
+import { savedListFilterKeys, savedListPrecincts } from '../savedListFilters'
 import { filtersToDimSelections } from './voterFilterPreview'
 
 export interface SavedListOption {
@@ -57,9 +57,21 @@ export const audienceOptions = (
       return {
         id: list.id,
         name: list.name,
+        // The precincts go in BESIDE the boolean keys, because the draft
+        // carries only the mark and the values are what narrows. Missing
+        // them here was worse than it looks: with the pack able to shade
+        // precinct, `narrowsPreview` stops flagging the key, so this count
+        // would have gone on reporting the district with the disclosure
+        // that used to cover it now silenced.
         households: pack
-          ? (runFilter(pack, filtersToDimSelections(filters, pack.manifest))
-              .households ?? null)
+          ? (runFilter(
+              pack,
+              filtersToDimSelections(
+                filters,
+                pack.manifest,
+                savedListPrecincts(list),
+              ),
+            ).households ?? null)
           : null,
         filters,
       }

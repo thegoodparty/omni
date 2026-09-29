@@ -41,6 +41,7 @@ export class CreateOutreachSchema extends createZodDto(
       voterFileFilterId: z.coerce.number().int().positive().optional(),
       phoneListId: z.coerce.number().int().positive().optional(),
       draftOutreachId: z.coerce.number().int().positive().optional(),
+      priorityId: z.string().min(1).optional(),
       // P2P-specific fields
       didState: z
         .string()

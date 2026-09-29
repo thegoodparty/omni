@@ -94,9 +94,17 @@ type PersonName = { personId: string; name: string; firstName: string | null }
 // own campaign; Serve passes { campaignId: null, organizationSlug } off the
 // ElectedOffice's org. A null scope (Win's continueIfNotFound case — no
 // Campaign row) writes no envelope at all, same as before this change.
-type PhoneBankingScope = {
+//
+// proposalKey/priorityId ride along when the list was created from a chat
+// card. The key goes into the envelope's INSERT rather than onto it
+// afterwards: its unique index is what makes two simultaneous sends of the
+// same proposal produce one list instead of two, and a post-create stamp
+// would let the loser's list survive with nothing pointing at it.
+export type PhoneBankingScope = {
   campaignId: number | null
   organizationSlug: string
+  proposalKey?: string
+  priorityId?: string
 }
 
 const formatAddress = (address: Person['address']): string | null => {
@@ -476,6 +484,8 @@ export class PhoneBankingListService extends createPrismaBase(
             data: {
               campaignId: scope.campaignId,
               organizationSlug: scope.organizationSlug,
+              proposalKey: scope.proposalKey,
+              priorityId: scope.priorityId,
               outreachType: OutreachType.nativePhoneBanking,
               status: OutreachStatus.in_progress,
               name: input.name,

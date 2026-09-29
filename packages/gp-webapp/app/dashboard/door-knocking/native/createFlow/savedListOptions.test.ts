@@ -93,4 +93,39 @@ describe('audienceOptions', () => {
 
     expect(lists[0]?.filters).toEqual({ languageSpanish: true })
   })
+
+  it('narrows a list by its precincts, not just its boolean pills', () => {
+    // The precinct values are not boolean keys, so they do not arrive in
+    // `savedListFilterKeys` — they travel beside it and have to be handed to
+    // `filtersToDimSelections` separately. Missing that here was worse than
+    // an unnarrowed count: once the pack can shade precinct,
+    // `narrowsPreview` stops flagging the key, so the row would report the
+    // whole district with the disclosure that used to cover it silenced.
+    const withPrecinct = {
+      ...pack,
+      manifest: {
+        ...pack.manifest,
+        dims: [
+          ...pack.manifest.dims,
+          {
+            key: 'precinct',
+            values: ['Unknown', 'Brevard|300', 'Brevard|301'],
+          },
+        ],
+      },
+      dimPlanes: new Map([
+        ...pack.dimPlanes,
+        // People 0 and 1 share household 0 and sit in 300; people 2 and 3
+        // are in 301, in households 1 and 2.
+        ['precinct', new Uint8Array([1, 1, 2, 2])],
+      ]),
+    } as unknown as DecodedPack
+
+    const { lists } = audienceOptions(
+      [list({ id: 7, name: 'Ward 1', precincts: ['Brevard|300'] })],
+      withPrecinct,
+    )
+
+    expect(lists[0]?.households).toBe(1)
+  })
 })

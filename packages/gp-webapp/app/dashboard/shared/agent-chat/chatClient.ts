@@ -31,6 +31,7 @@ export type ChatScope =
   | 'chief_of_staff'
   | 'campaign_assistant'
   | 'ordinance_flow'
+  | 'priority_flow'
 
 export type {
   ChatMessageRole,

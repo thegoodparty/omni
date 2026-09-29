@@ -206,12 +206,22 @@ written twice.
   `NativeDoorKnockingPage` down through `CreateListSurface` and
   `CreateListFlow` to `WhoStep`, which renders the CRM wizard's own
   `PrecinctFilter` (with door knocking's group-label style). The draft carries
-  only the `precincts: true` MARK, which is what
-  `unpreviewableFilterKeys` reads for the "the map can't shade by Precinct"
-  disclosure — the pack has no precinct plane. The values themselves are spent
-  in two places: `CreateListSurface`'s `previewFilters` (so the drawn shape is
-  priced against the audience the list will actually hold) and the create body
-  in `CreateListFlow`. Offered on both rails: a precinct is a subdivision of
+  only the `precincts: true` MARK, which is what `unpreviewableFilterKeys`
+  reads. **The pack shades by precinct now** (`PRECINCT_DIM_KEY`, format
+  revision 6), so that mark usually resolves to "this narrows" and the
+  disclosure stays silent; a district past `MAX_PRECINCT_FILTER_VALUES` gets
+  no plane and falls back to the sentence, which is the same
+  property-of-the-pack-in-hand rule contacts-made follows. The values
+  themselves are spent in three places: `CreateListSurface`'s `previewFilters`
+  (so the drawn shape is priced against the audience the list will actually
+  hold), the create body in `CreateListFlow`, and — via
+  `onEffectivePrecinctsChange` — the page's `selections`, which is what the
+  MAP reads. That third one is a separate channel from the `precincts` state
+  the page already owns, and deliberately: the page's copy is the HAND-CUT
+  selection and drives the who step's ticked pills, where the effective set
+  folds in a picked list's clause and an accepted recommendation's. A picked
+  list's precincts must shade the map without appearing as pills in a builder
+  the candidate never opened. Offered on both rails: a precinct is a subdivision of
   the district an elected official already serves, unlike party, contacts made
   and voter likelihood. A hand-cut selection, a picked list's clause and an
   accepted recommendation's are **mutually exclusive by construction** — each

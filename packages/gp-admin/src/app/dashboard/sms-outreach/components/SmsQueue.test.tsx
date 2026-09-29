@@ -239,6 +239,38 @@ describe('SmsQueue', () => {
     expect(screen.getByText('Vendor read failed')).toBeInTheDocument()
   })
 
+  it('shows the full audience for a send covered by the free texts', () => {
+    render(
+      <Theme>
+        <SmsQueue
+          viewerName={null}
+          items={[
+            item({
+              id: 47,
+              textCount: 2143,
+              billableTextCount: 0,
+              paid: false,
+            }),
+            item({
+              id: 48,
+              name: 'Paid send',
+              candidateName: 'Amy Brown',
+              textCount: 8109,
+              billableTextCount: 3109,
+              paid: true,
+            }),
+          ]}
+        />
+      </Theme>
+    )
+
+    // Billable is what Stripe charged, not how many people get the text.
+    expect(screen.getByText('2,143 (free)')).toBeInTheDocument()
+    expect(screen.queryByText('0 (free)')).not.toBeInTheDocument()
+    expect(screen.getByText('8,109')).toBeInTheDocument()
+    expect(screen.queryByText('3,109')).not.toBeInTheDocument()
+  })
+
   it('renders the empty state', () => {
     render(
       <Theme>

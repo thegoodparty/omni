@@ -316,7 +316,7 @@ export function SmsQueue({ items, viewerName }: SmsQueueProps) {
                 </Table.Cell>
                 <Table.Cell>
                   {(
-                    item.billableTextCount ?? item.textCount
+                    item.textCount ?? item.billableTextCount
                   )?.toLocaleString() ?? '—'}
                   {item.paid ? '' : ' (free)'}
                 </Table.Cell>

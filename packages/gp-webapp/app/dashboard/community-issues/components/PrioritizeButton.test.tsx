@@ -21,6 +21,8 @@ const mockPriority: Priority = {
   source: 'community_issue',
   sourceCampaignPositionId: null,
   targetDate: null,
+  currentStep: null,
+  nextAction: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 }
