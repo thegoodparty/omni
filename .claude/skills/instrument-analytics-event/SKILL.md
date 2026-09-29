@@ -68,6 +68,9 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    - Product area is the navigation area the user is in (frontend) or the domain the work belongs to (backend). Follow the app's navigation as the source of truth for the area name rather than inventing one or leaning on a fixed list; the canonical set is still evolving, so match how the product is organized in the nav today.
    - If it is something the user _is_ or _has_ (officeType, isPro, onboardingCompleted), it is a **user property**, not an event — set it with `identifyUser` (frontend, from `@shared/utils/analytics`) or `AnalyticsService.identify` (backend), not a track call.
+   - **Never put the product in the name.** A surface both Win and Serve reach fires one event carrying `product: 'win' | 'serve'`, not two events named `Voter Outreach - X` and `Constituent Outreach - X`. Two names make every cross-product total a union, and missing one undercounts with no error. This is the analytics half of the Win/Serve vocabulary rule in `docs/product-vocabulary.md`: user-facing copy is mode-keyed, analytics event names are not, because the property carries the distinction instead. `npm run check:serve-vocabulary` does not cover analytics constants, so nothing catches this for you.
+   - **Outreach events use the `Outreach -` namespace.** Anything both products fire is `Outreach - {Channel} {Thing}`, with `product:` carrying Win vs Serve. `Voter Outreach -` survives only on the Win-only leftovers that predate this rule; do not add to it.
+   - **Before adding a second event, ask whether a property would do.** One event with a property beats N events: N events can go dark one at a time behind a healthy-looking total, which is exactly how three per-channel completion events were lost for a month. Reuse the property the existing charts already filter on rather than forking a second one that means the same thing.
 
 4. **Register it in the `EVENTS` map.**
 
