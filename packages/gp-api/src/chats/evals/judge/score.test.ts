@@ -21,7 +21,7 @@ import {
   type SlotMap,
 } from './normalize'
 import { orient, scoreAgent, type AgentScore } from './score'
-import type { RunRecord } from './record'
+import type { Cost, RunRecord } from './record'
 
 const [BASE, CANDIDATE] = CHAT_PAIR
 
@@ -533,6 +533,17 @@ describe('flags and the absolute floor', () => {
 })
 
 describe('the measured layer', () => {
+  // `cost` is optional on a record, for the run nobody could price. These
+  // helpers adjust a fixture's existing cost rather than testing that case,
+  // so an absent one is a broken fixture and says so.
+  const costOf = (record: RunRecord): Cost => {
+    const cost = record.telemetry.cost
+    if (cost === undefined) {
+      throw new Error(`${record.runId} has no cost to adjust`)
+    }
+    return cost
+  }
+
   const withTokens = (
     record: RunRecord,
     input: number,
@@ -542,7 +553,7 @@ describe('the measured layer', () => {
     telemetry: {
       ...record.telemetry,
       tokens: { input, output: 0, cacheRead: 0, cacheWrite: 0 },
-      cost: { ...record.telemetry.cost, usdAtCapture: storedUsd },
+      cost: { ...costOf(record), usdAtCapture: storedUsd },
     },
   })
 
@@ -566,7 +577,7 @@ describe('the measured layer', () => {
       ...record,
       telemetry: {
         ...record.telemetry,
-        cost: { ...record.telemetry.cost, pricingVersion: '2025-01' },
+        cost: { ...costOf(record), pricingVersion: '2025-01' },
       },
     })
     const matched = normalizeAgent([BASE, CANDIDATE], () => 0)

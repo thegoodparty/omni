@@ -1,6 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
 import { differenceInMilliseconds } from 'date-fns'
-import { formatInTimeZone } from 'date-fns-tz'
 import {
   CreateChatResponseSchema,
   type ChatAnchor,
@@ -13,6 +12,7 @@ import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStre
 import type { TestServiceContext } from '@/test-service'
 import { PRICING_VERSION, UnpriceableRunError, priceUsd } from '../pricing'
 import {
+  isoUtc,
   RunRecordSchema,
   type Arm,
   type CiContext,
@@ -54,14 +54,10 @@ export const TOOL_BUDGET_FALLBACK_REPLY =
   "I wasn't able to find what I needed to answer that question. You can " +
   'try again, rephrase your question, or ask me about something else.'
 
-const UTC_ISO = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
-
 // Compared as numbers: an axios status is a plain number, and comparing it
 // against the enum member directly is what no-unsafe-enum-comparison rejects.
 const HTTP_CREATED: number = HttpStatus.CREATED
 const HTTP_OK: number = HttpStatus.OK
-
-const isoUtc = (date: Date): string => formatInTimeZone(date, 'UTC', UTC_ISO)
 
 export interface ChatJudgeCase {
   caseId: string

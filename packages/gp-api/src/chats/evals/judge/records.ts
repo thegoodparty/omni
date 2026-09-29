@@ -1,0 +1,438 @@
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import {
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3'
+import { MimeTypes } from 'http-constants-ts'
+import { z } from 'zod'
+import { describeIssues } from './cases'
+import {
+  ArmSchema,
+  JsonValueSchema,
+  RunRecordSchema,
+  type Arm,
+  type JsonValue,
+  type RunRecord,
+} from './record'
+
+// Where a sweep's records live, behind an interface narrow enough that the
+// judging entry cannot tell S3 from a directory.
+//
+// Two implementations, and the split is not a convenience. The arms run as
+// separate processes in separate checkouts, so the only thing they share is
+// this store: the candidate process cannot hand the base process's records to
+// the judge in memory.
+//
+// Both CI and local use the directory today. S3 is what the design wants,
+// because records that outlive the run let a rubric change re-grade them at
+// zero agent cost — but it needs an IAM grant and an `id-token: write` that
+// judge.yml deliberately does not take yet, and that file explains why.
+//
+// TESTS USE THE LOCAL ONE. Nothing in this file constructs an S3 client on its
+// own; `createS3RecordStore` takes the client, so a test that wanted to reach
+// S3 would have to build one and hand it over on purpose.
+
+// Every segment of a key is held to this. A prefix check is not enough — the
+// background runner's design makes the same point about
+// `_judge/../compliance_setup/manifest.json`, which starts with `_judge/` and
+// addresses something else entirely. Pinning each segment makes traversal,
+// absolute paths and empty segments unrepresentable rather than individually
+// forbidden.
+const SEGMENT = /^[A-Za-z0-9_-]+$/
+
+export class RecordStoreError extends Error {}
+
+// ENOENT, and nothing else. Every other errno is a real failure that must not
+// be read as "there is nothing here".
+//
+// A type guard rather than a cast: the value comes from a rejected fs
+// promise, so `code` has to be narrowed rather than asserted.
+// Narrowed with `in` rather than asserted: no-unsafe-type-assertion rejects
+// the usual `(err as { code?: string })` shape, and `in` gives TypeScript the
+// property without a cast.
+const isMissing = (err: Error): boolean =>
+  'code' in err && err.code === 'ENOENT'
+
+const segment = (name: string, value: string): string => {
+  if (!SEGMENT.test(value)) {
+    throw new RecordStoreError(
+      `${name} "${value}" is not a usable key segment: only letters, ` +
+        'digits, underscore and hyphen, and it may not be empty',
+    )
+  }
+  return value
+}
+
+export const JUDGE_PREFIX = '_judge'
+
+export const recordKey = (
+  sweepId: string,
+  arm: Arm,
+  caseId: string,
+  attempt: number,
+): string => {
+  if (!Number.isInteger(attempt) || attempt < 1) {
+    throw new RecordStoreError(
+      `attempt ${attempt} is not a positive integer, and it is half of the ` +
+        'filename that keeps two attempts of one case apart',
+    )
+  }
+  return [
+    JUDGE_PREFIX,
+    segment('sweepId', sweepId),
+    'records',
+    segment('arm', arm),
+    `${segment('caseId', caseId)}-${attempt}.json`,
+  ].join('/')
+}
+
+// Beside the records rather than among them. A manifest sharing their
+// directory would have to be told apart from a record by its filename, and
+// `_manifest` is a legal caseId.
+export const manifestKey = (sweepId: string, arm: Arm): string =>
+  [
+    JUDGE_PREFIX,
+    segment('sweepId', sweepId),
+    'manifests',
+    `${segment('arm', arm)}.json`,
+  ].join('/')
+
+// A skipped agent, named. The alternative is an agent that quietly produced no
+// records, which reads downstream as a sweep that found nothing to say rather
+// than one that never asked.
+export const ArmSkipSchema = z.object({
+  agentId: z.string().min(1),
+  reason: z.string().min(1),
+})
+export type ArmSkip = z.infer<typeof ArmSkipSchema>
+
+export const ArmAgentSchema = z.object({
+  agentId: z.string().min(1),
+  caseList: z.string().min(1),
+  placeholderCases: z.boolean(),
+  cases: z.number().int().nonnegative(),
+  attempts: z.number().int().positive(),
+  recordsWritten: z.number().int().nonnegative(),
+})
+export type ArmAgent = z.infer<typeof ArmAgentSchema>
+
+// What one arm's capture did, and — the part the design turns on — WHEN.
+//
+// Arms cannot be interleaved in time: each is a separate process in a separate
+// checkout, so all of base runs and then all of candidate. Rather than pretend
+// otherwise, each arm stamps its own window and the report prints the gap
+// between the two, flagging a comparison whose arms are far apart. That is the
+// same treatment a cached background base arm already gets.
+export const ArmManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    sweepId: z.string().min(1),
+    arm: ArmSchema,
+    ref: z.string().min(1),
+    commit: z.string().min(1),
+    startedAt: z.string().datetime(),
+    endedAt: z.string().datetime(),
+    agents: z.array(ArmAgentSchema),
+    skipped: z.array(ArmSkipSchema),
+  })
+  .refine((m) => m.agents.length > 0 || m.skipped.length > 0, {
+    message:
+      'an arm manifest that names neither an agent nor a skip describes ' +
+      'a capture that did nothing, which must not be mistaken for one ' +
+      'that found nothing to compare',
+    path: ['agents'],
+  })
+export type ArmManifest = z.infer<typeof ArmManifestSchema>
+
+export interface RecordStore {
+  putRecord: (record: RunRecord) => Promise<string>
+  putManifest: (manifest: ArmManifest) => Promise<string>
+  listRecords: (sweepId: string, arm: Arm) => Promise<RunRecord[]>
+  // Throws when the arm never reported. That is the check that stops a
+  // sweep whose suite silently ran zero tests from being judged as though
+  // both arms had answered.
+  getManifest: (sweepId: string, arm: Arm) => Promise<ArmManifest>
+}
+
+// A killed capture leaves a truncated file, so the JSON parse is inside the
+// naming: `SyntaxError: Unexpected end of JSON input` with no filename is the
+// least useful thing this could say about the one failure it will actually
+// see.
+const readJson = (where: string, text: string): JsonValue => {
+  try {
+    return JsonValueSchema.parse(JSON.parse(text))
+  } catch (err) {
+    throw new RecordStoreError(
+      `${where}: not valid JSON — ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    )
+  }
+}
+
+const parseRecord = (where: string, text: string): RunRecord => {
+  const parsed = RunRecordSchema.safeParse(readJson(where, text))
+  if (!parsed.success) {
+    throw new RecordStoreError(
+      `${where}: not a valid run record — ` +
+        describeIssues(parsed.error.issues),
+    )
+  }
+  return parsed.data
+}
+
+const parseManifest = (where: string, text: string): ArmManifest => {
+  const parsed = ArmManifestSchema.safeParse(readJson(where, text))
+  if (!parsed.success) {
+    throw new RecordStoreError(
+      `${where}: not a valid arm manifest — ` +
+        describeIssues(parsed.error.issues),
+    )
+  }
+  return parsed.data
+}
+
+// Validated on the way in as well as on the way out. A store that accepts a
+// record it cannot later read back is a store that loses a paid-for run, and
+// both arms write through here.
+const serializeRecord = (record: RunRecord): string =>
+  `${JSON.stringify(RunRecordSchema.parse(record), null, 2)}\n`
+
+const serializeManifest = (manifest: ArmManifest): string =>
+  `${JSON.stringify(ArmManifestSchema.parse(manifest), null, 2)}\n`
+
+// ---------------------------------------------------------------------------
+// Local directory
+// ---------------------------------------------------------------------------
+
+export const createLocalRecordStore = (root: string): RecordStore => {
+  const resolvedRoot = path.resolve(root)
+
+  // Belt and braces over `segment()`. That function is what makes a key safe,
+  // but it is called with values from a runner as well as from a case list,
+  // and this store turns a key into a filesystem write. A key that ever did
+  // escape would write outside the sweep's directory, so the resolved path is
+  // checked as well as the segments it was built from.
+  const fileFor = (key: string): string => {
+    const file = path.resolve(resolvedRoot, key)
+    if (!file.startsWith(resolvedRoot + path.sep)) {
+      throw new RecordStoreError(
+        `key "${key}" resolves outside ${resolvedRoot}`,
+      )
+    }
+    return file
+  }
+
+  const write = async (key: string, body: string): Promise<string> => {
+    const file = fileFor(key)
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, body, 'utf8')
+    return key
+  }
+
+  return {
+    // `async` is load-bearing: `serializeRecord` validates, and a method
+    // that returns a promise must reject rather than throw out from under a
+    // caller who only attached a `.catch`.
+    putRecord: async (record) =>
+      write(
+        recordKey(record.sweepId, record.arm, record.caseId, record.attempt),
+        serializeRecord(record),
+      ),
+
+    putManifest: async (manifest) =>
+      write(
+        manifestKey(manifest.sweepId, manifest.arm),
+        serializeManifest(manifest),
+      ),
+
+    listRecords: async (sweepId, arm) => {
+      const dir = fileFor(
+        [
+          JUDGE_PREFIX,
+          segment('sweepId', sweepId),
+          'records',
+          segment('arm', arm),
+        ].join('/'),
+      )
+      let names: string[]
+      try {
+        names = await readdir(dir)
+      } catch (err) {
+        // ENOENT only. An arm with no directory has no records, and telling
+        // "this arm never ran" from "this arm ran nothing" is the manifest's
+        // job. Anything else — EACCES, EIO, EMFILE — is a real failure, and
+        // reporting it as "no records" would have the judging entry announce
+        // a gap in the sweep for a capture that really did run and really
+        // did pay.
+        if (!(err instanceof Error) || !isMissing(err)) throw err
+        return []
+      }
+      // Sorted so two runs over one directory produce records in the same
+      // order, which is what keeps a seeded slot assignment reproducible.
+      const files = names.filter((n) => n.endsWith('.json')).sort()
+      return Promise.all(
+        files.map(async (name) =>
+          parseRecord(
+            path.join(dir, name),
+            await readFile(path.join(dir, name), 'utf8'),
+          ),
+        ),
+      )
+    },
+
+    getManifest: async (sweepId, arm) => {
+      const file = fileFor(manifestKey(sweepId, arm))
+      // The read is inside the try and the parse is outside it, so a manifest
+      // that exists but is truncated is reported as corrupt rather than as
+      // absent. "It never reported a capture" sends the reader to look for a
+      // suite that self-skipped, which is the wrong hunt for a half-written
+      // file.
+      let text: string
+      try {
+        text = await readFile(file, 'utf8')
+      } catch (err) {
+        if (!(err instanceof Error) || !isMissing(err)) throw err
+        throw new RecordStoreError(
+          `the ${arm} arm of sweep ${sweepId} wrote no manifest ` +
+            `(${file}), so it never reported a capture; a sweep is not ` +
+            'judged on one arm',
+        )
+      }
+      return parseManifest(file, text)
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// S3
+// ---------------------------------------------------------------------------
+
+// The judge's use of S3 is three operations, so the port is three operations
+// rather than a slice of the AWS SDK's client. That keeps the store free of
+// the SDK's command types, puts pagination in the adapter where it belongs,
+// and means a fake is three functions.
+//
+// NOTHING IN THIS FILE CONSTRUCTS ONE. `s3PortFromClient` takes the client, so
+// reaching S3 from a test would mean building an S3Client and handing it over
+// deliberately.
+export interface S3RecordPort {
+  putObject: (key: string, body: string) => Promise<void>
+  // Rejects when the object is absent, which is how a missing arm manifest is
+  // told from an empty one.
+  getObject: (key: string) => Promise<string>
+  listKeys: (prefix: string) => Promise<string[]>
+}
+
+export const createS3RecordStore = (
+  port: S3RecordPort,
+  bucket: string,
+): RecordStore => {
+  const write = async (key: string, body: string): Promise<string> => {
+    await port.putObject(key, body)
+    return key
+  }
+
+  return {
+    putRecord: async (record) =>
+      write(
+        recordKey(record.sweepId, record.arm, record.caseId, record.attempt),
+        serializeRecord(record),
+      ),
+
+    putManifest: async (manifest) =>
+      write(
+        manifestKey(manifest.sweepId, manifest.arm),
+        serializeManifest(manifest),
+      ),
+
+    listRecords: async (sweepId, arm) => {
+      const prefix = [
+        JUDGE_PREFIX,
+        segment('sweepId', sweepId),
+        'records',
+        segment('arm', arm),
+        '',
+      ].join('/')
+
+      // Sorted for the same reason the local store sorts: a seeded slot
+      // assignment is only reproducible if the records arrive in one order.
+      const keys = (await port.listKeys(prefix))
+        .filter((key) => key.endsWith('.json'))
+        .sort()
+
+      return Promise.all(
+        keys.map(async (key) =>
+          parseRecord(`s3://${bucket}/${key}`, await port.getObject(key)),
+        ),
+      )
+    },
+
+    getManifest: async (sweepId, arm) => {
+      const key = manifestKey(sweepId, arm)
+      let text: string
+      try {
+        text = await port.getObject(key)
+      } catch {
+        throw new RecordStoreError(
+          `the ${arm} arm of sweep ${sweepId} wrote no manifest ` +
+            `(s3://${bucket}/${key}), so it never reported a capture; a ` +
+            'sweep is not judged on one arm',
+        )
+      }
+      return parseManifest(`s3://${bucket}/${key}`, text)
+    },
+  }
+}
+
+// Paginated rather than taking the first page. A 20-case sweep at three
+// attempts is 60 objects and one page today, and the default page is 1000 —
+// but silently judging the first 1000 of a larger sweep would drop cases from
+// the delta with nothing to show it happened.
+export const s3PortFromClient = (
+  client: S3Client,
+  bucket: string,
+): S3RecordPort => ({
+  putObject: async (key, body) => {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: body,
+        ContentType: MimeTypes.APPLICATION_JSON,
+      }),
+    )
+  },
+
+  getObject: async (key) => {
+    const output = await client.send(
+      new GetObjectCommand({ Bucket: bucket, Key: key }),
+    )
+    if (output.Body === undefined) {
+      throw new RecordStoreError(`s3://${bucket}/${key} returned no body`)
+    }
+    return output.Body.transformToString('utf8')
+  },
+
+  listKeys: async (prefix) => {
+    const keys: string[] = []
+    let token: string | undefined
+    do {
+      const page = await client.send(
+        new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          ...(token !== undefined && { ContinuationToken: token }),
+        }),
+      )
+      for (const item of page.Contents ?? []) {
+        if (item.Key !== undefined) keys.push(item.Key)
+      }
+      token = page.IsTruncated === true ? page.NextContinuationToken : undefined
+    } while (token !== undefined)
+    return keys
+  },
+})

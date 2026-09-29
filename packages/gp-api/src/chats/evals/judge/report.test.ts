@@ -8,7 +8,7 @@ import { CHAT_PAIR, TOOL_ERROR_PAIR } from './fixtures/records'
 import { judgeAll, OVERALL } from './judge'
 import { normalizeAgent, type NormalizedAgent } from './normalize'
 import { coverageLines, renderReport } from './report'
-import type { JsonValue, RunRecord } from './record'
+import type { Cost, JsonValue, RunRecord } from './record'
 import { scoreAgent, type AgentScore } from './score'
 
 const [BASE, CANDIDATE] = CHAT_PAIR
@@ -260,13 +260,23 @@ describe('the measured layer', () => {
   })
 
   it('says so when the arms were priced under different tables', async () => {
+    // `cost` is optional on a record; this test is about two arms priced
+    // under different tables, so a fixture with no cost at all is a broken
+    // fixture rather than the case under test.
+    const costOf = (record: RunRecord): Cost => {
+      const cost = record.telemetry.cost
+      if (cost === undefined) {
+        throw new Error(`${record.runId} has no cost to make stale`)
+      }
+      return cost
+    }
     const stale = sweepRecords(2).map((record) =>
       record.arm === 'base'
         ? {
             ...record,
             telemetry: {
               ...record.telemetry,
-              cost: { ...record.telemetry.cost, pricingVersion: '2025-01' },
+              cost: { ...costOf(record), pricingVersion: '2025-01' },
             },
           }
         : record,

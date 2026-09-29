@@ -302,13 +302,20 @@ const measure = (
     latencyMs: armMean((r) => r.telemetry.latencyMs),
     toolErrors: armMean((r) => r.telemetry.toolErrors),
     pairs: usable.length,
-    pricingMismatch: pairs.some(
-      (p) =>
-        !sharesPricing(
-          p.base.telemetry.cost.pricingVersion,
-          p.candidate.telemetry.cost.pricingVersion,
-        ),
-    ),
+    // Only over pairs where BOTH arms were priced. `cost` is optional on a
+    // record, and a pair with one unpriced arm is not a table mismatch — it
+    // is a run nobody could price, which `unpriceableReason` already says.
+    // Reading an absent cost as a mismatch would put a stale-base warning on
+    // a report whose arms share one price list.
+    pricingMismatch: pairs.some((p) => {
+      const base = p.base.telemetry.cost
+      const candidate = p.candidate.telemetry.cost
+      return (
+        base !== undefined &&
+        candidate !== undefined &&
+        !sharesPricing(base.pricingVersion, candidate.pricingVersion)
+      )
+    }),
     liveWebCases: pairs.filter((p) => p.base.liveWeb || p.candidate.liveWeb)
       .length,
   }

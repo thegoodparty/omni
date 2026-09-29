@@ -1,0 +1,20 @@
+{
+  "agentId": "chief_of_staff",
+  "shape": "chat",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Written to make the sweep exercisable end to end, not to test the agent. Three questions against the seeded fixture org, chosen because each one reaches a different part of the turn: one that needs the priorities in the database, one that should reach the constituent-data tool, and one the agent should answer from its product knowledge without a tool call. Real case lists are Melecia's and there are 20 agents to write; the judge uses only the questions from a case file and ignores gold values, so the Chief of Staff evals/cases directory is the starting point for the real one. Replace this file rather than adding to it.",
+  "cases": [
+    {
+      "caseId": "priorities-on-file",
+      "question": "What are my top priorities right now, and which one has been open the longest?"
+    },
+    {
+      "caseId": "constituent-count",
+      "question": "How many registered voters in my district are under 30?"
+    },
+    {
+      "caseId": "product-how-to",
+      "question": "How do I send a text message to my constituents?"
+    }
+  ]
+}

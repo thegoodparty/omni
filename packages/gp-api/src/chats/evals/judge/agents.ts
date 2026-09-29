@@ -42,7 +42,16 @@ export type AgentEntry = z.infer<typeof AgentEntrySchema>
 // that is not. Ids match ChatScope in the Prisma schema, so the runner can
 // resolve a handler straight from the registry with no mapping table.
 const CHAT_AGENTS: AgentEntry[] = [
-  { agentId: 'chief_of_staff', shape: 'chat', cases: null, status: 'pending' },
+  // The only entry with a case list, and it is a placeholder — see the
+  // `note` in the file. Status stays `pending`: `wired` means an agent has
+  // produced a real verdict at least once, and a placeholder list has not
+  // produced one about the agent.
+  {
+    agentId: 'chief_of_staff',
+    shape: 'chat',
+    cases: 'chief_of_staff.json',
+    status: 'pending',
+  },
   {
     agentId: 'campaign_assistant',
     shape: 'chat',

@@ -86,6 +86,12 @@ env:
   # Which is also why the sweep takes its inputs from the environment rather
   # than argv: a test file has no argv of its own.
   SWEEP_SUITE: src/chats/evals/judge/sweep.eval.test.ts
+  # Step 3, and NOT a vitest suite. It reads both arms' stored records and
+  # runs pure functions over them, so it needs no `useTestService()` and runs
+  # under tsx — which is what lets a workflow step invoke it as a command.
+  # Pure functions living in a vitest file cannot be, and a "test" that is
+  # really a program is how a job goes green having done nothing.
+  JUDGING_ENTRY: src/chats/evals/judge/sweep.ts
 
 jobs:
   # GUARD 2 of 3, second layer. Both callers declare a workflow-level group on
@@ -366,25 +372,24 @@ jobs:
           if [ -f "$CLI" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
 
-            # AND CAN IT ACTUALLY SWEEP YET? The wave-0 skeleton throws
-            # `only --dry-run is implemented` for any argv without
-            # `--dry-run`, and its entry point turns that into exit 1. So a
-            # `--live` request against the skeleton would post "this is a live
-            # sweep, it starts now", pay for a checkout and a full workspace
-            # build, and then go red — with the plan comment still claiming a
-            # sweep was starting. Today that is unreachable only because no
-            # agent has a case list; it becomes reachable the moment the first
-            # one lands, which is before the runner track is due.
+            # AND CAN IT ACTUALLY SWEEP YET? Asked of the two files that
+            # would run one, not of the CLI: a sweep is three processes and
+            # the CLI is none of them. It plans, and `run` refuses a non-dry
+            # invocation on purpose — see SWEEP_IS_NOT_ONE_COMMAND in cli.ts.
             #
-            # Read out of the source because the only other way to ask is to
-            # run the CLI without `--dry-run`, and running it speculatively is
-            # precisely the thing that must not happen. The string goes away
-            # when the runner lands, and so does this check.
-            if grep -q 'only --dry-run is implemented' "$CLI"; then
-              echo "sweep_capable=false" >> "$GITHUB_OUTPUT"
-              echo "::notice::the CLI on this branch implements the plan only, so a live sweep would fail; the plan comment says so instead of promising one"
-            else
+            # This matters before a single dollar. A `--live` request against
+            # a branch missing either file would post "this is a live sweep,
+            # it starts now", pay for a checkout and a full workspace build,
+            # and then go red with the plan comment still promising a sweep.
+            #
+            # Checked by existence rather than by running anything, because
+            # running the sweep speculatively is precisely what must not
+            # happen.
+            if [ -f "$SWEEP_SUITE" ] && [ -f "$JUDGING_ENTRY" ]; then
               echo "sweep_capable=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "sweep_capable=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::this branch has the plan but not both halves of the sweep ($SWEEP_SUITE and $JUDGING_ENTRY), so a live sweep would fail; the plan comment says so instead of promising one"
             fi
             exit 0
           fi
@@ -769,6 +774,15 @@ jobs:
     concurrency:
       group: judge-sweep-${{ inputs.pr_number || github.run_id }}
       cancel-in-progress: true
+    env:
+      # ONE ID FOR ALL THREE PROCESSES. It is the directory the two arms meet
+      # in, so an id that differed between them would leave each arm stored
+      # where the other cannot see it — and the judging step would refuse for
+      # a reason that looked like a missing arm. Derived from the run rather
+      # than generated, so it is the same in every step and reproducible from
+      # the run's own URL. `run_attempt` is in it because a re-run is a
+      # different sweep that must not read the first one's records.
+      SWEEP_ID: judge-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       # First, before the checkout and the workspace build. Without it the
       # missing key surfaces minutes in, several frames deep inside the SDK, on
@@ -790,6 +804,16 @@ jobs:
           fi
           echo 'the Anthropic key is present'
 
+      # Set from a step rather than from the job's `env`, because the `runner`
+      # context is not available in `jobs.<id>.env`. Outside the checkout, so
+      # the records cannot be mistaken for tracked files or collide with the
+      # base worktree.
+      - name: Name the record store
+        run: |
+          set -euo pipefail
+          echo "RECORDS_DIR=$RUNNER_TEMP/judge-records" >> "$GITHUB_ENV"
+          echo "records for sweep $SWEEP_ID go in $RUNNER_TEMP/judge-records"
+
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.plan.outputs.candidate_sha }}
@@ -810,13 +834,101 @@ jobs:
           prisma-generate-script: generate:prisma:gp-api
           route-types: 'true'
 
-      - name: Run the sweep
-        working-directory: ${{ env.WORKSPACE }}
+      # THE SECOND CHECKOUT, and the reason the sweep is three processes
+      # rather than one. An arm is a worktree, and two worktrees are two
+      # module graphs — a single Node process cannot import both, so all of
+      # base runs, then all of candidate, then the judging reads both.
+      #
+      # Outside the repository tree, in RUNNER_TEMP. A worktree under
+      # `.worktrees/` would sit inside this checkout, and npm's node_modules
+      # resolution walks upward: the base arm would silently resolve the
+      # CANDIDATE's built `contracts` and `nest-common`, which is the one
+      # thing the two arms must not share.
+      - name: Check out the base arm into its own worktree
+        id: base
         env:
+          BASE_REF: ${{ needs.plan.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+          base_dir="$RUNNER_TEMP/judge-base"
+
+          # Checked before `git worktree add`, which would otherwise fail with
+          # a bare "invalid reference". The checkout above uses
+          # `fetch-depth: 0` so every branch is here — and
+          # `persist-credentials: false`, so if one is missing this job cannot
+          # go and get it and the fix is upstream, not a retry.
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/$BASE_REF" \
+            >/dev/null; then
+            echo "::error::origin/$BASE_REF is not in this checkout, so the base arm cannot be captured. The sweep checkout uses fetch-depth: 0 to bring every branch; if that changed, this is where it shows up."
+            exit 1
+          fi
+
+          git worktree add --detach "$base_dir" "origin/$BASE_REF"
+
+          # AND DOES THE BASE REF HAVE THE SUITE? `sweep_capable` upstream
+          # only ever looked at the candidate checkout, so it green-lit a
+          # live sweep on the strength of one of the two arms. A base ref
+          # that predates the harness — which `universal-judge` itself did
+          # while this was being built, and which any older base still does —
+          # would then take the "This is a live sweep. It starts now" comment,
+          # a second npm ci, contracts, nest-common, prisma and route-types,
+          # and die on "No test files found".
+          #
+          # Checked here rather than in `plan`, which has a shallow checkout
+          # at the candidate SHA and cannot see the base ref's tree at all.
+          # Before the install below, so the failure is cheap.
+          if ! git cat-file -e \
+            "origin/$BASE_REF:$WORKSPACE/$SWEEP_SUITE" 2>/dev/null; then
+            echo "::error::origin/$BASE_REF does not carry $WORKSPACE/$SWEEP_SUITE, so the base arm cannot be captured and there is nothing to compare against. The judge has to be on both sides of a comparison: judge a PR whose base already has it, or merge the harness to $BASE_REF first."
+            exit 1
+          fi
+
+          # The base arm's commit is not in the plan's outputs and cannot be:
+          # only this worktree knows what `origin/<base ref>` resolved to. It
+          # goes on the record as `variant.commit`, so a verdict names the two
+          # commits it compared rather than a branch name that has since moved.
+          commit="$(git -C "$base_dir" rev-parse HEAD)"
+          {
+            echo "dir=$base_dir"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+          echo "base arm: origin/$BASE_REF at $commit"
+
+      # Mirrors setup-node-workspace, which cannot be pointed at another
+      # directory. Every step the action runs that the base arm needs, run
+      # there instead: its own install, its own contracts and nest-common
+      # dist, its own Prisma client and route types. Sharing any of those with
+      # the candidate is what would make the two arms the same arm.
+      - name: Install the base arm's workspace
+        working-directory: ${{ steps.base.outputs.dir }}
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit --no-fund
+          npm run build -w packages/contracts
+          npm run build -w packages/nest-common
+          npm run generate:prisma:gp-api
+          (cd "$WORKSPACE" && npx tsx scripts/generate-route-types.ts)
+
+      # ARM 1 OF 2. Identical to the candidate step below except for
+      # JUDGE_ARM, JUDGE_ARM_COMMIT and the directory, which is the whole
+      # design: one suite, two invocations, one record store.
+      - name: Capture the base arm
+        working-directory: ${{ steps.base.outputs.dir }}/${{ env.WORKSPACE }}
+        env:
+          JUDGE_ARM: base
+          JUDGE_ARM_COMMIT: ${{ steps.base.outputs.commit }}
+          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
           JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
           JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
+          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
+          # The affirmative spend switch, and the second one in the chain:
+          # this job already requires `inputs.live == true` to exist at all.
+          # Anything other than the exact string `true` makes the runner use a
+          # canned reply, so a garbled value costs a sweep that did not happen
+          # rather than one nobody asked for.
+          JUDGE_SPEND: 'true'
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # gp-api reads DATABRICKS_SERVER_HOSTNAME; the repository variable is
           # DATABRICKS_HOST, which is what the Python side reads. Mapped here
@@ -826,40 +938,97 @@ jobs:
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
-          # existing eval suites self-skip on, and this workflow is not one of
-          # them: the sweep is the judge CLI, and whether its chat runner needs
-          # that flag set on its own child process belongs to the runner track.
-          # Setting it here would put the one switch that turns model calls on
-          # in the file furthest from the code that makes them.
+          # existing eval suites self-skip on, and the sweep suite is not one
+          # of them: it skips on JUDGE_ARM being absent, which is the value
+          # that actually says a sweep was asked for. JUDGE_SPEND is what
+          # turns model calls on.
         run: |
           set -euo pipefail
-
-          # The orchestrator suite lands with wave 2 — nothing here drives the
-          # runners yet, and the CLI refuses a non-dry run on purpose. Fail
-          # with that sentence rather than with whatever a missing path throws,
-          # because a live sweep that dies obscurely is the one failure that
-          # costs money before it reports.
-          if [ ! -f "$SWEEP_SUITE" ]; then
-            echo "::error::$WORKSPACE/$SWEEP_SUITE is not on this branch yet."
-            echo "The runners and the judge exist; the orchestrator that walks"
-            echo "a case list across both arms and writes the records does not."
-            exit 1
-          fi
-
-          # vitest, never tsx — see SWEEP_SUITE at the top of this file. The
-          # four values the sweep needs are in the environment above, which is
-          # the only channel a test file can read them from.
-          #
-          # stdout goes to the job log and nowhere else — see the summary step.
+          # vitest, never tsx — see SWEEP_SUITE at the top of this file.
           npx vitest run "$SWEEP_SUITE"
 
-      # What was swept and where to look, and deliberately NOT the sweep's own
+      # ARM 2 OF 2, in the checkout this job started in.
+      #
+      # Sequential, not interleaved, and the report says so rather than
+      # claiming otherwise: each arm stamps its capture window and the report
+      # prints the gap between them, flagging a comparison whose arms are far
+      # apart. The TDD asks for "base, candidate, base, candidate" in time,
+      # which two worktrees cannot deliver.
+      - name: Capture the candidate arm
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          JUDGE_ARM: candidate
+          JUDGE_ARM_COMMIT: ${{ needs.plan.outputs.candidate_sha }}
+          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
+          JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
+          JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
+          JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
+          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
+          JUDGE_SPEND: 'true'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          npx vitest run "$SWEEP_SUITE"
+
+      # STEP 3: the verdict. Under tsx, not vitest, because it needs no
+      # `useTestService()` — it reads both arms' stored records and runs pure
+      # functions over them. It writes the report to stdout and to
+      # $GITHUB_STEP_SUMMARY itself.
+      #
+      # It refuses rather than reporting when either arm wrote no manifest,
+      # which is the failure a vitest suite produces by self-skipping every
+      # test: that PASSES, and without the manifest check this job would go
+      # green having judged nothing.
+      - name: Judge both arms
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}
+          JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
+          JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
+          JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          npx tsx "$JUDGING_ENTRY"
+
+      # THE RECORDS ARE NOT KEPT, and that is the deliberate choice rather
+      # than an omission.
+      #
+      # The design puts them under `_judge/<sweepId>/` on
+      # gp-agent-artifacts-dev, and `records.ts` has that store ready — a
+      # rubric change re-grades stored records at zero agent cost, which is
+      # only true while they exist. Two things are in the way, and neither is
+      # this PR's to decide.
+      #
+      # S3 needs an IAM grant that does not exist yet AND `id-token: write`
+      # on this job — the job that runs the branch's own code with the
+      # Anthropic and Databricks credentials in its environment. Widening its
+      # permissions is a change to review on its own.
+      #
+      # A workflow artifact is NOT the stopgap it looks like. omni is public,
+      # and an artifact on a public repository is downloadable by anyone who
+      # can see the run, anonymously. A record carries the agent's complete
+      # answer and, in `toolQueries`, every SQL statement the model wrote
+      # against the constituent tables. Publishing that to an anonymous URL
+      # for the sake of re-gradability is the wrong trade for restricted data,
+      # and a redacted projection would not serve re-grading anyway, because
+      # a rubric re-grade needs exactly the text that would have to go.
+      #
+      # So records live for the length of the job. Set JUDGE_RECORDS_BUCKET
+      # instead of JUDGE_RECORDS_DIR once the grant and the permission land,
+      # and durability arrives in the private bucket where it belongs.
+
+      # What was swept and where to look, and deliberately NOT the arms' own
       # stdout. Two reasons, either sufficient. It is a program's output going
       # into a page this bot renders, so quoting it safely is work that buys
-      # nothing here; and the verdict belongs to the report track, which writes
-      # it from the judge's own records rather than from whatever the run
-      # happened to print. Two writers on one PR would race, and the trigger is
-      # the one with less to say.
+      # nothing here; and the verdict is already in the summary, written by the
+      # judging step from the stored records rather than from whatever the arms
+      # happened to print.
       - name: Summarise the sweep
         if: always()
         env:
@@ -867,6 +1036,9 @@ jobs:
           ESTIMATE_USD: ${{ needs.plan.outputs.estimate_usd }}
           CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
           BASE_REF: ${{ needs.plan.outputs.base_ref }}
+          # Resolved by the worktree step. Guarded with `:-` below because this
+          # step runs on `always()` and that step may not have been reached.
+          BASE_SHA: ${{ steps.base.outputs.commit }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -877,20 +1049,15 @@ jobs:
             echo "| | |"
             echo "| --- | --- |"
             echo "| agents | \`$AGENTS\` |"
-            # The set that will actually be swept, whenever it is narrower
-            # than the selection. This table exists to make an accidental
-            # `all` visible; a row naming a WIDER list than the run will use is
-            # the same failure pointing the other way, and the sweep job's own
-            # summary prints the narrow list, so without this "agents" would
-            # name two different sets in two summaries of one run.
-            if [ "$sweep_agents" != "$AGENTS" ]; then
-              echo "| to sweep | \`${sweep_agents:-nothing}\` |"
-            fi
             echo "| candidate | \`$CANDIDATE_SHA\` |"
-            echo "| base | \`$BASE_REF\` |"
+            echo "| base | \`$BASE_REF\` (\`${BASE_SHA:-unresolved}\`) |"
+            echo "| sweep id | \`$SWEEP_ID\` |"
             echo "| estimated before the run | ~\$$ESTIMATE_USD |"
             echo "| outcome | $JOB_STATUS |"
             echo ''
-            echo "Output is in [the run log]($RUN_URL). The verdict itself is the report"
-            echo 'track'"'"'s to publish.'
+            echo "Output is in [the run log]($RUN_URL). The verdict itself is written"
+            echo 'above by the judging step, from the stored records rather than from'
+            echo 'whatever this run happened to print. The records themselves are not'
+            echo 'kept: they carry the agents'"'"' answers and generated SQL, and omni is'
+            echo 'public, so they wait for the private bucket rather than an artifact.'
           } >> "$GITHUB_STEP_SUMMARY"

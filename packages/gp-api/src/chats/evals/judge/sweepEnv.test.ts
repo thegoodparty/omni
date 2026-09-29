@@ -1,0 +1,235 @@
+import { describe, expect, it } from 'vitest'
+import {
+  SweepEnvError,
+  parseArmEnv,
+  parseSweepEnv,
+  variantFor,
+} from './sweepEnv'
+
+const SHA = 'a'.repeat(40)
+
+const armEnv = (over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
+  JUDGE_ARM: 'candidate',
+  JUDGE_SWEEP_ID: 'swp_1',
+  JUDGE_AGENTS: 'chief_of_staff',
+  JUDGE_BASE_REF: 'universal-judge',
+  JUDGE_CANDIDATE_SHA: SHA,
+  JUDGE_ARM_COMMIT: SHA,
+  JUDGE_RECORDS_DIR: '/tmp/judge',
+  ...over,
+})
+
+describe('parseArmEnv', () => {
+  it('reads a complete arm environment', () => {
+    const env = parseArmEnv(armEnv())
+    expect(env.arm).toBe('candidate')
+    expect(env.sweepId).toBe('swp_1')
+    expect(env.agentIds).toEqual(['chief_of_staff'])
+    expect(env.recordsDir).toBe('/tmp/judge')
+  })
+
+  it('splits and trims a comma-separated agent list', () => {
+    expect(
+      parseArmEnv(armEnv({ JUDGE_AGENTS: 'chief_of_staff, priority_flow ' }))
+        .agentIds,
+    ).toEqual(['chief_of_staff', 'priority_flow'])
+  })
+
+  // A repeated id would be swept twice and billed twice, and the second pass
+  // overwrites the first's records at the same keys — paid double, reported
+  // single. `parseAgentSelector` dedupes the CLI's list for the same reason.
+  it('dedupes the agent list', () => {
+    expect(
+      parseArmEnv(
+        armEnv({ JUDGE_AGENTS: 'chief_of_staff,priority_flow,chief_of_staff' }),
+      ).agentIds,
+    ).toEqual(['chief_of_staff', 'priority_flow'])
+  })
+
+  // A sweep that dies several frames deep on an undefined has already spent
+  // money. Every missing value is named instead.
+  it.each([
+    'JUDGE_SWEEP_ID',
+    'JUDGE_AGENTS',
+    'JUDGE_BASE_REF',
+    'JUDGE_CANDIDATE_SHA',
+    'JUDGE_ARM_COMMIT',
+  ])('names %s when it is missing', (name) => {
+    const env = armEnv()
+    delete env[name]
+    expect(() => parseArmEnv(env)).toThrow(
+      new RegExp(`cannot capture an arm: ${name} is not set`),
+    )
+  })
+
+  it('names every missing value, not only the first', () => {
+    const env = armEnv()
+    delete env.JUDGE_BASE_REF
+    delete env.JUDGE_ARM_COMMIT
+    const message = (() => {
+      try {
+        parseArmEnv(env)
+        return ''
+      } catch (err) {
+        return err instanceof Error ? err.message : ''
+      }
+    })()
+    expect(message).toContain('JUDGE_BASE_REF is not set')
+    expect(message).toContain('JUDGE_ARM_COMMIT is not set')
+  })
+
+  // An empty string is a value the workflow can hand over, and treating it as
+  // present would make the sweep write records under an empty sweep id.
+  it('treats an empty value as unset rather than as a value', () => {
+    expect(() => parseArmEnv(armEnv({ JUDGE_SWEEP_ID: '   ' }))).toThrow(
+      /JUDGE_SWEEP_ID is not set/,
+    )
+  })
+
+  it('distinguishes a malformed value from a missing one', () => {
+    expect(() => parseArmEnv(armEnv({ JUDGE_SWEEP_ID: 'has/slash' }))).toThrow(
+      /JUDGE_SWEEP_ID names a directory/,
+    )
+  })
+
+  it('rejects an arm that is neither base nor candidate', () => {
+    expect(() => parseArmEnv(armEnv({ JUDGE_ARM: 'both' }))).toThrow(
+      SweepEnvError,
+    )
+  })
+
+  // The candidate arm's commit is known twice, and a disagreement means the
+  // checkout is not the commit the plan priced — invisible in the records,
+  // because both values look like commits.
+  it('refuses a candidate checkout that is not the planned commit', () => {
+    expect(() =>
+      parseArmEnv(armEnv({ JUDGE_ARM_COMMIT: 'b'.repeat(40) })),
+    ).toThrow(/is not the commit under test/)
+  })
+
+  // The base arm runs in a worktree at the base ref, so its HEAD is expected
+  // to differ from the candidate SHA. Applying the check to both arms would
+  // make the base arm impossible to run.
+  it('allows the base arm to be at a different commit', () => {
+    const env = parseArmEnv(
+      armEnv({ JUDGE_ARM: 'base', JUDGE_ARM_COMMIT: 'b'.repeat(40) }),
+    )
+    expect(env.armCommit).toBe('b'.repeat(40))
+  })
+
+  // Affirmative, like the workflow's own `live` switch: anything that is not
+  // exactly 'true' plans rather than spends.
+  it.each([undefined, '', 'TRUE', '1', 'yes', 'false'])(
+    'does not spend on JUDGE_SPEND=%o',
+    (value) => {
+      expect(
+        parseArmEnv(armEnv(value === undefined ? {} : { JUDGE_SPEND: value }))
+          .spends,
+      ).toBe(false)
+    },
+  )
+
+  it('spends only on the exact string true', () => {
+    expect(parseArmEnv(armEnv({ JUDGE_SPEND: 'true' })).spends).toBe(true)
+  })
+
+  it('requires somewhere to put records', () => {
+    const env = armEnv()
+    delete env.JUDGE_RECORDS_DIR
+    expect(() => parseArmEnv(env)).toThrow(/has nowhere to put records/)
+  })
+
+  // Two stores and no rule for which wins is how the two arms end up writing
+  // to different places and never meeting.
+  it('refuses both a directory and a bucket', () => {
+    expect(() =>
+      parseArmEnv(armEnv({ JUDGE_RECORDS_BUCKET: 'gp-agent-artifacts-dev' })),
+    ).toThrow(/set exactly one/)
+  })
+
+  it('carries the pinned Delta version through', () => {
+    expect(parseArmEnv(armEnv({ JUDGE_DATA_VERSION: '412' })).dataVersion).toBe(
+      '412',
+    )
+  })
+
+  it('reads a PR number when there is one', () => {
+    expect(parseArmEnv(armEnv({ JUDGE_PR_NUMBER: '2240' })).prNumber).toBe(2240)
+  })
+})
+
+describe('variantFor', () => {
+  it('names the base ref on the base arm', () => {
+    const env = parseArmEnv(
+      armEnv({ JUDGE_ARM: 'base', JUDGE_ARM_COMMIT: 'b'.repeat(40) }),
+    )
+    expect(variantFor(env)).toEqual({
+      ref: 'universal-judge',
+      commit: 'b'.repeat(40),
+    })
+  })
+
+  it('names the head ref on the candidate arm when it has one', () => {
+    const env = parseArmEnv(
+      armEnv({ JUDGE_CANDIDATE_REF: 'judge-track-orchestrator' }),
+    )
+    expect(variantFor(env).ref).toBe('judge-track-orchestrator')
+  })
+
+  // Falling back to the base ref would make the two arms indistinguishable in
+  // the one field meant to tell them apart.
+  it('falls back to the commit, never to the base ref', () => {
+    const ref = variantFor(parseArmEnv(armEnv())).ref
+    expect(ref).toBe(`candidate@${'a'.repeat(12)}`)
+    expect(ref).not.toBe('universal-judge')
+  })
+})
+
+describe('parseSweepEnv', () => {
+  // THE JUDGING ENTRY SPENDS TOO — one panel call per judgeable pair, per
+  // seat. A switch that gated only the arms made "exercise the pipeline for
+  // nothing" a false claim, and it was one.
+  it.each([undefined, '', 'TRUE', '1', 'false'])(
+    'does not spend on JUDGE_SPEND=%o',
+    (value) => {
+      expect(
+        parseSweepEnv({
+          JUDGE_SWEEP_ID: 'swp_1',
+          JUDGE_AGENTS: 'chief_of_staff',
+          JUDGE_RECORDS_DIR: '/tmp/judge',
+          ...(value === undefined ? {} : { JUDGE_SPEND: value }),
+        }).spends,
+      ).toBe(false)
+    },
+  )
+
+  it('spends only on the exact string true', () => {
+    expect(
+      parseSweepEnv({
+        JUDGE_SWEEP_ID: 'swp_1',
+        JUDGE_AGENTS: 'chief_of_staff',
+        JUDGE_RECORDS_DIR: '/tmp/judge',
+        JUDGE_SPEND: 'true',
+      }).spends,
+    ).toBe(true)
+  })
+
+  // The judging entry reads both arms, so it must not require JUDGE_ARM — a
+  // parser shared with the arm capture would make step 3 need a value that
+  // means nothing to it.
+  it('needs no arm, commit or ref', () => {
+    const env = parseSweepEnv({
+      JUDGE_SWEEP_ID: 'swp_1',
+      JUDGE_AGENTS: 'chief_of_staff',
+      JUDGE_RECORDS_DIR: '/tmp/judge',
+    })
+    expect(env.sweepId).toBe('swp_1')
+    expect(env.agentIds).toEqual(['chief_of_staff'])
+  })
+
+  it('names what is missing for the judging entry', () => {
+    expect(() => parseSweepEnv({ JUDGE_AGENTS: 'chief_of_staff' })).toThrow(
+      /judging entry cannot run: JUDGE_SWEEP_ID is not set/,
+    )
+  })
+})
