@@ -25,6 +25,7 @@ WORKDIR /app/packages/gp-api
 
 COPY packages/gp-api/dist ./dist
 COPY packages/gp-api/prisma ./prisma
+COPY packages/gp-api/prisma-election ./prisma-election
 
 # Copy seed and src for tsx runtime seeding (preview environments only)
 COPY packages/gp-api/seed ./seed
