@@ -3,7 +3,8 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common'
-import { describe, expect, it } from 'vitest'
+import type { PinoLogger } from 'nestjs-pino'
+import { describe, expect, it, vi } from 'vitest'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 
 const TINYURL_MESSAGE =
@@ -16,6 +17,13 @@ const axiosError = (data: object, status = 400) => {
     config,
     response: { status, data, headers: {}, config },
   })
+}
+
+// Only the two levels this service writes. Cast at the boundary so the tests
+// can assert on calls without standing up a real PinoLogger.
+const fakeLogger = () => {
+  const logger = { error: vi.fn(), warn: vi.fn() }
+  return { logger, asPino: logger as unknown as PinoLogger }
 }
 
 describe('PeerlyErrorHandlingService', () => {
@@ -101,5 +109,119 @@ describe('PeerlyErrorHandlingService', () => {
     await expect(service.handleApiError({ error: original })).rejects.toBe(
       original,
     )
+  })
+
+  // The level of these lines is what decides whether win-peerly-warnings pages
+  // win-bugs: the rule counts error-level lines carrying 'Peerly API ERROR'.
+  describe('log level', () => {
+    // Peerly proxies CampaignVerify and collapses its answer into a 400 with
+    // CV's own status echoed in status_code. This is the prod shape.
+    const cvPinFailure = (nestedStatus: number) =>
+      axiosError({
+        Error: 'Campaign Verify Verify PIN API request failed.',
+        status_code: nestedStatus,
+      })
+
+    it('logs at error by default, so a real fault still pages', async () => {
+      const { logger, asPino } = fakeLogger()
+
+      await expect(
+        service.handleApiError({
+          error: cvPinFailure(500),
+          logger: asPino,
+        }),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(logger.error).toHaveBeenCalled()
+      expect(logger.warn).not.toHaveBeenCalled()
+    })
+
+    // The incident: a candidate mistyping a PIN paged win-bugs 18 times in 14
+    // days, because the caller's classification never reached the log level.
+    it('logs an expected rejection at warn, on every line it writes', async () => {
+      const { logger, asPino } = fakeLogger()
+
+      await expect(
+        service.handleApiError({
+          error: cvPinFailure(422),
+          context: { expectedRejection: true },
+          logger: asPino,
+        }),
+      ).rejects.toThrow(BadGatewayException)
+
+      // Both the summary line and the response-detail line, or the detail line
+      // alone keeps the alert firing.
+      expect(logger.warn).toHaveBeenCalledTimes(2)
+      expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    it('still logs at error when the caller did not classify it', async () => {
+      const { logger, asPino } = fakeLogger()
+
+      await expect(
+        service.handleApiError({
+          error: cvPinFailure(422),
+          context: { expectedRejection: false },
+          logger: asPino,
+        }),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(logger.error).toHaveBeenCalled()
+      expect(logger.warn).not.toHaveBeenCalled()
+    })
+
+    // A content rejection is surfaced to the user as a 400 carrying Peerly's
+    // own wording, so it is self-service, not an incident. Nothing has to be
+    // passed for this one — the body is enough to recognize it.
+    it('logs a template content rejection at warn without being told to', async () => {
+      const { logger, asPino } = fakeLogger()
+      const error = axiosError({
+        Errors: { templates: [{ non_field_errors: [TINYURL_MESSAGE] }] },
+      })
+
+      await expect(
+        service.handleApiError({ error, logger: asPino }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(logger.warn).toHaveBeenCalledTimes(2)
+      expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    // The 5xx guard on the throw path has to hold for the level too: a vendor
+    // outage wearing a template-shaped body is exactly what must keep paging.
+    it('keeps a 5xx at error even with a template-shaped body', async () => {
+      const { logger, asPino } = fakeLogger()
+      const error = axiosError(
+        { Errors: { templates: [{ non_field_errors: [TINYURL_MESSAGE] }] } },
+        502,
+      )
+
+      await expect(
+        service.handleApiError({ error, logger: asPino }),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(logger.error).toHaveBeenCalled()
+      expect(logger.warn).not.toHaveBeenCalled()
+    })
+
+    // customMessage means the caller reframed the failure for its own recovery
+    // path, so it is not the self-service 400 the warn level is justified by.
+    it('keeps a reframed template rejection at error', async () => {
+      const { logger, asPino } = fakeLogger()
+      const error = axiosError({
+        Errors: { templates: [{ non_field_errors: [TINYURL_MESSAGE] }] },
+      })
+
+      await expect(
+        service.handleApiError({
+          error,
+          context: { customMessage: 'Failed to assign list to P2P job' },
+          logger: asPino,
+        }),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(logger.error).toHaveBeenCalled()
+      expect(logger.warn).not.toHaveBeenCalled()
+    })
   })
 })

@@ -1513,6 +1513,10 @@ describe('PeerlyIdentityService', () => {
           context: expect.objectContaining({
             httpExceptionClass: UnprocessableEntityException,
             suppressSlackAlert: true,
+            // Separate from the Slack flag on purpose: this is what keeps the
+            // `Peerly API ERROR` line at warn, and so what keeps
+            // win-peerly-warnings from paging win-bugs on a typo.
+            expectedRejection: true,
           }),
         }),
       )
@@ -1522,18 +1526,30 @@ describe('PeerlyIdentityService', () => {
       const httpService = module.get(PeerlyHttpService)
       const usersService = module.get(UsersService)
       const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
       usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
       httpService.post = vi.fn().mockRejectedValueOnce(declinedResend())
 
       await service.resendCampaignVerifyPin('peerly-1', campaign)
 
       expect(slackService.message).not.toHaveBeenCalled()
+      // CV refuses a resend within 10 days of mailing a PIN. Same reasoning as
+      // the wrong-PIN path above: designed refusal, so warn rather than error.
+      expect(errorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({
+            suppressSlackAlert: true,
+            expectedRejection: true,
+          }),
+        }),
+      )
     })
 
     it('still pages when CampaignVerify itself is down (nested 5xx)', async () => {
       const httpService = module.get(PeerlyHttpService)
       const usersService = module.get(UsersService)
       const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
       usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
       httpService.post = vi
         .fn()
@@ -1548,6 +1564,16 @@ describe('PeerlyIdentityService', () => {
       await service.verifyCampaignVerifyPin('peerly-1', '000000', campaign)
 
       expect(slackService.message).toHaveBeenCalledTimes(1)
+      // The half that matters for the alert: CV being down must stay at error
+      // level, or fixing the false pages would also remove the real one.
+      expect(errorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({
+            suppressSlackAlert: false,
+            expectedRejection: false,
+          }),
+        }),
+      )
     })
 
     it('still pages on a Peerly 400 that is not a CV passthrough', async () => {
