@@ -1,0 +1,525 @@
+name: Universal Judge sweep
+
+# The reusable half of the Universal Judge trigger. One question, for any agent:
+# is this branch better, worse or the same as what it branches from?
+# Design: https://goodparty.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-140793
+#
+# THIS FILE HAS NO TRIGGERS OF ITS OWN, deliberately. The three ways a sweep can
+# be asked for — a PR event, a manual dispatch, a `/judge` comment — live in
+# judge-request.yml and judge-comment.yml and all call this job. The reason is
+# not tidiness: `workflow_call` and `workflow_dispatch` share a single `inputs`
+# context, so a file carrying both has one set of input defaults serving two
+# entry points. Getting that wrong here means `dry_run` silently reads empty on
+# one path, and empty is falsy, which is a live sweep. Splitting the entry
+# points means every caller states `dry_run` explicitly and the default below
+# only ever applies to a caller that forgot — where it fails safe.
+#
+# WHAT EACH CALLER IS RESPONSIBLE FOR: deciding *whether* someone may ask
+# (the comment path's org-member check) and *what* they asked for. Everything
+# after that — is this a fork, which SHAs, what will it cost — is here, so
+# there is one implementation of it rather than three.
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: >-
+          The PR to judge. Both refs are resolved from it. Typed as a string
+          rather than a number on purpose: the dispatch and comment callers
+          reach this input through different contexts, and the gate step below
+          validates it as digits anyway, which is the check that actually holds.
+        required: true
+        type: string
+      agents:
+        description: >-
+          One agent id, a comma-separated subset, `all`, or `auto`. `auto` is
+          the normal case: whichever agents the branch actually touched, which
+          for most PRs is exactly one. `all` is the rare, expensive exception
+          for a change to shared code — see the estimate this job posts.
+        required: false
+        default: auto
+        type: string
+      dry_run:
+        description: >-
+          Plan only. Defaults true so a caller that says nothing spends nothing;
+          a live sweep is an explicit opt-in on every path.
+        required: false
+        default: true
+        type: boolean
+      requested_by:
+        description: Login to credit in the plan comment. Cosmetic.
+        required: false
+        default: ''
+        type: string
+    secrets:
+      ANTHROPIC_API_KEY:
+        # required: false so the dry-run path works in a context with no
+        # secrets at all, rather than the caller failing before it can report
+        # that it was only ever going to print a plan.
+        required: false
+      DATABRICKS_CLIENT_ID:
+        required: false
+      DATABRICKS_CLIENT_SECRET:
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write # upsert the plan comment
+
+env:
+  WORKSPACE: packages/gp-api
+  CLI: src/chats/evals/judge/cli.ts
+
+jobs:
+  # GUARD 2 of 3 lives on both jobs below, as `concurrency`.
+  #
+  # Keyed per PR with cancel-in-progress, so a second `/judge` on the same PR
+  # replaces the sweep that is running instead of stacking a second one beside
+  # it and paying for both. This is a money guard, not a runner-minutes one,
+  # which is why it cancels rather than queueing: a superseded sweep judges a
+  # commit nobody is asking about any more.
+  #
+  # Per job rather than per workflow, and with a different suffix each: a group
+  # shared by two jobs of the same run has them cancelling each other (the
+  # trap gp-api.yml's test matrix documents). `plan` and `sweep` are sequential
+  # so it would probably not bite, but "probably" is not a property to rely on
+  # for a job that spends money.
+  #
+  # The run_id fallback keeps the key unique when there is no PR number, so the
+  # group never matches and nothing cancels.
+
+  plan:
+    name: Plan and estimate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: judge-plan-${{ inputs.pr_number || github.run_id }}
+      cancel-in-progress: true
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
+      agents: ${{ steps.select.outputs.agents }}
+      candidate_sha: ${{ steps.gate.outputs.candidate_sha }}
+      base_ref: ${{ steps.gate.outputs.base_ref }}
+      estimate_usd: ${{ steps.estimate.outputs.usd }}
+    steps:
+      # GUARD 1 of 3. Runs before the checkout, and that ordering is the whole
+      # point of it.
+      #
+      # omni is public. A pull request from a fork carries no secrets and a
+      # read-only token, so a sweep from one cannot work — but the sharper
+      # reason to stop here is the `/judge` path. `issue_comment` fires from the
+      # default branch with a write token and the repository's secrets, and the
+      # next thing this job does is check out the PR head and run `npm ci` and
+      # `npx tsx` from it. On a fork PR that is executing a stranger's code with
+      # our credentials. So the fork check has to happen before anything from
+      # the head commit is fetched, let alone run.
+      #
+      # `pull_request_target` is the usual workaround for the no-secrets half of
+      # this and is deliberately NOT used anywhere in the judge: it would hand
+      # the fork case exactly the secrets and write token that make it dangerous.
+      # A fork PR is out of scope for the judge, full stop.
+      #
+      # It SKIPS rather than fails. A red X on a PR that did nothing wrong reads
+      # as "the judge is broken" and someone spends an afternoon on it. The
+      # release-summary.yml gate idiom — one step setting an output, every later
+      # step reading it — keeps the job green and says why in the log.
+      - name: Resolve the PR and gate
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+
+          skip() {
+            echo "::notice::skipped: $1"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            { echo '### Universal Judge: skipped'; echo ''; echo "$1"; } \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+
+          case "$PR_NUMBER" in
+            ''|*[!0-9]*) skip "pr_number '$PR_NUMBER' is not a number" ;;
+          esac
+
+          pr="$(gh pr view "$PR_NUMBER" \
+            --json state,isCrossRepository,headRefOid,baseRefName)"
+
+          state="$(jq -r '.state' <<<"$pr")"
+          fork="$(jq -r '.isCrossRepository' <<<"$pr")"
+          sha="$(jq -r '.headRefOid' <<<"$pr")"
+          base="$(jq -r '.baseRefName' <<<"$pr")"
+
+          [ "$state" = "OPEN" ] || skip "PR #$PR_NUMBER is $state, not open"
+
+          if [ "$fork" = "true" ]; then
+            skip "fork PR. omni is public, so a fork event carries no secrets and the judge will not check out or run fork code with ours. Push the branch to this repository to judge it."
+          fi
+
+          # Both refs are re-validated even though they came from the GitHub API,
+          # because both are about to reach a `git` argument and a `checkout`
+          # ref. A 40-hex SHA and a ref name cannot be a flag or a shell
+          # metacharacter once they have passed these.
+          # Matched in the shell rather than through a pipe to `grep -q`: with
+          # `pipefail` set, a `grep -q` that exits on its first match can leave
+          # the writer with EPIPE and fail the step for the wrong reason.
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::head SHA '$sha' is not a 40-character hex object id"
+            exit 1
+          fi
+          if ! [[ "$base" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+            echo "::error::base ref '$base' is not a plain branch name"
+            exit 1
+          fi
+
+          {
+            echo "skip=false"
+            echo "candidate_sha=$sha"
+            echo "base_ref=$base"
+          } >> "$GITHUB_OUTPUT"
+          echo "PR #$PR_NUMBER: candidate $sha, base $base"
+
+      # The candidate arm is the PR HEAD commit, never `github.sha`. On a
+      # `pull_request` event `github.sha` is the ephemeral merge commit GitHub
+      # synthesises, which is neither arm of the comparison and does not exist
+      # on either branch. The base arm is likewise the PR's own base ref, not
+      # `main`: the judge's whole claim is "better or worse than what this
+      # branches from", and for a stacked PR that is not main.
+      - uses: actions/checkout@v5
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          ref: ${{ steps.gate.outputs.candidate_sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      # `auto` is resolved here rather than in the CLI because it is the one
+      # part of selection that needs the git history, and the CLI is a pure
+      # function over the registry by design (see selectAgents, which throws on
+      # `auto` and says so). The CLI is handed a concrete list.
+      #
+      # THE PATH MAP IS THE WEAK POINT and is called out in the PR: it duplicates
+      # knowledge that belongs next to `cases` in judge/agents.ts, and the wave-0
+      # registry has no field for it. An agent whose directory is not listed
+      # here is invisible to `auto` — which fails toward judging nothing rather
+      # than toward judging everything, but is still a gap. It should move into
+      # the registry when wave 2 wires the pieces together.
+      - name: Resolve the agent selection
+        id: select
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REQUESTED: ${{ inputs.agents }}
+          BASE_REF: ${{ steps.gate.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+
+          # Validated again on the way in. `agents` originates in a PR comment
+          # on one path, and it is about to become a command-line argument.
+          if ! [[ "$REQUESTED" =~ ^[a-z0-9_]+(,[a-z0-9_]+)*$ ]]; then
+            echo "::error::agents '$REQUESTED' is not an agent id, a comma-separated list of them, 'all', or 'auto'"
+            exit 1
+          fi
+
+          if [ "$REQUESTED" != "auto" ]; then
+            echo "agents=$REQUESTED" >> "$GITHUB_OUTPUT"
+            echo "selection: $REQUESTED (as asked for)"
+            exit 0
+          fi
+
+          # `gh pr diff` rather than a local `git diff` against a fetched base.
+          # It is the PR's own three-dot diff by definition, so there is no
+          # merge-base to compute and no second place for "what does this branch
+          # change" to disagree with GitHub. It also needs no git history and no
+          # git credentials, which matters because the checkout above runs with
+          # `persist-credentials: false` and a `git fetch origin` after it is not
+          # something to rely on.
+          changed="$(gh pr diff "$PR_NUMBER" --name-only)"
+
+          touched=""
+          add() { case ",$touched," in *",$1,"*) ;; *) touched="${touched:+$touched,}$1" ;; esac; }
+
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in
+              # Chat agents. The directory name is kebab-case and the agent id
+              # is the Prisma ChatScope value, and for campaign-manager the two
+              # do not match, which is why this is a table and not a tr.
+              packages/gp-api/src/chats/general/chief-of-staff/*)  add chief_of_staff ;;
+              packages/gp-api/src/chats/general/campaign-manager/*) add campaign_assistant ;;
+              packages/gp-api/src/chats/general/ordinance-flow/*)  add ordinance_flow ;;
+              packages/gp-api/src/chats/general/priority-flow/*)   add priority_flow ;;
+              # Background agents. One directory per published experiment, and
+              # the directory name IS the agent id.
+              packages/runbooks/experiments/_schema/*) ;;
+              packages/runbooks/experiments/*/*)
+                id="${path#packages/runbooks/experiments/}"
+                add "${id%%/*}"
+                ;;
+            esac
+          done <<EOF
+          $changed
+          EOF
+
+          if [ -z "$touched" ]; then
+            echo "::notice::auto selection matched no agent; nothing to judge"
+            echo "agents=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "agents=$touched" >> "$GITHUB_OUTPUT"
+          echo "selection: $touched (auto, from the diff against $BASE_REF)"
+
+      # GUARD 3 of 3, and the first thing that happens on any path that could
+      # spend: what this is about to cost, per agent, before a single model call.
+      #
+      # An accidental `all` is the failure this exists for. It is roughly $260
+      # against roughly $7 for the normal one-agent case, and the difference
+      # between those two is one word in a PR comment. So the number goes in
+      # front of a person, in the job summary and on the PR, and the live sweep
+      # is a separate job downstream of this one — the ordering is structural
+      # rather than a matter of keeping the steps in the right order.
+      #
+      # The dollar figures are the design doc's measured sweep costs, not a
+      # model of them: ~$7 for a chat agent, ~5x that for ordinance_flow (whose
+      # per-step cost is five times every other chat agent), ~$13 for a
+      # background agent. Per-agent case counts come from the CLI's own plan,
+      # which is reproduced verbatim below the table, so the two numbers a
+      # reader needs are never assembled by this YAML.
+      - name: Estimate the cost and case count
+        id: estimate
+        if: steps.gate.outputs.skip != 'true' && steps.select.outputs.agents != ''
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          AGENTS: ${{ steps.select.outputs.agents }}
+          REQUESTED: ${{ inputs.agents }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REQUESTED_BY: ${{ inputs.requested_by }}
+          CANDIDATE_SHA: ${{ steps.gate.outputs.candidate_sha }}
+          BASE_REF: ${{ steps.gate.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+
+          npx tsx "$CLI" --agents="$AGENTS" --dry-run | tee "$RUNNER_TEMP/plan.txt"
+
+          # A typo in a PR comment must not quietly sweep a shorter list than
+          # the person asked for. The CLI names unknown ids rather than
+          # ignoring them; this turns that into a stop.
+          if grep -q 'unknown agent ids:' "$RUNNER_TEMP/plan.txt"; then
+            echo "::error::$(grep 'unknown agent ids:' "$RUNNER_TEMP/plan.txt")"
+            exit 1
+          fi
+
+          # `  <agentId>  [<shape>]  cases: <n>` — the CLI's own plan lines.
+          priced="$(sed -nE 's/^  ([a-z0-9_]+)  \[(chat|background)\]  cases: (.*)$/\1 \2 \3/p' \
+            "$RUNNER_TEMP/plan.txt")"
+          if [ -z "$priced" ]; then
+            echo "::error::could not read any agent out of the CLI plan; refusing to report an estimate of \$0"
+            exit 1
+          fi
+
+          total=0
+          {
+            echo '| agent | shape | cases | estimated USD |'
+            echo '| --- | --- | --- | --- |'
+            while read -r id shape cases; do
+              case "$id" in
+                ordinance_flow) cents=3500 ;;  # ~5x per step, per the design doc
+                *) [ "$shape" = "chat" ] && cents=700 || cents=1300 ;;
+              esac
+              total=$((total + cents))
+              printf '| %s | %s | %s | ~%d.%02d |\n' \
+                "$id" "$shape" "$cases" "$((cents / 100))" "$((cents % 100))"
+            done <<<"$priced"
+          } > "$RUNNER_TEMP/table.md"
+
+          usd="$(printf '%d.%02d' "$((total / 100))" "$((total % 100))")"
+          echo "usd=$usd" >> "$GITHUB_OUTPUT"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            verdict="**Plan only — nothing will be spent.** Reply \`/judge --live\` (or \`/judge $AGENTS --live\`) to run it."
+          else
+            verdict="**This is a live sweep.** It starts now."
+          fi
+
+          {
+            echo '<!-- universal-judge-plan -->'
+            echo '## Universal Judge'
+            echo ''
+            echo "$verdict"
+            echo ''
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| estimated cost | **~\$$usd** |"
+            if [ "$REQUESTED" = "$AGENTS" ]; then
+              echo "| agents | \`$AGENTS\` |"
+            else
+              echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
+            fi
+            echo "| candidate | \`$CANDIDATE_SHA\` |"
+            echo "| base | \`$BASE_REF\` |"
+            echo ''
+            cat "$RUNNER_TEMP/table.md"
+            echo ''
+            echo 'Estimates are the design doc'"'"'s measured sweep costs, rounded. They exist'
+            echo 'to make an accidental all-agents sweep visible before it is expensive,'
+            echo 'not to bill anyone.'
+            echo ''
+            echo '<details><summary>Plan</summary>'
+            echo ''
+            echo '```'
+            cat "$RUNNER_TEMP/plan.txt"
+            echo '```'
+            echo ''
+            echo '</details>'
+            if [ -n "$REQUESTED_BY" ]; then
+              echo ''
+              echo "Requested by @$REQUESTED_BY."
+            fi
+          } > "$RUNNER_TEMP/comment.md"
+
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # Upserted on a marker, following pr-preview-comment.yml, so a PR that is
+      # judged several times carries one current estimate rather than a column
+      # of stale ones. Every value the script reads comes from `env` and
+      # `context`; nothing untrusted is interpolated into the JavaScript.
+      - name: Upsert the plan comment
+        if: steps.gate.outputs.skip != 'true' && steps.select.outputs.agents != ''
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          COMMENT_PATH: ${{ runner.temp }}/comment.md
+        with:
+          script: |
+            const fs = require('fs')
+            const marker = '<!-- universal-judge-plan -->'
+            const body = fs.readFileSync(process.env.COMMENT_PATH, 'utf8')
+            const issue_number = Number(process.env.PR_NUMBER)
+
+            const existing = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number, per_page: 100 },
+            )
+            const mine = existing.find((c) => c.body?.includes(marker))
+            if (mine) {
+              await github.rest.issues.updateComment({
+                ...context.repo,
+                comment_id: mine.id,
+                body,
+              })
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number,
+                body,
+              })
+            }
+
+      - name: Report an empty selection
+        if: steps.gate.outputs.skip != 'true' && steps.select.outputs.agents == ''
+        run: |
+          {
+            echo '### Universal Judge: nothing to judge'
+            echo ''
+            echo 'No agent'"'"'s code changed between this branch and its base, so there is'
+            echo 'nothing to compare. Name an agent explicitly if you want one swept anyway.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The only job that can spend. Everything it needs was decided and published
+  # by `plan`, which means the estimate is on the PR before this is eligible to
+  # start — the guard is the job graph, not step ordering inside one job.
+  #
+  # `!cancelled()` rather than `success()` is deliberate: it keeps the skip
+  # reasons distinguishable in the UI, while `needs` still prevents a run when
+  # `plan` failed outright.
+  sweep:
+    name: Sweep
+    needs: plan
+    if: >-
+      !cancelled()
+      && needs.plan.result == 'success'
+      && needs.plan.outputs.skip != 'true'
+      && needs.plan.outputs.agents != ''
+      && inputs.dry_run == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    concurrency:
+      group: judge-sweep-${{ inputs.pr_number || github.run_id }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.candidate_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: 'true'
+          build-nest-common: 'true'
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: 'true'
+
+      - name: Run the sweep
+        working-directory: ${{ env.WORKSPACE }}
+        env:
+          JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
+          JUDGE_CANDIDATE_SHA: ${{ needs.plan.outputs.candidate_sha }}
+          JUDGE_BASE_REF: ${{ needs.plan.outputs.base_ref }}
+          JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # gp-api reads DATABRICKS_SERVER_HOSTNAME; the repository variable is
+          # DATABRICKS_HOST, which is what the Python side reads. Mapped here
+          # rather than adding a second variable holding the same value.
+          DATABRICKS_SERVER_HOSTNAME: ${{ vars.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
+          # existing eval suites self-skip on, and this workflow is not one of
+          # them: the sweep is the judge CLI, and whether its chat runner needs
+          # that flag set on its own child process belongs to the runner track.
+          # Setting it here would put the one switch that turns model calls on
+          # in the file furthest from the code that makes them.
+        run: |
+          set -euo pipefail
+          # The ref flags land with the runner tracks; the CLI skeleton ignores
+          # flags it does not know. The same four values are also in the
+          # environment above, so whichever contract the runners settle on, the
+          # trigger is already passing what they need.
+          npx tsx "$CLI" \
+            --agents="$JUDGE_AGENTS" \
+            --base-ref="$JUDGE_BASE_REF" \
+            --candidate-sha="$JUDGE_CANDIDATE_SHA" \
+            --pr="$JUDGE_PR_NUMBER" \
+            | tee "$RUNNER_TEMP/sweep.txt"
+
+      # The job summary only. The verdict's own PR comment is the report track's
+      # output, not the trigger's — two writers would race on the same PR and
+      # the trigger is the one with less to say.
+      - name: Summarise the sweep
+        if: always()
+        run: |
+          set -euo pipefail
+          [ -s "$RUNNER_TEMP/sweep.txt" ] || exit 0
+          {
+            echo '### Universal Judge sweep'
+            echo ''
+            echo '```'
+            cat "$RUNNER_TEMP/sweep.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

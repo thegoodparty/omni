@@ -1,0 +1,144 @@
+name: Universal Judge comment
+
+# The way an engineer actually asks: `/judge` on their own PR.
+#
+# CANNOT BE EXERCISED UNTIL THIS FILE IS ON main. GitHub only fires
+# `issue_comment` from the workflow file on the default branch, so no comment on
+# a `universal-judge` build-track PR will start this. It is written and ready;
+# judge-request.yml's `pull_request` path is what proves the machinery until the
+# integration branch lands.
+#
+# THIS IS THE FIRST issue_comment WORKFLOW IN THE REPOSITORY, which is why the
+# next three paragraphs are here rather than assumed.
+#
+# WHAT MAKES IT DANGEROUS: `issue_comment` runs the workflow file from the
+# default branch, with the repository's secrets and a write token, and anyone
+# who can see a public repository can leave a comment on it. The two escalations
+# that follow from that are handled, in judge.yml, before any code from the PR
+# is fetched:
+#
+#   * a non-member cannot start it — the author-association gate below;
+#   * a fork's code cannot run with our credentials — judge.yml skips fork PRs
+#     before its checkout step, and `pull_request_target` is not used anywhere
+#     in the judge.
+#
+# WHY NOT `github.actor`: on this event `actor` is the commenter, so it would
+# work, but it says nothing about their relationship to the repository. The
+# author association is the field that does, and it is computed by GitHub rather
+# than supplied by the request.
+#
+# The comment body itself is never interpolated into a shell. It reaches bash
+# through `env` and leaves the parser as either a validated agent selector or a
+# rejection.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Deciding whether someone may ask, and what they asked for. No checkout,
+  # nothing from the PR, nothing that costs anything.
+  parse:
+    name: Parse the request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # `issue.pull_request` is present only on comments that are on a pull
+    # request, so this drops every issue comment in the repository before a
+    # runner is even assigned.
+    #
+    # THE MEMBER GATE. The design doc left this open as "members only, or a
+    # named list?" — this is members only, taken as OWNER, MEMBER or
+    # COLLABORATOR, which is the same set that can push to this repository. It
+    # deliberately does not include CONTRIBUTOR: having had a PR merged once is
+    # not authority to spend on the org's Anthropic account. Narrowing it to a
+    # named list is a one-line change here if the estimates ever justify one.
+    if: >-
+      github.event.issue.pull_request != null
+      && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    outputs:
+      requested: ${{ steps.parse.outputs.requested }}
+      agents: ${{ steps.parse.outputs.agents }}
+      dry_run: ${{ steps.parse.outputs.dry_run }}
+    steps:
+      - name: Parse the command
+        id: parse
+        env:
+          # Through the environment, never into the `run` block. A comment body
+          # is the most untrusted string this repository handles, and
+          # `${{ github.event.comment.body }}` inside a script is the textbook
+          # way to hand a stranger the runner.
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+
+          # Only the first line, and it must start the comment. Quoting somebody
+          # else's `/judge` in a reply should not fire a second sweep.
+          #
+          # Sliced in the shell rather than piped to `head -n 1`: a comment body
+          # has no length limit worth relying on, and with `pipefail` set a
+          # `head` that closes the pipe on line one leaves the writer with
+          # EPIPE — so a long comment would fail the step instead of being read.
+          line="${BODY%%$'\n'*}"
+          line="${line%$'\r'}"
+          case "$line" in
+            /judge|/judge\ *) ;;
+            *) echo "requested=false" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+
+          rest="${line#/judge}"
+          rest="$(printf '%s' "$rest" | tr -s '[:space:]' ' ')"
+          rest="${rest# }"
+          rest="${rest% }"
+
+          # A live sweep is an explicit word, on every path. Bare `/judge`
+          # answers with the plan and the price and tells you how to confirm it,
+          # which is one extra comment in exchange for never being surprised by
+          # an `all` on the invoice.
+          dry_run=true
+          case " $rest " in
+            *" --live "*)
+              dry_run=false
+              rest="$(printf '%s' " $rest " | sed 's/ --live / /g')"
+              rest="$(printf '%s' "$rest" | tr -s '[:space:]' ' ')"
+              rest="${rest# }"; rest="${rest% }"
+              ;;
+          esac
+
+          agents="${rest:-auto}"
+          # The allowlist, and the reason nothing downstream has to be careful:
+          # agent ids are lowercase snake_case, plus the literals `all` and
+          # `auto`. Everything else — a flag, a space, a shell metacharacter, a
+          # command substitution — is rejected here and never becomes an argument.
+          if ! [[ "$agents" =~ ^[a-z0-9_]+(,[a-z0-9_]+)*$ ]]; then
+            echo "requested=false" >> "$GITHUB_OUTPUT"
+            echo "::error::'$line' is not a judge request. Usage: /judge [agent-id[,agent-id...]|all|auto] [--live]"
+            exit 1
+          fi
+
+          {
+            echo "requested=true"
+            echo "agents=$agents"
+            echo "dry_run=$dry_run"
+          } >> "$GITHUB_OUTPUT"
+          echo "requested agents=$agents dry_run=$dry_run"
+
+  judge:
+    name: Judge
+    needs: parse
+    if: needs.parse.outputs.requested == 'true'
+    uses: ./.github/workflows/judge.yml
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      agents: ${{ needs.parse.outputs.agents }}
+      # A job output is a string, so this is a string comparison and not a
+      # truthiness test on the word "false".
+      dry_run: ${{ needs.parse.outputs.dry_run == 'true' }}
+      requested_by: ${{ github.event.comment.user.login }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}

@@ -1,0 +1,61 @@
+name: Universal Judge request
+
+# Two of the three ways to ask for a sweep. Both are thin: they decide what was
+# asked for and hand it to judge.yml, which owns the guards.
+#
+# `workflow_dispatch` is the manual entry point and CANNOT BE EXERCISED UNTIL
+# THIS FILE IS ON main. GitHub only offers a dispatch from the workflow file on
+# the default branch, so while the judge is being built on the `universal-judge`
+# integration branch there is no Run workflow button to press.
+#
+# `pull_request` exists so the trigger is not entirely unexercised until then.
+# It is scoped to PRs targeting `universal-judge`, which is to say the judge's
+# own build tracks, and it is hard-wired to a dry run: it proves the guards, the
+# ref resolution and the estimate on real PRs without a model call. It comes off
+# — or opens up — when the integration branch merges and the real triggers work.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to judge
+        required: true
+        type: string
+      agents:
+        description: >-
+          One agent id, a comma-separated subset, `all`, or `auto` (whichever
+          agents the branch touched — the normal case, and usually one agent).
+          `all` is the expensive exception for a change to shared code.
+        required: false
+        default: auto
+        type: string
+      dry_run:
+        description: Plan and estimate only, no model calls
+        required: false
+        default: true
+        type: boolean
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [universal-judge]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  judge:
+    name: Judge
+    uses: ./.github/workflows/judge.yml
+    with:
+      # `github.event.pull_request.number` on the PR path and the typed input on
+      # the dispatch path. The reusable workflow re-resolves both refs from
+      # whichever number arrives, so nothing here has to know the difference.
+      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
+      agents: ${{ inputs.agents || 'auto' }}
+      # A PR event is a build-time exercise, never a spend. Only an explicit
+      # dispatch can clear this, and it defaults to true there too.
+      dry_run: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+      requested_by: ${{ github.actor }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
