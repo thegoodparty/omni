@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRef } from 'react'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS } from 'helpers/analyticsHelper'
 import { makePerson } from '../../../contacts/crm/shared/test-fixtures'
@@ -1860,5 +1860,89 @@ describe('<ChiefOfStaffChatBody> upload guard toast', () => {
       EVENTS.ChiefOfStaff.UploadGuardShown,
       {},
     )
+  })
+})
+
+// Ported from the deleted AssistantDrawer.test.tsx: the contacts assistant used
+// to own this invalidation, and it moved here with the surface consolidation
+// because the agent can cut a list from any surface that mounts this body.
+describe('<ChiefOfStaffChatBody> saved-list invalidation', () => {
+  const streamSavedFilters = (): void => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_sf' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        {
+          type: 'tool_call',
+          toolName: 'crud_saved_filters',
+          args: { action: 'create' },
+        },
+        {
+          type: 'tool_result',
+          toolName: 'crud_saved_filters',
+          result: { id: 5 },
+        },
+        { type: 'text', delta: 'Saved your list.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+  }
+
+  it('drops the contacts queries when a saved-filter call finishes', async () => {
+    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    streamSavedFilters()
+
+    render(<ChiefOfStaffChatBody active pendingMessage="save that list" />)
+
+    // The lists index.
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['custom-segments', 'eo-test-org'],
+      }),
+    )
+    // The per-list detail sheet.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['list-detail', 'eo-test-org'],
+    })
+    // The members, not just the summary: the agent can rewrite a list's
+    // filters, and the map in this very transcript draws who is in it.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['list-people', 'eo-test-org'],
+    })
+  })
+
+  it('leaves them alone for an unrelated tool', async () => {
+    // `testQueryClient` is a shared singleton and spyOn returns the SAME mock
+    // when the method is already spied, so this inherits the previous test's
+    // call list. Clear it so the negative assertion is about this turn only.
+    const invalidate = vi
+      .spyOn(testQueryClient, 'invalidateQueries')
+      .mockClear()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_sf' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'tool_call', toolName: 'count_contacts', args: {} },
+        {
+          type: 'tool_result',
+          toolName: 'count_contacts',
+          result: { count: 3 },
+        },
+        { type: 'text', delta: 'About 3.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(<ChiefOfStaffChatBody active pendingMessage="how many?" />)
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.getByText('About 3.')).toBeInTheDocument(),
+    )
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ['custom-segments', 'eo-test-org'],
+    })
   })
 })
