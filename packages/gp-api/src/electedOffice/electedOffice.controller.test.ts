@@ -968,6 +968,23 @@ describe('ElectedOfficeController', () => {
   })
 
   describe('PUT /elected-office/:id/district', () => {
+    it('rejects a non-M2M caller', async () => {
+      const created = await createElectedOffice()
+      expect(created.status).toBe(200)
+
+      const result = await service.client.put(
+        `/v1/elected-office/${created.data.id}/district`,
+        { state: 'CA', L2DistrictType: 'CITY', L2DistrictName: 'OAKLAND' },
+      )
+
+      expect(result.status).toBe(403)
+
+      const organization = await service.prisma.organization.findUnique({
+        where: { slug: `eo-${created.data.id}` },
+      })
+      expect(organization?.overrideDistrictId).toBeNull()
+    })
+
     it('sets overrideDistrictId on the office organization', async () => {
       const created = await createElectedOffice()
       expect(created.status).toBe(200)
