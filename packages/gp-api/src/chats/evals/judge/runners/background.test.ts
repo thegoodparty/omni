@@ -713,6 +713,31 @@ describe('parseTrace', () => {
     expect(summary.trace[1]?.error).toBeUndefined()
   })
 
+  // The realistic dialect: the SDK reads `is_error` with `.get()`, so a
+  // SUCCESSFUL tool result carries `"is_error": null` rather than false. A
+  // schema that rejected null would drop that line, the success would never
+  // shift the queue, and the next genuine failure would be pinned to the call
+  // that actually succeeded.
+  it('lets a null-flagged success consume its own call', () => {
+    const summary = parseTrace(
+      [
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Bash","input":{}}]}}',
+        '{"type":"tool_result","content":"ok","is_error":null}',
+        '{"type":"assistant","message":{"content":[' +
+          '{"type":"tool_use","name":"Read","input":{}}]}}',
+        '{"type":"tool_result","content":"boom","is_error":true}',
+      ].join('\n'),
+    )
+
+    expect(summary.toolCalls).toBe(2)
+    expect(summary.toolErrors).toBe(1)
+    expect(summary.trace[0]).toMatchObject({ tool: 'Bash' })
+    expect(summary.trace[0]?.error).toBeUndefined()
+    expect(summary.trace[1]).toMatchObject({ tool: 'Read' })
+    expect(summary.trace[1]?.error).toBeDefined()
+  })
+
   it('marks the failing tool step, not a later one', () => {
     const summary = parseTrace(
       [
