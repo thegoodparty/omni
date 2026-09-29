@@ -26,12 +26,17 @@ import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
+import { useOrganization } from '@shared/organization-picker'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
 import type {
   AgentChatClient,
   ChatMessageDto,
 } from '../../../shared/agent-chat/chatClient'
-import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
+import {
+  COS_INTRO_MESSAGES,
+  SAVED_FILTERS_TOOL,
+  toolDisplayName,
+} from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
 import {
@@ -108,6 +113,23 @@ interface Props {
    * a canned reply). Consumed once per mount.
    */
   pendingKickoff?: string
+  /**
+   * One-shot VISIBLE opening message: the user already typed their request
+   * somewhere else (the contacts assistant bar) and the surface opens onto
+   * the answer, so it renders as their own bubble and persists as a normal
+   * user turn. Composes with `pendingKickoff` (each effect leaves its ref
+   * unlatched when it bails on an in-flight stream, so the message lands
+   * after the kickoff's reply settles) but costs a second LLM turn to do it —
+   * a surface with a request already in hand should send only this.
+   */
+  pendingMessage?: string
+  /**
+   * Fires once per VISIBLE message the user sends — the composer, a quick
+   * prompt, a `pendingMessage`, a retry of one. Not for hidden kickoffs or
+   * sentinels, which the user never typed. The contacts entry point counts
+   * these for its open-to-send funnel (ENG-10767).
+   */
+  onMessageSent?: () => void
   /** Ref to the composer input, so a caller's suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -200,6 +222,8 @@ export default function ChiefOfStaffChatBody({
   quickPrompts,
   composerPlaceholder = 'How can I help?',
   pendingKickoff,
+  pendingMessage,
+  onMessageSent,
   composerRef,
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
@@ -208,6 +232,7 @@ export default function ChiefOfStaffChatBody({
 }: Props): React.JSX.Element {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const orgSlug = useOrganization()?.slug
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const dictation = useDictationAppend({
@@ -257,6 +282,9 @@ export default function ChiefOfStaffChatBody({
   // parent clears pendingKickoff on close and re-sets the same sentinel on
   // reopen with the body still mounted, so a value guard lets that reopen fire.
   const kickedOffRef = useRef<string | undefined>(undefined)
+  // Same value-guard rationale as kickedOffRef: the parent clears the pending
+  // message on close and may re-set the same text on reopen.
+  const sentPendingRef = useRef<string | undefined>(undefined)
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null)
   const assignComposerRef = useCallback(
     (node: HTMLTextAreaElement | null) => {
@@ -331,6 +359,29 @@ export default function ChiefOfStaffChatBody({
           // Consumed either way: a payload we cannot parse is still not a
           // pill the user should see.
           return true
+        }
+        // A finished crud_saved_filters call may have written a saved list.
+        // This lives here rather than on the contacts page because the agent
+        // can cut a list from any surface that mounts this body, and the
+        // map card right above reads `list-people` itself. Keys must match
+        // ContactsTableProvider (['custom-segments', orgSlug]),
+        // useListRowDetail (['list-detail', orgSlug, id]) and
+        // listPeopleQueryKey (['list-people', orgSlug, segment]) exactly.
+        if (
+          event.type === 'tool_result' &&
+          event.toolName === SAVED_FILTERS_TOOL
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ['custom-segments', orgSlug],
+          })
+          void queryClient.invalidateQueries({
+            queryKey: ['list-detail', orgSlug],
+          })
+          // The map reads the list's members, not its summary, so it needs
+          // its own key dropped or it keeps drawing the pre-edit set.
+          void queryClient.invalidateQueries({
+            queryKey: ['list-people', orgSlug],
+          })
         }
         return false
       },
@@ -852,6 +903,11 @@ export default function ChiefOfStaffChatBody({
         return false
       }
       if (!opts?.hidden) {
+        // After the `!id` guard, not before it: a failed conversation create
+        // returns null and bails above, and counting that as a sent message
+        // would overstate the very open-to-send funnel this callback exists
+        // to measure (ENG-10767).
+        onMessageSent?.()
         setMessages((prev) => [
           ...prev,
           {
@@ -879,7 +935,15 @@ export default function ChiefOfStaffChatBody({
       if (!opts?.hidden) setAttachments([])
       return true
     },
-    [sending, playback, ensureConversationId, send, setMessages, attachments],
+    [
+      sending,
+      playback,
+      ensureConversationId,
+      send,
+      setMessages,
+      attachments,
+      onMessageSent,
+    ],
   )
 
   const sendContent = useCallback(
@@ -938,6 +1002,34 @@ export default function ChiefOfStaffChatBody({
   }, [
     active,
     pendingKickoff,
+    loading,
+    sending,
+    conversationId,
+    conversationIdOverride,
+    deliver,
+  ])
+
+  // The visible twin of the kickoff effect: the contacts assistant bar takes
+  // the user's first message before this surface is even open, so it arrives
+  // as a prop instead of through the composer. Same guards for the same
+  // reasons — wait out a load/create/in-flight stream so it appends to the
+  // resolved conversation, and leave the ref unlatched when bailing so the
+  // effect retries once `sending` clears.
+  useEffect(() => {
+    if (!pendingMessage) {
+      sentPendingRef.current = undefined
+      return
+    }
+    if (!active || sentPendingRef.current === pendingMessage) return
+    if (loading || creatingRef.current || sending) return
+    if (conversationIdOverride && conversationId !== conversationIdOverride) {
+      return
+    }
+    sentPendingRef.current = pendingMessage
+    void deliver(pendingMessage, { hidden: false })
+  }, [
+    active,
+    pendingMessage,
     loading,
     sending,
     conversationId,

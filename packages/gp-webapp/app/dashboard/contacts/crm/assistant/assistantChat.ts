@@ -1,18 +1,15 @@
 'use client'
 
-import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import type {
+  AgentChatClient,
+  ChatScope,
+} from '../../../shared/agent-chat/chatClient'
 import { chiefOfStaffChatApi } from '../../../chief-of-staff/data/chat-api'
 import { HISTORY_KEY } from '../../../chief-of-staff/data/use-chat-history'
 import {
   CAMPAIGN_MANAGER_HISTORY_KEY,
   campaignManagerChatApi,
 } from '../../../campaign-manager/campaignManagerChat'
-import { toolDisplayName } from '../../../chief-of-staff/components/chat/chatConstants'
-
-// gp-api's saved-filter write tool (crud_saved_filters, ENG-10736). A
-// tool_result for it means the assistant may have created/updated/deleted a
-// saved list, so the lists index needs a refetch.
-export const SAVED_FILTERS_TOOL = 'crud_saved_filters'
 
 export const ASSISTANT_PLACEHOLDER =
   "Describe the list you want and I'll make it for you"
@@ -20,6 +17,13 @@ export const ASSISTANT_PLACEHOLDER =
 export interface AssistantChatBinding {
   chatApi: AgentChatClient
   historyKey: readonly unknown[]
+  scope: ChatScope
+  // The agent's own display name for the surface header. The point of the
+  // consolidation is that a candidate meets ONE assistant, so the contacts
+  // entry point names the agent it actually opens rather than a list-shaped
+  // alias for it; the list-building framing moves to the subtitle.
+  agentName: string
+  analyticsLabel: string
 }
 
 // No dedicated ChatScope for this surface (a new scope needs a migration and
@@ -34,17 +38,14 @@ export const getAssistantChat = (
     ? {
         chatApi: campaignManagerChatApi,
         historyKey: CAMPAIGN_MANAGER_HISTORY_KEY,
+        scope: 'campaign_assistant',
+        agentName: 'Campaign manager',
+        analyticsLabel: 'campaign-manager-chat',
       }
-    : { chatApi: chiefOfStaffChatApi, historyKey: HISTORY_KEY }
-
-const CRM_TOOL_LABELS: Record<string, string> = {
-  describe_filter_dimensions: 'Checking available filters',
-  count_contacts: 'Counting matches',
-  list_precincts: 'Looking up precincts',
-  [SAVED_FILTERS_TOOL]: 'Working on your lists',
-}
-
-// The CRM tools get list-building labels; anything else the scope's handler
-// runs (web search, priorities, ...) falls back to the shared display names.
-export const assistantToolLabel = (toolName: string): string =>
-  CRM_TOOL_LABELS[toolName] ?? toolDisplayName(toolName)
+    : {
+        chatApi: chiefOfStaffChatApi,
+        historyKey: HISTORY_KEY,
+        scope: 'chief_of_staff',
+        agentName: 'Chief of Staff',
+        analyticsLabel: 'chief-of-staff-chat',
+      }
