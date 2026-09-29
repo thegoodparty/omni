@@ -2115,7 +2115,7 @@ it is across Contacts. Refusal is that method's `ForbiddenException`, 403 with
 for the same reason every other pro gate is: the request is well formed and the
 org simply isn't entitled. The original push for it was alerting — the
 per-route error-count rules counted 400 and excluded 403 — and those rules
-(`deploy/components/alerting/controller-alerts.ts`) now exclude 400 as well, so
+(`deploy/components/alerting/route-alerts.ts`) now exclude 400 as well, so
 either status would stay quiet and the convention rests on the semantics.
 
 | Route                   | Gated  |

@@ -18,9 +18,11 @@ import ListBoundaryOverlay from '../../../contacts/crm/map/ListBoundaryOverlay'
 export default function ChatBoundaryDrawer({
   list,
   onClose,
+  onSaved,
 }: {
   list: ShowListMap
   onClose: () => void
+  onSaved: (result: { cleared: boolean }) => void
 }) {
   const { people, truncated } = useListPeople(list.listId)
   const { list: saved } = useSavedList(list.listId)
@@ -35,7 +37,10 @@ export default function ChatBoundaryDrawer({
     () => ringsFromGeoJsonShape(saved?.geoPoly),
     [saved?.geoPoly],
   )
-  const saveMutation = useSaveListBoundary(list.listId, 'chat', onClose)
+  const saveMutation = useSaveListBoundary(list.listId, 'chat', {
+    onClose,
+    onSaved,
+  })
 
   if (!hasRow) return null
 

@@ -4,6 +4,8 @@ import { auth } from '@clerk/nextjs/server'
 import { revalidatePath } from 'next/cache'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
+import { extractApiErrorMessage } from '@/lib/utils/sdkError'
+import { SdkError } from '@goodparty_org/sdk'
 import type {
   Campaign,
   CampaignWithLiveContext,
@@ -69,14 +71,32 @@ export const getCampaignComplianceState = async (
   })
 }
 
-export const resendCvPin = async (campaignId: number): Promise<void> => {
+export type ResendCvPinResult = { error: string | null }
+
+// Failures are returned, not thrown: Next redacts a thrown server-action
+// error's message in prod, and gp-api's 4xx messages here (PIN already
+// verified, CV not approved yet) are exactly what the staff member needs to
+// read.
+export const resendCvPin = async (
+  campaignId: number
+): Promise<ResendCvPinResult> => {
   const { has } = await auth()
   if (!has?.({ permission: PERMISSIONS.WRITE_CAMPAIGNS })) {
-    throw new Error('Missing write_campaigns permission')
+    return { error: 'Missing write_campaigns permission' }
   }
-  return gpAction(async (client) => {
-    return client.campaigns.resendCvPin(campaignId)
-  })
+  try {
+    await gpAction((client) => client.campaigns.resendCvPin(campaignId))
+    return { error: null }
+  } catch (error) {
+    return {
+      error:
+        error instanceof SdkError
+          ? extractApiErrorMessage(error, 'Failed to resend CV PIN')
+          : error instanceof Error
+            ? error.message
+            : 'Failed to resend CV PIN',
+    }
+  }
 }
 
 export const updateCommitteeName = async (

@@ -44,6 +44,10 @@ import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+} from '../../util/outreachAnalytics'
 import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
 import {
@@ -289,7 +293,9 @@ export default function PhoneBankingCallerPage({
                 className="rounded-full"
                 aria-label="Download call sheet PDF"
                 onClick={() =>
-                  trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                  trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                    product: outreachProduct(isServe),
+                  })
                 }
               >
                 <a
@@ -320,7 +326,9 @@ export default function PhoneBankingCallerPage({
                   <DropdownMenuItem
                     asChild
                     onClick={() =>
-                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                        product: outreachProduct(isServe),
+                      })
                     }
                   >
                     <a
@@ -332,7 +340,9 @@ export default function PhoneBankingCallerPage({
                   <DropdownMenuItem
                     asChild
                     onClick={() =>
-                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded)
+                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                        product: outreachProduct(isServe),
+                      })
                     }
                   >
                     <a
@@ -679,11 +689,40 @@ export default function PhoneBankingCallerPage({
           }}
           isServe={isServe}
           onSaved={(results) => {
+            // Whether THIS call is the one that finished the list. Read inside
+            // the updater rather than off the render's `list`, because the
+            // updater is handed the freshest cache entry and a second caller
+            // working the same list may have landed a call since this render.
+            let completedNow = false
             queryClient.setQueryData(
               phoneBankingListQueryKey(listId),
-              (old: typeof list | undefined) =>
-                old && applyCallResults(old, results),
+              (old: typeof list | undefined) => {
+                if (!old) return old
+                const updated = applyCallResults(old, results)
+                const people = totalPeopleCount({ entries: updated.entries })
+                completedNow =
+                  people > 0 &&
+                  calledPeopleCount({ entries: old.entries }) < people &&
+                  calledPeopleCount({ entries: updated.entries }) >= people
+                return updated
+              },
             )
+            // Phone banking is one-to-one, so the CAMPAIGN completes when its
+            // last entry is called — not when the list was created, and not
+            // per call (each of those is `Outreach - Phone Banking: Call
+            // Logged`). See docs/features/voter-outreach-analytics.md.
+            if (completedNow) {
+              trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+                ...outreachEventProps({
+                  channel: 'phoneBanking',
+                  isServe: isServe,
+                  campaignName: list.name,
+                  recipientCount: totalPeopleCount({ entries: list.entries }),
+                  sendDate: new Date(),
+                  listId,
+                }),
+              })
+            }
             // Nothing in this flow ever writes the hub's cached
             // ['outreach-detail', id] entry, so its peopleCalled/supporters
             // sit at their create-time 0 until this invalidates them. Free in

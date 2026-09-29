@@ -44,6 +44,14 @@ interface Props {
   composerPlaceholder?: string
   /** One-shot kickoff message sent hidden on open. */
   pendingKickoff?: string
+  /**
+   * One-shot VISIBLE opening message, for an entry point that collected the
+   * user's first request before this surface opened (the contacts assistant
+   * bar). Don't pass it together with `pendingKickoff`.
+   */
+  pendingMessage?: string
+  /** Fires once per visible message the user sends. */
+  onMessageSent?: () => void
   /** Ref to the body's composer input, so a suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -92,6 +100,8 @@ export default function ChiefOfStaffChatSurface({
   quickPrompts,
   composerPlaceholder,
   pendingKickoff,
+  pendingMessage,
+  onMessageSent,
   composerRef,
   disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
@@ -167,6 +177,14 @@ export default function ChiefOfStaffChatSurface({
           quickPrompts={quickPrompts}
           composerPlaceholder={composerPlaceholder}
           pendingKickoff={pendingKickoff}
+          // Only while the surface is still on the fresh chat this was
+          // opened for. Picking a past conversation from the composer's
+          // history popover sets selectedId, which remounts the body — and a
+          // remount resets its sent-latch, so an un-gated prop would deliver
+          // the caller's original request a second time, into a thread the
+          // viewer merely navigated to.
+          pendingMessage={selectedId ? undefined : pendingMessage}
+          onMessageSent={onMessageSent}
           composerRef={composerRef}
           disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}

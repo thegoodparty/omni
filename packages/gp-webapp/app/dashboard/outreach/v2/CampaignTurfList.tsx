@@ -37,6 +37,8 @@ import { CONTINUE_LABELS, UNROUTED_LABEL } from './listDetails/footerMode'
 // the progress bar. Independent invalidation keeps each cache honest about
 // its own scope.
 interface CampaignTurfListProps {
+  // Which product's event names this list's lifecycle writes report under.
+  isServe: boolean
   anchorOutreachId: number
   outreachId: number
   // A row's overlays — its confirm dialog and its assignee menu — portal out
@@ -59,6 +61,7 @@ const percentLabel = (numerator: number, denominator: number): string => {
 }
 
 export const CampaignTurfList = ({
+  isServe,
   anchorOutreachId,
   outreachId,
   onOverlayOpenChange,
@@ -84,6 +87,7 @@ export const CampaignTurfList = ({
         {turfs.map((turf) => (
           <TurfRow
             key={turf.id}
+            isServe={isServe}
             turf={turf}
             outreachId={outreachId}
             onOverlayOpenChange={onOverlayOpenChange}
@@ -96,6 +100,8 @@ export const CampaignTurfList = ({
 }
 
 interface TurfRowProps {
+  // Which product's event names this row's lifecycle writes report under.
+  isServe: boolean
   turf: DoorKnockingTurf
   outreachId: number
   onOverlayOpenChange?: (open: boolean) => void
@@ -107,6 +113,7 @@ interface TurfRowProps {
 // the same handoff the drawer's own "Continue knocking" footer uses on the
 // single-turf branch above.
 const TurfRow = ({
+  isServe,
   turf,
   outreachId,
   onOverlayOpenChange,
@@ -115,7 +122,7 @@ const TurfRow = ({
   const [markDoneTarget, setMarkDoneTarget] = useState<MarkDoneTarget | null>(
     null,
   )
-  const lifecycle = useTurfLifecycle(turf)
+  const lifecycle = useTurfLifecycle(turf, isServe)
   const walkHref = `/dashboard/door-knocking?walkTurfId=${turf.id}&outreachId=${outreachId}`
   const progress =
     turf.peopleCount > 0 ? (turf.loggedCount / turf.peopleCount) * 100 : 0

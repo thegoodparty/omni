@@ -1,12 +1,12 @@
 import { SourceCitation } from '@styleguide'
-import type { OrdinanceSource } from '@goodparty_org/contracts'
+import type { ChatSource } from '@goodparty_org/contracts'
 
 // "source:" label + the styleguide source chip, in the muted treatment the
 // ordinance widgets share (same look as ClarifyQuestionWidget's OptionSource).
 export default function SourceLine({
   source,
 }: {
-  source: OrdinanceSource
+  source: ChatSource
 }): React.JSX.Element {
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">

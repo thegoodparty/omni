@@ -12,6 +12,7 @@ import {
   LockIcon,
   MailIcon,
   MapPinIcon,
+  MegaphoneIcon,
   MessageSquareIcon,
   PhoneIcon,
   cn,
@@ -27,7 +28,11 @@ interface CampaignStrategyTaskRowProps {
   onToggleComplete?: (id: string, completed: boolean) => void
   // In-place launcher for text/robocall tasks (legacy-task behavior): opens
   // the outreach flow with the task's due date instead of navigating.
-  onStartOutreach?: (channel: 'text' | 'robocall', date: string | null) => void
+  onStartOutreach?: (
+    channel: 'text' | 'robocall',
+    date: string | null,
+    taskId: string,
+  ) => void
 }
 
 const CHANNEL_ICONS: Record<
@@ -38,6 +43,7 @@ const CHANNEL_ICONS: Record<
   robocall: PhoneIcon,
   phoneBanking: PhoneIcon,
   doorKnocking: MapPinIcon,
+  socialMedia: MegaphoneIcon,
   directMail: MailIcon,
   event: CalendarIcon,
   awareness: CalendarDaysIcon,
@@ -155,7 +161,7 @@ const CampaignStrategyTaskRow = ({
             variant="link"
             size="small"
             className="text-primary h-auto p-0"
-            onClick={() => onStartOutreach(composeChannel, task.date)}
+            onClick={() => onStartOutreach(composeChannel, task.date, task.id)}
           >
             Start outreach
           </Button>

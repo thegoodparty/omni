@@ -50,6 +50,7 @@ const FLOW_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
   robocall: 'robocall',
   doorKnocking: 'doorKnocking',
   phoneBanking: 'phoneBanking',
+  socialMedia: 'socialMedia',
   events: 'event',
   awareness: 'awareness',
 }

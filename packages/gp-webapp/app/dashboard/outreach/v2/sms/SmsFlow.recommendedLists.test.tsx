@@ -363,6 +363,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',
       channel: 'sms',
+      medium: 'text',
       intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
@@ -419,6 +420,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeUndecided',
       channel: 'sms',
+      medium: 'text',
       intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,

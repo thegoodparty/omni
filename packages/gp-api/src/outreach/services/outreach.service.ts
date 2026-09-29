@@ -779,6 +779,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         EVENTS.Outreach.CampaignScheduled,
         {
           channel: 'sms',
+          // `medium` is the cross-event channel vocabulary (contracts'
+          // TaskChannel). `channel` stays for the charts already on it.
+          medium: 'text',
           outreachId,
           recipientCount: textCount ?? undefined,
         },

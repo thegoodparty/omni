@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest'
 import { ALERT_FILTER_WEBHOOK_URLS } from './grafana'
 import {
   recordingRuleExpression,
-  ROUTE_RECORDING_RULES,
-} from './alerting/controller-alerts'
+  RECORDING_RULES,
+} from './alerting/provisioned-alerts'
 
 /**
  * The Terraform that publishes the endpoint Pulumi points Grafana at.
@@ -70,7 +70,10 @@ describe('the recording rule expression', () => {
    * out by hand and re-marshals them as the API's camelCase, so asserting
    * the API's spelling here would assert the bug.
    */
-  const [rule] = ROUTE_RECORDING_RULES
+  const [rule] = RECORDING_RULES
+  if (!rule) {
+    throw new Error('no recording rule is provisioned to assert against')
+  }
   const expression = JSON.parse(recordingRuleExpression(rule, 'dev'))
 
   it('names the datasource and query type the way the provider reads', () => {

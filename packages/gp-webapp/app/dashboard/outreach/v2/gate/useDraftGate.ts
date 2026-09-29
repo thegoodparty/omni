@@ -32,6 +32,11 @@ interface UseDraftGateParams {
   goToResumeStep: () => void
   // History refetch after a draft is written or discarded.
   onDraftSaved: () => Promise<void>
+  // The channel's `Outreach - Campaign Created` payload, fired here
+  // because a gated candidate's campaign is created by THIS save and never
+  // reaches the review step that reports it for a Pro one. The flow supplies
+  // it: only the flow knows its audience and its send date.
+  onCampaignCreated?: (draft: OutreachDetail) => void
   onClose: () => void
 }
 
@@ -63,6 +68,7 @@ export const useDraftGate = ({
   createDraft,
   goToResumeStep,
   onDraftSaved,
+  onCampaignCreated,
   onClose,
 }: UseDraftGateParams): DraftGate => {
   // The saved draft row this flow is working against: the one the hub
@@ -124,6 +130,11 @@ export const useDraftGate = ({
     const { draft, conflictId } = result
     if (draft) {
       trackEvent(EVENTS.Outreach.Draft.Saved, { channel })
+      // The campaign now exists and has reached nobody — which is exactly
+      // what Campaign Created reports. Fired once, here, for a gated
+      // candidate; the Pro path reports it off the pending_payment draft
+      // instead, and a resume of THIS row must not report it a second time.
+      onCampaignCreated?.(draft)
       setSavedDraft(draft)
       setGateOrigin('save')
       setGateOpen(true)

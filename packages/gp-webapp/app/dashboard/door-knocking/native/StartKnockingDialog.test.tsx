@@ -159,7 +159,7 @@ describe('StartKnockingDialog', () => {
     // down.
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.DoorKnocking.RouteBuildFailed,
-      { mode: 'walk', loop: true, status: 502 },
+      { product: 'win', mode: 'walk', loop: true, status: 502 },
     )
   })
 

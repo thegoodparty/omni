@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EcanvasserIntegrationService } from './ecanvasserIntegration.service'
 import { EcanvasserService } from './ecanvasser.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
-import { SlackService } from '@/vendors/slack/services/slack.service'
 import {
   ApiEcanvasserContact,
   ApiEcanvasserHouse,
@@ -51,7 +50,6 @@ describe('EcanvasserIntegrationService.sync', () => {
   let integration: EcanvasserIntegrationService
   let ecanvasserApi: EcanvasserService
   let crm: CrmCampaignsService
-  let slack: SlackService
 
   const seedEcanvasser = async (slug: string) => {
     const organization = await service.prisma.organization.create({
@@ -74,9 +72,7 @@ describe('EcanvasserIntegrationService.sync', () => {
     integration = service.app.get(EcanvasserIntegrationService)
     ecanvasserApi = service.app.get(EcanvasserService)
     crm = service.app.get(CrmCampaignsService)
-    slack = service.app.get(SlackService)
     vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
-    vi.spyOn(slack, 'errorMessage').mockResolvedValue(undefined)
   })
 
   it('updates a re-fetched record in place instead of duplicating', async () => {

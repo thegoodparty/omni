@@ -22,7 +22,11 @@ import CampaignStrategyTaskRow from './CampaignStrategyTaskRow'
 interface CampaignStrategyPhaseProps {
   phase: CampaignStrategyPhaseModel
   onToggleComplete?: (id: string, completed: boolean) => void
-  onStartOutreach?: (channel: 'text' | 'robocall', date: string | null) => void
+  onStartOutreach?: (
+    channel: 'text' | 'robocall',
+    date: string | null,
+    taskId: string,
+  ) => void
 }
 
 // `start` is the Monday (yyyy-MM-dd); show the Mon-Sun span. Parse via the same
@@ -45,7 +49,11 @@ const WeekNavigator = ({
 }: {
   weeks: CampaignStrategyWeek[]
   onToggleComplete?: (id: string, completed: boolean) => void
-  onStartOutreach?: (channel: 'text' | 'robocall', date: string | null) => void
+  onStartOutreach?: (
+    channel: 'text' | 'robocall',
+    date: string | null,
+    taskId: string,
+  ) => void
 }): React.JSX.Element => {
   const rawIndex = weeks.findIndex((w) => w.isCurrent)
   const currentIndex = rawIndex === -1 ? weeks.length - 1 : rawIndex

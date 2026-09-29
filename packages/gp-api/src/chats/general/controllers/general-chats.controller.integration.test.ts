@@ -1,6 +1,7 @@
 import { HttpStatus } from '@nestjs/common'
 import {
   ChatMessageRole,
+  ChatMessageSegmentKind,
   ChatScope,
   ElectedOffice,
 } from '../../../generated/prisma'
@@ -215,6 +216,47 @@ describe('GeneralChatsController (integration)', () => {
         headers,
       )
       expect(afterDelete.status).toBe(HttpStatus.NOT_FOUND)
+    })
+  })
+
+  // A chat card derives its identity from the tool call id: the outreach card
+  // keys its outreach on it, so a replay that dropped the id rendered no card
+  // at all. The live stream always carried it; the transcript has to as well.
+  it('replays the tool call id a segment was persisted with', async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: COS_SCOPE },
+      headers,
+    )
+    const conversationId = created.data.conversationId as string
+    const assistant = await chatStore.appendMessage({
+      conversationId,
+      role: ChatMessageRole.assistant,
+      content: 'Here is a list you could call.',
+      segments: [
+        {
+          kind: ChatMessageSegmentKind.tool,
+          toolName: 'present_outreach_proposal',
+          toolCallId: 'toolu_replay_1',
+          payload: { audience: 'Maple Avenue' },
+        },
+      ],
+    })
+
+    const replay = await service.client.get(
+      `/v1/chats/${conversationId}?scope=${COS_SCOPE}`,
+      headers,
+    )
+
+    const message = (
+      replay.data.messages as Array<{
+        id: string
+        segments?: Array<{ toolName: string; toolCallId?: string }>
+      }>
+    ).find((m) => m.id === assistant.id)
+    expect(message?.segments?.[0]).toMatchObject({
+      toolName: 'present_outreach_proposal',
+      toolCallId: 'toolu_replay_1',
     })
   })
 

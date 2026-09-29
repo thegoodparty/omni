@@ -247,7 +247,7 @@ describe('PhoneBankingFlow', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.ListCreated,
       {
-        product: 'phoneBanking',
+        product: 'win',
         filtersApplied: true,
         listSize: createResponse.personCount,
       },
@@ -256,7 +256,11 @@ describe('PhoneBankingFlow', () => {
     await user.click(downloadLink)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.PhoneBanking.SheetDownloaded,
-      { listId: createResponse.id, contactCount: createResponse.personCount },
+      {
+        product: 'win',
+        listId: createResponse.id,
+        contactCount: createResponse.personCount,
+      },
     )
 
     await user.click(screen.getByRole('button', { name: 'Go to call list' }))

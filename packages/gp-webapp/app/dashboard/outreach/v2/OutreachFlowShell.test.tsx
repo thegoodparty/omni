@@ -108,6 +108,7 @@ describe('OutreachFlowShell stage tracking', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
       channel: 'sms',
+      medium: 'text',
       step: 'purpose',
     })
   })
@@ -160,11 +161,13 @@ describe('OutreachFlowShell stage tracking', () => {
       EVENTS.Outreach.Flow.StepCompleted,
       {
         channel: 'sms',
+        medium: 'text',
         step: 'purpose',
       },
     )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
       channel: 'sms',
+      medium: 'text',
       step: 'audience',
     })
   })
@@ -190,6 +193,7 @@ describe('OutreachFlowShell stage tracking', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
       channel: 'sms',
+      medium: 'text',
       step: 'purpose',
     })
     expect(trackEvent).not.toHaveBeenCalledWith(
@@ -234,7 +238,7 @@ describe('OutreachFlowShell terminal stage and session reset', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.Flow.StepCompleted,
-      { channel: 'sms', step: 'review' },
+      { channel: 'sms', medium: 'text', step: 'review' },
     )
   })
 
@@ -268,6 +272,7 @@ describe('OutreachFlowShell terminal stage and session reset', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
       channel: 'sms',
+      medium: 'text',
       step: 'audience',
     })
     expect(trackEvent).not.toHaveBeenCalledWith(
@@ -289,15 +294,16 @@ describe('OutreachFlowShell terminal stage and session reset', () => {
 
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
       channel: 'sms',
+      medium: 'text',
       step: 'purpose',
     })
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Outreach.Flow.StepCompleted,
-      { channel: 'sms', step: 'purpose' },
+      { channel: 'sms', medium: 'text', step: 'purpose' },
     )
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Outreach.Flow.StepCompleted,
-      { channel: 'sms', step: 'compose' },
+      { channel: 'sms', medium: 'text', step: 'compose' },
     )
   })
 })
@@ -335,6 +341,7 @@ describe('OutreachFlowShell settling without a success screen', () => {
       EVENTS.Outreach.Flow.StepCompleted,
       {
         channel: 'robocall',
+        medium: 'robocall',
         step: 'pay',
       },
     )

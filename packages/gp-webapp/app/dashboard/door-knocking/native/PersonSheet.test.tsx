@@ -132,6 +132,7 @@ const Harness = ({
     )
   return (
     <PersonSheet
+      turfId={1}
       stop={stop(residents, door)}
       stopSeq={7}
       isServe={isServe}
@@ -1211,6 +1212,7 @@ describe('PersonSheet demographic information', () => {
   it('leaves other residents name-only', () => {
     render(
       <PersonSheet
+        turfId={1}
         stop={{
           ...stop([fullTarget()]),
           addresses: [

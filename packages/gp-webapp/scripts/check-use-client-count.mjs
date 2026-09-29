@@ -504,7 +504,7 @@ import { dirname, join, relative } from 'node:path'
 // accident (same pattern as `ordinances/data/ordinances-api.ts`). The chat
 // cards under `[priorityId]/cards/` deliberately carry NO directive: they
 // inherit the boundary from the chat that mounts them.
-const BASELINE = 593
+const BASELINE = 592
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

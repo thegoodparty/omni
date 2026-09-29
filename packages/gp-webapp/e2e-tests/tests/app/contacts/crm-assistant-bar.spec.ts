@@ -114,14 +114,18 @@ test.describe('CRM assistant bar', () => {
     await expect(input).toHaveValue(USER_PROMPT)
     await input.press('Enter')
 
-    // Submitting opens the conversation drawer, echoes the prompt, and streams
-    // the (stubbed) assistant reply through the shared SSE client.
-    const drawer = page.getByTestId('crm-assistant-drawer')
-    await expect(drawer).toBeVisible({ timeout: 15000 })
-    await expect(drawer.getByText(USER_PROMPT).first()).toBeVisible({
+    // Submitting opens the SCOPE'S OWN chat surface (there is no separate
+    // list-building surface any more), echoes the prompt as a visible user
+    // turn, and streams the (stubbed) assistant reply through the shared SSE
+    // client. The container is the Chief of Staff body's, which is the point
+    // of the consolidation — a `crm-assistant-*` conversation testid here
+    // would mean the second surface had come back.
+    const conversation = page.getByTestId('cos-conversation')
+    await expect(conversation).toBeVisible({ timeout: 15000 })
+    await expect(conversation.getByText(USER_PROMPT).first()).toBeVisible({
       timeout: 15000,
     })
-    await expect(drawer.getByText(ASSISTANT_REPLY).first()).toBeVisible({
+    await expect(conversation.getByText(ASSISTANT_REPLY).first()).toBeVisible({
       timeout: 20000,
     })
 

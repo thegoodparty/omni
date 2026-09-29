@@ -17,6 +17,7 @@ they see the whole path rather than only the step they are on.
 | `components/turnBlocks.tsx`         | Interleaving prose, tool pills, cards and markers in stream order                         |
 | `data/statusUpdates.ts`             | The `update_priority_status` merge, mirrored from the server, plus the marker copy        |
 | `data/statusReplay.ts`              | Replays the transcript's status calls so a reloaded thread shows the same markers         |
+| `data/clarify.ts`                   | `ask_clarify_question` tool call -> `ChatClarifyQuestion`                                 |
 | `data/cards.ts`                     | Tool call -> `ChatCard`, including the derived `proposalKey` and `deepLinkOnly`           |
 | `data/chat-api.ts`                  | `createAgentChatClient('priority_flow', ...)`                                             |
 | `data/toolLabels.ts`                | Which tools show a pill, and what it says                                                 |
@@ -85,6 +86,22 @@ Args that fail to parse drop the card and leave the turn's prose alone.
 `read_past_outreach` is a data read whose args are `{ channel? }`, so it always
 takes that path and shows an ordinary pill; `present_past_outreach` is the
 presenter that actually carries a card.
+
+## A clarify question is input, not a status write
+
+When a step needs a specific decision, the agent asks it with
+`ask_clarify_question` and the shared `ClarifyQuestionWidget`
+(`shared/agent-chat/`) renders the options inline. Answering sends the label
+back as an **ordinary user turn**, so it reads back as the official's own
+message and the agent decides for itself whether it settles anything and calls
+`update_priority_status`. The widget is deliberately not coupled to the seven
+steps.
+
+Only the question still waiting on an answer takes input. `activeClarifyId`
+walks the transcript backwards and stops at the first user turn, so anything
+said after a question locks it. The widget always adds its own "Or write your
+own..." option, which is the bail-out back to free chat, so the agent never
+writes one.
 
 ## The chat dock is off here
 

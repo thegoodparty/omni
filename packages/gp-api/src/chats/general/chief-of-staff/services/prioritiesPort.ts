@@ -15,7 +15,6 @@ export interface PriorityRecord {
   id: string
   title: string
   description: string
-  targetDate: string | null
   archivedAt: string | null
 }
 
@@ -23,7 +22,6 @@ export interface CreatePriorityInput {
   electedOfficeId: string
   title: string
   description: string
-  targetDate?: string | null
 }
 
 export interface UpdatePriorityInput {
@@ -31,7 +29,6 @@ export interface UpdatePriorityInput {
   id: string
   title?: string
   description?: string
-  targetDate?: string | null
 }
 
 export interface PrioritiesToolPort {

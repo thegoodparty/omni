@@ -61,7 +61,7 @@ import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
 import DraftChat from './DraftChat'
 import OrdinanceBugReportSheet from './OrdinanceBugReportSheet'
 import QualityReport from './QualityReport'
-import SourceLine from './SourceLine'
+import SourceLine from '../../shared/agent-chat/SourceLine'
 
 // The statuses the user can set from the draft-detail pill. `in_progress` is the
 // pre-draft state, so it isn't offered once a draft exists (matches Lovable).

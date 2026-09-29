@@ -4,6 +4,12 @@ import type {
   ProposalChannel,
 } from '@goodparty_org/contracts'
 import type { OutreachType } from 'gpApi/types/outreach.types'
+import { OUTREACH_OPTIONS } from 'app/dashboard/outreach/constants'
+import {
+  formatOutreachCost,
+  outreachCostCents,
+} from 'app/dashboard/outreach/util/outreachPricing'
+import type { ReachabilityKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 
 const SERVE_OUTREACH_HUB = '/dashboard/constituent-outreach'
 
@@ -59,3 +65,36 @@ export const outreachDetailHref = (outreachId: number): string =>
 
 export const peopleCount = (count: number): string =>
   count === 1 ? '1 constituent' : `${count.toLocaleString()} constituents`
+
+// Which reachability leaf a channel is counted by, the same mapping the
+// outreach flows hand their audience step. Social has none: a post has no
+// recipients, so there is no list to pick and no count to follow it.
+export const PROPOSAL_REACHABILITY_KEY: Record<
+  ProposalChannel,
+  ReachabilityKey | null
+> = {
+  social: null,
+  phoneBanking: 'phoneBanking',
+  text: 'sms',
+}
+
+export const proposalHasAudience = (channel: ProposalChannel): boolean =>
+  PROPOSAL_REACHABILITY_KEY[channel] !== null
+
+// The per-person rate the hub tiles, the CRM channel picker and every outreach
+// flow already read. Nothing here restates it: text carries a rate there,
+// phone banking and social are zero because the official does that work.
+const pricePerPerson = (channel: ProposalChannel): number =>
+  OUTREACH_OPTIONS.find(
+    (option) => option.type === PROPOSAL_OUTREACH_TYPE[channel],
+  )?.cost ?? 0
+
+export const isFreeChannel = (channel: ProposalChannel): boolean =>
+  pricePerPerson(channel) === 0
+
+export const estimatedCostCents = (
+  channel: ProposalChannel,
+  count: number,
+): number => outreachCostCents(count, pricePerPerson(channel))
+
+export const formatDollars = formatOutreachCost

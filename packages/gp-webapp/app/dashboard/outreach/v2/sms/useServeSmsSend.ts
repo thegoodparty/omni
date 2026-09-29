@@ -7,6 +7,11 @@ import type {
   SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { apiRoutes } from 'gpApi/routes'
 import { uploadFileToS3 } from '@shared/utils/s3Upload'
 import { usePositionName } from '@shared/hooks/usePositionName'
@@ -106,6 +111,12 @@ export interface UseServeSmsSendInput {
   image: File | null
   draftOutreachId: number | null
   audience: ServeSmsSendAudience
+  // The tracker task this flow was launched from, when it was. Serve has no
+  // tracker deep link into SMS today, so this is undefined in practice — but
+  // the interface having no path for it at all is what would make the Created
+  // event unjoinable to its task the moment the hub wires one up, and
+  // `trackerTaskId`/`phase` travel together or not at all.
+  tracker?: OutreachTrackerOrigin
   create: ServeSmsCreateFn | undefined
   setStepId: (step: 'schedule') => void
   setDraftOutreachId: (id: number) => void
@@ -139,6 +150,7 @@ export const useServeSmsSend = ({
   image,
   draftOutreachId,
   audience,
+  tracker,
   create,
   setStepId,
   setDraftOutreachId,
@@ -230,6 +242,28 @@ export const useServeSmsSend = ({
           excludedDuplicatePhoneCount: result.excludedDuplicateCount,
         })
         setDraftOutreachId(result.outreachId)
+        // Serve's own create, the sibling of the Win draft effect in
+        // SmsFlow. Always the Serve name: this path is only ever reached
+        // behind `surface.isServe`.
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
+          ...outreachEventProps({
+            channel: 'text',
+            isServe: true,
+            campaignName: name.trim(),
+            recipientCount: result.recipientCount,
+            sendDate: scheduledAt,
+            outreachCampaignId: result.outreachId,
+            ...(audience.selectedListId !== null
+              ? { listId: audience.selectedListId }
+              : {}),
+            // Always a saved list on Serve — recommended lists are Win-only
+            // (gp-api 400s an `eo-` org), so there is no branch to make here.
+            // Sent rather than omitted so Created and Completed can be cut
+            // the same way on both products.
+            audienceSource: 'savedList',
+            ...(tracker ? { tracker } : {}),
+          }),
+        })
       } catch {
         // Surfaces as the review step's "We couldn't set up your purchase"
         // card, which is checked ahead of its preparing spinner — a failed
