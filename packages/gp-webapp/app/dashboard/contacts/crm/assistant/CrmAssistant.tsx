@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { ASSISTANT_PLACEHOLDER, getAssistantChat } from './assistantChat'
@@ -27,7 +27,15 @@ export default function CrmAssistant(): React.JSX.Element | null {
   const [pendingMessage, setPendingMessage] = useState<string | undefined>(
     undefined,
   )
+  // A per-submit identity, folded into the surface's body key. Without it a
+  // second bar submit keeps the body the first one mounted — `selectedId` was
+  // already null, so the key would not change — and the new request is
+  // appended to the conversation that body deferred-created rather than
+  // starting its own. A counter rather than the message text, so submitting
+  // the same words twice still opens a fresh chat instead of being swallowed
+  // by the body's sent-once latch. (The old drawer's `requestKey`.)
   const [openerKey, setOpenerKey] = useState<string | null>(null)
+  const submitCountRef = useRef(0)
 
   // The chat scope (and its history popover fetch) must not fire on the
   // unsettled mode — isWinContext reads false (the Serve default) until then,
@@ -48,9 +56,10 @@ export default function CrmAssistant(): React.JSX.Element | null {
       context,
       source: 'message',
     })
+    submitCountRef.current += 1
     setConversationId(null)
     setPendingMessage(message)
-    setOpenerKey(null)
+    setOpenerKey(`bar-submit-${submitCountRef.current}`)
     setOpen(true)
   }
 

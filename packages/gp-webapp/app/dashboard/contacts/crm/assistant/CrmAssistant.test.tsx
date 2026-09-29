@@ -39,6 +39,7 @@ vi.mock('./AssistantBar', () => ({
 interface SurfaceProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  openerKey?: string | null
   initialConversationId?: string | null
   pendingMessage?: string
   title?: string
@@ -122,6 +123,29 @@ describe('CrmAssistant', () => {
     expect(screen.getByTestId('assistant-surface')).toBeInTheDocument()
     expect(lastSurfaceProps?.pendingMessage).toBe('young supporters')
     expect(lastSurfaceProps?.initialConversationId).toBeNull()
+  })
+
+  // Each submit has to start its own chat. The surface keys its body on
+  // selectedId ?? openerKey ?? ... — both null on a bar submit, so without a
+  // distinct openerKey the key stays put, the body from the first submit is
+  // reused, and the second request lands in the conversation that body
+  // deferred-created.
+  it('gives every bar submit its own body identity', async () => {
+    const user = userEvent.setup()
+    setContext(true)
+    render(<CrmAssistant />)
+
+    await user.click(screen.getByText('submit assistant'))
+    const first = lastSurfaceProps?.openerKey
+    expect(first).toBeTruthy()
+
+    act(() => lastSurfaceProps?.onOpenChange(false))
+    await user.click(screen.getByText('submit assistant'))
+
+    // Same message text both times — the identity must not be derived from it,
+    // or the body's sent-once latch would swallow the repeat.
+    expect(lastSurfaceProps?.pendingMessage).toBe('young supporters')
+    expect(lastSurfaceProps?.openerKey).not.toBe(first)
   })
 
   it('reopens a past conversation without re-sending a message', () => {

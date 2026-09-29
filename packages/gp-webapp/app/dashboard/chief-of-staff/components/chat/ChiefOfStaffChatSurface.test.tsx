@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 import ChiefOfStaffChatSurface from './ChiefOfStaffChatSurface'
@@ -10,15 +10,21 @@ import ChiefOfStaffChatSurface from './ChiefOfStaffChatSurface'
 const mounts: Array<{
   conversationIdOverride?: string
   pendingKickoff?: string
+  pendingMessage?: string
 }> = []
+let lastSelectConversation: ((id: string) => void) | undefined
 function BodyStub(props: {
   conversationIdOverride?: string
   pendingKickoff?: string
+  pendingMessage?: string
+  onSelectConversation?: (id: string) => void
 }): null {
+  lastSelectConversation = props.onSelectConversation
   useEffect(() => {
     mounts.push({
       conversationIdOverride: props.conversationIdOverride,
       pendingKickoff: props.pendingKickoff,
+      pendingMessage: props.pendingMessage,
     })
     // Mount-only on purpose: this records remounts, not prop updates.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -123,5 +129,34 @@ describe('ChiefOfStaffChatSurface New chat', () => {
     await user.click(screen.getByRole('button', { name: 'New chat' }))
 
     expect(mounts).toHaveLength(2)
+  })
+
+  // A pendingMessage is the caller's one-shot opening request for the chat it
+  // opened. Picking a past conversation from the composer's history popover
+  // remounts the body, which resets its sent-once latch — so if the prop
+  // still reached it, that request would be delivered a second time into a
+  // thread the viewer merely navigated to.
+  it('withholds pendingMessage from a conversation picked inside the surface', () => {
+    mounts.length = 0
+    render(
+      <ChiefOfStaffChatSurface
+        open
+        onOpenChange={vi.fn()}
+        pendingMessage="young supporters"
+      />,
+    )
+    expect(mounts).toEqual([
+      expect.objectContaining({ pendingMessage: 'young supporters' }),
+    ])
+
+    act(() => lastSelectConversation?.('conv-7'))
+
+    expect(mounts).toHaveLength(2)
+    expect(mounts[1]).toEqual(
+      expect.objectContaining({
+        conversationIdOverride: 'conv-7',
+        pendingMessage: undefined,
+      }),
+    )
   })
 })

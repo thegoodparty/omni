@@ -177,7 +177,13 @@ export default function ChiefOfStaffChatSurface({
           quickPrompts={quickPrompts}
           composerPlaceholder={composerPlaceholder}
           pendingKickoff={pendingKickoff}
-          pendingMessage={pendingMessage}
+          // Only while the surface is still on the fresh chat this was
+          // opened for. Picking a past conversation from the composer's
+          // history popover sets selectedId, which remounts the body — and a
+          // remount resets its sent-latch, so an un-gated prop would deliver
+          // the caller's original request a second time, into a thread the
+          // viewer merely navigated to.
+          pendingMessage={selectedId ? undefined : pendingMessage}
           onMessageSent={onMessageSent}
           composerRef={composerRef}
           disclaimer={disclaimer}
