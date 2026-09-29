@@ -110,13 +110,21 @@ NEW event type and the old one keeps its history under its own name. Every
 rename below is therefore recorded as a supersession rather than a rename, and
 a chart spanning the cutover has to union the old name with the new:
 
-| Old name                                   | New name(s)                               | History                                               |
-| ------------------------------------------ | ----------------------------------------- | ----------------------------------------------------- |
-| `Door Knocking - Door Logged`              | `Outreach - Door Knocking Door Logged`    | 300 events from 2026-08-19 stay on the old name       |
-| `Outreach - Phone Banking: Call Logged`    | `Outreach - Phone Banking Call Logged`    | 365 events from 2026-09-01 stay on the old name       |
-| `Outreach - Phone Banking: Contact Viewed` | `Outreach - Phone Banking Contact Viewed` | 1,675 events stay on the old name                     |
-| the rest of `Door Knocking - *`            | `Outreach - Door Knocking <Thing>`        | low volume; stays on the old names                    |
-| `Dashboard - Campaign Task Status Updated` | `Dashboard - Campaign Task Completed`     | already dark since 2026-09-01, so nothing is stranded |
+| Old name                                               | New name                                         | History                                               |
+| ------------------------------------------------------ | ------------------------------------------------ | ----------------------------------------------------- |
+| `Voter Outreach - Campaign Completed`                  | `Outreach - Campaign Completed`                  | live since 2025-06-26; 9.1k query volume              |
+| `Voter Outreach - Phone Banking Call List Created`     | `Outreach - Phone Banking Call List Created`     | live since 2026-08-27                                 |
+| `Voter Outreach - Phone Banking Call Sheet Downloaded` | `Outreach - Phone Banking Call Sheet Downloaded` | live since 2026-08-29                                 |
+| `Outreach - Phone Banking: Call Logged`                | `Outreach - Phone Banking Call Logged`           | 365 events from 2026-09-01 stay on the old name       |
+| `Outreach - Phone Banking: Contact Viewed`             | `Outreach - Phone Banking Contact Viewed`        | 1,675 events stay on the old name                     |
+| `Door Knocking - Door Logged`                          | `Outreach - Door Knocking Door Logged`           | 300 events from 2026-08-19 stay on the old name       |
+| the rest of `Door Knocking - *`                        | `Outreach - Door Knocking <Thing>`               | low volume; stays on the old names                    |
+| `Dashboard - Campaign Task Status Updated`             | `Dashboard - Campaign Task Completed`            | already dark since 2026-09-01, so nothing is stranded |
+
+Every old name above now carries its `supersession:` line in Amplitude, so a
+chart author lands on where the series continues. The eleven that were
+ingesting without being in the tracking plan were adopted into it first, since
+Amplitude refuses metadata on an unplanned event.
 
 `Dashboard - Campaign Task Completed` also narrows: it fires on **completion
 only**. Un-completing a task is a correction, not an activation signal, and an
@@ -233,13 +241,21 @@ since the count is a manual outreach log.
 All three were dead `EVENTS` constants with no call site; the constants are
 gone and the Amplitude events carry `not in use` with their supersession.
 
-`ce:Outreach - All` (492285, 5.3k query volume) is **deliberately not yet
-redefined** — the definition it becomes depends on `fanout`, which no row
-carries until this ships. Its description records the target definition:
+`ce:Outreach - All` (492285, 5.3k query volume) has been **renamed** from
+`ce:Voter Outreach - All`, which costs nothing: a custom event is a query-time
+construct and charts follow its id.
 
-1. `Outreach - Campaign Completed` WHERE `fanout = one-to-many`
-2. `Door Knocking - Door Logged`
-3. `Outreach - Phone Banking: Call Logged`
+It is **deliberately not yet redefined** — the definition it becomes depends on
+`fanout`, which no row carries until this ships, and changing it twice would
+put two discontinuities into that series instead of one. Its description
+records the target: three members, each unioned with the name its history sits
+on.
+
+1. `Outreach - Campaign Completed` WHERE `fanout = one-to-many`, plus
+   `Voter Outreach - Campaign Completed`
+2. `Outreach - Door Knocking Door Logged`, plus `Door Knocking - Door Logged`
+3. `Outreach - Phone Banking Call Logged`, plus
+   `Outreach - Phone Banking: Call Logged`
 
 ## Migration
 
