@@ -491,6 +491,28 @@ describe('recording rules', () => {
     }
   })
 
+  // A parser runs per line on everything the selector returned, so a `| json`
+  // with no literal in front of it parses the whole gp-api stream — 271,050
+  // lines in the hour to 2026-09-29 14:39Z, to reach 36 that mattered. The
+  // bytes are the same either way; what this buys is an evaluation that cannot
+  // run long enough to time out, which on a rule whose `execErrState` is
+  // `Alerting` would be a false page. Every one of these has a literal
+  // available, because the field the filter names appears in the line.
+  it('narrows with a literal before it parses', () => {
+    for (const rule of RECORDING_RULES) {
+      const parser = rule.expr.indexOf('| json')
+      if (parser === -1) continue
+
+      const literal = rule.expr.indexOf('|= "')
+      expect(literal, `${rule.slug} parses before it filters`).toBeGreaterThan(
+        -1,
+      )
+      expect(literal, `${rule.slug} filters after it parses`).toBeLessThan(
+        parser,
+      )
+    }
+  })
+
   // Two rules writing one metric interleave two measurements into one series,
   // and nothing about the result looks wrong.
   it('writes one metric per rule', () => {

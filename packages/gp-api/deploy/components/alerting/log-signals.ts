@@ -104,7 +104,16 @@ const SIGNALS: LogSignal[] = [
     // message_Body; match its `type` (pollCreation / pollExpansion /
     // pollAnalysisComplete) so sibling jobs that share the consumer (AI
     // content, websites) don't page the serve-bugs group.
+    //
+    // The literal repeats the `context` value it is about to parse, and cannot
+    // narrow the result: a line whose parsed `context` equals that string
+    // contains it. Verified against prod over the hour to 2026-09-29 14:39Z —
+    // 36 matches either way — and it takes the parse from 271,050 lines to 36.
+    // The alert this replaced had no pre-filter and parsed the lot; on a
+    // once-a-minute rule whose `execErrState` is `Alerting`, an evaluation slow
+    // enough to time out is a false page.
     pipeline: [
+      '|= "QueueConsumerService"',
       '| json',
       '| context = "QueueConsumerService"',
       '| detected_level = "error"',
