@@ -63,15 +63,27 @@ export const useCampaignLifecycle = (
       if (action === 'complete') {
         // Snapshot which turfs this press is about to finish BEFORE the
         // request, and carry it forward — `onSuccess` must not re-read the
-        // cache. `getQueryData` answers `undefined` for a campaign whose
+        // cache. `getQueryData` alone answers `undefined` for a campaign whose
         // drawer was never opened, or whose entry was GC'd after the default
         // 5-minute gcTime, and an empty snapshot fires ZERO completion events
-        // with no error to notice. `ensureQueryData` reads the same cache
-        // when it is warm and fetches when it is cold, so the analytics no
-        // longer depend on a surface having been visited.
-        const before = await queryClient.ensureQueryData(
-          campaignTurfsQueryOptions(anchorOutreachId),
-        )
+        // with no error to notice, so a cold cache is fetched instead.
+        //
+        // The fetch can NEVER fail the press. It is a measurement taken on the
+        // way to the write, so a 5xx or a dropped connection here falls back
+        // to whatever the cache holds and then to nothing — losing the events
+        // for this press, which is the cheaper of the two errors. Awaiting it
+        // unguarded rejected `mutationFn` before `POST /complete` was sent and
+        // told the candidate their campaign could not be marked done when the
+        // request had never been attempted.
+        const before = await queryClient
+          .ensureQueryData(campaignTurfsQueryOptions(anchorOutreachId))
+          .catch(
+            () =>
+              queryClient.getQueryData<DoorKnockingTurf[]>([
+                ...CAMPAIGN_TURFS_QUERY_KEY,
+                anchorOutreachId,
+              ]) ?? [],
+          )
         const finishing = new Set(unfinishedTurfs(before).map((t) => t.id))
         const { data } = await clientRequest(
           'POST /v1/door-knocking/campaigns/:anchorId/complete',
@@ -90,8 +102,9 @@ export const useCampaignLifecycle = (
       // door-knocking campaign is many turfs under one anchor, and the TURF is
       // the list a candidate walks — the same unit phone banking's call list
       // is — so the analytics unit is the turf, not the anchor. Siblings that
-      // were already done are excluded by the `active` snapshot below, which
-      // is why this reads the pre-press cache rather than the response.
+      // were already done are excluded by the `finishing` snapshot the
+      // mutation took before the press, since the response says only that
+      // every turf is now complete, not which ones this press completed.
       if (action === 'complete') {
         for (const turf of turfs) {
           if (!finishing.has(turf.id)) continue

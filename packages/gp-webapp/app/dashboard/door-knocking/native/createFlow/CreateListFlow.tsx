@@ -1364,6 +1364,13 @@ export default function CreateListFlow({
             recipientCount: stats?.people ?? 0,
             outreachCampaignId: row.turf.outreachId ?? undefined,
             listId: row.turf.id,
+            // The other three channels read this off their audience step's
+            // own state; door knocking's equivalent is whether a
+            // recommendation was accepted on the who step. A saved list and a
+            // list built inline are both `savedList` here, matching them —
+            // an inline build persists as an ordinary saved filter.
+            audienceSource:
+              recommendedMeta !== null ? 'recommended' : 'savedList',
           }),
         )
       }
