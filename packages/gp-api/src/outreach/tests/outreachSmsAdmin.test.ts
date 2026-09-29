@@ -407,6 +407,32 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
     })
 
+    it("threads the row's state into the booking and the activation window", async () => {
+      const row = await seedOutreach({ scheduledLocalTime: '18:00' })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { didState: 'CA' },
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+        state: 'CA',
+      })
+      expect(activateJob).toHaveBeenCalledWith('peerly-job-1', {
+        campaignId,
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+        state: 'CA',
+      })
+    })
+
     it.each([
       ['21:30', '20:00'],
       ['08:00', '09:00'],
@@ -884,6 +910,37 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         date: NEW_LOCAL_DATE,
         startTime: '18:00',
         state: null,
+      })
+    })
+
+    it("re-mints and rebooks in the row's state zone", async () => {
+      const row = await seedOutreach({ approvedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: {
+          didState: 'CA',
+          approvedBy: 'cas@goodparty.org',
+          canvassRequestedAt: subDays(new Date(), 1),
+        },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(updateJobSchedule).toHaveBeenCalledWith({
+        jobId: 'peerly-job-1',
+        campaignId,
+        date: NEW_LOCAL_DATE,
+        startTime: '09:00',
+        state: 'CA',
+      })
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: NEW_LOCAL_DATE,
+        startTime: '09:00',
+        state: 'CA',
       })
     })
 
