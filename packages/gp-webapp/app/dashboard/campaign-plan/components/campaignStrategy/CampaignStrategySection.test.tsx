@@ -141,10 +141,11 @@ describe('CampaignStrategySection — completing tasks', () => {
       { trackerTaskId: 't1', medium: 'doorKnocking', phase: 'launch' },
     )
     expect(mockTrackEvent).toHaveBeenCalledWith(
-      EVENTS.Dashboard.VoterContact.CampaignCompleted.win,
+      EVENTS.Dashboard.VoterContact.CampaignCompleted,
       expect.objectContaining({
         medium: 'doorKnocking',
         fanout: 'one-to-one',
+        product: 'win',
         recipientCount: 7,
         trackerTaskId: 't1',
         phase: 'launch',
@@ -153,7 +154,7 @@ describe('CampaignStrategySection — completing tasks', () => {
     )
     // Nothing here captures a cost, so no price is claimed.
     const completed = mockTrackEvent.mock.calls.find(
-      ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted.win,
+      ([name]) => name === EVENTS.Dashboard.VoterContact.CampaignCompleted,
     )
     expect(completed?.[1]).not.toHaveProperty('price')
   })

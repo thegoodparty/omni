@@ -28,6 +28,18 @@ const OUTREACH_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
 export const outreachChannel = (type: string): TaskChannel =>
   OUTREACH_TYPE_TO_CHANNEL[type] ?? 'general'
 
+export type OutreachProduct = 'win' | 'serve'
+
+// Which product an outreach event happened in. Door knocking, phone banking,
+// social and SMS all run on both surfaces from the same components, so this is
+// a PROPERTY rather than a second event name: one `Outreach - ...` event per
+// thing, cut by product where a chart needs it. The two-name alternative
+// doubled the taxonomy and made every cross-product total a union, which is
+// the same shape that let the per-channel Complete events go dark one at a
+// time. See docs/features/voter-outreach-analytics.md.
+export const outreachProduct = (isServe: boolean): OutreachProduct =>
+  isServe ? 'serve' : 'win'
+
 // Where a tracker task launched the outreach. Both halves travel together or
 // not at all — a phase without the task it came from names nothing joinable.
 export interface OutreachTrackerOrigin {
@@ -37,6 +49,10 @@ export interface OutreachTrackerOrigin {
 
 export interface OutreachEventInput {
   channel: TaskChannel
+  // Which product the event happened in. Required rather than defaulted: a
+  // shared surface that forgot to pass it would silently report every Serve
+  // campaign as Win, which is the failure this property exists to prevent.
+  isServe: boolean
   // People this outreach reached. Omitted entirely on a channel with no
   // recipient count (social) — never sent as 0, which would read as a send
   // that reached nobody.
@@ -48,6 +64,11 @@ export interface OutreachEventInput {
   // an average spend per campaign is not diluted by the free ones.
   price?: number
   outreachCampaignId?: number
+  // The name the candidate gave this campaign. Carried through from the
+  // pre-consolidation schema, where the one call site sent the literal string
+  // `'null'`. Omitted when there is no name rather than sent empty — a manual
+  // log records work done offline and names nothing.
+  campaignName?: string | null
   // The parent list a one-to-one channel's contacts roll up to: the turf for
   // door knocking, the call list for phone banking. The envelope id is not
   // reachable client-side on either surface.
@@ -60,8 +81,8 @@ const toSendDate = (value: string | Date): string =>
   (value instanceof Date ? value.toISOString() : value).slice(0, 10)
 
 /**
- * The shared payload for `Voter Outreach - Campaign Completed` and
- * `Voter Outreach - Campaign Created`, and the channel/fanout pair the two
+ * The shared payload for `Outreach - Campaign Completed` and
+ * `Outreach - Campaign Created`, and the channel/fanout pair the two
  * one-to-one contact events carry.
  *
  * Every optional property is OMITTED rather than nulled, because an absent
@@ -73,8 +94,16 @@ export const outreachEventProps = (
 ): Record<string, string | number> => ({
   medium: input.channel,
   fanout: CHANNEL_FANOUT[input.channel],
+  product: outreachProduct(input.isServe),
+  // `voterContacts` is `recipientCount` under the name the retired per-channel
+  // Complete events used. Kept so a chart built on the old property survives
+  // the cutover, and mirrored exactly — including the omission on social —
+  // rather than resurrected with the hardcoded 0 it used to carry.
   ...(input.recipientCount !== undefined
-    ? { recipientCount: input.recipientCount }
+    ? {
+        recipientCount: input.recipientCount,
+        voterContacts: input.recipientCount,
+      }
     : {}),
   ...(input.sendDate ? { sendDate: toSendDate(input.sendDate) } : {}),
   ...(input.price !== undefined ? { price: input.price } : {}),
@@ -82,6 +111,7 @@ export const outreachEventProps = (
     ? { outreachCampaignId: input.outreachCampaignId }
     : {}),
   ...(input.listId !== undefined ? { listId: input.listId } : {}),
+  ...(input.campaignName ? { campaignName: input.campaignName } : {}),
   ...(input.audienceSource ? { audienceSource: input.audienceSource } : {}),
   ...(input.tracker
     ? { trackerTaskId: input.tracker.trackerTaskId, phase: input.tracker.phase }

@@ -52,29 +52,6 @@ const CLID_KEYS = [
   'li_fat_id',
 ] as const
 
-// Win and Serve are two products with two vocabularies, and an outreach
-// event's NAME says which one it happened in (product decision, 2026-09-23):
-// `Voter Outreach - ...` on Win, `Constituent Outreach - ...` on Serve. A
-// surface that runs on both therefore carries TWO literals, and `surfaceEvent`
-// picks between them at the call site.
-//
-// Both stay string literals in this file rather than being composed from a
-// prefix at runtime, because the event-provenance scanner and the tracking
-// plan both find events by grepping for the literal — a name assembled from
-// parts is a name neither of them can see.
-//
-// The cost is that a cross-product total is a union of two names, which is the
-// same shape that let the per-channel Complete events go dark one at a time.
-// `ce:Voter Outreach - All` is where that union is absorbed once, centrally,
-// rather than in every chart. See docs/features/voter-outreach-analytics.md.
-export interface SurfaceEvent {
-  win: string
-  serve: string
-}
-
-export const surfaceEvent = (event: SurfaceEvent, isServe: boolean): string =>
-  isServe ? event.serve : event.win
-
 export const EVENTS = {
   CampaignStory: {
     RewriteRequested: 'Campaign Story - Rewrite Requested',
@@ -301,18 +278,12 @@ export const EVENTS = {
     // at a time when the v2 hub replaced their surfaces, and nothing noticed
     // for a month. Full schema: `docs/features/voter-outreach-analytics.md`.
     VoterContact: {
-      CampaignCompleted: {
-        win: 'Voter Outreach - Campaign Completed',
-        serve: 'Constituent Outreach - Campaign Completed',
-      },
+      CampaignCompleted: 'Outreach - Campaign Completed',
       // Fires on EVERY channel, always before Completed. On the paid channels
       // and social the two sit close together (the draft exists, then it is
       // paid for or saved); on door knocking and phone banking there is a real
       // gap, because the list is created days before anyone works it.
-      CampaignCreated: {
-        win: 'Voter Outreach - Campaign Created',
-        serve: 'Constituent Outreach - Campaign Created',
-      },
+      CampaignCreated: 'Outreach - Campaign Created',
       LogProgress: {
         Exit: 'Dashboard - Voter Contact - Log Progress: Exit Log Progress',
         ClickAdd:
@@ -690,28 +661,16 @@ export const EVENTS = {
     ClickCreate: 'Outreach - Click Create',
     PhoneBanking: {
       // v2 create flow (phase 1 TDD): fires once the create call succeeds.
-      ListCreated: {
-        win: 'Voter Outreach - Phone Banking Call List Created',
-        serve: 'Constituent Outreach - Phone Banking Call List Created',
-      },
+      ListCreated: 'Outreach - Phone Banking Call List Created',
       // Fires from every entry point that links to the print/[listId]/pdf
       // route (the flow's download step, and later the call-session header
       // button) — ENG-10918.
-      SheetDownloaded: {
-        win: 'Voter Outreach - Phone Banking Call Sheet Downloaded',
-        serve: 'Constituent Outreach - Phone Banking Call Sheet Downloaded',
-      },
+      SheetDownloaded: 'Outreach - Phone Banking Call Sheet Downloaded',
       // ENG-10921: the in-app caller page. Distinct from the legacy
       // Dashboard.VoterContact.PhoneBanking group above, which belongs to
       // the pre-native script/download surface.
-      ContactViewed: {
-        win: 'Voter Outreach - Phone Banking Contact Viewed',
-        serve: 'Constituent Outreach - Phone Banking Contact Viewed',
-      },
-      CallLogged: {
-        win: 'Voter Outreach - Phone Banking Call Logged',
-        serve: 'Constituent Outreach - Phone Banking Call Logged',
-      },
+      ContactViewed: 'Outreach - Phone Banking Contact Viewed',
+      CallLogged: 'Outreach - Phone Banking Call Logged',
     },
     // The audience step's recommended-lists cards.
     // Fires once the recommendation is accepted (the saved list is created),
@@ -913,56 +872,24 @@ export const EVENTS = {
   // that's the event the door-knocking activation metric counts, and the
   // manual "log progress" modal already feeds it the same way.
   DoorKnocking: {
-    ListCreated: {
-      win: 'Voter Outreach - Door Knocking List Created',
-      serve: 'Constituent Outreach - Door Knocking List Created',
-    },
-    ListEdited: {
-      win: 'Voter Outreach - Door Knocking List Edited',
-      serve: 'Constituent Outreach - Door Knocking List Edited',
-    },
-    ListDeleted: {
-      win: 'Voter Outreach - Door Knocking List Deleted',
-      serve: 'Constituent Outreach - Door Knocking List Deleted',
-    },
-    RouteBuildFailed: {
-      win: 'Voter Outreach - Door Knocking Route Build Failed',
-      serve: 'Constituent Outreach - Door Knocking Route Build Failed',
-    },
-    SessionStarted: {
-      win: 'Voter Outreach - Door Knocking Session Started',
-      serve: 'Constituent Outreach - Door Knocking Session Started',
-    },
-    SessionCompleted: {
-      win: 'Voter Outreach - Door Knocking Session Completed',
-      serve: 'Constituent Outreach - Door Knocking Session Completed',
-    },
-    SessionAbandoned: {
-      win: 'Voter Outreach - Door Knocking Session Abandoned',
-      serve: 'Constituent Outreach - Door Knocking Session Abandoned',
-    },
-    DoorLogged: {
-      win: 'Voter Outreach - Door Knocking Door Logged',
-      serve: 'Constituent Outreach - Door Knocking Door Logged',
-    },
+    ListCreated: 'Outreach - Door Knocking List Created',
+    ListEdited: 'Outreach - Door Knocking List Edited',
+    ListDeleted: 'Outreach - Door Knocking List Deleted',
+    RouteBuildFailed: 'Outreach - Door Knocking Route Build Failed',
+    SessionStarted: 'Outreach - Door Knocking Session Started',
+    SessionCompleted: 'Outreach - Door Knocking Session Completed',
+    SessionAbandoned: 'Outreach - Door Knocking Session Abandoned',
+    DoorLogged: 'Outreach - Door Knocking Door Logged',
     // ADR 0007, clear direction only: the walk's door is read-only-plus-Undo
     // (DoNotKnockControl), so nothing in the product sets the flag.
-    DoNotKnockCleared: {
-      win: 'Voter Outreach - Door Knocking Do Not Knock Cleared',
-      serve: 'Constituent Outreach - Door Knocking Do Not Knock Cleared',
-    },
+    DoNotKnockCleared: 'Outreach - Door Knocking Do Not Knock Cleared',
     // ADR 0008. Both directions for the same reason, and the Set event carries
     // which reason was given: the follow-up is optional, so how often it is
     // answered at all — and how the two answers split — is the only way to tell
     // whether the question is worth asking.
-    NotAVoterReasonSet: {
-      win: 'Voter Outreach - Door Knocking Not A Voter Reason Set',
-      serve: 'Constituent Outreach - Door Knocking Not A Voter Reason Set',
-    },
-    NotAVoterReasonCleared: {
-      win: 'Voter Outreach - Door Knocking Not A Voter Reason Cleared',
-      serve: 'Constituent Outreach - Door Knocking Not A Voter Reason Cleared',
-    },
+    NotAVoterReasonSet: 'Outreach - Door Knocking Not A Voter Reason Set',
+    NotAVoterReasonCleared:
+      'Outreach - Door Knocking Not A Voter Reason Cleared',
   },
 } as const
 

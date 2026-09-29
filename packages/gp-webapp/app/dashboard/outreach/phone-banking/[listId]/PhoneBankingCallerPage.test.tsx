@@ -311,8 +311,8 @@ describe('<PhoneBankingCallerPage>', () => {
     // Opening the panel on Casey (the entry's first person, so no tab click
     // needed to select them) fires Contact Viewed with the entry's rank.
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.ContactViewed.win,
-      { listId: LIST_ID, contactId: 'house-a', listRank: 2 },
+      EVENTS.Outreach.PhoneBanking.ContactViewed,
+      { product: 'win', listId: LIST_ID, contactId: 'house-a', listRank: 2 },
     )
 
     await user.click(
@@ -340,10 +340,11 @@ describe('<PhoneBankingCallerPage>', () => {
     expect(capturedRequest).not.toHaveProperty('markHouseholdDone')
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.CallLogged.win,
+      EVENTS.Outreach.PhoneBanking.CallLogged,
       {
         medium: 'phoneBanking',
         fanout: 'one-to-one',
+        product: 'win',
         listId: LIST_ID,
         contactId: 'house-a',
         listRank: 2,
@@ -362,8 +363,8 @@ describe('<PhoneBankingCallerPage>', () => {
     )
     expect(within(dialog).getByText('Did they answer?')).toBeInTheDocument()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.ContactViewed.win,
-      { listId: LIST_ID, contactId: 'house-b', listRank: 2 },
+      EVENTS.Outreach.PhoneBanking.ContactViewed,
+      { product: 'win', listId: LIST_ID, contactId: 'house-b', listRank: 2 },
     )
   })
 
@@ -385,7 +386,8 @@ describe('<PhoneBankingCallerPage>', () => {
     await user.click(pdfLink)
 
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.SheetDownloaded.win,
+      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      { product: 'win' },
     )
   })
 
@@ -539,10 +541,11 @@ describe('<PhoneBankingCallerPage>', () => {
       personId: 'solo-1',
     })
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.CallLogged.win,
+      EVENTS.Outreach.PhoneBanking.CallLogged,
       {
         medium: 'phoneBanking',
         fanout: 'one-to-one',
+        product: 'win',
         listId: LIST_ID,
         contactId: 'solo-1',
         listRank: 1,
@@ -892,7 +895,8 @@ describe('<PhoneBankingCallerPage>', () => {
 
     await user.click(sheetLink)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.SheetDownloaded.win,
+      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      { product: 'win' },
     )
   })
 

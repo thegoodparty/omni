@@ -235,9 +235,11 @@ export const useServeSmsSend = ({
         // Serve's own create, the sibling of the Win draft effect in
         // SmsFlow. Always the Serve name: this path is only ever reached
         // behind `surface.isServe`.
-        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated.serve, {
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
           ...outreachEventProps({
             channel: 'text',
+            isServe: true,
+            campaignName: name.trim(),
             recipientCount: result.recipientCount,
             sendDate: scheduledAt,
             outreachCampaignId: result.outreachId,

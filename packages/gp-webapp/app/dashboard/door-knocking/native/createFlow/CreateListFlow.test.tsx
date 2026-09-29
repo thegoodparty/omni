@@ -388,14 +388,12 @@ describe('CreateListFlow', () => {
     // its own list — and the figures are that turf's own. No travel mode on
     // it: nothing here chooses one any more, and a default reported as a
     // choice is worse than a silence.
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.ListCreated.win,
-      {
-        stops: 14,
-        people: 22,
-        filterCount: 1,
-      },
-    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
+      product: 'win',
+      stops: 14,
+      people: 22,
+      filterCount: 1,
+    })
   })
 
   it('reuses the created filter when the route purchase is retried', async () => {
@@ -557,7 +555,7 @@ describe('CreateListFlow', () => {
     // And it reports no route build. Nothing here builds one — that event
     // belongs to the press at the door now (`StartKnockingDialog`).
     expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.RouteBuildFailed.win,
+      EVENTS.DoorKnocking.RouteBuildFailed,
       expect.anything(),
     )
   })
@@ -2152,7 +2150,7 @@ describe('CreateListFlow multi-turf save', () => {
     )
 
     const created = (trackEvent as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (call) => call[0] === EVENTS.DoorKnocking.ListCreated.win,
+      (call) => call[0] === EVENTS.DoorKnocking.ListCreated,
     )
     expect(created).toHaveLength(2)
     expect(created[0]?.[1]).toMatchObject({ stops: 14, people: 28 })

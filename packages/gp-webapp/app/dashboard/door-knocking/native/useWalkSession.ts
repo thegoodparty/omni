@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 
 export interface WalkTurf {
   id: number
@@ -42,7 +43,8 @@ export const useWalkSession = (isServe: boolean): WalkSession => {
   const start = (next: WalkTurf, entry: WalkEntry) => {
     sessionRef.current = { startedAt: Date.now(), doorsLogged: 0 }
     setTurf(next)
-    trackEvent(surfaceEvent(EVENTS.DoorKnocking.SessionStarted, isServe), {
+    trackEvent(EVENTS.DoorKnocking.SessionStarted, {
+      product: outreachProduct(isServe),
       turfId: next.id,
       entry,
     })
@@ -60,24 +62,19 @@ export const useWalkSession = (isServe: boolean): WalkSession => {
     if (!session || turfId === undefined) return 0
 
     const properties = {
+      product: outreachProduct(isServe),
       turfId,
       doorsLogged: session.doorsLogged,
       durationSeconds: Math.round((Date.now() - session.startedAt) / 1000),
       stopCount,
     }
     if (session.doorsLogged === 0) {
-      trackEvent(
-        surfaceEvent(EVENTS.DoorKnocking.SessionAbandoned, isServe),
-        properties,
-      )
+      trackEvent(EVENTS.DoorKnocking.SessionAbandoned, properties)
       return 0
     }
 
-    trackEvent(
-      surfaceEvent(EVENTS.DoorKnocking.SessionCompleted, isServe),
-      properties,
-    )
-    // `Voter Outreach - Campaign Completed` is deliberately NOT fired here.
+    trackEvent(EVENTS.DoorKnocking.SessionCompleted, properties)
+    // `Outreach - Campaign Completed` is deliberately NOT fired here.
     // A session ends whenever a canvasser stops for the evening, so firing it
     // counted one campaign per sitting and a fifty-door list walked over three
     // evenings as three. The completion event now hangs off the TURF being

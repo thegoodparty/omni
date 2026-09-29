@@ -32,7 +32,7 @@ interface UseDraftGateParams {
   goToResumeStep: () => void
   // History refetch after a draft is written or discarded.
   onDraftSaved: () => Promise<void>
-  // The channel's `Voter Outreach - Campaign Created` payload, fired here
+  // The channel's `Outreach - Campaign Created` payload, fired here
   // because a gated candidate's campaign is created by THIS save and never
   // reaches the review step that reports it for a Pro one. The flow supplies
   // it: only the flow knows its audience and its send date.

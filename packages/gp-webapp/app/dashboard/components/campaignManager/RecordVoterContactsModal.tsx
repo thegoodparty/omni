@@ -175,14 +175,17 @@ export const RecordVoterContactsModal = ({
     for (const key of FORM_KEYS) {
       const recipientCount = updatedFields[key]
       if (recipientCount !== undefined && recipientCount > 0) {
-        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted.win, {
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
           // `outreachChannel` normalizes the form key onto the tracker's
           // channel vocabulary — `events` is singular in the contract, and
           // the rest pass through unchanged. `price` is omitted: this modal
           // records work the candidate did offline and captures no cost, and
           // a hardcoded 0 would read as a free send on a paid channel.
+          // `campaignName` is omitted for the same reason: this log names no
+          // campaign, and the literal string 'null' it used to send read as one.
           ...outreachEventProps({
             channel: outreachChannel(key),
+            isServe: false,
             recipientCount,
             sendDate: new Date(),
           }),

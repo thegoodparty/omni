@@ -15,7 +15,8 @@ import {
   Label,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import {
@@ -68,7 +69,8 @@ export default function EditTurfDialog({
         ...input,
       }).then((res) => res.data),
     onSuccess: async (_data, input) => {
-      trackEvent(surfaceEvent(EVENTS.DoorKnocking.ListEdited, serveMode), {
+      trackEvent(EVENTS.DoorKnocking.ListEdited, {
+        product: outreachProduct(serveMode),
         turfId: turf.id,
         renamed: input.name !== turf.name,
         recolored: input.color !== turf.color,

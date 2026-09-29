@@ -27,8 +27,9 @@ describe('useWalkSession', () => {
 
     expect(result.current.turf).toEqual(TURF)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.SessionStarted.win,
+      EVENTS.DoorKnocking.SessionStarted,
       {
+        product: 'win',
         turfId: 12,
         entry: 'existingRoute',
       },
@@ -55,17 +56,23 @@ describe('useWalkSession', () => {
     expect(doorsLogged).toBe(2)
     expect(result.current.turf).toBeNull()
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.SessionCompleted.win,
-      { turfId: 12, doorsLogged: 2, durationSeconds: 90, stopCount: 40 },
+      EVENTS.DoorKnocking.SessionCompleted,
+      {
+        product: 'win',
+        turfId: 12,
+        doorsLogged: 2,
+        durationSeconds: 90,
+        stopCount: 40,
+      },
     )
     // The session does NOT complete the campaign any more: a canvasser
     // stopping for the evening has not finished the list. That event now hangs
     // off the turf being completed (`turfLifecycle.ts`), which is what
     // `walkCompletion.ts` stamps on a walk that ran out of doors.
     expect(
-      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted.win),
+      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted),
     ).toHaveLength(0)
-    expect(eventCalls(EVENTS.DoorKnocking.SessionAbandoned.win)).toHaveLength(0)
+    expect(eventCalls(EVENTS.DoorKnocking.SessionAbandoned)).toHaveLength(0)
   })
 
   // Opening a route and walking away without knocking is not activation, so
@@ -82,13 +89,13 @@ describe('useWalkSession', () => {
 
     expect(doorsLogged).toBe(0)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.SessionAbandoned.win,
+      EVENTS.DoorKnocking.SessionAbandoned,
       expect.objectContaining({ turfId: 12, doorsLogged: 0, stopCount: 40 }),
     )
     expect(
-      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted.win),
+      eventCalls(EVENTS.Dashboard.VoterContact.CampaignCompleted),
     ).toHaveLength(0)
-    expect(eventCalls(EVENTS.DoorKnocking.SessionCompleted.win)).toHaveLength(0)
+    expect(eventCalls(EVENTS.DoorKnocking.SessionCompleted)).toHaveLength(0)
   })
 
   // Each walk is counted on its own; a second one must not inherit the
@@ -107,9 +114,8 @@ describe('useWalkSession', () => {
     vi.advanceTimersByTime(30_000)
     act(() => void result.current.end({ stopCount: 8 }))
 
-    expect(
-      eventCalls(EVENTS.DoorKnocking.SessionCompleted.win)[1]?.[1],
-    ).toEqual({
+    expect(eventCalls(EVENTS.DoorKnocking.SessionCompleted)[1]?.[1]).toEqual({
+      product: 'win',
       turfId: 13,
       doorsLogged: 1,
       durationSeconds: 30,

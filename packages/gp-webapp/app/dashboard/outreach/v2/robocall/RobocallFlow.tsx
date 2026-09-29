@@ -188,9 +188,11 @@ export const RobocallFlow = ({
     // A gated candidate's campaign is created by the draft save, not by the
     // pending_payment row the pay step writes — which they never reach.
     onCampaignCreated: (draft) =>
-      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated.win, {
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
         ...outreachEventProps({
           channel: 'robocall',
+          isServe: false,
+          campaignName: campaignName.trim(),
           recipientCount: audience.reachableCount ?? 0,
           outreachCampaignId: draft.id,
           ...(audience.selectedListId !== null
@@ -317,9 +319,11 @@ export const RobocallFlow = ({
     // NOT on a resume: the pay step converts a saved `draft` row in place,
     // and that row already reported itself created when the gate saved it.
     if (resumed) return
-    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated.win, {
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCreated, {
       ...outreachEventProps({
         channel: 'robocall',
+        isServe: false,
+        campaignName: campaignName.trim(),
         recipientCount: audience.reachableCount ?? 0,
         sendDate: scheduledAt,
         outreachCampaignId: outreachId,
@@ -345,9 +349,11 @@ export const RobocallFlow = ({
       // the client alive to see it. `price` is the authorized estimate in
       // dollars, the only cost figure that exists at this point; the final
       // capture can be lower and is reported by the backend's receipt event.
-      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted.win, {
+      trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
         ...outreachEventProps({
           channel: 'robocall',
+          isServe: false,
+          campaignName: campaignName.trim(),
           recipientCount: audience.reachableCount ?? 0,
           sendDate: scheduledAt,
           price: (outcome.authorizedAmountInCents ?? 0) / 100,

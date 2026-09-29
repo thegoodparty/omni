@@ -43,8 +43,11 @@ import {
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
-import { outreachEventProps } from '../../util/outreachAnalytics'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+} from '../../util/outreachAnalytics'
 import { outreachDetailQueryPrefix } from '../../v2/useOutreachDetail'
 import PhoneBankingEntryPanel from './PhoneBankingEntryPanel'
 import {
@@ -290,12 +293,9 @@ export default function PhoneBankingCallerPage({
                 className="rounded-full"
                 aria-label="Download call sheet PDF"
                 onClick={() =>
-                  trackEvent(
-                    surfaceEvent(
-                      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
-                      isServe,
-                    ),
-                  )
+                  trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                    product: outreachProduct(isServe),
+                  })
                 }
               >
                 <a
@@ -326,12 +326,9 @@ export default function PhoneBankingCallerPage({
                   <DropdownMenuItem
                     asChild
                     onClick={() =>
-                      trackEvent(
-                        surfaceEvent(
-                          EVENTS.Outreach.PhoneBanking.SheetDownloaded,
-                          isServe,
-                        ),
-                      )
+                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                        product: outreachProduct(isServe),
+                      })
                     }
                   >
                     <a
@@ -343,12 +340,9 @@ export default function PhoneBankingCallerPage({
                   <DropdownMenuItem
                     asChild
                     onClick={() =>
-                      trackEvent(
-                        surfaceEvent(
-                          EVENTS.Outreach.PhoneBanking.SheetDownloaded,
-                          isServe,
-                        ),
-                      )
+                      trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+                        product: outreachProduct(isServe),
+                      })
                     }
                   >
                     <a
@@ -718,20 +712,15 @@ export default function PhoneBankingCallerPage({
             // per call (each of those is `Outreach - Phone Banking: Call
             // Logged`). See docs/features/voter-outreach-analytics.md.
             if (completedNow) {
-              trackEvent(
-                surfaceEvent(
-                  EVENTS.Dashboard.VoterContact.CampaignCompleted,
-                  isServe,
-                ),
-                {
-                  ...outreachEventProps({
-                    channel: 'phoneBanking',
-                    recipientCount: totalPeopleCount({ entries: list.entries }),
-                    sendDate: new Date(),
-                    listId,
-                  }),
-                },
-              )
+              trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+                ...outreachEventProps({
+                  channel: 'phoneBanking',
+                  isServe: isServe,
+                  recipientCount: totalPeopleCount({ entries: list.entries }),
+                  sendDate: new Date(),
+                  listId,
+                }),
+              })
             }
             // Nothing in this flow ever writes the hub's cached
             // ['outreach-detail', id] entry, so its peopleCalled/supporters

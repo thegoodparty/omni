@@ -447,17 +447,15 @@ describe('RecordKnockForm saving', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.DoorKnocking.DoorLogged.win,
-        {
-          medium: 'doorKnocking',
-          fanout: 'one-to-one',
-          listId: 1,
-          outcome: 'not_home',
-          knockStatus: 'not_home',
-          hasNote: true,
-        },
-      ),
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        product: 'win',
+        listId: 1,
+        outcome: 'not_home',
+        knockStatus: 'not_home',
+        hasNote: true,
+      }),
     )
   })
 
@@ -480,19 +478,17 @@ describe('RecordKnockForm saving', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.DoorKnocking.DoorLogged.win,
-        {
-          medium: 'doorKnocking',
-          fanout: 'one-to-one',
-          listId: 1,
-          outcome: 'answered',
-          knockStatus: 'supporter',
-          hasNote: true,
-          supportAnswer: 'supporter',
-          willVote: 'yes',
-        },
-      ),
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        product: 'win',
+        listId: 1,
+        outcome: 'answered',
+        knockStatus: 'supporter',
+        hasNote: true,
+        supportAnswer: 'supporter',
+        willVote: 'yes',
+      }),
     )
     expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toContain(
       'Marisol',
@@ -597,18 +593,16 @@ describe('RecordKnockForm in serve mode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.DoorKnocking.DoorLogged.serve,
-        {
-          medium: 'doorKnocking',
-          fanout: 'one-to-one',
-          listId: 1,
-          outcome: 'answered',
-          knockStatus: 'engaged',
-          hasNote: false,
-          followUp: 'no',
-        },
-      ),
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        product: 'serve',
+        listId: 1,
+        outcome: 'answered',
+        knockStatus: 'engaged',
+        hasNote: false,
+        followUp: 'no',
+      }),
     )
   })
 

@@ -32,10 +32,7 @@ vi.mock('helpers/analyticsHelper', () => ({
   EVENTS: {
     Dashboard: {
       VoterContact: {
-        CampaignCompleted: {
-          win: 'dashboard.voterContact.campaignCompleted',
-          serve: 'constituent.voterContact.campaignCompleted',
-        },
+        CampaignCompleted: 'dashboard.voterContact.campaignCompleted',
       },
     },
   },
@@ -245,11 +242,19 @@ describe('RecordVoterContactsModal', () => {
 
     expect(mockTrackEvent).toHaveBeenCalledWith(
       'dashboard.voterContact.campaignCompleted',
-      expect.objectContaining({ medium: 'robocall', recipientCount: 20 }),
+      expect.objectContaining({
+        product: 'win',
+        medium: 'robocall',
+        recipientCount: 20,
+      }),
     )
     expect(mockTrackEvent).toHaveBeenCalledWith(
       'dashboard.voterContact.campaignCompleted',
-      expect.objectContaining({ medium: 'phoneBanking', recipientCount: 15 }),
+      expect.objectContaining({
+        product: 'win',
+        medium: 'phoneBanking',
+        recipientCount: 15,
+      }),
     )
   })
 

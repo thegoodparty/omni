@@ -15,7 +15,8 @@ import type {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { FetchError } from 'ofetch'
-import { trackEvent, EVENTS, surfaceEvent } from 'helpers/analyticsHelper'
+import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import { RouteStep } from './createFlow/RouteStep'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
@@ -70,14 +71,12 @@ export const StartKnockingDialog = ({
       // not a failed route build and this is the only press that can be
       // one. Status separates what the candidate can act on (400 empty
       // turf or over the cap) from the vendor being down (502).
-      trackEvent(
-        surfaceEvent(EVENTS.DoorKnocking.RouteBuildFailed, serveMode),
-        {
-          mode,
-          loop,
-          status: error instanceof FetchError ? error.status : undefined,
-        },
-      )
+      trackEvent(EVENTS.DoorKnocking.RouteBuildFailed, {
+        product: outreachProduct(serveMode),
+        mode,
+        loop,
+        status: error instanceof FetchError ? error.status : undefined,
+      })
     },
     onSuccess: (routed) => {
       // The rail and the campaign read both carry `routeSeconds`, which just

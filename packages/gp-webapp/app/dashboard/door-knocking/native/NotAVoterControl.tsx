@@ -8,7 +8,8 @@ import {
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
 
 interface NotAVoterControlProps {
@@ -58,16 +59,14 @@ export default function NotAVoterControl({
       // key, so a request that didn't land can't leave the sheet claiming a
       // resident was flagged — or un-flagged — when they weren't.
       if (data.notAVoterReason) {
-        trackEvent(
-          surfaceEvent(EVENTS.DoorKnocking.NotAVoterReasonSet, serveMode),
-          {
-            reason: data.notAVoterReason,
-          },
-        )
+        trackEvent(EVENTS.DoorKnocking.NotAVoterReasonSet, {
+          product: outreachProduct(serveMode),
+          reason: data.notAVoterReason,
+        })
       } else {
-        trackEvent(
-          surfaceEvent(EVENTS.DoorKnocking.NotAVoterReasonCleared, serveMode),
-        )
+        trackEvent(EVENTS.DoorKnocking.NotAVoterReasonCleared, {
+          product: outreachProduct(serveMode),
+        })
       }
       onChanged(data.personId, data.notAVoterReason)
     },

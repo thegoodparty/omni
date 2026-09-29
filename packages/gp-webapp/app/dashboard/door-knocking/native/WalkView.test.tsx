@@ -1131,19 +1131,17 @@ describe('WalkView', () => {
     )
     expect(screen.getByText('2/2 reached')).toBeInTheDocument()
 
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.DoorLogged.win,
-      {
-        medium: 'doorKnocking',
-        fanout: 'one-to-one',
-        listId: 3,
-        outcome: 'answered',
-        supportAnswer: 'supporter',
-        willVote: 'unsure',
-        knockStatus: 'supporter',
-        hasNote: false,
-      },
-    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+      medium: 'doorKnocking',
+      fanout: 'one-to-one',
+      product: 'win',
+      listId: 3,
+      outcome: 'answered',
+      supportAnswer: 'supporter',
+      willVote: 'unsure',
+      knockStatus: 'supporter',
+      hasNote: false,
+    })
   })
 
   // The note is free text about a named voter, so only its existence travels.
@@ -1167,21 +1165,19 @@ describe('WalkView', () => {
     saveKnock()
 
     await waitFor(() =>
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.DoorKnocking.DoorLogged.win,
-        {
-          medium: 'doorKnocking',
-          fanout: 'one-to-one',
-          listId: 3,
-          outcome: 'not_home',
-          knockStatus: 'not_home',
-          hasNote: true,
-        },
-      ),
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+        medium: 'doorKnocking',
+        fanout: 'one-to-one',
+        product: 'win',
+        listId: 3,
+        outcome: 'not_home',
+        knockStatus: 'not_home',
+        hasNote: true,
+      }),
     )
     const logged = vi
       .mocked(trackEvent)
-      .mock.calls.find(([name]) => name === EVENTS.DoorKnocking.DoorLogged.win)
+      .mock.calls.find(([name]) => name === EVENTS.DoorKnocking.DoorLogged)
     expect(JSON.stringify(logged?.[1])).not.toContain('Dog in the yard')
   })
 
@@ -1408,17 +1404,15 @@ describe('WalkView not-a-voter reason', () => {
       stopTargetId: 21,
       outcome: 'not_a_voter',
     })
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.DoorLogged.win,
-      {
-        medium: 'doorKnocking',
-        fanout: 'one-to-one',
-        listId: 3,
-        outcome: 'not_a_voter',
-        knockStatus: 'not_a_voter',
-        hasNote: false,
-      },
-    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
+      medium: 'doorKnocking',
+      fanout: 'one-to-one',
+      product: 'win',
+      listId: 3,
+      outcome: 'not_a_voter',
+      knockStatus: 'not_a_voter',
+      hasNote: false,
+    })
     // Nothing about a reason reaches the knock write — it is a different field
     // on a different endpoint.
     expect(JSON.stringify(posted[0])).not.toContain('moved')

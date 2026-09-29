@@ -245,9 +245,9 @@ describe('PhoneBankingFlow', () => {
       `/dashboard/outreach/phone-banking/print/${createResponse.id}/pdf`,
     )
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.ListCreated.win,
+      EVENTS.Outreach.PhoneBanking.ListCreated,
       {
-        product: 'phoneBanking',
+        product: 'win',
         filtersApplied: true,
         listSize: createResponse.personCount,
       },
@@ -255,8 +255,12 @@ describe('PhoneBankingFlow', () => {
 
     await user.click(downloadLink)
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.SheetDownloaded.win,
-      { listId: createResponse.id, contactCount: createResponse.personCount },
+      EVENTS.Outreach.PhoneBanking.SheetDownloaded,
+      {
+        product: 'win',
+        listId: createResponse.id,
+        contactCount: createResponse.personCount,
+      },
     )
 
     await user.click(screen.getByRole('button', { name: 'Go to call list' }))
@@ -999,7 +1003,7 @@ describe('PhoneBankingFlow', () => {
     expect(createCalls[0]).not.toHaveProperty('filters')
     expect(createCalls[0]).not.toHaveProperty('filterName')
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Outreach.PhoneBanking.ListCreated.win,
+      EVENTS.Outreach.PhoneBanking.ListCreated,
       expect.objectContaining({ filtersApplied: true }),
     )
   })

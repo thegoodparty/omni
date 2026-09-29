@@ -158,8 +158,8 @@ describe('StartKnockingDialog', () => {
     // Status separates what the candidate can act on from the vendor being
     // down.
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.RouteBuildFailed.win,
-      { mode: 'walk', loop: true, status: 502 },
+      EVENTS.DoorKnocking.RouteBuildFailed,
+      { product: 'win', mode: 'walk', loop: true, status: 502 },
     )
   })
 

@@ -3,7 +3,8 @@
 import type { PhoneBankingCreateResponse } from '@goodparty_org/contracts'
 import { Alert, AlertDescription, Button, Card } from '@styleguide'
 import { DownloadIcon } from '@styleguide/components/ui/icons'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
 
@@ -39,13 +40,11 @@ export const DownloadStep = ({
 
   const handleDownloadClick = () => {
     if (!response) return
-    trackEvent(
-      surfaceEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, isServe),
-      {
-        listId: response.id,
-        contactCount: response.personCount,
-      },
-    )
+    trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+      product: outreachProduct(isServe),
+      listId: response.id,
+      contactCount: response.personCount,
+    })
   }
 
   return (

@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 
@@ -147,21 +147,17 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf, isServe: boolean) => {
       // per-row Mark done. Fired here rather than on the walk SESSION, which
       // ends every time a canvasser stops for the evening.
       if (action === 'complete' || action === 'completeAndArchive') {
-        trackEvent(
-          surfaceEvent(
-            EVENTS.Dashboard.VoterContact.CampaignCompleted,
-            isServe,
-          ),
-          {
-            ...outreachEventProps({
-              channel: 'doorKnocking',
-              recipientCount: turf.loggedCount,
-              sendDate: new Date(),
-              listId: turf.id,
-            }),
-            method: 'turf',
-          },
-        )
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+          ...outreachEventProps({
+            channel: 'doorKnocking',
+            isServe: isServe,
+            campaignName: turf.name,
+            recipientCount: turf.loggedCount,
+            sendDate: new Date(),
+            listId: turf.id,
+          }),
+          method: 'turf',
+        })
       }
       await queryClient.invalidateQueries({
         queryKey: TURFS_QUERY_KEY,

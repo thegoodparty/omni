@@ -4,7 +4,8 @@ import { useMutation } from '@tanstack/react-query'
 import { RoutePayloadTarget } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
 
 interface DoNotKnockControlProps {
@@ -30,7 +31,9 @@ export default function DoNotKnockControl({
         value: 'cleared',
       }).then((res) => res.data),
     onSuccess: (data) => {
-      trackEvent(surfaceEvent(EVENTS.DoorKnocking.DoNotKnockCleared, serveMode))
+      trackEvent(EVENTS.DoorKnocking.DoNotKnockCleared, {
+        product: outreachProduct(serveMode),
+      })
       onChanged(data.personId, data.doNotKnock)
     },
   })

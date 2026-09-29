@@ -7,7 +7,8 @@ import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { Button, IconButton, Trash2Icon } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ConfirmDeleteDialog } from 'app/dashboard/shared/ConfirmDeleteDialog'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
@@ -70,7 +71,8 @@ export default function DeleteTurfControl({
       await queryClient.invalidateQueries({
         queryKey: CAMPAIGN_TURFS_QUERY_KEY,
       })
-      trackEvent(surfaceEvent(EVENTS.DoorKnocking.ListDeleted, serveMode), {
+      trackEvent(EVENTS.DoorKnocking.ListDeleted, {
+        product: outreachProduct(serveMode),
         turfId: turf.id,
       })
       successSnackbar('List deleted')

@@ -989,14 +989,12 @@ describe('TurfDetailsSheet edit', () => {
     await waitFor(() => expect(sent.id).toBe('1'))
     expect(sent.body).toEqual({ name: 'Oak Ave', color: '#16a34a' })
     expect(successSnackbar).toHaveBeenCalledWith('List updated')
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.ListEdited.win,
-      {
-        turfId: 1,
-        renamed: true,
-        recolored: true,
-      },
-    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListEdited, {
+      product: 'win',
+      turfId: 1,
+      renamed: true,
+      recolored: true,
+    })
   })
 
   // The name is submitted trimmed, so a rename that only adds whitespace is not

@@ -107,9 +107,10 @@ const CampaignStrategySection = (): React.JSX.Element => {
     // voters they reached offline on this task's channel. Same event the
     // campaign-manager modal fires, so both manual paths land in one series.
     // No `price` — nothing here captures a cost.
-    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted.win, {
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
       ...outreachEventProps({
         channel: outreachChannel(countTask.flowType),
+        isServe: false,
         recipientCount: count,
         sendDate: new Date(),
         ...(trackerOrigin(countTask.id, countTask.phase)

@@ -68,7 +68,8 @@ describe('DoNotKnockControl', () => {
       expect(onChanged).toHaveBeenCalledWith('person-1', false),
     )
     expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.DoorKnocking.DoNotKnockCleared.win,
+      EVENTS.DoorKnocking.DoNotKnockCleared,
+      { product: 'win' },
     )
   })
 

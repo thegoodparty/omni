@@ -9,8 +9,8 @@ candidate do outreach, through what, and to how many people."
 Three per-channel completion events (`Outreach - Door Knocking: Complete`,
 `Outreach - Phone Banking: Complete`, `Outreach - Social Media: Complete`) went
 dark in late August when the v2 outreach hub replaced the surfaces that fired
-them, and `ce:Voter Outreach - All` still unions them. It was worse than that:
-when the legacy `TaskFlow` tree was deleted, `Voter Outreach - Campaign
+them, and `ce:Outreach - All` still unions them. It was worse than that:
+when the legacy `TaskFlow` tree was deleted, `Outreach - Campaign
 Completed` was left firing from exactly two places — a native door-knocking
 walk session and the campaign-manager log-progress modal. **Text, robocall,
 social and phone banking recorded no completion at all.** Any outreach figure
@@ -30,7 +30,7 @@ reach one voter per action, and the individual door or call is the unit.
 That difference rides on the event as `fanout`, so a chart can aggregate
 correctly without embedding a channel list:
 
-- **"did outreach"** = `Voter Outreach - Campaign Completed` where
+- **"did outreach"** = `Outreach - Campaign Completed` where
   `fanout = one-to-many`, OR a `Door Knocking - Door Logged` /
   `Outreach - Phone Banking: Call Logged`.
 - **"voters reached"** = SUM(`recipientCount`) where `fanout = one-to-many`,
@@ -79,22 +79,23 @@ honest value in one change.
 
 ## Naming, and the Win/Serve split
 
-Every outreach event is named `<Product> Outreach - <Channel> <Thing>`, with no
-colon: `Voter Outreach - ...` on Win, `Constituent Outreach - ...` on Serve.
-Door knocking, phone banking, social and SMS all run on both surfaces from the
-same components, so a shared surface carries TWO literals and
-`surfaceEvent(event, isServe)` in `helpers/analyticsHelper.ts` picks between
-them at the call site.
+Every outreach event is named `Outreach - <Channel> <Thing>`, with no colon and
+one namespace for both products. `Outreach -` is already live (View Accessed,
+Click Create, Action Clicked), so this folds the new events into a prefix that
+exists rather than opening a third one.
 
-Both stay literals rather than being composed from a prefix, because the
+**Win and Serve are a PROPERTY, not a second event name.** Every payload from
+`outreachEventProps` carries `product: 'win' | 'serve'`, and `outreachProduct
+(isServe)` is the one place it is derived. Door knocking, phone banking, social
+and SMS all run on both surfaces from the same components, so a two-name split
+would have doubled the taxonomy and made every cross-product total a union —
+structurally the same shape that let the three per-channel Complete events go
+dark one at a time. A property is a breakdown; a name is a union somebody has
+to remember to write.
+
+Names stay literals rather than being composed from a prefix, because the
 event-provenance scanner and the tracking plan find events by grepping for the
 literal — a name assembled from parts is a name neither of them can see.
-
-**The cost is real and worth stating: a cross-product total is a union of two
-names, which is structurally the same thing that let the three per-channel
-Complete events go dark one at a time.** `ce:Voter Outreach - All` is where that
-union is absorbed once, centrally, rather than in every chart — which is why
-that composite matters more after this change than before it.
 
 `Door Knocking - Canvassing Totals Updated` is deliberately NOT renamed. It
 carries a `DO NOT MODIFY` contract in `gp-api/src/vendors/segment/segment.types.ts`:
@@ -109,13 +110,13 @@ NEW event type and the old one keeps its history under its own name. Every
 rename below is therefore recorded as a supersession rather than a rename, and
 a chart spanning the cutover has to union the old name with the new:
 
-| Old name                                   | New name(s)                                                                    | History                                               |
-| ------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| `Door Knocking - Door Logged`              | `Voter Outreach - Door Knocking Door Logged` / `Constituent Outreach - ...`    | 300 events from 2026-08-19 stay on the old name       |
-| `Outreach - Phone Banking: Call Logged`    | `Voter Outreach - Phone Banking Call Logged` / `Constituent Outreach - ...`    | 365 events from 2026-09-01 stay on the old name       |
-| `Outreach - Phone Banking: Contact Viewed` | `Voter Outreach - Phone Banking Contact Viewed` / `Constituent Outreach - ...` | 1,675 events stay on the old name                     |
-| the rest of `Door Knocking - *`            | `Voter Outreach - Door Knocking <Thing>` / `Constituent Outreach - ...`        | low volume; stays on the old names                    |
-| `Dashboard - Campaign Task Status Updated` | `Dashboard - Campaign Task Completed`                                          | already dark since 2026-09-01, so nothing is stranded |
+| Old name                                   | New name(s)                               | History                                               |
+| ------------------------------------------ | ----------------------------------------- | ----------------------------------------------------- |
+| `Door Knocking - Door Logged`              | `Outreach - Door Knocking Door Logged`    | 300 events from 2026-08-19 stay on the old name       |
+| `Outreach - Phone Banking: Call Logged`    | `Outreach - Phone Banking Call Logged`    | 365 events from 2026-09-01 stay on the old name       |
+| `Outreach - Phone Banking: Contact Viewed` | `Outreach - Phone Banking Contact Viewed` | 1,675 events stay on the old name                     |
+| the rest of `Door Knocking - *`            | `Outreach - Door Knocking <Thing>`        | low volume; stays on the old names                    |
+| `Dashboard - Campaign Task Status Updated` | `Dashboard - Campaign Task Completed`     | already dark since 2026-09-01, so nothing is stranded |
 
 `Dashboard - Campaign Task Completed` also narrows: it fires on **completion
 only**. Un-completing a task is a correction, not an activation signal, and an
@@ -123,7 +124,7 @@ event named Completed must not fire on one.
 
 ## Events
 
-### `Voter Outreach - Campaign Completed` (live; extended)
+### `Outreach - Campaign Completed` (live; extended)
 
 The campaign reached voters. One event, every channel.
 
@@ -131,7 +132,9 @@ The campaign reached voters. One event, every channel.
 | -------------------- | --------------------------------------- | ----------------------------------------------------------------------------------- |
 | `medium`             | `TaskChannel`                           | always                                                                              |
 | `fanout`             | `'one-to-many' \| 'one-to-one'`         | always                                                                              |
+| `product`            | `'win' \| 'serve'`                      | always                                                                              |
 | `recipientCount`     | number                                  | always **except** `socialMedia`, where it is omitted entirely (never 0, never null) |
+| `voterContacts`      | number                                  | mirrors `recipientCount` exactly, including its omission                            |
 | `sendDate`           | ISO date `YYYY-MM-DD`                   | always                                                                              |
 | `price`              | number (dollars actually paid)          | paid channels only; **omitted** on social, phone banking and door knocking          |
 | `outreachCampaignId` | number                                  | when the client holds the envelope id                                               |
@@ -139,6 +142,7 @@ The campaign reached voters. One event, every channel.
 | `trackerTaskId`      | string (cuid)                           | when launched from a tracker task                                                   |
 | `phase`              | `preLaunch \| launch \| active \| gotv` | with `trackerTaskId`, never alone                                                   |
 | `audienceSource`     | `'recommended' \| 'savedList'`          | when the audience step ran                                                          |
+| `campaignName`       | string                                  | the name the candidate gave it; **omitted** where nothing is named                  |
 | `method`             | `'manual' \| 'turf' \| 'campaign'`      | on the paths that need disambiguating                                               |
 
 `sendDate` is the scheduled or actual send date, **not** the event timestamp —
@@ -148,7 +152,20 @@ paid sends are scheduled days ahead.
 channel (a send fully covered by the free-texts offer is a zero-cost text
 campaign), and the property is **absent** on a channel with no cost at all.
 
-### `Voter Outreach - Campaign Created` (new)
+`product` is the Win/Serve cut. It is a property rather than a second event
+name for the reason in Naming above, and `outreachProduct(isServe)` is the one
+place it is derived — the one required input on `OutreachEventInput`, so a
+shared surface that forgets it fails the typecheck rather than reporting every
+Serve campaign as Win.
+
+`campaignName` carries the title the candidate gave the campaign: the flow's
+own name field on text, robocall, social and phone banking, and the turf name
+on door knocking. It is **omitted** where nothing is named — the campaign
+manager's manual log and the tracker's count modal record work done offline
+against no campaign, and the pre-consolidation code sent the literal string
+`'null'` there, which charted as a campaign called "null".
+
+### `Outreach - Campaign Created` (new)
 
 The campaign exists but has reached nobody yet. **Fires on every channel**, and
 always before Completed, so created → completed is one funnel with no
@@ -179,7 +196,7 @@ Same properties as Completed minus `price` (nothing is paid yet);
 `recipientCount` is the audience or list size, and `sendDate` rides along on
 the channels that already know it.
 
-`Door Knocking - List Created` and `Voter Outreach - Phone Banking Call List
+`Door Knocking - List Created` and `Outreach - Phone Banking Call List
 Created` keep firing alongside and are **not** superseded. They are channel
 diagnostics: the door-knocking one carries route geometry (`stops`, `loop`,
 `mode`, `suggestedMode`), the phone-banking one carries batch sizing
@@ -202,7 +219,7 @@ activation metric. Now fires from the tracker's own toggle with
 
 For an outreach task it fires on the count modal's **submit**, not on the first
 press — a completion the candidate cancels out of reports nothing — and that
-same submit fires `Voter Outreach - Campaign Completed` with `method: 'manual'`,
+same submit fires `Outreach - Campaign Completed` with `method: 'manual'`,
 since the count is a manual outreach log.
 
 ## Retirements
@@ -216,17 +233,17 @@ since the count is a manual outreach log.
 All three were dead `EVENTS` constants with no call site; the constants are
 gone and the Amplitude events carry `not in use` with their supersession.
 
-`ce:Voter Outreach - All` (492285, 5.3k query volume) is **deliberately not yet
+`ce:Outreach - All` (492285, 5.3k query volume) is **deliberately not yet
 redefined** — the definition it becomes depends on `fanout`, which no row
 carries until this ships. Its description records the target definition:
 
-1. `Voter Outreach - Campaign Completed` WHERE `fanout = one-to-many`
+1. `Outreach - Campaign Completed` WHERE `fanout = one-to-many`
 2. `Door Knocking - Door Logged`
 3. `Outreach - Phone Banking: Call Logged`
 
 ## Migration
 
-`Voter Outreach - Campaign Completed` is live with 9,061 query volume. Two
+`Outreach - Campaign Completed` is live with 9,061 query volume. Two
 discontinuities land at the cutover, and both are worth knowing before reading
 any chart across it.
 
@@ -256,14 +273,21 @@ defensively but have never been fired on this event. Any chart or cohort
 filtering `medium = events` has to accept both spellings across the cutover.
 
 There is no backfill. `fanout` is absent on every pre-cutover row, which is why
-`ce:Voter Outreach - All` cannot take its `fanout = one-to-many` filter until
+`ce:Outreach - All` cannot take its `fanout = one-to-many` filter until
 this ships.
 
-Three properties are dropped: `voterContacts` and `campaignName` (superseded by
-`recipientCount`; neither had query volume), and `price: 0` on the manual log
-(it was a hardcoded zero, not a measurement — the property is now absent where
-no cost exists, so an average price stops being diluted by it). `method` also
-loses the value `native`, replaced by `turf` and `campaign`.
+One property is dropped: `price: 0` on the manual log — a hardcoded zero
+rather than a measurement, so it is now absent where no cost exists and an
+average price stops being diluted by it. `method` also loses the value
+`native`, replaced by `turf` and `campaign`.
+
+`voterContacts` and `campaignName` are **kept**. `voterContacts` mirrors
+`recipientCount`, so a chart built on the retired per-channel Complete events'
+property keeps reading; the two are the same number under two names, and the
+one to build on is `recipientCount`. `campaignName` now carries the real
+campaign title everywhere one exists, and is absent on the two manual-log
+paths that name nothing — previously it was the literal string `'null'` on the
+only call site that sent it.
 
 Door-knocking volume will FALL even as the rest rises: completion moved off the
 walk session, which fired every time a canvasser stopped for the evening, onto
@@ -279,7 +303,7 @@ not knowable at merge.
 Not yet built — the new events have no data to alert on until this ships. What
 to create at cutover:
 
-- A volume anomaly monitor on `Voter Outreach - Campaign Completed` **grouped
+- A volume anomaly monitor on `Outreach - Campaign Completed` **grouped
   by `medium`**, so one channel dropping to zero alerts instead of hiding
   inside a flat total. This is the check that would have caught the August
   break in a day rather than a month.

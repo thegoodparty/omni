@@ -6,7 +6,7 @@ import { outreachChannel, outreachEventProps } from './outreachAnalytics'
 // averages `price` or sums `recipientCount` reads a 0 as a real measurement.
 describe('outreachEventProps', () => {
   it('omits recipientCount entirely rather than sending 0', () => {
-    const props = outreachEventProps({ channel: 'socialMedia' })
+    const props = outreachEventProps({ channel: 'socialMedia', isServe: false })
 
     expect(props).not.toHaveProperty('recipientCount')
     expect(props.medium).toBe('socialMedia')
@@ -14,53 +14,84 @@ describe('outreachEventProps', () => {
   })
 
   it('keeps a real zero when one is passed', () => {
-    expect(outreachEventProps({ channel: 'text', recipientCount: 0 })).toEqual(
-      expect.objectContaining({ recipientCount: 0 }),
-    )
+    expect(
+      outreachEventProps({
+        channel: 'text',
+        isServe: false,
+        recipientCount: 0,
+      }),
+    ).toEqual(expect.objectContaining({ recipientCount: 0 }))
   })
 
   it('omits price on a channel that has no cost, and keeps a paid zero', () => {
-    expect(outreachEventProps({ channel: 'doorKnocking' })).not.toHaveProperty(
-      'price',
-    )
+    expect(
+      outreachEventProps({ channel: 'doorKnocking', isServe: false }),
+    ).not.toHaveProperty('price')
     // A send fully covered by the free-texts offer is a zero-cost text
     // campaign, not a channel without a price.
-    expect(outreachEventProps({ channel: 'text', price: 0 })).toEqual(
-      expect.objectContaining({ price: 0 }),
-    )
+    expect(
+      outreachEventProps({ channel: 'text', isServe: false, price: 0 }),
+    ).toEqual(expect.objectContaining({ price: 0 }))
   })
 
   it('marks the two one-to-one channels and nothing else', () => {
-    expect(outreachEventProps({ channel: 'doorKnocking' }).fanout).toBe(
-      'one-to-one',
-    )
-    expect(outreachEventProps({ channel: 'phoneBanking' }).fanout).toBe(
-      'one-to-one',
-    )
-    expect(outreachEventProps({ channel: 'robocall' }).fanout).toBe(
-      'one-to-many',
-    )
+    expect(
+      outreachEventProps({ channel: 'doorKnocking', isServe: false }).fanout,
+    ).toBe('one-to-one')
+    expect(
+      outreachEventProps({ channel: 'phoneBanking', isServe: false }).fanout,
+    ).toBe('one-to-one')
+    expect(
+      outreachEventProps({ channel: 'robocall', isServe: false }).fanout,
+    ).toBe('one-to-many')
   })
 
   it('reduces sendDate to a date, because a send is scheduled by day', () => {
     expect(
       outreachEventProps({
         channel: 'text',
+        isServe: false,
         sendDate: new Date('2026-09-29T18:30:00.000Z'),
       }).sendDate,
     ).toBe('2026-09-29')
     expect(
-      outreachEventProps({ channel: 'text', sendDate: '2026-09-29' }).sendDate,
+      outreachEventProps({
+        channel: 'text',
+        isServe: false,
+        sendDate: '2026-09-29',
+      }).sendDate,
     ).toBe('2026-09-29')
   })
 
-  it('carries a tracker origin as both halves or neither', () => {
-    expect(outreachEventProps({ channel: 'text' })).not.toHaveProperty(
-      'trackerTaskId',
+  it('mirrors recipientCount as voterContacts, omission included', () => {
+    const props = outreachEventProps({
+      channel: 'text',
+      isServe: false,
+      recipientCount: 40,
+    })
+    expect(props.voterContacts).toBe(40)
+    expect(
+      outreachEventProps({ channel: 'socialMedia', isServe: false }),
+    ).not.toHaveProperty('voterContacts')
+  })
+
+  it('cuts win from serve on a property rather than an event name', () => {
+    expect(
+      outreachEventProps({ channel: 'text', isServe: false }).product,
+    ).toBe('win')
+    expect(outreachEventProps({ channel: 'text', isServe: true }).product).toBe(
+      'serve',
     )
+  })
+
+  it('carries a tracker origin as both halves or neither', () => {
+    expect(
+      outreachEventProps({ channel: 'text', isServe: false }),
+    ).not.toHaveProperty('trackerTaskId')
     expect(
       outreachEventProps({
         channel: 'text',
+        isServe: false,
         tracker: { trackerTaskId: 'task_1', phase: 'gotv' },
       }),
     ).toEqual(

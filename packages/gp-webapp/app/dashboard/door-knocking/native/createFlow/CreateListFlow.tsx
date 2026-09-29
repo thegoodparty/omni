@@ -7,8 +7,11 @@ import { Input, Label } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
-import { EVENTS, surfaceEvent, trackEvent } from 'helpers/analyticsHelper'
-import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  outreachProduct,
+} from 'app/dashboard/outreach/util/outreachAnalytics'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { GateBanner } from 'app/dashboard/outreach/v2/gate/GateBanner'
 import { GateExplainerModal } from 'app/dashboard/outreach/v2/gate/GateExplainerModal'
@@ -1332,7 +1335,8 @@ export default function CreateListFlow({
       // would under-report it by three.
       for (const row of created) {
         const stats = draftStats.get(row.draft.clientId)
-        trackEvent(surfaceEvent(EVENTS.DoorKnocking.ListCreated, serveMode), {
+        trackEvent(EVENTS.DoorKnocking.ListCreated, {
+          product: outreachProduct(serveMode),
           // This turf's own figures, not the campaign's: the event is about
           // a route, and a shared total would make every turf of a campaign
           // look the same size as the whole of it.
@@ -1350,12 +1354,11 @@ export default function CreateListFlow({
         // what makes a created → contacted → completed funnel countable
         // across all of them.
         trackEvent(
-          surfaceEvent(
-            EVENTS.Dashboard.VoterContact.CampaignCreated,
-            serveMode,
-          ),
+          EVENTS.Dashboard.VoterContact.CampaignCreated,
           outreachEventProps({
             channel: 'doorKnocking',
+            isServe: serveMode,
+            campaignName: row.turf.name,
             recipientCount: stats?.people ?? 0,
             outreachCampaignId: row.turf.outreachId ?? undefined,
             listId: row.turf.id,
