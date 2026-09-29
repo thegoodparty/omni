@@ -48,10 +48,13 @@ UNTRIAGED_GAPS = frozenset({"new", "open"})
 PROPOSAL_RANK = 50
 ALIGNMENT_RANK = 40
 
-# Each queue's verbs, in its own vocabulary, as {value: label}. Queue A's values are the
-# literals instrumentation_gaps.apply_seed_dispositions validates against; inventing a
-# shared set would mean translating on the way back in, and a typo there is silently
-# skipped rather than refused.
+# Each queue's verbs, in its own vocabulary, as {value: label}. These are the reviewer's
+# words, not the storage format, and Queue A is where that distinction bites:
+# `apply_seed_dispositions` validates against {new, open, accepted, dismissed} and
+# SKIPS anything else with only a stderr warning. So `accept` -> `accepted`,
+# `dismiss` -> `dismissed`, `defer` -> `open` has to happen on the way back in, and a
+# handoff applied without it loses every Queue A ruling quietly. The mapping lives in
+# the triage skill's Queue A table, which is the one place that writes this file.
 FLAG_VERBS = {
     "govern": "Fix in Govern",
     "dismiss": "Dismiss cause",

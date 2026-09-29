@@ -52,8 +52,11 @@ governance queues in one ranked list, with the flagged set grouped by cause rath
 by event. `scripts/python/governance_console_snapshot.py` builds its one JSON from the
 health report, `instrumentation_gaps.json` and the explorer snapshot, which is why it
 has to run inside the governance job after the health step: the report is gitignored and
-exists only during a run. The page is read-only in phase 1; rulings still go through
-`/triage-instrumentation-gaps`. `surfaces/` is where operator pages built from committed
+exists only during a run. The page is where the reviewer looks at the evidence and picks
+a verb per row; it writes nothing itself, and leaves as a plain-text handoff pasted into
+`/triage-instrumentation-gaps`, which still owns every write. So the console replaced the
+elicitation half of that skill and none of the application half. `surfaces/` is where
+operator pages built from committed
 governance data live; its `build.py` must stay dependency-free because the republish
 routine runs it with a bare interpreter. Detail in
 `surfaces/governance-console/README.md`.

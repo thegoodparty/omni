@@ -24,9 +24,22 @@ every consumer the events are dead.* Those sentences live in one place,
 `VERB_EFFECTS` in the snapshot builder, so the tooltip and the review cannot drift.
 
 When you are done, the bar at the bottom holds the batch. Copy it, paste it into Claude
-Code, and it writes each judgment to the file its queue owns, files the tickets, and
-opens one PR. The next scheduled run reads those files and stops raising what you
-settled.
+Code, and `/triage-instrumentation-gaps` writes each judgment to the file its queue
+owns, files the tickets, and opens one PR. The next scheduled run reads those files and
+stops raising what you settled.
+
+**This page replaced the elicitation half of that skill and none of the application
+half.** Looking at the evidence and choosing a verb happens here; everything after the
+verb still happens there — the per-queue write rules, `is_actioned` idempotency, the
+accepted-gap routing between a ClickUp ticket and `instrument-analytics-event`, and
+`ship-pr`. The handoff's header carries `run_date`, which is the skill's fourth entry
+point beside a bare date, a Slack permalink, and no argument at all.
+
+One thing that does not survive the trip untranslated: this page's Queue A verbs are the
+reviewer's words (`accept`, `dismiss`, `defer`), and the gap state stores `accepted`,
+`dismissed`, `open`. `apply_seed_dispositions` skips an unrecognised value with only a
+stderr warning, so the mapping is not optional and its absence fails silently. It lives
+in the skill's Queue A table.
 
 The failure mode is deliberately visible: if you never paste the handoff, nothing
 happened, and Thursday's digest says so. A background sync would fail more quietly.

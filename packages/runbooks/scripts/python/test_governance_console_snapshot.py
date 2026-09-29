@@ -487,7 +487,21 @@ def test_the_alignment_queue_carries_the_unqualified_leg_trap():
     assert "one slice of a busy event" in item["caveat"]["wrong"]
 
 
-def test_gap_verbs_are_the_literals_the_gap_parser_validates():
+def test_gap_verbs_are_not_the_stored_dispositions_and_must_be_mapped():
+    """The reviewer's word and the storage value differ, and the gap is silent.
+
+    `apply_seed_dispositions` validates against {new, open, accepted, dismissed} and
+    skips anything else with a stderr warning only. So a handoff applied without the
+    accept->accepted / dismiss->dismissed / defer->open mapping loses every Queue A
+    ruling quietly. This test exists so that stays visible if either side moves.
+    """
+    import instrumentation_gaps as ig
+
+    assert set(gcs.GAP_VERBS) == {"accept", "dismiss", "defer"}
+    assert not set(gcs.GAP_VERBS) & ig._VALID_DISPOSITIONS
+
+
+def test_a_gap_row_offers_the_three_verbs_and_the_judge_reason():
     gaps = {"a#b": {"id": "a#b", "disposition": "new", "rank": 0,
                     "dashboard_question": "q", "location": "a", "surface_type": "b",
                     "judge_reason": "submit handler with no track call", "reason": ""}}
