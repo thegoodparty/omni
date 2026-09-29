@@ -16,7 +16,11 @@ const SOURCE = readFileSync(join(__dirname, 'useOutreachAudience.ts'), 'utf8')
 const bodyOf = (name: string): string => {
   const start = SOURCE.indexOf(`const ${name} = useCallback(() => {`)
   expect(start, `${name} not found`).toBeGreaterThan(-1)
-  const end = SOURCE.indexOf('}, [resetCreateMutation])', start)
+  // Anchored on the START of the deps array, not an exact array: pinning the
+  // full `}, [resetCreateMutation])' meant adding any dependency silently
+  // sliced to the end of the file and failed the count assertion below for a
+  // reason that looked nothing like its cause.
+  const end = SOURCE.indexOf('}, [resetCreateMutation', start)
   return SOURCE.slice(start, end)
 }
 

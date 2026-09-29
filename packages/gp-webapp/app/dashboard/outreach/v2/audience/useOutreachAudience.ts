@@ -13,6 +13,8 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
+import { getContactsLabels } from 'app/dashboard/shared/contactsLabels'
+import { isUniverseList } from './universeList.util'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/outreach/util/autoVoterFilterName.util'
 import type {
   SegmentResponse,
@@ -122,6 +124,53 @@ export interface OutreachAudience {
   // Settled-zero: the only count state that should block advancing.
   builderZeroMatch: boolean
   onSelect: (id: number) => void
+  // The whole constituency, offered as a row of its own — the audience the
+  // CRM lists index has always shown first, which every outreach picker was
+  // missing. Its name is the CRM's own label, so the two surfaces cannot
+  // drift apart.
+  // Null until the elected-office query settles: until then we do not know
+  // whether this product says voters or constituents, and a guess becomes a
+  // wrongly named saved list the moment the row is picked. The step withholds
+  // the row while this is null.
+  universeName: string | null
+  // The saved list that IS the universe, or null when the org has none yet.
+  // Resolved by its CRITERIA, never by its name: a candidate is free to call
+  // a filtered list "All voters", and reusing that would select a narrower
+  // audience than the row promises. Exposed so the step and this hook cannot
+  // disagree about which row is the universe.
+  universeListId: number | null
+  // Counted from `GET /v1/contacts/list-detail` with NO segment, which is
+  // exactly what the CRM's universe row reads, so the number on the row is
+  // the same number the contacts tab shows.
+  universeCount: number | null
+  universeLoading: boolean
+  // Resolves the row to a REAL criteria-free saved list — reused when the org
+  // already has one, created when it does not — and RETURNS its id without
+  // selecting it. Selecting is the caller's job, through the same `onSelect`
+  // every other row goes through: that is what clears a pressed
+  // recommendation (`selectList`) and runs each flow's own side effects (see
+  // the note above `seedBuilderFromRecommendation`, and SmsFlow clearing a
+  // stale phone-list token). Null when the create failed.
+  selectUniverse: () => Promise<number | null>
+  universePending: boolean
+  // Surfaced because `selectUniverse` swallows the rejection to return null:
+  // without this the row's failure is a silent no-op, since nothing else on
+  // the step knows the create was even attempted.
+  universeError: boolean
+  // Told when the picker itself opens and closes, which does two jobs.
+  //
+  // It gates the universe count: that read is
+  // `GET /v1/contacts/list-detail` over the WHOLE district, measured at 12s
+  // p50 and 17s p95 under concurrency (see `useListRowDetail`'s cap), and
+  // nothing shows it until the popover is up — so firing it when the flow
+  // opens spent a slow warehouse read on every candidate who never touched
+  // the picker.
+  //
+  // And it clears a failed create. React Query keeps a mutation's error
+  // until it is reset or retried, and the banner lives inside the picker, so
+  // without this one blip read as failed on every reopen for the rest of the
+  // session. Same reason `clearCreateError` exists above.
+  onPickerOpenChange: (open: boolean) => void
   startBuilder: () => void
   // Persist the built filters as a saved list (overlay-free), refresh the
   // picker, and return the created row so the flow can select it.
@@ -225,7 +274,8 @@ export const useOutreachAudience = ({
     voteGoalShare?: number
   } | null>(null)
 
-  const { data: electedOffice } = useElectedOffice()
+  const { data: electedOffice, isFetched: electedOfficeFetched } =
+    useElectedOffice()
   const isElectedOfficial = !!electedOffice
   // Same gating as the builder's count below: the flow host stays mounted, so
   // an ungated fetch would run for every outreach page view. 'picker' mode
@@ -320,6 +370,79 @@ export const useOutreachAudience = ({
   })
   const lists = useMemo(() => listsQuery.data ?? [], [listsQuery.data])
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null
+
+  // The universe row's name is the CRM's own label for the same audience, so
+  // "All voters" on Win and "All constituents" on Serve — and so a list
+  // created here is the one the contacts tab already talks about.
+  // Null until we know which product's label to use. While the
+  // elected-office query is in flight `electedOffice` is undefined, which
+  // reads as Win — so on a cold cache a Serve org would have been offered a
+  // row called "All voters" and, if they picked it, had a list SAVED under
+  // that name. Better to have no row for a moment than the wrong one.
+  const universeName = electedOfficeFetched
+    ? getContactsLabels(!isElectedOfficial).allContactsTitle
+    : null
+
+  // Our label AND no criteria — see `universeList.util.ts` for why either
+  // test alone is wrong in a different direction.
+  const universeList =
+    universeName === null
+      ? null
+      : (lists.find((l) => isUniverseList(l, universeName)) ?? null)
+
+  // Omitted segment = the whole unfiltered district (ENG-10778), the same
+  // read the CRM's universe row makes. Only needed until the row resolves to
+  // a real list, after which the ordinary reachability query answers.
+  // Whether the saved-list popover is up. The step owns that state; this is
+  // its copy, so the count below can wait for it.
+  const [pickerOpen, setPickerOpen] = useState(false)
+
+  const universeQuery = useQuery({
+    queryKey: ['outreach-audience-universe', orgSlug, reachabilityKey],
+    queryFn: async ({ signal }) => {
+      const { data } = await clientRequest(
+        'GET /v1/contacts/list-detail',
+        {},
+        { signal },
+      )
+      return data.reachability[reachabilityKey]
+    },
+    // Not merely `open`: see `onPickerOpenChange`. The flow being open is not
+    // a reason to read the whole district.
+    enabled: open && pickerOpen,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+
+  const universeMutation = useMutation({
+    mutationFn: async (): Promise<SegmentResponse> => {
+      // Reuse before create, so tapping the row twice — or on a later visit —
+      // cannot litter the org with duplicate all-constituents lists. Matched
+      // on criteria rather than name; see `isCriteriaFree`.
+      // Refused rather than guessed: the step does not offer the row until
+      // the name is known, so reaching here without one is a bug, not a
+      // state to paper over with a default label.
+      if (universeName === null) {
+        throw new Error('Universe list name is not resolved yet')
+      }
+      const existing = listsRef.current.find((l) =>
+        isUniverseList(l, universeName),
+      )
+      if (existing) return existing
+      // No criteria at all: ENG-10960 established that the backend accepts a
+      // criteria-free saved filter, and that is precisely "everyone".
+      const { data } = await clientRequest(
+        'POST /v1/voters/voter-file/filter',
+        { name: universeName },
+      )
+      await queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
+      })
+      return data as SegmentResponse
+    },
+  })
+  const { reset: resetUniverseMutation } = universeMutation
+
   // Read by `reset` through refs so a lists refetch (staleTime 0, window
   // focus) never changes reset's identity: the flows key their open-time
   // reset effect on it, and a new identity would wipe the flow mid-edit.
@@ -494,6 +617,8 @@ export const useOutreachAudience = ({
       preselect !== undefined &&
       listsRef.current.some((l) => l.id === preselect)
     setMode('picker')
+    setPickerOpen(false)
+    resetUniverseMutation()
     setSelectedListId(preselectReady ? preselect : null)
     setSelectedRecommendation(null)
     setRecommendationSnapshot(null)
@@ -506,7 +631,7 @@ export const useOutreachAudience = ({
     setBuilderName('')
     setRecommendedMeta(null)
     resetCreateMutation()
-  }, [resetCreateMutation])
+  }, [resetCreateMutation, resetUniverseMutation])
 
   // Opening the builder leaves a selected recommendation behind: what gets
   // cut from here is a new audience, not that card.
@@ -778,6 +903,28 @@ export const useOutreachAudience = ({
     builderCountErrorMessage: builderCountResult.errorMessage,
     builderZeroMatch,
     onSelect: selectList,
+    universeName,
+    universeListId: universeList?.id ?? null,
+    universeCount: universeQuery.data ?? null,
+    universeLoading: universeQuery.isFetching,
+    selectUniverse: async () => {
+      try {
+        return (await universeMutation.mutateAsync()).id
+      } catch {
+        // The mutation's own error state is what the row reads; a failed
+        // create must not leave an unhandled rejection behind it.
+        return null
+      }
+    },
+    universePending: universeMutation.isPending,
+    universeError: universeMutation.isError,
+    onPickerOpenChange: (next: boolean) => {
+      setPickerOpen(next)
+      // Cleared on the way IN: the banner belongs to the attempt just made,
+      // so it survives closing the picker to think and is gone by the time
+      // they come back to try again.
+      if (next) universeMutation.reset()
+    },
     startBuilder,
     selectedRecommendation,
     selectRecommendation,
