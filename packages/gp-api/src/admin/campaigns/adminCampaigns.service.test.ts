@@ -130,7 +130,10 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
     vi.clearAllMocks()
     findUniqueOrThrow.mockResolvedValue({ id: 42, userId: 7, details: {} })
     update.mockResolvedValue({ id: 42, userId: 7 })
-    setIsPro.mockResolvedValue({ becamePro: false })
+    setIsPro.mockResolvedValue({
+      becamePro: false,
+      campaign: { id: 42, userId: 7 },
+    })
     trackCampaign.mockResolvedValue(undefined)
     cancelSubscription.mockResolvedValue({ id: 'sub_test' })
     track.mockResolvedValue(undefined)
@@ -147,7 +150,7 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
     expect(cancelSubscription).toHaveBeenCalledWith('sub_live_123')
     // DB write still happens after a successful cancel so admin state moves
     // immediately; the webhook then clears details.subscriptionId.
-    expect(setIsPro).toHaveBeenCalledWith(42, false)
+    expect(setIsPro).toHaveBeenCalledWith(42, false, true, {})
   })
 
   it('does not touch Stripe for a comped campaign (isPro:false without subscriptionId)', async () => {
@@ -159,7 +162,7 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
     await buildService().update(42, { isPro: false })
 
     expect(cancelSubscription).not.toHaveBeenCalled()
-    expect(setIsPro).toHaveBeenCalledWith(42, false)
+    expect(setIsPro).toHaveBeenCalledWith(42, false, true, {})
   })
 
   it('surfaces a 502 and skips the DB update when Stripe cancel fails', async () => {
@@ -198,29 +201,21 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
 
   // A raw `isPro: true` write skipped the stamp of details.isProUpdatedAt, so
   // HubSpot showed a comped campaign as Pro with no pro_upgrade_date, forever.
-  it('grants Pro through setIsPro so the upgrade date is stamped', async () => {
-    await buildService().update(42, { isPro: true, isVerified: true })
-
-    expect(setIsPro).toHaveBeenCalledWith(42, true)
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 42 },
-      data: expect.not.objectContaining({ isPro: expect.anything() }),
+  it('grants Pro through setIsPro, with the other fields in the same commit', async () => {
+    const result = await buildService().update(42, {
+      isPro: true,
+      isVerified: true,
     })
-    expect(update).toHaveBeenCalledWith({
-      where: { id: 42 },
-      data: expect.objectContaining({ isVerified: true }),
+
+    expect(setIsPro).toHaveBeenCalledWith(42, true, true, {
+      isVerified: true,
+      dateVerified: expect.any(Date),
     })
-    // setIsPro owns the Pro identify and the CRM sync; a second sync here
-    // would publish the same row twice.
-    expect(trackCampaign).not.toHaveBeenCalled()
-  })
-
-  it('reads the campaign instead of issuing an empty update for an isPro-only body', async () => {
-    await buildService().update(42, { isPro: true })
-
+    // setIsPro owns the identify and the CRM sync; a second update or sync
+    // here would reopen the partial-write window and publish the row twice.
     expect(update).not.toHaveBeenCalled()
-    expect(findUniqueOrThrow).toHaveBeenCalledWith({ where: { id: 42 } })
-    expect(setIsPro).toHaveBeenCalledWith(42, true)
+    expect(trackCampaign).not.toHaveBeenCalled()
+    expect(result).toEqual({ id: 42, userId: 7 })
     expect(track).toHaveBeenCalledWith(
       7,
       expect.anything(),
@@ -228,10 +223,15 @@ describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro'
     )
   })
 
-  it('syncs the CRM itself only when isPro is not in the body', async () => {
+  it('leaves setIsPro out of it when isPro is not in the body', async () => {
     await buildService().update(42, { didWin: true })
 
     expect(setIsPro).not.toHaveBeenCalled()
-    expect(trackCampaign).toHaveBeenCalledWith(42)
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: { didWin: true },
+    })
+    // CampaignsService.update syncs the CRM itself.
+    expect(trackCampaign).not.toHaveBeenCalled()
   })
 })
