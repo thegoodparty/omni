@@ -34,17 +34,22 @@ import { resolveSendWindowTimeZone } from '../utils/sendWindowTimeZone.util'
 
 // The schedule name is the only place Peerly echoes a job's window back to
 // us (GET job returns schedule_details.schedule_name, not the hours), so
-// the day + start ride in the name and `realignSchedule` reads them back
-// to decide whether a job created before the window was honored needs a
-// fresh schedule at approve.
-const scheduleWindowMarker = (date: string, startTime: string) =>
-  ` - ${date} ${startTime} - `
+// the day + start + zone ride in the name and `realignSchedule` reads them
+// back to decide whether a job created before the window was honored (or
+// before it was read in the candidate's zone — a LOCAL-era name carries no
+// zone) needs a fresh schedule at approve.
+const scheduleWindowMarker = (
+  date: string,
+  startTime: string,
+  timeZone: string,
+) => ` - ${date} ${startTime} ${timeZone} - `
 const buildScheduleName = (
   campaignId: number,
   date: string,
   startTime: string,
+  timeZone: string,
 ) => {
-  const marker = scheduleWindowMarker(date, startTime)
+  const marker = scheduleWindowMarker(date, startTime, timeZone)
   return `GP P2P - Campaign ${campaignId}${marker}${formatISO(new Date())}`
 }
 
@@ -143,10 +148,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
       const targetDate = dateOnly || 'no-date'
       const startTime = resolveSendWindowStart(scheduledStartTime)
+      const timeZone = resolveSendWindowTimeZone(didState)
       scheduleId = await this.peerlyScheduleService.createSchedule(
-        buildScheduleName(campaignId, targetDate, startTime),
+        buildScheduleName(campaignId, targetDate, startTime, timeZone),
         startTime,
-        resolveSendWindowTimeZone(didState),
+        timeZone,
       )
 
       this.logger.info('Creating P2P job')
@@ -233,10 +239,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       let scheduleId: number | undefined
       if (rescheduleDate) {
         const startTime = resolveSendWindowStart(rescheduleStartTime)
+        const timeZone = resolveSendWindowTimeZone(didState)
         scheduleId = await this.peerlyScheduleService.createSchedule(
-          buildScheduleName(campaignId, rescheduleDate, startTime),
+          buildScheduleName(campaignId, rescheduleDate, startTime, timeZone),
           startTime,
-          resolveSendWindowTimeZone(didState),
+          timeZone,
         )
       }
 
@@ -399,13 +406,14 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     job: PeerlyJob,
     { campaignId, date, startTime, state }: JobSendWindow,
   ): Promise<number | undefined> {
-    const marker = scheduleWindowMarker(date, startTime)
+    const timeZone = resolveSendWindowTimeZone(state)
+    const marker = scheduleWindowMarker(date, startTime, timeZone)
     if (job.schedule_details?.schedule_name?.includes(marker)) return undefined
     try {
       return await this.peerlyScheduleService.createSchedule(
-        buildScheduleName(campaignId, date, startTime),
+        buildScheduleName(campaignId, date, startTime, timeZone),
         startTime,
-        resolveSendWindowTimeZone(state),
+        timeZone,
       )
     } catch (err) {
       this.logger.error(
@@ -432,10 +440,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   }: JobSendWindow & { jobId: string }): Promise<void> {
     const job = await this.getJob(jobId)
     try {
+      const timeZone = resolveSendWindowTimeZone(state)
       const scheduleId = await this.peerlyScheduleService.createSchedule(
-        buildScheduleName(campaignId, date, startTime),
+        buildScheduleName(campaignId, date, startTime, timeZone),
         startTime,
-        resolveSendWindowTimeZone(state),
+        timeZone,
       )
       await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
         account_id: this.accountNumber,

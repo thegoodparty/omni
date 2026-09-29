@@ -264,7 +264,7 @@ describe('PeerlyP2pJobService', () => {
       })
 
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
-        expect.stringContaining(' - 2026-09-26 10:00 - '),
+        expect.stringContaining(' - 2026-09-26 10:00 US/Eastern - '),
         '10:00',
         'US/Eastern',
       )
@@ -279,7 +279,7 @@ describe('PeerlyP2pJobService', () => {
       })
 
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
-        expect.any(String),
+        expect.stringContaining(' - 2026-09-26 10:00 US/Pacific - '),
         '10:00',
         'US/Pacific',
       )
@@ -292,7 +292,7 @@ describe('PeerlyP2pJobService', () => {
       })
 
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
-        expect.stringContaining(' - 2025-03-15 09:00 - '),
+        expect.stringContaining(' - 2025-03-15 09:00 US/Eastern - '),
         '09:00',
         'US/Eastern',
       )
@@ -544,7 +544,9 @@ describe('PeerlyP2pJobService', () => {
       })
 
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
-        expect.stringContaining('GP P2P - Campaign 42 - 2026-10-01 18:00 - '),
+        expect.stringContaining(
+          'GP P2P - Campaign 42 - 2026-10-01 18:00 US/Eastern - ',
+        ),
         '18:00',
         'US/Eastern',
       )
@@ -663,7 +665,9 @@ describe('PeerlyP2pJobService', () => {
       })
 
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
-        expect.stringContaining('GP P2P - Campaign 42 - 2026-09-10 18:00 - '),
+        expect.stringContaining(
+          'GP P2P - Campaign 42 - 2026-09-10 18:00 US/Eastern - ',
+        ),
         '18:00',
         'US/Eastern',
       )
@@ -716,7 +720,7 @@ describe('PeerlyP2pJobService', () => {
             schedule_id: 11,
             is_global: 1,
             schedule_name:
-              'GP P2P - Campaign 42 - 2026-09-10 18:00 - 2026-09-01T00:00:00Z',
+              'GP P2P - Campaign 42 - 2026-09-10 18:00 US/Eastern - 2026-09-01T00:00:00Z',
           },
         },
       })
@@ -734,6 +738,44 @@ describe('PeerlyP2pJobService', () => {
       ]
       expect(body).not.toHaveProperty('schedule_id')
       expect(body.status).toBe('active')
+    })
+
+    it('re-mints a LOCAL-era schedule whose marker carries no zone', async () => {
+      // Minted before the window was read in the candidate's zone: right
+      // hours, but Peerly applies them per contact. The canvasser request
+      // now books the candidate zone, so the Schedule must follow or the
+      // two vendor windows disagree.
+      mockHttpService.get.mockResolvedValueOnce({
+        data: {
+          ...pausedJob,
+          schedule_details: {
+            schedule_id: 11,
+            is_global: 1,
+            schedule_name:
+              'GP P2P - Campaign 42 - 2026-09-10 18:00 - 2026-09-01T00:00:00Z',
+          },
+        },
+      })
+
+      await service.activateJob('job-1', {
+        campaignId: 42,
+        date: '2026-09-10',
+        startTime: '18:00',
+        state: 'TX',
+      })
+
+      expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'GP P2P - Campaign 42 - 2026-09-10 18:00 US/Central - ',
+        ),
+        '18:00',
+        'US/Central',
+      )
+      const [, body] = mockHttpService.put.mock.calls.at(-1) as [
+        string,
+        Record<string, unknown>,
+      ]
+      expect(body.schedule_id).toBe(99999)
     })
 
     it('omits media for a template without one', async () => {
