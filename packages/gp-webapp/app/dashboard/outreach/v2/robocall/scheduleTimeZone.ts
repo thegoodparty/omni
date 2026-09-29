@@ -1,13 +1,15 @@
 import { format } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 
-// Robocall send times are entered and displayed in the candidate's local
-// timezone — the 9am-9pm delivery window is a per-contact-timezone legal rule —
-// but the instant is stored as UTC (scheduledAt). The race's own IANA timezone
-// is the eventual source of truth (wired in when the schedule persists at the
-// pay step); until then we derive the zone from the campaign's state. Split
-// states map to their predominant zone; Eastern is the fallback for anything
-// unmapped (territories, missing state).
+// Robocall and SMS send times are entered and displayed in the candidate's
+// local timezone — the 9am-9pm delivery window is a per-contact-timezone legal
+// rule — but the instant is stored as UTC (scheduledAt). The race's own IANA
+// timezone is the eventual source of truth (wired in when the schedule persists
+// at the pay step); until then we derive the zone from the campaign's state,
+// the same state→zone table gp-api applies to the Peerly window
+// (vendors/peerly/utils/sendWindowTimeZone.util.ts). Split states map to their
+// predominant zone; Eastern is the fallback for anything unmapped
+// (territories, missing state).
 const STATE_TIME_ZONES: Record<string, string> = {
   AL: 'America/Chicago',
   AK: 'America/Anchorage',

@@ -266,6 +266,22 @@ describe('PeerlyP2pJobService', () => {
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
         expect.stringContaining(' - 2026-09-26 10:00 - '),
         '10:00',
+        'US/Eastern',
+      )
+    })
+
+    it("mints the schedule in the candidate state's zone", async () => {
+      await service.createPeerlyP2pJob({
+        ...baseJobParams,
+        didState: 'CA',
+        scheduledDate: '2026-09-26T10:00:00-07:00',
+        scheduledStartTime: '10:00',
+      })
+
+      expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
+        expect.any(String),
+        '10:00',
+        'US/Pacific',
       )
     })
 
@@ -278,6 +294,7 @@ describe('PeerlyP2pJobService', () => {
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
         expect.stringContaining(' - 2025-03-15 09:00 - '),
         '09:00',
+        'US/Eastern',
       )
     })
 
@@ -529,6 +546,7 @@ describe('PeerlyP2pJobService', () => {
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
         expect.stringContaining('GP P2P - Campaign 42 - 2026-10-01 18:00 - '),
         '18:00',
+        'US/Eastern',
       )
       expect(mockHttpService.put).toHaveBeenCalledWith(
         '/1to1/jobs/job-1',
@@ -647,6 +665,7 @@ describe('PeerlyP2pJobService', () => {
       expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
         expect.stringContaining('GP P2P - Campaign 42 - 2026-09-10 18:00 - '),
         '18:00',
+        'US/Eastern',
       )
       expect(mockHttpService.put).toHaveBeenCalledWith(
         '/1to1/jobs/job-1',
@@ -756,9 +775,22 @@ describe('PeerlyP2pJobService', () => {
           requested_timeframe: 'CUSTOM',
           requested_start_time: '09:00:00',
           requested_end_time: '21:00:00',
-          requested_timezone: 'LOCAL',
+          requested_timezone: 'US/Eastern',
         },
       )
+    })
+
+    it("reads the window in the candidate state's zone, never LOCAL", async () => {
+      await service.requestCanvassers('job-1', {
+        date: '2026-09-10',
+        state: 'CA',
+      })
+
+      const [, body] = mockHttpService.post.mock.calls.at(-1) as [
+        string,
+        Record<string, string>,
+      ]
+      expect(body.requested_timezone).toBe('US/Pacific')
     })
 
     it('opens the window at the caller-supplied start time', async () => {
@@ -775,7 +807,7 @@ describe('PeerlyP2pJobService', () => {
           requested_timeframe: 'CUSTOM',
           requested_start_time: '18:00:00',
           requested_end_time: '21:00:00',
-          requested_timezone: 'LOCAL',
+          requested_timezone: 'US/Eastern',
         },
       )
     })

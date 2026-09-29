@@ -43,6 +43,7 @@ import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { resolveCampaignTimeZone } from '../robocall/scheduleTimeZone'
 import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
@@ -439,6 +440,10 @@ export const SmsFlow = ({
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  // gp-api reads the picked wall-clock window in the campaign state's zone
+  // (Peerly `requested_timezone`), so the step captions that zone rather
+  // than the browser's.
+  const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsFlowPurpose | null>(null)
@@ -1482,6 +1487,7 @@ export const SmsFlow = ({
               onTimeSlotChange={setTimeSlot}
               customTime={customTime}
               onCustomTimeChange={setCustomTime}
+              timeZone={timeZone}
               earliestSend={earliestSend}
               calendarFloor={earliestSend}
               violates48h={violates48h}

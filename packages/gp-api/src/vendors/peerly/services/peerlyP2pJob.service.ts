@@ -30,6 +30,7 @@ import {
   SEND_WINDOW_END,
   resolveSendWindowStart,
 } from '../utils/sendWindowStart.util'
+import { resolveSendWindowTimeZone } from '../utils/sendWindowTimeZone.util'
 
 // The schedule name is the only place Peerly echoes a job's window back to
 // us (GET job returns schedule_details.schedule_name, not the hours), so
@@ -51,6 +52,10 @@ export interface JobSendWindow {
   campaignId: number
   date: string
   startTime: string
+  // The row's didState; the window's hours are read in this state's zone
+  // (sendWindowTimeZone.util) so a job sends in one wave, not one per
+  // contact zone.
+  state?: string | null
 }
 
 interface CreateP2pJobParams {
@@ -85,6 +90,7 @@ interface UpdateP2pJobParams {
   // schedule_id + start/end dates at it. Omitted, the job keeps its schedule.
   rescheduleDate?: string
   rescheduleStartTime?: string
+  didState?: string
 }
 
 @Injectable()
@@ -140,6 +146,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       scheduleId = await this.peerlyScheduleService.createSchedule(
         buildScheduleName(campaignId, targetDate, startTime),
         startTime,
+        resolveSendWindowTimeZone(didState),
       )
 
       this.logger.info('Creating P2P job')
@@ -207,6 +214,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     name,
     rescheduleDate,
     rescheduleStartTime,
+    didState,
   }: UpdateP2pJobParams): Promise<void> {
     if (scriptText.length > P2P_SCRIPT_MAX_LENGTH) {
       throw new BadRequestException(P2P_ERROR_MESSAGES.SCRIPT_TOO_LONG)
@@ -228,6 +236,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         scheduleId = await this.peerlyScheduleService.createSchedule(
           buildScheduleName(campaignId, rescheduleDate, startTime),
           startTime,
+          resolveSendWindowTimeZone(didState),
         )
       }
 
@@ -388,7 +397,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   // then never send), so it logs and the PUT keeps the existing schedule.
   private async realignSchedule(
     job: PeerlyJob,
-    { campaignId, date, startTime }: JobSendWindow,
+    { campaignId, date, startTime, state }: JobSendWindow,
   ): Promise<number | undefined> {
     const marker = scheduleWindowMarker(date, startTime)
     if (job.schedule_details?.schedule_name?.includes(marker)) return undefined
@@ -396,6 +405,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       return await this.peerlyScheduleService.createSchedule(
         buildScheduleName(campaignId, date, startTime),
         startTime,
+        resolveSendWindowTimeZone(state),
       )
     } catch (err) {
       this.logger.error(
@@ -418,12 +428,14 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     campaignId,
     date,
     startTime,
+    state,
   }: JobSendWindow & { jobId: string }): Promise<void> {
     const job = await this.getJob(jobId)
     try {
       const scheduleId = await this.peerlyScheduleService.createSchedule(
         buildScheduleName(campaignId, date, startTime),
         startTime,
+        resolveSendWindowTimeZone(state),
       )
       await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
         account_id: this.accountNumber,
@@ -462,7 +474,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
   async requestCanvassers(
     jobId: string,
-    { date, startTime }: { date?: string; startTime?: string } = {},
+    {
+      date,
+      startTime,
+      state,
+    }: { date?: string; startTime?: string; state?: string | null } = {},
   ): Promise<void> {
     try {
       // Peerly validates requested_initials against the REQUESTING user —
@@ -475,16 +491,19 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase()
       // The send window opens at the candidate's chosen wall-clock time
       // (design settled 2026-09-16) and always closes at the 9pm compliance
-      // cutoff, in each recipient's local timezone. Sent explicitly as a
-      // CUSTOM window rather than relying on the vendor's ANY_TIME default
-      // semantics; callers with no stored time keep the 9am open.
+      // cutoff, read in the candidate's zone rather than Peerly's LOCAL
+      // (per-contact) mode: LOCAL made every job open in one wave per
+      // contact zone, so the canvass team had to revisit small jobs all day
+      // (vendor request 2026-09-28). Sent explicitly as a CUSTOM window
+      // rather than relying on the vendor's ANY_TIME default semantics;
+      // callers with no stored time keep the 9am open.
       await this.peerlyHttpService.post(`/v2/p2p/${jobId}/request_canvassers`, {
         requested_initials: initials,
         ...(date && { requested_date: date }),
         requested_timeframe: 'CUSTOM',
         requested_start_time: `${resolveSendWindowStart(startTime)}:00`,
         requested_end_time: `${SEND_WINDOW_END}:00`,
-        requested_timezone: 'LOCAL',
+        requested_timezone: resolveSendWindowTimeZone(state),
       })
     } catch (error) {
       // A 400 here is CAS-actionable (e.g. a request already open) — keep
