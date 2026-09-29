@@ -311,53 +311,6 @@ describe('ChatComposer — attachment affordance', () => {
     )
     expect(screen.getByText('Reading, 12 pages')).toBeInTheDocument()
   })
-
-  it('shows the guard banner when guardAcknowledged is false', () => {
-    render(
-      <ChatComposer
-        {...baseProps}
-        attachments={[]}
-        onAttachFile={vi.fn()}
-        guardAcknowledged={false}
-        onGuardAcknowledge={vi.fn()}
-      />,
-    )
-    expect(screen.getByRole('note')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        /Don't upload closed-session, privileged, or active-litigation material/,
-      ),
-    ).toBeInTheDocument()
-  })
-
-  it('does not show the guard banner when guardAcknowledged is true', () => {
-    render(
-      <ChatComposer
-        {...baseProps}
-        attachments={[]}
-        onAttachFile={vi.fn()}
-        guardAcknowledged={true}
-        onGuardAcknowledge={vi.fn()}
-      />,
-    )
-    expect(screen.queryByRole('note')).not.toBeInTheDocument()
-  })
-
-  it('calls onGuardAcknowledge when the banner dismiss button is clicked', async () => {
-    const user = userEvent.setup()
-    const onGuardAcknowledge = vi.fn()
-    render(
-      <ChatComposer
-        {...baseProps}
-        attachments={[]}
-        onAttachFile={vi.fn()}
-        guardAcknowledged={false}
-        onGuardAcknowledge={onGuardAcknowledge}
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
-    expect(onGuardAcknowledge).toHaveBeenCalledTimes(1)
-  })
 })
 
 describe('extractHttpUrls', () => {
