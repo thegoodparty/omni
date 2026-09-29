@@ -21,6 +21,7 @@ import {
 } from '@styleguide/components/ui/icons'
 import {
   PRIORITY_STEP_LABELS,
+  PRIORITY_STEP_PURPOSE,
   type PriorityStatus,
   type PriorityStep,
   type PriorityStepId,
@@ -47,19 +48,19 @@ export const STEP_STATE_PRESENTATION: Record<
     chipClassName: 'bg-muted text-muted-foreground border-border',
   },
   active: {
-    label: 'In progress',
+    label: 'Working on it',
     icon: CircleDotIcon,
     iconClassName: 'text-primary',
     chipClassName: 'bg-primary/10 text-primary border-primary/30',
   },
   settled: {
-    label: 'Settled',
+    label: 'Done',
     icon: CircleCheckIcon,
     iconClassName: 'text-success',
     chipClassName: 'bg-success/10 text-success border-success/30',
   },
   stale: {
-    label: 'Needs a look',
+    label: 'Needs another look',
     icon: TriangleAlertIcon,
     iconClassName: 'text-warning',
     chipClassName: 'bg-warning/10 text-warning border-warning/40',
@@ -119,11 +120,16 @@ const StepDetail = ({
         <ChevronLeftIcon className="size-3.5" aria-hidden />
         All steps
       </Button>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-medium text-foreground">
-          {PRIORITY_STEP_LABELS[step.id]}
+      <div className="flex flex-col gap-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-medium text-foreground">
+            {PRIORITY_STEP_LABELS[step.id]}
+          </p>
+          <StepStateChip state={step.state} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {PRIORITY_STEP_PURPOSE[step.id]}
         </p>
-        <StepStateChip state={step.state} />
       </div>
       <p className="text-sm text-muted-foreground">
         {step.summary || 'Nothing here yet.'}
@@ -194,7 +200,7 @@ export const PriorityStatusRail = ({
       <CardHeader className="gap-1 px-4 pt-4 pb-3">
         <CardTitle className="text-sm">Where this stands</CardTitle>
         <CardDescription className="text-xs">
-          {`${settled} of ${status.steps.length} settled`}
+          {`${settled} of ${status.steps.length} done`}
         </CardDescription>
       </CardHeader>
       <Separator />

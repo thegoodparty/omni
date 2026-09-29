@@ -40,6 +40,7 @@ import {
 } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { buildAskClarifyQuestionTool } from '../chat-tools/askClarifyQuestion.tool'
 import {
   PriorityFlowContext,
   PriorityFlowContextService,
@@ -173,6 +174,10 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
   private assembleTools(ctx: PriorityFlowContext): Record<string, LlmTool> {
     const tools: Record<string, LlmTool> = {
       ...this.priorityStatus.buildStatusTool(ctx.priorityId),
+      // The answer comes back as an ordinary user turn, so this presents a
+      // decision without touching the seven-step status. The agent still
+      // decides on its own when a step settles.
+      ask_clarify_question: buildAskClarifyQuestionTool(),
       present_outreach_proposal: buildPresentOutreachProposalTool(),
       present_contacts: buildPresentContactsTool(),
       present_past_outreach: buildPresentPastOutreachTool(),

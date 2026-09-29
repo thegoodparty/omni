@@ -30,6 +30,7 @@ import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScr
 import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
 import { priorityFlowChatApi } from '../data/chat-api'
 import { toChatCard } from '../data/cards'
+import { CLARIFY_TOOL, parseClarifyQuestion } from '../data/clarify'
 import { fetchPriorityStatus } from '../data/priority-api'
 import { replayStatusMarkers } from '../data/statusReplay'
 import {
@@ -155,6 +156,21 @@ export const PriorityWorkspace = ({
         if (settled) commitStatus(settled.status, settled.nextAction)
         return true
       }
+      if (event.type === 'tool_call' && event.toolName === CLARIFY_TOOL) {
+        const question = parseClarifyQuestion(event.args)
+        if (question) {
+          const at = textLength()
+          setLiveExtras((prev) => [
+            ...prev,
+            {
+              key: `clarify-${event.toolCallId ?? prev.length}`,
+              extra: { kind: 'clarify', question },
+              appearAfter: at,
+            },
+          ])
+        }
+        return true
+      }
       if (event.type === 'tool_call') {
         const card = toChatCard({
           toolName: event.toolName,
@@ -188,6 +204,13 @@ export const PriorityWorkspace = ({
       void sendTurn(id, content, { hidden: opts?.hidden })
     },
     [conversationId, sendTurn],
+  )
+  // An answer is input to the conversation, nothing more: it goes back as an
+  // ordinary user turn, and the agent decides for itself whether it settles a
+  // step and calls update_priority_status.
+  const answerClarify = useCallback(
+    (answer: string): void => send(answer),
+    [send],
   )
   const sendRef = useRef(send)
   useEffect(() => {
@@ -226,6 +249,37 @@ export const PriorityWorkspace = ({
   }, [priorityId, title, description, setMessages, retryNonce])
 
   const markers = useMemo(() => replayStatusMarkers(messages), [messages])
+  // The question still waiting on an answer: the last assistant turn that
+  // asked one, and only while nothing has been said since. An answer is an
+  // ordinary user turn, so a user turn after the question is the answer.
+  const activeClarifyId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]
+      if (!message) continue
+      if (message.role === 'user') return null
+      if ((message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return message.id
+      }
+    }
+    return null
+  }, [messages])
+  // Priorities keeps no separate answer record: an answer is the next thing the
+  // official said, so derive it from the transcript. Without this, a question
+  // answered in an earlier session reloads locked with nothing highlighted.
+  const clarifyAnswerById = useMemo(() => {
+    const answers: Record<string, string> = {}
+    messages.forEach((message, index) => {
+      if (message.role === 'user') return
+      if (!(message.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL)) {
+        return
+      }
+      const reply = messages
+        .slice(index + 1)
+        .find((later) => later.role === 'user' && later.content !== KICKOFF)
+      if (reply) answers[message.id] = reply.content
+    })
+    return answers
+  }, [messages])
   const visibleMessages = useMemo(
     () => messages.filter((m) => !(m.role === 'user' && m.content === KICKOFF)),
     [messages],
@@ -339,6 +393,11 @@ export const PriorityWorkspace = ({
                         })}
                         priorityId={priorityId}
                         conversationId={conversationId ?? ''}
+                        clarifyInteractive={
+                          message.id === activeClarifyId && !sending
+                        }
+                        clarifyAnswer={clarifyAnswerById[message.id]}
+                        onClarifyAnswer={answerClarify}
                       />
                     </AssistantRow>
                   ),
@@ -350,6 +409,8 @@ export const PriorityWorkspace = ({
                       blocks={blocks}
                       priorityId={priorityId}
                       conversationId={conversationId ?? ''}
+                      clarifyInteractive={false}
+                      onClarifyAnswer={answerClarify}
                     />
                     {working ? <ThinkingRow /> : null}
                   </AssistantRow>

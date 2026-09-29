@@ -39,7 +39,17 @@ const crudSavedFiltersInputSchema = voterFilterBaseSchema
   })
   .strict()
 
-type SavedFilterRef = { id: number; name: string | null }
+// `hasBoundary` is the only geometry that ever reaches the model: whether a
+// shape is on the list, never where it is. A holder can draw one from the
+// transcript's own map card, so a list's shape can change between turns
+// without the model calling anything — the flag is how a conversation that
+// missed the notification (a resumed one, most often) still knows to trust
+// `get`'s count over an earlier figure rather than quoting the stale one.
+type SavedFilterRef = {
+  id: number
+  name: string | null
+  hasBoundary: boolean
+}
 
 export type CrudSavedFiltersOutput =
   | { filters: SavedFilterRef[] }
@@ -90,15 +100,21 @@ export const buildCrudSavedFiltersTool = (deps: {
 }): LlmStreamTool<typeof crudSavedFiltersInputSchema> => ({
   description:
     "Manage this organization's saved contact lists (saved filters). " +
-    "action='list' returns { id, name } for every saved list; 'get' " +
-    'returns { id, name, count } for ONE list by id and is the only way to ' +
-    "read a saved list's current size — ask it whenever you need that " +
-    'number, including when the list was discussed earlier in this ' +
-    'conversation, because a list can be narrowed after it is saved and an ' +
-    "earlier figure goes stale; 'create' " +
+    "action='list' returns { id, name, hasBoundary } for every saved list; " +
+    "'get' " +
+    'returns { id, name, hasBoundary, count } for ONE list by id and is the ' +
+    "only way to read a saved list's current size — ask it whenever you " +
+    'need that number, including when the list was discussed earlier in ' +
+    'this conversation, because a list can be narrowed after it is saved ' +
+    'and an earlier figure goes stale. `hasBoundary` is true when the user ' +
+    'has drawn an area onto that list, which narrows it in place: same id, ' +
+    'fewer people, and any count taken before the shape was drawn is now ' +
+    "wrong. You are told whether a shape exists, never where it is; 'create' " +
     'saves a new list from the same filter shape count_contacts uses ' +
     '(requires name, max 40 characters; compose filter fields from ' +
-    "describe_filter_dimensions) and returns { id, name, count }; 'update' " +
+    'describe_filter_dimensions) and returns { id, name, hasBoundary, ' +
+    'count } — hasBoundary is always false, because geometry can only be ' +
+    "drawn onto a list that already exists, never sent here; 'update' " +
     'edits a list by id; ' +
     "'delete' removes a list by id. A list already used for outreach is " +
     'locked: update and delete return an error explaining it must be ' +
@@ -118,7 +134,13 @@ export const buildCrudSavedFiltersTool = (deps: {
       // Deliberately no counts here. One count per saved list is the per-row
       // N+1 that 504'd the lists index in prod; `get` answers for the one
       // list the model actually needs.
-      return { filters: filters.map(({ id, name }) => ({ id, name })) }
+      return {
+        filters: filters.map(({ id, name, geoPoly }) => ({
+          id,
+          name,
+          hasBoundary: Boolean(geoPoly),
+        })),
+      }
     }
     if (action === 'get') {
       if (id === undefined) return { error: 'get requires id' }
@@ -138,7 +160,12 @@ export const buildCrudSavedFiltersTool = (deps: {
         // size — the inline count's schema carries neither `id` nor
         // `geoPoly`, which is the same defect the edit wizard had.
         const { count } = await contacts.countSegment(String(id), organization)
-        return { id: existing.id, name: existing.name, count }
+        return {
+          id: existing.id,
+          name: existing.name,
+          hasBoundary: Boolean(existing.geoPoly),
+          count,
+        }
       } catch (error) {
         if (
           error instanceof BadRequestException ||
@@ -162,7 +189,16 @@ export const buildCrudSavedFiltersTool = (deps: {
           ...filter,
           name,
         })
-        return { id: created.id, name: created.name, count }
+        // Always false: the tool cannot send geometry, so a list it creates
+        // is born without a shape. Stated rather than omitted so every ref
+        // the model sees carries the flag and its absence never reads as
+        // "unknown".
+        return {
+          id: created.id,
+          name: created.name,
+          hasBoundary: false,
+          count,
+        }
       }
       if (id === undefined) return { error: `${action} requires id` }
       const existing = await voterFileFilters.findByIdAndOrganizationSlug(
@@ -187,7 +223,11 @@ export const buildCrudSavedFiltersTool = (deps: {
           organization.slug,
           payload,
         )
-        return { id: updated.id, name: updated.name }
+        return {
+          id: updated.id,
+          name: updated.name,
+          hasBoundary: Boolean(updated.geoPoly),
+        }
       }
       await voterFileFilters.deleteByIdAndOrganizationSlug(
         id,

@@ -20,6 +20,8 @@ import { TurfSummaryRow } from '../TurfSummaryRow'
 // "Done" rather than "Close" because Close is the system's word for
 // dismissing a dialog and Done is the candidate's for finishing the job.
 type Props = {
+  // Which product's event names a row's Mark as done reports under.
+  isServe: boolean
   campaignName: string
   turfs: DoorKnockingTurf[]
   // The campaign's own envelope. Carried into the walk so that closing it
@@ -39,6 +41,7 @@ type Props = {
 }
 
 export const CreateCampaignSuccess = ({
+  isServe,
   campaignName,
   turfs,
   anchorOutreachId,
@@ -98,6 +101,7 @@ export const CreateCampaignSuccess = ({
           // including Mark as done, which is theirs to reach here too.
           <TurfSummaryRow
             key={turf.id}
+            isServe={isServe}
             turf={turf}
             onTurfCompleted={onTurfCompleted}
             action={

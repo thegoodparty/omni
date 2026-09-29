@@ -166,8 +166,11 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   `voters/voter-file` filter routes, so the Win Pro gate, completed-outreach
   validation, org scoping, and the locked-filter conflict are inherited; the
   locked-filter 409 surfaces as a structured "duplicate it to edit" tool error.
-  Aggregate-only returns: ids, names, and counts (create counts via
-  `ContactsService.countContacts` before persisting), never person rows.
+  Aggregate-only returns: ids, names, counts, and a `hasBoundary` flag
+  (create counts via `ContactsService.countContacts` before persisting),
+  never person rows and never geometry. The flag says only that a shape is
+  on the list, because a holder can draw one from the transcript's own map
+  card — see **A drawn boundary reaches the conversation** below.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
@@ -205,6 +208,44 @@ COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 (`list_briefings`/`get_briefing`, `read_community_issues`). Tool-calling chat is
 always **streaming** (multi-step `stepCountIs`); the non-streaming `toolCompletion`
 exists but isn't used by these surfaces.
+
+### A drawn boundary reaches the conversation
+
+`show_list_map`'s card carries a Draw area button, and the shape the holder
+draws is written straight from the browser to `PUT /v1/voters/voter-file/
+filter/:id`. That write touches nothing the model can see. So the transcript
+has to be told, and three things do it together — fixing any one alone leaves
+the assistant refusing:
+
+1. **The turn.** On a successful save from the chat surface,
+   `ChiefOfStaffChatBody` sends a hidden user turn
+   (`boundarySavedMessage`, gp-webapp) naming the list and its id. Hidden
+   because the holder drew rather than typed; persisted, so a resumed
+   conversation carries the same fact. It fires on a landed write only —
+   outreach can lock a list mid-draw and the 409 closes the same drawer.
+2. **The flag.** `crud_saved_filters` returns `hasBoundary` on every list
+   reference. That is the recovery path for a conversation that never saw
+   the turn, and it is the whole of what the model learns about geometry:
+   that a shape exists, never where it is.
+3. **The rules.** The Chief of Staff prompt's DRAWN AREA RULES say what a
+   shape does (narrows that list in place), where the new count comes from
+   (`action: 'get'` by id — `count_contacts` cannot see a boundary), and
+   that the model must never tell a holder it cannot act on an area they
+   drew.
+
+**The model still cannot create a list already scoped to a shape.** The
+route layer accepts `geoPoly`; `voterFilterBaseSchema`, which every
+model-facing tool is built on, does not carry it, so geometry only ever goes
+onto a list that already exists. That is a product call, not an oversight:
+the model cannot see a map, so composing a shape means inventing
+coordinates, and the save's unfiltered enclosing scan has a 50,000-person
+cap that a holder dragging handles gets live feedback against and a model
+does not. So the rules give it the order instead. Build and save the list
+from its filters first, then offer the map as an optional next step. Never
+a refusal, and never a shape demanded before the list gets built.
+
+Covered end to end by eval case MT-10, whose second prompt is the verbatim
+string `boundarySavedMessage` sends — change one and change the other.
 
 ## Chat persistence (Prisma)
 

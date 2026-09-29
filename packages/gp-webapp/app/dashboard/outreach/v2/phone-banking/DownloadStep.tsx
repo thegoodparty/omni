@@ -4,6 +4,7 @@ import type { PhoneBankingCreateResponse } from '@goodparty_org/contracts'
 import { Alert, AlertDescription, Button, Card } from '@styleguide'
 import { DownloadIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachProduct } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CHANNEL_META } from '../channelMeta'
 import { Intro } from '../social/Intro'
 
@@ -14,6 +15,9 @@ interface DownloadStepProps {
   response?: PhoneBankingCreateResponse
   pending?: { personCount: number; sheetCount: number }
   audienceLabel: string
+  // Which product's event name the download reports under — the flow's own
+  // `surface.isServe`, threaded rather than re-derived.
+  isServe: boolean
   onDownloadGated?: () => void
 }
 
@@ -24,6 +28,7 @@ export const DownloadStep = ({
   response,
   pending,
   audienceLabel,
+  isServe,
   onDownloadGated,
 }: DownloadStepProps) => {
   const sheetCount = response?.sheetCount ?? pending?.sheetCount ?? 1
@@ -36,6 +41,7 @@ export const DownloadStep = ({
   const handleDownloadClick = () => {
     if (!response) return
     trackEvent(EVENTS.Outreach.PhoneBanking.SheetDownloaded, {
+      product: outreachProduct(isServe),
       listId: response.id,
       contactCount: response.personCount,
     })

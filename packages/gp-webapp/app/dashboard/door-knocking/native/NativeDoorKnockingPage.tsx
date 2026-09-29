@@ -215,7 +215,7 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   // Owns the walk turf as well as the funnel events for the session.
-  const walk = useWalkSession()
+  const walk = useWalkSession(serveMode)
   const walkTurf = walk.turf
   const turfsQuery = useQuery({
     ...turfsQueryOptions(serveMode),
@@ -750,14 +750,14 @@ export default function NativeDoorKnockingPage({
     : null
   // Ending a FINISHED walk stamps the list Done. What "finished" means, and why
   // it isn't every exit, is in `walkCompletion.ts`.
-  const completeFinishedWalk = useWalkCompletion(walkTurfRow)
+  const completeFinishedWalk = useWalkCompletion(walkTurfRow, serveMode)
   // The walk's own `Move to archive`. Same ref-held turf as the completion
   // above and for the same reason: the write outlives the walk it shelves.
-  const walkArchive = useWalkArchive(walkTurfRow)
+  const walkArchive = useWalkArchive(walkTurfRow, serveMode)
   // The walk's manual Done. Same ref-held turf as the two above; the button
   // is withheld rather than disabled on a list already done or archived,
   // because the row itself is the authority and it refetches after the write.
-  const walkMarkDone = useWalkMarkDone(walkTurfRow)
+  const walkMarkDone = useWalkMarkDone(walkTurfRow, serveMode)
   // Whether we are on the way out to the hub. Every exit from door knocking is
   // now a client-side navigation, and the surface being left is torn down
   // before it resolves — so without this the candidate gets a frame or two of

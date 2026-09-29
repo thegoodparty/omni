@@ -22,6 +22,11 @@ import {
 import { Button, Card } from '@styleguide'
 import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import {
+  outreachEventProps,
+  type OutreachTrackerOrigin,
+} from '../../util/outreachAnalytics'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
 import { LongPoll } from '@shared/utils/LongPoll'
@@ -272,6 +277,10 @@ interface SmsFlowProps {
   // A tracker task's due date, persisted on the outreach row and forwarded
   // into the CAS Slack notification — the flow never derives it.
   campaignPlanDueDate?: string
+  // The tracker task this flow was launched from (the hub's `?compose=` deep
+  // link), carried onto the completion event so a completed task and the
+  // outreach it produced are one funnel.
+  tracker?: OutreachTrackerOrigin
   // A message the candidate is meant to send as written (Know Your
   // Opponent). It opens the flow on `custom`, the one purpose that never
   // AI-drafts, so the seeded words are what they edit rather than something
@@ -442,6 +451,7 @@ export const SmsFlow = ({
   tcrCompliance,
   surface = WIN_SMS_SURFACE,
   campaignPlanDueDate,
+  tracker,
   initialScript,
   preselectedListId,
   preselectedRecommendedVariant,
@@ -509,6 +519,26 @@ export const SmsFlow = ({
     createDraft: () => createDraftRow(),
     goToResumeStep: () => setStepId('schedule'),
     onDraftSaved: () => handleDraftSaved(),
+    // A gated candidate's campaign is created by the draft save, not by the
+    // pending_payment row the review step writes — which they never reach.
+    onCampaignCreated: (draft) =>
+      trackEvent(
+        EVENTS.Dashboard.VoterContact.CampaignCreated,
+        outreachEventProps({
+          channel: 'text',
+          isServe: surface.isServe,
+          campaignName: name.trim(),
+          recipientCount: audience.reachableCount ?? 0,
+          outreachCampaignId: draft.id,
+          ...(audience.selectedListId !== null
+            ? { listId: audience.selectedListId }
+            : {}),
+          audienceSource: audience.selectedRecommendation
+            ? 'recommended'
+            : 'savedList',
+          ...(tracker ? { tracker } : {}),
+        }),
+      ),
     onClose,
   })
   const { savedDraft, resumed, gateOpen, explainerOpen } = draftGate
@@ -748,6 +778,7 @@ export const SmsFlow = ({
     image,
     draftOutreachId,
     audience,
+    tracker,
     create: surface.endpoints.create,
     setStepId,
     setDraftOutreachId,
@@ -1094,6 +1125,33 @@ export const SmsFlow = ({
         if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
           setDraftOutreachId(outreach.id)
+          // The draft row IS the campaign: it exists, it is scheduled, and it
+          // has an audience — everything except the payment that completes it.
+          // Fired per draft, so going Back to change the audience and coming
+          // forward again reports the second campaign it really creates.
+          //
+          // NOT on a resume: this create converts a saved `draft` row in
+          // place, and that row already reported itself created when the
+          // gate saved it.
+          if (!resumed)
+            trackEvent(
+              EVENTS.Dashboard.VoterContact.CampaignCreated,
+              outreachEventProps({
+                channel: 'text',
+                isServe: surface.isServe,
+                campaignName: name.trim(),
+                recipientCount: phoneList.leadsLoaded,
+                sendDate: scheduledAt,
+                outreachCampaignId: outreach.id,
+                ...(audience.selectedListId !== null
+                  ? { listId: audience.selectedListId }
+                  : {}),
+                audienceSource: audience.selectedRecommendation
+                  ? 'recommended'
+                  : 'savedList',
+                ...(tracker ? { tracker } : {}),
+              }),
+            )
         } else {
           setDraftCreateError(true)
         }
@@ -1123,6 +1181,37 @@ export const SmsFlow = ({
   const handleScheduled = async (paid: boolean) => {
     setPaidSend(paid)
     setScheduled(true)
+    // A text campaign completes when it is bought and scheduled, not when
+    // Peerly sends it — the send is hours or days later and nothing on the
+    // client is alive to see it. `sendDate` carries that gap: it is the
+    // scheduled day, never the event's own timestamp.
+    const discount = campaign?.hasFreeTextsOffer
+      ? Math.min(phoneList?.leadsLoaded ?? 0, FREE_TEXTS_OFFER.COUNT)
+      : 0
+    const billable = Math.max((phoneList?.leadsLoaded ?? 0) - discount, 0)
+    trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+      ...outreachEventProps({
+        channel: 'text',
+        isServe: surface.isServe,
+        campaignName: name.trim(),
+        recipientCount: phoneList?.leadsLoaded ?? 0,
+        sendDate: scheduledAt,
+        // Always present on a paid channel, 0 included: a send fully covered
+        // by the free-texts offer is a zero-cost text campaign, not a channel
+        // without a price.
+        price: paid ? billable * PRICE_PER_MESSAGE : 0,
+        ...(draftOutreachId !== null
+          ? { outreachCampaignId: draftOutreachId }
+          : {}),
+        ...(audience.selectedListId !== null
+          ? { listId: audience.selectedListId }
+          : {}),
+        audienceSource: audience.selectedRecommendation
+          ? 'recommended'
+          : 'savedList',
+        ...(tracker ? { tracker } : {}),
+      }),
+    })
     await onScheduled()
   }
 

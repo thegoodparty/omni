@@ -117,6 +117,7 @@ export const Surfaces: Story = {
           Create flow, success screen
         </p>
         <TurfSummaryRow
+          isServe={false}
           turf={turf}
           action={<Button size="small">Start knocking</Button>}
         />
@@ -126,6 +127,7 @@ export const Surfaces: Story = {
           Campaign details drawer
         </p>
         <TurfSummaryRow
+          isServe={false}
           turf={{ ...turf, loggedCount: 41 }}
           action={<Button size="small">Continue knocking</Button>}
         />
@@ -141,6 +143,7 @@ export const MarkDoneConfirm: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <TurfSummaryRow
+      isServe={false}
       turf={{ ...turf, loggedCount: 12 }}
       action={<Button size="small">Continue knocking</Button>}
     />
@@ -153,6 +156,7 @@ export const Finished: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <TurfSummaryRow
+      isServe={false}
       turf={{ ...turf, loggedCount: 98, completed: true }}
       action={<Button size="small">Continue knocking</Button>}
     />

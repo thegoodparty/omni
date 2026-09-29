@@ -26,6 +26,8 @@ import { CONTINUE_LABELS, UNROUTED_LABEL } from './listDetails/footerMode'
 // the progress bar. Independent invalidation keeps each cache honest about
 // its own scope.
 interface CampaignTurfListProps {
+  // Which product's event names this list's lifecycle writes report under.
+  isServe: boolean
   anchorOutreachId: number
   outreachId: number
   // A row's overlays — its confirm dialog and its assignee menu — portal out
@@ -43,6 +45,7 @@ interface CampaignTurfListProps {
 }
 
 export const CampaignTurfList = ({
+  isServe,
   anchorOutreachId,
   outreachId,
   onOverlayOpenChange,
@@ -68,6 +71,7 @@ export const CampaignTurfList = ({
         {turfs.map((turf) => (
           <TurfRow
             key={turf.id}
+            isServe={isServe}
             turf={turf}
             outreachId={outreachId}
             onOverlayOpenChange={onOverlayOpenChange}
@@ -80,6 +84,8 @@ export const CampaignTurfList = ({
 }
 
 interface TurfRowProps {
+  // Which product's event names this row's lifecycle writes report under.
+  isServe: boolean
   turf: DoorKnockingTurf
   outreachId: number
   onOverlayOpenChange?: (open: boolean) => void
@@ -91,6 +97,7 @@ interface TurfRowProps {
 // the same handoff the drawer's own "Continue knocking" footer uses on the
 // single-turf branch above.
 const TurfRow = ({
+  isServe,
   turf,
   outreachId,
   onOverlayOpenChange,
@@ -110,6 +117,7 @@ const TurfRow = ({
     turf.routeSeconds === null ? UNROUTED_LABEL : CONTINUE_LABELS.doorKnocking
   return (
     <TurfSummaryRow
+      isServe={isServe}
       turf={turf}
       onOverlayOpenChange={onOverlayOpenChange}
       onTurfCompleted={onTurfCompleted}

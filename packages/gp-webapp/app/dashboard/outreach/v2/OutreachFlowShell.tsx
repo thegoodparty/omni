@@ -17,6 +17,7 @@ import {
 } from '@styleguide'
 import { OutreachSheet } from './OutreachSheet'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachChannel } from 'app/dashboard/outreach/util/outreachAnalytics'
 
 export interface FlowShellCta {
   label: string
@@ -140,6 +141,7 @@ export const OutreachFlowShell = ({
       if (previous) {
         trackEvent(EVENTS.Outreach.Flow.StepCompleted, {
           channel,
+          medium: outreachChannel(channel),
           step: previous.id,
         })
         lastStage.current = null
@@ -154,11 +156,16 @@ export const OutreachFlowShell = ({
     if (previous && currentStep > previous.step) {
       trackEvent(EVENTS.Outreach.Flow.StepCompleted, {
         channel,
+        medium: outreachChannel(channel),
         step: previous.id,
       })
     }
     lastStage.current = { step: currentStep, id: trackedStep }
-    trackEvent(EVENTS.Outreach.Flow.StepViewed, { channel, step: trackedStep })
+    trackEvent(EVENTS.Outreach.Flow.StepViewed, {
+      channel,
+      medium: outreachChannel(channel),
+      step: trackedStep,
+    })
   }, [open, channel, trackedStep, currentStep, settled])
 
   const requestClose = (nextOpen: boolean) => {

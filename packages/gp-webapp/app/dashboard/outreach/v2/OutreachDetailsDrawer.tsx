@@ -401,7 +401,7 @@ export const OutreachDetailsDrawer = ({
   // now, so the guard is gone and a solo campaign takes the same path — a
   // campaign of one is still a campaign, and one code path is what keeps the
   // two from drifting.
-  const campaignLifecycle = useCampaignLifecycle(anchorOutreachId)
+  const campaignLifecycle = useCampaignLifecycle(anchorOutreachId, isServe)
   // The CAMPAIGN's shelf, not the anchor turf's. `collapseDoorKnockingCampaigns`
   // says a campaign is archived only once every turf is, so reading the
   // anchor's own flag here would contradict the history row two inches away:
@@ -1239,6 +1239,7 @@ export const OutreachDetailsDrawer = ({
                 than the anchor's, and nothing computes one yet. */}
             {isDoorKnocking && row && (
               <CampaignTurfList
+                isServe={isServe}
                 anchorOutreachId={anchorOutreachId}
                 outreachId={row.id}
                 onOverlayOpenChange={setTurfOverlay}

@@ -23,6 +23,8 @@ import { turfStage, turfStatusLabel, useTurfLifecycle } from './turfLifecycle'
 // same parts by hand is not a shared component, and a screenshot comparison
 // is a poor way to find out.
 type Props = {
+  // Which product's event names this row's lifecycle writes report under.
+  isServe: boolean
   turf: DoorKnockingTurf
   // The only real difference between the two surfaces. The drawer
   // deep-links into that turf's walk carrying the anchor's `outreachId`;
@@ -37,6 +39,7 @@ type Props = {
 }
 
 export const TurfSummaryRow = ({
+  isServe,
   turf,
   action,
   onOverlayOpenChange,
@@ -45,7 +48,7 @@ export const TurfSummaryRow = ({
   const [markDoneTarget, setMarkDoneTarget] = useState<MarkDoneTarget | null>(
     null,
   )
-  const lifecycle = useTurfLifecycle(turf)
+  const lifecycle = useTurfLifecycle(turf, isServe)
   // A shelved OR finished turf is still in these lists, and neither offers
   // anything to do: an archived list is one the candidate put away, and what
   // Done takes away IS Knock (`walkCompletion.ts`).

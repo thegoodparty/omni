@@ -11,11 +11,13 @@ const PriorityStepUpdateSchema = z.object({
   ),
   state: PriorityStepStateSchema.describe(
     'open = nobody has worked this yet. active = what you and the ' +
-      'official are working through right now. settled = you both have an ' +
-      'answer you are happy with; put it in summary. stale = we settled ' +
-      'this and then learned something that puts it back in doubt, so it ' +
-      'needs another look; say what changed in caveat. Moving a settled ' +
-      'step back to active or stale is expected behaviour, not a failure.',
+      'official are working through right now, and exactly one step is ' +
+      'active at any moment. settled = you both have an answer you are ' +
+      'happy with; put it in summary. stale = we settled this and then ' +
+      'learned something that puts it back in doubt, so it needs another ' +
+      'look; say what changed in caveat. Setting a step active while ' +
+      'another one is active drops that other one back to open, so settle ' +
+      'or park it in the same call.',
   ),
   summary: z
     .string()
@@ -45,7 +47,10 @@ export const UpdatePriorityStatusInputSchema = z.object({
     .string()
     .describe(
       'The single thing the official should do next, in plain words short ' +
-        'enough to read at a glance. Empty string when there is nothing.',
+        'enough to read at a glance and specific enough to do today. ' +
+        '"Call the public works director and ask what the backlog is" is ' +
+        'right, "keep gathering evidence" is not. Empty string only when ' +
+        'every step is settled and there is nothing left to do.',
     ),
 })
 

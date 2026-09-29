@@ -2,7 +2,13 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
+import {
+  CAMPAIGN_TURFS_QUERY_KEY,
+  campaignTurfsQueryOptions,
+  TURFS_QUERY_KEY,
+} from './turfQueries'
 import { turfStage } from './turfLifecycle'
 
 // The turfs a campaign-level Done would finish on the candidate's behalf, and
@@ -42,26 +48,80 @@ interface CampaignLifecycleCallbacks {
  * `onSuccess` does it — the same split `turfLifecycle.ts` already has with the
  * details drawer.
  */
-export const useCampaignLifecycle = (anchorOutreachId: number) => {
+// `isServe` is threaded in for the same reason `useTurfLifecycle` takes it:
+// the one caller is the outreach details drawer, outside the door-knocking
+// tree and so outside the provider that would otherwise answer this.
+export const useCampaignLifecycle = (
+  anchorOutreachId: number,
+  isServe: boolean,
+) => {
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
 
   const mutation = useMutation({
     mutationFn: async (action: CampaignLifecycleAction) => {
       if (action === 'complete') {
+        // Snapshot which turfs this press is about to finish BEFORE the
+        // request, and carry it forward — `onSuccess` must not re-read the
+        // cache. `getQueryData` alone answers `undefined` for a campaign whose
+        // drawer was never opened, or whose entry was GC'd after the default
+        // 5-minute gcTime, and an empty snapshot fires ZERO completion events
+        // with no error to notice, so a cold cache is fetched instead.
+        //
+        // The fetch can NEVER fail the press. It is a measurement taken on the
+        // way to the write, so a 5xx or a dropped connection here falls back
+        // to whatever the cache holds and then to nothing — losing the events
+        // for this press, which is the cheaper of the two errors. Awaiting it
+        // unguarded rejected `mutationFn` before `POST /complete` was sent and
+        // told the candidate their campaign could not be marked done when the
+        // request had never been attempted.
+        const before = await queryClient
+          .ensureQueryData(campaignTurfsQueryOptions(anchorOutreachId))
+          .catch(
+            () =>
+              queryClient.getQueryData<DoorKnockingTurf[]>([
+                ...CAMPAIGN_TURFS_QUERY_KEY,
+                anchorOutreachId,
+              ]) ?? [],
+          )
+        const finishing = new Set(unfinishedTurfs(before).map((t) => t.id))
         const { data } = await clientRequest(
           'POST /v1/door-knocking/campaigns/:anchorId/complete',
           { anchorId: String(anchorOutreachId) },
         )
-        return data
+        return { turfs: data, finishing }
       }
       const { data } = await clientRequest(
         'POST /v1/door-knocking/campaigns/:anchorId/archive',
         { anchorId: String(anchorOutreachId), archived: action === 'archive' },
       )
-      return data
+      return { turfs: data, finishing: new Set<number>() }
     },
-    onSuccess: async (_data, action) => {
+    onSuccess: async ({ turfs, finishing }, action) => {
+      // One completion event per turf this press actually finished. A
+      // door-knocking campaign is many turfs under one anchor, and the TURF is
+      // the list a candidate walks — the same unit phone banking's call list
+      // is — so the analytics unit is the turf, not the anchor. Siblings that
+      // were already done are excluded by the `finishing` snapshot the
+      // mutation took before the press, since the response says only that
+      // every turf is now complete, not which ones this press completed.
+      if (action === 'complete') {
+        for (const turf of turfs) {
+          if (!finishing.has(turf.id)) continue
+          trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+            ...outreachEventProps({
+              channel: 'doorKnocking',
+              isServe: isServe,
+              campaignName: turf.name,
+              recipientCount: turf.loggedCount,
+              sendDate: new Date(),
+              outreachCampaignId: anchorOutreachId,
+              listId: turf.id,
+            }),
+            method: 'campaign',
+          })
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: TURFS_QUERY_KEY })
       await queryClient.invalidateQueries({
         queryKey: CAMPAIGN_TURFS_QUERY_KEY,
@@ -73,13 +133,25 @@ export const useCampaignLifecycle = (anchorOutreachId: number) => {
     },
   })
 
+  // The mutation carries a `finishing` snapshot beside the turfs so the
+  // completion events cannot depend on a warm cache; callers only ever wanted
+  // the turfs, so it is unwrapped here rather than widening their contract.
+  const run = (
+    action: CampaignLifecycleAction,
+    options?: CampaignLifecycleCallbacks,
+  ) =>
+    mutation.mutate(action, {
+      onSuccess: options?.onSuccess
+        ? ({ turfs }) => options.onSuccess?.(turfs)
+        : undefined,
+    })
+
   return {
     markDone: (options?: CampaignLifecycleCallbacks) =>
-      mutation.mutate('complete', options),
+      run('complete', options),
     moveToArchive: (options?: CampaignLifecycleCallbacks) =>
-      mutation.mutate('archive', options),
-    restore: (options?: CampaignLifecycleCallbacks) =>
-      mutation.mutate('restore', options),
+      run('archive', options),
+    restore: (options?: CampaignLifecycleCallbacks) => run('restore', options),
     pendingAction: mutation.isPending ? mutation.variables : null,
   }
 }

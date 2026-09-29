@@ -2,6 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { outreachEventProps } from 'app/dashboard/outreach/util/outreachAnalytics'
 import { CAMPAIGN_TURFS_QUERY_KEY, TURFS_QUERY_KEY } from './turfQueries'
 
 // The three states a saved list can be in, as one value rather than two
@@ -106,7 +108,10 @@ export const canArchiveTurf = (turf: DoorKnockingTurf) =>
  * timestamp), so a retry is cheap and a rollback path would be more machinery
  * than the failure is worth.
  */
-export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
+// `isServe` is threaded in rather than read off `useDoorKnockingServeMode()`:
+// the walk's callers sit above that provider, and the outreach drawer's caller
+// is outside the door-knocking tree entirely.
+export const useTurfLifecycle = (turf: DoorKnockingTurf, isServe: boolean) => {
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
 
@@ -133,7 +138,32 @@ export const useTurfLifecycle = (turf: DoorKnockingTurf) => {
       await complete()
       return setArchived(true)
     },
-    onSuccess: async (_data, action) => {
+    onSuccess: async (completed, action) => {
+      // A finished turf IS a finished outreach campaign on this channel. Door
+      // knocking is one-to-one, so the list the candidate walked is the unit —
+      // the same unit a phone-banking call list is — and every path that
+      // finishes one comes through here: the walk's own auto-complete
+      // (`walkCompletion.ts`), the walk footer's Mark done, and the drawer's
+      // per-row Mark done. Fired here rather than on the walk SESSION, which
+      // ends every time a canvasser stops for the evening.
+      if (action === 'complete' || action === 'completeAndArchive') {
+        trackEvent(EVENTS.Dashboard.VoterContact.CampaignCompleted, {
+          ...outreachEventProps({
+            channel: 'doorKnocking',
+            isServe: isServe,
+            campaignName: completed?.data.name ?? turf.name,
+            // The SERVER's count, not the `turf` row this hook closed over.
+            // That row is whatever the rail last fetched, and a walk's knocks
+            // land as interactions without refetching it — so a fifty-door
+            // list started and finished in one evening reported 0 people
+            // reached. Both lifecycle routes answer with the fresh turf.
+            recipientCount: completed?.data.loggedCount ?? turf.loggedCount,
+            sendDate: new Date(),
+            listId: turf.id,
+          }),
+          method: 'turf',
+        })
+      }
       await queryClient.invalidateQueries({
         queryKey: TURFS_QUERY_KEY,
       })
