@@ -91,22 +91,28 @@ describe('crud_saved_filters input schema', () => {
 })
 
 describe('crud_saved_filters execute', () => {
-  it('list returns only { id, name } pairs', async () => {
+  it('list returns { id, name, hasBoundary } and no geometry', async () => {
     const { tool } = buildTool({
       voterFileFilters: {
         findByOrganizationSlug: vi.fn(() =>
           Promise.resolve([
-            { id: 1, name: 'Supporters', partyDemocrat: true },
-            { id: 2, name: null, genderFemale: true },
+            {
+              id: 1,
+              name: 'Supporters',
+              partyDemocrat: true,
+              geoPoly: { type: 'Polygon', coordinates: [[]] },
+            },
+            { id: 2, name: null, genderFemale: true, geoPoly: null },
           ]),
         ) as never,
       },
     })
     const result = await tool.execute({ action: 'list' })
+    // Whether a shape is on the list, never where it is.
     expect(result).toEqual({
       filters: [
-        { id: 1, name: 'Supporters' },
-        { id: 2, name: null },
+        { id: 1, name: 'Supporters', hasBoundary: true },
+        { id: 2, name: null, hasBoundary: false },
       ],
     })
   })
@@ -171,6 +177,7 @@ describe('crud_saved_filters execute', () => {
     expect(result).toEqual({
       id: 9,
       name: 'Persisted name',
+      hasBoundary: false,
       count: 321,
     })
     expect(countContacts).toHaveBeenCalledWith(

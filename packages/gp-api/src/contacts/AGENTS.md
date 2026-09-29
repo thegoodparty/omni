@@ -683,6 +683,16 @@ goes stale the moment a boundary is drawn on that list. It counts via
 applies the frozen geo members and the stored search the way every other
 read of that list does. Counts stay OFF `action='list'` deliberately: one
 count per saved list is the per-row N+1 that 504'd the lists index in prod.
+Every list reference it returns also carries `hasBoundary` — whether a shape
+is on the list, never where it is. A holder can draw one from the Chief of
+Staff transcript's own map card, so a list's size can change between turns
+with the model calling nothing; the webapp sends a hidden turn on that save
+and the flag is the recovery path for a conversation that missed it
+(`docs/cap-interactive-agents.md` § A drawn boundary reaches the
+conversation). Geometry stays out of the INPUT schema: every model-facing
+tool is built on `voterFilterBaseSchema`, which has no `geoPoly`, so the
+assistant can never create a list already scoped to a shape — the prompt
+tells it to say so rather than refuse.
 Most catalog entries carry an optional `provenance` mark
 (`observed` | `modeled` | `derived`) and the catalog exports the one rule
 string that tells the model what a mark obliges it to say

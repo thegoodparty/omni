@@ -315,6 +315,27 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('The dots are markers, not a directory')
   })
 
+  // The card can be drawn on, and the privacy rule above used to be the
+  // only thing the prompt said about map geometry — which read as "you
+  // cannot act on an area", the sentence holders were getting back about a
+  // shape that had already narrowed their list.
+  it('teaches what a drawn area does alongside the map rules', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...ALL_TOOLS, 'show_list_map'],
+    })
+    expect(prompt).toContain('DRAWN AREA RULES')
+    expect(prompt).toContain('narrows it in place')
+    expect(prompt).toContain(
+      'Never tell the holder you cannot act on an area they drew',
+    )
+    // The model cannot compose geometry, so an area request has one order:
+    // save the list, then offer the map. Demanding a shape up front is the
+    // other way this goes wrong, and it strands the holder just as badly.
+    expect(prompt).toContain('Never make a shape a precondition')
+    expect(prompt).toContain('Drawing is optional')
+  })
+
   it('omits the map rules when the tool is not registered', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

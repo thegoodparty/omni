@@ -106,6 +106,7 @@ describe('crud_saved_filters against the real service pipeline', () => {
       expect(result).toEqual({
         id: created.id,
         name: 'Downtown',
+        hasBoundary: false,
         count: 417,
       })
     })
@@ -154,6 +155,53 @@ describe('crud_saved_filters against the real service pipeline', () => {
       })
     })
 
+    // A holder can draw from the transcript's own map card, so a list's
+    // shape changes between turns with the model calling nothing. The flag
+    // is how a conversation that missed the notification — a resumed one,
+    // most often — still knows an earlier figure went stale.
+    it('reports that a shape is on the list, and never where', async () => {
+      const { organization } = await seedWinOrg('campaign-crud-get-flag')
+      stubCountEligibility()
+      const created = await service.prisma.voterFileFilter.create({
+        data: {
+          organizationSlug: organization.slug,
+          name: 'Downtown, redrawn',
+          genderFemale: true,
+          geoPoly: {
+            type: 'Polygon',
+            coordinates: [
+              [
+                [0, 0],
+                [1, 0],
+                [1, 1],
+                [0, 0],
+              ],
+            ],
+          },
+          geoMembersResolvedAt: new Date(),
+        },
+      })
+      await service.prisma.voterFileFilterGeoMember.create({
+        data: {
+          voterFileFilterId: created.id,
+          personId: '00000000-0000-0000-0000-0000000000bb',
+        },
+      })
+      stubPeopleApi(12)
+
+      const result = await buildTool(organization).execute({
+        action: 'get',
+        id: created.id,
+      } as never)
+
+      expect(result).toEqual({
+        id: created.id,
+        name: 'Downtown, redrawn',
+        hasBoundary: true,
+        count: 12,
+      })
+    })
+
     it('errors without an id rather than counting something else', async () => {
       const { organization } = await seedWinOrg('campaign-crud-get-noid')
 
@@ -184,6 +232,56 @@ describe('crud_saved_filters against the real service pipeline', () => {
         error: `No saved list with id ${created.id} exists for this organization`,
       })
     })
+  })
+
+  // The update path's OTHER branch of the flag, against the real service
+  // rather than a mocked return. A partial update never sends `geoPoly`, so
+  // the shape survives the write and the row this reads back is the one
+  // Prisma actually returns: a `select` that stopped carrying the column
+  // would read as `hasBoundary: false` here and tell the model a drawn list
+  // has no shape on it. A mocked service return cannot see that.
+  it('update keeps reporting the boundary it did not touch', async () => {
+    const { organization } = await seedWinOrg('campaign-crud-update-geo')
+    const existing = await service.prisma.voterFileFilter.create({
+      data: {
+        organizationSlug: organization.slug,
+        name: 'Downtown',
+        genderFemale: true,
+        geoPoly: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [0, 0],
+              [1, 0],
+              [1, 1],
+              [0, 0],
+            ],
+          ],
+        },
+        geoMembersResolvedAt: new Date(),
+      },
+    })
+
+    const tool = buildTool(organization)
+    const result = await tool.execute(
+      tool.inputSchema.parse({
+        action: 'update',
+        id: existing.id,
+        name: 'Downtown, renamed',
+      }),
+    )
+
+    expect(result).toEqual({
+      id: existing.id,
+      name: 'Downtown, renamed',
+      hasBoundary: true,
+    })
+    // And the rename really did leave the shape alone, which is the thing
+    // the flag is reporting on.
+    const persisted = await service.prisma.voterFileFilter.findUniqueOrThrow({
+      where: { id: existing.id },
+    })
+    expect(persisted.geoPoly).not.toBeNull()
   })
 
   it('create persists the filter + activity-condition rows and returns the live count', async () => {
@@ -231,6 +329,7 @@ describe('crud_saved_filters against the real service pipeline', () => {
     expect(result).toEqual({
       id: expect.any(Number),
       name: 'Texted responders',
+      hasBoundary: false,
       count: 57,
     })
     const id = (result as { id: number }).id
@@ -359,7 +458,11 @@ describe('crud_saved_filters against the real service pipeline', () => {
       }),
     )
 
-    expect(result).toEqual({ id: existing.id, name: 'Not home' })
+    expect(result).toEqual({
+      id: existing.id,
+      name: 'Not home',
+      hasBoundary: false,
+    })
     const conditions =
       await service.prisma.voterFileFilterActivityCondition.findMany({
         where: { voterFileFilterId: existing.id },

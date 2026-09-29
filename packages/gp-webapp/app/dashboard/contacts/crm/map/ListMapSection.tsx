@@ -45,9 +45,9 @@ export default function ListMapSection({
   )
   const isLocked = Boolean(segment.firstUsedForOutreachAt)
 
-  const saveMutation = useSaveListBoundary(listId, 'listDetail', () =>
-    setDrawing(false),
-  )
+  const saveMutation = useSaveListBoundary(listId, 'listDetail', {
+    onClose: () => setDrawing(false),
+  })
 
   return (
     <div className="flex flex-col gap-2">
