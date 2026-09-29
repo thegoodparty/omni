@@ -392,6 +392,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
         date: row.scheduledLocalDate ?? undefined,
         startTime,
+        state: row.didState,
       })
     } catch (error) {
       await this.model.update({
@@ -419,6 +420,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
             campaignId: row.campaignId,
             date: row.scheduledLocalDate,
             startTime,
+            state: row.didState,
           }
         : null
     try {
@@ -686,6 +688,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       campaignId: row.campaignId,
       date: input.scheduledLocalDate,
       startTime,
+      state: row.didState,
     })
 
     // Re-read the booking flag after the vendor window write: a concurrent
@@ -719,6 +722,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
           date: input.scheduledLocalDate,
           startTime,
+          state: row.didState,
         })
       } catch (error) {
         // The old booking is already cleared at the vendor and the DB is

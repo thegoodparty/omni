@@ -19,14 +19,16 @@ export class PeerlyScheduleService extends PeerlyBaseConfig {
     super(logger)
   }
 
-  // `startTime` is the resolved "HH:mm" window open (sendWindowStart.util);
+  // `startTime` is the resolved "HH:mm" window open (sendWindowStart.util)
+  // and `timeZone` the resolved candidate zone (sendWindowTimeZone.util);
   // the schedule is what Peerly's console shows as the job's hours, so it
   // must agree with the canvasser request or CAS reads a 9am send.
   async createSchedule(
     scheduleName: string,
     startTime: string,
+    timeZone: string,
   ): Promise<number> {
-    const body = this.buildScheduleBody(scheduleName, startTime)
+    const body = this.buildScheduleBody(scheduleName, startTime, timeZone)
 
     try {
       this.logger.info(`Creating Peerly schedule: ${scheduleName}`)
@@ -50,7 +52,11 @@ export class PeerlyScheduleService extends PeerlyBaseConfig {
     }
   }
 
-  private buildScheduleBody(scheduleName: string, startTime: string) {
+  private buildScheduleBody(
+    scheduleName: string,
+    startTime: string,
+    timeZone: string,
+  ) {
     const dayFields = Object.fromEntries(
       SCHEDULE_DAYS.flatMap((day) => [
         [`${day}_start`, `${startTime}:00`],
@@ -61,7 +67,7 @@ export class PeerlyScheduleService extends PeerlyBaseConfig {
     return {
       schedule_name: scheduleName,
       account: this.accountNumber,
-      schedule_timezone: P2P_SCHEDULE_DEFAULTS.TIMEZONE,
+      schedule_timezone: timeZone,
       is_global: P2P_SCHEDULE_DEFAULTS.IS_GLOBAL,
       ...dayFields,
     }
