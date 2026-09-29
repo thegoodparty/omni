@@ -110,6 +110,63 @@ describe('applyStatusUpdate', () => {
     })
     expect(changes).toEqual([])
   })
+
+  // The server's applyUpdate enforces one active step. The client mirror has
+  // to agree, or the live rail and the replayed markers drift from it.
+  it('demotes the previously active step when another opens', () => {
+    const base = emptyPriorityStatus()
+    const defining = {
+      ...base,
+      steps: base.steps.map((s) =>
+        s.id === 'define'
+          ? { ...s, state: 'active' as const, summary: 'The bridge' }
+          : s,
+      ),
+    }
+    const { status, changes } = applyStatusUpdate(defining, {
+      steps: [{ id: 'evidence', state: 'active' }],
+    })
+    expect(status.steps.filter((s) => s.state === 'active')).toHaveLength(1)
+    expect(status.steps.find((s) => s.id === 'define')).toMatchObject({
+      state: 'open',
+      summary: 'The bridge',
+    })
+    expect(changes).toEqual([
+      { id: 'evidence', from: 'open', to: 'active', backwards: false },
+      { id: 'define', from: 'active', to: 'open', backwards: false },
+    ])
+  })
+
+  it('keeps the last active step when one call opens two', () => {
+    const { status, changes } = applyStatusUpdate(emptyPriorityStatus(), {
+      steps: [
+        { id: 'define', state: 'active' },
+        { id: 'evidence', state: 'active' },
+      ],
+    })
+    expect(
+      status.steps.filter((s) => s.state === 'active').map((s) => s.id),
+    ).toEqual(['evidence'])
+    // define went open -> active -> open inside one call: no net move, so no
+    // marker for it.
+    expect(changes).toEqual([
+      { id: 'evidence', from: 'open', to: 'active', backwards: false },
+    ])
+  })
+
+  it('does not demote when a call only settles a step', () => {
+    const base = emptyPriorityStatus()
+    const defining = {
+      ...base,
+      steps: base.steps.map((s) =>
+        s.id === 'define' ? { ...s, state: 'active' as const } : s,
+      ),
+    }
+    const { status } = applyStatusUpdate(defining, {
+      steps: [{ id: 'evidence', state: 'settled' }],
+    })
+    expect(status.steps.find((s) => s.id === 'define')?.state).toBe('active')
+  })
 })
 
 describe('describeStepChange', () => {
