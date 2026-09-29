@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import type { Campaign } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import type { OutreachDetail } from '@goodparty_org/contracts'
@@ -398,5 +399,28 @@ describe('OutreachHubPage — a list written while away', () => {
     expect(await screen.findByTestId('details-drawer')).toHaveTextContent(
       'Introduction walk',
     )
+  })
+
+  it('keeps the deep link when the refetch fails', async () => {
+    // Settling on a failed GET would spend the param against the seeded
+    // snapshot, which is the one list that cannot carry the new campaign.
+    api.mock('GET /v1/outreach', { status: 500, data: { error: 'boom' } })
+    router.replace?.mockClear()
+
+    render(
+      <OutreachHubPage
+        pathname="/dashboard/outreach"
+        campaign={campaign}
+        outreaches={[sentRow]}
+        initialOutreachId={4242}
+      />,
+    )
+
+    expect(
+      await within(desktopTable()).findByText('Intro post'),
+    ).toBeInTheDocument()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(router.replace).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('details-drawer')).not.toBeInTheDocument()
   })
 })

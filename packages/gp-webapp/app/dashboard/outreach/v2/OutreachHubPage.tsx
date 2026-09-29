@@ -303,11 +303,14 @@ const OutreachHubContent = ({
   const [listSettled, setListSettled] = useState(false)
   useEffect(() => {
     let cancelled = false
+    // Settled only on success. A failed GET leaves the seeded snapshot, which
+    // cannot resolve a campaign made while away, so the deep link below holds
+    // its param rather than spending it; a reload retries it.
     void refetchOutreaches()
-      .catch(() => undefined)
-      .finally(() => {
+      .then(() => {
         if (!cancelled) setListSettled(true)
       })
+      .catch(() => undefined)
     return () => {
       cancelled = true
     }
