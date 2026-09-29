@@ -6,6 +6,7 @@ import {
 } from '@goodparty_org/contracts'
 import {
   contactsMadeToBytes,
+  excludedToSet,
   PackEncoder,
   PackRow,
   statusesToBytes,
@@ -499,5 +500,66 @@ describe('the precinct plane', () => {
     expect(manifest.arrays.map((a) => a.name)).not.toContain('dim:precinct')
     // The rest of the pack is still worth serving.
     expect(manifest.counts.people).toBe(MAX_PRECINCT_FILTER_VALUES + 1)
+  })
+})
+
+describe('the knockable plane', () => {
+  const person = (id: string) =>
+    row({ id, lat: 41.9, lng: -87.65, hhKey: `hh-${id}` })
+
+  const A = '11111111-1111-1111-1111-111111111111'
+  const B = '22222222-2222-2222-2222-222222222222'
+
+  it('marks the suppressed and leaves everyone else knockable', () => {
+    // The encode is the INVERSE of every other plane's `?? 0`: the default
+    // here is knockable, and byte 0 is reserved for the people no campaign
+    // may knock. Getting that backwards would hide the whole district.
+    const encoder = new PackEncoder(
+      statusesToBytes([]),
+      null,
+      excludedToSet([A]),
+    )
+    encoder.add(person(A))
+    encoder.add(person(B))
+
+    const { manifest, u8 } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+    const dim = manifest.dims.find((d) => d.key === 'knockable')
+
+    expect(dim?.values).toEqual(['No', 'Yes'])
+    expect(u8('dim:knockable')).toEqual([0, 1])
+  })
+
+  it('shades an organization that has flagged nobody', () => {
+    // Empty is a fact the map can draw — everyone is knockable — and is not
+    // the same as gp-api having no answer.
+    const encoder = new PackEncoder(
+      statusesToBytes([]),
+      null,
+      excludedToSet([]),
+    )
+    encoder.add(person(A))
+
+    const { manifest, u8 } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+
+    expect(manifest.dims.map((d) => d.key)).toContain('knockable')
+    expect(u8('dim:knockable')).toEqual([1])
+  })
+
+  it('omits the plane when gp-api did not answer', () => {
+    // Absent must not become a wall of "Yes": that claims every door is
+    // open, which is the wrong way to be wrong about somebody who said
+    // don't come back. The client reads a missing plane as "do not
+    // suppress" and the frozen route still drops them.
+    const encoder = new PackEncoder(
+      statusesToBytes([]),
+      null,
+      excludedToSet(undefined),
+    )
+    encoder.add(person(A))
+
+    const { manifest } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+
+    expect(manifest.dims.map((d) => d.key)).not.toContain('knockable')
+    expect(manifest.arrays.map((a) => a.name)).not.toContain('dim:knockable')
   })
 })

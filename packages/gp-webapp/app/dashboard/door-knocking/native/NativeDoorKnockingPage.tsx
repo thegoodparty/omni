@@ -42,10 +42,7 @@ import { StartKnockingDialog } from './StartKnockingDialog'
 import { DoorKnockingSurface } from './doorKnockingSurface'
 import { type CreateFlowStep } from './createFlow/CreateListFlow'
 import { HARD_STOP_LIMIT } from './createFlow/stopCap'
-import {
-  filtersToDimSelections,
-  unpreviewableFilterKeys,
-} from './createFlow/voterFilterPreview'
+import { filtersToDimSelections } from './createFlow/voterFilterPreview'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
 import { TurfPanel } from './createFlow/TurfPanel'
 import { useTeamOptions } from './useTeamOptions'
@@ -888,13 +885,6 @@ export default function NativeDoorKnockingPage({
   // instead of leaving the map quietly disagreeing with the filters above it.
   // Computed here rather than inside the flow because the manifest is the
   // page's — the map is what decodes it, and gates it on a resolvable district.
-  const unpreviewableKeys = useMemo(
-    () =>
-      packQuery.data
-        ? unpreviewableFilterKeys(filters, packQuery.data.manifest)
-        : [],
-    [packQuery.data, filters],
-  )
   const turfStats = useMemo(
     () =>
       packQuery.data && ring && selections
@@ -1525,7 +1515,6 @@ export default function NativeDoorKnockingPage({
                   onRestartDrawing={draw.startDrawing}
                   onStartKnocking={handleStartKnocking}
                   isServeOrg={isServeOrg}
-                  unpreviewableKeys={unpreviewableKeys}
                   orgSlug={organization?.slug}
                   preselectedListId={carriedListId}
                   onPreselectApplied={() =>

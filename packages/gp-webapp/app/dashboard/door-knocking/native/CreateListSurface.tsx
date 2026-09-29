@@ -286,7 +286,6 @@ export interface CreateListSurfaceProps {
   precinctOptions: PrecinctOptionsResult
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
-  unpreviewableKeys: string[]
   // The organization the recommendations are asked for, threaded down purely
   // as a cache-key segment.
   orgSlug: string | undefined
@@ -353,7 +352,6 @@ export default function CreateListSurface({
   onPrecinctsChange,
   onEffectivePrecinctsChange,
   precinctOptions,
-  unpreviewableKeys,
   orgSlug,
   preselectedListId,
   onPreselectApplied,
@@ -559,7 +557,6 @@ export default function CreateListSurface({
       onRestartDrawing={onRestartDrawing}
       onStartKnocking={onStartKnocking}
       isServeOrg={isServeOrg}
-      unpreviewableKeys={unpreviewableKeys}
       orgSlug={orgSlug}
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}
