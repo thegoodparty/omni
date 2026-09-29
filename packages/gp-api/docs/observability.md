@@ -256,4 +256,16 @@ That `{{ if }}` is honest rather than a guess at the state, which is what makes 
 
 The threshold on `alerting-rule-evaluations-failing` is 0.2 with `for: 5m`, deliberately above a transient -- the 2026-09-29 blip peaked at 7.6% of evaluations in one five-minute bucket and correctly did not fire it. That gap is the case the conditional text above covers: one rule, one failed evaluation, a page that has to explain itself because nothing else will.
 
+**Every other notification carries a standing note instead.** A rule whose series carry no per-instance label has no such test available, and `alerting-rule-evaluations-failing` only helps a reader who spots it among the pile. So `buildAlertDescription` appends `EVALUATION_ERROR_NOTE` to every description this repo provisions -- global and generated alike -- and it says the one thing that distinguishes the two cases: a state reason of `Error` and values of `-1` mean the rule could not evaluate, so the numbers above measured nothing and this page is unverified. It is a standing line rather than a conditional one, which costs a sentence on pages that do not need it and is the cheaper half of that trade.
+
+That line exists because on 2026-09-28 Grafana Cloud's internal datasource-query service degraded for 84 minutes (`received a non-200 response from the query service: 500`, `unable to load data source configuration`, and `context deadline exceeded` posting to `query-grafana-app-main.grafana-datasources.svc.cluster.local:6443`) and **190 of 216 rules fired**, each naming its own subject. Prod was healthy: one 5xx in the whole window. The memory page read "System memory utilization has exceeded 90% for 5 minutes... If the service is at risk of OOM, consider restarting it" while memory sat at 17%, which is worse than noise -- it aims the responder at restarting a healthy service. The global rules are exactly the ones with no label to test: that memory page, the external health probe and the nightly person-id sweep each paged with nothing wrong, and three separate incidents were opened off them.
+
+To confirm the shape of one of these after the fact, the rule's own state history carries both the error text and the last good value:
+
+```logql
+{from="state-history", orgID="1"} | json | ruleUID="<uid>"
+```
+
+on the `grafanacloud-alert-state-history` datasource, which is Grafana's own stream and does not bill against our Loki allowance. `sum by (ruleUID) (count_over_time({from="state-history", orgID="1"} | json | current="Alerting (Error)" | keep ruleUID [2h]))` counts how much of the estate went with it.
+
 **Its routing is the part this repo cannot express.** Like `alert-notification-delivery-failing`, it must reach Slack by a path that does not depend on what broke -- in particular not through the `gpbot-alert-filter` contact point, which runs a Loki query per alert and therefore fails in exactly the scenario this rule exists to announce. The notification policy tree is hand-maintained in Grafana Cloud and is not provisioned here, so that is an ops step, not a code one.
