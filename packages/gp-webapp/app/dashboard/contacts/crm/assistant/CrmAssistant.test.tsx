@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -7,8 +7,9 @@ import CrmAssistant from './CrmAssistant'
 import { useContactsTable } from '../ContactsTableProvider'
 import { campaignManagerChatApi } from '../../../campaign-manager/campaignManagerChat'
 import { chiefOfStaffChatApi } from '../../../chief-of-staff/data/chat-api'
+import { CAMPAIGN_MANAGER_HISTORY_KEY } from '../../../campaign-manager/campaignManagerChat'
+import { HISTORY_KEY } from '../../../chief-of-staff/data/use-chat-history'
 import type { AssistantChatBinding } from './assistantChat'
-import type { AssistantRequest } from './AssistantDrawer'
 
 vi.mock('../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
@@ -35,20 +36,28 @@ vi.mock('./AssistantBar', () => ({
   },
 }))
 
-interface DrawerProps {
+interface SurfaceProps {
   open: boolean
-  request: AssistantRequest | null
-  chat: AssistantChatBinding
-  title: string
+  onOpenChange: (open: boolean) => void
+  initialConversationId?: string | null
+  pendingMessage?: string
+  title?: string
+  subtitle?: string
+  chatApi?: unknown
+  historyKey?: readonly unknown[]
+  scope?: string
   onMessageSent?: () => void
 }
-let lastDrawerProps: DrawerProps | null = null
-vi.mock('./AssistantDrawer', () => ({
-  default: (props: DrawerProps) => {
-    lastDrawerProps = props
-    return props.open ? <div data-testid="assistant-drawer" /> : null
-  },
-}))
+let lastSurfaceProps: SurfaceProps | null = null
+vi.mock(
+  '../../../chief-of-staff/components/chat/ChiefOfStaffChatSurface',
+  () => ({
+    default: (props: SurfaceProps) => {
+      lastSurfaceProps = props
+      return props.open ? <div data-testid="assistant-surface" /> : null
+    },
+  }),
+)
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 
@@ -61,7 +70,7 @@ const setContext = (isWinContext: boolean, isWinContextReady = true) => {
 
 beforeEach(() => {
   lastBarProps = null
-  lastDrawerProps = null
+  lastSurfaceProps = null
   vi.mocked(trackEvent).mockClear()
 })
 
@@ -72,36 +81,72 @@ describe('CrmAssistant', () => {
     expect(screen.queryByText('submit assistant')).not.toBeInTheDocument()
   })
 
-  it('binds Win to the campaign_assistant client and Voter copy', () => {
+  // The consolidation's load-bearing assertion: the contacts entry point opens
+  // the scope's OWN chat surface, so there is one assistant per product rather
+  // than a list-shaped second one. A regression here is a second agent
+  // reappearing, not a cosmetic change.
+  it('binds Win to the campaign_assistant surface and names that agent', () => {
     setContext(true)
     render(<CrmAssistant />)
     expect(lastBarProps?.chat.chatApi).toBe(campaignManagerChatApi)
-    expect(lastDrawerProps?.title).toBe('Voter list assistant')
+    expect(lastSurfaceProps?.chatApi).toBe(campaignManagerChatApi)
+    expect(lastSurfaceProps?.historyKey).toBe(CAMPAIGN_MANAGER_HISTORY_KEY)
+    expect(lastSurfaceProps?.scope).toBe('campaign_assistant')
+    expect(lastSurfaceProps?.title).toBe('Campaign manager')
   })
 
-  it('binds Serve to the chief_of_staff client and Constituent copy', () => {
+  it('binds Serve to the chief_of_staff surface and names that agent', () => {
     setContext(false)
     render(<CrmAssistant />)
     expect(lastBarProps?.chat.chatApi).toBe(chiefOfStaffChatApi)
-    expect(lastDrawerProps?.title).toBe('Constituent list assistant')
+    expect(lastSurfaceProps?.chatApi).toBe(chiefOfStaffChatApi)
+    expect(lastSurfaceProps?.historyKey).toBe(HISTORY_KEY)
+    expect(lastSurfaceProps?.scope).toBe('chief_of_staff')
+    expect(lastSurfaceProps?.title).toBe('Chief of Staff')
   })
 
-  it('opens the drawer with the submitted message', async () => {
+  it('keeps the list-building framing in the subtitle', () => {
+    setContext(false)
+    render(<CrmAssistant />)
+    expect(lastSurfaceProps?.subtitle).toBe(
+      "Describe the list you want and I'll make it for you",
+    )
+  })
+
+  it('opens the surface with the submitted message as a visible first turn', async () => {
     const user = userEvent.setup()
     setContext(true)
     render(<CrmAssistant />)
-    expect(lastDrawerProps?.open).toBe(false)
+    expect(lastSurfaceProps?.open).toBe(false)
     await user.click(screen.getByText('submit assistant'))
-    expect(screen.getByTestId('assistant-drawer')).toBeInTheDocument()
-    expect(lastDrawerProps?.request).toEqual({
-      kind: 'new',
-      initialMessage: 'young supporters',
-    })
+    expect(screen.getByTestId('assistant-surface')).toBeInTheDocument()
+    expect(lastSurfaceProps?.pendingMessage).toBe('young supporters')
+    expect(lastSurfaceProps?.initialConversationId).toBeNull()
+  })
+
+  it('reopens a past conversation without re-sending a message', () => {
+    setContext(false)
+    render(<CrmAssistant />)
+    act(() => lastBarProps?.onOpenConversation('conv-1'))
+    expect(lastSurfaceProps?.initialConversationId).toBe('conv-1')
+    expect(lastSurfaceProps?.pendingMessage).toBeUndefined()
+  })
+
+  // Closing has to drop it: the prop is a one-shot instruction, and reopening
+  // from the clock popover with it still set would re-send the last request.
+  it('drops the pending message when the surface closes', async () => {
+    const user = userEvent.setup()
+    setContext(true)
+    render(<CrmAssistant />)
+    await user.click(screen.getByText('submit assistant'))
+    expect(lastSurfaceProps?.pendingMessage).toBe('young supporters')
+    act(() => lastSurfaceProps?.onOpenChange(false))
+    expect(lastSurfaceProps?.pendingMessage).toBeUndefined()
   })
 
   // ENG-10767: chat opened + message sent, so open-to-send drop-off is
   // visible in Amplitude.
-  it('fires Assistant Chat Opened AND Message Sent on a bar submit (Win)', async () => {
+  it('fires Assistant Chat Opened on a bar submit (Win)', async () => {
     const user = userEvent.setup()
     setContext(true)
     render(<CrmAssistant />)
@@ -110,10 +155,6 @@ describe('CrmAssistant', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.AssistantChatOpened,
       { context: 'win', source: 'message' },
-    )
-    expect(trackEvent).toHaveBeenCalledWith(
-      EVENTS.Contacts.AssistantMessageSent,
-      { context: 'win' },
     )
   })
 
@@ -132,14 +173,30 @@ describe('CrmAssistant', () => {
     )
   })
 
-  it('fires Assistant Message Sent for composer follow-ups via the drawer onMessageSent callback', () => {
+  // Every message is counted once, by the surface — including the bar's first
+  // one, which now rides the surface's own visible send path. CrmAssistant
+  // firing Sent itself would double-count it.
+  it('counts each message once, through the surface callback', async () => {
+    const user = userEvent.setup()
     setContext(true)
     render(<CrmAssistant />)
-    lastDrawerProps?.onMessageSent?.()
+    await user.click(screen.getByText('submit assistant'))
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.AssistantMessageSent,
+      expect.anything(),
+    )
 
+    lastSurfaceProps?.onMessageSent?.()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.AssistantMessageSent,
       { context: 'win' },
     )
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          (c) => c[0] === EVENTS.Contacts.AssistantMessageSent,
+        ),
+    ).toHaveLength(1)
   })
 })

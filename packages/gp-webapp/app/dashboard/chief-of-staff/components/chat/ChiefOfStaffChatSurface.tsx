@@ -44,6 +44,14 @@ interface Props {
   composerPlaceholder?: string
   /** One-shot kickoff message sent hidden on open. */
   pendingKickoff?: string
+  /**
+   * One-shot VISIBLE opening message, for an entry point that collected the
+   * user's first request before this surface opened (the contacts assistant
+   * bar). Don't pass it together with `pendingKickoff`.
+   */
+  pendingMessage?: string
+  /** Fires once per visible message the user sends. */
+  onMessageSent?: () => void
   /** Ref to the body's composer input, so a suggestion can focus it. */
   composerRef?: RefObject<HTMLTextAreaElement | null>
   /**
@@ -92,6 +100,8 @@ export default function ChiefOfStaffChatSurface({
   quickPrompts,
   composerPlaceholder,
   pendingKickoff,
+  pendingMessage,
+  onMessageSent,
   composerRef,
   disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
@@ -167,6 +177,8 @@ export default function ChiefOfStaffChatSurface({
           quickPrompts={quickPrompts}
           composerPlaceholder={composerPlaceholder}
           pendingKickoff={pendingKickoff}
+          pendingMessage={pendingMessage}
+          onMessageSent={onMessageSent}
           composerRef={composerRef}
           disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}

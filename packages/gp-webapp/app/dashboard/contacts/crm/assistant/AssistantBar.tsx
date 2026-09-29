@@ -10,7 +10,9 @@ import {
 } from './assistantChat'
 
 interface Props {
-  chat: AssistantChatBinding
+  // Only the history popover's two fields: the bar reads no more of the
+  // binding than that, and its tests shouldn't have to stub the rest.
+  chat: Pick<AssistantChatBinding, 'chatApi' | 'historyKey'>
   /** Open the conversation drawer with this first message. */
   onSubmit: (message: string) => void
   /** Reopen a past conversation picked from the clock popover. */

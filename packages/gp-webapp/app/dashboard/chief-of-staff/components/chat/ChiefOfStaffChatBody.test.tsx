@@ -709,6 +709,99 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
   })
 
+  // The contacts assistant bar takes the user's first message before this
+  // surface is open, so it arrives as a prop rather than through the composer.
+  it('sends a pendingMessage as a VISIBLE first turn', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_p' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Here is your list.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'young supporters'),
+      msg('assistant', 'Here is your list.', { id: 'a1' }),
+    ])
+
+    render(<ChiefOfStaffChatBody active pendingMessage="young supporters" />)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'young supporters' }),
+      ),
+    )
+    // Unlike a kickoff, the user's own request stays on screen.
+    await waitFor(() =>
+      expect(screen.getByText('young supporters')).toBeInTheDocument(),
+    )
+  })
+
+  it('does not re-send the pendingMessage on a re-render that keeps it set', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_p' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    const { rerender } = render(
+      <ChiefOfStaffChatBody active pendingMessage="young supporters" />,
+    )
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+    rerender(<ChiefOfStaffChatBody active pendingMessage="young supporters" />)
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+  })
+
+  it('reports every visible send through onMessageSent, and no hidden one', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_m' })
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'done', assistantMessageId: 'a1' }]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingMessage="young supporters"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    await waitFor(() => expect(onMessageSent).toHaveBeenCalledTimes(1))
+  })
+
+  it('does not report a hidden kickoff through onMessageSent', async () => {
+    const onMessageSent = vi.fn()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_h' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Canned kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    listMessagesMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        pendingKickoff="__kickoff__"
+        onMessageSent={onMessageSent}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '__kickoff__' }),
+      ),
+    )
+    expect(onMessageSent).not.toHaveBeenCalled()
+  })
+
   it('fires the kickoff into an override conversation without minting a new one', async () => {
     // A fresh create is mocked so that, if the kickoff wrongly raced the load,
     // it would mint this id; the assertions below prove it does not.

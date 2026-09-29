@@ -60,9 +60,9 @@ The kit provides all streaming and rendering. A wrapper owns only: a client, a
 |------|------|
 | Plain text chat | `ordinances/components/DraftChat.tsx` (~thin) |
 | Structured widgets via `onEvent` | `ordinances/components/OrdinanceFlowChat.tsx` |
-| Chat inside a drawer, own scroll, no new scope | `contacts/crm/assistant/AssistantDrawer.tsx` |
 | Deferred create + intro + suggestions + history popover | `shared/ai-chat/AiChatBody.tsx` |
 | Kickoffs, seeded-greeting playback, sentinel filtering | `chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx` |
+| An entry point that collected the first message before the chat opened | `contacts/crm/assistant/CrmAssistant.tsx` (the surface's `pendingMessage`) |
 | A different (non-conversationId) client behind an adapter | `briefings/components/annotations/AskAiChatBody.tsx` |
 
 ## Gotchas
