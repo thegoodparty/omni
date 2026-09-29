@@ -80,14 +80,16 @@ export const candidacyFilterSchema = z
           message: `Invalid race column provided. Allowed columns are: ${raceColumns.join(', ')}`,
         },
       ),
-    page: z.coerce.number().int().min(1).optional().default(1),
+    // Optional, not defaulted: the service applies the default so the bound
+    // holds for in-process callers that build the filter directly, and there
+    // is one place to reason about it. The max still rejects an oversized ask.
+    page: z.coerce.number().int().min(1).optional(),
     pageSize: z.coerce
       .number()
       .int()
       .min(1)
       .max(MAX_CANDIDACY_PAGE_SIZE)
-      .optional()
-      .default(DEFAULT_CANDIDACY_PAGE_SIZE),
+      .optional(),
   })
   .strict()
 

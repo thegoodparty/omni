@@ -34,6 +34,13 @@ export const personColumns = (
   ) as (keyof typeof Prisma.PersonScalarFieldEnum)[]
 ).filter((col) => !PERSON_NON_SELECTABLE_COLUMNS.includes(col))
 
+// Unbounded before, and gp-marketing paid for it: with no pagination and no
+// count on this endpoint, its sitemap builder walks the table by `state` in
+// 500-id batches and still cannot reach rows where `state` is null. A page
+// window makes a straight enumeration possible.
+export const DEFAULT_PERSON_PAGE_SIZE = 1000
+export const MAX_PERSON_PAGE_SIZE = 5000
+
 export const personFilterSchema = z
   .object({
     state: z
@@ -93,6 +100,16 @@ export const personFilterSchema = z
           message: `Invalid person column provided. Allowed columns are: ${personColumns.join(', ')}`,
         },
       ),
+    // Optional, not defaulted: the service applies the default so the bound
+    // holds for in-process callers that build the filter directly, and there
+    // is one place to reason about it. The max still rejects an oversized ask.
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_PERSON_PAGE_SIZE)
+      .optional(),
   })
   .strict()
 

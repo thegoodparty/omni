@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
 import { PersonsService } from './persons.service'
+import { DEFAULT_PERSON_PAGE_SIZE } from './persons.schema'
+
+const PAGING = {
+  orderBy: { id: 'asc' },
+  skip: 0,
+  take: DEFAULT_PERSON_PAGE_SIZE,
+}
 import { PersonFilterDto } from './persons.schema'
 
 describe('PersonsService', () => {
@@ -44,6 +51,7 @@ describe('PersonsService', () => {
       where: {},
       omit: { email: true, phone: true, gpApiUserId: true },
       include: {},
+      ...PAGING,
     })
   })
 
@@ -77,6 +85,7 @@ describe('PersonsService', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: {},
       select: { id: true, slug: true },
+      ...PAGING,
     })
   })
 
@@ -964,5 +973,24 @@ describe('PersonsService', () => {
         cells: [],
       })
     })
+  })
+
+  // gp-marketing's sitemap walks this endpoint across 216k rows; before this
+  // it had no page window at all and no way to bound a broad read.
+  it('bounds an unfiltered person query', async () => {
+    await service.getPersons({} as never)
+
+    const args = findMany.mock.calls[0]?.[0]
+    expect(args.take).toBe(DEFAULT_PERSON_PAGE_SIZE)
+    expect(args.skip).toBe(0)
+    expect(args.orderBy).toEqual({ id: 'asc' })
+  })
+
+  it('offsets by whole pages', async () => {
+    await service.getPersons({ page: 2, pageSize: 500 } as never)
+
+    const args = findMany.mock.calls[0]?.[0]
+    expect(args.skip).toBe(500)
+    expect(args.take).toBe(500)
   })
 })

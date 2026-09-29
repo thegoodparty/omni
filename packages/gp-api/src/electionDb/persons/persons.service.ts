@@ -4,7 +4,7 @@ import {
   createElectionDbBase,
   ELECTION_MODELS,
 } from '@/electionDb/electionDbBase.util'
-import { PersonFilterDto } from './persons.schema'
+import { DEFAULT_PERSON_PAGE_SIZE, PersonFilterDto } from './persons.schema'
 import { PositionLevel, Prisma } from '@/generated/election-prisma'
 
 // Candidacy carries PII (`email`); never expose it when nesting candidacies
@@ -96,6 +96,10 @@ export class PersonsService extends createElectionDbBase(
       columns,
       includeOfficeHolders,
       includeCandidacies,
+      // Defaulted here as well as in the DTO: the bound is a safety property,
+      // so a hand-built filter must not be able to opt out of it.
+      page = 1,
+      pageSize = DEFAULT_PERSON_PAGE_SIZE,
     } = filterDto
 
     const where: Prisma.PersonWhereInput = {
@@ -111,13 +115,20 @@ export class PersonsService extends createElectionDbBase(
       ...(includeCandidacies ? { Candidacies: CANDIDACY_INCLUDE } : {}),
     }
 
+    // `id` because pagination needs a total order on a unique column.
+    const paging = {
+      orderBy: { id: Prisma.SortOrder.asc },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }
+
     // Column allowlist already excludes PII; append relation selects to it.
     if (columns) {
       const select = {
         ...(buildColumnSelect(columns) as Prisma.PersonSelect),
         ...relations,
       }
-      return this.model.findMany({ where, select })
+      return this.model.findMany({ where, select, ...paging })
     }
 
     // Default path returns every scalar, so omit personal PII and the internal
@@ -126,6 +137,7 @@ export class PersonsService extends createElectionDbBase(
       where,
       omit: { email: true, phone: true, gpApiUserId: true },
       include: relations,
+      ...paging,
     })
   }
 

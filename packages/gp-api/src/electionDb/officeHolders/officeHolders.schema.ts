@@ -8,6 +8,13 @@ export const officeHolderColumns = Object.values(
   Prisma.OfficeHolderScalarFieldEnum,
 ) as (keyof typeof Prisma.OfficeHolderScalarFieldEnum)[]
 
+// Unbounded before: `?state=TX` (or no filter) could materialize the whole
+// table with Position eagerly loaded. Same fix as candidacies and races — a
+// generous default so a realistically-filtered caller still gets one page,
+// with `page` for anything larger.
+export const DEFAULT_OFFICE_HOLDER_PAGE_SIZE = 1000
+export const MAX_OFFICE_HOLDER_PAGE_SIZE = 5000
+
 export const officeHolderFilterSchema = z
   .object({
     personId: z.guid('personId must be a valid UUID').optional(),
@@ -39,6 +46,16 @@ export const officeHolderFilterSchema = z
           message: `Invalid officeHolder column provided. Allowed columns are: ${officeHolderColumns.join(', ')}`,
         },
       ),
+    // Optional, not defaulted: the service applies the default so the bound
+    // holds for in-process callers that build the filter directly, and there
+    // is one place to reason about it. The max still rejects an oversized ask.
+    page: z.coerce.number().int().min(1).optional(),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_OFFICE_HOLDER_PAGE_SIZE)
+      .optional(),
   })
   .strict()
 

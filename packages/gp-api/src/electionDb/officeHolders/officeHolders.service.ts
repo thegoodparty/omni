@@ -4,7 +4,10 @@ import {
   createElectionDbBase,
   ELECTION_MODELS,
 } from '@/electionDb/electionDbBase.util'
-import { OfficeHolderFilterDto } from './officeHolders.schema'
+import {
+  DEFAULT_OFFICE_HOLDER_PAGE_SIZE,
+  OfficeHolderFilterDto,
+} from './officeHolders.schema'
 import { Prisma } from '@/generated/election-prisma'
 
 @Injectable()
@@ -20,6 +23,10 @@ export class OfficeHoldersService extends createElectionDbBase(
       isCurrent,
       includePosition,
       columns,
+      // Defaulted here as well as in the DTO: the bound is a safety property,
+      // so a hand-built filter must not be able to opt out of it.
+      page = 1,
+      pageSize = DEFAULT_OFFICE_HOLDER_PAGE_SIZE,
     } = filterDto
 
     const where: Prisma.OfficeHolderWhereInput = {
@@ -32,14 +39,21 @@ export class OfficeHoldersService extends createElectionDbBase(
 
     const relations = includePosition ? { Position: true } : {}
 
+    // `id` because pagination needs a total order on a unique column.
+    const paging = {
+      orderBy: { id: Prisma.SortOrder.asc },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }
+
     if (columns) {
       const select = {
         ...(buildColumnSelect(columns) as Prisma.OfficeHolderSelect),
         ...relations,
       }
-      return this.model.findMany({ where, select })
+      return this.model.findMany({ where, select, ...paging })
     }
 
-    return this.model.findMany({ where, include: relations })
+    return this.model.findMany({ where, include: relations, ...paging })
   }
 }
