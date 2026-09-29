@@ -87,6 +87,17 @@ Args that fail to parse drop the card and leave the turn's prose alone.
 takes that path and shows an ordinary pill; `present_past_outreach` is the
 presenter that actually carries a card.
 
+Two cards are about people, and they are not interchangeable:
+
+- `constituents` (`present_constituents`) — contact ids from the office's own
+  CRM, resolved live. `present_contacts` is the name it shipped under; the
+  tool name is persisted on `chat_message_segment.tool_name`, so
+  `data/cards.ts` maps both, forever. The card `kind` is derived client-side
+  and never stored, so it can be renamed freely.
+- `outside_contact` (`present_outside_contact`) — one person or office outside our data, built
+  from what the agent researched. Nothing resolves, so it is a snapshot. The
+  mailto carries the script as its body, so the email opens written.
+
 ## A clarify question is input, not a status write
 
 When a step needs a specific decision, the agent asks it with

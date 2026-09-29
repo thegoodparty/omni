@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
-  ContactRefSchema,
+  ConstituentRefSchema,
+  OutsideContactSchema,
   OutreachProposalSchema,
   OutreachTypeSchema,
   PastOutreachRefSchema,
@@ -59,16 +60,39 @@ export const buildPresentPastOutreachTool = (): LlmStreamTool<
   execute: () => ({ presented: true }),
 })
 
-export const buildPresentContactsTool = (): LlmStreamTool<
-  typeof ContactRefSchema
+export const buildPresentConstituentsTool = (): LlmStreamTool<
+  typeof ConstituentRefSchema
 > => ({
   description:
-    'Present organizations and community leaders worth talking to about ' +
-    'this priority. Use it when the work needs people rather than a send: ' +
-    'the group that already runs the program, the neighbour who raised it, ' +
-    'the department head who owns the budget line. The note says in one ' +
-    'line why these people and why now.',
-  inputSchema: ContactRefSchema,
+    "Present the official's OWN constituents: people already in their " +
+    'contact records, by the contact ids a contact read returned. The ' +
+    'neighbour who raised this, the group already running the program, the ' +
+    'local leader whose backing would carry it. These are people the ' +
+    'problem affects or who can rally others, and the note says in one line ' +
+    'why these people and why now. Never use it for someone you found on ' +
+    'the web. Somebody outside their records to call about fixing the ' +
+    'problem is present_outside_contact.',
+  inputSchema: ConstituentRefSchema,
+  execute: () => ({ presented: true }),
+})
+
+export const buildPresentOutsideContactTool = (): LlmStreamTool<
+  typeof OutsideContactSchema
+> => ({
+  description:
+    "Present ONE person or office OUTSIDE the official's records to call " +
+    "about the problem: the city attorney's office, the county engineer, " +
+    'the state agency desk, the nonprofit that runs the shelter. Built from ' +
+    'what you researched, never from a contact id. It is for somebody who ' +
+    'can act on the problem; a constituent affected by it is ' +
+    'present_constituents. Give the name, their role or organization, one ' +
+    'line on why them, who to ask for when the official gets through, and ' +
+    'a script they can read down the phone or send as written. Include ' +
+    'every contact route you actually found and never invent one. If you ' +
+    'found no email, phone or website, say so in prose instead of calling ' +
+    'this. Call it once per person, and only when reaching them is the ' +
+    'next real step.',
+  inputSchema: OutsideContactSchema,
   execute: () => ({ presented: true }),
 })
 

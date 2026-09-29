@@ -19,6 +19,7 @@ nearest reference wrapper.
 | `chatClient.ts` | `createAgentChatClient(scope, sentrySurface)` — the scope-parameterized SSE client. Every scope conforms to the one `ChatClient` interface, and this one also implements the optional `setMessageFeedback` / `clearMessageFeedback` calls. |
 | `chatTypes.ts` | `ChatMessageDto`, `ChatMessageSegment`, `ChatStreamEvent`, `ChatClient` — the single source of truth for message + stream shapes across every chat. |
 | `ClarifyQuestionWidget.tsx` | **The structured question.** Renders an `ask_clarify_question` tool call as option cards, plus an always-present "Or write your own..." card — the bail-out back to free chat, so no surface reimplements one. Its payload is `ChatClarifyQuestionSchema` in `@goodparty_org/contracts`, scope-agnostic on purpose: the ordinance flow and the priority flow both mount it. `SourceLine.tsx` is the cited-source chip its options use. |
+| `widgetRegistry.ts` + `turnBlocks.tsx` | **Tool calls rendered as widgets.** See "Widgets" below. |
 | `MessageActionBar.tsx` | **The per-message bar.** Copy + thumbs up/down under one assistant turn, with the optional-note bubble a rating opens. Opt-in per surface (`showMessageActions`), and it renders the thumbs only when the client implements the feedback calls. |
 | `chatHelpers.ts` | `newClientMessageId`, `friendlyError`. |
 | `usePinnedAutoScroll.ts` | Stick-to-bottom scroll (releases on scroll-up). Optional — a chat inside a vaul drawer may roll its own scroll instead. |
@@ -54,6 +55,35 @@ The kit provides all streaming and rendering. A wrapper owns only: a client, a
    user turn server-side, and the engine reconciles against that transcript on commit.
    Filter such turns out at render time (`visibleMessages = messages.filter(…)`) — see
    `OrdinanceFlowChat`/`ChiefOfStaffChatBody`.
+
+## Widgets — register, do not dispatch
+
+When an agent calls a tool so a widget renders from its args (the no-op
+`present_*` pattern), register it; do not add another `if (toolName === …)`
+branch. Four surfaces each grew their own copy of this dispatch before the
+registry existed, and they had started to drift.
+
+1. **Register.** `createWidgetRegistry<Ctx>([defineWidgetTool({ toolName, parse, render })])`.
+   `parse(args, call)` returns the data or null. Null drops the widget, so args
+   that fail to parse never render broken. `call` carries `conversationId`,
+   `toolCallId`, `messageId` and `segmentIndex`, which is enough to derive an id.
+   `render(data, ctx, call)` gets the surface's `Ctx` (route ids, callbacks) at
+   render time. An unknown tool name resolves to null, so a thread written by a
+   newer build still opens. `onParseFailure: 'inline'` keeps an unparsed call as
+   an ordinary pill instead of hiding it, for a tool that is only sometimes a
+   widget.
+2. **Live turn.** In `onEvent`, on `tool_call`: `registry.has(name)` decides
+   whether to consume the event, `registry.resolve(call, args)` builds the
+   instance, and you store `{ instance, appearAfter: textLength() }`.
+3. **Render.** `liveTurnBlocks(visibleSegments, widgets, revealedTextLength)`
+   for the live turn and `persistedTurnBlocks({ registry, segments, content, messageId, conversationId })`
+   for history, both into `<TurnBlocks blocks toolLabel context />`. The widget
+   lands at the point in the text where its tool fired, with prose above and
+   below it, and a reload renders the same order it streamed in.
+
+`ordinances/components/stepWidgets.tsx` is the reference registry. Not yet on
+it: the Priorities cards, Chief of Staff's `show_list_map`, and the
+`compose_handoff` branch inside `InlineSegments`.
 
 ## Reference wrappers — copy the closest
 

@@ -1,5 +1,6 @@
 import {
-  ContactRefSchema,
+  ConstituentRefSchema,
+  OutsideContactSchema,
   OutreachProposalSchema,
   PastOutreachRefSchema,
   mintProposalKey,
@@ -10,7 +11,11 @@ import {
 // point of the call is what it leaves in the conversation.
 export const CARD_TOOLS = [
   'present_outreach_proposal',
+  'present_constituents',
+  // The name present_constituents shipped under. Segments that already exist
+  // on dev and prod persist it, so it stays mapped forever.
   'present_contacts',
+  'present_outside_contact',
   'present_past_outreach',
   'read_past_outreach',
 ] as const
@@ -61,9 +66,14 @@ export const toChatCard = ({
         proposalKey: mintProposalKey(conversationId, toolCallId),
       }
     }
+    case 'present_constituents':
     case 'present_contacts': {
-      const parsed = ContactRefSchema.safeParse(args)
-      return parsed.success ? { kind: 'contacts', ...parsed.data } : null
+      const parsed = ConstituentRefSchema.safeParse(args)
+      return parsed.success ? { kind: 'constituents', ...parsed.data } : null
+    }
+    case 'present_outside_contact': {
+      const parsed = OutsideContactSchema.safeParse(args)
+      return parsed.success ? { kind: 'outside_contact', ...parsed.data } : null
     }
     case 'present_past_outreach':
     case 'read_past_outreach': {

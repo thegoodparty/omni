@@ -47,7 +47,8 @@ import {
 } from './services/priorityFlowContext.service'
 import { PriorityFlowOutreachService } from './services/priorityFlowOutreach.service'
 import {
-  buildPresentContactsTool,
+  buildPresentConstituentsTool,
+  buildPresentOutsideContactTool,
   buildPresentOutreachProposalTool,
   buildPresentPastOutreachTool,
   buildReadPastOutreachTool,
@@ -179,7 +180,8 @@ export class PriorityFlowHandler implements ChatScopeHandler<PriorityFlowContext
       // decides on its own when a step settles.
       ask_clarify_question: buildAskClarifyQuestionTool(),
       present_outreach_proposal: buildPresentOutreachProposalTool(),
-      present_contacts: buildPresentContactsTool(),
+      present_constituents: buildPresentConstituentsTool(),
+      present_outside_contact: buildPresentOutsideContactTool(),
       present_past_outreach: buildPresentPastOutreachTool(),
       read_past_outreach: buildReadPastOutreachTool({
         outreach: this.outreach,
