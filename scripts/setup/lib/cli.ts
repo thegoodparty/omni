@@ -229,6 +229,17 @@ export const runDeviceFlow = async (
           `${unexpected.map((b) => b.package).join(', ')}.`,
       )
     }
+    // ...and the mirror check: a partial response would otherwise leave a
+    // requested device-<pkg>.env unwritten and let build_one fall through
+    // to a stale file or placeholders without naming the real cause.
+    const returned = new Set<string>(bundles.map((b) => b.package))
+    const missing = packages.filter((pkg) => !returned.has(pkg))
+    if (missing.length > 0) {
+      return fail(
+        `${apiUrl} returned no bundle for requested package(s): ` +
+          `${missing.join(', ')}.`,
+      )
+    }
 
     for (const bundle of bundles) {
       writeFileSync(

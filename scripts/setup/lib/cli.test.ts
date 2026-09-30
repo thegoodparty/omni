@@ -112,6 +112,22 @@ describe('runDeviceFlow', () => {
     expect(existsSync(join(outDir, 'device-gp-webapp.env'))).toBe(false)
   })
 
+  it('writes nothing when the response is missing a requested package', async () => {
+    mockedFetchDevEnvBundles.mockResolvedValue([
+      { package: 'gp-api', variables: { FOO: 'bar' } },
+    ])
+
+    await expect(
+      runDeviceFlow('client-1', 'https://gp-api-dev.example', outDir, [
+        'gp-api',
+        'gp-webapp',
+      ]),
+    ).rejects.toThrow('process.exit(1)')
+
+    expect(existsSync(join(outDir, 'device-gp-api.env'))).toBe(false)
+    expect(existsSync(join(outDir, 'device-gp-webapp.env'))).toBe(false)
+  })
+
   it('never calls the bundle fetch when the device flow is denied', async () => {
     mockedAwaitAccessToken.mockRejectedValue(new AccessDeniedError())
 
