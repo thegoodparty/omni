@@ -7,12 +7,19 @@
 # in this script.
 #
 # Usage:
-#   scripts/setup.sh [--from <path>] [--force]
+#   scripts/setup.sh [--from <path>] [--force] [--secrets-only]
 #
-#   --from <path>  A working omni checkout to copy real .env values from.
-#                  Required only when this checkout has no valid .env yet.
-#   --force        Overwrite an existing-but-invalid .env, and skip the
-#                  confirmation prompt before wiping a non-empty local DB.
+#   --from <path>     A working omni checkout to copy real .env values from.
+#                     Required only when this checkout has no valid .env yet.
+#   --force           Overwrite an existing-but-invalid .env, and skip the
+#                     confirmation prompt before wiping a non-empty local DB.
+#   --secrets-only    Run only the secrets step (plan/copy/merge/validate/
+#                     write .env files), then exit 0 — no npm ci, no docker,
+#                     no migrate, no dev.sh. Lets another script (e.g.
+#                     scripts/worktree-setup.sh) reuse this step without
+#                     re-implementing it. Assumes node_modules already exists
+#                     (the caller's own install step, not this one, provides
+#                     it) since the secrets step shells out via `npx tsx`.
 #
 # What "idempotent" means here: re-running with everything already in place
 # should be fast and should not touch anything that's already correct (see
@@ -38,6 +45,7 @@ GP_WEBAPP_ENV="$ROOT/packages/gp-webapp/.env.local"
 
 FROM=""
 FORCE=false
+SECRETS_ONLY=false
 while [ $# -gt 0 ]; do
   case "$1" in
     --from)
@@ -48,8 +56,12 @@ while [ $# -gt 0 ]; do
       FORCE=true
       shift
       ;;
+    --secrets-only)
+      SECRETS_ONLY=true
+      shift
+      ;;
     -h | --help)
-      sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -89,46 +101,52 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # --- 1/8: preflight ----------------------------------------------------------
-log "[1/8] Preflight"
+# Skipped entirely in --secrets-only mode: that mode exists for a caller
+# (scripts/worktree-setup.sh) that already owns its own install step, and it
+# needs node_modules to already be in place for exactly the reason the npm ci
+# comment below explains.
+if [ "$SECRETS_ONLY" != true ]; then
+  log "[1/8] Preflight"
 
-pinned_node="$(tr -d '[:space:]' <"$ROOT/.nvmrc")"
-have_node="$(node -v | tr -d 'v')"
-# MAJOR only, deliberately — see contracts/scripts/assert-node-version.ts's
-# reasoning. .nvmrc pins a patch version nobody's local nvm actually matches.
-if [ "${pinned_node%%.*}" != "${have_node%%.*}" ]; then
-  echo "ERROR: Node ${have_node} is running; this repo pins ${pinned_node} (.nvmrc)." >&2
-  echo "Fix: nvm use" >&2
-  exit 1
-fi
-indent "node ${have_node} OK (pinned ${pinned_node})"
+  pinned_node="$(tr -d '[:space:]' <"$ROOT/.nvmrc")"
+  have_node="$(node -v | tr -d 'v')"
+  # MAJOR only, deliberately — see contracts/scripts/assert-node-version.ts's
+  # reasoning. .nvmrc pins a patch version nobody's local nvm actually matches.
+  if [ "${pinned_node%%.*}" != "${have_node%%.*}" ]; then
+    echo "ERROR: Node ${have_node} is running; this repo pins ${pinned_node} (.nvmrc)." >&2
+    echo "Fix: nvm use" >&2
+    exit 1
+  fi
+  indent "node ${have_node} OK (pinned ${pinned_node})"
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: docker not found on PATH." >&2
-  exit 1
-fi
-if ! docker info >/dev/null 2>&1; then
-  echo "ERROR: docker daemon not reachable." >&2
-  echo "Hint: colima users need DOCKER_HOST exported (colima status --json | grep docker_host)," >&2
-  echo "and colima itself needs to be running (colima start)." >&2
-  exit 1
-fi
-indent "docker OK"
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: docker not found on PATH." >&2
+    exit 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: docker daemon not reachable." >&2
+    echo "Hint: colima users need DOCKER_HOST exported (colima status --json | grep docker_host)," >&2
+    echo "and colima itself needs to be running (colima start)." >&2
+    exit 1
+  fi
+  indent "docker OK"
 
-if [ -z "$(ls -A "$ROOT/ai-rules" 2>/dev/null)" ]; then
-  indent "ai-rules/ submodule empty; initializing"
-  git -C "$ROOT" submodule update --init --recursive
-fi
-indent "ai-rules/ OK"
+  if [ -z "$(ls -A "$ROOT/ai-rules" 2>/dev/null)" ]; then
+    indent "ai-rules/ submodule empty; initializing"
+    git -C "$ROOT" submodule update --init --recursive
+  fi
+  indent "ai-rules/ OK"
 
-# `npm ci` runs here rather than with the rest of step 4's build commands: the
-# secrets step below shells out to `npx tsx` against a schema module that
-# imports zod, and on a genuinely fresh clone there is no node_modules yet for
-# that import to resolve. Prisma generation later in step 4 still needs the
-# env files step 3 writes first (its schema declares `url = env("DATABASE_URL")`,
-# and `prisma generate` fails fast if that resolves to nothing) — so only this
-# one command moves, not the whole step.
-log "[dependencies] npm ci"
-npm ci --prefer-offline
+  # `npm ci` runs here rather than with the rest of step 4's build commands: the
+  # secrets step below shells out to `npx tsx` against a schema module that
+  # imports zod, and on a genuinely fresh clone there is no node_modules yet for
+  # that import to resolve. Prisma generation later in step 4 still needs the
+  # env files step 3 writes first (its schema declares `url = env("DATABASE_URL")`,
+  # and `prisma generate` fails fast if that resolves to nothing) — so only this
+  # one command moves, not the whole step.
+  log "[dependencies] npm ci"
+  npm ci --prefer-offline
+fi
 
 # --- 2/8 + 3/8: secrets + env files ------------------------------------------
 # Plan every package's action before writing anything ("no partial writes"):
@@ -234,6 +252,11 @@ if [ "$GP_WEBAPP_ACTION" = "write" ]; then
 fi
 rm -rf "$TMP_ENV_DIR"
 TMP_ENV_DIR=""
+
+if [ "$SECRETS_ONLY" = true ]; then
+  indent "--secrets-only: env files ready; skipping install/build/postgres/migrate/launch"
+  exit 0
+fi
 
 # --- 4/8: build workspace-internal packages -----------------------------------
 log "[4/8] Build"
