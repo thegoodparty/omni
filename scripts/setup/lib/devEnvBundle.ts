@@ -2,33 +2,19 @@
 // endpoint (POST /v1/dev-env/bundle — packages/gp-api/src/devEnv) and
 // validates the response shape before anything downstream trusts it.
 //
-// Mirrors DevEnvBundleResponseSchema from @goodparty_org/contracts (see
-// packages/contracts/src/devEnv/devEnv.schema.ts on the vending-endpoint
-// branch, PR #2238) rather than importing it: that schema does not exist on
-// this bootstrap branch yet (it ships on top of a later main than this
-// branch has merged). Swap this for a contracts import once this branch is
-// past that merge.
-import { z } from 'zod'
+// The contract's enum on `package` (not a bare string) is load-bearing:
+// the value feeds a file path in cli.ts (`device-${bundle.package}.env`),
+// and the enum is what stops a malformed/unexpected response value from
+// becoming a path-traversal write. cli.ts also cross-checks each bundle's
+// package against what was actually requested before writing anything.
+import {
+  DevEnvBundleResponseSchema,
+  type DevEnvPackageBundle,
+} from '@goodparty_org/contracts'
 
 const FETCH_TIMEOUT_MS = 10_000
 
-// Mirrors DEV_ENV_PACKAGE_VALUES. `package` feeds a file path in cli.ts
-// (`device-${bundle.package}.env`) — an enum here, not z.string(), is load
-// bearing: it is what stops a malformed/unexpected response value from
-// becoming a path-traversal write. cli.ts also cross-checks each bundle's
-// package against what was actually requested before writing anything.
-const DevEnvPackageSchema = z.enum(['gp-api', 'gp-webapp'])
-
-const DevEnvPackageBundleSchema = z.object({
-  package: DevEnvPackageSchema,
-  variables: z.record(z.string(), z.string()),
-})
-
-const DevEnvBundleResponseSchema = z.object({
-  bundles: z.array(DevEnvPackageBundleSchema),
-})
-
-export type DevEnvPackageBundle = z.infer<typeof DevEnvPackageBundleSchema>
+export type { DevEnvPackageBundle }
 
 type FetchLike = typeof fetch
 
