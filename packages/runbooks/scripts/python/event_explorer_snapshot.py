@@ -220,9 +220,11 @@ def fetch_series() -> tuple[list[str], dict[str, list[int]]]:
     sparkline exists to show. Densify against the full week axis."""
     from datetime import timedelta
 
-    from databricks_query import execute_query
+    # The monitor's OAuth client, not the PAT one: CI holds only the service principal,
+    # so the PAT client failed every scheduled run and the page silently stayed stale.
+    import databricks_oauth as dbc
 
-    rows = aeh.fetch_weekly(execute_query)
+    rows = aeh.fetch_weekly(dbc.run_query)
     monday = date.today() - timedelta(days=date.today().weekday())
     raw = aeh.weekly_series(rows, monday)
     weeks = sorted({w for pairs in raw.values() for w, _ in pairs})
