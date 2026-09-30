@@ -299,9 +299,7 @@ jobs:
                 add "${id%%/*}"
                 ;;
             esac
-          done <<EOF
-          $changed
-          EOF
+          done <<<"$changed"
 
           if [ -z "$touched" ]; then
             echo "::notice::auto selection matched no agent; nothing to judge"
@@ -439,6 +437,35 @@ jobs:
         run: |
           set -euo pipefail
 
+          # The CLI's stdout goes into a comment this bot authors on a public
+          # repository and into the job summary, so it is quoted as untrusted
+          # text even though we wrote the program printing it: registry strings
+          # flow through it (a `blockedReason` is free-form prose), and a run of
+          # three backticks anywhere in it would close the fence and let
+          # everything after it render as markdown, or as HTML, under the bot's
+          # name. Seven backticks to open and close, every run of three or more
+          # inside replaced, and the whole thing capped — a plan is a few dozen
+          # short lines, and a megabyte-long PR comment is a symptom rather than
+          # something to reproduce faithfully.
+          quote_plan() {
+            head -c 8000 "$RUNNER_TEMP/plan.txt" | tr -d '\r' \
+              | sed -E 's/`{3,}/[fence]/g'
+            if [ "$(wc -c < "$RUNNER_TEMP/plan.txt")" -gt 8000 ]; then
+              echo '[truncated: the full plan is in the run log]'
+            fi
+          }
+
+          # `requested_by` is a `workflow_call` input, so the next caller is
+          # free to pass anything; both shipped callers pass a GitHub login.
+          # Validated against that shape rather than scrubbed, because a
+          # newline in it would forge a heading in a comment the bot signs.
+          credit=""
+          if [[ "$REQUESTED_BY" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]]; then
+            credit="$REQUESTED_BY"
+          elif [ -n "$REQUESTED_BY" ]; then
+            echo "::warning::requested_by is not a GitHub login, so the plan comment credits nobody"
+          fi
+
           # "Nothing here is judgeable" is a SKIP, not a failure, and it is a
           # different thing from "the CLI's output made no sense", which is
           # further down and does fail. `/judge briefing_annotation` is the live
@@ -452,6 +479,44 @@ jobs:
             echo "sweep_agents=" >> "$GITHUB_OUTPUT"
             { echo '### Universal Judge: nothing to judge'; echo ''; echo "$1"; } \
               >> "$GITHUB_STEP_SUMMARY"
+
+            # AND IT SAYS SO ON THE PR. This path ends the step with `exit 0`
+            # before the plan comment below is written, so it is the only place
+            # that can answer for it — and without this the one request that
+            # really does land here, `/judge briefing_annotation`, was answered
+            # with a job summary and total silence on the thread where it was
+            # typed. Same marker as the plan comment, so a PR judged twice
+            # carries one current comment whichever path each run took.
+            {
+              echo '<!-- universal-judge-plan -->'
+              echo '## Universal Judge'
+              echo ''
+              echo "**Nothing to judge — nothing will be spent.** $1"
+              echo ''
+              echo "| | |"
+              echo "| --- | --- |"
+              if [ "$REQUESTED" = "$AGENTS" ]; then
+                echo "| agents | \`$AGENTS\` |"
+              else
+                echo "| agents | \`$AGENTS\` (asked for: \`$REQUESTED\`) |"
+              fi
+              echo "| candidate | \`$CANDIDATE_SHA\` |"
+              echo "| base | \`$BASE_REF\` |"
+              echo ''
+              echo '<details><summary>Plan</summary>'
+              echo ''
+              echo '```````'
+              quote_plan
+              echo '```````'
+              echo ''
+              echo '</details>'
+              if [ -n "$credit" ]; then
+                echo ''
+                echo "Requested by @$credit."
+              fi
+            } > "$RUNNER_TEMP/comment.md"
+
+            echo "comment_path=$RUNNER_TEMP/comment.md" >> "$GITHUB_OUTPUT"
           }
 
           # THE CLI'S EXIT CODE IS THE CONTRACT, not its prose. Since #2198 it
@@ -500,7 +565,7 @@ jobs:
           fi
 
           if [ "$planned" -eq 0 ]; then
-            nothing "the plan is valid and there is nothing in it to compare. Everything asked for is blocked in the registry — see the plan in the log."
+            nothing "the plan is valid and there is nothing in it to compare. Everything asked for is blocked in the registry — see the plan for why."
             exit 0
           fi
 
@@ -576,17 +641,6 @@ jobs:
             echo "sweep_agents=$sweep_agents"
           } >> "$GITHUB_OUTPUT"
 
-          # `requested_by` is a `workflow_call` input, so the next caller is
-          # free to pass anything; both shipped callers pass a GitHub login.
-          # Validated against that shape rather than scrubbed, because a
-          # newline in it would forge a heading in a comment the bot signs.
-          credit=""
-          if [[ "$REQUESTED_BY" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]]; then
-            credit="$REQUESTED_BY"
-          elif [ -n "$REQUESTED_BY" ]; then
-            echo "::warning::requested_by is not a GitHub login, so the plan comment credits nobody"
-          fi
-
           if [ -z "$sweep_agents" ]; then
             verdict="**Nothing to sweep.** Every agent in this plan is still waiting on a case list, so there is nothing to compare and nothing will be spent."
           elif [ "$LIVE" = "true" ] && [ "${SWEEP_CAPABLE:-}" != "true" ]; then
@@ -596,24 +650,6 @@ jobs:
           else
             verdict="**Plan only — nothing will be spent.** Reply \`/judge --live\` (or \`/judge $AGENTS --live\`) to run it."
           fi
-
-          # The CLI's stdout goes into a comment this bot authors on a public
-          # repository and into the job summary, so it is quoted as untrusted
-          # text even though we wrote the program printing it: registry strings
-          # flow through it (a `blockedReason` is free-form prose), and a run of
-          # three backticks anywhere in it would close the fence and let
-          # everything after it render as markdown, or as HTML, under the bot's
-          # name. Seven backticks to open and close, every run of three or more
-          # inside replaced, and the whole thing capped — a plan is a few dozen
-          # short lines, and a megabyte-long PR comment is a symptom rather than
-          # something to reproduce faithfully.
-          quote_plan() {
-            head -c 8000 "$RUNNER_TEMP/plan.txt" | tr -d '\r' \
-              | sed -E 's/`{3,}/[fence]/g'
-            if [ "$(wc -c < "$RUNNER_TEMP/plan.txt")" -gt 8000 ]; then
-              echo '[truncated: the full plan is in the run log]'
-            fi
-          }
 
           {
             echo '<!-- universal-judge-plan -->'
