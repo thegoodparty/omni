@@ -41,37 +41,54 @@ export type AgentEntry = z.infer<typeof AgentEntrySchema>
 // The four chat scopes registered in CHAT_SCOPE_HANDLERS today, plus the one
 // that is not. Ids match ChatScope in the Prisma schema, so the runner can
 // resolve a handler straight from the registry with no mapping table.
-const CHAT_AGENTS: AgentEntry[] = [
-  // The only entry with a case list, and it is a placeholder — see the
-  // `note` in the file. Status stays `pending`: `wired` means an agent has
-  // produced a real verdict at least once, and a placeholder list has not
-  // produced one about the agent.
-  {
-    agentId: 'chief_of_staff',
-    shape: 'chat',
-    cases: 'chief_of_staff.json',
-    status: 'pending',
-  },
-  {
-    agentId: 'campaign_assistant',
-    shape: 'chat',
-    cases: null,
-    status: 'pending',
-  },
-  { agentId: 'ordinance_flow', shape: 'chat', cases: null, status: 'pending' },
-  { agentId: 'priority_flow', shape: 'chat', cases: null, status: 'pending' },
-  {
-    agentId: 'briefing_annotation',
-    shape: 'chat',
-    cases: null,
-    status: 'blocked',
-    blockedReason:
-      'No ChatScopeHandler yet. Briefing chat still assembles its own ' +
-      'prompt and tools, so the chat runner cannot drive it through the ' +
-      'registry. Unblocked by the briefing-chats migration, which is a ' +
-      'follow-on rather than a prerequisite.',
-  },
-]
+const CHAT_AGENT_IDS = [
+  'chief_of_staff',
+  'campaign_assistant',
+  'ordinance_flow',
+  'priority_flow',
+  'briefing_annotation',
+] as const
+
+type ChatAgentId = (typeof CHAT_AGENT_IDS)[number]
+
+// The chat agents that have an authored case list. Keyed by the id union for
+// the same reason the background map is: a typo here is a typecheck failure
+// rather than a registry entry pointing at a file nobody wrote.
+//
+// briefing_annotation is absent on purpose. It is blocked, not unwritten, so
+// a case list would be inputs for a runner that cannot drive it.
+//
+// All four are placeholder lists — see the `note` in each file — so status
+// stays `pending`. `wired` means an agent has produced a real verdict at
+// least once, and none of these has driven a turn.
+const CHAT_CASE_LISTS: Partial<Record<ChatAgentId, string>> = {
+  chief_of_staff: 'chief_of_staff.json',
+  campaign_assistant: 'campaign_assistant.json',
+  ordinance_flow: 'ordinance_flow.json',
+  priority_flow: 'priority_flow.json',
+}
+
+// Keyed by the id union too, so dropping a scope from CHAT_AGENT_IDS without
+// dropping its reason is a typecheck failure.
+const CHAT_BLOCKED_REASONS: Partial<Record<ChatAgentId, string>> = {
+  briefing_annotation:
+    'No ChatScopeHandler yet. Briefing chat still assembles its own ' +
+    'prompt and tools, so the chat runner cannot drive it through the ' +
+    'registry. Unblocked by the briefing-chats migration, which is a ' +
+    'follow-on rather than a prerequisite.',
+}
+
+const CHAT_AGENTS: AgentEntry[] = CHAT_AGENT_IDS.map((agentId) => {
+  const blockedReason = CHAT_BLOCKED_REASONS[agentId]
+  return {
+    agentId,
+    shape: 'chat' as const,
+    cases: CHAT_CASE_LISTS[agentId] ?? null,
+    ...(blockedReason === undefined
+      ? { status: 'pending' as const }
+      : { status: 'blocked' as const, blockedReason }),
+  }
+})
 
 // Every published PMF experiment. Matches the directories under
 // packages/runbooks/experiments (excluding _schema), which is what
@@ -95,10 +112,31 @@ const BACKGROUND_AGENT_IDS = [
   'trending_issues',
 ] as const
 
+type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
+
+// The background agents that have an authored case list. Keyed by the id
+// union, so a typo here is a typecheck failure rather than a registry entry
+// pointing at a file nobody wrote.
+//
+// All nine are placeholder lists — see the `note` in each file — so status
+// stays `pending`. `wired` means an agent has produced a real verdict at
+// least once, and none of these has been dispatched.
+const BACKGROUND_CASE_LISTS: Partial<Record<BackgroundAgentId, string>> = {
+  district_issue_pulse: 'district_issue_pulse.json',
+  district_issue_snapshot: 'district_issue_snapshot.json',
+  meeting_briefing: 'meeting_briefing.json',
+  meeting_schedule: 'meeting_schedule.json',
+  opponent_research: 'opponent_research.json',
+  race_opponent_actions: 'race_opponent_actions.json',
+  race_opponent_collection: 'race_opponent_collection.json',
+  race_opponent_summary: 'race_opponent_summary.json',
+  self_research: 'self_research.json',
+}
+
 const BACKGROUND_AGENTS: AgentEntry[] = BACKGROUND_AGENT_IDS.map((agentId) => ({
   agentId,
   shape: 'background' as const,
-  cases: null,
+  cases: BACKGROUND_CASE_LISTS[agentId] ?? null,
   status: 'pending' as const,
 }))
 

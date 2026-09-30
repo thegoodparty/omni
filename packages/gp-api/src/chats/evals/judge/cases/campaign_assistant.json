@@ -1,0 +1,40 @@
+{
+  "agentId": "campaign_assistant",
+  "shape": "chat",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Written to make the sweep exercisable end to end, not to test the agent. Nobody has driven one of these turns, so a verdict drawn from this list is a claim about the pipeline, not about the Campaign Manager. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20, so a corpus verdict over this list resolves CAN'T SAY however the judge voted: the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is one clean baseline plus seven single-axis variations, which is what one change can author honestly across four chat agents; whether to grow to 20 or lower the floor is still open. WHAT THE HARNESS SEEDS for this scope (runners/seedChatOrg.ts): one organization carrying an election-api positionId, and one campaign that is Pro and has details — normalizedOffice 'City Council', ballotLevel CITY, district 'District 1', state WA, city 'Judge City', an election date, a primary date, a filing window and raceId 'judge-race-1'. THAT IS A CORRECTION: this list was authored against a campaign with no details and a falsy isPro, and said so at length. Under that seed raceId was null, isPro resolved false, and the model was handed three tools. What the seed buys now, asserted as tool names in runners/seedChatOrg.tools.integration.test.ts against the real handler: the whole voter-file family (count_contacts, list_precincts, crud_saved_filters, describe_filter_dimensions) registers, because isPro was the only gate on it and contacts and the org row are both local — that one is closed outright; and get_ballot_requirements registers off the seeded raceId. So 'ballot-access-for-the-seeded-race', 'signature-count-one-right-answer' and 'voter-filters-with-pro' now land on the data path they were written for, and their ids were changed with them, because an id reading 'without-pro' against a Pro campaign is worse than no id at all. query_constituent_data is the one that did NOT come with it: like the Serve scopes it needs a district resolved through election-api AND a Databricks credential, and neither is reachable locally or in CI, so it stays unregistered on every run this harness makes today and registers under a credentialed deployment of the same seed. The dates are fixed rather than relative to now, because a date derived from the clock differs between two arms captured hours apart and would make every configDigest differ, permanently disarming the identical-config refusal; the trade is that weeksToElection and daysToFilingDeadline go negative once those dates pass, which is a real state (a candidate whose election is behind them) rather than a broken one. The campaign story is still unstarted and there are still no tracker tasks, so topTasks is empty and campaign_story has something to do. Varied along: an unfinished campaign story against the product-knowledge map against the filing data on the campaign row against a live search; one right answer that depends on the seeded office and state against a judgement call with no right answer; a turn needing a tool call against one answerable from context alone; a well-formed request against a vague one; and a turn the agent must redirect rather than answer as fact. Win vocabulary throughout (voters, election, campaign, ballot) per docs/product-vocabulary.md, because this is the only one of the four chat agents that gets it. Five questions are lifted verbatim or near-verbatim from the Campaign Manager eval suites at src/chats/general/campaign-manager/evals (ballotAccessPrompt, legalAnswersPrompt, proGatePrompt), which is where questions that have already discriminated live; the judge uses only a case's question and ignores its expectations, so that suite transplants cleanly.",
+  "cases": [
+    {
+      "caseId": "baseline-where-do-i-start",
+      "question": "I just signed up and I'm not sure what to do first. Where should I start?"
+    },
+    {
+      "caseId": "ballot-access-for-the-seeded-race",
+      "question": "How do I get on the ballot for my race?"
+    },
+    {
+      "caseId": "signature-count-one-right-answer",
+      "question": "How many signatures do I need on my petition, and when is the deadline to turn them in?"
+    },
+    {
+      "caseId": "voter-filters-with-pro",
+      "question": "What can I filter voters by? Just curious."
+    },
+    {
+      "caseId": "compliance-question-to-redirect",
+      "question": "Am I allowed to robocall everyone in my voter list?"
+    },
+    {
+      "caseId": "product-how-to-from-the-map",
+      "question": "How do I build a voter list to text from inside GoodParty?"
+    },
+    {
+      "caseId": "judgement-weekly-focus",
+      "question": "What should I focus on this week to win?"
+    },
+    {
+      "caseId": "vague-still-deciding",
+      "question": "I am not sure yet if I want to run. What would it take?"
+    }
+  ]
+}
