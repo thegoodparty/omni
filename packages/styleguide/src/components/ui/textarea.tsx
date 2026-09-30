@@ -9,12 +9,20 @@ interface TextareaProps extends React.ComponentProps<'textarea'> {
   autoGrow?: boolean
   /** With `autoGrow`, stop growing after this many rows and scroll instead. */
   maxRows?: number
+  /**
+   * `seamless` drops the border and padding so the field sits inside a card
+   * as the card's own content. It keeps the focus ring, offset from the card
+   * so it reads against that background: without it an editable draft looks
+   * like static text, and keyboard users have nothing to follow (WCAG 2.4.7).
+   */
+  variant?: 'default' | 'seamless'
 }
 
 function Textarea({
   className,
   autoGrow,
   maxRows,
+  variant = 'default',
   ref,
   onInput,
   ...props
@@ -74,6 +82,7 @@ function Textarea({
       className={cn(
         'border-components-input-border text-foreground placeholder:text-muted-foreground focus:border-components-input-active focus-visible:ring-components-input-focus aria-invalid:border-destructive focus:aria-invalid:border-destructive focus-visible:aria-invalid:ring-destructive-focus flex w-full rounded-md border bg-components-input-base px-3 py-2 text-base transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
         autoGrow ? 'min-h-0 resize-none' : 'min-h-16',
+        variant === 'seamless' && 'border-0 p-0 ring-offset-2 ring-offset-card',
         className,
       )}
       {...props}

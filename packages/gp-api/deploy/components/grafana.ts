@@ -11,7 +11,10 @@ import {
   buildKnownCausesAnnotation,
   KNOWN_CAUSES_ANNOTATION,
 } from './alerting/alert-notification'
-import { routeErrorAlerts } from './alerting/route-alerts'
+import {
+  ROUTE_EVALUATION_SECONDS,
+  routeErrorAlerts,
+} from './alerting/route-alerts'
 import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
@@ -57,6 +60,17 @@ const datasourceConfig = {
  */
 export const ALERT_FILTER_WEBHOOK_URLS: Record<string, string> = {
   prod: 'https://ai.goodparty.org/grafana/alert-webhook',
+}
+
+/**
+ * The window an alert's query fetches, as Grafana's seconds-before-now pair.
+ *
+ * Exported so the tests can assert the window Grafana is actually given,
+ * rather than the fields it is built from.
+ */
+export const alertTimeRange = (alert: Alert) => {
+  const offset = alert.timeRangeOffsetSeconds ?? 0
+  return { from: (alert.timeRangeSeconds ?? 600) + offset, to: offset }
 }
 
 /**
@@ -504,7 +518,7 @@ export const createGrafanaResources = async ({
         {
           refId: 'A',
           queryType: datasourceConfig[alert.type].queryType,
-          relativeTimeRange: { from: alert.timeRangeSeconds ?? 600, to: 0 },
+          relativeTimeRange: alertTimeRange(alert),
           datasourceUid: datasourceConfig[alert.type].uid,
           model: JSON.stringify({
             expr: alert.expr.replace(/\$ENV/g, environment),
@@ -617,41 +631,21 @@ export const createGrafanaResources = async ({
     })
   }
 
-  // TWO GROUPS, where there used to be one per controller. Grafana evaluates a
-  // rule group as a unit, so the group IS the cadence — which is why the two
-  // window shapes cannot share one. The five counting rules evaluate every
-  // minute and the one thresholded rule every ten; `routeWindow` in
-  // alerting/route-alerts.ts is where that split is argued.
-  //
-  // Bucketed the same way the global rules are, and the minute bucket keeps the
-  // bare resource name so the group a rule moves between is the exception
-  // rather than both of them.
+  // ONE GROUP, where there used to be one per controller. Grafana evaluates a
+  // rule group as a unit, so the group IS the cadence, and every route rule
+  // judges the same minute window on the same minute — see MINUTE_WINDOW in
+  // alerting/route-alerts.ts.
   //
   // This replaces 75 `<controller>-rules` groups. Pulumi will delete those on
   // the next deploy, which also deletes their alert history and any silence
   // keyed to an old `<controller>-route-errors` slug. Routing is unaffected:
   // the notification policy matches on `environment`, not on slug.
-  const routeAlertsByInterval = new Map<number, Alert[]>()
-  for (const alert of routeErrorAlerts()) {
-    const interval = alert.evaluationIntervalSeconds ?? 60
-    routeAlertsByInterval.set(interval, [
-      ...(routeAlertsByInterval.get(interval) ?? []),
-      alert,
-    ])
-  }
-
-  for (const [intervalSeconds, alerts] of routeAlertsByInterval) {
-    const isDefault = intervalSeconds === 60
-    new grafana.alerting.RuleGroup(
-      isDefault ? 'route-error-rules' : `route-error-rules-${intervalSeconds}s`,
-      {
-        name: isDefault ? 'Route errors' : `Route errors (${intervalSeconds}s)`,
-        folderUid: alertFolder.uid,
-        intervalSeconds,
-        rules: alerts.map(alertToRule),
-      },
-    )
-  }
+  new grafana.alerting.RuleGroup('route-error-rules', {
+    name: 'Route errors',
+    folderUid: alertFolder.uid,
+    intervalSeconds: ROUTE_EVALUATION_SECONDS,
+    rules: routeErrorAlerts().map(alertToRule),
+  })
 
   const { probes } = await grafana.syntheticmonitoring.getProbes()
 

@@ -7,12 +7,19 @@
 # in this script.
 #
 # Usage:
-#   scripts/setup.sh [--from <path>] [--force]
+#   scripts/setup.sh [--from <path>] [--force] [--user-state <state>]
 #
-#   --from <path>  A working omni checkout to copy real .env values from.
-#                  Required only when this checkout has no valid .env yet.
-#   --force        Overwrite an existing-but-invalid .env, and skip the
-#                  confirmation prompt before wiping a non-empty local DB.
+#   --from <path>       A working omni checkout to copy real .env values
+#                       from. Required only when this checkout has no valid
+#                       .env yet.
+#   --force             Overwrite an existing-but-invalid .env, and skip the
+#                       confirmation prompt before wiping a non-empty local
+#                       DB.
+#   --user-state <state> Product state for the login this script seeds at
+#                       the end (default free-win; see
+#                       packages/gp-api/src/testFixtures/AGENTS.md for the
+#                       full list). No effect if
+#                       LOCAL_SETUP_CLERK_MACHINE_SECRET isn't set.
 #
 # What "idempotent" means here: re-running with everything already in place
 # should be fast and should not touch anything that's already correct (see
@@ -38,6 +45,7 @@ GP_WEBAPP_ENV="$ROOT/packages/gp-webapp/.env.local"
 
 FROM=""
 FORCE=false
+USER_STATE="free-win"
 while [ $# -gt 0 ]; do
   case "$1" in
     --from)
@@ -48,8 +56,12 @@ while [ $# -gt 0 ]; do
       FORCE=true
       shift
       ;;
+    --user-state)
+      USER_STATE="$2"
+      shift 2
+      ;;
     -h | --help)
-      sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -334,8 +346,66 @@ if [ "$api_ok" != true ] || [ "$webapp_ok" != true ]; then
   exit 1
 fi
 
-# --- 8/8: summary --------------------------------------------------------------
+# --- 8/8: summary (+ seed a login) -------------------------------------------
 log "[8/8] Summary"
+
+# Best-effort finishing touch: mint a QA fixture user via gp-api's
+# AdminOrM2MGuard-gated test-fixtures endpoint, so bootstrap ends with a
+# working browser login instead of just a healthy stack (ENG-11191). Reads
+# the machine secret back out of the .env file step 3 just wrote/validated
+# (not straight off the shell env) because that's the one place --from's
+# copy and .env.example's placeholder both flow through. Every step here is
+# best-effort on purpose: `set -euo pipefail` means an unguarded non-zero
+# exit would kill an otherwise-successful bootstrap over a step that is, by
+# design, expected to be unavailable on most machines today (the Clerk
+# machine ENG-11191 depends on is an ops prerequisite, not yet provisioned).
+SEED_LOGIN_SUMMARY="skipped (LOCAL_SETUP_CLERK_MACHINE_SECRET not set)"
+LOCAL_SETUP_SECRET="$(
+  npx tsx "$ROOT/scripts/setup/lib/cli.ts" get-var "$GP_API_ENV" \
+    LOCAL_SETUP_CLERK_MACHINE_SECRET
+)" || LOCAL_SETUP_SECRET=""
+
+if [ -n "$LOCAL_SETUP_SECRET" ]; then
+  # Secret travels via the environment, never argv (argv is visible in ps).
+  seed_result="$(
+    LOCAL_SETUP_CLERK_MACHINE_SECRET="$LOCAL_SETUP_SECRET" \
+      npx tsx "$ROOT/scripts/setup/lib/cli.ts" seed-login "$USER_STATE"
+  )" || seed_result=""
+  seed_status="${seed_result%%$'\t'*}"
+  case "$seed_status" in
+    OK)
+      # Credentials print ONCE, to the terminal only, and only when this
+      # script's own stdout IS a terminal — never into a file or a log. CI's
+      # setup-smoke job backgrounds this script with `>setup.log 2>&1`, so
+      # [ -t 1 ] is false there and the credential-bearing branch never runs.
+      if [ -t 1 ]; then
+        seed_email="$(printf '%s' "$seed_result" | cut -f2)"
+        seed_password="$(printf '%s' "$seed_result" | cut -f3)"
+        SEED_LOGIN_SUMMARY="ok
+    url       http://localhost:4000
+    email     ${seed_email}
+    password  ${seed_password}"
+      else
+        SEED_LOGIN_SUMMARY="minted (credentials suppressed, non-interactive)"
+      fi
+      ;;
+    FAILED)
+      SEED_LOGIN_SUMMARY="failed (${seed_result#*$'\t'})"
+      ;;
+    SKIPPED)
+      # Unreachable today — this block only runs when LOCAL_SETUP_SECRET is
+      # non-empty, and that's the only input that makes runSeedLogin return
+      # 'skipped' — but cli.ts's seed-login command accepts an empty secret
+      # as a legitimate input on its own, so handle it explicitly rather
+      # than falling into the generic default below and losing the reason.
+      SEED_LOGIN_SUMMARY="skipped (${seed_result#*$'\t'})"
+      ;;
+    *)
+      SEED_LOGIN_SUMMARY="skipped (unexpected seed-login output)"
+      ;;
+  esac
+fi
+
 cat <<SUMMARY
 
 ==================== omni bootstrap: ready ====================
@@ -347,6 +417,7 @@ cat <<SUMMARY
   migrate/seed         ok
   gp-api               ok   http://localhost:3000   (GET /v1/health -> 200)
   gp-webapp            ok   http://localhost:4000
+  login                ${SEED_LOGIN_SUMMARY}
 =================================================================
 
 Press Ctrl+C to stop the stack.

@@ -142,6 +142,7 @@ const seedOutreach = (
     identityId: string | null
     approvedAt: Date | null
     deniedAt: Date | null
+    canvassRequestedAt: Date | null
     script: string
     stripeCheckoutSessionId: string | null
     freePurchaseSessionId: string | null
@@ -321,6 +322,35 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       const ids = res.data.items.map((i: { id: number }) => i.id)
       expect(ids).toContain(dateless.id)
       expect(ids).toContain(recent.id)
+    })
+
+    it('lists a booked send whose day has passed as sent', async () => {
+      const sent = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+      })
+      // The sweep completes an unapproved row on its day like any other,
+      // but nothing went out — it is not a sent campaign.
+      await seedOutreach({
+        status: OutreachStatus.completed,
+        date: subDays(new Date(), 2),
+      })
+      // Booked and sent, but older than the Sent tab's lookback.
+      await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 100),
+        canvassRequestedAt: subDays(new Date(), 100),
+        date: subDays(new Date(), 100),
+      })
+      listAccountJobs.mockResolvedValue([liveJob('peerly-job-1', true)])
+
+      const res = await service.client.get('/v1/outreach/admin/sms/queue')
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.items.map((i: { id: number }) => i.id)).toEqual([sent.id])
+      expect(res.data.items[0].approvalStatus).toBe('sent')
     })
 
     it('keeps a send-day row the completion sweep moved to in_progress', async () => {
@@ -863,6 +893,24 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updateJob).not.toHaveBeenCalled()
     })
 
+    it('400s editing a sent row before any vendor write', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+      })
+      const updateJob = await withImage(row.id)
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'edited', editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJob).not.toHaveBeenCalled()
+    })
+
     it('400s a campaign with no stored image', async () => {
       const row = await seedOutreach()
       const res = await service.client.patch(
@@ -1136,6 +1184,24 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updateJobSchedule).not.toHaveBeenCalled()
     })
 
+    it('409s a sent row before any vendor write', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.CONFLICT)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
+      expect(clearCanvassers).not.toHaveBeenCalled()
+    })
+
     it('400s a send time in the past', async () => {
       const row = await seedOutreach()
 
@@ -1245,6 +1311,22 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       expect(res.status).toBe(HttpStatus.OK)
       expect(res.data.item.approvalStatus).toBe('awaiting_review')
+    })
+
+    it('serves a sent row with its delivery stats', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.completed,
+        approvedAt: subDays(new Date(), 3),
+        canvassRequestedAt: subDays(new Date(), 3),
+        date: subDays(new Date(), 2),
+        projectId: 'peerly-job-detail-sent',
+      })
+
+      const res = await service.client.get(`/v1/outreach/admin/sms/${row.id}`)
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.item.approvalStatus).toBe('sent')
+      expect(res.data.stats).toMatchObject({ sentTotal: 100, delivered: 90 })
     })
 
     it('renders without stats when the vendor read fails', async () => {

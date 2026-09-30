@@ -55,6 +55,9 @@ export default async function Page({ params }: PageProps) {
     notFound()
   }
   const { item, stats } = detail
+  // Nothing is left to change once the send is over or ended.
+  const isClosed =
+    item.approvalStatus === 'canceled' || item.approvalStatus === 'sent'
 
   return (
     <Container size="3">
@@ -79,7 +82,9 @@ export default async function Page({ params }: PageProps) {
         <Box flexGrow="1" style={{ minWidth: 0 }}>
           <Card>
             <Heading size="3" mb="2">
-              Message as it will send
+              {item.approvalStatus === 'sent'
+                ? 'Message as it sent'
+                : 'Message as it will send'}
             </Heading>
             {item.imageUrl && (
               // eslint-disable-next-line @next/next/no-img-element
@@ -97,7 +102,7 @@ export default async function Page({ params }: PageProps) {
             <Text size="2" style={{ whiteSpace: 'pre-wrap' }}>
               {item.script ?? '—'}
             </Text>
-            {canDecide && item.approvalStatus !== 'canceled' && (
+            {canDecide && !isClosed && (
               <Box mt="3">
                 <Flex gap="3">
                   {item.script && (
@@ -114,7 +119,7 @@ export default async function Page({ params }: PageProps) {
                 </Flex>
               </Box>
             )}
-            {canDecide && item.approvalStatus !== 'canceled' && (
+            {canDecide && !isClosed && (
               <Box mt="3">
                 <SendTestAction id={item.id} />
               </Box>
@@ -292,7 +297,7 @@ export default async function Page({ params }: PageProps) {
               <ApproveDenyActions id={item.id} />
             </Box>
           )}
-          {canDecide && item.approvalStatus !== 'canceled' && (
+          {canDecide && !isClosed && (
             <Box mt="4">
               <CancelAction id={item.id} paid={item.paid} />
             </Box>
