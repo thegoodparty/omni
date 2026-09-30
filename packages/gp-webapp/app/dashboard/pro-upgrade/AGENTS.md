@@ -274,7 +274,11 @@ this, and neither does the server-side `Account - Pro Subscription Confirmed`.
 
 - Every link into the wizard is built with `proUpgradeHref({ source, channel, cta })`
   (`proUpgradeAttribution.ts`), never the bare `PRO_UPGRADE_ENTRY_PATH`. A new
-  entry point adds its value to `ProUpgradeSourceSchema`.
+  entry point adds its value to `ProUpgradeSourceSchema`. The one exception is the
+  outreach walls that render only with `outreach-pro-gating-v2` off
+  (`P2PUpgradeModal`, `ChannelTileGrid`'s locked tiles, the deep link's Pro paths,
+  `DoorKnockingProLockedView`). The flag is at 100%, so they read as `direct` until
+  they are deleted with it.
 - `ProUpgradeEntry` fires the event once, just before its redirect, because the
   redirect drops the query string. It allowlists `source` and `channel` (anything
   else reads as `direct` / `generic`) and caps `cta`. An already-Pro candidate
