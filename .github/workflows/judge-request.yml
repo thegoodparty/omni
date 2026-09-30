@@ -1,0 +1,125 @@
+name: Universal Judge request
+
+# Two of the three ways to ask for a sweep. Both are thin: they decide what was
+# asked for and hand it to judge.yml, which owns the guards.
+#
+# `workflow_dispatch` is the manual entry point and CANNOT BE EXERCISED UNTIL
+# THIS FILE IS ON main. GitHub only offers a dispatch from the workflow file on
+# the default branch, so while the judge is being built on the `universal-judge`
+# integration branch there is no Run workflow button to press.
+#
+# `pull_request` exists so the trigger is not entirely unexercised until then.
+# It is scoped to PRs targeting `universal-judge`, which is to say the judge's
+# own build tracks, and it is hard-wired to a plan: it proves the guards, the
+# ref resolution and the estimate on real PRs without a model call. It comes off
+# — or opens up — when the integration branch merges and the real triggers work.
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to judge
+        required: true
+        type: string
+      agents:
+        description: >-
+          One agent id, a comma-separated subset, `all`, or `auto` (whichever
+          agents the branch touched — the normal case, and usually one agent).
+          `all` is the expensive exception for a change to shared code.
+        required: false
+        default: auto
+        type: string
+      live:
+        # Affirmative and default-false, matching the reusable input. A
+        # negative switch ("dry_run") has to be cleared to spend, and GitHub's
+        # `==` coerces, so an empty or garbled value reads as `false` and
+        # therefore as "go live". Asking for the spend by name means anything
+        # this box is not is a plan.
+        description: Actually run the sweep and spend on model calls
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [universal-judge]
+
+# GUARD 2 of 3, and the half of it that is unambiguously in force.
+#
+# Keyed per PR with cancel-in-progress. Workflow-level concurrency covers the
+# whole run, `sweep` included, so a second request for the same PR really does
+# cancel a sweep that is already spending rather than running a second one
+# beside it. Concurrency groups are repository-wide, so a `/judge` comment, a
+# manual dispatch and a push all contend for one slot per PR instead of one slot
+# per entry point — which is what makes cancellation reachable by a request that
+# does not itself spend: a push to the branch is a plan-only run and still lands
+# here.
+#
+# THE INVARIANT EVERY ENTRY POINT MUST PRESERVE: resolve to
+# `universal-judge-pr-<pr number>`. The expression differs from
+# judge-comment.yml's because this file serves two events and that one has to
+# gate on who is commenting; what has to match is the key, not the text.
+#
+# What it does NOT do is refund. Cancellation stops further model calls; the
+# tokens the cancelled sweep already burned are already billed.
+#
+# It is here, on the caller, as well as on judge.yml's jobs on purpose.
+# Workflow-level concurrency on an ordinary triggered workflow is documented and
+# unambiguous; job-level concurrency inside a CALLED reusable workflow is
+# neither documented as working nor as not working, and this is not a guard to
+# leave resting on an inference. The groups inside judge.yml stay as the layer
+# that survives a future caller that forgets this block.
+#
+# The run_id fallback mirrors judge.yml's jobs and exists for the same reason:
+# the REST dispatch API does not enforce a non-empty string input, and a
+# `pr_number` of "" would otherwise collapse every dispatch into one shared
+# `universal-judge-pr-` group where unrelated runs cancel each other. The gate
+# in judge.yml skips such a run anyway, so this costs nothing and removes a
+# way for one bad dispatch to take out a good one.
+concurrency:
+  group: universal-judge-pr-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  judge:
+    name: Judge
+    # A FORK PR NEVER REACHES THE REUSABLE WORKFLOW. judge.yml has its own fork
+    # gate, which skips green and explains itself — but on this path it would
+    # never get the chance to run. A fork `pull_request` caps GITHUB_TOKEN to
+    # read-only, and a called workflow whose job requests
+    # `pull-requests: write` fails run setup before any job starts, so the
+    # considered green skip would show up as an unexplained red X on an
+    # outside contributor's PR.
+    #
+    # Compared on `full_name` rather than the `fork` flag: "is the head in this
+    # repository" is the question, and it is the same question judge.yml's gate
+    # asks the API. That gate stays as the one covering the comment and
+    # dispatch paths, where the token is not capped and this check cannot see
+    # the PR.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/judge.yml
+    with:
+      # `github.event.pull_request.number` on the PR path and the typed input on
+      # the dispatch path. The reusable workflow re-resolves both refs from
+      # whichever number arrives, so nothing here has to know the difference.
+      #
+      # Wrapped in `format` because the two paths hand over different types —
+      # the event carries a number, the dispatch input a string — and the
+      # reusable input is declared as a string.
+      pr_number: ${{ format('{0}', github.event.pull_request.number || inputs.pr_number) }}
+      agents: ${{ inputs.agents || 'auto' }}
+      # A PR event is a build-time exercise, never a spend, so `live` can only
+      # come true on the dispatch path — and it defaults to false there too.
+      # Written as an `&&` rather than a comparison against `dry_run` so that
+      # on the PR path, where `inputs.live` does not exist, the whole
+      # expression is `false` instead of resolving an absent value.
+      live: ${{ github.event_name == 'workflow_dispatch' && inputs.live }}
+      requested_by: ${{ github.actor }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
