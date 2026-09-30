@@ -13,8 +13,8 @@ and the shorter [review doc](https://goodparty.clickup.com/90132012119/v/dc/2ky4
 
 ## What is here so far
 
-This is wave 0: the contracts every other build track compiles against, and
-nothing else. No runner, no judge, no report yet.
+Wave 0 laid down the contracts every other build track compiles against.
+The chat runner is the first arm on top of them; no judge or report yet.
 
 | File                  | What it is                                                                     |
 | --------------------- | ------------------------------------------------------------------------------ |
@@ -23,6 +23,7 @@ nothing else. No runner, no judge, no report yet.
 | `fixtures/records.ts` | Synthetic records, one pair per shape the layers above a runner must handle.   |
 | `cli.ts`              | Agent selection and `--dry-run`. Skeleton.                                     |
 | `pricing.ts`          | Versioned token rates. Re-derive cost from here; never compare stored dollars. |
+| `runners/chat.ts`     | Drives one real chat turn through the HTTP routes and emits one record.        |
 
 ## If you are building a track
 
@@ -53,10 +54,26 @@ prevent.
 **Never call a real agent.** No track in this build spends money; real runs
 come after the merge. `RUN_LLM_EVALS=1` is not for this code.
 
+That is enforced, not just asked for. A run with no `script` would be
+answered by the real, paid model, and a forgotten field type-checks cleanly —
+so the paid path takes two deliberate acts: `realModel: true` on the request
+**and** `JUDGE_SPEND=1` in the process. Omit either and the run throws before
+anything is patched.
+
 ## Cost is re-derived, never compared as stored
 
 A record carries raw token counts, the model and a `pricingVersion`, plus
 `cost.usdAtCapture`, which is only a snapshot.
+
+`cost` is **optional**. It is absent when nobody could price the run — an
+unpriced model, or cache tokens with no rate. Absent rather than zero,
+because a stored 0 under a real `pricingVersion` reads as "this run was
+free" and `sharesPricing()` would call two arms comparably priced when one
+was never priced at all. And absent rather than fatal: cost is measured
+evidence, measured evidence never gates a verdict, so an unpriceable run
+keeps its status and its answer and loses only its cost line. This is a live
+path, not a hypothetical — every chat scope declares a `claude-opus-4-7`
+fallback that `pricing.ts` has no rates for.
 
 **Compare with `priceUsd()` from `pricing.ts`. Do not compare
 `usdAtCapture` between two records.** A cached base arm can predate its

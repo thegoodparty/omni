@@ -1,0 +1,243 @@
+import { PRICING_VERSION } from '../pricing'
+import { describe, expect, it } from 'vitest'
+import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
+import { toolBudgetExhaustedNote } from '@/llm/services/llm.service'
+import { CiContextSchema } from '../record'
+import {
+  TOOL_BUDGET_FALLBACK_REPLY,
+  buildFallbackReplies,
+  ciContextFromEnv,
+  classifyChatStatus,
+  priceRun,
+  tracesUnpriceable,
+  unpriceableStep,
+} from './chat'
+
+const env = (vars: Record<string, string>): NodeJS.ProcessEnv => vars
+
+describe('pricing a run', () => {
+  const tokens = { input: 31_213, output: 227, cacheRead: 0, cacheWrite: 0 }
+
+  it('prices a model the table knows', () => {
+    const priced = priceRun(tokens, 'claude-sonnet-4-6')
+    expect(priced.cost?.usdAtCapture).toBeCloseTo(0.097, 3)
+    expect(priced.cost?.pricingVersion).toBe(PRICING_VERSION)
+    expect(priced.unpriceable).toBeUndefined()
+  })
+
+  // Every chat scope declares a claude-opus-4-7 fallback that pricing.ts has
+  // no rates for, so this is a live path and not a hypothetical.
+  it('omits cost for a model it cannot price, rather than storing zero', () => {
+    const priced = priceRun(tokens, 'claude-opus-4-7')
+    expect(priced.cost).toBeUndefined()
+    expect(priced.unpriceable).toMatch(/claude-opus-4-7/)
+  })
+
+  // A stored 0 under a real pricing version reads as "this run was free",
+  // and sharesPricing would call two arms comparably priced when one was
+  // never priced at all.
+  it('never reports an unpriceable run as costing nothing', () => {
+    const priced = priceRun(tokens, 'claude-opus-4-7')
+    expect(priced.cost?.usdAtCapture).not.toBe(0)
+  })
+})
+
+describe('TOOL_BUDGET_FALLBACK_REPLY', () => {
+  it('is still the reply the tool-budget note instructs', () => {
+    // The runner reads this reply as `blocked`. If the note is reworded and
+    // this copy is not, a turn that ran out of tool budget silently reads as
+    // a produced answer instead.
+    expect(String(toolBudgetExhaustedNote.content)).toContain(
+      TOOL_BUDGET_FALLBACK_REPLY,
+    )
+  })
+})
+
+describe('buildFallbackReplies', () => {
+  it('always treats the tool-budget fallback as one', () => {
+    expect(buildFallbackReplies()).toEqual([TOOL_BUDGET_FALLBACK_REPLY])
+  })
+
+  it('keeps what the case list declared', () => {
+    const declined = 'I cannot break constituents down by political party.'
+    expect(buildFallbackReplies([declined])).toContain(declined)
+  })
+
+  // `includes('')` is true of every string, so one blank entry in a case list
+  // would mark every run in the sweep blocked.
+  it('does not let a blank case entry mark every run blocked', () => {
+    expect(
+      classifyChatStatus(
+        'Three priorities.',
+        false,
+        buildFallbackReplies(['', '   ']),
+      ),
+    ).toBe('produced')
+  })
+})
+
+describe('classifyChatStatus', () => {
+  it('reads an ordinary answer as an agent result', () => {
+    expect(classifyChatStatus('Three priorities.', false, [])).toBe('produced')
+  })
+
+  it('reads a stream error as infrastructure, never as a result', () => {
+    expect(classifyChatStatus('partial text', true, [])).toBe('infraError')
+  })
+
+  it('reads a missing assistant turn as infrastructure', () => {
+    expect(classifyChatStatus(null, false, [])).toBe('infraError')
+  })
+
+  it('reads the interrupted sentinel as infrastructure', () => {
+    expect(
+      classifyChatStatus(CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER, false, []),
+    ).toBe('infraError')
+  })
+
+  it('reads an empty answer as infrastructure', () => {
+    expect(classifyChatStatus('   \n ', false, [])).toBe('infraError')
+  })
+
+  it('reads the tool-budget fallback as blocked, keeping its output', () => {
+    expect(
+      classifyChatStatus(TOOL_BUDGET_FALLBACK_REPLY, false, [
+        TOOL_BUDGET_FALLBACK_REPLY,
+      ]),
+    ).toBe('blocked')
+  })
+
+  it('reads a case-declared refusal as blocked', () => {
+    const declined = 'I cannot break constituents down by political party.'
+    expect(classifyChatStatus(`Sure. ${declined}`, false, [declined])).toBe(
+      'blocked',
+    )
+  })
+
+  it('does not read an unlisted refusal as blocked', () => {
+    expect(
+      classifyChatStatus('I would rather not answer that.', false, [
+        TOOL_BUDGET_FALLBACK_REPLY,
+      ]),
+    ).toBe('produced')
+  })
+})
+
+describe('ciContextFromEnv', () => {
+  it('is absent on a local run', () => {
+    expect(ciContextFromEnv(env({}))).toBeUndefined()
+  })
+
+  it('is absent when the run identifiers are incomplete', () => {
+    expect(
+      ciContextFromEnv(env({ GITHUB_REPOSITORY: 'thegoodparty/omni' })),
+    ).toBeUndefined()
+  })
+
+  it('takes the PR number from the merge ref', () => {
+    const ci = ciContextFromEnv(
+      env({
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        GITHUB_RUN_ID: '36592029654',
+        GITHUB_RUN_ATTEMPT: '1',
+        GITHUB_REF: 'refs/pull/2198/merge',
+      }),
+    )
+
+    expect(CiContextSchema.parse(ci)).toEqual({
+      repo: 'thegoodparty/omni',
+      prNumber: 2198,
+      workflowRunId: '36592029654',
+      workflowRunAttempt: 1,
+      workflowRunUrl:
+        'https://github.com/thegoodparty/omni/actions/runs/36592029654',
+    })
+  })
+
+  it('falls back to PR_NUMBER when the ref is not a pull ref', () => {
+    const ci = ciContextFromEnv(
+      env({
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        GITHUB_RUN_ID: '1',
+        GITHUB_REF: 'refs/heads/universal-judge',
+        PR_NUMBER: '2198',
+      }),
+    )
+    expect(ci?.prNumber).toBe(2198)
+  })
+
+  it('carries no PR number for a sweep dispatched without one', () => {
+    const ci = ciContextFromEnv(
+      env({
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        GITHUB_RUN_ID: '1',
+        GITHUB_REF: 'refs/heads/universal-judge',
+      }),
+    )
+    expect(ci?.prNumber).toBeUndefined()
+    expect(CiContextSchema.safeParse(ci).success).toBe(true)
+  })
+
+  it('points a re-run at the attempt that produced it', () => {
+    const ci = ciContextFromEnv(
+      env({
+        GITHUB_REPOSITORY: 'thegoodparty/omni',
+        GITHUB_RUN_ID: '7',
+        GITHUB_RUN_ATTEMPT: '3',
+      }),
+    )
+    expect(ci?.workflowRunAttempt).toBe(3)
+    expect(ci?.workflowRunUrl).toBe(
+      'https://github.com/thegoodparty/omni/actions/runs/7/attempts/3',
+    )
+  })
+})
+
+// This guard has shipped wrong in both directions: once storing a confident $0
+// for a run whose cost was unknown, and once stacking a generic "usage never
+// resolved" step behind the specific rejection message that had already been
+// traced.
+describe('the unpriceable trace step', () => {
+  it('records an unpriceable model on a run that otherwise succeeded', () => {
+    expect(tracesUnpriceable('no rate for X', 'produced', false)).toBe(true)
+  })
+
+  it('records it on a blocked run too, which is an agent result', () => {
+    expect(tracesUnpriceable('no rate for X', 'blocked', false)).toBe(true)
+  })
+
+  it('stays silent when there is nothing unpriceable to say', () => {
+    expect(tracesUnpriceable(undefined, 'produced', false)).toBe(false)
+  })
+
+  // The trace already says why the turn ended.
+  it('does not restate an infraError the trace already carries', () => {
+    expect(tracesUnpriceable('usage never resolved', 'infraError', false)).toBe(
+      false,
+    )
+  })
+
+  // The inner catch already put the rejection's own message in the trace, and
+  // that message names the actual failure where this one only says usage did
+  // not resolve.
+  it('does not stack behind a usage error already traced', () => {
+    expect(tracesUnpriceable('usage never resolved', 'produced', true)).toBe(
+      false,
+    )
+  })
+
+  // The step carries the reason itself, never a stand-in for it: the trace
+  // step schema requires a non-empty string, so an empty one would make
+  // RunRecordSchema.parse throw away a completed, judgeable run.
+  it('carries the reason the run could not be priced', () => {
+    expect(
+      unpriceableStep({ unpriceable: 'no rate for X' }, 'produced', false),
+    ).toBe('no rate for X')
+  })
+
+  it('carries nothing when there is nothing unpriceable to say', () => {
+    expect(
+      unpriceableStep({ cost: undefined }, 'produced', false),
+    ).toBeUndefined()
+  })
+})

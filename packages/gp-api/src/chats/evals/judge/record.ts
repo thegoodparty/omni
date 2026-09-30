@@ -90,7 +90,19 @@ export type Cost = z.infer<typeof CostSchema>
 export const TelemetrySchema = z.object({
   latencyMs: z.number().int().nonnegative(),
   tokens: TokenUsageSchema,
-  cost: CostSchema,
+  // Absent when the run could not be priced: an unpriced model, or cache
+  // tokens with no rate yet.
+  //
+  // Absent rather than zero. A stored 0 under a real `pricingVersion` reads
+  // as "this run was free", and `sharesPricing` would then report two arms
+  // as comparably priced when one of them was never priced at all. Absent is
+  // unmistakable.
+  //
+  // And absent rather than fatal: cost is measured evidence, measured
+  // evidence never gates a verdict, so a run nobody can price keeps its
+  // result and loses only its cost line. Scoring re-derives from `tokens`
+  // anyway and reports "not derivable" when it cannot.
+  cost: CostSchema.optional(),
   toolCalls: z.number().int().nonnegative(),
   toolErrors: z.number().int().nonnegative(),
   retries: z.number().int().nonnegative(),

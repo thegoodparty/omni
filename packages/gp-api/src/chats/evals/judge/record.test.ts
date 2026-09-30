@@ -110,7 +110,17 @@ describe('cost and tokens', () => {
   // table that produced it.
   it('stamps cost with the pricing version that produced it', () => {
     const [base] = CHAT_PAIR
-    expect(base.telemetry.cost.pricingVersion).toBeTruthy()
+    expect(base.telemetry.cost?.pricingVersion).toBeTruthy()
+  })
+
+  // Absent means "nobody could price this", which is honest. Zero would read
+  // as free, and a hard failure would let measured evidence gate a verdict.
+  it('accepts a record with no cost at all', () => {
+    const [base] = CHAT_PAIR
+    const { cost, ...telemetry } = base.telemetry
+    expect(cost).toBeDefined()
+    const result = RunRecordSchema.safeParse({ ...base, telemetry })
+    expect(result.success).toBe(true)
   })
 
   it('rejects a cost with no pricing version', () => {
