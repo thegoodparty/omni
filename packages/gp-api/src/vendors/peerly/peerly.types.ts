@@ -465,21 +465,24 @@ export interface PeerlyApiErrorContext {
   // all. Coupling the two would downgrade every swept transport error and
   // blind `win-peerly-warnings` to the vendor actually being down.
   expectedRejection?: boolean
-  // A scheduled read that the caller repeats on its own cadence, where one
-  // failure decides nothing: the next pass re-reads the same record minutes
-  // later. Logs the `Peerly API ERROR` line at `warn` instead of `error`.
+  // The caller has already dealt with this failure, so a single occurrence of
+  // it is not something to act on: it re-reads on a schedule, it degrades to a
+  // value it already had, or the flow it serves has succeeded anyway. Logs the
+  // `Peerly API ERROR` line at `warn` instead of `error`.
   //
   // ALSO DISTINCT FROM expectedRejection: this failure IS a fault, it is just
   // not a fault a single line can establish. `win-peerly-warnings` counts
-  // error-level lines with a threshold of zero, so leaving a swept read at
-  // `error` pages once per record — which is how Campaign Verify refusing
+  // error-level lines with a threshold of zero, so leaving one of these at
+  // `error` pages once per occurrence — which is how Campaign Verify refusing
   // every status read on 2026-09-30 became a page every thirty minutes for one
-  // registration, and would have made the 00:00Z scan sixty of them. What the
-  // sweep is actually telling us lives in its own `CV poll failed for record`
-  // lines, which stay at `error` and which `win-cv-status-reads-failing`
-  // counts: two or more failures in an hour, once, not one page per read.
+  // registration, would have made the 00:00Z scan sixty of them, and paged
+  // again for every compliance screen anyone opened. What those failures
+  // actually amount to is measured instead: `win-cv-status-reads-failing`
+  // counts the sweep's own `CV poll failed for record` lines, which stay at
+  // `error`, and fires once when more than one read fails in an hour.
   //
-  // Only set this where a caller genuinely re-reads on a schedule. A one-shot
-  // background job has nothing coming after it and belongs at `error`.
-  retriedByCaller?: boolean
+  // Only set it where the caller really does handle it. A read whose failure
+  // reaches a person as a failure — PIN entry, a staff resend, a submission —
+  // is unhandled by definition and belongs at `error`.
+  handledByCaller?: boolean
 }

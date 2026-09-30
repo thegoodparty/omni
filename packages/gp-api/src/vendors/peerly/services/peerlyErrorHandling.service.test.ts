@@ -183,7 +183,7 @@ describe('PeerlyErrorHandlingService', () => {
             Error: 'Campaign Verify Retrieve API request failed.',
             status_code: 403,
           }),
-          context: { retriedByCaller: true },
+          context: { handledByCaller: true },
           logger: asPino,
         }),
       ).rejects.toThrow(BadGatewayException)

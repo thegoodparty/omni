@@ -2555,6 +2555,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // and mint the token so the retry can finish the flow. The enriched read
     // (same retrieve_cv call as the status-only variant) also carries the PIN
     // delivery channel for the detection below.
+    // Set when the read below was refused and we proceeded on the stored
+    // mirror instead, which is the one case where a null delivery channel means
+    // "not read" rather than "no PIN sent yet" (see the detection call below).
+    let statusReadFailed = false
     const details = await this.peerlyIdentityService
       .retrieveCampaignVerifyDetails(peerlyIdentityId, campaign)
       .catch((err: unknown) => {
@@ -2588,6 +2592,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           '[TCR Compliance] Campaign Verify status read failed during PIN ' +
             `entry; proceeding on the last observed status ${observed}`,
         )
+        statusReadFailed = true
         return { status: observed, pinDelivery: null }
       })
     if (details.status !== PeerlyCvVerificationStatus.VERIFIED) {
@@ -2635,10 +2640,29 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // Peerly call); the status passed is the post-verify truth. Detached +
     // best-effort — Segment/HubSpot must not fail or slow the PIN entry, and
     // the atomic pinSentDetectedAt claim makes a re-run safe.
-    void this.applyCvDetection(record, campaign, {
-      status: PeerlyCvVerificationStatus.VERIFIED,
-      pinDelivery: details.pinDelivery,
-    }).catch((err: Error) =>
+    void (async () => {
+      // The fallback above carries no delivery channel, because the read that
+      // would have supplied it is the one that failed — and the VERIFIED stamp
+      // just written takes the record out of the scan's poll set for good, so
+      // there is no later pass to recover it. Read once more, now that
+      // verify_pin has answered: a momentary failure will usually have cleared,
+      // and a vendor still refusing costs one call and leaves us exactly where
+      // we already were. Only on that path — a successful read carrying no
+      // delivery yet is the normal pre-PIN state and must not buy a second call
+      // against an endpoint Peerly rate-limits to one a minute.
+      const observed = statusReadFailed
+        ? await this.peerlyIdentityService
+            .retrieveCampaignVerifyDetails(peerlyIdentityId, campaign, {
+              suppressSlackAlert: true,
+              handledByCaller: true,
+            })
+            .catch(() => details)
+        : details
+      await this.applyCvDetection(record, campaign, {
+        status: PeerlyCvVerificationStatus.VERIFIED,
+        pinDelivery: observed.pinDelivery,
+      })
+    })().catch((err: Error) =>
       this.logger.error(
         { err, tcrComplianceId: record.id },
         '[TCR Compliance] PIN-delivery detection failed after PIN entry; ' +

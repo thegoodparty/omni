@@ -3490,6 +3490,68 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     })
   })
 
+  // The VERIFIED stamp takes the record out of the scan's poll set for good, so
+  // a fallback that carried no delivery channel would lose it permanently. The
+  // second read is the last chance, and it only happens on that path.
+  it('retrieveCampaignVerifyToken re-reads the delivery channel after a refused read', async () => {
+    const record = {
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      peerlyCvStatus: 'APPROVED',
+      campaign: { id: 1, user: { id: 55 } },
+    }
+    mockModel.findFirstOrThrow.mockResolvedValueOnce(record)
+    mockPeerly.retrieveCampaignVerifyDetails
+      .mockRejectedValueOnce(
+        new BadGatewayException('Peerly API error: Campaign Verify Retrieve'),
+      )
+      .mockResolvedValueOnce({
+        status: 'VERIFIED',
+        pinDelivery: { method: 'text', destination: '3125550000' },
+      })
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+    const detectSpy = vi
+      .spyOn(service, 'applyCvDetection')
+      .mockResolvedValue(undefined)
+
+    await withEnv('prod', async () => {
+      await service.retrieveCampaignVerifyToken('123456', tcrWithIdentity)
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(2)
+    expect(detectSpy).toHaveBeenCalledExactlyOnceWith(record, record.campaign, {
+      status: 'VERIFIED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+  })
+
+  // A live read that carries no delivery channel is the normal pre-PIN state,
+  // and retrieve_cv is rate-limited to one call a minute by agreement.
+  it('retrieveCampaignVerifyToken does not re-read when the first read succeeded', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      peerlyCvStatus: 'APPROVED',
+      campaign: { id: 1, user: { id: 55 } },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: null,
+    })
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+    vi.spyOn(service, 'applyCvDetection').mockResolvedValue(undefined)
+
+    await withEnv('prod', async () => {
+      await service.retrieveCampaignVerifyToken('123456', tcrWithIdentity)
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(mockPeerly.retrieveCampaignVerifyDetails).toHaveBeenCalledTimes(1)
+  })
+
   // From REQUESTED, IN_REVIEW or nothing at all we do not know whether a PIN
   // exists, and "that PIN was never issued" is the wrong thing to tell a
   // candidate about a vendor we simply could not reach. The 502 says retry.

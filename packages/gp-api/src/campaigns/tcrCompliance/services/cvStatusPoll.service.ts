@@ -350,7 +350,7 @@ export class CvStatusPollService extends createPrismaBase(
 
     // Suppress per-identity Slack alerts — a Peerly outage during the scan
     // would otherwise page once per record; logs are the surface here.
-    // retriedByCaller says the same thing to the log line's severity, which is
+    // handledByCaller says the same thing to the log line's severity, which is
     // the other thing that pages: this read comes round again in minutes, so a
     // single failure is not the signal. The `CV poll failed for record` line
     // below is, and `win-cv-status-reads-failing` counts those.
@@ -358,7 +358,7 @@ export class CvStatusPollService extends createPrismaBase(
       await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
         peerlyIdentityId,
         record.campaign,
-        { suppressSlackAlert: true, retriedByCaller: true },
+        { suppressSlackAlert: true, handledByCaller: true },
       )
 
     // The same observation drives PIN-delivery detection and late-rejection
@@ -431,7 +431,7 @@ export class CvStatusPollService extends createPrismaBase(
     const profileResponse = await this.peerlyIdentityService
       .getIdentityProfile(peerlyIdentityId, record.campaign, {
         suppressSlackAlert: true,
-        retriedByCaller: true,
+        handledByCaller: true,
       })
       .catch((err: Error) => {
         if (err instanceof NotFoundException) {

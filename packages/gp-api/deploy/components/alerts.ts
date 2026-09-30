@@ -501,7 +501,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     // paged every thirty minutes for the single registration it was polling,
     // with nothing in the message naming it. The same failure during a full
     // scan is 60+ pages. The swept read now logs at `warn`
-    // (`retriedByCaller` on the Peerly error context), and persistence is what
+    // (`handledByCaller` on the Peerly error context), and persistence is what
     // this rule measures instead.
     //
     // The threshold is what makes it mean "still failing". The fresh poll reads

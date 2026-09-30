@@ -209,7 +209,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async getIdentityProfile(
     peerlyIdentityId: string,
     campaign: Campaign,
-    options?: { suppressSlackAlert?: boolean; retriedByCaller?: boolean },
+    options?: { suppressSlackAlert?: boolean; handledByCaller?: boolean },
   ): Promise<PeerlyIdentityProfileResponseBody | null> {
     this.logger.debug(
       `Fetching identity profile for identityId: ${peerlyIdentityId}`,
@@ -240,7 +240,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         campaign,
         peerlyIdentityId,
         suppressSlackAlert: options?.suppressSlackAlert,
-        retriedByCaller: options?.retriedByCaller,
+        handledByCaller: options?.handledByCaller,
       })
     }
     return result
@@ -865,7 +865,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async retrieveCampaignVerifyDetails(
     peerlyIdentityId: string,
     campaign: Campaign,
-    options?: { suppressSlackAlert?: boolean; retriedByCaller?: boolean },
+    options?: { suppressSlackAlert?: boolean; handledByCaller?: boolean },
   ): Promise<{
     status: PeerlyCvVerificationStatus | null
     pinDelivery: DerivedPinDelivery | null
@@ -893,7 +893,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         campaign,
         peerlyIdentityId,
         suppressSlackAlert: options?.suppressSlackAlert,
-        retriedByCaller: options?.retriedByCaller,
+        handledByCaller: options?.handledByCaller,
       })
     }
   }

@@ -60,9 +60,10 @@ export class PeerlyErrorHandlingService {
     //
     // A third shape is a fault, but cannot be one per line:
     //
-    //   - context.retriedByCaller: a scheduled read the caller repeats minutes
-    //     later. Left at `error` it pages once per record a sweep fails on;
-    //     the sweep's own per-record `error` lines carry that signal instead.
+    //   - context.handledByCaller: a read the caller has already dealt with —
+    //     it re-reads on a schedule, or it degrades to a value it already
+    //     had. Left at `error` it pages once per occurrence; what those
+    //     failures amount to is counted elsewhere.
     //
     // Everything else — nested 5xx, transport errors, anything unclassified —
     // stays at `error` and keeps paging. Over the 14 days to 2026-09-27 all 21
@@ -71,7 +72,7 @@ export class PeerlyErrorHandlingService {
     // them. It was on 2026-09-30, and it paged once per swept record.
     const logAtWarn =
       context?.expectedRejection === true ||
-      context?.retriedByCaller === true ||
+      context?.handledByCaller === true ||
       !!templateMessages
     const logPayload = {
       data: !formattedError ? error : '',
