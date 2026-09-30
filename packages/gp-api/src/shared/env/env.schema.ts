@@ -8,11 +8,14 @@ import { z } from 'zod'
 // Prisma client loads `.env` on import and has broken env-gated tests
 // before), so this can be required from a plain script or a CI check.
 //
-// Tiers describe what SHOULD gate boot, not what does today — several files
-// still `requireEnv()` an `optional`/`degradable` var and throw at import
-// time. Migrating those call sites onto this contract (so only `required`
-// vars can fail boot) is a separate piece of work; this file just declares
-// the target shape.
+// Tiers describe what SHOULD gate boot. `./env.ts`'s `resolveEnvVar` is the
+// resolution helper degradable vendor sites consume (ENG-11195) — see e.g.
+// vendors/vercel/services/vercel.service.ts or
+// voters/services/voters.service.ts for the pattern. A few `requireEnv()`
+// import-time throws on `optional`/`degradable` vars remain outside that
+// inventory (e.g. vendors/stripe/services/stripe.service.ts's own
+// STRIPE_SECRET_KEY / STRIPE_WEBSOCKET_SECRET / WEBAPP_ROOT_URL checks) —
+// migrating those is still a separate piece of work.
 //
 // - required    — boot should fail fast without it.
 // - degradable  — missing/placeholder disables one named feature surface.

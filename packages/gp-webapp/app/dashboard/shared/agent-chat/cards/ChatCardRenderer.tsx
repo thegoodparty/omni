@@ -1,11 +1,12 @@
 import type { ChatCard } from '@goodparty_org/contracts'
 import { OutreachProposalCard } from './OutreachProposalCard'
 import { PastOutreachCard } from './PastOutreachCard'
-import { ContactsCard } from './ContactsCard'
+import { ConstituentsCard } from './ConstituentsCard'
+import { OutsideContactCard } from './OutsideContactCard'
 
 export type ChatCardRendererProps = {
   card: ChatCard
-  priorityId: string
+  priorityId?: string
   conversationId: string
 }
 
@@ -23,14 +24,16 @@ export const ChatCardRenderer = ({
       return (
         <OutreachProposalCard
           proposal={card}
-          priorityId={priorityId}
+          {...(priorityId !== undefined && { priorityId })}
           conversationId={conversationId}
         />
       )
     case 'past_outreach':
       return <PastOutreachCard card={card} />
-    case 'contacts':
-      return <ContactsCard card={card} />
+    case 'constituents':
+      return <ConstituentsCard card={card} />
+    case 'outside_contact':
+      return <OutsideContactCard card={card} />
     default:
       return null
   }

@@ -1462,26 +1462,32 @@ export class QueueConsumerService {
     this.logger.info(`${params.pollId} Created individual poll messages`)
 
     // 3. Send CSV file to Slack for Tevyn
-    await sendTevynAPIPollMessage(this.slackService.client, {
-      message: poll.messageContent,
-      pollId: poll.id,
-      scheduledDate: isBefore(poll.scheduledDate, new Date())
-        ? 'Now'
-        : formatInTimeZone(poll.scheduledDate, 'America/New_York', 'PP p') +
-          ' ET',
-      csv: {
-        fileContent: Buffer.from(csv),
-        filename: `${user.email}-${format(poll.scheduledDate, 'yyyy-MM-dd')}.csv`,
-      },
-      imageUrl: poll.imageUrl || undefined,
-      userInfo: {
-        name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
-        email: user.email,
-        phone: user.phone || undefined,
-      },
-      isExpansion: params.isExpansion,
-    })
-    this.logger.info(`${params.pollId} Slack message sent`)
+    if (!this.slackService.isConfigured) {
+      this.logger.warn(
+        `${params.pollId} Slack not configured, skipping Tevyn poll message`,
+      )
+    } else {
+      await sendTevynAPIPollMessage(this.slackService.client, {
+        message: poll.messageContent,
+        pollId: poll.id,
+        scheduledDate: isBefore(poll.scheduledDate, new Date())
+          ? 'Now'
+          : formatInTimeZone(poll.scheduledDate, 'America/New_York', 'PP p') +
+            ' ET',
+        csv: {
+          fileContent: Buffer.from(csv),
+          filename: `${user.email}-${format(poll.scheduledDate, 'yyyy-MM-dd')}.csv`,
+        },
+        imageUrl: poll.imageUrl || undefined,
+        userInfo: {
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+          email: user.email,
+          phone: user.phone || undefined,
+        },
+        isExpansion: params.isExpansion,
+      })
+      this.logger.info(`${params.pollId} Slack message sent`)
+    }
 
     return true
   }

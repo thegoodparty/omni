@@ -20,17 +20,24 @@ const {
 } = process.env
 
 if (!CLERK_SECRET_KEY) {
-  throw new Error('CLERK_SECRET_KEY is required for application startup')
+  throw new Error(
+    'CLERK_SECRET_KEY is required for application startup — run ' +
+      '`npm run setup`',
+  )
 }
 
 if (!GP_API_MACHINE_SECRET) {
   throw new Error(
-    'GP_API_MACHINE_SECRET must be set in the environment variables',
+    'GP_API_MACHINE_SECRET must be set in the environment variables — run ' +
+      '`npm run setup`',
   )
 }
 
 if (!AGENT_MCP_TOKEN_SECRET && process.env.NODE_ENV !== 'test') {
-  throw new Error('AGENT_MCP_TOKEN_SECRET must be set in the environment')
+  throw new Error(
+    'AGENT_MCP_TOKEN_SECRET must be set in the environment — run ' +
+      '`npm run setup`',
+  )
 }
 
 const authorizedParties = CLERK_AUTHORIZED_PARTIES

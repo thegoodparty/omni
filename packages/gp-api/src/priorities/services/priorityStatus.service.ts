@@ -45,7 +45,7 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
     const now = formatISO(new Date())
     const patches = new Map(update.steps.map((step) => [step.id, step]))
 
-    const steps = current.steps.map((step): PriorityStep => {
+    const merged = current.steps.map((step): PriorityStep => {
       const patch = patches.get(step.id)
       if (!patch) return step
       // An omitted caveat keeps what is stored; an explicit empty string is
@@ -56,7 +56,7 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
           : patch.caveat === ''
             ? undefined
             : patch.caveat
-      const merged: PriorityStep = {
+      const next: PriorityStep = {
         id: step.id,
         state: patch.state,
         summary: patch.summary ?? step.summary,
@@ -64,11 +64,28 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
         ...(step.updatedAt === undefined ? {} : { updatedAt: step.updatedAt }),
       }
       const changed =
-        merged.state !== step.state ||
-        merged.summary !== step.summary ||
-        merged.caveat !== step.caveat
-      return changed ? { ...merged, updatedAt: now } : merged
+        next.state !== step.state ||
+        next.summary !== step.summary ||
+        next.caveat !== step.caveat
+      return changed ? { ...next, updatedAt: now } : next
     })
+
+    // currentStep is derived by finding the first active step, so a second
+    // active one silently mislabels which step the official is on. A call
+    // that opens a step demotes any other active step to open, which keeps
+    // its summary and caveat.
+    const incomingActive = update.steps.filter(
+      (step) => step.state === STEP_STATE.active,
+    )
+    const activeStepId = incomingActive[incomingActive.length - 1]?.id
+    const steps = merged.map(
+      (step): PriorityStep =>
+        activeStepId !== undefined &&
+        step.id !== activeStepId &&
+        step.state === STEP_STATE.active
+          ? { ...step, state: STEP_STATE.open, updatedAt: now }
+          : step,
+    )
 
     const status = PriorityStatusSchema.parse({ ...current, steps })
     const firstInState = (state: PriorityStepState) =>
@@ -92,14 +109,20 @@ export class PriorityStatusService extends createPrismaBase(MODELS.Priority) {
       {
         description:
           'Record where this priority stands after what just happened in ' +
-          'the conversation. Call it whenever a step moves: the official ' +
-          'answers the question a step asks, you find evidence that ' +
-          'settles one, or you start working a new one. Pass only the ' +
-          'steps that changed — anything you leave out keeps exactly what ' +
-          'it had. Sending a settled step back to active, or to stale ' +
-          'when new information puts it back in doubt, is normal and ' +
-          'expected, not a failure. Always pass nextAction: the single ' +
-          'thing the official should do next.',
+          'the conversation. Exactly one step is active at any moment: ' +
+          'before you set a step active, move the step that was active to ' +
+          'settled or stale in the same call. If you do not, that step is ' +
+          'dropped back to open and its work reads as abandoned. Call this ' +
+          'when a step genuinely changes state, or when what it settled ' +
+          'materially changes, not to restate what is already stored. Pass ' +
+          'only the steps that changed; anything you leave out keeps ' +
+          'exactly what it had. Send a settled step back to active or ' +
+          'stale only when new information meaningfully invalidates what ' +
+          'that step concluded and resolving it needs more conversation, ' +
+          'and say what changed in caveat. A detail added, a number ' +
+          'confirmed, or the topic coming up again is not enough. Always ' +
+          'pass nextAction: one short sentence the official could act on ' +
+          'today.',
         inputSchema: UpdatePriorityStatusInputSchema,
         execute: (input) => this.applyUpdate(priorityId, input),
       }

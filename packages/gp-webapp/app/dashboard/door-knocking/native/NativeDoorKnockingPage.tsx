@@ -1185,8 +1185,23 @@ export default function NativeDoorKnockingPage({
 
   // "Start knocking" on one turf of the flow's success screen. The flow is
   // on screen here and nothing else is, so it comes down first.
-  const handleStartKnocking = (turf: DoorKnockingTurf) => {
-    startKnocking(turf, { kind: 'hub' })
+  //
+  // Closing that walk lands on the campaign's DETAILS drawer, not back
+  // here: this screen is a one-time confirmation of a write that has
+  // already happened, so there is nothing to come back to, and the drawer
+  // is where the campaign's other turfs are. The hub is the fallback for a
+  // campaign whose anchor we somehow do not know — the same place every
+  // other exit from door knocking lands.
+  const handleStartKnocking = (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => {
+    startKnocking(
+      turf,
+      anchorOutreachId === null
+        ? { kind: 'hub' }
+        : { kind: 'outreach', outreachId: anchorOutreachId },
+    )
   }
 
   // The vendor has answered and the turf is routed, so the walk has

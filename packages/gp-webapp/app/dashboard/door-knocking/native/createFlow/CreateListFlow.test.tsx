@@ -14,6 +14,17 @@ import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutrea
 import { gateRef } from 'app/dashboard/outreach/v2/gate/testing/mockReactiveGate'
 import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
 
+// The success screen's turf cards carry the assignee menu, which reads the
+// viewer's organization; these tests render without an OrganizationProvider,
+// whose absence throws.
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => undefined,
+  useOrganizationRole: () => undefined,
+}))
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ successSnackbar: vi.fn(), errorSnackbar: vi.fn() }),
+}))
+
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
@@ -2255,5 +2266,56 @@ describe('CreateListFlow multi-turf save', () => {
     // Both are siblings, and neither renames the campaign they are joining
     // — the server reads the anchor's own name over anything on the wire.
     expect(turfs.map((body) => body.campaignOutreachId)).toEqual([555, 555])
+  })
+
+  // Closing a walk started here reopens the campaign's details drawer, and
+  // that drawer is keyed on the anchor. Handing over a sibling's own envelope
+  // would open a drawer for a campaign of one, or none.
+  it('starts a walk carrying the anchor, whichever turf is pressed', async () => {
+    mockBatch()
+    const props = { ...twoTurfs }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
+
+    await screen.findByText('Turf 2')
+    const starts = screen.getAllByRole('button', { name: 'Start knocking' })
+    expect(starts).toHaveLength(2)
+    fireEvent.click(starts[1]!)
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 2', outreachId: 902 }),
+      901,
+    )
+  })
+
+  it('starts a walk carrying the campaign it joined', async () => {
+    mockBatch()
+    const props = { ...twoTurfs, campaignOutreachId: 555 }
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="name" />,
+    )
+    advanceToDraw(rerender, props, 'Fall canvass')
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }))
+    await waitFor(() =>
+      expect(baseProps.onStepChange).toHaveBeenCalledWith('success'),
+    )
+    rerender(<CreateListFlow {...baseProps} {...props} step="success" />)
+
+    await screen.findByText('Turf 1')
+    fireEvent.click(
+      screen.getAllByRole('button', { name: 'Start knocking' })[0]!,
+    )
+
+    expect(baseProps.onStartKnocking).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Turf 1', outreachId: 901 }),
+      555,
+    )
   })
 })

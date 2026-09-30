@@ -188,6 +188,28 @@ const ConstituentOutreachContent = () => {
     }
   }
 
+  // The list is SEEDED from `page.tsx` into `useState`, so it is only as
+  // fresh as the last time this route's RSC ran — and returning here from
+  // another route can be served from the client router cache without
+  // re-running it. Door knocking is what exposed this: it leaves to whichever
+  // hub the org belongs to, so a campaign the flow just created was missing
+  // from this table exactly as it was from Win's.
+  //
+  // One GET on mount settles it, and costs the same whoever arrives. Fixed
+  // here rather than at each departure for the reason `OutreachHubPage` gives
+  // beside its own copy of this: a `router.refresh()` per exit is the same
+  // fix written once per exit and forgotten on the next one.
+  //
+  // No settle flag, unlike Win's — this page consumes no `?outreachId=` deep
+  // link, so nothing is waiting on the refetch to resolve an id. And no
+  // `.catch()`: `refetchOutreaches` already swallows both failure levels.
+  useEffect(() => {
+    void refetchOutreaches()
+    // Mount only: a refetch keyed on anything else would fire under the
+    // drawer while the official is reading it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">
       <ServeChannelCards

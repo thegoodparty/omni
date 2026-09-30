@@ -2,7 +2,6 @@ import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import {
   OrdinanceAuthorityFindingSchema,
-  OrdinanceClarifyQuestionSchema,
   OrdinanceCurrentLawSummarySchema,
   OrdinanceLegislativeHistorySchema,
   OrdinanceNextStepOfferSchema,
@@ -340,19 +339,6 @@ export const buildOfferNextStepTool = (): LlmStreamTool<
     'summary; do not just ask in prose whether to continue.',
   inputSchema: OrdinanceNextStepOfferSchema,
   execute: () => ({ offered: true }),
-})
-
-export const buildAskClarifyQuestionTool = (): LlmStreamTool<
-  typeof OrdinanceClarifyQuestionSchema
-> => ({
-  description:
-    'Ask the user ONE clarifying question at a time. Provide 2-4 suggested ' +
-    'options; a factual option should cite a source, a pure-judgment option ' +
-    'need not. The UI always adds an "Or write your own..." freeform option, ' +
-    'so never add one yourself. Do not ask the next question until this one is ' +
-    'answered.',
-  inputSchema: OrdinanceClarifyQuestionSchema,
-  execute: ({ questionId }) => ({ asked: true, questionId }),
 })
 
 const saveSynthesisInput = z.object({

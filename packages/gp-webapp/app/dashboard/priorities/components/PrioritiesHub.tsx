@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { format } from 'date-fns'
 import { Badge, Button, EmptyState, cn } from '@styleguide'
 import { ArchiveIcon, ChevronRightIcon } from '@styleguide/components/ui/icons'
 import {
@@ -55,7 +54,7 @@ const SOURCE_ORDER: PrioritySource[] = [
 // step spine rather than trusting it: an id this build does not know about is
 // better shown as nothing than as a raw slug.
 const stepLabel = (currentStep: string | null): string => {
-  if (!currentStep) return 'Settled'
+  if (!currentStep) return 'Plan ready'
   const step = PRIORITY_STEP_IDS.find((id) => id === currentStep)
   return step ? PRIORITY_STEP_LABELS[step] : ''
 }
@@ -212,11 +211,6 @@ const PrioritiesHub = ({
                           {priority.nextAction}
                         </p>
                       ) : null}
-                      <p className="truncate text-xs text-muted-foreground">
-                        {priority.targetDate
-                          ? `Target ${format(new Date(priority.targetDate), 'MMM d, yyyy')}`
-                          : 'No target date'}
-                      </p>
                     </div>
                     {step ? (
                       <Badge

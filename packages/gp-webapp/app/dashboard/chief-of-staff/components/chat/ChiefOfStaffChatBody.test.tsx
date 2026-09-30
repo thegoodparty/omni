@@ -2107,3 +2107,206 @@ describe('<ChiefOfStaffChatBody> saved-list invalidation', () => {
     })
   })
 })
+describe('<ChiefOfStaffChatBody> widgets', () => {
+  const CONTACT = {
+    name: "Dale County Attorney's Office",
+    role: 'County attorney',
+    why: 'They own the nuisance ordinance the complaints fall under.',
+    askFor: 'The code enforcement division',
+    script: 'Calling about 14 Mill St.',
+  }
+  const QUESTION = {
+    questionId: 'q1',
+    question: 'Which blocks do you want repaired first?',
+    options: [{ label: 'The two by the school' }, { label: 'Main Street' }],
+  }
+  const HANDOFF = {
+    channel: 'serve_social' as const,
+    draftText: 'The bridge reopens Monday.',
+  }
+
+  beforeEach(() => {
+    listConversationsMock.mockResolvedValue([])
+  })
+
+  it('replays a card from its persisted tool call, with no pill for it', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Start here.', {
+        segments: [
+          { kind: 'text', text: 'Start here.' },
+          {
+            kind: 'tool',
+            toolName: 'present_outside_contact',
+            toolCallId: 'tc1',
+            payload: CONTACT,
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(await screen.findByText(CONTACT.name)).toBeInTheDocument()
+    expect(screen.getByText('Start here.')).toBeInTheDocument()
+    expect(
+      screen.queryByText('present_outside_contact'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders a card from the live tool call, and once after the commit', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_live' })
+    let endTurn: () => void
+    const turnEnded = new Promise<void>((resolve) => {
+      endTurn = resolve
+    })
+    streamMessageMock.mockReturnValue(
+      (async function* () {
+        yield {
+          type: 'tool_call',
+          toolName: 'present_outside_contact',
+          toolCallId: 'tc1',
+          args: CONTACT,
+        }
+        await turnEnded
+        yield { type: 'text', delta: 'Call them first.' }
+        yield { type: 'done' }
+      })(),
+    )
+    listMessagesMock.mockResolvedValue([
+      msg('user', 'who do I call?'),
+      msg('assistant', 'Call them first.', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'present_outside_contact',
+            toolCallId: 'tc1',
+            payload: CONTACT,
+          },
+          { kind: 'text', text: 'Call them first.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active />)
+    await user.type(screen.getByLabelText(/ask a question/i), 'who do I call?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    expect(await screen.findByText(CONTACT.name)).toBeInTheDocument()
+    expect(
+      screen.queryByText('present_outside_contact'),
+    ).not.toBeInTheDocument()
+
+    endTurn!()
+
+    // Re-query on every attempt. When the turn commits, the streaming row is
+    // rebuilt under its history key, so a node found a moment earlier can be
+    // detached by the time it is asserted on — which is what made this flaky.
+    // What matters is the settled state: the text and the card, once each.
+    await waitFor(
+      () => {
+        expect(screen.getAllByText('Call them first.')).toHaveLength(1)
+        expect(screen.getAllByText(CONTACT.name)).toHaveLength(1)
+      },
+      { timeout: 5000 },
+    )
+  })
+
+  it('keeps an unparsed read_past_outreach as a labelled pill', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Nothing yet.', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'read_past_outreach',
+            payload: { channel: 'text' },
+          },
+          { kind: 'text', text: 'Nothing yet.' },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByText("Checking what you've sent"),
+    ).toBeInTheDocument()
+  })
+
+  it('renders compose_handoff as its card and never as a pill', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', 'Here is a draft.', {
+        segments: [
+          { kind: 'text', text: 'Here is a draft.' },
+          { kind: 'tool', toolName: 'compose_handoff', payload: HANDOFF },
+          {
+            kind: 'tool',
+            toolName: 'compose_handoff',
+            payload: { channel: 'unknown', draftText: 'x' },
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Continue in compose' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('button', { name: 'Continue in compose' }),
+    ).toHaveLength(1)
+    expect(screen.queryByText('compose_handoff')).not.toBeInTheDocument()
+  })
+
+  it('reloads an answered question with its answer checked', async () => {
+    listMessagesMock.mockResolvedValue([
+      msg('assistant', '', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            payload: QUESTION,
+          },
+        ],
+      }),
+      msg('user', 'The two by the school'),
+      msg('assistant', 'Got it.'),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    const choice = await screen.findByRole('radio', {
+      name: 'The two by the school',
+    })
+    expect(choice).toBeChecked()
+    expect(choice).toBeDisabled()
+    expect(screen.queryByText('Or write your own...')).not.toBeInTheDocument()
+  })
+
+  it('sends an option on the open question as a visible turn', async () => {
+    const user = userEvent.setup()
+    streamMessageMock.mockReturnValue(makeStream([{ type: 'done' }]))
+    listMessagesMock.mockResolvedValueOnce([
+      msg('assistant', '', {
+        segments: [
+          {
+            kind: 'tool',
+            toolName: 'ask_clarify_question',
+            payload: QUESTION,
+          },
+        ],
+      }),
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv" />)
+
+    await user.click(await screen.findByRole('radio', { name: 'Main Street' }))
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalled())
+    expect(streamMessageMock.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: 'conv',
+      content: 'Main Street',
+    })
+  })
+})

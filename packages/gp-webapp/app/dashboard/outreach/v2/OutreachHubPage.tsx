@@ -289,12 +289,50 @@ const OutreachHubContent = ({
     setOutreaches(data ?? [])
   }
 
+  // The list is SEEDED from a server component into `useState`, so it is a
+  // snapshot of whenever this route's RSC last ran — and returning here from
+  // another route can be served from the client router cache without
+  // re-running it. Anything written while away is then missing: a campaign
+  // the door-knocking flow just created does not appear in Active campaigns,
+  // and a `?outreachId=` deep link to it finds nothing to open.
+  //
+  // One GET on mount settles all of it, and costs the same whoever arrives.
+  // Fixing it here rather than at each caller is deliberate: every path back
+  // has the problem, so a `router.refresh()` per departure would be the same
+  // fix written once per exit and forgotten on the next one.
+  const [listSettled, setListSettled] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    // Settled only on success. A failed GET leaves the seeded snapshot, which
+    // cannot resolve a campaign made while away, so the deep link below holds
+    // its param rather than spending it; a reload retries it.
+    void refetchOutreaches()
+      .then(() => {
+        if (!cancelled) setListSettled(true)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+    // Mount only: a refetch keyed on anything else would fire under the
+    // drawer while the candidate is reading it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Consume-once (ENG-10769 conventions): strip the param, open the drawer
   // if the id resolves; the ref keeps an already-consumed id from reopening
   // while still accepting a new deep link arriving while mounted.
+  //
+  // **Held until the list above has settled.** The id used to be marked
+  // consumed BEFORE the lookup, so a link to a row the seeded snapshot did
+  // not carry spent the param and could never open — which is exactly the
+  // campaign a candidate has this second created. Waiting costs one round
+  // trip on a deep link and nothing on an ordinary visit; giving up after
+  // it is what keeps a genuinely dead id from retrying forever.
   const consumedOutreachIdRef = useRef<number | undefined>(undefined)
   useEffect(() => {
     if (
+      !listSettled ||
       initialOutreachId === undefined ||
       initialOutreachId === consumedOutreachIdRef.current
     ) {
@@ -306,7 +344,7 @@ const OutreachHubContent = ({
     if (row) {
       setDetailsRow(row)
     }
-  }, [initialOutreachId, outreaches, router])
+  }, [listSettled, initialOutreachId, outreaches, router])
 
   return (
     <div className="mx-auto w-full max-w-7xl p-4 lg:p-6">

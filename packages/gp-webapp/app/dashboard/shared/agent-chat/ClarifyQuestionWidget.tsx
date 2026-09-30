@@ -9,7 +9,7 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from '@styleguide'
-import type { OrdinanceClarifyQuestion } from '@goodparty_org/contracts'
+import type { ChatClarifyQuestion } from '@goodparty_org/contracts'
 import SourceLine from './SourceLine'
 
 // Renders one clarify question as selectable option cards (radio + title, with
@@ -24,7 +24,7 @@ export default function ClarifyQuestionWidget({
   answer,
   onAnswer,
 }: {
-  question: OrdinanceClarifyQuestion
+  question: ChatClarifyQuestion
   disabled: boolean
   // The recorded answer for this question, if any. When set, the widget locks
   // and highlights the chosen option (the prototype's selected state) instead of

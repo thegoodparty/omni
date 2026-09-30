@@ -240,7 +240,13 @@ interface CreateListFlowProps {
   // Carries the created row because the page opens the walk on it directly.
   // One turf's Start knocking, from the success screen. This is the press
   // that will buy the route once the walk-or-drive prompt exists.
-  onStartKnocking: (turf: DoorKnockingTurf) => void
+  // The anchor rides along so the page can send the walk's exit to this
+  // campaign's details drawer rather than back to a success screen that is
+  // a one-time confirmation.
+  onStartKnocking: (
+    turf: DoorKnockingTurf,
+    anchorOutreachId: number | null,
+  ) => void
   // Hides the Win-only filters, same contract as the CRM wizard's
   // VoterFileStep. A prop rather than a context read so this stays a plain
   // presentational flow and its tests don't need an organization provider.
@@ -1848,8 +1854,31 @@ export default function CreateListFlow({
 
           {stage === 'success' && createdTurfs && (
             <CreateCampaignSuccess
+              isServe={serveMode}
               campaignName={name.trim()}
               turfs={createdTurfs}
+              // The CAMPAIGN's envelope, not each turf's own. Closing a
+              // walk started here reopens this campaign's details drawer,
+              // and that drawer is keyed on the anchor — `campaignOutreachId`
+              // when this flow was entered through "Draw more turfs", the
+              // first turf bought otherwise.
+              // Patch the snapshot the rows render from. `completed` is what
+              // `turfStage` reads, so the card goes muted and drops its
+              // footer rather than offering a walk on a finished turf.
+              onTurfCompleted={(turfId) =>
+                setCreatedTurfs(
+                  (earlier) =>
+                    earlier?.map((turf) =>
+                      turf.id === turfId ? { ...turf, completed: true } : turf,
+                    ) ?? earlier,
+                )
+              }
+              anchorOutreachId={
+                campaignOutreachId ??
+                createdAnchorRef.current ??
+                createdTurfs[0]?.outreachId ??
+                null
+              }
               onStartKnocking={onStartKnocking}
               onDone={onClose}
             />
