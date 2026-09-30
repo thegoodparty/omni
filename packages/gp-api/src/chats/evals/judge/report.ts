@@ -209,6 +209,13 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
         'accept, which a tie would otherwise hide.',
     )
   }
+  if (score.floorUnclear.length > 0) {
+    lines.push(
+      `Absolute floor unclear on ${score.floorUnclear.length} run(s): ` +
+        'the judge could not tell whether a reasonable user would accept ' +
+        'what an arm produced. Not counted as a failure, and worth a read.',
+    )
+  }
   lines.push('')
   lines.push(changeLine(score.ci))
   return lines

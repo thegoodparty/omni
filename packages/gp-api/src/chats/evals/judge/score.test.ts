@@ -516,6 +516,52 @@ describe('flags and the absolute floor', () => {
     expect(result.flags.map((f) => f.arm).sort()).toEqual(['base', 'candidate'])
   })
 
+  // `combineFloor` produces `unclear` when no seat said `no` and at least one
+  // was uncertain. It used to reach scoring and contribute nothing, so the
+  // report never fired on it; folding it into the failure count instead would
+  // blend "would not accept this" with "could not tell".
+  it('reports an unclear floor, and not as a failure', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'unclear', Y_acceptable: 'yes' },
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.floorFailures).toEqual([])
+    expect(result.floorUnclear).toEqual([{ arm: 'candidate', caseId: 'a' }])
+  })
+
+  // One seat calling a run unacceptable is not softened by another being
+  // unsure about the same run, so the same arm and case must not appear in
+  // both lists.
+  it('lets a floor failure win over an unclear one on the same run', () => {
+    const result = score(
+      [
+        judgment({
+          caseId: 'a',
+          slotMap: X_IS_CANDIDATE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'unclear', Y_acceptable: 'yes' },
+        }),
+        judgment({
+          caseId: 'a',
+          order: 'swapped',
+          slotMap: X_IS_BASE,
+          verdict: 'tie',
+          floor: { X_acceptable: 'yes', Y_acceptable: 'no' },
+        }),
+      ],
+      noFloor(),
+    )
+    expect(result.floorFailures).toEqual([{ arm: 'candidate', caseId: 'a' }])
+    expect(result.floorUnclear).toEqual([])
+  })
+
   it('orients a floor failure the same way', () => {
     const result = score(
       [

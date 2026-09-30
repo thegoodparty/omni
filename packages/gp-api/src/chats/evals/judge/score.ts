@@ -121,6 +121,10 @@ export interface AgentScore {
   panelDisagreementRate: number | null
   flags: readonly OrientedFlag[]
   floorFailures: readonly FloorFailure[]
+  // The judge could not tell whether the floor was met. Reported separately
+  // from floorFailures rather than counted as one, and like a failure it never
+  // changes the label.
+  floorUnclear: readonly FloorFailure[]
   evidence: MeasuredEvidence
   ci: CiContext | null
 }
@@ -460,21 +464,41 @@ const orientFlags = (judgments: readonly GradedJudgment[]): OrientedFlag[] => {
 // order-swap subsample judges the same pair twice, so a floor kept per
 // judgment reports one broken run as two on exactly the pairs that got the
 // second look.
-const floorFailures = (
+// `unclear` is reported, but NOT as a failure. `combineFloor` produces it when
+// no seat said `no` and at least one was uncertain, so folding it into the
+// failure count would put "a reasonable user would not accept this" and "the
+// judge could not tell" behind one number — the blend this whole layer refuses
+// everywhere else. Dropping it was worse: an uncertain floor reached here and
+// contributed nothing, so the report never fired on it at all.
+//
+// `no` wins over `unclear` for the same arm and case, because one seat naming
+// a run unacceptable is not softened by another being unsure.
+const floorVerdicts = (
   judgments: readonly GradedJudgment[],
-): FloorFailure[] => {
-  const seen = new Map<string, FloorFailure>()
-  const add = (arm: Arm, caseId: string): void => {
+): { failed: FloorFailure[]; unclear: FloorFailure[] } => {
+  const worst = new Map<string, { entry: FloorFailure; failed: boolean }>()
+  const add = (arm: Arm, caseId: string, failed: boolean): void => {
     const key = `${arm}\u0000${caseId}`
-    if (!seen.has(key)) seen.set(key, { arm, caseId })
+    const held = worst.get(key)
+    if (held === undefined) worst.set(key, { entry: { arm, caseId }, failed })
+    else if (failed) held.failed = true
   }
   for (const j of judgments) {
     const floor = j.absoluteFloor
     if (floor === null) continue
-    if (floor.X_acceptable === 'no') add(j.slotMap.X, j.key.caseId)
-    if (floor.Y_acceptable === 'no') add(j.slotMap.Y, j.key.caseId)
+    for (const [slot, acceptable] of [
+      [j.slotMap.X, floor.X_acceptable],
+      [j.slotMap.Y, floor.Y_acceptable],
+    ] as const) {
+      if (acceptable === 'no') add(slot, j.key.caseId, true)
+      else if (acceptable === 'unclear') add(slot, j.key.caseId, false)
+    }
   }
-  return [...seen.values()]
+  const held = [...worst.values()]
+  return {
+    failed: held.filter((h) => h.failed).map((h) => h.entry),
+    unclear: held.filter((h) => !h.failed).map((h) => h.entry),
+  }
 }
 
 export interface ScoreInput {
@@ -529,6 +553,8 @@ export const scoreAgent = (
   )
   const labelled = label(overall, gate, config)
 
+  const floor = floorVerdicts(gradedJudgments)
+
   const allPairs = [
     ...normalized.judgeable.map((c) => c.records),
     ...normalized.excluded.map((c) => c.records),
@@ -559,7 +585,8 @@ export const scoreAgent = (
       .map((p) => pairKey(p.caseId, p.attempt)),
     panelDisagreementRate,
     flags: orientFlags(gradedJudgments),
-    floorFailures: floorFailures(gradedJudgments),
+    floorFailures: floor.failed,
+    floorUnclear: floor.unclear,
     evidence: measure(allPairs),
     ci: candidateWithCi?.candidate.ci ?? null,
   }

@@ -324,6 +324,7 @@ describe('provenance', () => {
       panelDisagreementRate: null,
       flags: [],
       floorFailures: [],
+      floorUnclear: [],
       evidence: {
         costUsd: null,
         unpriceableReason: null,
