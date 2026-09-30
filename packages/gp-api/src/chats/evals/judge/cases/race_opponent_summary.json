@@ -1,0 +1,312 @@
+{
+  "agentId": "race_opponent_summary",
+  "shape": "background",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Every params object here validates against the published race_opponent_summary manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open \u2014 do not read the shortfall as a decision. Varied along: how much collected text there is to structure, which is the only input that can raise or lower output quality here \u2014 two full sources per opponent, a single source, one-sentence stubs, and an opponent whose sources array is empty, which the schema explicitly allows and which should contribute no groundable sections rather than an invented one; which source types are present, since a Ballotpedia page and a campaign site say different things about the same person; field size, one to three opponents, because threat tiers are relative; and whether the candidate platform is full, bio-only, or absent, which is what decides whether issue contrasts can exist at all. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
+  "cases": [
+    {
+      "caseId": "baseline-two-opponents-both-source-types",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "sources": [
+              {
+                "source_type": "ballotpedia",
+                "source_url": "https://ballotpedia.org/Test_Incumbent",
+                "text": "Test Incumbent (Minneapolis, Minnesota) is a member of the Minneapolis City Council, representing Ward 3. They assumed office in 2022. Their current term ends in January 2027. Test Incumbent ran for re-election to the Minneapolis City Council to represent Ward 3. They advanced from the primary on August 11, 2026. Prior to election, Test Incumbent worked as a transportation planner for a regional council of governments. Education: B.A. in urban studies."
+              },
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-incumbent/about",
+                "text": "About \u2014 Test Incumbent has spent four years on the council fighting for a Ward 3 that working families can afford to stay in. Priorities: pass the inclusionary zoning update with no density bonus loopholes; fund the pedestrian safety plan at the level the plan itself calls for; and hold the line on the property tax levy while protecting library hours. Endorsed by the regional building trades council and two neighborhood associations."
+              }
+            ]
+          },
+          {
+            "opponent_name": "Test Challenger",
+            "sources": [
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-challenger/about",
+                "text": "Test Challenger is a small business owner running for the Minneapolis City Council in Ward 3. After eleven years running a hardware store on the avenue, Test Challenger is running on three commitments: a permitting process that answers in ten business days, a police staffing plan with published response-time targets by neighborhood, and no new street assessments on commercial frontage without a vote of the affected owners."
+              }
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "race_context": {
+          "office_name": "Minneapolis City Council",
+          "state": "MN",
+          "city": "Minneapolis",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "single-opponent-ballotpedia-only",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "sources": [
+              {
+                "source_type": "ballotpedia",
+                "source_url": "https://ballotpedia.org/Test_Incumbent",
+                "text": "Test Incumbent (Minneapolis, Minnesota) is a member of the Minneapolis City Council, representing Ward 3. They assumed office in 2022. Their current term ends in January 2027. Test Incumbent ran for re-election to the Minneapolis City Council to represent Ward 3. They advanced from the primary on August 11, 2026. Prior to election, Test Incumbent worked as a transportation planner for a regional council of governments. Education: B.A. in urban studies."
+              }
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "race_context": {
+          "office_name": "Minneapolis City Council",
+          "state": "MN",
+          "city": "Minneapolis",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "one-opponent-has-no-sources",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Challenger",
+            "sources": [
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-challenger/about",
+                "text": "Test Challenger is a small business owner running for the Minneapolis City Council in Ward 3. After eleven years running a hardware store on the avenue, Test Challenger is running on three commitments: a permitting process that answers in ten business days, a police staffing plan with published response-time targets by neighborhood, and no new street assessments on commercial frontage without a vote of the affected owners."
+              }
+            ]
+          },
+          {
+            "opponent_name": "Test Uncollected Opponent",
+            "sources": []
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "race_context": {
+          "office_name": "Hendersonville City Council",
+          "state": "NC",
+          "city": "Hendersonville",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "no-candidate-platform",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "sources": [
+              {
+                "source_type": "ballotpedia",
+                "source_url": "https://ballotpedia.org/Test_Incumbent",
+                "text": "Test Incumbent (Minneapolis, Minnesota) is a member of the Minneapolis City Council, representing Ward 3. They assumed office in 2022. Their current term ends in January 2027. Test Incumbent ran for re-election to the Minneapolis City Council to represent Ward 3. They advanced from the primary on August 11, 2026. Prior to election, Test Incumbent worked as a transportation planner for a regional council of governments. Education: B.A. in urban studies."
+              },
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-incumbent/about",
+                "text": "About \u2014 Test Incumbent has spent four years on the council fighting for a Ward 3 that working families can afford to stay in. Priorities: pass the inclusionary zoning update with no density bonus loopholes; fund the pedestrian safety plan at the level the plan itself calls for; and hold the line on the property tax levy while protecting library hours. Endorsed by the regional building trades council and two neighborhood associations."
+              }
+            ]
+          }
+        ],
+        "race_context": {
+          "office_name": "Phoenix City Council",
+          "state": "AZ",
+          "city": "Phoenix",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "platform-bio-only",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Challenger",
+            "sources": [
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-challenger/about",
+                "text": "Test Challenger is a small business owner running for the Minneapolis City Council in Ward 3. After eleven years running a hardware store on the avenue, Test Challenger is running on three commitments: a permitting process that answers in ten business days, a police staffing plan with published response-time targets by neighborhood, and no new street assessments on commercial frontage without a vote of the affected owners."
+              }
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I ran a hardware store on this avenue for eleven years and I have never held office."
+        },
+        "race_context": {
+          "office_name": "Dover City Council",
+          "state": "NH",
+          "city": "Dover",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "three-opponents-uneven-sources",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "sources": [
+              {
+                "source_type": "ballotpedia",
+                "source_url": "https://ballotpedia.org/Test_Incumbent",
+                "text": "Test Incumbent (Minneapolis, Minnesota) is a member of the Minneapolis City Council, representing Ward 3. They assumed office in 2022. Their current term ends in January 2027. Test Incumbent ran for re-election to the Minneapolis City Council to represent Ward 3. They advanced from the primary on August 11, 2026. Prior to election, Test Incumbent worked as a transportation planner for a regional council of governments. Education: B.A. in urban studies."
+              },
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-incumbent/about",
+                "text": "About \u2014 Test Incumbent has spent four years on the council fighting for a Ward 3 that working families can afford to stay in. Priorities: pass the inclusionary zoning update with no density bonus loopholes; fund the pedestrian safety plan at the level the plan itself calls for; and hold the line on the property tax levy while protecting library hours. Endorsed by the regional building trades council and two neighborhood associations."
+              }
+            ]
+          },
+          {
+            "opponent_name": "Test Challenger",
+            "sources": [
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-challenger/about",
+                "text": "Test Challenger is a small business owner running for the Minneapolis City Council in Ward 3. After eleven years running a hardware store on the avenue, Test Challenger is running on three commitments: a permitting process that answers in ten business days, a police staffing plan with published response-time targets by neighborhood, and no new street assessments on commercial frontage without a vote of the affected owners."
+              }
+            ]
+          },
+          {
+            "opponent_name": "Test Minor Opponent",
+            "sources": [
+              {
+                "source_type": "ballotpedia",
+                "source_url": "https://ballotpedia.org/Test_Minor_Opponent",
+                "text": "Test Minor Opponent is a candidate for the Minneapolis City Council, Ward 3. Test Minor Opponent did not complete Ballotpedia's candidate survey."
+              }
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "race_context": {
+          "office_name": "Minneapolis City Council",
+          "state": "MN",
+          "city": "Minneapolis",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "stub-length-sources",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test County Opponent",
+            "sources": [
+              {
+                "source_type": "ballotpedia",
+                "source_url": "https://ballotpedia.org/Test_County_Opponent",
+                "text": "Test County Opponent is running for the Flathead County Commission."
+              },
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-county-opponent",
+                "text": "Vote Test County Opponent. Roads first."
+              }
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "race_context": {
+          "office_name": "Flathead County Commission",
+          "state": "MT",
+          "city": "Kalispell",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "rural-website-only-thin-context",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Selectboard Opponent",
+            "sources": [
+              {
+                "source_type": "opponent_website",
+                "source_url": "https://example.org/test-selectboard-opponent",
+                "text": "Test Selectboard Opponent has served the town as a volunteer firefighter for nine years and sits on the conservation commission. Running to keep the town garage project on budget, to finish the culvert replacements the last flood exposed, and to post the selectboard packet online before the meeting instead of after it."
+              }
+            ]
+          }
+        ],
+        "race_context": {
+          "office_name": "Middlebury Selectboard",
+          "state": "VT"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,338 @@
+{
+  "agentId": "race_opponent_actions",
+  "shape": "background",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Every params object here validates against the published race_opponent_actions manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open \u2014 do not read the shortfall as a decision. Varied along: whether the district trio is present, which is the branch that decides whether a card carries a constituent number or goes out numberless with haystaq_status no_district \u2014 the schema's dependencies clause makes state, l2_district_type and l2_district_name all-or-nothing, so cases carry all three or none; the threat-tier mix, since tiers drive card ordering and a list that is all low_priority should not read like a primary threat; how much of each persisted summary survived, including an opponent whose overview, background and issues are all null; field size, one to three opponents; and how much candidate platform there is to draw the candidate side of a contrast from, full, bio-only, or absent, since absent or thin means fewer cards rather than invented ones. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
+  "cases": [
+    {
+      "caseId": "baseline-district-trio-two-opponents",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "threat_tier": "primary_threat",
+            "overview_text": "Four-year incumbent on the Minneapolis City Council for Ward 3, previously a regional transportation planner. Runs on continuity: the inclusionary zoning update, the pedestrian safety plan, and holding the levy. Endorsed by the building trades and two neighborhood associations, which is the strongest organized backing in the ward.",
+            "background_text": "B.A. in urban studies; eight years at a council of governments doing corridor studies before first election in 2022. No prior elected office. Term ends January 2027.",
+            "issues_that_matter": [
+              "Supports the inclusionary zoning update but has not said whether the density bonus loophole stays in.",
+              "Funds the pedestrian safety plan at the level the plan asks for.",
+              "Holds the property tax levy flat while protecting library hours."
+            ]
+          },
+          {
+            "opponent_name": "Test Challenger",
+            "threat_tier": "watch_closely",
+            "overview_text": "First-time candidate, eleven years running a hardware store on the avenue. Runs on process complaints rather than policy: permit turnaround, published police response-time targets, and no new commercial street assessments without an owner vote.",
+            "background_text": "No prior public office. Small business owner.",
+            "issues_that_matter": [
+              "Wants a ten-business-day permit guarantee.",
+              "Wants published police response-time targets by neighborhood."
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "state": "MN",
+        "l2_district_type": "City_Ward",
+        "l2_district_name": "MINNEAPOLIS WARD 3",
+        "race_context": {
+          "office_name": "Minneapolis City Council",
+          "state": "MN",
+          "city": "Minneapolis",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "no-district-trio",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "threat_tier": "primary_threat",
+            "overview_text": "Four-year incumbent on the Minneapolis City Council for Ward 3, previously a regional transportation planner. Runs on continuity: the inclusionary zoning update, the pedestrian safety plan, and holding the levy. Endorsed by the building trades and two neighborhood associations, which is the strongest organized backing in the ward.",
+            "background_text": "B.A. in urban studies; eight years at a council of governments doing corridor studies before first election in 2022. No prior elected office. Term ends January 2027.",
+            "issues_that_matter": [
+              "Supports the inclusionary zoning update but has not said whether the density bonus loophole stays in.",
+              "Funds the pedestrian safety plan at the level the plan asks for.",
+              "Holds the property tax levy flat while protecting library hours."
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "race_context": {
+          "office_name": "Hendersonville City Council",
+          "state": "NC",
+          "city": "Hendersonville",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "all-three-threat-tiers",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "threat_tier": "primary_threat",
+            "overview_text": "Four-year incumbent on the Minneapolis City Council for Ward 3, previously a regional transportation planner. Runs on continuity: the inclusionary zoning update, the pedestrian safety plan, and holding the levy. Endorsed by the building trades and two neighborhood associations, which is the strongest organized backing in the ward.",
+            "background_text": "B.A. in urban studies; eight years at a council of governments doing corridor studies before first election in 2022. No prior elected office. Term ends January 2027.",
+            "issues_that_matter": [
+              "Supports the inclusionary zoning update but has not said whether the density bonus loophole stays in.",
+              "Funds the pedestrian safety plan at the level the plan asks for.",
+              "Holds the property tax levy flat while protecting library hours."
+            ]
+          },
+          {
+            "opponent_name": "Test Challenger",
+            "threat_tier": "watch_closely",
+            "overview_text": "First-time candidate, eleven years running a hardware store on the avenue. Runs on process complaints rather than policy: permit turnaround, published police response-time targets, and no new commercial street assessments without an owner vote.",
+            "background_text": "No prior public office. Small business owner.",
+            "issues_that_matter": ["Wants a ten-business-day permit guarantee."]
+          },
+          {
+            "opponent_name": "Test Minor Opponent",
+            "threat_tier": "low_priority",
+            "overview_text": "Filed late, no visible campaign activity, no website and no endorsements on record.",
+            "background_text": null,
+            "issues_that_matter": null
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "state": "AZ",
+        "l2_district_type": "City_Council_Commissioner_District",
+        "l2_district_name": "8",
+        "race_context": {
+          "office_name": "Phoenix City Council",
+          "state": "AZ",
+          "city": "Phoenix",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "summary-text-all-null",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Uncollected Opponent",
+            "threat_tier": "watch_closely",
+            "overview_text": null,
+            "background_text": null,
+            "issues_that_matter": null
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "state": "NH",
+        "l2_district_type": "City_Ward",
+        "l2_district_name": "DOVER WARD 4",
+        "race_context": {
+          "office_name": "Dover City Council",
+          "state": "NH",
+          "city": "Dover",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "no-candidate-platform",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "threat_tier": "primary_threat",
+            "overview_text": "Four-year incumbent on the Minneapolis City Council for Ward 3, previously a regional transportation planner. Runs on continuity: the inclusionary zoning update, the pedestrian safety plan, and holding the levy. Endorsed by the building trades and two neighborhood associations, which is the strongest organized backing in the ward.",
+            "background_text": "B.A. in urban studies; eight years at a council of governments doing corridor studies before first election in 2022. No prior elected office. Term ends January 2027.",
+            "issues_that_matter": [
+              "Supports the inclusionary zoning update but has not said whether the density bonus loophole stays in.",
+              "Funds the pedestrian safety plan at the level the plan asks for.",
+              "Holds the property tax levy flat while protecting library hours."
+            ]
+          },
+          {
+            "opponent_name": "Test Challenger",
+            "threat_tier": "watch_closely",
+            "overview_text": "First-time candidate, eleven years running a hardware store on the avenue. Runs on process complaints rather than policy: permit turnaround, published police response-time targets, and no new commercial street assessments without an owner vote.",
+            "background_text": null,
+            "issues_that_matter": ["Wants a ten-business-day permit guarantee."]
+          }
+        ],
+        "state": "MN",
+        "l2_district_type": "City_Ward",
+        "l2_district_name": "MINNEAPOLIS WARD 3",
+        "race_context": {
+          "office_name": "Minneapolis City Council",
+          "state": "MN",
+          "city": "Minneapolis",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "platform-bio-only",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Incumbent",
+            "threat_tier": "primary_threat",
+            "overview_text": "Four-year incumbent on the Minneapolis City Council for Ward 3, previously a regional transportation planner. Runs on continuity: the inclusionary zoning update, the pedestrian safety plan, and holding the levy. Endorsed by the building trades and two neighborhood associations, which is the strongest organized backing in the ward.",
+            "background_text": "B.A. in urban studies; eight years at a council of governments doing corridor studies before first election in 2022. No prior elected office. Term ends January 2027.",
+            "issues_that_matter": [
+              "Supports the inclusionary zoning update but has not said whether the density bonus loophole stays in.",
+              "Funds the pedestrian safety plan at the level the plan asks for.",
+              "Holds the property tax levy flat while protecting library hours."
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here."
+        },
+        "state": "CA",
+        "l2_district_type": "City",
+        "l2_district_name": "OAKLAND CITY",
+        "race_context": {
+          "office_name": "Oakland City Council",
+          "state": "CA",
+          "city": "Oakland",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "rural-low-priority-only",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test County Opponent",
+            "threat_tier": "low_priority",
+            "overview_text": "Two-term incumbent commissioner with no organized opposition and no campaign website; runs on road and bridge spending.",
+            "background_text": "Ran a family excavation business for twenty years; two terms on the county planning board.",
+            "issues_that_matter": [
+              "Road and bridge maintenance before new subdivisions."
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Housing affordability",
+              "description": "Rent stabilization on buildings over twenty units, and no density bonus that does not produce units at sixty percent of area median income."
+            },
+            {
+              "title": "Transit reliability",
+              "description": "Restore fifteen-minute headways on the two busiest bus lines before any new capital project is funded."
+            }
+          ]
+        },
+        "state": "MT",
+        "l2_district_type": "County_Commissioner_District",
+        "l2_district_name": "2",
+        "race_context": {
+          "office_name": "Flathead County Commission",
+          "state": "MT",
+          "city": "Kalispell",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "rich-issues-and-platform",
+      "params": {
+        "opponents": [
+          {
+            "opponent_name": "Test Board Incumbent",
+            "threat_tier": "primary_threat",
+            "overview_text": "Two-term school board director with the teachers union endorsement and the largest war chest in the race.",
+            "background_text": "Former high school principal; chaired the board facilities committee through the last bond.",
+            "issues_that_matter": [
+              "Supports the capital bond at the full requested amount.",
+              "Opposes reopening the school boundary map before the next census.",
+              "Wants universal preschool funded from the general fund.",
+              "Has not taken a position on the special education staffing backlog.",
+              "Voted for the current cell phone policy.",
+              "Backs the third-party facilities audit."
+            ]
+          }
+        ],
+        "candidate_platform": {
+          "bio": "I taught eighth-grade science in this city for twelve years and chaired my neighborhood association land-use committee for four. I am running because the people who are priced out of this ward never get asked what would have kept them here.",
+          "issues": [
+            {
+              "title": "Special education staffing",
+              "description": "Fill every vacant special education position before any new central-office hire."
+            },
+            {
+              "title": "Facilities transparency",
+              "description": "Publish the deferred maintenance list by building before asking for another bond."
+            },
+            {
+              "title": "Boundary equity",
+              "description": "Reopen the boundary map now rather than waiting for the next census."
+            },
+            {
+              "title": "Preschool access",
+              "description": "Universal preschool, funded by a dedicated levy rather than the general fund."
+            }
+          ]
+        },
+        "state": "WA",
+        "l2_district_type": "School_Board_District",
+        "l2_district_name": "5",
+        "race_context": {
+          "office_name": "Seattle School Board",
+          "state": "WA",
+          "city": "Seattle",
+          "election_date": "2026-11-03"
+        }
+      }
+    }
+  ]
+}

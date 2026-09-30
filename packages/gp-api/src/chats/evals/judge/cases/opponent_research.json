@@ -1,0 +1,159 @@
+{
+  "agentId": "opponent_research",
+  "shape": "background",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Every params object here validates against the published opponent_research manifest input_schema (additionalProperties: false, $refs inlined the way publish_experiments.py inlines them), and every value is plausible, but nobody has dispatched one. So a verdict drawn from this list is a claim about the pipeline, not about the agent. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20. A corpus verdict over this list therefore resolves CAN'T SAY however the judge voted, because the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is deliberate and not a rounding error: one clean baseline plus seven single-axis variations is what one change can author honestly across nine agents. Whether to grow every list to 20 or to lower the floor is still open \u2014 do not read the shortfall as a decision. Varied along: whether the opponent is a known incumbent, a known challenger or of unknown incumbency (is_incumbent true / false / null), which is what the agent has to reason about before it trusts a page; hint richness, from a website plus social URLs down to nothing but a name, which decides whether discovery is a fetch or a search; whether the candidate platform is supplied in full, partially null, or null outright, since that is the only thing the contrasts can be framed against; a large-city race with heavy coverage against a rural county commission and a school board where almost nothing is written down; and how much of race_context is hydrated, because city and election_date are what disambiguate a same-named person in the wrong cycle. People are fictional placeholders in the house style (gp-webapp e2e-tests briefings.spec.ts uses 'Test Official'); this file is public, so no real person is named. States, cities, office titles and L2 voter file column names are real.",
+  "cases": [
+    {
+      "caseId": "baseline-incumbent-rich-hints",
+      "params": {
+        "opponent": {
+          "full_name": "Test Incumbent",
+          "website_url": "https://example.org/test-incumbent",
+          "social_urls": [
+            "https://example.org/test-incumbent/updates",
+            "https://example.org/test-incumbent/video"
+          ],
+          "is_incumbent": true
+        },
+        "race_context": {
+          "office_name": "Minneapolis City Council",
+          "state": "MN",
+          "city": "Minneapolis",
+          "election_date": "2026-11-03"
+        },
+        "candidate_platform": {
+          "background": "Twelve years teaching in the local public schools, then four years chairing the neighborhood association land-use committee. First run for city office.",
+          "issues": "Rent stabilization on buildings over twenty units, restoring fifteen-minute bus headways on the two busiest lines, and a city-funded tenant legal aid fund."
+        }
+      }
+    },
+    {
+      "caseId": "known-challenger-no-hints",
+      "params": {
+        "opponent": {
+          "full_name": "Test Challenger",
+          "is_incumbent": false
+        },
+        "race_context": {
+          "office_name": "Hendersonville City Council",
+          "state": "NC",
+          "city": "Hendersonville",
+          "election_date": "2026-11-03"
+        }
+      }
+    },
+    {
+      "caseId": "unknown-incumbency-thin-context",
+      "params": {
+        "opponent": {
+          "full_name": "Test Opponent",
+          "website_url": null,
+          "is_incumbent": null
+        },
+        "race_context": {
+          "office_name": "Phoenix City Council",
+          "state": "AZ",
+          "city": null,
+          "election_date": null
+        }
+      }
+    },
+    {
+      "caseId": "mayoral-heavy-coverage",
+      "params": {
+        "opponent": {
+          "full_name": "Test Mayoral Opponent",
+          "website_url": "https://example.org/test-mayoral-opponent",
+          "social_urls": ["https://example.org/test-mayoral-opponent/press"],
+          "is_incumbent": true
+        },
+        "race_context": {
+          "office_name": "Mayor of Phoenix",
+          "state": "AZ",
+          "city": "Phoenix",
+          "election_date": "2026-11-03"
+        },
+        "candidate_platform": {
+          "background": "Twelve years teaching in the local public schools, then four years chairing the neighborhood association land-use committee. First run for city office.",
+          "issues": "Rent stabilization on buildings over twenty units, restoring fifteen-minute bus headways on the two busiest lines, and a city-funded tenant legal aid fund."
+        }
+      }
+    },
+    {
+      "caseId": "rural-county-low-coverage",
+      "params": {
+        "opponent": {
+          "full_name": "Test County Opponent",
+          "social_urls": [],
+          "is_incumbent": true
+        },
+        "race_context": {
+          "office_name": "Flathead County Commission",
+          "state": "MT",
+          "city": "Kalispell",
+          "election_date": "2026-11-03"
+        },
+        "candidate_platform": {
+          "background": "Ran a family excavation business in the valley for twenty years; served two terms on the county planning board.",
+          "issues": "Road and bridge maintenance funded before new subdivisions are approved, and a published floodplain map the county actually enforces."
+        }
+      }
+    },
+    {
+      "caseId": "school-board-required-only",
+      "params": {
+        "opponent": {
+          "full_name": "Test Board Opponent"
+        },
+        "race_context": {
+          "office_name": "Seattle School Board",
+          "state": "WA"
+        }
+      }
+    },
+    {
+      "caseId": "candidate-platform-null",
+      "params": {
+        "opponent": {
+          "full_name": "Test Challenger Two",
+          "website_url": null,
+          "social_urls": [],
+          "is_incumbent": false
+        },
+        "race_context": {
+          "office_name": "Dover City Council",
+          "state": "NH",
+          "city": "Dover",
+          "election_date": "2026-11-03"
+        },
+        "candidate_platform": null
+      }
+    },
+    {
+      "caseId": "candidate-platform-partial",
+      "params": {
+        "opponent": {
+          "full_name": "Test Selectboard Opponent",
+          "website_url": "https://example.org/test-selectboard-opponent",
+          "social_urls": [
+            "https://example.org/test-selectboard-opponent/notes",
+            "https://example.org/test-selectboard-opponent/clips",
+            "https://example.org/test-selectboard-opponent/letters"
+          ],
+          "is_incumbent": null
+        },
+        "race_context": {
+          "office_name": "Middlebury Selectboard",
+          "state": "VT",
+          "city": "Middlebury",
+          "election_date": "2027-03-02"
+        },
+        "candidate_platform": {
+          "background": "Twenty years as a dairy inspector, then eight on the town planning commission.",
+          "issues": null
+        }
+      }
+    }
+  ]
+}
