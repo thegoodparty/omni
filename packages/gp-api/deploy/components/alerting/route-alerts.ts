@@ -389,6 +389,11 @@ export const routeAlertGroups = (): RouteAlertGroup[] => {
 // later still, so a link scoped to the window would open on nothing.
 const GRAFANA_URL = 'https://goodparty.grafana.net'
 const LOKI_DATASOURCE_UID = 'grafanacloud-logs'
+// Named here as well as in grafana.ts, which is where a rule's own datasource
+// is chosen. These two uids only appear in Explore links the notification
+// carries, and importing them from grafana.ts would be a cycle: grafana.ts
+// imports this module to provision the rules.
+const USAGE_DATASOURCE_UID = 'grafanacloud-usage'
 const ENDPOINT_SENTINEL = '__ENDPOINT__'
 const ENDPOINT_TEMPLATE = '{{ $labels.request_endpoint | urlquery }}'
 
@@ -420,6 +425,75 @@ const errorLinesPane = encodeURIComponent(
   .join(ENDPOINT_TEMPLATE)
 
 const errorLinesLink = `${GRAFANA_URL}/explore?schemaVersion=1&panes=${errorLinesPane}`
+
+// WHAT THE READER GETS WHEN THERE IS NO ROUTE. Everything above is written for
+// an alert instance that carries a `request_endpoint` label, because that is
+// what `sum by (request_endpoint)` returns and what the page exists to name.
+// An instance that failed to EVALUATE carries no series and therefore no such
+// label, and Go's text/template renders a missing key as the literal
+// `[no value]` — so on 2026-09-29 at 17:37Z a five-minute network timeout
+// between Grafana's alerting engine and its own Prometheus
+// (`dial tcp 98.85.154.20:443: i/o timeout`) produced the page
+// "[PROD] [priorities] Route errors detected `[no value]`", whose body told its
+// reader that `[no value]` had returned error responses and offered a link
+// whose Loki query was filtered to `request_endpoint = "<no value>"`. The one
+// action the page recommended could only ever open on an empty screen. The
+// priorities routes served no requests at all in that hour.
+//
+// `execErrState: 'Alerting'` is deliberate and stays (see grafana.ts and
+// docs/observability.md): a rule that goes quiet when its datasource is
+// unreachable reports all-clear precisely when it has stopped looking. What
+// does not follow from that is the page having to LIE about what it measured.
+//
+// The `{{ if }}` is honest rather than a guess at the state, which is the
+// objection that kept this out of buildAlertDescription: annotation templating
+// cannot see `grafana_state_reason`, but a route rule either has a route label
+// or it does not, and on these rules it does not exactly when it did not run.
+// No-data cannot be confused with it — `noDataState` is `OK` and never
+// notifies.
+const NO_ROUTE_SUMMARY = '(this rule could not be evaluated)'
+
+const evaluationFailuresQuery = [
+  '(sum(grafanacloud_grafana_instance_alerting_rule_evaluation_failures_total:rate5m)',
+  'or on() vector(0))',
+  '/',
+  'sum(grafanacloud_grafana_instance_alerting_rule_evaluations_total:rate5m)',
+].join(' ')
+
+// On `grafanacloud-usage`, which is Prometheus and is not metered against the
+// Loki query allowance — so this link keeps working in the case it is for,
+// where the reason the page arrived may be that Loki is refusing queries.
+const evaluationFailuresLink = `${GRAFANA_URL}/explore?schemaVersion=1&panes=${encodeURIComponent(
+  JSON.stringify({
+    a: {
+      datasource: USAGE_DATASOURCE_UID,
+      queries: [
+        {
+          refId: 'A',
+          datasource: { uid: USAGE_DATASOURCE_UID },
+          expr: evaluationFailuresQuery,
+        },
+      ],
+      range: { from: 'now-3h', to: 'now' },
+    },
+  }),
+)}`
+
+const NO_ROUTE_MESSAGE = [
+  '**No route is named above because this rule did not run.** Alerting could not read its datasource for this evaluation, so no route was checked, and no count in this page measured anything. Nothing here says a request failed.',
+  `<${evaluationFailuresLink}|Open the share of rule evaluations that are failing>. Back at zero means one transient evaluation and there is nothing to do here. Still above zero means alerting is blind: every alert now firing is unverified and every silent one unchecked, and \`alerting-rule-evaluations-failing\` is the page that says so.`,
+  'The reason this evaluation failed is in the `Error` annotation on the alert instance in Grafana; *View in Grafana* opens the rule.',
+].join('\n\n')
+
+/**
+ * Route-scoped notification text, guarded on a route actually being named.
+ *
+ * Wrapping rather than appending: the whole of the route prose is untrue of an
+ * instance with no route, so none of it should reach the page, and a reader
+ * should not have to work out which half applies to them.
+ */
+const whenRouteIsNamed = (text: string) =>
+  `{{ if $labels.request_endpoint }}${text}{{ else }}${NO_ROUTE_MESSAGE}{{ end }}`
 
 /**
  * The five rules that watch every owned route for errors.
@@ -466,19 +540,23 @@ export const routeErrorAlerts = (): Alert[] =>
       // exact bursts these rules exist to catch. One error is meant to page.
       for: '0m',
       // Grafana renders annotations per alert instance, so this is what turns
-      // one rule back into a page that names the route that actually broke.
-      summaryDetail: '`{{ $labels.request_endpoint }}`',
+      // one rule back into a page that names the route that actually broke —
+      // and, when the rule could not evaluate and there is no route to name,
+      // says that instead of rendering `[no value]` as a route.
+      summaryDetail: `{{ if $labels.request_endpoint }}\`{{ $labels.request_endpoint }}\`{{ else }}${NO_ROUTE_SUMMARY}{{ end }}`,
       timeRangeSeconds: window.seconds,
       timeRangeOffsetSeconds: window.offsetSeconds,
       evaluationIntervalSeconds: window.seconds,
-      message: [
-        group.serverErrorsOnly
-          ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, ${windowProse} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.`
-          : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, ${windowProse} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
-        `The rule reads ${window.offsetProse} behind real time so that log lines reaching Loki a few seconds late are still counted, which means this page arrives up to ${window.offsetProse} later than the error would otherwise allow.`,
-        `<${errorLinesLink}|Open this route's error lines> to read the exception each failing request logged (type, message, stack trace) before deciding what to fix. *View in Grafana* shows only the count that fired.`,
-        `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
-      ].join('\n\n'),
+      message: whenRouteIsNamed(
+        [
+          group.serverErrorsOnly
+            ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, ${windowProse} (status ≥ 500 or null). 4xx responses are deliberately excluded on this route's controller — see SERVER_ERRORS_ONLY in alerts.ts.`
+            : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, ${windowProse} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
+          `The rule reads ${window.offsetProse} behind real time so that log lines reaching Loki a few seconds late are still counted, which means this page arrives up to ${window.offsetProse} later than the error would otherwise allow.`,
+          `<${errorLinesLink}|Open this route's error lines> to read the exception each failing request logged (type, message, stack trace) before deciding what to fix. *View in Grafana* shows only the count that fired.`,
+          `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
+        ].join('\n\n'),
+      ),
       notify: group.owners,
     } satisfies Alert
   })
