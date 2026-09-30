@@ -59,14 +59,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      # Fast (~seconds) unit coverage of the merge-precedence rule, gated
-      # before the slow full-boot steps below so a regression there fails in
-      # seconds, not after a cold docker/migrate/Next.js cycle. Root-level
-      # `scripts/` has no package.json of its own, so this depends only on
-      # devDependencies already declared at the repo root.
-      - name: Unit test the env-merge helper
-        run: npx vitest run scripts/setup/lib
-
       # A schema-complete fixture "working checkout" for --from: every
       # required var in gp-api's and gp-webapp's schemas already has a
       # non-empty placeholder in .env.example (enforced by each package's
@@ -131,6 +123,12 @@ jobs:
 
           kill -TERM "$setup_pid" 2>/dev/null || true
           wait "$setup_pid" 2>/dev/null || true
+
+      # Runs after the smoke step on purpose: setup.sh's own `npm ci` has
+      # installed the workspace by now, so this uses the lockfile-pinned
+      # vitest instead of an unpinned registry download on a bare runner.
+      - name: Unit test the env-merge helper
+        run: npx --no-install vitest run scripts/setup/lib
 
       - name: Setup log
         if: always()
