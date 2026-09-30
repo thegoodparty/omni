@@ -4,6 +4,7 @@ import type {
   PaginatedList,
   ReadCampaignOutput,
   SetDistrictOutput,
+  TenDlcStatusSnapshot,
   UpdateCampaignM2MInput,
   UpdateCommitteeNameInput,
   UpdateCommitteeNameOutput,
@@ -42,6 +43,11 @@ export class CampaignsResource extends BaseResource {
     this.putRequest<SetDistrictOutput>(
       `${this.resourceBasePath}/${id}/district`,
       input,
+    )
+
+  getTenDlcStatusSnapshot = (): Promise<TenDlcStatusSnapshot> =>
+    this.getRequest<TenDlcStatusSnapshot>(
+      `${this.resourceBasePath}/tcr-compliance/admin/status-snapshot`,
     )
 
   getComplianceState = (campaignId: number): Promise<ComplianceStateOutput> =>

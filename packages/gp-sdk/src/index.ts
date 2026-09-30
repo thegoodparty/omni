@@ -50,6 +50,10 @@ export type {
   CommunityIssuesDispatchResult,
   ComplianceStateOutput,
   PinDelivery,
+  TenDlcStatusBucket,
+  TenDlcStatusBucketKey,
+  TenDlcStatusEntry,
+  TenDlcStatusSnapshot,
   UpdateCommitteeNameInput,
   UpdateCommitteeNameOutput,
 } from '@goodparty_org/contracts'

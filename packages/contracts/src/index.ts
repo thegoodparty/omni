@@ -485,6 +485,17 @@ export {
 } from './campaigns/SubmitToPeerlyOutput.schema'
 
 export {
+  TenDlcStatusBucketKeySchema,
+  type TenDlcStatusBucketKey,
+  TenDlcStatusEntrySchema,
+  type TenDlcStatusEntry,
+  TenDlcStatusBucketSchema,
+  type TenDlcStatusBucket,
+  TenDlcStatusSnapshotSchema,
+  type TenDlcStatusSnapshot,
+} from './campaigns/TenDlcStatusSnapshot.schema'
+
+export {
   UpdateCommitteeNameSchema,
   type UpdateCommitteeNameInput,
   UpdateCommitteeNameOutputSchema,
