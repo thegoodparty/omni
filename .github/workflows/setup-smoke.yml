@@ -149,16 +149,19 @@ jobs:
             exit 1
           fi
 
-          api_code="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health)"
-          webapp_code="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:4000)"
+          api_code="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/v1/health || true)"
+          webapp_code="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:4000 || true)"
           echo "GET /v1/health -> $api_code ; GET :4000 -> $webapp_code"
-          curl -fsS http://localhost:3000/v1/health
-          echo
-          if [ "$api_code" != "200" ] || [ "$webapp_code" != "200" ]; then
+          # Same -f semantics as the poll loop above: the healthy webapp
+          # answers / with a 307 to the sign-in page, so asserting a literal
+          # 200 on :4000 fails a fully-working stack. -f only rejects >=400.
+          if ! curl -fsS http://localhost:3000/v1/health ||
+            ! curl -fsS -o /dev/null http://localhost:4000; then
             echo "--- tail of setup.log ---" >&2
             tail -n 200 setup.log >&2
             exit 1
           fi
+          echo
 
           # ENG-11191: setup.sh's own final step (after these same health
           # checks, inside the script) seeds a login and prints a skip note
