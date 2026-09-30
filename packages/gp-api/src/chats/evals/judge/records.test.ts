@@ -56,19 +56,30 @@ const manifest = (over: Partial<ArmManifest> = {}): ArmManifest => ({
 
 describe('recordKey', () => {
   it('is the layout the design specifies', () => {
-    expect(recordKey('swp_1', 'candidate', 'my-case', 2)).toBe(
-      '_judge/swp_1/records/candidate/my-case-2.json',
+    expect(
+      recordKey('swp_1', 'candidate', 'chief_of_staff', 'my-case', 2),
+    ).toBe('_judge/swp_1/records/candidate/chief_of_staff/my-case-2.json')
+  })
+
+  // Inside `_judge/`, which is the prefix the broker's ticket allowlists. An
+  // extra segment that pushed the key out of it would be refused at the
+  // bucket rather than here.
+  it('stays under the judge prefix', () => {
+    expect(recordKey('swp_1', 'base', 'chief_of_staff', 'my-case', 1)).toMatch(
+      /^_judge\//,
     )
   })
 
   // A prefix check is not enough: `_judge/../x` starts with `_judge/`. Every
   // segment is pinned instead, so traversal is unrepresentable.
   it.each([
-    ['sweepId', () => recordKey('../elsewhere', 'base', 'c', 1)],
-    ['caseId', () => recordKey('swp', 'base', '../../c', 1)],
-    ['empty sweepId', () => recordKey('', 'base', 'c', 1)],
-    ['attempt zero', () => recordKey('swp', 'base', 'c', 0)],
-    ['fractional attempt', () => recordKey('swp', 'base', 'c', 1.5)],
+    ['sweepId', () => recordKey('../elsewhere', 'base', 'a', 'c', 1)],
+    ['agentId', () => recordKey('swp', 'base', '../../a', 'c', 1)],
+    ['empty agentId', () => recordKey('swp', 'base', '', 'c', 1)],
+    ['caseId', () => recordKey('swp', 'base', 'a', '../../c', 1)],
+    ['empty sweepId', () => recordKey('', 'base', 'a', 'c', 1)],
+    ['attempt zero', () => recordKey('swp', 'base', 'a', 'c', 0)],
+    ['fractional attempt', () => recordKey('swp', 'base', 'a', 'c', 1.5)],
   ])('refuses a bad %s', (_name, build) => {
     expect(build).toThrow(RecordStoreError)
   })
@@ -100,12 +111,47 @@ describe('the local store', () => {
       recordKey(
         CANDIDATE.sweepId,
         'candidate',
+        CANDIDATE.agentId,
         CANDIDATE.caseId,
         CANDIDATE.attempt,
       ),
     )
     const onDisk = await readFile(path.join(dir, key), 'utf8')
     expect(JSON.parse(onDisk)).toEqual(CANDIDATE)
+  })
+
+  // A caseId is unique within ONE agent's case list and nowhere else:
+  // `cases.ts` dedupes inside a list, and an arm manifest names several
+  // agents. Two agents sharing a caseId used to write the same key, the
+  // second replacing the first — and both records parse, so the sweep would
+  // report one agent's answers as two agents'. Written through the store
+  // rather than by comparing keys, because a key change alone could look
+  // right while the listing found nothing.
+  it('keeps two agents sharing one caseId apart', async () => {
+    const store = createLocalRecordStore(await root())
+    const first = await store.putRecord({
+      ...BASE,
+      agentId: 'chief_of_staff',
+      caseId: 'shared',
+      runId: 'run_shared_cos',
+    })
+    const second = await store.putRecord({
+      ...BASE,
+      agentId: 'priority_flow',
+      caseId: 'shared',
+      runId: 'run_shared_flow',
+    })
+    expect(second).not.toBe(first)
+
+    const read = await store.listRecords(BASE.sweepId, 'base')
+    expect(read.map((r) => r.agentId)).toEqual([
+      'chief_of_staff',
+      'priority_flow',
+    ])
+    expect(read.map((r) => r.runId)).toEqual([
+      'run_shared_cos',
+      'run_shared_flow',
+    ])
   })
 
   it('keeps the two arms apart', async () => {
@@ -169,7 +215,7 @@ describe('the local store', () => {
   it('names the file when a stored record is not even JSON', async () => {
     const dir = await root()
     const store = createLocalRecordStore(dir)
-    const key = recordKey(BASE.sweepId, 'base', 'truncated', 1)
+    const key = recordKey(BASE.sweepId, 'base', BASE.agentId, 'truncated', 1)
     await mkdir(path.dirname(path.join(dir, key)), { recursive: true })
     await writeFile(path.join(dir, key), '{"schemaVersion": 1, "swee', 'utf8')
     await expect(store.listRecords(BASE.sweepId, 'base')).rejects.toThrow(
@@ -197,7 +243,7 @@ describe('the local store', () => {
   it('names the file when a stored record is corrupt', async () => {
     const dir = await root()
     const store = createLocalRecordStore(dir)
-    const key = recordKey(BASE.sweepId, 'base', 'hand-written', 1)
+    const key = recordKey(BASE.sweepId, 'base', BASE.agentId, 'hand-written', 1)
     await mkdir(path.dirname(path.join(dir, key)), { recursive: true })
     await writeFile(path.join(dir, key), '{"schemaVersion":1}', 'utf8')
     await expect(store.listRecords(BASE.sweepId, 'base')).rejects.toThrow(
@@ -251,7 +297,7 @@ describe('the S3 store', () => {
     await store.putManifest(manifest())
     expect([...port.objects.keys()].sort()).toEqual([
       manifestKey(BASE.sweepId, 'base'),
-      recordKey(BASE.sweepId, 'base', BASE.caseId, BASE.attempt),
+      recordKey(BASE.sweepId, 'base', BASE.agentId, BASE.caseId, BASE.attempt),
     ])
   })
 
@@ -271,6 +317,35 @@ describe('the S3 store', () => {
     await store.putRecord({ ...BASE, sweepId: 'swp_1' })
     await store.putRecord({ ...BASE, sweepId: 'swp_12' })
     expect(await store.listRecords('swp_1', 'base')).toHaveLength(1)
+  })
+
+  // The same collision as the local store's, and it has to be checked here
+  // too: the listing prefix is built separately from the write key, so a fix
+  // that only changed the key would list nothing and the judging step would
+  // refuse the arm as one that never reported.
+  it('keeps two agents sharing one caseId apart', async () => {
+    const port = fakePort()
+    const store = createS3RecordStore(port, 'bucket')
+    const first = await store.putRecord({
+      ...BASE,
+      agentId: 'chief_of_staff',
+      caseId: 'shared',
+      runId: 'run_shared_cos',
+    })
+    const second = await store.putRecord({
+      ...BASE,
+      agentId: 'priority_flow',
+      caseId: 'shared',
+      runId: 'run_shared_flow',
+    })
+    expect(second).not.toBe(first)
+    expect(port.objects.size).toBe(2)
+
+    const read = await store.listRecords(BASE.sweepId, 'base')
+    expect(read.map((r) => r.runId)).toEqual([
+      'run_shared_cos',
+      'run_shared_flow',
+    ])
   })
 
   it('refuses to report a manifest that is not there', async () => {

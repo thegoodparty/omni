@@ -143,6 +143,12 @@ export const unjudgeableRecords = (
 // someone else's record would have it written under THIS case's key, which
 // silently replaces a real result with an unrelated one — and both look like
 // valid records, so nothing downstream could notice.
+//
+// A plain Error, not an ArmCaptureError, for the same reason the invalid
+// record below is: a runner that answers the wrong question is ONE agent's
+// runner, and the per-agent catch in `captureArm` turns this into a named
+// skip. An arm-fatal throw here would abort the whole arm, destroying the
+// captures the other agents in it have already been paid for.
 const assertAnswersRequest = (
   record: RunRecord,
   request: ArmCaseRequest,
@@ -156,7 +162,7 @@ const assertAnswersRequest = (
   ].filter(([, got, want]) => got !== want)
 
   if (mismatches.length > 0) {
-    throw new ArmCaptureError(
+    throw new Error(
       'the runner returned a record for a different run: ' +
         mismatches
           .map(([field, got, want]) => `${field} is ${got}, asked for ${want}`)

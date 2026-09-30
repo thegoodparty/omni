@@ -288,8 +288,10 @@ describe('captureArm', () => {
     await captureArm(d, env(), [COS])
     const written = await d.store.listRecords('swp_1', 'candidate')
     expect(
-      written.map((r) => recordKey('swp_1', 'candidate', r.caseId, r.attempt)),
-    ).toEqual(['_judge/swp_1/records/candidate/case-0-1.json'])
+      written.map((r) =>
+        recordKey('swp_1', 'candidate', r.agentId, r.caseId, r.attempt),
+      ),
+    ).toEqual(['_judge/swp_1/records/candidate/chief_of_staff/case-0-1.json'])
   })
 
   // Named rather than silent: an agent that quietly produced no records reads
@@ -381,6 +383,12 @@ describe('captureArm', () => {
     await expect(
       captureArm(await deps(), env({ agentIds: ['not_an_agent'] }), [COS]),
     ).rejects.toThrow(/not agents in the registry: not_an_agent/)
+    // ArmCaptureError specifically, because that is what aborts the arm
+    // rather than skipping the agent: the trigger and the registry
+    // disagreeing about what an agent is cannot be swept around.
+    await expect(
+      captureArm(await deps(), env({ agentIds: ['not_an_agent'] }), [COS]),
+    ).rejects.toThrow(ArmCaptureError)
   })
 
   // A record for a different run would be written under THIS case's key,
@@ -403,9 +411,53 @@ describe('captureArm', () => {
           ...drift,
         }),
       })
-      await expect(captureArm(d, env(), [COS])).rejects.toThrow(ArmCaptureError)
+      const manifest = await captureArm(d, env(), [COS])
+
+      expect(manifest.agents).toEqual([])
+      expect(manifest.skipped[0]?.agentId).toBe('chief_of_staff')
+      expect(manifest.skipped[0]?.reason).toContain(
+        'returned a record for a different run',
+      )
+      expect(await d.store.listRecords('swp_1', 'candidate')).toEqual([])
     },
   )
+
+  // Two agents, because a single-agent test cannot tell "skipped this agent"
+  // from "aborted the arm" — both leave one agent unreported. The mismatched
+  // runner is second on purpose: an abort would throw away the first agent's
+  // records AND its manifest entry after that capture had been paid for.
+  it('skips the agent with the stray record, not the whole arm', async () => {
+    const other: AgentEntry = {
+      ...COS,
+      agentId: 'priority_flow',
+      cases: 'priority_flow.json',
+    }
+    const d = await deps({
+      config: oneAttempt,
+      loadCases: () => caseList(1),
+      runCase: async (request) => {
+        const record = await echoRunner()(request)
+        return request.agent.agentId === other.agentId
+          ? { ...record, caseId: 'someone-else' }
+          : record
+      },
+    })
+    const manifest = await captureArm(
+      d,
+      env({ agentIds: ['chief_of_staff', 'priority_flow'] }),
+      [COS, other],
+    )
+
+    expect(manifest.agents.map((a) => a.agentId)).toEqual(['chief_of_staff'])
+    expect(manifest.agents[0]?.recordsWritten).toBe(1)
+    expect(manifest.skipped).toHaveLength(1)
+    expect(manifest.skipped[0]?.agentId).toBe(other.agentId)
+    expect(manifest.skipped[0]?.reason).toContain(
+      'returned a record for a different run',
+    )
+    const written = await d.store.listRecords('swp_1', 'candidate')
+    expect(written.map((r) => r.agentId)).toEqual(['chief_of_staff'])
+  })
 
   // `runCase` is injected, so whatever satisfies the seam has to produce a
   // record the store will accept. Finding that out at write time would leave

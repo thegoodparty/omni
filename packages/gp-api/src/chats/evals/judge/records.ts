@@ -75,9 +75,28 @@ const segment = (name: string, value: string): string => {
 
 export const JUDGE_PREFIX = '_judge'
 
+// Everything above the agent, and the only place either store builds it.
+// Shared rather than written twice: a listing prefix that drifts from the
+// write key lists nothing, and the judging entry reads an empty listing as an
+// arm that never reported — a paid capture refused for a typo.
+const armRecordsPrefix = (sweepId: string, arm: Arm): string =>
+  [
+    JUDGE_PREFIX,
+    segment('sweepId', sweepId),
+    'records',
+    segment('arm', arm),
+  ].join('/')
+
+// The agent is a segment of its own because a caseId is unique within ONE
+// agent's case list and nowhere else: `cases.ts` dedupes inside a list, and
+// an arm manifest names several agents. Two agents sharing a caseId would
+// otherwise write the same key, the second replacing the first — and both
+// records parse, so nothing downstream could tell that one agent's answers
+// are being reported as two agents'.
 export const recordKey = (
   sweepId: string,
   arm: Arm,
+  agentId: string,
   caseId: string,
   attempt: number,
 ): string => {
@@ -88,10 +107,8 @@ export const recordKey = (
     )
   }
   return [
-    JUDGE_PREFIX,
-    segment('sweepId', sweepId),
-    'records',
-    segment('arm', arm),
+    armRecordsPrefix(sweepId, arm),
+    segment('agentId', agentId),
     `${segment('caseId', caseId)}-${attempt}.json`,
   ].join('/')
 }
@@ -286,7 +303,13 @@ export const createLocalRecordStore = (root: string): RecordStore => {
     // caller who only attached a `.catch`.
     putRecord: async (record) =>
       write(
-        recordKey(record.sweepId, record.arm, record.caseId, record.attempt),
+        recordKey(
+          record.sweepId,
+          record.arm,
+          record.agentId,
+          record.caseId,
+          record.attempt,
+        ),
         serializeRecord(record),
       ),
 
@@ -297,17 +320,14 @@ export const createLocalRecordStore = (root: string): RecordStore => {
       ),
 
     listRecords: async (sweepId, arm) => {
-      const dir = fileFor(
-        [
-          JUDGE_PREFIX,
-          segment('sweepId', sweepId),
-          'records',
-          segment('arm', arm),
-        ].join('/'),
-      )
+      const dir = fileFor(armRecordsPrefix(sweepId, arm))
       let names: string[]
       try {
-        names = await readdir(dir)
+        // Recursive because the records sit one level down, under the agent
+        // that produced them. A flat read would find only the agent
+        // directories, which the `.json` filter then drops — an arm with
+        // records listing none.
+        names = await readdir(dir, { recursive: true })
       } catch (err) {
         // ENOENT only. An arm with no directory has no records, and telling
         // "this arm never ran" from "this arm ran nothing" is the manifest's
@@ -387,7 +407,13 @@ export const createS3RecordStore = (
   return {
     putRecord: async (record) =>
       write(
-        recordKey(record.sweepId, record.arm, record.caseId, record.attempt),
+        recordKey(
+          record.sweepId,
+          record.arm,
+          record.agentId,
+          record.caseId,
+          record.attempt,
+        ),
         serializeRecord(record),
       ),
 
@@ -398,13 +424,10 @@ export const createS3RecordStore = (
       ),
 
     listRecords: async (sweepId, arm) => {
-      const prefix = [
-        JUDGE_PREFIX,
-        segment('sweepId', sweepId),
-        'records',
-        segment('arm', arm),
-        '',
-      ].join('/')
+      // The trailing slash is what stops one arm from picking up another
+      // whose name it prefixes, and S3's key space is flat — so the agent
+      // level below costs this listing nothing.
+      const prefix = `${armRecordsPrefix(sweepId, arm)}/`
 
       // Sorted for the same reason the local store sorts: a seeded slot
       // assignment is only reproducible if the records arrive in one order.

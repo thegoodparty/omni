@@ -120,8 +120,9 @@ pairs are ordinary and the count is what makes a dropped candidate obvious.
 
 ## Records outlive the run, but not in S3 yet
 
-The design puts records at `_judge/<sweepId>/records/<arm>/<caseId>-<attempt>.json`
-on `gp-agent-artifacts-dev`, and `records.ts` has that store ready. The
+The design puts records at
+`_judge/<sweepId>/records/<arm>/<agentId>/<caseId>-<attempt>.json` on
+`gp-agent-artifacts-dev`, and `records.ts` has that store ready. The
 workflow uses a local directory and uploads it as a workflow artifact instead,
 because writing to S3 needs an IAM grant that does not exist yet **and**
 `id-token: write` on the one job that runs the branch's own code with the
