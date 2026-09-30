@@ -137,6 +137,19 @@ export const ArmAgentSchema = z.object({
   agentId: z.string().min(1),
   caseList: z.string().min(1),
   placeholderCases: z.boolean(),
+  // Which of this agent's cases had part of the agent's context written by
+  // the harness rather than built by production — a seeded prior transcript.
+  // Travels the same road `placeholderCases` travels, and for the same
+  // reason: a verdict where the harness wrote half the conversation is not
+  // the same claim as one where the routes wrote all of it, and the
+  // difference is invisible once it is a number in a table.
+  //
+  // OPTIONAL, AND THAT IS WHY THE MANIFEST VERSION DID NOT MOVE. The base arm
+  // writes its manifest with the BASE REF's copy of this file; a required
+  // field here would read, on any base ref predating it, as a corrupt
+  // manifest rather than as version skew. Absent means "this arm's checkout
+  // did not record it", which is also what an arm with no seeded case writes.
+  seededTranscriptCases: z.array(z.string().min(1)).min(1).optional(),
   cases: z.number().int().nonnegative(),
   attempts: z.number().int().positive(),
   recordsWritten: z.number().int().nonnegative(),

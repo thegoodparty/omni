@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
+import { OrdinanceFlowStepSchema } from '@goodparty_org/contracts'
 import {
   AgentShapeSchema,
   JsonValueSchema,
@@ -36,12 +37,226 @@ const CaseIdSchema = z
       'contain only letters, digits, underscore and hyphen',
   )
 
-export const ChatCaseSchema = z.object({
-  caseId: CaseIdSchema,
-  // The turn the agent is asked to take.
-  question: z.string().min(1),
-})
+// EVERY FIELD BELOW IS OPTIONAL, AND THAT IS A CROSS-CHECKOUT REQUIREMENT
+// RATHER THAN A CONVENIENCE. A sweep's two arms are two checkouts at two
+// commits, so the base ref parses its own copy of a case list with its own
+// copy of this file. A required field arriving here reads, on an older base
+// ref, as a case list that no longer validates — which is the break this
+// stack has taken three times. See the note above `ChatCaseSchema`.
+
+export const ToolFailureModeSchema = z.enum(['error', 'timeout'])
+export type ToolFailureMode = z.infer<typeof ToolFailureModeSchema>
+
+// Bounded because a case list is authored text: a directive that waited
+// minutes would be indistinguishable from a wedged sweep.
+export const MAX_TOOL_TIMEOUT_MS = 30_000
+const DEFAULT_TOOL_TIMEOUT_MS = 50
+
+// "Force the tool this request needs to fail" as something a runner can act
+// on. The chat runner already wraps every tool's `execute` to record whether
+// the step failed, so honouring this is a branch at that ONE seam rather than
+// a second code path through the tools.
+//
+// NEITHER MODE RUNS THE REAL TOOL. An ordinance `present_*` tool commits its
+// own record, and a case that says the tool failed must not leave that write
+// behind.
+//
+// `timeout` reproduces the OUTCOME of a timeout — a tool step that rejected,
+// which the AI SDK turns into a tool-error result while the loop carries on
+// and answers with less information. It is not a real wall-clock hang: a hang
+// would cost the route's whole stream timeout per case and arrive as an
+// infraError with no answer to compare, which measures the harness rather
+// than the agent.
+export const ToolFailureSchema = z
+  .object({
+    // Checked against the tools the turn actually registered, not against a
+    // list here: the tool set is assembled by the scope handler from its
+    // context, so no static list could be right for every seed.
+    tool: z.string().min(1),
+    mode: ToolFailureModeSchema,
+    // `timeout` only, and short by default. See above.
+    afterMs: z.number().int().positive().max(MAX_TOOL_TIMEOUT_MS).optional(),
+  })
+  .strict()
+  .refine((one) => one.mode === 'timeout' || one.afterMs === undefined, {
+    message:
+      'afterMs only means something for mode "timeout"; an "error" step ' +
+      'throws before the real execute is reached and waits for nothing',
+    path: ['afterMs'],
+  })
+export type ToolFailure = z.infer<typeof ToolFailureSchema>
+
+// How long a forced timeout waits before rejecting.
+export const toolFailureDelayMs = (failure: ToolFailure): number =>
+  failure.mode === 'timeout' ? (failure.afterMs ?? DEFAULT_TOOL_TIMEOUT_MS) : 0
+
+// "The capability exists but the user lacks access" as something a seeder can
+// act on. A CLOSED SET, and `.strict()` is what keeps it closed: an open bag
+// of column overrides would let a case list seed a state no deployment can
+// produce, and the verdict would then be about an agent we do not ship.
+//
+// The states worth naming are the ones that decide which tools REGISTER,
+// because tool registration is the only thing about an account the model can
+// see. Each is read off a handler rather than invented:
+//
+//   pro             campaignManager.handler gates the whole CRM and
+//                   voter-file family on `ctx.isPro !== false`.
+//   district        `organization.positionId` is the half of the district
+//                   gate that lives in our own database; without it
+//                   resolveByOrgSlug returns null before it asks
+//                   election-api anything, so `districtFilters` is null and
+//                   the constituent-data pair registers on no scope.
+//   campaignDetails the campaign's `details` blob carries `raceId`, which is
+//                   what `get_ballot_requirements` registers on.
+//   ordinanceStep   each ordinance step past clarify carries its own
+//                   `present_*` tools and nothing else does.
+//
+// Absent means "whatever the seeder seeds by default", which is every one of
+// these present. Only an explicit `false` takes something away, so a case
+// list that names none of them seeds exactly what it seeded before.
+export const ChatAccountStateSchema = z
+  .object({
+    pro: z.boolean().optional(),
+    district: z.boolean().optional(),
+    campaignDetails: z.boolean().optional(),
+    ordinanceStep: OrdinanceFlowStepSchema.optional(),
+  })
+  .strict()
+  .refine((state) => Object.keys(state).length > 0, {
+    message:
+      'an empty accountState asks for nothing; omit the field rather than ' +
+      'declaring a state the seeder cannot tell from the default',
+  })
+export type ChatAccountState = z.infer<typeof ChatAccountStateSchema>
+
+// One row of a transcript the harness writes onto the record before the agent
+// is asked anything, so a case can be answered MID-conversation.
+//
+// `toolCalls` carries the CALL and its input, which is what production stores:
+// `onToolCallStart` pushes a tool segment and the result is streamed to the
+// client without ever being persisted. A seeded turn therefore cannot carry a
+// tool result, because a real one does not either.
+export const SeededTurnSchema = z
+  .object({
+    role: z.enum(['user', 'assistant']),
+    // Not `.min(1)` here: production persists a widget-only assistant turn
+    // with empty content and replays it to nobody, and a seeded transcript
+    // that could not express that would be the wrong shape. The refine below
+    // is what keeps an empty row from being an authoring slip.
+    content: z.string(),
+    toolCalls: z
+      .array(
+        z
+          .object({
+            tool: z.string().min(1),
+            input: JsonValueSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .optional(),
+  })
+  .strict()
+  .refine((turn) => turn.role === 'assistant' || turn.toolCalls === undefined, {
+    message: 'only an assistant turn can carry toolCalls',
+    path: ['toolCalls'],
+  })
+  .refine(
+    (turn) => turn.content.trim().length > 0 || turn.toolCalls !== undefined,
+    {
+      message:
+        'a turn with no content and no toolCalls puts an empty row on the ' +
+        'record, which reads as a turn that happened rather than one that ' +
+        'was never written',
+      path: ['content'],
+    },
+  )
+export type SeededTurn = z.infer<typeof SeededTurnSchema>
+
+// Ten turns is more conversation than any authored case needs and every one
+// of them is a paid model call under a spending sweep.
+export const MAX_CASE_TURNS = 10
+// Twenty rows, against the route's own 40-message replay window. The runner
+// refuses the combination that would push a seeded row out of that window;
+// this is only the authoring bound.
+export const MAX_SEEDED_TURNS = 20
+
+// The case a chat agent is driven with.
+//
+// `question` STAYS VALID ON ITS OWN and is still what every authored list
+// uses: nineteen case lists carry nothing else, and none of them needed
+// editing for any of this. It is now optional only because `turns` is the
+// general spelling of the same thing — the refine below requires exactly one
+// of the two, so a case with neither is refused rather than driving an agent
+// that was asked nothing.
+export const ChatCaseSchema = z
+  .object({
+    caseId: CaseIdSchema,
+    // The single turn the agent is asked to take.
+    question: z.string().min(1).optional(),
+    // Several USER turns, posted in order to one conversation. The route
+    // persists history, so turn 2 already sees turn 1 and its reply; nothing
+    // here hand-builds a context.
+    turns: z.array(z.string().min(1)).min(1).max(MAX_CASE_TURNS).optional(),
+    // A transcript written onto the record before the first driven turn, so
+    // the agent answers mid-conversation.
+    priorTranscript: z
+      .array(SeededTurnSchema)
+      .min(1)
+      .max(MAX_SEEDED_TURNS)
+      .optional(),
+    toolFailure: ToolFailureSchema.optional(),
+    accountState: ChatAccountStateSchema.optional(),
+  })
+  .refine((one) => (one.question === undefined) !== (one.turns === undefined), {
+    message:
+      'a chat case needs exactly one of `question` (one turn) or `turns` ' +
+      '(several user turns in order); carrying both leaves which one the ' +
+      'agent was asked undecided',
+    path: ['question'],
+  })
 export type ChatCase = z.infer<typeof ChatCaseSchema>
+
+// THE `input` PAYLOAD a chat case records when it uses any of the fields
+// above, and the ONE schema both sides of it read: `runners/chat.ts` builds
+// the value and `normalize.ts` renders it. A writer and a reader that
+// described this shape separately would drift, and the record travels between
+// two checkouts, so the drift would show up as a comparison refused for the
+// wrong reason.
+//
+// `turns` is always present, even for a one-turn case: a case that uses any
+// new field records the general shape, which is what makes an older base
+// ref's plainer `{ kind: 'question' }` payload mismatch rather than compare.
+export const TranscriptInputSchema = z.object({
+  turns: z.array(z.string().min(1)).min(1),
+  seededTranscript: z.array(SeededTurnSchema).min(1).optional(),
+  toolFailure: ToolFailureSchema.optional(),
+  accountState: ChatAccountStateSchema.optional(),
+})
+export type TranscriptInput = z.infer<typeof TranscriptInputSchema>
+
+// The case's user turns, in order. One list whichever spelling was used, so
+// nothing downstream of here branches on which field the author picked.
+//
+// Throws rather than returning an empty list: `ChatCaseSchema` guarantees one
+// of the two fields, but the TYPE has both optional, so a hand-built case in
+// a test or a future caller can reach here with neither — and an empty list
+// would drive a conversation of no turns and record it as a run.
+export const caseTurns = (one: ChatCase): string[] => {
+  if (one.turns !== undefined) return one.turns
+  if (one.question !== undefined) return [one.question]
+  throw new CaseListError(
+    `${one.caseId} carries neither question nor turns, so there is no turn ` +
+      'to drive',
+  )
+}
+
+// Whether this case asked the harness to build any part of the agent's
+// context by hand. Carried to the record, the manifest and the report: a
+// verdict where the harness wrote half the transcript is not the same claim
+// as one where production built all of it.
+export const usesSeededTranscript = (one: ChatCase): boolean =>
+  one.priorTranscript !== undefined
 
 export const BackgroundCaseSchema = z.object({
   caseId: CaseIdSchema,
@@ -220,6 +435,14 @@ export const loadCaseList = (
     shape: agent.shape,
   })
 }
+
+// Which shape a loaded case is. Discriminated on the BACKGROUND field, not on
+// a chat one: every field of a chat case except its id is optional now, so the
+// absence of any one of them proves nothing. `params` is required of a
+// background case and impossible on a chat one, which makes it the only
+// structural discriminator left.
+export const isChatCase = (one: JudgeCase): one is ChatCase =>
+  !('params' in one)
 
 // A background agent's cases, narrowed. `parseCaseList` already discriminated
 // on `shape` when it built these, so re-deriving the narrowing structurally in

@@ -1,3 +1,4 @@
+import { TranscriptInputSchema } from './cases'
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig, type Rng } from './config'
 import {
   isComparable,
@@ -120,10 +121,65 @@ const renderJson: PayloadRenderer = (payload) =>
     ? payload.value
     : JSON.stringify(payload.value, null, 2)
 
+// A chat case whose input is more than one question: several user turns, and
+// whatever conditions the case put the agent under. Rendered as prose rather
+// than as raw JSON because this string is what the judge reads as
+// `<shared_input>`, and a JSON blob there spends the judge's attention on
+// punctuation.
+//
+// Deterministic in every part, which is what it has to be: the same value
+// renders to the same text or `blindCase` reports two arms of one case as
+// having been asked different things.
+const renderTranscript: PayloadRenderer = (payload) => {
+  const parsed = TranscriptInputSchema.safeParse(payload.value)
+  // Falls back to pretty JSON rather than throwing. A shape this build does
+  // not recognise is still the input both arms were given, and refusing to
+  // render it would turn an unreadable label into a lost comparison.
+  if (!parsed.success) return renderJson(payload)
+  const { turns, seededTranscript, toolFailure, accountState } = parsed.data
+  const lines: string[] = []
+  if (seededTranscript !== undefined) {
+    lines.push('Conversation so far, written by the harness:')
+    for (const turn of seededTranscript) {
+      const calls = (turn.toolCalls ?? [])
+        .map((call) => call.tool)
+        .sort()
+        .join(', ')
+      lines.push(
+        `  ${turn.role}: ${turn.content}` +
+          (calls.length > 0 ? ` [called ${calls}]` : ''),
+      )
+    }
+    lines.push('')
+  }
+  lines.push(
+    ...turns.map((turn, index) =>
+      turns.length === 1 ? turn : `Turn ${index + 1}: ${turn}`,
+    ),
+  )
+  if (toolFailure !== undefined) {
+    lines.push(
+      '',
+      `Condition: the tool "${toolFailure.tool}" was forced to ` +
+        `${toolFailure.mode}.`,
+    )
+  }
+  if (accountState !== undefined) {
+    const described = Object.entries(accountState)
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .sort()
+      .join(', ')
+    lines.push('', `Condition: account state ${described}.`)
+  }
+  return lines.join('\n')
+}
+
 export const RENDERERS: Readonly<Record<string, PayloadRenderer>> = {
   // Chat: the input is a question and the output is prose.
   question: renderJson,
   text: renderJson,
+  // Chat, when the case is more than one question — see renderTranscript.
+  transcript: renderTranscript,
   // Background: the input is a params object and the output an artifact.
   params: renderJson,
   artifact: renderJson,

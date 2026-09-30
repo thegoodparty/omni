@@ -22,6 +22,13 @@ export interface Refusal {
   reason: string
 }
 
+// An agent some of whose cases were answered mid-conversation, against a
+// transcript the harness wrote rather than one production produced.
+export interface SeededTranscripts {
+  agentId: string
+  caseIds: readonly string[]
+}
+
 export interface SweepReport {
   // One entry per agent. Never a blended number: a Chief of Staff score
   // averaged against a briefing score would have no referent.
@@ -40,6 +47,10 @@ export interface SweepReport {
   // number drawn from inputs somebody wrote to exercise the pipeline is not
   // the same claim as one drawn from inputs somebody wrote to test the agent.
   placeholderCases?: readonly string[]
+  // Cases the harness put mid-conversation by writing assistant turns onto
+  // the record itself. Beside the placeholder warning for the same reason:
+  // both say what the verdict above can be read to mean.
+  seededTranscripts?: readonly SeededTranscripts[]
   // How many of each agent's pairs came back byte-identical. Evidence, not a
   // verdict: the refusal for an all-identical sweep arrives as a Refusal.
   identicalOutputs?: readonly IdenticalOutputs[]
@@ -431,6 +442,19 @@ export const placeholderLines = (agentIds: readonly string[]): string[] => [
     'branch.',
 ]
 
+export const seededTranscriptLines = (
+  seeded: readonly SeededTranscripts[],
+): string[] => [
+  '> **Seeded transcripts:** ' +
+    seeded
+      .map((one) => `${one.agentId} (${[...one.caseIds].sort().join(', ')})`)
+      .join('; ') +
+    '. These cases were answered mid-conversation against assistant turns ' +
+    'the harness wrote onto the record, so production did not build the ' +
+    'whole context the agent read. Keep their verdicts separable from the ' +
+    'ones where it did.',
+]
+
 export const renderReport = (
   report: SweepReport,
   config: JudgeConfig = DEFAULT_JUDGE_CONFIG,
@@ -449,6 +473,15 @@ export const renderReport = (
   const placeholders = report.placeholderCases ?? []
   if (placeholders.length > 0) {
     lines.push(...placeholderLines(placeholders))
+    lines.push('')
+  }
+
+  // Immediately after the placeholder warning: both qualify what the verdicts
+  // above mean, and a reader who stops after the first agent section has to
+  // have seen either one that applies.
+  const seeded = report.seededTranscripts ?? []
+  if (seeded.length > 0) {
+    lines.push(...seededTranscriptLines(seeded))
     lines.push('')
   }
 

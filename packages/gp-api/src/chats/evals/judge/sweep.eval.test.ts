@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
 import { findAgent } from './agents'
-import { loadCaseList } from './cases'
+import { isChatCase, loadCaseList } from './cases'
 import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
-import { seedChatOrg } from './runners/seedChatOrg'
+import { seedChatOrg, seedOptionsFor } from './runners/seedChatOrg'
 import { captureArm, unjudgeableRecords, type ArmCaseRequest } from './sweepArm'
 import { parseArmEnv, storeFromEnv } from './sweepEnv'
 
@@ -75,10 +75,10 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
                   'agent; captureArm should have skipped it before here',
               )
             }
-            if (!('question' in request.case)) {
+            if (!isChatCase(request.case)) {
               throw new Error(
-                `${request.case.caseId} carries no question, so it is not ` +
-                  'a chat case',
+                `${request.case.caseId} carries params, so it is a ` +
+                  'background case and not a chat one',
               )
             }
             // Seeded per case AND PER ATTEMPT. `useTestService` resets the
@@ -92,11 +92,21 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
             // slug, so two arms that changed nothing the agent can see still
             // render the same system prompt and the identical-config refusal
             // stays armed.
+            //
+            // The case's account state is applied HERE, because this is
+            // where the Prisma client is. `seedOptionsFor` refuses a state
+            // the scope has no row for, before anything is seeded; the
+            // runner reads the three rows back and refuses a state the seed
+            // does not match, before a conversation is opened. Two checks
+            // rather than one because this wiring is the only uncovered
+            // hop in the chain: the suite it lives in is skipped unless
+            // JUDGE_ARM is set.
             const seeded = await seedChatOrg(
               service.prisma,
               service.user.id,
               request.agent.agentId,
               `${request.case.caseId}-${request.attempt}`,
+              seedOptionsFor(request.agent.agentId, request.case.accountState),
             )
             return runChatCase(
               { service },

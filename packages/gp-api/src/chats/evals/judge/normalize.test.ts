@@ -502,3 +502,140 @@ describe('pairing', () => {
     expect(payload.agentId).toBe('chief_of_staff')
   })
 })
+
+// The chat input a case with several turns or a condition records. Read as
+// prose rather than raw JSON because this string is what the judge is handed
+// as `<shared_input>`, and a JSON blob there spends its attention on
+// punctuation.
+describe('rendering a transcript input', () => {
+  it('numbers the turns of a conversation', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: { turns: ['What are my priorities?', 'Which is oldest?'] },
+      }),
+    ).toBe('Turn 1: What are my priorities?\nTurn 2: Which is oldest?')
+  })
+
+  // A one-turn case that only carries a condition reads as the question it
+  // is, not as "Turn 1 of 1".
+  it('leaves a single turn unnumbered', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: { turns: ['Am I on the ballot?'], accountState: { pro: false } },
+      }),
+    ).toBe('Am I on the ballot?\n\nCondition: account state pro=false.')
+  })
+
+  it('shows the conversation the harness wrote before the turn', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: {
+          turns: ['Which is oldest?'],
+          seededTranscript: [
+            { role: 'user', content: 'What are my priorities?' },
+            {
+              role: 'assistant',
+              content: 'Three.',
+              toolCalls: [{ tool: 'crud_priorities', input: {} }],
+            },
+          ],
+        },
+      }),
+    ).toBe(
+      'Conversation so far, written by the harness:\n' +
+        '  user: What are my priorities?\n' +
+        '  assistant: Three. [called crud_priorities]\n' +
+        '\n' +
+        'Which is oldest?',
+    )
+  })
+
+  it('names the tool a case forced to fail', () => {
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: {
+          turns: ['How many constituents?'],
+          toolFailure: { tool: 'query_constituent_data', mode: 'timeout' },
+        },
+      }),
+    ).toContain(
+      'Condition: the tool "query_constituent_data" was forced to timeout.',
+    )
+  })
+
+  // Deterministic in every part, or blindCase reports two arms of one case as
+  // having been asked different things. The keys of an account state arrive
+  // in whatever order JSON.parse produced them.
+  it('orders the conditions it prints', () => {
+    const a = renderPayload({
+      kind: 'transcript',
+      value: { turns: ['q'], accountState: { pro: false, district: true } },
+    })
+    const b = renderPayload({
+      kind: 'transcript',
+      value: { turns: ['q'], accountState: { district: true, pro: false } },
+    })
+    expect(a).toBe(b)
+    expect(a).toContain('district=true, pro=false')
+  })
+
+  // A shape this build does not recognise is still the input both arms were
+  // given. Refusing to render it would turn an unreadable label into a lost
+  // comparison.
+  it('falls back to JSON rather than losing the comparison', () => {
+    expect(
+      renderPayload({ kind: 'transcript', value: { turns: [] } }),
+    ).toContain('"turns"')
+  })
+})
+
+// THE CROSS-CHECKOUT GUARD, end to end. The base arm is a separate checkout
+// at an older commit: it parses the same case list with its own copy of
+// ChatCaseSchema, strips the field it does not know, and drives a plainer
+// run. What must NOT happen is that the two are compared and reported as a
+// verdict about the branch.
+describe('an arm whose checkout did not know a case field', () => {
+  it('refuses the pair rather than comparing two conditions', () => {
+    expect(() =>
+      blindCase(
+        // What an older base ref records: `question` only.
+        { ...BASE, input: { kind: 'question', value: 'Am I on the ballot?' } },
+        {
+          ...CANDIDATE,
+          input: {
+            kind: 'transcript',
+            value: {
+              turns: ['Am I on the ballot?'],
+              accountState: { pro: false },
+            },
+          },
+        },
+        ALWAYS_X_IS_BASE,
+      ),
+    ).toThrow(MismatchedInputError)
+  })
+
+  // And two arms that both honoured it compare normally, which is what makes
+  // the refusal above a signal rather than a blanket.
+  it('compares two arms that both honoured the field', () => {
+    const input = {
+      kind: 'transcript',
+      value: {
+        turns: ['Am I on the ballot?'],
+        accountState: { pro: false },
+      },
+    }
+    const blinded = blindCase(
+      { ...BASE, input },
+      { ...CANDIDATE, input },
+      ALWAYS_X_IS_BASE,
+    )
+    expect(blinded.payload.sharedInput).toContain(
+      'Condition: account state pro=false.',
+    )
+  })
+})

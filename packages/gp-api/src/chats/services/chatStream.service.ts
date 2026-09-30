@@ -130,7 +130,10 @@ const RETRYABLE: Record<ChatStreamErrorCode, boolean> = {
 // Tool args arrive typed as `unknown` from the AI SDK, but they are JSON by
 // construction (the model produced them against the tool's JSON schema), so
 // persisting them as the segment payload is safe.
-const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
+// Exported for the judge's transcript seeder, which has to convert a tool
+// input to a segment payload the same way a streamed turn does — see
+// src/chats/evals/judge/runners/seedTranscript.ts.
+export const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
   if (value === null || value === undefined) return null
 
   return value as Prisma.InputJsonValue
@@ -941,7 +944,14 @@ export class ChatStreamService {
     }
   }
 
-  private async persistAssistantText(
+  // PUBLIC for one caller outside the stream: the judge harness seeds a prior
+  // transcript so an eval case can be answered mid-conversation, and a seeded
+  // assistant row has to be the shape a streamed one is or the model's
+  // context differs from production and the verdict is about an agent we do
+  // not ship. Reusing this is what makes the two identical by construction
+  // rather than by inspection —
+  // src/chats/evals/judge/runners/seedTranscript.ts.
+  async persistAssistantText(
     conversationId: string,
     text: string,
     segments?: PersistedSegment[],

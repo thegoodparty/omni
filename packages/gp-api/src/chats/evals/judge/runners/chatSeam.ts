@@ -11,6 +11,7 @@ import {
 } from '@/llm/services/llm.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
+import { toolFailureDelayMs, type ToolFailure } from '../cases'
 import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from '../config'
 import type { JsonValue, TraceStep } from '../record'
 
@@ -67,14 +68,31 @@ export interface ToolOutcome {
 export interface TurnCapture {
   // Undefined until the turn reaches the LLM seam, which is how a run that
   // died in loadContext or in the guard is told apart from one that ran.
+  // Overwritten per turn, so on a multi-turn case this is the LAST turn's
+  // prompt. That is the right one to hash: the scope handler rebuilds the
+  // prompt each turn from the same context, and the growing conversation
+  // travels in `messages` rather than in the prompt.
   systemPrompt?: string
   toolNames: string[]
   model?: string
+  // ACCUMULATED across every turn of the case, not the last turn's alone.
   tokens?: { input: number; output: number }
+  // How many turns have had their usage folded into `tokens`. A caller that
+  // drove more turns than this prices nothing: a partial count under a real
+  // pricingVersion reads as a cheaper run rather than an unknown one.
+  turnsPriced: number
   // Deferred on purpose: the usage promise only resolves once the stream has
   // been drained, so reading it at the seam would deadlock the turn.
   readUsage?: () => Promise<LlmStreamUsage>
   outcomes: ToolOutcome[]
+  // A directive the turn could not honour — today, a forced-failure tool the
+  // turn never registered. Recorded rather than thrown BECAUSE the route
+  // swallows a throw out of streamChatCompletion into an error chunk: the
+  // run would come back as an ordinary infraError and the authoring mistake
+  // would be invisible. The runner reads this after the turn and fails the
+  // case by name. Nothing is spent either way — the refusal happens before
+  // the model is called.
+  directiveError?: string
 }
 
 // These helpers reach into a Nest singleton and into a live provider, and
@@ -141,14 +159,78 @@ const systemPromptOf = (options: LlmStreamOptions): string => {
     : JSON.stringify(system.content)
 }
 
+// The error a forced failure raises, named so a reader of a trace can tell an
+// injected failure from a real one. The judge sees only the final output, so
+// this text reaches a person rather than a model.
+export const forcedFailureText = (failure: ToolFailure): string =>
+  failure.mode === 'timeout'
+    ? `forced timeout: the judge case asked "${failure.tool}" to time out`
+    : `forced failure: the judge case asked "${failure.tool}" to fail`
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms))
+
+// Named so a forced timeout is the same failure CLASS a real one is, rather
+// than a generic Error a reader has to interpret.
+class ForcedToolFailureError extends Error {
+  constructor(failure: ToolFailure) {
+    super(forcedFailureText(failure))
+    this.name = failure.mode === 'timeout' ? 'TimeoutError' : 'ToolFailedError'
+  }
+}
+
+// A forced failure that names no registered tool. The turn is refused rather
+// than run: a directive nobody could honour reads, in the record, exactly
+// like a case the agent simply never needed the tool for — so the verdict
+// would be about an agent that was never put under the condition the case
+// claims.
+export const unknownToolText = (
+  failure: ToolFailure,
+  registered: readonly string[],
+): string =>
+  `the case asks "${failure.tool}" to ${failure.mode}, but this turn ` +
+  `registered no such tool; it offered ${
+    registered.length === 0 ? 'none' : [...registered].sort().join(', ')
+  }`
+
+// The reason a forced-failure directive cannot be honoured, or nothing.
+// Checked against the tool names the turn ACTUALLY offered, which is the
+// earliest point the set exists — the scope handler assembles it from its
+// context, so no static list here could be right for every seed. It is still
+// before the model is called, so a refused directive costs nothing.
+//
+// Separate from `instrumentTools` and called unconditionally, because a turn
+// that registered no tools at all never reaches the wrapper — and that is
+// exactly a turn where every named tool is unknown.
+export const toolFailureRefusal = (
+  failure: ToolFailure | undefined,
+  registered: readonly string[],
+): string | undefined =>
+  failure === undefined || registered.includes(failure.tool)
+    ? undefined
+    : unknownToolText(failure, registered)
+
+export interface ToolInstrumentation {
+  outcomes: ToolOutcome[]
+  failure?: ToolFailure
+}
+
 // Wraps every executable tool so a failed step is recorded. The AI SDK turns a
 // throw here into a tool-error result and keeps going, so the run still
 // produces an answer — a worse-informed one. Counting it is what keeps a dead
 // credential from reading as a code regression.
-const instrumentTools = (
+//
+// The same seam is where a case's forced failure is honoured, which is the
+// reason the capability needed no new code path: a directive replaces the
+// call to the real `execute` and pushes the same outcome a genuine failure
+// pushes. The real tool is NOT called — an ordinance `present_*` tool commits
+// its own record, and a case that says the tool failed must not leave that
+// write behind.
+export const instrumentTools = (
   tools: Record<string, LlmTool> | undefined,
-  outcomes: ToolOutcome[],
+  instrumentation: ToolInstrumentation,
 ): Record<string, LlmTool> | undefined => {
+  const { outcomes, failure } = instrumentation
   if (!tools) return undefined
   const wrapped: Record<string, LlmTool> = {}
   for (const [name, tool] of Object.entries(tools)) {
@@ -156,10 +238,17 @@ const instrumentTools = (
       wrapped[name] = tool
       continue
     }
+    const forced = failure?.tool === name ? failure : undefined
     wrapped[name] = {
       description: tool.description,
       inputSchema: tool.inputSchema,
       execute: async (input: ToolInput) => {
+        if (forced) {
+          await sleep(toolFailureDelayMs(forced))
+          const err = new ForcedToolFailureError(forced)
+          outcomes.push({ tool: name, error: traceErrorText(err) })
+          throw err
+        }
         try {
           const output = await tool.execute(input)
           outcomes.push({ tool: name })
@@ -270,6 +359,11 @@ export interface LlmCaptureOptions {
   script?: ChatTurnScript
   // Ask for the real, paid Anthropic call instead. Needs the spend switch.
   realModel?: boolean
+  // One tool the case asked to fail, honoured at the execute seam. Applies to
+  // EVERY call of that tool for as long as the capture is installed, which on
+  // a multi-turn case is every turn: a condition that healed itself halfway
+  // through a conversation is not a condition anybody authored.
+  toolFailure?: ToolFailure
 }
 
 // No script means the real model answers, which bills Anthropic for every
@@ -306,7 +400,11 @@ export const installLlmCapture = (
   assertMaySpend(options)
   const { script } = options
   return claim(llm, 'installLlmCapture', () => {
-    const capture: TurnCapture = { toolNames: [], outcomes: [] }
+    const capture: TurnCapture = {
+      toolNames: [],
+      turnsPriced: 0,
+      outcomes: [],
+    }
     // .bind() returns any — TypeScript cannot infer the bound method signature
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
     const original: LlmService['streamChatCompletion'] =
@@ -321,10 +419,27 @@ export const installLlmCapture = (
     ): Promise<LlmStreamResult> => {
       capture.systemPrompt = systemPromptOf(streamOptions)
       capture.toolNames = Object.keys(streamOptions.tools ?? {}).sort()
+      // First reason kept: on a multi-turn case every turn reports the same
+      // unhonourable directive, and the later copies say nothing the first
+      // did not.
+      const refusal = toolFailureRefusal(options.toolFailure, capture.toolNames)
+      capture.directiveError ??= refusal
+      // RECORDED AND THEN THROWN, both, and neither is redundant. The throw
+      // is what keeps the model from being called, which is the difference
+      // between a refused directive costing nothing and costing a paid turn.
+      // The record is what lets the runner name the authoring mistake: the
+      // chat route catches a throw out of here and writes an error chunk, so
+      // on the throw alone the run would come back as an ordinary infraError
+      // and the directive nobody could honour would be invisible.
+      if (refusal !== undefined) throw new Error(refusal)
+      const instrumentation: ToolInstrumentation = {
+        outcomes: capture.outcomes,
+        ...(options.toolFailure && { failure: options.toolFailure }),
+      }
       const instrumented: LlmStreamOptions = {
         ...streamOptions,
         ...(streamOptions.tools && {
-          tools: instrumentTools(streamOptions.tools, capture.outcomes) ?? {},
+          tools: instrumentTools(streamOptions.tools, instrumentation) ?? {},
         }),
       }
       const result = script
@@ -352,10 +467,28 @@ export const installLlmCapture = (
 // streamText call spans every step and `totalUsage` — which is what
 // LlmStreamResult.usage carries — already covers the whole turn. Summing per
 // step here would double-count it.
+// ACCUMULATES. One call folds one turn's usage into the running total and
+// counts it, so a multi-turn case reports what the whole conversation cost
+// rather than what its last turn cost. A single-turn case is unchanged: one
+// read of one promise, and `tokens` is that turn's.
+//
+// llm.service stops the loop with `stepCountIs(maxSteps + 1)`, so one
+// streamText call spans every step of ONE turn and `totalUsage` already
+// covers it. Summing per step would double-count; summing per turn is the
+// level at which there really are several numbers.
 export const readTurnTokens = async (capture: TurnCapture): Promise<void> => {
-  if (!capture.readUsage) return
-  const usage = await capture.readUsage()
-  capture.tokens = { input: usage.inputTokens, output: usage.outputTokens }
+  const read = capture.readUsage
+  if (!read) return
+  // Cleared before the await so a second call cannot fold the same turn in
+  // twice, and so a rejected promise leaves `turnsPriced` behind the turn
+  // count — which is what makes the run unpriceable rather than cheap.
+  capture.readUsage = undefined
+  const usage = await read()
+  capture.tokens = {
+    input: (capture.tokens?.input ?? 0) + usage.inputTokens,
+    output: (capture.tokens?.output ?? 0) + usage.outputTokens,
+  }
+  capture.turnsPriced += 1
 }
 
 export class UnpinnableSqlError extends Error {}

@@ -9,6 +9,13 @@ import { ChatMessageRole } from '../../../../generated/prisma'
 import { LlmService } from '@/llm/services/llm.service'
 import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
 import type { TestServiceContext } from '@/test-service'
+import {
+  caseTurns,
+  CaseListError,
+  type ChatAccountState,
+  type SeededTurn,
+  type ToolFailure,
+} from '../cases'
 import { PRICING_VERSION, UnpriceableRunError, priceUsd } from '../pricing'
 import {
   isoUtc,
@@ -16,6 +23,8 @@ import {
   type Arm,
   type CiContext,
   type Cost,
+  type JsonValue,
+  type Payload,
   type RunRecord,
   type RunStatus,
   type TokenUsage,
@@ -35,8 +44,10 @@ import {
   type DeltaPin,
   type InstalledLlmCapture,
   type StreamEvent,
+  type TurnCapture,
 } from './chatSeam'
-import { chatScopeFor } from './seedChatOrg'
+import { assertAccountStateSupported, chatScopeFor } from './seedChatOrg'
+import { assertTranscriptFits, seedPriorTranscript } from './seedTranscript'
 
 // One arm of one case for a chat agent: drive a real turn through the real
 // HTTP routes and return a RunRecord. The orchestrator that runs both arms and
@@ -64,12 +75,27 @@ export const TOOL_BUDGET_FALLBACK_REPLY =
 const HTTP_CREATED: number = HttpStatus.CREATED
 const HTTP_OK: number = HttpStatus.OK
 
+// The case, as the runner needs it. Structurally the loaded `ChatCase` minus
+// the caseId's path-segment regex, which the loader has already applied — so a
+// case list's case is assignable here and a hand-built one in a test needs no
+// file on disk.
 export interface ChatJudgeCase {
   caseId: string
   // The turn the agent is asked to take. Must not be a scope's canned-reply
   // sentinel (campaign_assistant has two), or the handler answers from a
   // script and the record describes no model behavior at all.
-  question: string
+  question?: string
+  // Several USER turns, posted in order to ONE conversation. Nothing here
+  // hand-builds the history between them: the route persists each turn, so
+  // turn 2 is answered against turn 1 and its reply exactly the way
+  // production would.
+  turns?: string[]
+  // A transcript written onto the conversation before the first driven turn.
+  priorTranscript?: SeededTurn[]
+  toolFailure?: ToolFailure
+  // Recorded and CHECKED here, not applied here: the seed happens in the
+  // caller, which owns the Prisma client. See assertSeededAccountState.
+  accountState?: ChatAccountState
 }
 
 export interface ChatRunnerPorts {
@@ -173,10 +199,61 @@ export const classifyChatStatus = (
     : 'produced'
 }
 
+// ONE STATUS FOR THE WHOLE CONVERSATION, worst turn wins.
+//
+// A turn that broke means the conversation the case authored did not happen,
+// so there is no honest way to judge what is left: the later turns were
+// answered against a history missing a reply, and the earlier ones are half a
+// case. infraError says that, and infraError is excluded from the delta
+// rather than counted as a loss.
+//
+// A turn that fell back to the declined reply is different: it is an agent
+// RESULT, it stays judgeable, and whether declining there was right is
+// exactly what a verdict should capture. It marks the case `blocked` even
+// when a later turn recovered, because a conversation that needed to recover
+// is the behavior being compared.
+export const combineChatStatus = (perTurn: readonly RunStatus[]): RunStatus => {
+  // Empty means no turn was driven at all, which is never a result.
+  if (perTurn.length === 0) return 'infraError'
+  if (perTurn.includes('infraError')) return 'infraError'
+  return perTurn.includes('blocked') ? 'blocked' : 'produced'
+}
+
+// EVERY assistant reply, in order — not the last one alone.
+//
+// The case is a conversation, so the conversation is what the judge compares.
+// Scoring only the final reply would hide a regression in an earlier turn
+// behind whatever the agent said last, and it would hide it asymmetrically:
+// the earlier reply still shaped the later one, so the difference would reach
+// the verdict as an unexplained change in the only text anybody read.
+//
+// A ONE-TURN CASE IS UNLABELLED AND BYTE-IDENTICAL TO BEFORE. The labels
+// exist because a reply can itself contain blank lines, which makes an
+// unlabelled join ambiguous about where one turn ended — and they are the
+// same on both arms, so they add nothing a judge could read as a difference.
+export const joinTurnReplies = (replies: readonly string[]): string => {
+  const [only] = replies
+  if (replies.length === 1 && only !== undefined) return only
+  return replies
+    .map((reply, index) => `[turn ${index + 1}]\n${reply}`)
+    .join('\n\n')
+}
+
 interface TurnOutcome {
   output: string | null
   events: StreamEvent[]
   streamErrored: boolean
+}
+
+interface CaseOutcome {
+  // One per driven turn, in order.
+  turns: TurnOutcome[]
+  // Accumulated across every turn, re-indexed so the steps read as one
+  // sequence rather than as several restarting at zero.
+  trace: TraceStep[]
+  // Why a turn's token usage never resolved, one per turn that failed to
+  // report. Non-fatal: token accounting is not the turn.
+  usageErrors: string[]
 }
 
 const infraTrace = (message: string): TraceStep[] => [
@@ -237,10 +314,24 @@ const readAssistantText = async (
   return row?.content ?? null
 }
 
-const driveTurn = async (
+// Re-numbered so several turns' traces read as one sequence. A one-turn case
+// is unchanged in value: buildTrace already numbers from zero.
+export const reindexTrace = (steps: readonly TraceStep[]): TraceStep[] =>
+  steps.map((step, index) => ({ ...step, index }))
+
+// EVERY USER TURN OF THE CASE, POSTED TO ONE CONVERSATION.
+//
+// Turn 2 sees turn 1 because the ROUTE persisted it, not because anything
+// here assembled a history: `ChatStreamService.run` appends the user message
+// and then replays the conversation's recent rows. That is the only way a
+// multi-turn case measures the agent rather than the harness's idea of what
+// a conversation looks like.
+const driveCase = async (
   ports: ChatRunnerPorts,
   request: ChatRunRequest,
-): Promise<TurnOutcome> => {
+  capture: TurnCapture,
+  turns: readonly string[],
+): Promise<CaseOutcome> => {
   const scope = chatScopeFor(request.agentId)
   const headers = {
     headers: { 'X-Organization-Slug': request.organizationSlug },
@@ -258,24 +349,65 @@ const driveTurn = async (
   }
   const { conversationId } = CreateChatResponseSchema.parse(created.data)
 
-  // No clientMessageId: the route requires a GUID and it only buys user-turn
-  // dedup, which a run that opens its own conversation cannot need.
-  const streamed = await ports.service.client.post<string>(
-    `/v1/chats/${conversationId}/messages?scope=${scope}`,
-    { content: request.case.question },
-    headers,
-  )
-  if (streamed.status !== HTTP_OK) {
-    throw new Error(`POST /v1/chats/:id/messages returned ${streamed.status}`)
+  // Before the first turn, so the agent's first reply is already a
+  // mid-conversation one. No route writes an assistant message, so this
+  // reaches the store directly — through the same two methods the live turn
+  // uses. See seedTranscript.ts.
+  if (request.case.priorTranscript !== undefined) {
+    await seedPriorTranscript(ports.service.app, {
+      conversationId,
+      ownerUserId: ports.service.user.id,
+      turns: request.case.priorTranscript,
+      drivenTurns: turns.length,
+    })
   }
 
-  const events = parseStreamEvents(String(streamed.data))
-  const done = events.find((event) => event.type === 'done')
-  return {
-    output: await readAssistantText(ports, done?.assistantMessageId),
-    events,
-    streamErrored: events.some((event) => event.type === 'error'),
+  const outcomes: TurnOutcome[] = []
+  const trace: TraceStep[] = []
+  const usageErrors: string[] = []
+  for (const content of turns) {
+    // The outcomes array is shared by every turn of the case, so each turn's
+    // trace is built from ITS slice. Handing the whole array to buildTrace
+    // would have turn two re-consume turn one's outcomes and attach them a
+    // second time.
+    const outcomesBefore = capture.outcomes.length
+
+    // No clientMessageId: the route requires a GUID and it only buys
+    // user-turn dedup, which a run that opens its own conversation cannot
+    // need.
+    const streamed = await ports.service.client.post<string>(
+      `/v1/chats/${conversationId}/messages?scope=${scope}`,
+      { content },
+      headers,
+    )
+    if (streamed.status !== HTTP_OK) {
+      throw new Error(`POST /v1/chats/:id/messages returned ${streamed.status}`)
+    }
+
+    const events = parseStreamEvents(String(streamed.data))
+    const done = events.find((event) => event.type === 'done')
+    outcomes.push({
+      output: await readAssistantText(ports, done?.assistantMessageId),
+      events,
+      streamErrored: events.some((event) => event.type === 'error'),
+    })
+    trace.push(...buildTrace(events, capture.outcomes.slice(outcomesBefore)))
+
+    // Per turn, because the capture's usage promise is replaced by the next
+    // turn's. Read here and accumulated, rather than once at the end, which
+    // would report the last turn's tokens as the whole conversation's.
+    //
+    // Caught rather than thrown: token accounting is not the turn, and
+    // abandoning turn three because turn two's usage promise rejected would
+    // discard two answers that are already persisted and judgeable.
+    try {
+      await readTurnTokens(capture)
+    } catch (usageErr) {
+      usageErrors.push(traceErrorText(usageErr))
+    }
   }
+
+  return { turns: outcomes, trace: reindexTrace(trace), usageErrors }
 }
 
 // Extracted against the WET default on purpose: this guard has been wrong
@@ -310,6 +442,149 @@ export const unpriceableStep = (
     ? priced.unpriceable
     : undefined
 
+// WHAT BOTH ARMS WERE ASKED, and the one thing that makes the new case fields
+// safe across two checkouts.
+//
+// A case that uses none of them records exactly what it recorded before:
+// `{ kind: 'question', value: <the question> }`. A case that uses ANY of them
+// records a different payload — so if an older base ref parsed the same list
+// with an older copy of the schema, stripped the field it does not know, and
+// drove a plainer run, the two arms' inputs no longer match and
+// `MismatchedInputError` refuses the pair. That refusal is the version marker:
+// the alternative is two arms driven under different conditions, compared, and
+// reported as a verdict about the branch.
+//
+// `seededTranscript` is the mark AND the data, one field rather than a flag
+// beside it, so a record cannot say it was seeded and not say with what.
+export const caseInput = (one: ChatJudgeCase): Payload => {
+  const synthetic =
+    one.turns !== undefined ||
+    one.priorTranscript !== undefined ||
+    one.toolFailure !== undefined ||
+    one.accountState !== undefined
+  if (!synthetic) {
+    return { kind: 'question', value: caseTurns(one)[0] ?? '' }
+  }
+  return {
+    kind: 'transcript',
+    value: {
+      turns: caseTurns(one),
+      ...(one.priorTranscript !== undefined && {
+        seededTranscript: one.priorTranscript.map((turn) => ({
+          role: turn.role,
+          content: turn.content,
+          ...(turn.toolCalls !== undefined && {
+            toolCalls: turn.toolCalls.map((call) => ({
+              tool: call.tool,
+              input: call.input,
+            })),
+          }),
+        })),
+      }),
+      ...(one.toolFailure !== undefined && {
+        toolFailure: {
+          tool: one.toolFailure.tool,
+          mode: one.toolFailure.mode,
+          ...(one.toolFailure.afterMs !== undefined && {
+            afterMs: one.toolFailure.afterMs,
+          }),
+        },
+      }),
+      ...(one.accountState !== undefined && {
+        accountState: { ...one.accountState },
+      }),
+    } satisfies JsonValue,
+  }
+}
+
+// VERIFIED, NOT TRUSTED, and before the conversation is opened.
+//
+// The account state is seeded by the RUNNER'S CALLER, which owns the Prisma
+// client — so the runner is handed a directive and a slug and has no way to
+// know the two agree. A caller that forgot to apply it would produce a record
+// claiming a condition the agent was never under, and every judgement drawn
+// from that case would be about the wrong account. Reading the three rows back
+// costs two queries and closes it.
+//
+// Refuses rather than proceeding, and early enough that nothing has been
+// spent: no model is reached until the first message POST below.
+export const assertSeededAccountState = async (
+  ports: ChatRunnerPorts,
+  request: ChatRunRequest,
+): Promise<void> => {
+  const state = request.case.accountState
+  assertAccountStateSupported(request.agentId, state)
+  if (state === undefined) return
+
+  const wrong: string[] = []
+  if (state.district !== undefined || state.pro !== undefined) {
+    const organization = await ports.service.prisma.organization.findFirst({
+      where: { slug: request.organizationSlug },
+      select: { positionId: true },
+    })
+    if (!organization) {
+      throw new CaseListError(
+        `${request.organizationSlug} was never seeded, so the account ` +
+          'state this case declares cannot be checked',
+      )
+    }
+    if (
+      state.district !== undefined &&
+      state.district !== (organization.positionId !== null)
+    ) {
+      wrong.push(
+        `district is ${state.district ? 'asked for' : 'asked to be absent'} ` +
+          `but organization.positionId is ${
+            organization.positionId === null ? 'null' : 'set'
+          }`,
+      )
+    }
+  }
+  if (state.pro !== undefined || state.campaignDetails !== undefined) {
+    const campaign = await ports.service.prisma.campaign.findFirst({
+      where: { organizationSlug: request.organizationSlug },
+      select: { isPro: true, details: true },
+    })
+    if (!campaign) {
+      throw new CaseListError(
+        `${request.organizationSlug} has no campaign, so the account state ` +
+          'this case declares cannot be checked',
+      )
+    }
+    if (state.pro !== undefined && state.pro !== campaign.isPro) {
+      wrong.push(`pro is ${state.pro} but campaign.isPro is ${campaign.isPro}`)
+    }
+    if (state.campaignDetails !== undefined) {
+      const seeded = Object.keys(campaign.details).length > 0
+      if (state.campaignDetails !== seeded) {
+        wrong.push(
+          `campaignDetails is ${state.campaignDetails} but the campaign ` +
+            `${seeded ? 'carries' : 'carries no'} details`,
+        )
+      }
+    }
+  }
+  if (state.ordinanceStep !== undefined) {
+    const step =
+      request.anchor?.resourceType === 'ordinance'
+        ? request.anchor.step
+        : undefined
+    if (step !== state.ordinanceStep) {
+      wrong.push(
+        `ordinanceStep is "${state.ordinanceStep}" but the anchor opens on ` +
+          `${step === undefined ? 'no ordinance step' : `"${step}"`}`,
+      )
+    }
+  }
+
+  if (wrong.length > 0) {
+    throw new CaseListError(
+      `${request.agentId}/${request.case.caseId} declares an account state ` +
+        `the seed does not match: ${wrong.join('; ')}`,
+    )
+  }
+}
+
 export const runChatCase = async (
   ports: ChatRunnerPorts,
   request: ChatRunRequest,
@@ -318,6 +593,15 @@ export const runChatCase = async (
   // cannot be driven at all, and emitting an infraError record for it would
   // put a coverage gap into the delta as though it were a failed run.
   chatScopeFor(request.agentId)
+  // Every directive this run cannot honour, refused HERE — before a
+  // conversation is opened and long before the model is reached. A chat turn
+  // costs real money, and a directive discovered mid-run has already spent it
+  // on a case whose condition was never applied.
+  const turns = caseTurns(request.case)
+  if (request.case.priorTranscript !== undefined) {
+    assertTranscriptFits(request.case.priorTranscript.length, turns.length)
+  }
+  await assertSeededAccountState(ports, request)
 
   const attempt = request.attempt ?? 1
   const runId = `${request.sweepId}:${request.case.caseId}:${request.arm}:${attempt}`
@@ -349,6 +633,9 @@ export const runChatCase = async (
     llm = installLlmCapture(llmService, {
       ...(request.script && { script: request.script }),
       ...(request.realModel === true && { realModel: true }),
+      ...(request.case.toolFailure && {
+        toolFailure: request.case.toolFailure,
+      }),
     })
   } catch (err) {
     databricks.restore()
@@ -356,29 +643,27 @@ export const runChatCase = async (
   }
 
   const startedAt = new Date()
-  let outcome: TurnOutcome
+  let outcome: CaseOutcome
   let trace: TraceStep[]
   // A rejected usage promise is already in the trace by its own message. The
   // pricing guard below would otherwise restate the same failure generically,
   // one step behind it.
   let usageErrorTraced = false
   try {
-    outcome = await driveTurn(ports, request)
-    trace = buildTrace(outcome.events, llm.capture.outcomes)
-    try {
-      await readTurnTokens(llm.capture)
-    } catch (usageErr) {
+    outcome = await driveCase(ports, request, llm.capture, turns)
+    trace = outcome.trace
+    for (const reason of outcome.usageErrors) {
       // Token accounting is not the turn. A rejected usage promise leaves the
-      // counts at zero and says so in the trace rather than discarding an
-      // answer that is already persisted and judgeable.
-      trace = errorStep(trace, traceErrorText(usageErr))
+      // counts short and says so in the trace rather than discarding answers
+      // that are already persisted and judgeable.
+      trace = errorStep(trace, reason)
       usageErrorTraced = true
     }
   } catch (err) {
     // A throw here is the harness or the route failing, never an agent
     // result: no output exists to judge, which is exactly what infraError
     // means and why the schema forbids one.
-    outcome = { output: null, events: [], streamErrored: true }
+    outcome = { turns: [], trace: [], usageErrors: [] }
     trace = infraTrace(traceErrorText(err))
   } finally {
     llm.restore()
@@ -386,8 +671,21 @@ export const runChatCase = async (
   }
   const endedAt = new Date()
 
-  // Absent when the turn ended before usage resolved, which is not the same
-  // as a turn that used nothing.
+  // A forced-failure directive that named a tool the turn never registered.
+  // Thrown rather than recorded, and thrown AFTER the restores above so the
+  // singleton is left clean: the record would otherwise be
+  // indistinguishable from a case the agent simply never needed the tool for,
+  // and the sweep would report a verdict about a condition nobody applied.
+  // Nothing was spent — the seam refuses before the model is called.
+  if (llm.capture.directiveError !== undefined) {
+    throw new CaseListError(
+      `${request.agentId}/${request.case.caseId}: ` +
+        llm.capture.directiveError,
+    )
+  }
+
+  // Absent when no turn ever reported, which is not the same as a turn that
+  // used nothing. Accumulated across every turn of the case by readTurnTokens.
   const observed = llm.capture.tokens
   const tokens: TokenUsage = {
     input: observed?.input ?? 0,
@@ -399,28 +697,39 @@ export const runChatCase = async (
     cacheWrite: 0,
   }
   const model = llm.capture.model || request.variant.model
-  // Price only what was measured. When usage never resolved those counts are
-  // defaults, not observations, and pricing them produces a confident $0 for
-  // a run whose cost is genuinely unknown — the "this run was free" reading
-  // the schema's absent-rather-than-zero rule exists to prevent. An
-  // infraError turn is the usual way to get here, but the rule is about
-  // whether the tokens were seen, not about the status: a turn that really
-  // did use nothing reports a true zero, and one that died before reporting
-  // reports nothing at all.
+  // PRICE ONLY WHAT WAS MEASURED, AND ONLY WHEN ALL OF IT WAS. An unreported
+  // turn leaves those counts at their defaults, and pricing them produces a
+  // confident figure for a run whose cost is genuinely unknown — the "this
+  // run was free" reading the schema's absent-rather-than-zero rule exists to
+  // prevent. The rule is about whether the tokens were seen, not about the
+  // status: a turn that really did use nothing reports a true zero, and one
+  // that died before reporting reports nothing at all.
+  //
+  // Counted against the turns the case ASKED FOR rather than the ones that
+  // completed, which is what makes a conversation that broke on turn three
+  // unpriceable instead of priced at what its first two turns cost.
   const priced =
-    observed === undefined
+    llm.capture.turnsPriced < turns.length
       ? {
           unpriceable:
-            'usage never resolved: the turn ended before the model ' +
-            'reported it, so its cost is unknown rather than zero',
+            `usage resolved for ${llm.capture.turnsPriced} of ` +
+            `${turns.length} turn(s): the rest ended before the model ` +
+            'reported it, so the cost is unknown rather than zero',
         }
       : priceRun(tokens, model)
-  const status = classifyChatStatus(
-    outcome.output,
-    outcome.streamErrored,
-    fallbackReplies,
+  const perTurnStatus = outcome.turns.map((turn) =>
+    classifyChatStatus(turn.output, turn.streamErrored, fallbackReplies),
   )
-  const answer = status === 'infraError' ? null : outcome.output
+  const status = combineChatStatus(perTurnStatus)
+  const answer =
+    status === 'infraError'
+      ? null
+      : joinTurnReplies(
+          // Non-null by construction: a turn with a null output classifies
+          // as infraError, and the combine above would have made the case
+          // infraError too.
+          outcome.turns.map((turn) => turn.output ?? ''),
+        )
   if (status !== 'infraError' && answer === null) {
     throw new Error(
       'a non-infraError run must carry an agent result; classifyChatStatus ' +
@@ -455,7 +764,7 @@ export const runChatCase = async (
     attempt,
     startedAt: isoUtc(startedAt),
     endedAt: isoUtc(endedAt),
-    input: { kind: 'question', value: request.case.question },
+    input: caseInput(request.case),
     output: answer === null ? null : { kind: 'text', value: answer },
     trace: finalTrace,
     telemetry: {

@@ -498,6 +498,47 @@ describe('captureArm', () => {
     expect(manifest.agents[0]?.placeholderCases).toBe(true)
   })
 
+  // The same road the placeholder flag travels, and for the same reason: a
+  // verdict where the harness wrote half the conversation is not the same
+  // claim as one where the routes wrote all of it.
+  it('names the cases that seeded a prior transcript', async () => {
+    const manifest = await captureArm(
+      await deps({
+        config: oneAttempt,
+        loadCases: () => ({
+          ...caseList(3),
+          cases: [
+            { caseId: 'plain', question: 'q0' },
+            {
+              caseId: 'mid-conversation',
+              question: 'q1',
+              priorTranscript: [{ role: 'user' as const, content: 'earlier' }],
+            },
+            { caseId: 'also-plain', question: 'q2' },
+          ],
+        }),
+      }),
+      env(),
+      [COS],
+    )
+    expect(manifest.agents[0]?.seededTranscriptCases).toEqual([
+      'mid-conversation',
+    ])
+  })
+
+  // ABSENT, not an empty list. The field is optional so a base ref predating
+  // it can still write a manifest this build parses, and "absent" has to mean
+  // the same thing on both roads into it.
+  it('leaves the field off a list that seeded nothing', async () => {
+    const manifest = await captureArm(
+      await deps({ config: oneAttempt, loadCases: () => caseList(2) }),
+      env(),
+      [COS],
+    )
+    expect(manifest.agents[0]?.seededTranscriptCases).toBeUndefined()
+    expect('seededTranscriptCases' in (manifest.agents[0] ?? {})).toBe(false)
+  })
+
   // The runner needs to know whether to call a real model, and the default has
   // to be "no".
   it('tells the runner whether the sweep is spending', async () => {

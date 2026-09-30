@@ -3,12 +3,17 @@ import { describe, expect, it } from 'vitest'
 import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
 import { toolBudgetExhaustedNote } from '@/llm/services/llm.service'
 import { CiContextSchema } from '../record'
+import { TranscriptInputSchema } from '../cases'
 import {
   TOOL_BUDGET_FALLBACK_REPLY,
   buildFallbackReplies,
+  caseInput,
   ciContextFromEnv,
   classifyChatStatus,
+  combineChatStatus,
+  joinTurnReplies,
   priceRun,
+  reindexTrace,
   tracesUnpriceable,
   unpriceableStep,
 } from './chat'
@@ -239,5 +244,163 @@ describe('the unpriceable trace step', () => {
     expect(
       unpriceableStep({ cost: undefined }, 'produced', false),
     ).toBeUndefined()
+  })
+})
+
+// ONE STATUS FOR A CONVERSATION. A case that broke on its second turn is not
+// a case the judge can read half of.
+describe('combineChatStatus', () => {
+  it("is the single turn's status for a one-turn case", () => {
+    expect(combineChatStatus(['produced'])).toBe('produced')
+    expect(combineChatStatus(['blocked'])).toBe('blocked')
+    expect(combineChatStatus(['infraError'])).toBe('infraError')
+  })
+
+  // A broken turn means the conversation the case authored did not happen:
+  // the later turns were answered against a history missing a reply.
+  it('reports a broken turn however well the rest went', () => {
+    expect(combineChatStatus(['produced', 'infraError', 'produced'])).toBe(
+      'infraError',
+    )
+  })
+
+  // A refusal is a RESULT and stays judgeable — but a conversation that had
+  // to recover from one is the behavior being compared, so it keeps the mark.
+  it('reports a fallback turn even when a later turn recovered', () => {
+    expect(combineChatStatus(['blocked', 'produced'])).toBe('blocked')
+  })
+
+  it('prefers the broken turn over the declined one', () => {
+    expect(combineChatStatus(['blocked', 'infraError'])).toBe('infraError')
+  })
+
+  // No turn driven is never a result, and a record with no output is exactly
+  // what infraError means.
+  it('reports no turns at all as infraError', () => {
+    expect(combineChatStatus([])).toBe('infraError')
+  })
+})
+
+describe('joinTurnReplies', () => {
+  // A one-turn record has to stay byte-identical to what it was before any
+  // of this: nineteen case lists produce one, and a label on it would show
+  // up as a difference in every stored output.
+  it('leaves a single reply exactly as it was', () => {
+    expect(joinTurnReplies(['You have three priorities.'])).toBe(
+      'You have three priorities.',
+    )
+  })
+
+  // Labelled because a reply can itself contain blank lines, which makes an
+  // unlabelled join ambiguous about where one turn ended.
+  it('labels each reply of a conversation', () => {
+    expect(joinTurnReplies(['first', 'second\n\nwith a gap'])).toBe(
+      '[turn 1]\nfirst\n\n[turn 2]\nsecond\n\nwith a gap',
+    )
+  })
+
+  it('keeps the replies in the order they were given', () => {
+    expect(joinTurnReplies(['a', 'b', 'c'])).toMatch(
+      /\[turn 1\]\na\n\n\[turn 2\]\nb\n\n\[turn 3\]\nc/,
+    )
+  })
+})
+
+describe('reindexTrace', () => {
+  // Several turns' traces each start at zero. Concatenated unchanged, the
+  // record would carry two step 0s and a reader could not order them.
+  it("renumbers two turns' steps as one sequence", () => {
+    expect(
+      reindexTrace([
+        { index: 0, kind: 'text' },
+        { index: 1, kind: 'tool', tool: 'a' },
+        { index: 0, kind: 'text' },
+      ]).map((step) => step.index),
+    ).toEqual([0, 1, 2])
+  })
+
+  it('changes nothing else about a step', () => {
+    expect(
+      reindexTrace([{ index: 7, kind: 'tool', tool: 'a', error: 'boom' }]),
+    ).toEqual([{ index: 0, kind: 'tool', tool: 'a', error: 'boom' }])
+  })
+})
+
+// THE INPUT PAYLOAD IS THE CROSS-CHECKOUT GUARD. An older base ref parses a
+// newer candidate's case list with its own copy of the schema, strips the
+// field it does not know, and drives a plainer run. What stops that being
+// compared and reported as a verdict is that the two arms' inputs no longer
+// match, and `blindCase` refuses the pair.
+describe('caseInput', () => {
+  it('records a plain question exactly as it always has', () => {
+    expect(
+      caseInput({ caseId: 'a', question: 'What are my priorities?' }),
+    ).toEqual({ kind: 'question', value: 'What are my priorities?' })
+  })
+
+  it('records a different payload for every new field', () => {
+    const kinds = [
+      caseInput({ caseId: 'a', turns: ['one', 'two'] }),
+      caseInput({
+        caseId: 'a',
+        question: 'q',
+        priorTranscript: [{ role: 'user', content: 'earlier' }],
+      }),
+      caseInput({
+        caseId: 'a',
+        question: 'q',
+        toolFailure: { tool: 't', mode: 'error' },
+      }),
+      caseInput({ caseId: 'a', question: 'q', accountState: { pro: false } }),
+    ].map((payload) => payload.kind)
+
+    expect(kinds).toEqual([
+      'transcript',
+      'transcript',
+      'transcript',
+      'transcript',
+    ])
+    expect(kinds).not.toContain('question')
+  })
+
+  // One schema for the writer here and the reader in normalize.ts. A writer
+  // and a reader that described the shape separately would drift, and the
+  // record crosses two checkouts — so the drift would arrive as a comparison
+  // refused for the wrong reason.
+  it('writes a value the shared transcript schema accepts', () => {
+    const payload = caseInput({
+      caseId: 'a',
+      turns: ['one', 'two'],
+      priorTranscript: [
+        { role: 'user', content: 'earlier' },
+        {
+          role: 'assistant',
+          content: 'Three.',
+          toolCalls: [{ tool: 'crud_priorities', input: { action: 'list' } }],
+        },
+      ],
+      toolFailure: { tool: 'crud_priorities', mode: 'timeout', afterMs: 20 },
+      accountState: { pro: false, district: false },
+    })
+
+    const parsed = TranscriptInputSchema.safeParse(payload.value)
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true)
+    expect(parsed.data?.turns).toEqual(['one', 'two'])
+    expect(parsed.data?.seededTranscript).toHaveLength(2)
+    expect(parsed.data?.toolFailure?.afterMs).toBe(20)
+    expect(parsed.data?.accountState).toEqual({ pro: false, district: false })
+  })
+
+  // A one-turn case that carries a directive still records `turns`, so the
+  // two spellings do not produce two shapes for the reader to handle.
+  it('always records the turns as a list', () => {
+    const payload = caseInput({
+      caseId: 'a',
+      question: 'just the one',
+      accountState: { pro: false },
+    })
+    expect(TranscriptInputSchema.parse(payload.value).turns).toEqual([
+      'just the one',
+    ])
   })
 })

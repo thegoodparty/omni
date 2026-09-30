@@ -10,6 +10,7 @@ import {
   type PrismaClient,
 } from '../../../../generated/prisma'
 import type { PositionWithOptionalDistrict } from '@/elections/types/elections.types'
+import { CaseListError, type ChatAccountState } from '../cases'
 import { assertTestProcess } from './chatSeam'
 
 // The minimum state a chat scope needs before a real turn can be driven
@@ -53,6 +54,76 @@ export interface SeedChatOrgOptions {
   // own present_* tools and nothing else does. Defaults to `clarify` so every
   // existing caller seeds exactly what it seeded before.
   step?: OrdinanceFlowStep
+  // EVERY ONE OF THESE DEFAULTS TO WHAT THE SEEDER ALREADY SEEDED, so a
+  // caller that passes none gets byte-identical state to before. Only an
+  // explicit `false` takes something away. See ChatAccountStateSchema for
+  // what each one gates and why these are the states worth naming.
+  pro?: boolean
+  district?: boolean
+  campaignDetails?: boolean
+}
+
+// Which account states a scope can actually express. A state the scope has no
+// row for cannot be seeded, and seeding nothing while recording the directive
+// would put a condition on the record that the agent was never under.
+//
+// `district` is on every scope: all four seed an organization, and
+// `positionId` is a column on it. The other three need a campaign row or an
+// ordinance anchor, which only one scope each has.
+// Partial, and a missing entry means "expresses nothing", which refuses every
+// state. `chatScopeFor` has already narrowed the caller to the four scopes the
+// runner can drive, so the fallback is only reachable if a fifth scope is
+// registered there without being described here — and refusing is the right
+// answer to that.
+const STATES_BY_SCOPE: Partial<
+  Record<ChatScope, readonly (keyof ChatAccountState)[]>
+> = {
+  [ChatScope.campaign_assistant]: ['district', 'pro', 'campaignDetails'],
+  [ChatScope.ordinance_flow]: ['district', 'ordinanceStep'],
+  [ChatScope.priority_flow]: ['district'],
+  [ChatScope.chief_of_staff]: ['district'],
+}
+
+// REFUSES RATHER THAN PROCEEDING, and before anything is seeded — which is
+// before the conversation is opened and long before a turn is driven, so an
+// unhonourable directive costs nothing.
+//
+// The schema's `.strict()` already refuses a state nobody defined. This is the
+// other half: a state that IS defined but means nothing for this scope, such
+// as asking a Chief of Staff office to lose Pro when no campaign row exists to
+// carry the flag.
+export const assertAccountStateSupported = (
+  agentId: string,
+  state?: ChatAccountState,
+): void => {
+  if (state === undefined) return
+  const scope = chatScopeFor(agentId)
+  const allowed = new Set<string>(STATES_BY_SCOPE[scope] ?? [])
+  const unsupported = Object.keys(state).filter((key) => !allowed.has(key))
+  if (unsupported.length > 0) {
+    throw new CaseListError(
+      `${agentId} cannot express the account state ` +
+        `${unsupported.sort().join(', ')}: the ${scope} seed has no row ` +
+        `that carries it, and the states it can express are ` +
+        `${[...allowed].sort().join(', ')}`,
+    )
+  }
+}
+
+export const seedOptionsFor = (
+  agentId: string,
+  state?: ChatAccountState,
+): SeedChatOrgOptions => {
+  assertAccountStateSupported(agentId, state)
+  if (state === undefined) return {}
+  return {
+    ...(state.ordinanceStep !== undefined && { step: state.ordinanceStep }),
+    ...(state.pro !== undefined && { pro: state.pro }),
+    ...(state.district !== undefined && { district: state.district }),
+    ...(state.campaignDetails !== undefined && {
+      campaignDetails: state.campaignDetails,
+    }),
+  }
 }
 
 // THE DISTRICT GATE IS HALF OURS AND HALF NOT, and this is the half that is.
@@ -96,6 +167,36 @@ export const JUDGE_POSITION: PositionWithOptionalDistrict = {
     L2DistrictName: 'Judge City Council District 1',
   },
 }
+
+// The campaign `details` blob, lifted to a constant so the
+// `campaignDetails: false` state is the ABSENCE of this exact object rather
+// than a second, thinner copy of it that would drift out of step with it.
+//
+// Only the keys campaignManager.handler.ts really reads off this column.
+// `raceId` is the one get_ballot_requirements registers on; the office, state,
+// city, level and district are what the prompt renders; the two election dates
+// and two filing dates are what weeksToElection and daysToFilingDeadline are
+// computed from.
+//
+// FIXED DATES, not dates relative to now: both arms of a comparison must
+// render the same system prompt when the branch changed nothing the agent can
+// see, and a date derived from the clock differs between two arms captured
+// hours apart — which would make every configDigest differ and permanently
+// disarm the identical-config refusal. The counts they produce go negative as
+// these dates pass, which is a real state (a candidate whose election is
+// behind them) and is the trade taken for a stable digest.
+const JUDGE_CAMPAIGN_DETAILS = {
+  normalizedOffice: 'City Council',
+  ballotLevel: 'CITY',
+  district: 'District 1',
+  state: 'WA',
+  city: 'Judge City',
+  electionDate: '2027-11-02',
+  primaryElectionDate: '2027-08-03',
+  filingPeriodsStart: '2027-05-10',
+  filingPeriodsEnd: '2027-05-21',
+  raceId: 'judge-race-1',
+} satisfies PrismaJson.CampaignDetails
 
 const CHAT_AGENT_SCOPES: Record<string, ChatScope> = {
   chief_of_staff: ChatScope.chief_of_staff,
@@ -157,13 +258,18 @@ export const seedChatOrg = async (
   assertTestProcess('seedChatOrg')
   const scope = chatScopeFor(agentId)
   const organizationSlug = chatOrgSlug(agentId, slugKey)
+  // Omitted rather than nulled when a case asked for no district: a missing
+  // positionId is the production state, and resolveByOrgSlug refuses on it
+  // before it asks election-api anything.
+  const position =
+    options.district === false ? {} : { positionId: JUDGE_POSITION_ID }
 
   if (scope === ChatScope.campaign_assistant) {
     await prisma.organization.create({
       data: {
         slug: organizationSlug,
         ownerId: userId,
-        positionId: JUDGE_POSITION_ID,
+        ...position,
       },
     })
     await prisma.campaign.create({
@@ -175,33 +281,14 @@ export const seedChatOrg = async (
         // the column defaults to false — so a campaign created without this
         // reached the model with three tools and the filing and voter-file
         // questions measured the upgrade prompt instead of the data path.
-        isPro: true,
-        // Only the keys campaignManager.handler.ts really reads off this
-        // column. `raceId` is the one get_ballot_requirements registers on;
-        // the office, state, city, level and district are what the prompt
-        // renders; the two election dates and two filing dates are what
-        // weeksToElection and daysToFilingDeadline are computed from.
-        //
-        // FIXED DATES, not dates relative to now: both arms of a comparison
-        // must render the same system prompt when the branch changed nothing
-        // the agent can see, and a date derived from the clock differs
-        // between two arms captured hours apart — which would make every
-        // configDigest differ and permanently disarm the identical-config
-        // refusal. The counts they produce go negative as these dates pass,
-        // which is a real state (a candidate whose election is behind them)
-        // and is the trade taken for a stable digest.
-        details: {
-          normalizedOffice: 'City Council',
-          ballotLevel: 'CITY',
-          district: 'District 1',
-          state: 'WA',
-          city: 'Judge City',
-          electionDate: '2027-11-02',
-          primaryElectionDate: '2027-08-03',
-          filingPeriodsStart: '2027-05-10',
-          filingPeriodsEnd: '2027-05-21',
-          raceId: 'judge-race-1',
-        },
+        isPro: options.pro !== false,
+        // Absent when a case asked for a campaign with no details: the column
+        // defaults to an empty object, `raceId` is then null and
+        // get_ballot_requirements does not register. See
+        // JUDGE_CAMPAIGN_DETAILS for what the keys buy.
+        ...(options.campaignDetails === false
+          ? {}
+          : { details: JUDGE_CAMPAIGN_DETAILS }),
       },
     })
     return { organizationSlug }
@@ -212,7 +299,7 @@ export const seedChatOrg = async (
       slug: organizationSlug,
       ownerId: userId,
       customPositionName: 'Council Member',
-      positionId: JUDGE_POSITION_ID,
+      ...position,
     },
   })
   const electedOffice = await prisma.electedOffice.create({
