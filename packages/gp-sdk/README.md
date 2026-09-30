@@ -142,18 +142,6 @@ await client.personProfiles.clearRemoval({
   clearedBy: 'ops@goodparty.org',
 })
 
-// Ecanvasser
-const ecanvasser = await client.ecanvasser.create({
-  apiKey: 'ecanvasser-api-key',
-  email: 'user@example.com',
-})
-
-const allEcanvassers = await client.ecanvasser.list()
-
-await client.ecanvasser.syncAll()
-
-await client.ecanvasser.delete(campaignId)
-
 // Admin agent runs (admin / M2M)
 const runs = await client.adminAgentRuns.list({
   experimentType: 'compliance_setup',

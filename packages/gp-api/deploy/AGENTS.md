@@ -10,7 +10,7 @@ Pulumi (TypeScript) infrastructure-as-code, the production Dockerfile, and the `
 | `Pulumi.yaml`                               | Stack metadata (`name: gp-api`, `runtime: nodejs`)                                   |
 | `infra-cli.ts`                              | yargs-based CLI wrapping `pulumi`; `npm run infra <diff                              | deploy> <env>` shells out to this |
 | `Dockerfile`                                | Production image build (Node 22 Alpine, multi-copy with prebuilt `dist/`)            |
-| `docker-entrypoint.sh`                      | Container bootstrap (env validation, migration check, app start)                     |
+| `docker-entrypoint.sh`                      | Container bootstrap (env validation, migration check, app start; preview also seeds and runs `node dist/content/syncContent.cli.js`) |
 | `components/service.ts`                     | ECS Fargate service + ALB target group                                               |
 | `components/vpc.ts`                         | VPC selection (existing VPC, hardcoded subnets/SGs)                                  |
 | `components/assets-bucket.ts`               | S3 bucket for user uploads                                                           |

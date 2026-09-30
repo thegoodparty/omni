@@ -1040,11 +1040,10 @@ export const OutreachDetailsDrawer = ({
               </p>
             )}
 
-            {/* Manager assign/unassign for a self-run list (ENG-11056),
-                flag-gated inside the section itself so this renders nothing
-                extra when win-team-accounts is off. Volunteers never open
-                this drawer (their whole surface is /volunteer's own
-                assignments page), so there's no second gate for them.
+            {/* Manager assign/unassign for a self-run list (ENG-11056).
+                Volunteers never open this drawer (their whole surface is
+                /volunteer's own assignments page), so there's no second gate
+                for them.
                 Serve is excluded outright: team accounts are a Win feature
                 (the roles are campaign roles), so an elected official is
                 offered no assignment rather than one labelled in Win's

@@ -1,6 +1,6 @@
 enum OutreachType {
   text
-  // Legacy: draft/intent rows from the old CSV/eCanvasser flow (all pending).
+  // Legacy: draft/intent rows from the old CSV-import flow (all pending).
   doorKnocking
   // Native: one envelope row per generated door_knocking_route
   // (see doorKnockingRouteId) so routes appear in the unified outreach list.
@@ -105,6 +105,12 @@ model Outreach {
   // finalize. Cancel-before-send resolves its payment intent for the
   // automatic refund; free-texts redemptions never set it.
   stripeCheckoutSessionId           String?                            @map("stripe_checkout_session_id")
+  // The zero-amount fulfillment that funded this outreach: the synthetic
+  // free_confirmed_* marker completeFreePurchase mints. Recorded so a
+  // granted free send is a positive fact rather than the absence of a
+  // Stripe session — the approval gate cannot tell "free" from "never
+  // purchased" otherwise.
+  freePurchaseSessionId             String?                            @map("free_purchase_session_id")
   // CAS approval gate (SMS console): a scheduled p2p send stays dormant at
   // the vendor until an admin approval requests canvassers. All nullable —
   // pre-console rows and non-SMS channels never carry them.

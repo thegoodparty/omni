@@ -24,9 +24,9 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-// DashboardLayout pulls in EcanvasserProvider/useUser/useCampaign/etc., none
-// of which are wired up in this component test — same stub door-knocking's
-// own full-page test uses (NativeDoorKnockingPage.test.tsx).
+// DashboardLayout pulls in useUser/useCampaign/etc., none of which are wired
+// up in this component test — same stub door-knocking's own full-page test
+// uses (NativeDoorKnockingPage.test.tsx).
 vi.mock('app/dashboard/shared/DashboardLayout', () => ({
   __esModule: true,
   default: ({ children }: { children: React.ReactNode }) => (

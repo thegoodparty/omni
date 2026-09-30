@@ -11,7 +11,7 @@ Shared Zod schemas and TypeScript types consumed by `gp-api`, `@goodparty_org/sd
 | `package.json`                   | npm metadata; `name: "@goodparty_org/contracts"`, dual CJS/ESM build via tsup |
 | `tsup.config.ts`                 | Build config — emits `dist/index.{js,mjs,d.ts}`                               |
 | `src/index.ts`                   | Public surface; everything reachable from here is exported                    |
-| `src/<feature>/`                 | Per-domain schemas (`campaigns/`, `users/`, `elections/`, `ecanvasser/`)      |
+| `src/<feature>/`                 | Per-domain schemas (`campaigns/`, `users/`, `elections/`)                     |
 | `src/shared/`                    | Cross-domain primitives (pagination, enums, util types)                       |
 | `src/generated/`                 | Output of `scripts/generate-enums.ts` (Prisma → Zod enum mirrors)             |
 | `scripts/generate-enums.ts`      | Generates Zod enums from Prisma enums to keep them in sync                    |

@@ -6,7 +6,6 @@ import { AdminResource } from './resources/AdminResource'
 import { CampaignsResource } from './resources/CampaignsResource'
 import { CommunityIssuesResource } from './resources/CommunityIssuesResource'
 import { DomainsResource } from './resources/DomainsResource'
-import { EcanvasserResource } from './resources/EcanvasserResource'
 import { MeetingBriefingsResource } from './resources/MeetingBriefingsResource'
 import { ElectedOfficesResource } from './resources/ElectedOfficesResource'
 import { ElectionsResource } from './resources/ElectionsResource'
@@ -27,7 +26,6 @@ export class GoodPartyClient {
   readonly outreachResultsAdmin: OutreachResultsAdminResource
   readonly users: UsersResource
   readonly campaigns: CampaignsResource
-  readonly ecanvasser: EcanvasserResource
   readonly electedOffices: ElectedOfficesResource
   readonly elections: ElectionsResource
   readonly organizations: OrganizationsResource
@@ -46,7 +44,6 @@ export class GoodPartyClient {
     this.outreachResultsAdmin = new OutreachResultsAdminResource(httpClient)
     this.users = new UsersResource(httpClient)
     this.campaigns = new CampaignsResource(httpClient)
-    this.ecanvasser = new EcanvasserResource(httpClient)
     this.electedOffices = new ElectedOfficesResource(httpClient)
     this.elections = new ElectionsResource(httpClient)
     this.organizations = new OrganizationsResource(httpClient)

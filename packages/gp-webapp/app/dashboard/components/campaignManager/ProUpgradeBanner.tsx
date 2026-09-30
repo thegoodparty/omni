@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation'
 import { Button, Card, ProBadge } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { proUpgradeHref } from 'app/dashboard/pro-upgrade/proUpgradeAttribution'
+
+const CTA = 'Get Pro'
 
 // Dashboard entry point into the Pro upgrade wizard. Hidden once the candidate
 // is Pro. "Get Pro" routes into the wizard (value-prop step).
@@ -28,7 +31,13 @@ export default function ProUpgradeBanner(): React.JSX.Element | null {
 
   const handleGetPro = () => {
     trackEvent(EVENTS.ProUpgrade.Compliance.BannerGetPro)
-    router.push('/dashboard/pro-upgrade')
+    router.push(
+      proUpgradeHref({
+        source: 'dashboard_banner',
+        channel: 'generic',
+        cta: CTA,
+      }),
+    )
   }
 
   return (
@@ -45,7 +54,7 @@ export default function ProUpgradeBanner(): React.JSX.Element | null {
           </p>
         </div>
         <div className="pt-3">
-          <Button onClick={handleGetPro}>Get Pro</Button>
+          <Button onClick={handleGetPro}>{CTA}</Button>
         </div>
       </div>
       <Image

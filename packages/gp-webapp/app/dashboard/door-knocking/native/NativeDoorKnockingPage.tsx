@@ -1299,8 +1299,8 @@ export default function NativeDoorKnockingPage({
         // the sidebar it would offer leads back where its own close button
         // already goes. Dropping the menu here rather than rendering outside
         // `DashboardLayout` keeps the providers this tree sits in
-        // (`EcanvasserProvider`, `SidebarProvider`, the impersonation banner)
-        // and costs the map only the chrome the design doesn't draw.
+        // (`SidebarProvider`, the impersonation banner) and costs the map only
+        // the chrome the design doesn't draw.
         hideMenu
         // The same argument one surface further down, and a worse consequence.
         // The walk owns the bottom of the window: `PersonSheet` ends in the

@@ -491,44 +491,6 @@ export {
   type UpdateCommitteeNameOutput,
 } from './campaigns/UpdateCommitteeName.schema'
 
-export type { Ecanvasser, EcanvasserSummary } from './ecanvasser/types'
-
-export {
-  SURVEY_STATUS_VALUES,
-  type SurveyStatus,
-  SurveyStatusSchema,
-} from './ecanvasser/enums'
-
-export {
-  CreateEcanvasserInputSchema,
-  type CreateEcanvasserInput,
-} from './ecanvasser/CreateEcanvasserInput.schema'
-
-export {
-  UpdateEcanvasserInputSchema,
-  type UpdateEcanvasserInput,
-} from './ecanvasser/UpdateEcanvasserInput.schema'
-
-export {
-  CreateSurveyInputSchema,
-  type CreateSurveyInput,
-} from './ecanvasser/CreateSurveyInput.schema'
-
-export {
-  UpdateSurveyInputSchema,
-  type UpdateSurveyInput,
-} from './ecanvasser/UpdateSurveyInput.schema'
-
-export {
-  CreateSurveyQuestionInputSchema,
-  type CreateSurveyQuestionInput,
-} from './ecanvasser/CreateSurveyQuestionInput.schema'
-
-export {
-  UpdateSurveyQuestionInputSchema,
-  type UpdateSurveyQuestionInput,
-} from './ecanvasser/UpdateSurveyQuestionInput.schema'
-
 export {
   RaceListItemSchema,
   RaceListItemArraySchema,
@@ -1358,3 +1320,13 @@ export {
   DeleteTestFixtureUsersResponseSchema,
   type DeleteTestFixtureUsersResponse,
 } from './testFixtures/testFixtures.schema'
+
+export {
+  DEV_ENV_PACKAGE_VALUES,
+  DevEnvPackageSchema,
+  type DevEnvPackage,
+  DevEnvPackageBundleSchema,
+  type DevEnvPackageBundle,
+  DevEnvBundleResponseSchema,
+  type DevEnvBundleResponse,
+} from './devEnv/devEnv.schema'
