@@ -199,8 +199,18 @@ jobs:
 
           [ "$state" = "OPEN" ] || skip "PR #$PR_NUMBER is $state, not open"
 
-          if [ "$fork" = "true" ]; then
-            skip "fork PR. omni is public, so a fork event carries no secrets and the judge will not check out or run fork code with ours. Push the branch to this repository to judge it."
+          # AFFIRMATIVE, like the spend switch at the top of this file and for
+          # the sharper version of the same reason. `= "true"` fails OPEN: a
+          # null, an empty string, a renamed field, a `gh` that changed its
+          # JSON — anything that is not the word `true` proceeds to check out
+          # the PR head and run `npm ci` and `npx tsx` from it. On the
+          # `/judge` path that is a stranger's code with our write token and
+          # our secrets, and this is the only fork defense on that path:
+          # `issue_comment` carries no PR payload, so judge-comment.yml has no
+          # head-repo check of its own to fall back on. Written as "skip unless
+          # it is exactly false" instead, so a garbled value reads as "stop".
+          if [ "$fork" != "false" ]; then
+            skip "isCrossRepository is '$fork', and only an explicit 'false' means this PR is on the repository itself. omni is public, so a fork event carries no secrets and the judge will not check out or run fork code with ours; a value that is neither 'true' nor 'false' means the lookup did not answer, and an unanswered question here is a no. Push the branch to this repository to judge it."
           fi
 
           # Both refs are re-validated even though they came from the GitHub API,
@@ -296,7 +306,23 @@ jobs:
               packages/runbooks/experiments/_schema/*) ;;
               packages/runbooks/experiments/*/*)
                 id="${path#packages/runbooks/experiments/}"
-                add "${id%%/*}"
+                id="${id%%/*}"
+                # `all` and `auto` ARE THE SELECTOR, not agent ids, and a
+                # directory name reaches `--agents=` unchanged. Both are valid
+                # snake_case, so the allowlist below passes them through: a
+                # directory named `all` turns this one-agent request into the
+                # 20-agent ~$264 sweep that every other guard in this file
+                # exists to prevent, and one named `auto` makes the CLI throw.
+                # Rejected here rather than filtered out, because silently
+                # judging nothing would hide a directory nobody can ever judge.
+                # The two names are literals, so echoing this one is safe.
+                case "$id" in
+                  all|auto)
+                    echo "::error::packages/runbooks/experiments/$id is named after a reserved selector, so 'auto' cannot derive an agent id from it — '$id' means something else to the judge. Rename the experiment directory."
+                    exit 1
+                    ;;
+                esac
+                add "$id"
                 ;;
             esac
           done <<<"$changed"
@@ -711,16 +737,94 @@ jobs:
             echo "::notice::nothing to sweep: no agent in this plan has a case list yet, so no sweep will run"
           fi
 
+      # AND IT SAYS SO ON THE PR, for the same reason `nothing()` above does
+      # and by the same mechanism — it writes the comment file and publishes a
+      # path, and the upsert step below posts whichever one ran. This is the
+      # commoner of the two silences by a distance: `auto` matching nothing is
+      # every `/judge` on a PR that touches none of the four chat directories
+      # or the experiments tree, where `nothing()`'s case needs a request that
+      # names the one blocked agent. Without it that request got a green check,
+      # a job summary nobody opens, and no reply on the thread where it was
+      # typed.
+      #
+      # ABOVE THE UPSERT, not below it, because a step cannot post a file a
+      # later step has not written yet. It is mutually exclusive with the
+      # estimate step — that one is gated on a non-empty selection and this one
+      # on an empty one — so the shared `comment.md` name cannot collide.
+      #
+      # There is no plan to quote: nothing was checked out and the CLI never
+      # ran. So this carries the refs and what was asked for, and no
+      # `<details>` block promising output that does not exist.
+      - name: Report an empty selection
+        id: empty
+        if: steps.gate.outputs.skip != 'true' && steps.select.outputs.agents == ''
+        env:
+          REQUESTED: ${{ inputs.agents }}
+          REQUESTED_BY: ${{ inputs.requested_by }}
+          CANDIDATE_SHA: ${{ steps.gate.outputs.candidate_sha }}
+          BASE_REF: ${{ steps.gate.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo '### Universal Judge: nothing to judge'
+            echo ''
+            echo 'No agent'"'"'s code changed between this branch and its base, so there is'
+            echo 'nothing to compare. Name an agent explicitly if you want one swept anyway.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Same shape check as the estimate step's, and for the same reason: a
+          # newline in `requested_by` would forge a heading in a comment the
+          # bot signs. Duplicated rather than shared because the two steps are
+          # two shells.
+          credit=""
+          if [[ "$REQUESTED_BY" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]]; then
+            credit="$REQUESTED_BY"
+          elif [ -n "$REQUESTED_BY" ]; then
+            echo "::warning::requested_by is not a GitHub login, so the comment credits nobody"
+          fi
+
+          # Same marker as the plan comment, so a PR judged twice carries one
+          # current comment whichever path each run took.
+          {
+            echo '<!-- universal-judge-plan -->'
+            echo '## Universal Judge'
+            echo ''
+            echo '**Nothing to judge — nothing will be spent.** No agent'"'"'s code changed'
+            echo 'between this branch and its base, so there is nothing to compare. Name an'
+            echo 'agent explicitly (`/judge <agent-id>`) if you want one swept anyway.'
+            echo ''
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| asked for | \`$REQUESTED\` |"
+            echo "| candidate | \`$CANDIDATE_SHA\` |"
+            echo "| base | \`$BASE_REF\` |"
+            if [ -n "$credit" ]; then
+              echo ''
+              echo "Requested by @$credit."
+            fi
+          } > "$RUNNER_TEMP/comment.md"
+
+          echo "comment_path=$RUNNER_TEMP/comment.md" >> "$GITHUB_OUTPUT"
+
       # Upserted on a marker, following pr-preview-comment.yml, so a PR that is
       # judged several times carries one current estimate rather than a column
       # of stale ones. Every value the script reads comes from `env` and
       # `context`; nothing untrusted is interpolated into the JavaScript.
+      #
+      # Two producers, one poster. `estimate` and `empty` are mutually
+      # exclusive and both write `comment_path`; `||` takes whichever is
+      # non-empty, and an empty string is falsy in a GitHub expression.
       - name: Upsert the plan comment
-        if: steps.estimate.outputs.comment_path != ''
+        if: >-
+          steps.estimate.outputs.comment_path != ''
+          || steps.empty.outputs.comment_path != ''
         uses: actions/github-script@v8
         env:
           PR_NUMBER: ${{ inputs.pr_number }}
-          COMMENT_PATH: ${{ steps.estimate.outputs.comment_path }}
+          COMMENT_PATH: >-
+            ${{ steps.estimate.outputs.comment_path
+            || steps.empty.outputs.comment_path }}
         with:
           script: |
             const fs = require('fs')
@@ -757,16 +861,6 @@ jobs:
                 body,
               })
             }
-
-      - name: Report an empty selection
-        if: steps.gate.outputs.skip != 'true' && steps.select.outputs.agents == ''
-        run: |
-          {
-            echo '### Universal Judge: nothing to judge'
-            echo ''
-            echo 'No agent'"'"'s code changed between this branch and its base, so there is'
-            echo 'nothing to compare. Name an agent explicitly if you want one swept anyway.'
-          } >> "$GITHUB_STEP_SUMMARY"
 
   # The only job that can spend. Everything it needs was decided and published
   # by `plan`, which means the estimate is on the PR before this is eligible to

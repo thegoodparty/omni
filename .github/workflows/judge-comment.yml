@@ -128,8 +128,19 @@ jobs:
     #
     # CONTRIBUTOR is deliberately absent even as a pre-filter: having had a PR
     # merged once is not authority to spend on the org's Anthropic account.
+    #
+    # THE `/judge` PREFIX IS PART OF THE GATE, not only of the parser two steps
+    # below. Without it every comment by an org member on every PR in omni —
+    # every `lgtm`, every review reply — assigns a runner and spends a
+    # collaborator-permission API call, and for a member at read level writes a
+    # public step summary headed "Universal Judge: not run" under an unrelated
+    # remark. This is the same expression the `concurrency` group above already
+    # uses, deliberately spelled the same way: the two have to agree about what
+    # counts as a plausible request, or a comment that cannot start a run can
+    # still join the group and cancel one.
     if: >-
       github.event.issue.pull_request != null
+      && startsWith(github.event.comment.body, '/judge')
       && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     outputs:
       requested: ${{ steps.parse.outputs.requested }}
