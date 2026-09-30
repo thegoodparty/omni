@@ -35,7 +35,6 @@ import { ChevronDown } from 'lucide-react'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import { usePathname, useRouter } from 'next/navigation'
 import { useCampaign } from './hooks/useCampaign'
-import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
 const SHARED_PATHS = [
   '/dashboard/profile',
@@ -227,9 +226,6 @@ export const OrganizationPicker = () => {
 
   const [campaign] = useCampaign()
   const pathname = usePathname()
-  // trackExposure=false: a render-decision read for switch routing, not the
-  // experiment's own treatment surface.
-  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
 
   const { data: eligibility } = useQuery<Eligibility>({
     queryKey: ELIGIBILITY_QUERY_KEY,
@@ -261,11 +257,9 @@ export const OrganizationPicker = () => {
     if (!isOnSharedPage) {
       // Volunteer route group (ENG-11052): a switch onto an org where the
       // viewer is a volunteer lands on the reductive /volunteer shell
-      // instead of the campaign dashboard. Gated on the flag so a flag-off
-      // session is byte-identical to today even if a volunteer role somehow
-      // resolved.
+      // instead of the campaign dashboard.
       router.push(
-        teamAccountsEnabled && org.role === 'volunteer'
+        org.role === 'volunteer'
           ? '/volunteer'
           : org.electedOfficeId
             ? '/dashboard/chief-of-staff'

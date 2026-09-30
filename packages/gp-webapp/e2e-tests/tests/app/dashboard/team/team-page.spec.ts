@@ -1,57 +1,10 @@
 import { expect, test, type Page } from '@playwright/test'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
-import {
-  blockSlowScripts,
-  NavigationHelper,
-} from 'src/helpers/navigation.helper'
+import { NavigationHelper } from 'src/helpers/navigation.helper'
 
-// win-team-accounts (ENG-10816/10827). The flag gates only the Team
-// account-menu item (ENG-11061 moved it out of the primary nav) and the
-// /dashboard/team route itself (FeatureFlagGuard) — GET
-// /v1/organizations/team is otherwise ungated server-side (only invite
-// creation is), so a real dev backend answers it once the route is reached.
-test.describe('Team page — flag off', () => {
-  test.beforeEach(async ({ page }) => {
-    await blockSlowScripts(page)
-  })
-
-  test('no account-menu item, and a direct visit to /dashboard/team redirects away', async ({
-    page,
-  }) => {
-    test.setTimeout(2 * 60 * 1000)
-    await setFlagOverrides(page, { 'win-team-accounts': 'off' })
-    await authenticateTestUser(page)
-
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
-    await NavigationHelper.dismissOverlays(page)
-
-    // Settle guard: the Win Contacts slot resolves once the elected-office
-    // query settles, and the Team item's own visibility depends on nothing
-    // else — waiting on this sibling item is what makes the absence
-    // assertion below meaningful rather than a race against an unsettled menu.
-    await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
-      timeout: 30_000,
-    })
-    await page.getByText('Manage account').click()
-    // Anchor on an unconditional dropdown item first: with the Radix content
-    // closed, #nav-dash-team is never mounted and toHaveCount(0) would pass
-    // vacuously even if the menu failed to open.
-    await expect(page.locator('#nav-dash-profile')).toBeVisible({
-      timeout: 10_000,
-    })
-    await expect(page.locator('#nav-dash-team')).toHaveCount(0)
-
-    await page.goto('/dashboard/team', { waitUntil: 'domcontentloaded' })
-    await page.waitForURL((url) => url.pathname === '/dashboard', {
-      timeout: 30_000,
-    })
-  })
-})
-
-// Fixture member shared by every test in "flag forced on" — the single
-// source for its userId, so the stats fixtures below stay pinned to the
-// member they describe instead of a magic number repeated per test.
+// Fixture member shared by every test below — the single source for its
+// userId, so the stats fixtures stay pinned to the member they describe
+// instead of a magic number repeated per test.
 const FIXTURE_MEMBER = {
   userId: 1,
   name: 'Test Owner',
@@ -60,7 +13,7 @@ const FIXTURE_MEMBER = {
   createdAt: '2024-01-01T00:00:00.000Z',
 }
 
-test.describe('Team page — flag forced on', () => {
+test.describe('Team page', () => {
   // The production build's Serwist service worker intercepts same-origin GETs
   // matched by its runtime caching before page.route ever sees them
   // (documented Playwright limitation, see crm-assistant-bar.spec.ts) — block
@@ -84,7 +37,6 @@ test.describe('Team page — flag forced on', () => {
     page,
   }) => {
     test.setTimeout(2 * 60 * 1000)
-    await setFlagOverrides(page, { 'win-team-accounts': 'on' })
     await authenticateTestUser(page)
 
     await stubTeamMembers(page)
@@ -120,8 +72,8 @@ test.describe('Team page — flag forced on', () => {
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
-    // Same settle guard as the flag-off spec: wait for a sibling nav item to
-    // resolve before opening the account menu and looking for Team.
+    // Settle guard: wait for a sibling nav item to resolve before opening
+    // the account menu and looking for Team.
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
       timeout: 30_000,
     })
@@ -167,7 +119,6 @@ test.describe('Team page — flag forced on', () => {
     page,
   }) => {
     test.setTimeout(2 * 60 * 1000)
-    await setFlagOverrides(page, { 'win-team-accounts': 'on' })
     await authenticateTestUser(page)
 
     await stubTeamMembers(page)

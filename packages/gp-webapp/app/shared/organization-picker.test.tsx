@@ -31,11 +31,6 @@ vi.mock('next/navigation', async (importOriginal) => {
   }
 })
 
-const mockUseFlagOn = vi.fn(() => ({ ready: true, on: true }))
-vi.mock('./experiments/FeatureFlagsProvider', () => ({
-  useFlagOn: (...args: unknown[]) => mockUseFlagOn(...(args as [])),
-}))
-
 vi.mock('@styleguide/hooks/use-mobile', () => ({
   useIsMobile: vi.fn(() => false),
 }))
@@ -101,7 +96,6 @@ beforeEach(() => {
   mockRouterReplace.mockClear()
   mockRouterRefresh.mockClear()
   vi.mocked(trackEvent).mockClear()
-  mockUseFlagOn.mockReset().mockReturnValue({ ready: true, on: true })
 })
 
 describe('OrganizationProvider', () => {
@@ -391,27 +385,6 @@ describe('OrganizationPicker', () => {
     await waitFor(() => {
       expect(mockRouterPush).toHaveBeenCalledWith('/volunteer')
     })
-  })
-
-  // Flag off keeps routing byte-identical to today even for a role that
-  // (per gp-api) can't really exist yet outside the pilot.
-  it('routes to /dashboard/chief-of-staff for a volunteer-role org when win-team-accounts is off', async () => {
-    mockUseFlagOn.mockReturnValue({ ready: true, on: false })
-    const user = userEvent.setup()
-    renderPicker(
-      orgs.map((org, i) => ({
-        ...org,
-        role: i === 1 ? ('volunteer' as const) : ('owner' as const),
-      })),
-    )
-
-    await user.click(screen.getByText('Organization One'))
-    await user.click(screen.getByText('Organization Two'))
-
-    await waitFor(() => {
-      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff')
-    })
-    expect(mockRouterPush).not.toHaveBeenCalledWith('/volunteer')
   })
 
   it('fetches organizations from the API', async () => {

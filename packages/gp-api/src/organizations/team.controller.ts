@@ -23,7 +23,6 @@ import {
   TeamStatsResponseSchema,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
-import { FeaturesService } from '@/features/services/features.service'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { Organization, OrganizationRole, User } from '../generated/prisma'
@@ -39,10 +38,6 @@ import {
 import { OrganizationTeamService } from './services/organizationTeam.service'
 import { TeamStatsService } from './services/teamStats.service'
 
-// gp-api evaluates flags through the project's ANALYTICS key — a flag
-// created only in a dev Amplitude project does nothing here (features.service.ts).
-const WIN_TEAM_ACCOUNTS_FLAG = 'win-team-accounts'
-
 @Controller('organizations/team')
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
@@ -50,7 +45,6 @@ export class TeamController {
   constructor(
     private readonly team: OrganizationTeamService,
     private readonly teamStats: TeamStatsService,
-    private readonly features: FeaturesService,
   ) {}
 
   @Get()
@@ -70,10 +64,6 @@ export class TeamController {
     return this.teamStats.getTeamStats(organization)
   }
 
-  // The only route this flag gates: membership rows are created here (or by
-  // accept, which is unreachable without an invite created here), so gating
-  // just this route is what makes the whole feature inert at 0%.
-  //
   // Deliberately NOT @OwnerOnly(): "a manager can invite other managers" is
   // a stated ENG-10816 goal, so any resolved role (owner or campaignAdmin)
   // may invite — same reasoning as revokeInvite below being manager+
@@ -81,7 +71,7 @@ export class TeamController {
   @Post('invites')
   @UseOrganization()
   @ResponseSchema(InviteMemberResponseSchema)
-  async createInvite(
+  createInvite(
     @ReqUser() user: User,
     @ReqOrganization() organization: Organization,
     @ReqOrganizationRole() invitedByRole: OrganizationRole,
@@ -98,14 +88,6 @@ export class TeamController {
       throw new BadRequestException(
         'Team accounts are not available for elected offices yet',
       )
-    }
-
-    const enabled = await this.features.isFeatureEnabled({
-      user,
-      feature: WIN_TEAM_ACCOUNTS_FLAG,
-    })
-    if (!enabled) {
-      throw new NotFoundException()
     }
 
     return this.team.inviteMember({
@@ -127,10 +109,8 @@ export class TeamController {
     await this.team.revokeInvite(organization, id)
   }
 
-  // Session-only and ungated, same reasoning as accept below: it resolves
-  // only the caller's own pending invite (no org scope exists yet), returns
-  // nothing unless an invite was created while the flag was on, and gating
-  // it would strand an in-flight invitee if the flag ramps back down.
+  // Session-only, same reasoning as accept below: it resolves only the
+  // caller's own pending invite (no org scope exists yet).
   // A verified M2M token passes SessionGuard without populating
   // request.user — these session-only routes must tolerate that instead of
   // dereferencing undefined.
@@ -140,9 +120,6 @@ export class TeamController {
     return user ? this.team.getMyPendingInvite(user) : { invite: null }
   }
 
-  // Ungated on purpose: invites cannot exist unless the flag was on when
-  // they were created, so this is unreachable until then, and gating it
-  // would strand an in-flight invitee if the flag ramps back down.
   @Post('invites/accept')
   @ResponseSchema(AcceptInviteResponseSchema)
   acceptInvite(@ReqUser() user: User | undefined) {

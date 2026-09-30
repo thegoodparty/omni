@@ -17,21 +17,11 @@ import { trackRegistrationCompleted } from 'helpers/analyticsHelper'
 import { getReadyAnalytics } from '@shared/utils/analytics'
 import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
 import { isServeRoutePath } from 'app/dashboard/shared/serveRoutes'
-import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 import { Spinner } from '@styleguide'
 
 const PostAuthRedirectPage = () => {
   const { isSignedIn, isLoaded, user: clerkUser } = useClerkUser()
   const ranRef = useRef(false)
-  // trackExposure=false: a render-decision read for routing, not the
-  // experiment's own treatment surface (mirrors every other nav/routing read
-  // of this flag — DashboardMenu, the org picker).
-  // `failed` is intentionally not read here anymore (ENG-11073) — the
-  // active-org role, not the client flag read, is what this page's
-  // /dashboard override keys off. The field stays on the hook for other
-  // consumers.
-  const { enabled: teamAccountsEnabled, ready: flagReady } =
-    useTeamAccountsFlag(false)
 
   useEffect(() => {
     if (ranRef.current) return
@@ -40,18 +30,6 @@ const PostAuthRedirectPage = () => {
       window.location.replace('/login')
       return
     }
-    // teamAccountsEnabled is a closed-over render value the async body below
-    // reads once and never re-reads. If the SSR flag seed came back null
-    // (gp-api hiccup in PageWrapper), FeatureFlagsProvider's async refresh()
-    // races Clerk hydration — without this guard, a run that fires before
-    // refresh() resolves would permanently close over `false` (ranRef is set
-    // right below) and misroute a volunteer into onboarding for the whole
-    // visit. `flagReady` is guaranteed to flip true once resolution SETTLES,
-    // success or failure (FeatureFlagsProvider's refresh() sets it in a
-    // `finally`, and the synchronous seeded/anonymous paths set it
-    // immediately) — so this can only stall on an unsettled fetch, the same
-    // class of risk every other awaited call below already carries unguarded.
-    if (!flagReady) return
 
     ranRef.current = true
     // Declared outside the try so the catch below can still make a
@@ -121,9 +99,7 @@ const PostAuthRedirectPage = () => {
         // org is the one `slug` just resolved to (cookie match, else the
         // first org) — re-matching it here rather than trusting `electedOrg`
         // or any other org found above, since none of those are guaranteed
-        // to be the one the cookie now points at. This is the raw role fact,
-        // independent of the win-team-accounts flag — the flag gate is
-        // applied below, where `isActiveOrgVolunteer` feeds the resolver.
+        // to be the one the cookie now points at.
         const activeOrg =
           organizations.find((o) => o.slug === slug) ?? organizations[0]
         activeOrgIsVolunteer = activeOrg?.role === 'volunteer'
@@ -136,10 +112,10 @@ const PostAuthRedirectPage = () => {
               { ignoreResponseError: true },
             ),
             // gp-api's UseCampaignGuard fails closed on a volunteer
-            // membership, so this always 403s for one regardless of the
-            // team-accounts flag (ENG-11072) — skip it outright rather than
-            // firing a request whose only possible outcome downstream is the
-            // same `campaignStatus = null` a real 403 already produces below.
+            // membership, so this always 403s for one (ENG-11072) — skip it
+            // outright rather than firing a request whose only possible
+            // outcome downstream is the same `campaignStatus = null` a real
+            // 403 already produces below.
             activeOrgIsVolunteer
               ? Promise.resolve({ ok: false as const })
               : clientRequest(
@@ -275,31 +251,14 @@ const PostAuthRedirectPage = () => {
           }
         }
 
-        const isActiveOrgVolunteer = teamAccountsEnabled && activeOrgIsVolunteer
-
         const resolvedPath = resolvePostAuthRedirectPath(
           user,
           campaignStatus,
           hasElectedOffice,
           electedOfficeOnboardingComplete,
           hasPendingTeamInvite,
-          isActiveOrgVolunteer,
+          activeOrgIsVolunteer,
         )
-        // The client flag read isn't a reliable signal on a cold pass — it can
-        // come back a settled `false` (not just a fetch failure) before
-        // identity has attached, so gating on `teamAccountsFlagFailed` misses
-        // exactly that race (ENG-11073). The org list is reliable: an
-        // active-org role of `volunteer` is a server-confirmed fact regardless
-        // of what the flag read said. Sending a confirmed volunteer into
-        // onboarding is destructive (it creates them a campaign), so fall back
-        // to /dashboard instead: its server-side candidateAccess() gate
-        // re-checks the flag and volunteer role fresh and still bounces to
-        // /volunteer if the flag is really on for them, while a genuinely
-        // flag-off volunteer just gets today's /dashboard landing (ENG-11071).
-        const finalResolvedPath =
-          activeOrgIsVolunteer && resolvedPath === WIN_ONBOARDING_PATH
-            ? '/dashboard'
-            : resolvedPath
         // Honor the explicit deep-link destination now that the org slug cookie
         // is set and the session is established — unless a pending team invite
         // demands the acceptance screen: an unaccepted invite must win over any
@@ -309,9 +268,7 @@ const PostAuthRedirectPage = () => {
         // rebuilding from `URL().pathname` strips any host an attacker could
         // smuggle in, keeping the redirect provably same-origin.
         const destination = new URL(
-          hasPendingTeamInvite
-            ? finalResolvedPath
-            : (safeNext ?? finalResolvedPath),
+          hasPendingTeamInvite ? resolvedPath : (safeNext ?? resolvedPath),
           window.location.origin,
         )
         // Hard nav so the destination renders with fresh auth'd server
@@ -334,7 +291,7 @@ const PostAuthRedirectPage = () => {
         )
       }
     })()
-  }, [isSignedIn, isLoaded, flagReady])
+  }, [isSignedIn, isLoaded])
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center">

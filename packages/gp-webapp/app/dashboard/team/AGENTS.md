@@ -29,21 +29,11 @@ its labels. `ROLE_DESCRIPTIONS` is likewise locked copy shared verbatim by
 the invite drawer's role cards and the "How roles work" card, so the two
 can't drift.
 
-## Flag
-
-Everything rides `win-team-accounts` (`TEAM_ACCOUNTS_FLAG_KEY` in
-`@shared/experiments/teamAccountsFlag.ts`) — one flag for phases 1 and 1.5,
-no separate volunteer flag. `page.tsx` wraps the page in `FeatureFlagGuard`;
-the nav item reads the same hook with `trackExposure: false` (the page is
-the experiment's treatment surface; nav reads aren't). Server-side, gp-api
-flag-gates only `POST team/invites` — with no membership rows every other
-surface is inert, which is what lets all of this merge to `main` dark.
-
 ## Key files
 
 | File                                | Role                                                                                                                                                                                                  |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `page.tsx`                          | RSC wrapper: auth redirect + flag guard. The URL is deliberately `/dashboard/team`, not the design's `/settings/team` — this app has no `/settings` segment; it's the sibling of `/dashboard/account` |
+| `page.tsx`                          | RSC wrapper: auth redirect. The URL is deliberately `/dashboard/team`, not the design's `/settings/team` — this app has no `/settings` segment; it's the sibling of `/dashboard/account`              |
 | `components/TeamPage.tsx`           | The page: "How roles work" card, People table, Pending invites table, and the revoke/remove/role-change mutations                                                                                     |
 | `components/InviteMemberDrawer.tsx` | The team page's Invite: a two-step bottom drawer (ENG-11058/ENG-11067) — step 1 name/phone/email, step 2 role cards                                                                                   |
 | `components/InviteMemberDialog.tsx` | The single-step dialog kept for the outreach drawer's list-scoped entry point — it knows `role`/`outreachId` up front, so it has no step to pick either                                               |

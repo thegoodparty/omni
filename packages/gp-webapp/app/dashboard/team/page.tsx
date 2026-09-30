@@ -1,8 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import pageMetaData from 'helpers/metadataHelper'
-import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
-import { TEAM_ACCOUNTS_FLAG_KEY } from '@shared/experiments/teamAccountsFlag'
 import TeamPage from './components/TeamPage'
 
 const meta = pageMetaData({
@@ -22,11 +20,7 @@ const Page = async (): Promise<React.JSX.Element> => {
     redirect('/login')
   }
 
-  return (
-    <FeatureFlagGuard flagKey={TEAM_ACCOUNTS_FLAG_KEY}>
-      <TeamPage />
-    </FeatureFlagGuard>
-  )
+  return <TeamPage />
 }
 
 export default Page
