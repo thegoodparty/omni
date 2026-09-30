@@ -15,11 +15,18 @@ describe('ProUpgradeModal', () => {
   })
 
   it('points the upgrade CTA at the Pro upgrade wizard', () => {
-    render(<ProUpgradeModal open variant="First" onClose={vi.fn()} />)
+    render(
+      <ProUpgradeModal
+        open
+        variant="First"
+        onClose={vi.fn()}
+        source="auto_modal"
+      />,
+    )
 
     expect(screen.getByRole('link', { name: 'Upgrade now' })).toHaveAttribute(
       'href',
-      '/dashboard/pro-upgrade',
+      '/dashboard/pro-upgrade?source=auto_modal&channel=generic&cta=Upgrade+now',
     )
   })
 })

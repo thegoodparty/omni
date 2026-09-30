@@ -218,6 +218,7 @@ export const CrmContactsPage = () => {
           onClose={() => setShowProModal(false)}
           onUpgradeLinkClick={() => setShowProModal(false)}
           defaultTrackingEnabled
+          source="contacts"
         />
       )}
     </ContactProModalProvider>
