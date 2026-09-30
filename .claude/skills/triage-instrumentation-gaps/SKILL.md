@@ -1,6 +1,6 @@
 ---
 name: triage-instrumentation-gaps
-description: Run the weekly instrumentation-governance review over four queues — flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), and registry-vs-semantic-layer alignment findings (anchor_alignment.py) — entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest.
+description: Run the weekly instrumentation-governance review over four queues — flagged causes (analytics_event_health.py), instrumentation gaps (instrumentation_gaps.py), watchlist proposals (analytics_event_health.py), and registry-vs-semantic-layer alignment findings (anchor_alignment.py) — entered from the Slack governance digest or a pasted event health console handoff, ending in one PR against main. Also diagnoses the digest's red/yellow health items. Use when the user says "triage instrumentation gaps", "/triage-instrumentation-gaps", "review the watchlist proposals", "triage the alignment findings", picks up the digest's triage line, or asks to look into / diagnose a red, yellow, dormant, flatlined, or misaligned event from the digest. Also use to resolve drift between a governed metric and the product with no digest in hand: an event a semantic-layer metric counts was renamed, moved or stopped firing, or the business group changed what a governed metric means.
 ---
 
 # Triage instrumentation gaps
@@ -37,6 +37,10 @@ on any queue used to be hand-editing raw JSON/YAML on GitHub.
   "diagnose the red item", "why did these flatline") — run the Diagnose section, in
   the same session as the queues or standalone.
 - Weekly cadence: this is the human review step that closes the loop the digest opens.
+- **Standalone drift.** A product change renamed, moved or retired an event that a
+  governed metric's `anchored_on` names, or the business group ruled that a governed
+  metric should count something different. There may be no finding in any queue yet.
+  Go straight to **Resolve a drift end to end** under Queue C.
 
 ## Resolve the runbooks dir
 
@@ -448,6 +452,14 @@ newer information about the product, and fix that side only:
 | 2 | the semantic layer | Draft the `anchored_on` change and, on accept, open a gp-data-platform PR. Never an omni edit that hides it. |
 | 3 | unknown, they disagree on scope | Ask the reviewer which side is wrong. Then follow that case's row. |
 
+These cases are the drift types in gp-data-platform's semantic-layer SOP
+(`analytics/diagnostics/semantic_catalog/templates/sop.md`, "When the product and a
+metric drift apart"): case 2 is **drift B** (the product moved, the meaning did not),
+case 3 is **drift C** (the product changed what could be counted), and case 1 is the
+last step of either. **Drift A** (the business group changed the meaning) has no case,
+because it starts from a ruling rather than a finding. The SOP owns who decides and which
+review lane applies; this skill owns the procedure and restates none of that policy.
+
 An old caveat in the yaml saying re-anchoring is "deliberately not done" or waits for
 DATA-2421 is history, not an instruction. DATA-2421 shipped. Rewrite the caveat as part of
 the edit.
@@ -525,16 +537,10 @@ Show the reviewer the draft, the `evidence` block, and the call site: read the s
 then grep for it. `call_site_count` is blind for many events (DATA-2427), so read the
 site, do not trust the count.
 
-- **accept** → open the gp-data-platform PR:
-  1. `cd` to a gp-data-platform checkout (ask where if unknown), `git fetch origin main`,
-     branch `data-2513/<metric-slug>-anchor` from `origin/main`.
-  2. Apply the draft to the sem file. No ticket ids in the YAML; the `era: historical`
-     date comment is enough.
-  3. Invoke that repo's `pull-request` skill. Title `[DATA-2513] Re-anchor <metric> on
-     <successor>`. Body: the evidence block, the omni behavior that surfaced it, and a
-     link to this session's omni PR once it exists. CODEOWNERS routes it to both
-     semantic-layer teams; you do not merge it.
-  4. Record the PR URL for the omni write-back body.
+- **accept** → run **Resolve a drift end to end** below. The draft above is only the
+  sem-file half. A successor usually needs a preparation PR first, and adding the leg
+  without one can double count or miss rows. Record every gp-data-platform PR URL for
+  the omni write-back body.
 - **dismiss** → the reviewer says the successor is not part of the metric. Append to
   `dismissed:` in `monitored_events.yaml`:
   `- {event: "<suggested>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
@@ -544,8 +550,11 @@ site, do not trust the count.
 **Case 3, `live_instrument_not_declared`.** One question to the reviewer, verbatim:
 "Should `<metric>` count `<event_key>`?"
 
-- **yes** → it becomes a case 2 recommendation: draft an `anchored_on` addition (no
-  `era`, just the new leg) and follow the case 2 accept path.
+- **yes** → draft an `anchored_on` addition (no `era`, just the new leg). Then ask
+  whether the metric's `business_rule` already covers it. If it does, this is drift B
+  and follows the case 2 accept path. If counting it changes what the rule says, it is
+  drift A: the `business_rule` changes in the same sem PR and the business group
+  reviews it. Never add the leg and leave a rule that contradicts it.
 - **no** → the behavior answers a broader question than the metric. Append to
   `dismissed:` in `monitored_events.yaml`, keyed on the finding's `event_key`:
   `- {event: "<event_key>", reason: "<reason>", date: "<run_date>", metric: "<metric>"}`
@@ -559,6 +568,112 @@ site, do not trust the count.
   heading; that is its home when no ticket is filed.
 
 Never decide a case 3 yourself.
+
+### Resolve a drift end to end
+
+The procedure behind every case 2 accept, every case 3 yes, and every standalone drift.
+Steps 1 to 6 are read-only and come before any plan is shown to the reviewer. Bring the
+reviewer the findings of steps 3 to 6 and the drift type **before** building anything:
+a specified change still leaves decisions that are theirs.
+
+Queries below run from `<runbooks>/scripts/python` as
+`PYTHONPATH=. uv run python -c "import databricks_oauth as dbc; print(dbc.run_query('''<sql>''').to_string())"`.
+Keep `.to_string()`: pandas otherwise elides columns, and the elided column is usually
+the one that matters. The events table is `dbt.stg_airbyte_source__amplitude_api_events`;
+`:` property paths are case-insensitive.
+
+1. **Name the drift** (A, B or C, per the SOP). For A or C, stop until the business
+   group has ruled. A rename can hold a C inside a B; step 5 is where that surfaces.
+2. **Read both gotchas books** in full: `books/analytics-governance-gotchas.md` here,
+   and gp-data-platform's `.claude/skills/win-analytics-knowledge/references/gotchas.md`
+   (or `serve-…`). After drafting the plan, check it against them row by row and say
+   which rows applied. On DATA-2584 this check found four defects in a plan drafted
+   without it.
+3. **Pin the dates** from the warehouse, and the prod release from `release.yml`, not
+   from a ticket:
+   ```sql
+   select event_type, min(event_time) first_t, max(event_time) last_t, count(*) n
+   from dbt.stg_airbyte_source__amplitude_api_events
+   where event_type in ('<old>', '<new>') and event_time >= '<cutover minus 14 days>'
+   group by 1
+   ```
+   Read `max(event_time)` over the whole table as the freshness edge; the warehouse lags
+   Amplitude, and Amplitude's taxonomy (descriptions, merges) is read live.
+4. **Prove removal, three ways, before any `era: historical`:**
+   ```bash
+   git show <change-sha>^:<registry file> | grep -n '<old>'          # present before
+   git grep -n '<old>' origin/main -- packages/gp-webapp packages/gp-api   # absent now
+   grep '<old>' instrumentation_data/amplitude_event_provenance.csv    # retired_commit / retired_pr
+   ```
+   The registry file is `packages/gp-webapp/helpers/analyticsHelper.ts` (client) or
+   `packages/gp-api/src/vendors/segment/segment.types.ts` (backend). Also search for a
+   composed name (`'<prefix> - ' +`, a template literal). If the three disagree, the
+   event is not retired; the leg stays live.
+5. **Diff the properties, in code and in data.** Keys first, then the values of every
+   property an `excluding` qualifier or a de-duplication key reads:
+   ```sql
+   select event_type, event_time >= '<cutover>' as post, k as property_key, count(*) n
+   from dbt.stg_airbyte_source__amplitude_api_events
+   lateral view explode(json_object_keys(event_properties)) as k
+   where event_type in ('<old>', '<new>') and event_time >= '<cutover minus 14 days>'
+   group by all order by 1, 2, 3
+   ```
+   ```sql
+   select event_type, event_time >= '<cutover>' as post,
+     event_properties:<qualifier>::string q, event_properties:<channel property>::string ch,
+     count(*) n, count(distinct user_id) users
+   from dbt.stg_airbyte_source__amplitude_api_events
+   where event_type in ('<old>', '<new>') and event_time >= '<cutover minus 14 days>'
+   group by all order by 1, 2, 3, 4
+   ```
+   Then read every call site of the new event and note the qualifier value each sends,
+   including paths with no rows yet. Two questions: does each `excluding` still exclude
+   exactly what it did, and does every key a model de-duplicates on still exist? A path
+   that now passes a qualifier it used to fail (or the reverse) and is not named by the
+   rule is **drift C**: stop and take it to the reviewer. The macros compile only a
+   `method` exclusion (`is_outreach_activation_event`, `product_output_predicate`), so a
+   group separable only by another property cannot be excluded without a macro change.
+6. **Find every reader, more than one way**, in both repos:
+   ```bash
+   # gp-data-platform
+   git grep -n -e '<old>' origin/main
+   git grep -n -e metric_anchored_events -e is_outreach_activation_event \
+     -e is_product_output_event -e is_dashboard_view_event -e amplitude_event_is_recurrent \
+     origin/main -- dbt
+   git grep -n "like '<old prefix>" origin/main -- dbt/project/macros   # pattern classifiers
+   # omni
+   git grep -n -e '<old>' origin/main -- packages/runbooks packages/prototypes
+   ```
+   Macro-derived readers pick up a new leg on their own. Anything that names the event
+   literally, keys on one of its properties, or pins the leg list in a test does not.
+   Then **measure the gap**: users whose only qualifying event since the cutover is the
+   new name, split into headcount lost (never qualified otherwise) and activity lost.
+7. **Plan the PRs in the SOP's order** and show the plan. gp-data-platform branches are
+   `<ticket>/<slug>` from `origin/main`, opened through that repo's `pull-request`
+   skill, titled `[<TICKET>] …`:
+   1. **Preparation PR (no `sem_*.yml`).** Literal readers, de-duplication and property
+      fixes, `assert_*` tests. Intermediate yaml docs may ride here; a mart yaml
+      (`m_*.yaml`) may not, because CI runs
+      `dbt build --full-refresh --select state:modified+` and one mart description
+      pulled 1,720 nodes. Merges first: the sem PR changes what these models count.
+   2. **Sem PR.** Before editing any `sem_*.yml`, ask the reviewer, as its own question
+      and nothing else: "This will change the semantic layer and notify people. Are you
+      sure?" Then add the new leg, keep the old one with
+      `era: historical   # <last fired>, removed in #<PR>`, update the pin tests in
+      `analytics/tests/test_semantic_catalog_anchors.py`, and put
+      `<!-- semantic-value: <metric> = <count> -->` in the body for each metric whose
+      build moved, computed by query under the new legs. `description` and `known_gaps`
+      change only if the rule's wording is now wrong; the rename itself belongs in the
+      leg comment.
+   3. **Mart docs PR**, alone.
+   4. **omni PR**: `monitored_events.yaml` (case 1 edits, per the kinds above),
+      `instrumentation_data/event_anchors.json`, the fixture copy of the sem file under
+      `scripts/python/fixtures/`, and tests naming the old leg.
+8. **After merge, verify:** the ratification follow-up PR opened, the catalog
+   regenerated, the prod value matches the `semantic-value` line, the digest's
+   `okr_anchor_dormant` latch for the old leg cleared, and anything predicted during
+   planning (no step at the cutover, no double count) re-measured. Then update the docs
+   that describe the metric, and move the ticket to done with a resolution comment.
 
 ## Diagnose — red/yellow health items
 
