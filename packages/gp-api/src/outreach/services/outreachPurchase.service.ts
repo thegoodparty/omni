@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common'
 import { isAxiosError } from 'axios'
+import { OutreachStatus } from 'src/generated/prisma'
 import { z } from 'zod'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { PurchaseHandler } from 'src/payments/purchase.types'
@@ -114,8 +115,16 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     campaignId: number,
     clientContactCount: number,
   ): Promise<number> {
+    // Only an unpaid draft is priced. Once finalize moves the row on, a
+    // late checkout request (e.g. a client retry of a timed-out create)
+    // has nothing left to buy, and minting it a session would charge a
+    // second time for a send that is already scheduled.
     const outreach = await this.outreachService.findFirst({
-      where: { id: outreachId, campaignId },
+      where: {
+        id: outreachId,
+        campaignId,
+        status: OutreachStatus.pending_payment,
+      },
     })
     if (!outreach) {
       throw new BadRequestException('No outreach draft found for this purchase')

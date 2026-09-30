@@ -6,7 +6,7 @@ import {
   PRICE_PER_TEXT_TENTH_CENTS,
 } from '@/shared/util/textPricing.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
-import { PeerlyPhoneList } from 'src/generated/prisma'
+import { OutreachStatus, PeerlyPhoneList } from 'src/generated/prisma'
 import { PhoneListState } from 'src/vendors/peerly/peerly.types'
 import { PeerlyPhoneListCaptureService } from 'src/vendors/peerly/services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from 'src/vendors/peerly/services/peerlyPhoneList.service'
@@ -596,7 +596,11 @@ describe('OutreachPurchaseHandlerService', () => {
       await service.calculateAmount({ ...baseMetadata, campaignId: 1 })
 
       expect(mockOutreachService.findFirst).toHaveBeenCalledWith({
-        where: { id: 77, campaignId: 1 },
+        where: {
+          id: 77,
+          campaignId: 1,
+          status: OutreachStatus.pending_payment,
+        },
       })
       expect(mockPeerlyPhoneListCapture.findFirst).toHaveBeenCalledWith({
         where: { peerlyListId: 42, campaignId: 1 },

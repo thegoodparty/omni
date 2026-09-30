@@ -505,6 +505,30 @@ describe('POST /v1/payments/purchase/create-checkout-session — p2p pricing', (
     expect(checkout).not.toHaveBeenCalled()
   })
 
+  it('400s a checkout for a draft that finalize already scheduled, without minting a session', async () => {
+    const { campaign, draft } = await seedP2pDraft()
+    await service.prisma.outreach.update({
+      where: { id: draft.id },
+      data: {
+        status: OutreachStatus.pending,
+        projectId: 'peerly-job-1',
+        stripeCheckoutSessionId: 'cs_first',
+      },
+    })
+    stubPeerlyCounts()
+    const checkout = spyOnCustomCheckout()
+
+    const res = await createSession(campaign.organizationSlug, {
+      outreachType: 'p2p',
+      outreachId: draft.id,
+      contactCount: DRAFT_LIST_LEADS,
+      audienceSize: DRAFT_LIST_LEADS,
+    })
+
+    expect(res.status).toBe(400)
+    expect(checkout).not.toHaveBeenCalled()
+  })
+
   it("400s a p2p checkout naming another campaign's draft", async () => {
     const { campaign } = await seedP2pDraft()
     const { draft: foreignDraft } = await seedP2pDraft()
