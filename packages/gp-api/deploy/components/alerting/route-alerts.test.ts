@@ -545,6 +545,88 @@ describe('the grouped route alerts', () => {
     }
   })
 
+  // A rule that could not evaluate returns no series, so its alert instance
+  // carries no `request_endpoint` — and Go's text/template renders a missing key
+  // as the literal `[no value]`. On 2026-09-29 at 17:37Z a five-minute network
+  // timeout to Grafana's own Prometheus therefore paged as "[priorities] Route
+  // errors detected `[no value]`", with a body asserting that `[no value]` had
+  // returned errors and a link filtered to `request_endpoint = "<no value>"`,
+  // which can only ever open on an empty screen. The routes named had served no
+  // requests at all that hour.
+  describe('when the rule could not evaluate and no route is named', () => {
+    // The whole of the route prose is untrue of such an instance, so the guard
+    // has to wrap it rather than append to it. Parsed rather than pattern-
+    // matched so the assertions below read the branch a responder would see.
+    const branches = (text: string) => {
+      const match =
+        /^\{\{ if \$labels\.request_endpoint \}\}([\s\S]*)\{\{ else \}\}([\s\S]*)\{\{ end \}\}$/.exec(
+          text,
+        )
+      const [, named, unnamed] = match ?? []
+      if (named === undefined || unnamed === undefined) {
+        throw new Error(`text is not guarded on a route being named: ${text}`)
+      }
+      return { named, unnamed }
+    }
+
+    it('says so in the title instead of naming a route', () => {
+      for (const alert of ALERTS) {
+        const { named, unnamed } = branches(alert.summaryDetail ?? '')
+
+        expect(named, alert.slug).toContain('{{ $labels.request_endpoint }}')
+        expect(unnamed, alert.slug).toBe('(this rule could not be evaluated)')
+      }
+    })
+
+    // The failure mode this exists to stop is a page that reads as a route
+    // outage. Nothing in the branch may claim a request failed, and nothing in
+    // it may interpolate the label that is not there.
+    it('drops every claim about a route, and every link that filters on one', () => {
+      for (const alert of ALERTS) {
+        const { unnamed } = branches(alert.message)
+
+        expect(unnamed, alert.slug).not.toContain('$labels.request_endpoint')
+        expect(unnamed, alert.slug).not.toContain('returned')
+        expect(unnamed, alert.slug).toContain('did not run')
+      }
+    })
+
+    // The one thing a responder can act on is whether alerting is still blind,
+    // and the datasource that answers it has to be one the failure does not
+    // take with it: `grafanacloud-usage` is Prometheus and is not metered
+    // against the Loki query allowance, so it still answers when Loki is
+    // refusing queries with 429.
+    it('links the evaluation-failure share on a datasource that survives the failure', () => {
+      for (const alert of ALERTS) {
+        const { unnamed } = branches(alert.message)
+
+        expect(unnamed, alert.slug).toContain(
+          'https://goodparty.grafana.net/explore',
+        )
+        expect(unnamed, alert.slug).toContain('grafanacloud-usage')
+        expect(unnamed, alert.slug).toContain(
+          encodeURIComponent('alerting_rule_evaluation_failures_total:rate5m'),
+        )
+        expect(unnamed, alert.slug).not.toContain('grafanacloud-logs')
+      }
+    })
+
+    // Both halves survive the description builder, which is what Grafana is
+    // actually given. An `$ENV` left in the guarded branch would reach Slack
+    // verbatim.
+    it('substitutes the environment in both branches', () => {
+      for (const alert of ALERTS) {
+        const description = buildAlertDescription(alert, 'prod')
+
+        expect(description, alert.slug).toContain(
+          '{{ if $labels.request_endpoint }}',
+        )
+        expect(description, alert.slug).toContain('{{ end }}')
+        expect(description, alert.slug).not.toContain('$ENV')
+      }
+    })
+  })
+
   it('keeps every group under the tenant series cap', () => {
     for (const group of GROUPS) {
       expect(group.endpoints.length, group.slug).toBeLessThan(MAX_QUERY_SERIES)
