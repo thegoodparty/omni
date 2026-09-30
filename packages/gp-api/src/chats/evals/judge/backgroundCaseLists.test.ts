@@ -1,7 +1,10 @@
-import { existsSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { AGENTS, findAgent } from './agents'
-import { CASES_DIR, caseListPath, loadCaseList } from './cases'
+import { findAgent } from './agents'
+import { loadCaseList } from './cases'
+
+// The registry-wide check that every named list is really on disk has to span
+// both shapes, so it lives once, beside the chat lists, in
+// chatCaseLists.test.ts.
 
 // The nine background lists authored in one pass. Named here rather than
 // derived from the registry, because deriving them would make this file agree
@@ -21,11 +24,6 @@ const AUTHORED = [
 // One baseline plus seven variations. Well under gates.minCases, which is
 // deliberate and recorded in every list's `note`.
 const CASES_PER_LIST = 8
-
-// Registry entries that name a file, narrowed so the file name is a string.
-const NAMED = AGENTS.flatMap((a) =>
-  a.cases === null ? [] : [{ agentId: a.agentId, cases: a.cases }],
-)
 
 describe('the authored background case lists', () => {
   it('the registry points all nine at their own file', () => {
@@ -57,25 +55,5 @@ describe('the authored background case lists', () => {
       }
       expect(Object.keys(one.params).length, one.caseId).toBeGreaterThan(0)
     }
-  })
-})
-
-// Wiring data files by hand fails one way: the registry string and the file
-// on disk drift apart. Checked against the directory rather than through the
-// loader so the failure names a missing file instead of a read error.
-describe('the case-list directory', () => {
-  const files = readdirSync(CASES_DIR).filter((f) => f.endsWith('.json'))
-
-  // Without a floor, a directory that stopped matching would leave every
-  // assertion below in a loop that never runs, and the suite would pass
-  // having checked nothing.
-  it('holds at least the ten lists the registry names', () => {
-    expect(files.length).toBeGreaterThanOrEqual(AUTHORED.length + 1)
-    expect(NAMED.length).toBe(AUTHORED.length + 1)
-  })
-
-  it.each(NAMED)('$agentId names a file that is really there', ({ cases }) => {
-    expect(files, cases).toContain(cases)
-    expect(existsSync(caseListPath(cases))).toBe(true)
   })
 })

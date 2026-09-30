@@ -102,32 +102,48 @@ cached base arm already gets, so it is consistent rather than a special case.
 | `identicalOutputs.ts`                                  | Refuses a sweep whose every pair came back byte-identical.                     |
 | `normalize.ts` · `judge.ts` · `score.ts` · `report.ts` | The shared middle.                                                             |
 
-## Case lists: ten of twenty agents, and all ten are placeholders
+## Case lists: thirteen of twenty agents, and all thirteen are placeholders
 
 An agent's inputs are one JSON file in `cases/`, named by its registry entry
 in `agents.ts` and validated by `cases.ts`. Adding the twenty-first agent is a
 file here plus a registry line, and no code.
 
-Ten of the twenty judgeable agents have one: `chief_of_staff` (chat) and nine
-background experiments — `district_issue_pulse`, `district_issue_snapshot`,
-`meeting_briefing`, `meeting_schedule`, `opponent_research`,
-`race_opponent_actions`, `race_opponent_collection`, `race_opponent_summary`,
-`self_research`. The other ten entries carry `cases: null`, which is the gap
-staying visible rather than being rounded off.
+Thirteen of the twenty judgeable agents have one. All four chat scopes that
+have a `ChatScopeHandler` — `chief_of_staff`, `campaign_assistant`,
+`ordinance_flow`, `priority_flow` — and nine background experiments:
+`district_issue_pulse`, `district_issue_snapshot`, `meeting_briefing`,
+`meeting_schedule`, `opponent_research`, `race_opponent_actions`,
+`race_opponent_collection`, `race_opponent_summary`, `self_research`. The
+other seven entries carry `cases: null`, which is the gap staying visible
+rather than being rounded off. `briefing_annotation` is not among them: it is
+`blocked`, has no handler, and is out of the denominator on purpose, so
+inputs for it would be inputs for a runner that cannot drive it.
 
-**Every one of them is `placeholder: true`.** Each is schema-valid against its
-experiment manifest's `input_schema` and each value is plausible, but nobody
-has dispatched one, so a verdict drawn from any of them is a statement about
-the pipeline and not about the agent. `coverage()` counts `wired`, which means
-_has produced a real verdict at least once_, so all ten stay `pending` and
-`wired` is still 0. A case list is not a verdict.
+**Every one of them is `placeholder: true`.** Each background list is
+schema-valid against its experiment manifest's `input_schema` and each value
+is plausible; each chat list asks a question the seeded fixture org can
+actually be asked. But nobody has dispatched or driven one, so a verdict drawn
+from any of them is a statement about the pipeline and not about the agent.
+`coverage()` counts `wired`, which means _has produced a real verdict at least
+once_, so all thirteen stay `pending` and `wired` is still 0. A case list is
+not a verdict.
+
+**A chat question has to be answerable against the state the harness seeds.**
+`runners/seedChatOrg.ts` creates one organization per case plus, per scope, a
+campaign, an ordinance or a priority. It does not set
+`organization.positionId`, so no district resolves and
+`query_constituent_data` never registers on any scope; it seeds no contacts,
+briefings, community issues or campaign details. A question that needs state
+nobody seeded produces "I don't have that" on **both** arms, which is a tie
+that measures nothing. Each chat list's `note` says exactly what its scope
+gets and which cases lean on an absence deliberately.
 
 **Eight cases each, and `gates.minCases` is 20.** So a corpus verdict over one
 of these lists resolves CAN'T SAY however the judge voted — the floor was set
 from measured agent non-determinism (three identical Chief of Staff turns gave
 6, 4 and 2 tool steps) and eight runs measure that rather than the branch.
 Eight is one clean baseline plus seven single-axis variations, which is what
-one change can author honestly across nine agents. **Whether to grow every
+one change can author honestly across thirteen agents. **Whether to grow every
 list to 20 or to lower the floor is still open.** Do not read the shortfall as
 a decision either way.
 
@@ -145,6 +161,22 @@ uv run --with jsonschema --with referencing python   # Draft7Validator
 `publish_experiments.py` inlines them for the published manifest —
 `district_issue_pulse`'s whole `input_schema` is one such `$ref`, and it
 resolves to four required properties rather than none.
+
+A chat case's `question` is one turn, and the questions are not invented from
+scratch where a suite already exists. The Chief of Staff golden bench
+(`src/chats/general/chief-of-staff/evals/cases`), the Campaign Manager eval
+suites (`src/chats/general/campaign-manager/evals`) and the ordinance-flow
+evals (`src/chats/general/ordinance-flow/evals`) hold questions that have
+already discriminated; the judge uses only a case's question and ignores its
+gold value or expectations, so they transplant. Each list's `note` says which
+of its questions came from where.
+
+**Win and Serve do not share nouns.** `campaign_assistant` questions say
+voters, election, campaign and ballot; the three Serve scopes say
+constituents, office and term — `docs/product-vocabulary.md`. The one
+exception is labelled in its list: `chief_of_staff/constituent-count` says
+"registered voters" on purpose, because whether the agent reframes a Win noun
+is itself what the golden bench grades.
 
 People in these files are fictional placeholders in the house style
 (`gp-webapp/e2e-tests/tests/app/briefings/briefings.spec.ts` uses

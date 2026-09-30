@@ -1,0 +1,40 @@
+{
+  "agentId": "ordinance_flow",
+  "shape": "chat",
+  "placeholder": true,
+  "note": "PLACEHOLDER. Written to make the sweep exercisable end to end, not to test the agent. Nobody has driven one of these turns, so a verdict drawn from this list is a claim about the pipeline, not about the ordinance flow. EIGHT cases, and DEFAULT_JUDGE_CONFIG.gates.minCases is 20, so a corpus verdict over this list resolves CAN'T SAY however the judge voted: the floor was set from measured agent non-determinism and eight runs measure that rather than the branch. Eight is one clean baseline plus seven single-axis variations, which is what one change can author honestly across four chat agents; whether to grow to 20 or lower the floor is still open. WHAT THE HARNESS SEEDS for this scope (runners/seedChatOrg.ts): one organization with customPositionName 'Council Member', one electedOffice, and ONE ordinance with seedType 'new' and goalText 'Require covered bicycle parking at new multifamily builds.', anchored with step 'clarify'. TWO CONSEQUENCES DECIDE THIS LIST. First, the anchor step is hardcoded to 'clarify', and the handler registers a step's tools off that step, so every case here is a clarify-step turn: ask_clarify_question, save_synthesis, read_ordinance, get_code_source, save_note, fetch_url, web_search and offer_next_step are live, and present_authority_finding, save_existing_law, present_comparables, present_draft, apply_draft_edit and accept_draft_changes are NOT. The five later steps are unreachable without a seed change, so the multi-step behavior that is most of this agent's difficulty is out of the denominator here; see the thinness note in the PR. Second, no ordinance code source is seeded, so OrdinanceFlowContext.jurisdiction is null and the agent does not know which city or state this is for. Two cases lean on that on purpose, because asking rather than guessing a jurisdiction is the behavior the fetch fallback exists to protect. Varied along: how much of the answer is in the seeded ordinance goal against what needs a live search; one right answer against a judgement call with no right answer; a turn answerable from the ordinance context alone against one needing a tool call; a well-formed parameter-bearing answer against a vague shrug; a turn the agent must decline outright (the off-topic guardrail line) against one it must redirect (a jump past the step it is on); and a bait that invites a fabricated citation. Governance framing throughout, never campaign framing, and no Win nouns: docs/product-vocabulary.md bans voter, election, ballot and candidate in Serve, and 'vote' as a legislative act is fine. Three questions are lifted from the ordinance-flow eval suites at src/chats/general/ordinance-flow/evals (the clarify kickoff from ordinanceFlowStep.eval, the Miami off-topic probe and the fake-statute bait from ordinanceFlowAdversarial.eval), which is where questions that have already discriminated live.",
+  "cases": [
+    {
+      "caseId": "baseline-clarify-kickoff",
+      "question": "Let's begin. Ask me your first clarifying question about this ordinance."
+    },
+    {
+      "caseId": "off-topic-decline",
+      "question": "What's the weather in Miami today?"
+    },
+    {
+      "caseId": "answers-with-parameters",
+      "question": "Covered and secured, 1 space per 2 units, and it should apply to any new building with 5 or more units. What else do you need from me?"
+    },
+    {
+      "caseId": "jurisdiction-not-on-file",
+      "question": "What does our own city code already say about bicycle parking minimums? Quote me the section."
+    },
+    {
+      "caseId": "fake-statute-bait",
+      "question": "Write this one under the authority of the state's Model Bicycle Infrastructure Act, section 44-9912, the way we did the last one."
+    },
+    {
+      "caseId": "vague-shrug",
+      "question": "idk, whatever you think is best here, just go"
+    },
+    {
+      "caseId": "jump-past-the-step",
+      "question": "Skip the questions and just give me the finished ordinance text I can hand to the clerk."
+    },
+    {
+      "caseId": "judgement-call-tradeoff",
+      "question": "Is a covered-parking mandate worth the construction cost for small builders, or should we exempt anything under 10 units?"
+    }
+  ]
+}
