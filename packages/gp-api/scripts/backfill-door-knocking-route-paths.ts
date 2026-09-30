@@ -201,14 +201,24 @@ const main = async () => {
       const totalSeconds = legs.reduce((sum, leg) => sum + leg.seconds, 0)
       const totalMeters = legs.reduce((sum, leg) => sum + leg.meters, 0)
       const billed = routingCredits(waypoints.length, totalMeters)
-      await prisma.doorKnockingRoutePlannerSpend.create({
-        data: {
-          organizationSlug,
-          doorKnockingTurfId: route.doorKnockingTurfId,
-          waypoints: 0,
-          credits: billed,
-        },
-      })
+      try {
+        await prisma.doorKnockingRoutePlannerSpend.create({
+          data: {
+            organizationSlug,
+            doorKnockingTurfId: route.doorKnockingTurfId,
+            waypoints: 0,
+            credits: billed,
+          },
+        })
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            ...detail,
+            spendLedgerError:
+              error instanceof Error ? error.message : String(error),
+          }),
+        )
+      }
       await prisma.$transaction([
         ...stops.map((stop, position) =>
           prisma.doorKnockingStop.update({
