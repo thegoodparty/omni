@@ -6,7 +6,8 @@ who triages this, which is what separates it from the analytics-event explorer n
 (that one answers product questions for everyone else).
 
 Ticket: DATA-2546, under the DATA-2580 epic with the analytics event explorer and the
-product map (`../product-map/`). The masthead links to both.
+product map (`../product-map/`). The bar at the top of every one of the three pages is
+the same three buttons (`../shared/nav.js`), with the current page marked.
 Design doc: `docs/superpowers/specs/2026-09-28-event-health-console-design.md`
 (gitignored, local only).
 
@@ -290,9 +291,9 @@ and is the only genuinely new mechanism in the whole ticket.
 
 ## Staying consistent with the other two pages
 
-Three things are one piece of code, in `../shared/`, inlined by every page's `build.py`:
-the palette (`theme.css`), the event card (`card.css`, `card.js`) and the usage and
-feedback script (`usage.js`, `usage.css`). Change one there, rebuild the three pages,
+Four things are one piece of code, in `../shared/`, inlined by every page's `build.py`:
+the palette (`theme.css`), the event card (`card.css`, `card.js`), the page-to-page nav
+bar (`nav.js`, `nav.css`) and the usage and feedback script (`usage.js`, `usage.css`). Change one there, rebuild the three pages,
 and it changed everywhere. `partials.py` fails a build that leaves a placeholder
 unfilled. The console does not declare the artifact runtime, so it inlines the card and
 the theme but not the usage script.

@@ -20,8 +20,10 @@ PARTIALS = {
     "/* __THEME_CSS__ */": "theme.css",
     "/* __CARD_CSS__ */": "card.css",
     "/* __USAGE_CSS__ */": "usage.css",
+    "/* __NAV_CSS__ */": "nav.css",
     "// __CARD_JS__": "card.js",
     "// __USAGE_JS__": "usage.js",
+    "// __NAV_JS__": "nav.js",
 }
 
 # The published pages, so each one can link to the others. A page republishes to the

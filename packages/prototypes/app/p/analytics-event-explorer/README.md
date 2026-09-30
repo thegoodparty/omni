@@ -5,8 +5,9 @@ exists in the event-state Google Sheet. Answers three questions: do we have an e
 for that, is it working, and how are we measuring X.
 
 Tickets: DATA-2506 (the explorer), DATA-2509 (consumer links, intake, usage trial), under
-the DATA-2580 epic with the product map and the event health console. The What's next
-section links to the map, and to the console for the page's owner only.
+the DATA-2580 epic with the product map and the event health console. The bar at the top
+is the same three buttons on all three pages (`surfaces/shared/nav.js`); the console
+button shows for the page's owner only. The What's next section also offers the map.
 Design doc: `docs/superpowers/specs/2026-09-22-analytics-event-explorer-design.md`
 (gitignored, local only).
 
@@ -25,7 +26,7 @@ sentences to it). They render the same snapshot but share no code: the prototype
 against the styleguide, the standalone is vanilla JS. That duplication is deliberate and
 temporary — it goes away when the page moves into gp-admin (DATA-2506 phase 3).
 
-The standalone is the canonical copy. Its palette, event card and usage script are the
+The standalone is the canonical copy. Its palette, event card, nav bar and usage script are the
 shared partials in `packages/runbooks/surfaces/shared/`, inlined by `standalone/build.py`,
 so they are the same on the product map and the event health console; the React copy
 cannot inline them and keeps its own. A change to the card or the theme goes in the

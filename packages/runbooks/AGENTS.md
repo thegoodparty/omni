@@ -66,8 +66,8 @@ the explorer snapshot.
 
 `surfaces/` is where pages built from committed governance data live. The three published
 pages (explorer, map, console) are one epic, DATA-2580, and share `surfaces/shared/`: the
-palette, the event card and the usage/feedback script, inlined by each page's `build.py`
-through `shared/partials.py`. Change the card there and rebuild all three; never restyle
+palette, the event card, the page-to-page nav bar and the usage/feedback script, inlined
+by each page's `build.py` through `shared/partials.py`. Change the card there and rebuild all three; never restyle
 it in one template. Every `build.py` must stay dependency-free because the republish
 routines run them with a bare interpreter, and `partials.py` fails a build that leaves a
 placeholder unfilled.

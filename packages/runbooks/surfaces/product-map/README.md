@@ -21,6 +21,11 @@ is real and what is not:
 | Every event opens the shared card: verdict, both names, volume, Amplitude | Per-step volume where one event covers many steps |
 | Anchor state on every event: anchored, no anchor, call site unknown, no route | Zones on a page are inferred from `fires_on`, not declared anywhere |
 | Feedback composer and usage tracking, the explorer's, from the shared partials | A snapshot-driven builder; the node model is hand-authored in the template |
+| Eleven undrawn flows placed under their areas as "Still being built" placeholders | Their steps, read out of the files each placeholder names |
+
+A placeholder is `building(name, route, src, note?)` in the `TREE`. It renders as a
+collapsed surface with the tag and opens to the file its steps live in, so the map never
+reads as complete. Drawing one means replacing the placeholder with a surface constant.
 
 The node model (`TREE`, the surface constants) lives in `template.html` as code, because
 it carries judgement per step: which events belong, which branch rejoins where, what a
@@ -57,8 +62,8 @@ declaration and kills tracking and the feedback button.
 
 ## Shared with the other two pages
 
-Palette, event card and the usage/feedback script come from `../shared/` and are inlined
-by `build.py`. The map's own CSS aliases its historical variable names (`--paper`,
+Palette, event card, the nav bar and the usage/feedback script come from `../shared/` and
+are inlined by `build.py`. The map's own CSS aliases its historical variable names (`--paper`,
 `--rule`, `--ok`) onto the shared theme, plus one tone the theme does not have: `--drift`,
 for two event generations live on one step. Do not restyle the card here; change
 `../shared/card.css` and rebuild all three pages.

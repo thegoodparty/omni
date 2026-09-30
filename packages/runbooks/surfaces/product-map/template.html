@@ -230,18 +230,17 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--rule);font-si
 .cardslot{margin:2px 0 9px}
 .cardslot .eventcard{border:1px solid var(--rule);border-radius:7px;background:var(--surface-2)}
 .cardslot .acts{margin-top:10px}
+.pill.building{background:var(--warn-bg);color:var(--warn)}
+.notyet{margin:0;padding:12px 0 6px;font-size:12.5px;line-height:1.55;color:var(--ink-2);max-width:78ch}
+.notyet code{font:400 11.5px/1.5 var(--mono);color:var(--ink-3);overflow-wrap:anywhere}
 .building{margin-top:12px;border:1px dashed var(--warn);border-radius:10px;padding:14px 16px;background:var(--warn-bg)}
 .building h3{margin:0 0 4px;font-size:14px;font-weight:600;color:var(--warn)}
 .building p{margin:0 0 6px;font-size:12.5px;color:var(--warn);max-width:74ch;line-height:1.5}
 .building ul{margin:0;padding-left:18px;font-size:12.5px;color:var(--warn)}
-.nav{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
-.nav a,.nav button{font:500 12px/1 var(--sans);border:1px solid var(--rule-2);background:var(--surface);color:var(--ink-2);
-  padding:7px 12px;border-radius:999px;text-decoration:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
-.nav a:hover,.nav button:hover{color:var(--accent);border-color:var(--accent)}
-.nav .pri{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 
 /* __CARD_CSS__ */
 /* __USAGE_CSS__ */
+/* __NAV_CSS__ */
 </style>
 
 <div class="wrap">
@@ -252,11 +251,6 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--rule);font-si
   through, with the events that fire on each one. Open an event to see what it is, whether it is
   healthy, and where to go next.</p>
   <div class="runmeta" id="runmeta"></div>
-  <div class="nav">
-    <a href="__EXPLORER_URL__" target="_blank" rel="noreferrer">Analytics events explorer</a>
-    <button class="pri" data-feedback="header" hidden id="fb">Tell me what is missing</button>
-    <a href="__CONSOLE_URL__" target="_blank" rel="noreferrer" data-owner-only>Event health console</a>
-  </div>
 </header>
 
 <div class="controls">
@@ -288,16 +282,11 @@ footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--rule);font-si
   <h3>Still being built</h3>
   <p>This is a first version, shared to find out what you can do with it. What is not finished:</p>
   <ul>
-    <li><b>Eight more flows</b> are located but not yet drawn. Each needs its step list read out of the code once; the list is below.</li>
+    <li><b>Eleven flows are placed but not yet drawn.</b> Each sits under its area above with a "Still being built" tag and opens to the file its steps live in; each needs its step list read out of the code once.</li>
     <li><b>Page zones are inferred.</b> A flow's steps are declared in code; a page's zones are not, so on Campaign Manager and Campaign Tracker the grouping is a reading of each event's own description, not a fact.</li>
     <li><b>Per-step volume on the outreach wizards</b> needs a property breakdown in Amplitude that the snapshot does not hold, so those steps show the event's total, not the step's.</li>
     <li><b>Refresh is manual.</b> The explorer refreshes itself twice a week; this page does not yet, so its snapshot date above is the one to trust.</li>
   </ul>
-</div>
-
-<div class="unmapped">
-  <h3>Located, not yet drawn</h3>
-  <ul class="ulist" id="unmapped"></ul>
 </div>
 
 <section id="usage" hidden></section>
@@ -317,6 +306,8 @@ const DATA = __DATA__
 
 // __CARD_JS__
 // __USAGE_JS__
+
+// __NAV_JS__
 const WEEKS = DATA.weeks
 const EV = DATA.ev
 
@@ -383,8 +374,6 @@ const SMS_WIZARD = {
   offstep:{title:'The hub this wizard opens from',
     evs:['Outreach - View Accessed','Outreach - Click Create','Pro Upgrade - Locked Item: Click',
          'Voter Outreach - 10DLC Compliance Modal Viewed','Voter Outreach - 10DLC Compliance Started']},
-  siblings:['RobocallFlow.tsx — 6 steps, same shell','SocialFlow.tsx — 4 steps, same shell',
-            'OutreachGate.tsx — the gate sub-flow that borrows this chrome mid-flow'],
 };
 
 const DASHBOARD = {
@@ -507,26 +496,41 @@ const CAMPAIGN_TRACKER = {
 // Product -> area -> surface. `inMap` says whether the area is declared in
 // productMap.ts, the file CI already keeps in step with the nav. The areas
 // that are not in it are the ones nothing keeps honest.
+// A flow the gap sweep located by file but nobody has drawn yet. It takes its place on
+// the map so the map never reads as complete, and opens to the file its steps live in.
+const building = (name, route, src, note) => ({kind:'flow', building:true, name, route, src, note});
+
 const TREE = [
   {product:'Win', blurb:'What a candidate running for office sees.', areas:[
-    {name:'Onboarding', route:'/onboarding/[slug]/[step]', inMap:false, surfaces:[WIN_ONBOARDING]},
+    {name:'Onboarding', route:'/onboarding/[slug]/[step]', inMap:false, surfaces:[WIN_ONBOARDING,
+      building('Follow-on onboarding', '/onboarding/[slug]/[step]', 'packages/gp-webapp/app/onboarding/components/FollowOnFlow.tsx',
+        'steps are computed at runtime from another list, so reading them means running the code, not grepping it')]},
     {name:'Campaign Manager', route:'/dashboard', inMap:true, surfaces:[DASHBOARD]},
-    {name:'Voter Outreach', route:'/dashboard/outreach', inMap:true, surfaces:[SMS_WIZARD]},
+    {name:'Voter Outreach', route:'/dashboard/outreach', inMap:true, surfaces:[SMS_WIZARD,
+      building('Robocall wizard', '/dashboard/outreach', 'packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx', 'six steps on the same shell as SMS, instrumented by the same property-discriminated pair'),
+      building('Social wizard', '/dashboard/outreach', 'packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx', 'four steps on the same shell as SMS'),
+      building('Outreach gate', '/dashboard/outreach', 'packages/gp-webapp/app/dashboard/outreach/v2/OutreachGate.tsx', 'the gate sub-flow that borrows the wizard chrome mid-flow')]},
     {name:'Campaign Tracker', route:'/dashboard/campaign-plan', inMap:true, surfaces:[CAMPAIGN_TRACKER]},
+    {name:'Candidate website', route:'/dashboard/website', inMap:true, surfaces:[
+      building('Create a website', '/dashboard/website/create', 'packages/gp-webapp/app/dashboard/website/create/components/WebsiteCreateFlow.tsx'),
+      building('Website editor', '/dashboard/website/editor', 'packages/gp-webapp/app/dashboard/website/editor/components/WebsiteEditorPageStepper.tsx')]},
+    {name:'Pro upgrade', route:'/dashboard/pro-upgrade', inMap:true, surfaces:[
+      building('Pro upgrade flow', '/dashboard/pro-upgrade', 'packages/gp-webapp/app/dashboard/pro-upgrade/components/ProUpgradeFlow.tsx', 'the Pro Upgrade events on the Campaign Manager page are the entry; the flow itself is not drawn')]},
+    {name:'Campaign verification', route:'/dashboard/campaign-verification', inMap:true, surfaces:[
+      building('Campaign verification', '/dashboard/campaign-verification', 'packages/gp-webapp/app/dashboard/campaign-verification/components/CampaignVerificationFlow.tsx')]},
+    {name:'Door knocking', route:'/dashboard/door-knocking', inMap:true, surfaces:[
+      building('Create a door-knocking route', '/dashboard/door-knocking', 'packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts', 'declared as PRE_DRAW_STAGES; Win and Serve share this area')]},
   ]},
   {product:'Serve', blurb:'What an elected official sees.', areas:[
     {name:'Serve onboarding', route:'/serve/onboarding', inMap:false, surfaces:[SERVE_ONBOARDING]},
     {name:'Poll onboarding', route:'/polls/onboarding', inMap:false, surfaces:[POLL_ONBOARDING]},
+    {name:'Ordinances', route:'/dashboard/ordinances', inMap:true, surfaces:[
+      building('Draft an ordinance', '/dashboard/ordinances', 'packages/gp-webapp/app/dashboard/ordinances/components/OrdinanceStepper.tsx', 'declared as a record keyed by step')]},
+    {name:'Polls', route:'/dashboard/polls', inMap:true, surfaces:[
+      building('Expand a poll', '/dashboard/polls/[id]/expand', 'packages/gp-webapp/app/dashboard/polls/[id]/expand/shared/ExpandStepFooter.tsx')]},
   ]},
 ];
 
-const UNMAPPED = [
- 'dashboard/door-knocking/native/createFlow/createFlowSteps.ts','dashboard/pro-upgrade/components/ProUpgradeFlow.tsx',
- 'dashboard/ordinances/components/OrdinanceStepper.tsx','dashboard/website/create/components/WebsiteCreateFlow.tsx',
- 'dashboard/website/editor/components/WebsiteEditorPageStepper.tsx',
- 'dashboard/campaign-verification/components/CampaignVerificationFlow.tsx',
- 'dashboard/polls/[id]/expand/shared/ExpandStepFooter.tsx','onboarding/components/FollowOnFlow.tsx',
-];
 
 // --------------------------------------------------------------- helpers
 const AMP_ORG='goodparty';
@@ -686,6 +690,17 @@ function relabelHTML(r){
 }
 
 function surfaceHTML(f){
+  if(f.building){
+    return {clean:true, building:true, html:`<details class="flow" data-clean="1"><summary class="fsum">${ICON_CARET}
+      <div class="fmain">
+        <div class="ftitle"><h2>${esc(f.name)}</h2><span class="route">${esc(f.route)}</span>
+          <span class="pill building">Still being built</span></div>
+        <div class="fmeta"><span>steps not yet read</span>${f.note?`<span>${esc(f.note)}</span>`:''}</div>
+      </div>
+    </summary><div class="fbody"><p class="notyet">Nothing is drawn here yet. The flow is real and its steps are declared in
+      <code>${esc(f.src)}</code>; they need reading out of the code once, after which only a file that changes gets re-read.
+      Until then the events that fire on it are in the explorer, not on this map.</p></div></details>`};
+  }
   const nodes = f.kind==='page' ? f.zones : (f.steps || [...f.head,f.branch.left.step,f.branch.right.step,...f.tail]);
   nodes.forEach((s,i)=>{s.n=i+1});
   f.total=nodes.length;
@@ -755,25 +770,27 @@ function areaHTML(a){
 }
 
 function productHTML(p){
-  const surfaces=p.areas.reduce((n,a)=>n+a.surfaces.length,0);
+  const all=p.areas.flatMap(a=>a.surfaces);
+  const drawn=all.filter(s=>!s.building).length, pending=all.length-drawn;
   return `<details class="product" open><summary class="psum">${ICON_CARET}
     <div class="pmain"><h2>${esc(p.product)}</h2><p>${esc(p.blurb)}</p></div>
-    <span class="pcount">${p.areas.length} areas · ${surfaces} surface${surfaces===1?'':'s'}</span>
+    <span class="pcount">${p.areas.length} areas · ${drawn} drawn${pending?` · ${pending} still being built`:''}</span>
   </summary><div class="pbody">${p.areas.map(areaHTML).join('')}</div></details>`;
 }
 
 document.getElementById('flows').innerHTML=TREE.map(productHTML).join('');
 document.getElementById('runmeta').innerHTML=[
   ['Snapshot', DATA.snapshot||''],
-  ['Surfaces mapped', String(TREE.reduce((n,p)=>n+p.areas.reduce((m,a)=>m+a.surfaces.length,0),0))],
+  ['Surfaces drawn', String(TREE.flatMap(p=>p.areas).flatMap(a=>a.surfaces).filter(s=>!s.building).length)],
+  ['Still being built', String(TREE.flatMap(p=>p.areas).flatMap(a=>a.surfaces).filter(s=>s.building).length)],
   ['Volumes','30-day'],
   ['Weekly series', WEEKS.length+' weeks'],
 ].map(([k,v])=>`<span><b>${esc(k)}</b> ${esc(v)}</span>`).join('');
+SurfaceNav.mount('map', {feedback:true});
 USAGE.init({
   snapshot: DATA.snapshot||'',
-  onCaps: ()=>{ const b=document.getElementById('fb'); if(b) b.hidden=!USAGE.canComment(); },
+  onCaps: ()=>SurfaceNav.showFeedback(USAGE.canComment()),
 });
-document.getElementById('unmapped').innerHTML=UNMAPPED.map(x=>`<li>${esc(x)}</li>`).join('');
 
 const body=document.body;
 ['events','volume','recency'].forEach(l=>body.classList.add('L-'+l));

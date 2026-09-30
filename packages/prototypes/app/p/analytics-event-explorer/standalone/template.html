@@ -499,6 +499,7 @@
   }
 
   /* __CARD_CSS__ */
+  /* __NAV_CSS__ */
   .mono {
     font-family: var(--mono);
     font-size: 12px;
@@ -787,6 +788,7 @@
     })
 
     // __CARD_JS__
+    // __NAV_JS__
 
     // ---- product: the tag is authoritative, the code path only fills gaps ----------
     // CreateListWizard.tsx fires a Win event and a Serve event from the same file, so a
@@ -1864,14 +1866,6 @@
           'Open the product map',
         ],
       ]
-      if (USAGE.isOwner()) {
-        acts.push([
-          'Event health console',
-          'Every open governance decision over this snapshot, in one list. Only you can see this card.',
-          '__CONSOLE_URL__',
-          'Open the console',
-        ])
-      }
       if (USAGE.canComment()) {
         acts.splice(2, 0, [
           'Tell me what is missing',
@@ -2341,6 +2335,7 @@
       logSearch()
     })
 
+    SurfaceNav.mount('explorer', { feedback: true })
     renderNext()
     render()
     USAGE.init({
@@ -2348,6 +2343,7 @@
       onCaps: function () {
         renderNext()
         render()
+        SurfaceNav.showFeedback(USAGE.canComment())
       },
     })
   })()

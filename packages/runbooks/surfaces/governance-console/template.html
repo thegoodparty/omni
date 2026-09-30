@@ -64,28 +64,6 @@
     color: var(--ink-3);
   }
 
-  .masthead .siblings {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    width: 100%;
-    font-size: 12px;
-  }
-
-  .masthead .siblings a {
-    padding: 3px 10px;
-    color: var(--ink-2);
-    text-decoration: none;
-    border: 1px solid var(--line-2);
-    border-radius: 999px;
-    background: var(--surface);
-  }
-
-  .masthead .siblings a:hover {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-
   .lede {
     margin: 14px 0 0;
     max-width: 62ch;
@@ -925,6 +903,8 @@
   }
 
 /* __CARD_CSS__ */
+
+/* __NAV_CSS__ */
   .handoff textarea {
     width: 100%;
     min-height: 160px;
@@ -1050,22 +1030,6 @@
       el('span', 'run', 'run ' + (data.run_date || 'unknown')),
       el('span', 'age', daysAgo(data.run_date)),
     )
-    // The two pages everyone else reads, over this same snapshot. What gets ruled on
-    // here is what they show next.
-    const siblings = el('div', 'siblings')
-    const link = (label, href) => {
-      const a = el('a', null, label)
-      a.href = href
-      a.target = '_blank'
-      a.rel = 'noreferrer'
-      return a
-    }
-    add(
-      siblings,
-      link('Analytics events explorer', '__EXPLORER_URL__'),
-      link('Product map', '__MAP_URL__'),
-    )
-    add(head, siblings)
     return head
   }
 
@@ -1378,6 +1342,8 @@
   // and only where a cause holds more than one event: a cause is normally one ruling,
   // and a checkbox on a single-row table is furniture.
 // __CARD_JS__
+
+  // __NAV_JS__
   // An event name that opens its card in a row underneath, the way the explorer's
   // table does. Built lazily and kept: reopening a card should cost nothing, and an
   // operator comparing four events in a cause opens and closes the same ones.
@@ -2478,4 +2444,5 @@
   }
 
   render()
+  SurfaceNav.mount('console')
 </script>
