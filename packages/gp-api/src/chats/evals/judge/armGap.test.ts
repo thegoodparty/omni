@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { hoursToMilliseconds, minutesToMilliseconds } from 'date-fns'
 import { armGap, formatGap, windowOf } from './armGap'
-import type { ArmManifest } from './records'
+import { MANIFEST_SCHEMA_VERSION, type ArmManifest } from './records'
 
 const window = (startedAt: string, endedAt: string) => ({ startedAt, endedAt })
 
@@ -117,7 +117,7 @@ describe('formatGap', () => {
 describe('windowOf', () => {
   it('takes the capture window off a manifest', () => {
     const manifest: ArmManifest = {
-      schemaVersion: 1,
+      schemaVersion: MANIFEST_SCHEMA_VERSION,
       sweepId: 'swp_1',
       arm: 'base',
       ref: 'universal-judge',

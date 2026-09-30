@@ -9,7 +9,13 @@ import {
 import { DEFAULT_JUDGE_CONFIG, type JudgeConfig } from './config'
 import { selectAgents } from './cli'
 import { isoUtc, RunRecordSchema, type RunRecord } from './record'
-import type { ArmAgent, ArmManifest, ArmSkip, RecordStore } from './records'
+import {
+  MANIFEST_SCHEMA_VERSION,
+  type ArmAgent,
+  type ArmManifest,
+  type ArmSkip,
+  type RecordStore,
+} from './records'
 import { variantFor, type ArmEnv } from './sweepEnv'
 
 // ONE ARM. Walks the selected agents' case lists, drives every case on this
@@ -69,11 +75,69 @@ const SECRET_SHAPES: readonly [RegExp, string][] = [
   [/\b[a-z][a-z0-9+.-]*:\/\/[^\s@]+:[^\s@]+@\S+/g, '[redacted url]'],
 ]
 
-export const scrubReason = (reason: string): string =>
-  SECRET_SHAPES.reduce(
+// Shapes are not enough on their own. DATABRICKS_CLIENT_SECRET is an opaque
+// high-entropy OAuth secret matching none of them, and it is in the arm step's
+// environment — so a Databricks SDK exception echoing it would land verbatim
+// in ArmSkip.reason, in the manifest FILE, and from there in
+// $GITHUB_STEP_SUMMARY on a public repository. GitHub's log-stream masking is
+// not the backstop it looks like: the value travels through a file into a
+// different process. The manifests are also headed for S3.
+//
+// So the known secret-bearing variables are redacted by VALUE as well.
+const SECRET_VARS: readonly string[] = [
+  'ANTHROPIC_API_KEY',
+  'DATABRICKS_CLIENT_SECRET',
+  'DATABRICKS_CLIENT_ID',
+  'DATABASE_URL',
+]
+
+// A short value would blanket the whole reason — an empty or one-character
+// variable replacing every character of it is worse than no redaction,
+// because the sentence is what makes a skip actionable.
+const MIN_SECRET_CHARS = 8
+
+export const scrubReason = (
+  reason: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string => {
+  const byValue = SECRET_VARS.reduce((text, name) => {
+    const value = env[name]
+    return value !== undefined && value.length >= MIN_SECRET_CHARS
+      ? text.split(value).join(`[redacted ${name}]`)
+      : text
+  }, reason)
+  return SECRET_SHAPES.reduce(
     (text, [pattern, replacement]) => text.replace(pattern, replacement),
-    reason,
+    byValue,
   )
+}
+
+// WHAT THE CAPTURE MUST NOT GO GREEN ON, and it is not the same thing on the
+// two paths.
+//
+// Under the canned script every turn is deterministic, so an infraError is a
+// harness bug and every one of them is a failure worth failing the step over.
+// Under real spend it is a provider 429 or a dropped stream: `runners/chat.ts`
+// classifies that as infraError and RETURNS the record rather than throwing,
+// and the rest of the pipeline is built to survive exactly that — normalize
+// excludes the pair, score counts it as an exclusion, report prints it.
+// Failing the capture step over one flaky turn in eighteen would abort a
+// fully paid sweep, skip the judging step and leave the PR with no verdict at
+// all. So under spend the invariant weakens to the one the pipeline actually
+// needs: something survived, and an arm of nothing but infraErrors pairs into
+// an empty comparison.
+export const unjudgeableRecords = (
+  records: readonly RunRecord[],
+  spends: boolean,
+): string[] => {
+  const broken = records
+    .filter(
+      (record) => record.status === 'infraError' || record.output === null,
+    )
+    .map((record) => record.runId)
+  if (!spends) return broken
+  return broken.length === records.length ? broken : []
+}
 
 // The record has to describe the case we asked about. A runner that returned
 // someone else's record would have it written under THIS case's key, which
@@ -245,7 +309,7 @@ export const captureArm = async (
 
   const variant = variantFor(env)
   const manifest: ArmManifest = {
-    schemaVersion: 1,
+    schemaVersion: MANIFEST_SCHEMA_VERSION,
     sweepId: env.sweepId,
     arm: env.arm,
     ref: variant.ref,

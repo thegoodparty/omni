@@ -133,9 +133,19 @@ export type ArmAgent = z.infer<typeof ArmAgentSchema>
 // otherwise, each arm stamps its own window and the report prints the gap
 // between the two, flagging a comparison whose arms are far apart. That is the
 // same treatment a cached background base arm already gets.
+// A CROSS-CHECKOUT CONTRACT, which is why this number moves when a required
+// field arrives. The base arm writes its manifest with the BASE REF's copy of
+// this file and the judging step parses it with the candidate's, so the two
+// are different builds of the same schema. `spent` became required in v2; a
+// base ref that carries the sweep suite (which the workflow checks for) but
+// predates `spent` writes a v1 manifest, and reading it against v2 reports
+// `spent: Invalid input` — a corruption message for what is really version
+// skew, sending the reader to look for a truncated file.
+export const MANIFEST_SCHEMA_VERSION = 2
+
 export const ArmManifestSchema = z
   .object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(MANIFEST_SCHEMA_VERSION),
     sweepId: z.string().min(1),
     arm: ArmSchema,
     ref: z.string().min(1),
@@ -198,8 +208,31 @@ const parseRecord = (where: string, text: string): RunRecord => {
   return parsed.data
 }
 
+// Read on its own, before anything else is validated, so a manifest written
+// by another checkout's build of this file gets its own sentence. `spent` has
+// no `.default(false)` on purpose: defaulting it would claim a paid arm was
+// canned and satisfy the judging step's spend-agreement check the wrong way
+// round, which is worse than refusing.
+const ManifestVersionSchema = z.object({ schemaVersion: z.number() })
+
 const parseManifest = (where: string, text: string): ArmManifest => {
-  const parsed = ArmManifestSchema.safeParse(readJson(where, text))
+  const json = readJson(where, text)
+  const version = ManifestVersionSchema.safeParse(json)
+  if (
+    version.success &&
+    version.data.schemaVersion !== MANIFEST_SCHEMA_VERSION
+  ) {
+    throw new RecordStoreError(
+      `${where}: this manifest is schemaVersion ` +
+        `${version.data.schemaVersion} and this checkout reads ` +
+        `${MANIFEST_SCHEMA_VERSION}. The two arms are two checkouts, so the ` +
+        'one that wrote it is on a different build of the judge — nothing ' +
+        'is corrupt; the base ref and the candidate disagree about the ' +
+        'manifest. Bring the base ref up to a commit that carries this ' +
+        'version.',
+    )
+  }
+  const parsed = ArmManifestSchema.safeParse(json)
   if (!parsed.success) {
     throw new RecordStoreError(
       `${where}: not a valid arm manifest — ` +

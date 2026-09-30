@@ -937,6 +937,16 @@ jobs:
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          # JUDGE_DATA_VERSION IS DELIBERATELY UNSET IN WAVE 1, and this is
+          # what that costs. It is the Delta table version both arms would be
+          # pinned to; with it absent both arms read the live mart. The arms
+          # are sequential and can be an hour apart, so a verdict that turned
+          # on constituent numbers is not protected from the data moving
+          # between the two captures — which is the one input a comparison
+          # cannot hold still by re-running. Choosing a version needs a
+          # Databricks query against the mart and is its own change; the
+          # reading code (sweepEnv.ts, the provider seam in chatSeam.ts) is
+          # already here and waiting for it.
           # RUN_LLM_EVALS IS NOT SET HERE, on purpose. It is the flag the
           # existing eval suites self-skip on, and the sweep suite is not one
           # of them: it skips on JUDGE_ARM being absent, which is the value
@@ -971,6 +981,9 @@ jobs:
           DATABRICKS_HTTP_PATH: ${{ vars.DATABRICKS_HTTP_PATH }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_CLIENT_SECRET }}
+          # JUDGE_DATA_VERSION is deliberately unset on this arm too, and it
+          # has to be the same on both or the pin is worse than none — see the
+          # base arm above for what leaving it unset costs.
         run: |
           set -euo pipefail
           npx vitest run "$SWEEP_SUITE"
@@ -985,6 +998,14 @@ jobs:
       # test: that PASSES, and without the manifest check this job would go
       # green having judged nothing.
       - name: Judge both arms
+        # RUNS EVEN WHEN AN ARM CAPTURE FAILED, because by the time it did the
+        # money was already spent. One flaky turn in eighteen fails the
+        # capture step, and under the default `success()` this step would be
+        # skipped — both arms billed, the records deleted with the job, and
+        # the PR left with no verdict at all. Judging a partial capture costs
+        # nothing extra and the refusals name the gaps. Not `always()`: a
+        # cancelled job must stop spending, and this step calls the panel.
+        if: '!cancelled()'
         working-directory: ${{ env.WORKSPACE }}
         env:
           JUDGE_SWEEP_ID: ${{ env.SWEEP_ID }}

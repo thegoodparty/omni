@@ -64,8 +64,17 @@ export interface SweepResult {
 
 // Reads after "taken with it": the manifests in a mismatch all disagree the
 // same way, so the first one's flag describes all of them.
+//
+// NOT "unset", which is what this said and could not know. The manifest
+// carries a boolean, so an absent JUDGE_SPEND and a garbled one
+// (JUDGE_SPEND=yes, which `spends()` reads as "do not spend") are the same
+// value here. This message lands after two arms have been captured, and
+// sending the reader to look for a variable nobody set — when it was set to
+// the wrong thing — is the slower half of the same debugging session.
 const m0 = (manifests: readonly ArmManifest[]): string =>
-  manifests[0]?.spent === true ? "set to 'true'" : 'unset'
+  manifests[0]?.spent === true
+    ? "set to 'true'"
+    : "set to something other than 'true', or not set at all"
 
 const skipReasonFor = (
   manifests: readonly ArmManifest[],

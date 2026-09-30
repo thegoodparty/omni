@@ -12,6 +12,7 @@ import {
   ArmCaptureError,
   captureArm,
   scrubReason,
+  unjudgeableRecords,
   type ArmCaseRequest,
   type CaptureArmDeps,
 } from './sweepArm'
@@ -135,6 +136,88 @@ describe('scrubReason', () => {
       'key [redacted key] rejected by the provider',
     )
   })
+
+  // DATABRICKS_CLIENT_SECRET is an opaque OAuth secret with no shape to match
+  // on, and it is in the arm step's environment. A shape list alone would
+  // write it into the manifest file and from there into a public job summary.
+  it('redacts an opaque secret by its value', () => {
+    const value = 'Zk3rQv8pLm2wXt6bNc1yEa'
+    const scrubbed = scrubReason(
+      `Databricks rejected client secret ${value} for the judge principal`,
+      { DATABRICKS_CLIENT_SECRET: value },
+    )
+    expect(scrubbed).not.toContain(value)
+    expect(scrubbed).toContain('[redacted DATABRICKS_CLIENT_SECRET]')
+    expect(scrubbed).toContain('for the judge principal')
+  })
+
+  it('redacts every occurrence, not just the first', () => {
+    const value = 'sekrit-value-0123'
+    expect(
+      scrubReason(`${value} is not ${value}`, { ANTHROPIC_API_KEY: value }),
+    ).toBe('[redacted ANTHROPIC_API_KEY] is not [redacted ANTHROPIC_API_KEY]')
+  })
+
+  // A one-character or empty value would otherwise replace every character of
+  // the sentence, which loses the reason entirely for no security gain.
+  it.each([['a'], [''], ['short']])(
+    'ignores a value too short to be a secret (%o)',
+    (value) => {
+      const reason = 'chief_of_staff.json: cannot be read'
+      expect(scrubReason(reason, { DATABRICKS_CLIENT_ID: value })).toBe(reason)
+    },
+  )
+
+  it('still applies the shape list after a value match', () => {
+    const scrubbed = scrubReason('token dapi0123456789abcdef expired', {
+      DATABASE_URL: 'postgres://nobody:nothing@db.internal:5432/x',
+    })
+    expect(scrubbed).toBe('token [redacted token] expired')
+  })
+})
+
+// The assertion that gates the capture step, and therefore gates whether a
+// paid sweep gets judged at all. A strict "no record may be an infraError"
+// was right for the canned script and wrong for a live one: turn 17 of 18
+// getting a 429 would fail the step, skip the judging, and bill both arms for
+// nothing.
+describe('unjudgeableRecords', () => {
+  const ok = (runId: string): RunRecord => ({ ...BASE, runId })
+  const dead = (runId: string): RunRecord => ({
+    ...BASE,
+    runId,
+    status: 'infraError',
+    output: null,
+  })
+
+  it('names every infraError under the canned script', () => {
+    expect(unjudgeableRecords([ok('a'), dead('b'), ok('c')], false)).toEqual([
+      'b',
+    ])
+  })
+
+  it('tolerates one flaky turn under real spend', () => {
+    expect(unjudgeableRecords([ok('a'), dead('b'), ok('c')], true)).toEqual([])
+  })
+
+  it('still names an arm that produced nothing judgeable', () => {
+    expect(unjudgeableRecords([dead('a'), dead('b')], true)).toEqual(['a', 'b'])
+  })
+
+  // An arm that captured nothing is the manifest's and the skip list's
+  // problem, not this one's — and `some()` over an empty list would report a
+  // gap that the surrounding assertions already cover better.
+  it('says nothing about an arm with no records', () => {
+    expect(unjudgeableRecords([], true)).toEqual([])
+    expect(unjudgeableRecords([], false)).toEqual([])
+  })
+
+  // A record that somehow carried no output is unjudgeable whatever its
+  // status says, which is the pairing normalize would drop.
+  it('counts a record with no output, whatever its status', () => {
+    const noOutput: RunRecord = { ...BASE, runId: 'x', output: null }
+    expect(unjudgeableRecords([noOutput], false)).toEqual(['x'])
+  })
 })
 
 describe('captureArm', () => {
@@ -172,14 +255,14 @@ describe('captureArm', () => {
   })
 
   it('stamps the capture window the arm gap is measured from', async () => {
-    const times = [
-      new Date('2026-09-29T10:00:00.000Z'),
-      new Date('2026-09-29T10:40:00.000Z'),
-    ]
+    // `captureArm` reads the clock once at the start and once at the end, so
+    // the first call is the window's open and every later one its close.
+    const opened = new Date('2026-09-29T10:00:00.000Z')
+    const closed = new Date('2026-09-29T10:40:00.000Z')
     let call = 0
     const manifest = await captureArm(
       await deps({
-        now: () => times[Math.min(call++, times.length - 1)]!,
+        now: () => (call++ === 0 ? opened : closed),
         config: oneAttempt,
       }),
       env(),
@@ -203,10 +286,10 @@ describe('captureArm', () => {
   it('writes every record at the key the store layout names', async () => {
     const d = await deps({ config: oneAttempt, loadCases: () => caseList(1) })
     await captureArm(d, env(), [COS])
-    const [record] = await d.store.listRecords('swp_1', 'candidate')
+    const written = await d.store.listRecords('swp_1', 'candidate')
     expect(
-      recordKey('swp_1', 'candidate', record!.caseId, record!.attempt),
-    ).toBe('_judge/swp_1/records/candidate/case-0-1.json')
+      written.map((r) => recordKey('swp_1', 'candidate', r.caseId, r.attempt)),
+    ).toEqual(['_judge/swp_1/records/candidate/case-0-1.json'])
   })
 
   // Named rather than silent: an agent that quietly produced no records reads

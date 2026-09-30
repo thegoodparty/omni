@@ -7,7 +7,6 @@ import {
 } from '@goodparty_org/contracts'
 import { ChatMessageRole } from '../../../../generated/prisma'
 import { LlmService } from '@/llm/services/llm.service'
-import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
 import type { TestServiceContext } from '@/test-service'
 import { PRICING_VERSION, UnpriceableRunError, priceUsd } from '../pricing'
@@ -69,13 +68,6 @@ export interface ChatJudgeCase {
 
 export interface ChatRunnerPorts {
   service: TestServiceContext
-  // The aggregate-only Databricks provider behind query_constituent_data.
-  // The token differs by scope — CONSTITUENT_DATA_PROVIDER for chief_of_staff
-  // and priority_flow, CM_CONSTITUENT_DATA_PROVIDER for campaign_assistant —
-  // and it resolves to null wherever no credential is configured, which is
-  // every local and CI run. `dataVersion` is recorded only if a query
-  // actually went through here, so passing the wrong one cannot fake a pin.
-  constituentProvider?: DatabricksProvider | null
 }
 
 export interface ChatRunRequest {
@@ -268,12 +260,11 @@ export const runChatCase = async (
   // failure mode — goes last. A patch installed and then abandoned would
   // answer every later request in the process from the canned script.
   const llmService = ports.service.app.get(LlmService)
-  const databricks = ports.constituentProvider
-    ? instrumentDatabricksProvider(
-        ports.constituentProvider,
-        request.dataVersion,
-      )
-    : undefined
+  // Installed on DatabricksSqlProvider's prototype rather than on a provider
+  // resolved by token: `CONSTITUENT_DATA_PROVIDER` is registered by two
+  // modules with two factories, so a token lookup cannot say which instance
+  // the handler for this scope holds.
+  const databricks = instrumentDatabricksProvider(request.dataVersion)
   const llm = installLlmCapture(llmService, request.script)
 
   const startedAt = new Date()
@@ -298,7 +289,7 @@ export const runChatCase = async (
     trace = infraTrace(traceErrorText(err))
   } finally {
     llm.restore()
-    databricks?.restore()
+    databricks.restore()
   }
   const endedAt = new Date()
 
@@ -366,14 +357,14 @@ export const runChatCase = async (
       // this is the retries the runner itself made: none.
       retries: 0,
     },
-    toolQueries: databricks?.queries ?? [],
+    toolQueries: databricks.queries,
     // Recorded only when a query actually ran against the pinned version. A
     // run that read no versioned table has no version to report, and claiming
     // one it never applied is the silent failure this field exists to catch —
-    // the provider is null wherever no credential is configured, and there is
-    // more than one token it can be bound to.
+    // no provider is constructed at all wherever no credential is configured,
+    // which is every local and CI run.
     ...(request.dataVersion !== undefined &&
-      (databricks?.queries.length ?? 0) > 0 && {
+      databricks.queries.length > 0 && {
         dataVersion: request.dataVersion,
       }),
     liveWeb: toolSteps.some((step) => step.tool === 'web_search'),

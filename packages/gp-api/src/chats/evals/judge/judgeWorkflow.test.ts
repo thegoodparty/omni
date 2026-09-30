@@ -32,6 +32,19 @@ interface Step {
   body: string
 }
 
+// A step's `env:` sits at eight spaces and its entries at ten, so an entry is
+// a line at exactly that indent. Anchored rather than searched for with
+// `includes`, which matched the variable's name ANYWHERE in the step body —
+// so `# JUDGE_SPEND: 'true'` in a comment satisfied the very test that exists
+// to catch a switch nobody set.
+const ENV_ENTRY = 10
+
+const setsEnv = (body: string, name: string): boolean =>
+  new RegExp(`^ {${ENV_ENTRY}}${name}:`, 'm').test(body)
+
+const spendsLive = (body: string): boolean =>
+  new RegExp(`^ {${ENV_ENTRY}}JUDGE_SPEND: 'true'$`, 'm').test(body)
+
 // Steps are the six-space `- name:` entries; a step runs until the next one.
 // Splitting on the marker keeps each step's `env:` and `run:` together, which
 // is the pairing under test.
@@ -71,7 +84,7 @@ describe('judge.yml spend switches', () => {
     'sets %s on every step that starts a judge process',
     (variable) => {
       const missing = spending
-        .filter((step) => !step.body.includes(`${variable}:`))
+        .filter((step) => !setsEnv(step.body, variable))
         .map((step) => step.name)
       expect(missing).toEqual([])
     },
@@ -81,8 +94,47 @@ describe('judge.yml spend switches', () => {
     // `spends()` in sweepEnv.ts compares against 'true' exactly, so a bare
     // `true` — which YAML would hand over as the string 'true' anyway — is
     // one editor away from `yes` or `True` reading as "do not spend".
-    for (const step of spending) {
-      expect(step.body).toContain("JUDGE_SPEND: 'true'")
+    const wrong = spending
+      .filter((step) => !spendsLive(step.body))
+      .map((step) => step.name)
+    expect(wrong).toEqual([])
+  })
+
+  // The matcher itself, against what an editor most plausibly leaves behind.
+  // A commented-out switch is the exact shape this whole file exists to
+  // catch, and the substring version could not tell it from a live one.
+  it('does not read a commented-out switch as a set one', () => {
+    const commented =
+      '        env:\n' +
+      "          # JUDGE_SPEND: 'true'\n" +
+      '        run: |\n'
+    expect(setsEnv(commented, 'JUDGE_SPEND')).toBe(false)
+    expect(spendsLive(commented)).toBe(false)
+    expect(spendsLive("          JUDGE_SPEND: 'true'\n")).toBe(true)
+  })
+})
+
+// A capture step that fails after the arms have been billed must not take the
+// verdict with it: `success()` is the default on a step with no `if:`, so the
+// judging step would be skipped and a paid sweep would end with no report.
+describe('judge.yml judges what the arms managed to capture', () => {
+  const yaml = readFileSync(WORKFLOW, 'utf8')
+  const judging = stepsOf(yaml).find((step) => step.name === 'Judge both arms')
+
+  it('runs the judging step even when a capture failed', () => {
+    expect(judging?.body).toMatch(/^ {8}if: '!cancelled\(\)'$/m)
+  })
+
+  // NOT the arm captures. A base arm that failed wrote no manifest, so the
+  // judging step refuses anyway — and running the candidate arm on top would
+  // spend a second full arm to reach a step that cannot say anything.
+  it('leaves the arm captures on the default success() guard', () => {
+    const arms = stepsOf(yaml).filter((step) =>
+      step.name.startsWith('Capture the '),
+    )
+    expect(arms).toHaveLength(2)
+    for (const arm of arms) {
+      expect(arm.body).not.toMatch(/^ {8}if:/m)
     }
   })
 })

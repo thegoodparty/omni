@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
-import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
-import { CONSTITUENT_DATA_PROVIDER } from '@/chats/general/chief-of-staff/chiefOfStaff.handler'
-import { CM_CONSTITUENT_DATA_PROVIDER } from '@/chats/general/campaign-manager/campaignManager.handler'
 import { findAgent } from './agents'
 import { loadCaseList } from './cases'
 import type { ChatTurnScript } from './runners/chatSeam'
 import { ciContextFromEnv, runChatCase } from './runners/chat'
 import { seedChatOrg } from './runners/seedChatOrg'
-import { captureArm, type ArmCaseRequest } from './sweepArm'
+import { captureArm, unjudgeableRecords, type ArmCaseRequest } from './sweepArm'
 import { parseArmEnv, storeFromEnv } from './sweepEnv'
 
 // ONE ARM OF ONE SWEEP. Steps 1 and 2 of three: this file runs twice, once in
@@ -34,7 +31,7 @@ const service = useTestService()
 // self-skipped on a bad value would let the workflow go green having captured
 // nothing, which is why the skip is gated on this one variable and not on the
 // whole config parsing cleanly.
-const requested = process.env.JUDGE_ARM !== undefined
+const sweepRequested = process.env.JUDGE_ARM !== undefined
 
 // Long: one arm of a 3-case, 3-attempt sweep is nine real turns.
 const ARM_TIMEOUT_MS = 30 * 60 * 1000
@@ -58,23 +55,7 @@ const dryScriptFor = (request: ArmCaseRequest): ChatTurnScript => ({
   usage: { inputTokens: 1_000, outputTokens: 100 },
 })
 
-// Null wherever no credential is configured, which is every local run. The
-// token differs by scope, and passing the wrong one would record a
-// `dataVersion` the query never applied — so an agent with no entry here gets
-// nothing rather than a neighbour's provider.
-const PROVIDER_TOKENS: Record<string, string> = {
-  chief_of_staff: CONSTITUENT_DATA_PROVIDER,
-  priority_flow: CONSTITUENT_DATA_PROVIDER,
-  campaign_assistant: CM_CONSTITUENT_DATA_PROVIDER,
-}
-
-const providerFor = (agentId: string): DatabricksProvider | null => {
-  const token = PROVIDER_TOKENS[agentId]
-  if (token === undefined) return null
-  return service.app.get<DatabricksProvider | null>(token, { strict: false })
-}
-
-describe.skipIf(!requested)('judge sweep — one arm', () => {
+describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
   it(
     'captures this arm of every selected agent and writes its manifest',
     async () => {
@@ -118,10 +99,7 @@ describe.skipIf(!requested)('judge sweep — one arm', () => {
               `${request.case.caseId}-${request.attempt}`,
             )
             return runChatCase(
-              {
-                service,
-                constituentProvider: providerFor(request.agent.agentId),
-              },
+              { service },
               {
                 agentId: request.agent.agentId,
                 case: request.case,
@@ -198,14 +176,12 @@ describe.skipIf(!requested)('judge sweep — one arm', () => {
       )
       if (capturable.length > 0) expect(written.length).toBeGreaterThan(0)
 
-      // Every record is judgeable: a run that produced no output is an
-      // infraError, and an arm of nothing but infraErrors pairs into an empty
-      // comparison. Under the canned script that is a harness failure, not
-      // the agent's.
-      for (const record of written) {
-        expect(record.status, record.runId).not.toBe('infraError')
-        expect(record.output, record.runId).not.toBeNull()
-      }
+      // Judgeable records, held to the standard the path deserves: every one
+      // of them under the canned script, where an infraError is a harness
+      // bug; only "not all of them" under real spend, where one flaky turn is
+      // a reported exclusion everywhere else in the pipeline and must not
+      // throw away a paid sweep. See unjudgeableRecords.
+      expect(unjudgeableRecords(written, env.spends)).toEqual([])
 
       // Exactly the keys the other arm will look under, one per case and
       // attempt, with nothing missing and nothing doubled.

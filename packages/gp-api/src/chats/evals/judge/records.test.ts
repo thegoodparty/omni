@@ -2,6 +2,7 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
 import { CHAT_PAIR } from './fixtures/records'
 import type { RunRecord } from './record'
 import {
@@ -10,14 +11,20 @@ import {
   RecordStoreError,
   createLocalRecordStore,
   createS3RecordStore,
+  MANIFEST_SCHEMA_VERSION,
   manifestKey,
   recordKey,
+  s3PortFromClient,
   type ArmManifest,
   type S3RecordPort,
 } from './records'
 
-// The local store is what tests use. Nothing here builds an S3 client: the
-// S3 store is exercised through its port, which is three functions.
+// The local store is what tests use, and the S3 STORE is exercised through
+// its port, which is three functions. The one place an S3Client appears is
+// the adapter's own test at the bottom, which stubs `send` — the adapter is
+// where pagination lives, so nothing else can check it, and a truncated
+// listing silently judged as the whole sweep is the failure it exists to
+// prevent.
 
 const [BASE, CANDIDATE] = CHAT_PAIR
 
@@ -25,7 +32,7 @@ const root = async (): Promise<string> =>
   mkdtemp(path.join(tmpdir(), 'judge-records-'))
 
 const manifest = (over: Partial<ArmManifest> = {}): ArmManifest => ({
-  schemaVersion: 1,
+  schemaVersion: MANIFEST_SCHEMA_VERSION,
   spent: true,
   sweepId: BASE.sweepId,
   arm: 'base',
@@ -307,5 +314,97 @@ describe('ArmManifestSchema', () => {
       manifest({ startedAt: 'not a date' }),
     )
     expect(parsed.success).toBe(false)
+  })
+})
+
+// The base arm writes its manifest with the BASE REF's copy of records.ts and
+// the judging step parses it with the candidate's, so a required field added
+// on the candidate side arrives as a missing field rather than as a version
+// difference. Both arms are billed before anyone reads the message, so it has
+// to name the real cause.
+describe('a manifest from another checkout', () => {
+  const v1 = async (): Promise<string> => {
+    const dir = await root()
+    const key = manifestKey(BASE.sweepId, 'base')
+    const file = path.join(dir, key)
+    await mkdir(path.dirname(file), { recursive: true })
+    // What a base ref that predates `spent` wrote: schemaVersion 1, and no
+    // `spent` at all.
+    const { spent, ...rest } = manifest()
+    expect(spent).toBe(true)
+    await writeFile(
+      file,
+      JSON.stringify({ ...rest, schemaVersion: 1 }, null, 2),
+      'utf8',
+    )
+    return dir
+  }
+
+  it('names the version skew rather than the missing field', async () => {
+    const store = createLocalRecordStore(await v1())
+    await expect(store.getManifest(BASE.sweepId, 'base')).rejects.toThrow(
+      /schemaVersion 1 and this checkout reads 2/,
+    )
+  })
+
+  // The failure it must NOT be read as: `spent: Invalid input` sends the
+  // reader hunting for a truncated file on a sweep that wrote a perfectly
+  // good manifest.
+  it('does not report it as a corrupt manifest', async () => {
+    const store = createLocalRecordStore(await v1())
+    await expect(store.getManifest(BASE.sweepId, 'base')).rejects.not.toThrow(
+      /not a valid arm manifest/,
+    )
+  })
+})
+
+// The adapter, not the store. `listKeys` is the one function in this file
+// with a loop in it, and the comment above it says what a first-page-only
+// read would do: drop cases from the delta with nothing to show it happened.
+// Reaches no AWS — `send` never runs.
+describe('s3PortFromClient.listKeys', () => {
+  it('follows a truncated listing to the last page', async () => {
+    const pages = [
+      {
+        Contents: [{ Key: 'a.json' }, { Key: 'b.json' }],
+        IsTruncated: true,
+        NextContinuationToken: 't1',
+      },
+      {
+        Contents: [{ Key: 'c.json' }],
+        IsTruncated: true,
+        NextContinuationToken: 't2',
+      },
+      { Contents: [{ Key: 'd.json' }], IsTruncated: false },
+    ]
+    const tokens: (string | undefined)[] = []
+    let call = 0
+    const client = new S3Client({ region: 'us-east-1' })
+    Object.assign(client, {
+      send: async (command: ListObjectsV2Command) => {
+        tokens.push(command.input.ContinuationToken)
+        return pages[call++]
+      },
+    })
+
+    const keys = await s3PortFromClient(client, 'bucket').listKeys('_judge/')
+
+    expect(keys).toEqual(['a.json', 'b.json', 'c.json', 'd.json'])
+    // Each page asked for the one after it, and the unpaginated first call
+    // carried no token.
+    expect(tokens).toEqual([undefined, 't1', 't2'])
+  })
+
+  // `IsTruncated: true` with no token is the only shape that could loop
+  // forever, and the adapter treats it as the end rather than re-reading the
+  // same page.
+  it('stops when a truncated page hands back no token', async () => {
+    const client = new S3Client({ region: 'us-east-1' })
+    Object.assign(client, {
+      send: async () => ({ Contents: [{ Key: 'a.json' }], IsTruncated: true }),
+    })
+    expect(
+      await s3PortFromClient(client, 'bucket').listKeys('_judge/'),
+    ).toEqual(['a.json'])
   })
 })

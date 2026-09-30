@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { differenceInMilliseconds, parseISO } from 'date-fns'
-import type {
-  DatabricksProvider,
-  DatabricksRowSet,
-} from '@/llm/tools/queryDatabricks.tool'
 import { useTestService } from '@/test-service'
 import { PRICING_VERSION } from '../pricing'
 import { isComparable, type RunRecord } from '../record'
@@ -67,7 +63,6 @@ const request = (
 const runFor = async (
   agentId: string,
   overrides: Partial<ChatRunRequest> = {},
-  ports: { constituentProvider?: DatabricksProvider } = {},
 ): Promise<RunRecord> => {
   const seeded = await seedChatOrg(
     service.prisma,
@@ -76,7 +71,7 @@ const runFor = async (
     'judge-case',
   )
   return runChatCase(
-    { service, ...ports },
+    { service },
     request({
       agentId,
       organizationSlug: seeded.organizationSlug,
@@ -255,18 +250,12 @@ describe('runChatCase', () => {
     'does not report a pinned version no query ever applied',
     async () => {
       // Nothing configures a Databricks credential locally or in CI, so the
-      // constituent tool never registers and nothing reaches the provider.
-      // Recording the version anyway would claim a pin that never happened,
-      // which is the one failure the field exists to prevent.
-      const provider: DatabricksProvider = {
-        query: (): Promise<DatabricksRowSet> =>
-          Promise.resolve({ columns: [], rows: [] }),
-      }
-      const record = await runFor(
-        'chief_of_staff',
-        { dataVersion: '3237' },
-        { constituentProvider: provider },
-      )
+      // constituent tool never registers and no provider is ever constructed.
+      // The seam is installed on DatabricksSqlProvider's prototype either
+      // way, so the pin is armed and nothing reaches it. Recording the version
+      // anyway would claim a pin that never happened, which is the one
+      // failure the field exists to prevent.
+      const record = await runFor('chief_of_staff', { dataVersion: '3237' })
 
       expect(record.toolQueries).toEqual([])
       expect(record.dataVersion).toBeUndefined()

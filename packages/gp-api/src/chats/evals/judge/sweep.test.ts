@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { hoursToMilliseconds } from 'date-fns'
 import type { JsonJudgeModel } from '../../general/ordinance-flow/evals/coldJudge'
 import type { AgentEntry } from './agents'
@@ -12,10 +12,16 @@ import { CaseVerdictSchema, RUBRIC_VERSION, type CaseVerdict } from './judge'
 import type { RunRecord } from './record'
 import {
   createLocalRecordStore,
+  MANIFEST_SCHEMA_VERSION,
   type ArmManifest,
   type RecordStore,
 } from './records'
-import { cannedVerdict, judgeSweep, type SweepResult } from './sweep'
+import {
+  cannedVerdict,
+  emitReport,
+  judgeSweep,
+  type SweepResult,
+} from './sweep'
 import { SweepEnvError, type SweepEnv } from './sweepEnv'
 
 // The judging entry over a local store. Both arms are written by hand, which
@@ -23,14 +29,14 @@ import { SweepEnvError, type SweepEnv } from './sweepEnv'
 
 const [BASE, CANDIDATE] = CHAT_PAIR
 
-const REGISTRY: readonly AgentEntry[] = [
-  {
-    agentId: 'chief_of_staff',
-    shape: 'chat',
-    cases: 'chief_of_staff.json',
-    status: 'pending',
-  },
-]
+const COS: AgentEntry = {
+  agentId: 'chief_of_staff',
+  shape: 'chat',
+  cases: 'chief_of_staff.json',
+  status: 'pending',
+}
+
+const REGISTRY: readonly AgentEntry[] = [COS]
 
 const env: SweepEnv = {
   sweepId: BASE.sweepId,
@@ -78,7 +84,7 @@ const manifest = (
   arm: ArmManifest['arm'],
   over: Partial<ArmManifest> = {},
 ): ArmManifest => ({
-  schemaVersion: 1,
+  schemaVersion: MANIFEST_SCHEMA_VERSION,
   spent: true,
   sweepId: BASE.sweepId,
   arm,
@@ -233,8 +239,6 @@ describe('the canned judge', () => {
     // Graded, not ungraded: the canned verdict satisfied the schema. Every
     // case resolved to cannot-determine and none to a direction, which is
     // what a judge that read nothing honestly knows.
-    // Graded, not ungraded — the difference being that the canned verdict
-    // satisfied CaseVerdictSchema rather than being rejected by it.
     expect(score?.exclusions.ungraded).toBe(0)
     // And every judgment came back cannot-determine, so no pair yielded a
     // usable score and the corpus has zero cases to average.
@@ -387,8 +391,8 @@ describe('judgeSweep', () => {
   })
 
   it('refuses an agent with records on only one arm', async () => {
-    const [base] = pair('lonely', ['a', 'b'])
-    const result = await run(await seeded([base!]), neverCalled)
+    const baseOnly = pair('lonely', ['a', 'b']).slice(0, 1)
+    const result = await run(await seeded(baseOnly), neverCalled)
     expect(result.report.refusals?.[0]?.reason).toContain(
       'Only the base arm produced records',
     )
@@ -453,7 +457,7 @@ describe('judgeSweep', () => {
         store: await seeded(cases(1)),
         llm: alwaysX,
         registry: [
-          { ...REGISTRY[0]!, status: 'wired' },
+          { ...COS, status: 'wired' },
           {
             agentId: 'briefing_annotation',
             shape: 'chat',
@@ -556,13 +560,20 @@ describe('a spend switch that disagrees with the captures', () => {
   // The other direction, which is worse rather than merely wasteful: a real
   // panel reading two canned replies returns a confident verdict about two
   // stub strings.
+  //
+  // And it does not claim the variable was unset. The manifest carries a
+  // boolean, so JUDGE_SPEND=yes — which `spends()` reads as "do not spend" —
+  // is indistinguishable from absent here, and "unset" sent the reader
+  // looking for a variable that was right there with the wrong value.
   it('refuses a live panel over captures that called nothing', async () => {
     await expect(
       at(true, [
         manifest('base', { spent: false }),
         manifest('candidate', { spent: false }),
       ]),
-    ).rejects.toThrow(/the base and candidate capture were taken with it unset/)
+    ).rejects.toThrow(
+      /the base and candidate capture were taken with it set to something other than 'true', or not set at all/,
+    )
   })
 
   // One arm re-run with the switch flipped, which is the shape a retried
@@ -573,7 +584,9 @@ describe('a spend switch that disagrees with the captures', () => {
         manifest('base', { spent: true }),
         manifest('candidate', { spent: false }),
       ]),
-    ).rejects.toThrow(/the candidate capture was taken with it unset/)
+    ).rejects.toThrow(
+      /the candidate capture was taken with it set to something other than 'true'/,
+    )
   })
 
   it('judges a canned sweep whose captures were also canned', async () => {
@@ -590,5 +603,62 @@ describe('a spend switch that disagrees with the captures', () => {
     )
     expect(result.report.agents).toHaveLength(1)
     expect(result.exitCode).toBe(0)
+  })
+})
+
+// The mitigation `emitReport` exists for, driven rather than assumed. stdout
+// is the channel the Actions runner parses for workflow commands, and a
+// refusal reason is arbitrary error text from whatever failed — so a line in
+// the report starting `::error::` or `::add-mask::` would be executed instead
+// of printed. `env` is injectable purely so this can check it.
+describe('emitReport', () => {
+  const BODY = [
+    '### Universal Judge',
+    '::error::this is part of a refusal reason, not a command',
+    '| chief_of_staff | BETTER |',
+  ].join('\n')
+
+  const emit = (markdown: string, env: NodeJS.ProcessEnv): string[] => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    try {
+      emitReport(markdown, env)
+      return spy.mock.calls.map((call) => String(call[0]))
+    } finally {
+      spy.mockRestore()
+    }
+  }
+
+  it('brackets the report so no line in it can be a workflow command', () => {
+    const lines = emit(BODY, {})
+    const token = /^::stop-commands::(\S+)$/.exec(lines[0] ?? '')?.[1]
+    expect(token).toBeTruthy()
+    expect(lines[1]).toBe(BODY)
+    expect(lines[1]).toContain('::error::')
+    expect(lines[2]).toBe(`::${token}::`)
+  })
+
+  // A fixed token would be guessable from the source, and a report carrying
+  // `::<that token>::` would close the guard it is inside and hand the rest
+  // of itself to the runner.
+  it('uses a token nothing in the report could know', () => {
+    expect(emit(BODY, {})[0]).not.toBe(emit(BODY, {})[0])
+  })
+
+  it('appends to the job summary when GitHub gives us one', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'judge-summary-'))
+    const file = path.join(dir, 'summary.md')
+    emit(BODY, { GITHUB_STEP_SUMMARY: file })
+    emit('a second step', { GITHUB_STEP_SUMMARY: file })
+    expect(await readFile(file, 'utf8')).toBe(`${BODY}\na second step\n`)
+  })
+
+  // Locally there is no summary file, and `appendFileSync` on undefined or on
+  // '' throws — so the guard is the only reason running the judging entry
+  // outside Actions prints a report instead of dying after it.
+  it.each<[string, NodeJS.ProcessEnv]>([
+    ['absent', {}],
+    ['empty', { GITHUB_STEP_SUMMARY: '' }],
+  ])('still prints and does not append when the variable is %s', (_n, env) => {
+    expect(emit(BODY, env)).toHaveLength(3)
   })
 })

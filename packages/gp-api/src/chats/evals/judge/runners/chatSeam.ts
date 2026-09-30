@@ -9,7 +9,8 @@ import {
   type LlmTool,
   type ToolCall,
 } from '@/llm/services/llm.service'
-import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
 import type { JsonValue, TraceStep } from '../record'
 
 // The three seams a chat run is observed at. Each one is the only place the
@@ -387,36 +388,59 @@ export interface InstrumentedProvider {
 
 // Captures and optionally pins every query the constituent-data tool runs.
 //
-// The provider is null whenever no Databricks credential is configured, which
-// is every local and CI run: the tool then never registers and there is no
-// seam to instrument. That is why `pinDeltaVersion` is tested directly rather
-// than through a live query.
+// ON THE CLASS, NOT ON AN INSTANCE, and that is the correctness fix rather
+// than a style choice. `CONSTITUENT_DATA_PROVIDER` is registered TWICE — once
+// in chief-of-staff.module.ts and once in priority-flow.module.ts — each with
+// its own factory building its own DatabricksSqlProvider. A container lookup
+// by that token returns one of the two by Nest's internal ordering, not by
+// the caller's intent, so an instance patch could instrument priority-flow's
+// provider while the chief-of-staff handler queried its own: `toolQueries`
+// would come back empty with no error, and a `VERSION AS OF` pin would
+// silently not apply, which defeats the one invariant JUDGE_DATA_VERSION
+// exists for. Patching the prototype makes which instance a handler holds
+// unable to matter.
+//
+// It also means this records every Databricks query the PROCESS makes while
+// installed, not only the agent's. In a judge arm nothing else is querying,
+// and `assertTestProcess` is what keeps it out of a live one.
+//
+// No provider exists at all wherever no Databricks credential is configured,
+// which is every local and CI run: the tool never registers and no query is
+// ever made, so `queries` stays empty. That is why `pinDeltaVersion` is
+// tested directly rather than through a live query.
 export const instrumentDatabricksProvider = (
-  provider: DatabricksProvider,
   pinnedVersion?: string,
 ): InstrumentedProvider => {
   assertTestProcess('instrumentDatabricksProvider')
-  claim(provider, 'instrumentDatabricksProvider')
-  // Checked here as well as at splice time, so a bad version fails the run
-  // before the turn starts rather than at the first query the agent writes.
+  // Checked before the claim as well as at splice time, so a bad version
+  // fails the run before the turn starts AND leaves the prototype unclaimed —
+  // a throw after claiming would lock the class for the life of the process.
   if (pinnedVersion !== undefined) assertDeltaVersion(pinnedVersion)
+  const target = DatabricksSqlProvider.prototype
+  claim(target, 'instrumentDatabricksProvider')
   const queries: string[] = []
-  // .bind() returns any — TypeScript cannot infer the bound method signature
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const original: DatabricksProvider['query'] = provider.query.bind(provider)
-  const owned = Object.hasOwn(provider, 'query')
-  Object.assign(provider, {
-    query: (sql: string) => {
+  const original = target.query
+  const patch = {
+    // Method shorthand rather than an arrow: a prototype method is called
+    // with the instance as `this`, and the original needs it back.
+    query(this: DatabricksSqlProvider, sql: string): Promise<DatabricksRowSet> {
       queries.push(sql)
-      return original(pinnedVersion ? pinDeltaVersion(sql, pinnedVersion) : sql)
+      // Rebound per call: `this` is whichever provider the handler happens to
+      // hold, which is the whole reason the patch is on the class.
+      // .bind() returns any — TypeScript cannot infer the bound signature
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const unpatched: DatabricksSqlProvider['query'] = original.bind(this)
+      return unpatched(
+        pinnedVersion ? pinDeltaVersion(sql, pinnedVersion) : sql,
+      )
     },
-  })
+  }
+  Object.assign(target, patch)
   return {
     queries,
     restore: () => {
-      if (owned) Object.assign(provider, { query: original })
-      else Reflect.deleteProperty(provider, 'query')
-      installedOn.delete(provider)
+      Object.assign(target, { query: original })
+      installedOn.delete(target)
     },
   }
 }
