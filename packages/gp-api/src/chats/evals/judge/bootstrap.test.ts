@@ -54,6 +54,17 @@ describe('bootstrapCi', () => {
     expect(bootstrapCi([], config(), createRng(1))).toBeNull()
   })
 
+  // `iterations` is a config value that exists to be edited, and nothing up
+  // the stack catches a throw from here. Without this the resample list
+  // stays empty, `percentile` asks for index -1, and the whole sweep dies
+  // over a tunable — reporting a message about the case series, which is
+  // not the input that was wrong.
+  it.each([0, -1])('has no interval for %i iterations', (iterations) => {
+    expect(
+      bootstrapCi([0.5, -0.5], config({ iterations }), createRng(1)),
+    ).toBeNull()
+  })
+
   it('collapses to a point when every case agrees', () => {
     const interval = bootstrapCi([0.5, 0.5, 0.5], config(), createRng(1))
     expect(interval).toEqual({ lower: 0.5, upper: 0.5 })

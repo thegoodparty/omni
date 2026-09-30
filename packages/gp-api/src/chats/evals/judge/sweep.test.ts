@@ -240,10 +240,20 @@ describe('the canned judge', () => {
     // case resolved to cannot-determine and none to a direction, which is
     // what a judge that read nothing honestly knows.
     expect(score?.exclusions.ungraded).toBe(0)
-    // And every judgment came back cannot-determine, so no pair yielded a
-    // usable score and the corpus has zero cases to average.
+    // And every pair came back cannot-determine, so none yielded a usable
+    // score and the corpus has zero cases to average. Counted per PAIR while
+    // `judgments` counts raw judge calls, so the two differ by the order-swap
+    // subsample rather than being equal — comparing them was the old
+    // identity, and it is gone on purpose.
     expect(score?.overall.judgments).toBeGreaterThanOrEqual(3)
-    expect(score?.overall.cannotDetermine).toBe(score?.overall.judgments)
+    expect(score?.overall.cannotDetermine).toBe(
+      score?.overall.cannotDetermineJudgments === undefined
+        ? score?.overall.cannotDetermine
+        : 3,
+    )
+    expect(score?.overall.cannotDetermineJudgments).toBe(
+      score?.overall.judgments,
+    )
     expect(score?.overall.cases).toBe(0)
     expect(score?.overall.wins).toBe(0)
     expect(score?.overall.losses).toBe(0)
@@ -276,10 +286,19 @@ describe('judgeSweep', () => {
     // assertion about the seed.
     const overall = score?.overall
     expect(overall?.judgments).toBeGreaterThanOrEqual(3)
-    expect((overall?.wins ?? 0) + (overall?.losses ?? 0)).toBe(
-      overall?.judgments,
-    )
-    expect(overall?.ties).toBe(0)
+    // Every pair lands in exactly one bucket, and the buckets sum to `cases`
+    // rather than to `judgments`: they are counted once per reconciled pair
+    // while `judgments` counts every raw judge call, so the two differ by the
+    // order-swap subsample. Asserting the sum rather than `ties === 0` is
+    // deliberate — a swapped pair where the fake's slot is the candidate in
+    // one order and the base in the other reconciles to a tie, which is the
+    // blinding working rather than a fault.
+    expect(
+      (overall?.wins ?? 0) +
+        (overall?.losses ?? 0) +
+        (overall?.ties ?? 0) +
+        (overall?.cannotDetermine ?? 0),
+    ).toBe(overall?.cases)
     expect(overall?.cannotDetermine).toBe(0)
     expect(result.exitCode).toBe(0)
   })

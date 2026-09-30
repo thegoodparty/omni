@@ -72,7 +72,9 @@ const magnitudeLine = (score: DimensionScore): string | null => {
   const parts = Object.entries(score.magnitudes)
     .filter(([, count]) => count > 0)
     .map(([name, count]) => `${count} ${name}`)
-  return parts.length === 0 ? null : `Overall magnitudes: ${parts.join(', ')}.`
+  return parts.length === 0
+    ? null
+    : `Overall magnitudes (per pair): ${parts.join(', ')}.`
 }
 
 // By arm and type, which is the count the rubric doc asks for. Orientation
@@ -84,7 +86,7 @@ const flagLine = (score: AgentScore): string | null => {
     const key = `${flag.arm} ${flag.type}`
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
-  return `Flags: ${[...counts.entries()]
+  return `Flags (cases affected): ${[...counts.entries()]
     .map(([key, count]) => `${count} on ${key}`)
     .join(', ')}.`
 }
@@ -119,7 +121,7 @@ const evidenceLines = (score: AgentScore): string[] => {
         `${cost.candidate.toFixed(4)})`,
     `- latency: ${signed(evidence.latencyMs.delta, 0)} ms per run pair`,
     `- tool errors: ${signed(evidence.toolErrors.delta, 2)} per run pair`,
-    `- measured over ${evidence.pairs} pairs`,
+    `- measured over ${evidence.pairs} run pair(s)`,
   ]
   if (evidence.liveWebCases > 0) {
     lines.push(
@@ -140,8 +142,9 @@ const evidenceLines = (score: AgentScore): string[] => {
 const exclusionLine = (score: AgentScore): string => {
   const e = score.exclusions
   return (
-    `Excluded: ${e.toolError} tool error, ${e.infraError} infra error, ` +
-    `${e.unpaired} unpaired. Separately, ${e.ungraded} ungraded ` +
+    `Excluded pairs: ${e.toolError} tool error, ${e.infraError} infra ` +
+    `error, ${e.identicalConfig} identical config. Plus ${e.unpaired} ` +
+    `unpaired record(s). Separately, ${e.ungraded} ungraded judgment(s) ` +
     "(the judge itself failed, which is not a CAN'T SAY verdict)."
   )
 }
@@ -159,7 +162,8 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   const newFlags = candidateFlags.filter((f) => !baseFlagTypes.has(f.type))
   if (newFlags.length > 0) {
     lines.push(
-      `> **${newFlags.length} flag(s) raised on the candidate only:** ` +
+      `> **${newFlags.length} flag(s) raised on the candidate only ` +
+        `(counted once per case):** ` +
         `${[...new Set(newFlags.map((f) => f.type))].join(', ')}`,
     )
     lines.push('')
@@ -170,7 +174,10 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
       `cases — ${score.labelNote}`,
   )
   lines.push('')
-  lines.push("| dimension | Δ (95% CI) | cases | W/T/L | can't tell |")
+  lines.push(
+    '| dimension | Δ (95% CI) | cases | W/T/L (pairs) | ' +
+      "can't tell (pairs) |",
+  )
   lines.push('| --- | --- | --- | --- | --- |')
   lines.push(dimensionRow('overall', score.overall))
   for (const name of config.dimensions) {
@@ -204,22 +211,32 @@ const agentSection = (score: AgentScore, config: JudgeConfig): string[] => {
   lines.push(exclusionLine(score))
   lines.push('')
   lines.push(
-    `Position consistency: ${percentOf(score.positionConsistency)}` +
+    'Position consistency across order-swapped pairs: ' +
+      `${percentOf(score.positionConsistency)}` +
       (score.orderUnstablePairs.length > 0
-        ? `, order-unstable: ${score.orderUnstablePairs.join(', ')}`
+        ? `, order-unstable pair(s): ${score.orderUnstablePairs.join(', ')}`
         : ''),
   )
   if (score.panelDisagreementRate !== null) {
     lines.push(
-      `Panel disagreement on direction: ` +
+      'Panel disagreement on direction, per judgment: ' +
         `${percentOf(score.panelDisagreementRate)}`,
     )
   }
   if (score.floorFailures.length > 0) {
     lines.push(
-      `Absolute floor failed on ${score.floorFailures.length} run(s): ` +
-        'at least one arm produced something a reasonable user would not ' +
-        'accept, which a tie would otherwise hide.',
+      `Absolute floor failed on ${score.floorFailures.length} run(s), ` +
+        'one per arm per case: at least one arm produced something a ' +
+        'reasonable user would not accept, which a tie would otherwise ' +
+        'hide.',
+    )
+  }
+  if (score.floorUnclear.length > 0) {
+    lines.push(
+      `Absolute floor unclear on ${score.floorUnclear.length} run(s), ` +
+        'one per arm per case: the judge could not tell whether a ' +
+        'reasonable user would accept what an arm produced. Not counted ' +
+        'as a failure, and worth a read.',
     )
   }
   lines.push('')
