@@ -4,6 +4,7 @@ import { ContactsModule } from '@/contacts/contacts.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { OnboardingStatsRateLimitGuard } from './guards/onboardingStatsRateLimit.guard'
 import { OnboardingContactsController } from './onboardingContacts.controller'
 import { OnboardingLocalNewsController } from './onboardingLocalNews.controller'
 import { OnboardingVoterIssuesController } from './onboardingVoterIssues.controller'
@@ -23,6 +24,10 @@ import { LocalNewsCacheService } from './services/localNewsCache.service'
     OnboardingLocalNewsController,
     OnboardingVoterIssuesController,
   ],
-  providers: [OnboardingLocalNewsService, LocalNewsCacheService],
+  providers: [
+    OnboardingLocalNewsService,
+    LocalNewsCacheService,
+    OnboardingStatsRateLimitGuard,
+  ],
 })
 export class OnboardingModule {}

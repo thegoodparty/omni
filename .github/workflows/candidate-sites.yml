@@ -38,6 +38,9 @@ jobs:
       - name: Format check
         run: npm run format -w ${{ env.WORKSPACE }}
 
+      - name: Test
+        run: npm test -w ${{ env.WORKSPACE }}
+
       # Type gate was missing: the package has a tsconfig but no typecheck was
       # run in CI (Build smoke has `eslint.ignoreDuringBuilds` and Next does not
       # hard-fail the build on type errors here). Generate Next's route types

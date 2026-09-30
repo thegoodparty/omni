@@ -5,6 +5,7 @@ import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { LlmModule } from '@/llm/llm.module'
 import { EmailModule } from '../email/email.module'
 import { ElectionsController } from './elections.controller'
+import { ElectionsRateLimitGuard } from './guards/electionsRateLimit.guard'
 import { BallotReadyService } from './services/ballotReady.service'
 import { CensusEntitiesService } from './services/censusEntities.service'
 import { ElectionsService } from './services/elections.service'
@@ -17,6 +18,7 @@ import { RacesService } from './services/races.service'
     CensusEntitiesService,
     BallotReadyService,
     ElectionsService,
+    ElectionsRateLimitGuard,
   ],
   exports: [RacesService, ElectionsService, BallotReadyService],
   imports: [LlmModule, EmailModule, HttpModule, SlackModule, ClerkModule],

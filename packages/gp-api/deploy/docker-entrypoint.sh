@@ -159,7 +159,10 @@ if [ "$IS_PREVIEW" = "true" ]; then
   for i in $(seq 1 30); do
     if curl -s http://localhost:${PORT:-80}/v1/health > /dev/null 2>&1; then
       echo "App is healthy. Running content sync..."
-      if curl -s http://localhost:${PORT:-80}/v1/content/sync > /dev/null 2>&1; then
+      # Runs in its own process against the Nest application context rather
+      # than over HTTP, so the sync is not something the running service has
+      # to expose a route for.
+      if node dist/content/syncContent.cli.js; then
         echo "Content sync completed."
       else
         echo "WARNING: Content sync failed. Continuing..."
