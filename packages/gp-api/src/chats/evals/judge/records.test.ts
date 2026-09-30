@@ -560,7 +560,11 @@ describe('the seeded-transcript mark on a manifest', () => {
   it('parses a manifest from a ref that never knew the field', () => {
     const parsed = ArmManifestSchema.parse(withAgent({}))
     expect(parsed.agents[0]?.seededTranscriptCases).toBeUndefined()
-    expect(parsed.schemaVersion).toBe(MANIFEST_SCHEMA_VERSION)
+    // A LITERAL, not the constant. Compared against
+    // MANIFEST_SCHEMA_VERSION this could not notice a bump, because a bump
+    // moves the fixture and the expectation together — and "the version did
+    // not have to move for this field" is the whole claim.
+    expect(parsed.schemaVersion).toBe(2)
   })
 
   // Absent means "nothing seeded". An empty array would be a third reading of
@@ -569,6 +573,6 @@ describe('the seeded-transcript mark on a manifest', () => {
   it('refuses an empty list rather than accepting a third spelling', () => {
     expect(() =>
       ArmManifestSchema.parse(withAgent({ seededTranscriptCases: [] })),
-    ).toThrow()
+    ).toThrow(/expected array to have >=1 items/)
   })
 })

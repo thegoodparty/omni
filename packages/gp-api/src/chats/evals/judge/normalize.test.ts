@@ -547,7 +547,7 @@ describe('rendering a transcript input', () => {
     ).toBe(
       'Conversation so far, written by the harness:\n' +
         '  user: What are my priorities?\n' +
-        '  assistant: Three. [called crud_priorities]\n' +
+        '  assistant: Three. [called crud_priorities({})]\n' +
         '\n' +
         'Which is oldest?',
     )
@@ -568,19 +568,85 @@ describe('rendering a transcript input', () => {
   })
 
   // Deterministic in every part, or blindCase reports two arms of one case as
-  // having been asked different things. The keys of an account state arrive
-  // in whatever order JSON.parse produced them.
+  // having been asked different things. Asserted as the exact string rather
+  // than by rendering two key orders and comparing them: zod rebuilds the
+  // object in SCHEMA order, so both spellings already render alike and that
+  // comparison would pass with the sort removed.
   it('orders the conditions it prints', () => {
-    const a = renderPayload({
+    expect(
+      renderPayload({
+        kind: 'transcript',
+        value: { turns: ['q'], accountState: { pro: false, district: true } },
+      }),
+    ).toBe('q\n\nCondition: account state district=true, pro=false.')
+  })
+
+  // LOSSLESS, which is the property the cross-checkout guard rests on:
+  // blindCase compares the rendered TEXT, so a field two arms can differ on
+  // and this renderer drops is a pair compared as like for like.
+  it('renders the delay a forced timeout was given', () => {
+    const withDelay = renderPayload({
       kind: 'transcript',
-      value: { turns: ['q'], accountState: { pro: false, district: true } },
+      value: {
+        turns: ['q'],
+        toolFailure: { tool: 't', mode: 'timeout', afterMs: 5_000 },
+      },
     })
-    const b = renderPayload({
+    const withoutDelay = renderPayload({
       kind: 'transcript',
-      value: { turns: ['q'], accountState: { district: true, pro: false } },
+      value: { turns: ['q'], toolFailure: { tool: 't', mode: 'timeout' } },
     })
-    expect(a).toBe(b)
-    expect(a).toContain('district=true, pro=false')
+
+    expect(withDelay).toContain('forced to timeout after 5000ms.')
+    expect(withoutDelay).toContain('forced to timeout.')
+    expect(withDelay).not.toBe(withoutDelay)
+  })
+
+  it('renders a seeded tool call in order and with its input', () => {
+    const rendered = renderPayload({
+      kind: 'transcript',
+      value: {
+        turns: ['q'],
+        seededTranscript: [
+          { role: 'user', content: 'ask' },
+          {
+            role: 'assistant',
+            content: 'Two.',
+            toolCalls: [
+              { tool: 'b_tool', input: { action: 'list' } },
+              { tool: 'a_tool', input: { action: 'get' } },
+            ],
+          },
+        ],
+      },
+    })
+
+    // In the order the case wrote them, not sorted: order is part of what the
+    // agent read. And with the input, which is the only part of a seeded call
+    // a newer ref could differ on.
+    expect(rendered).toContain(
+      '[called b_tool({"action":"list"}), a_tool({"action":"get"})]',
+    )
+  })
+
+  it('renders two seeded calls that differ only by input differently', () => {
+    const rendered = (action: string): string =>
+      renderPayload({
+        kind: 'transcript',
+        value: {
+          turns: ['q'],
+          seededTranscript: [
+            { role: 'user', content: 'ask' },
+            {
+              role: 'assistant',
+              content: 'Done.',
+              toolCalls: [{ tool: 't', input: { action } }],
+            },
+          ],
+        },
+      })
+
+    expect(rendered('list')).not.toBe(rendered('archive'))
   })
 
   // A shape this build does not recognise is still the input both arms were
@@ -590,6 +656,24 @@ describe('rendering a transcript input', () => {
     expect(
       renderPayload({ kind: 'transcript', value: { turns: [] } }),
     ).toContain('"turns"')
+  })
+
+  // AND THE FALLBACK IS WHAT KEEPS IT LOSSLESS. A field this build has not
+  // heard of — one a newer ref put on the payload — must not be stripped and
+  // silently unrendered, because then two arms driven under different
+  // conditions render alike and blindCase compares them as like for like.
+  // The schema is strict, so such a value falls through to whole-value JSON
+  // and the difference survives.
+  it('keeps a field this build does not know in the rendered text', () => {
+    const rendered = renderPayload({
+      kind: 'transcript',
+      value: { turns: ['q'], fromANewerRef: 'matters' },
+    })
+
+    expect(rendered).toContain('fromANewerRef')
+    expect(rendered).not.toBe(
+      renderPayload({ kind: 'transcript', value: { turns: ['q'] } }),
+    )
   })
 })
 

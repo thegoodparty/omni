@@ -144,6 +144,12 @@ export const ArmAgentSchema = z.object({
   // the same claim as one where the routes wrote all of it, and the
   // difference is invisible once it is a number in a table.
   //
+  // A TRANSCRIPT AND NOT THE OTHER TWO CONDITIONS, deliberately. A forced
+  // tool failure separates itself more strongly than a line here could —
+  // `isComparable` is false for it, so the pair never reaches a delta. And an
+  // account state is a state production really produces, seeded through the
+  // same rows the app writes, so a verdict under one is about a real account.
+  //
   // OPTIONAL, AND THAT IS WHY THE MANIFEST VERSION DID NOT MOVE. The base arm
   // writes its manifest with the BASE REF's copy of this file; a required
   // field here would read, on any base ref predating it, as a corrupt

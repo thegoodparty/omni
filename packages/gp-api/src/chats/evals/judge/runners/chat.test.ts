@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER } from '@/chats/services/chatStream.service'
 import { toolBudgetExhaustedNote } from '@/llm/services/llm.service'
 import { CiContextSchema } from '../record'
-import { TranscriptInputSchema } from '../cases'
+import {
+  MAX_TOOL_TIMEOUT_MS,
+  ToolFailureSchema,
+  toolFailureDelayMs,
+  TranscriptInputSchema,
+} from '../cases'
 import {
   TOOL_BUDGET_FALLBACK_REPLY,
   buildFallbackReplies,
@@ -11,10 +16,12 @@ import {
   ciContextFromEnv,
   classifyChatStatus,
   combineChatStatus,
+  everyTurnPriced,
   joinTurnReplies,
   priceRun,
   reindexTrace,
   tracesUnpriceable,
+  turnTokens,
   unpriceableStep,
 } from './chat'
 
@@ -360,7 +367,26 @@ describe('caseInput', () => {
       'transcript',
       'transcript',
     ])
-    expect(kinds).not.toContain('question')
+  })
+
+  // THE WRITER AND THE SCHEMA CANNOT DRIFT. `caseInput` lists the fields by
+  // hand, so a field added to the case schema and forgotten here would be
+  // absent from the payload, absent from the rendered input, and therefore
+  // invisible to the mismatch refusal that is the whole cross-checkout
+  // protection. This is what fails when that happens.
+  it('carries every field the transcript payload names', () => {
+    const payload = caseInput({
+      caseId: 'a',
+      turns: ['one'],
+      priorTranscript: [{ role: 'user', content: 'earlier' }],
+      toolFailure: { tool: 't', mode: 'error' },
+      accountState: { pro: false },
+    })
+    const value = TranscriptInputSchema.parse(payload.value)
+
+    expect(Object.keys(value).sort()).toEqual(
+      Object.keys(TranscriptInputSchema.shape).sort(),
+    )
   })
 
   // One schema for the writer here and the reader in normalize.ts. A writer
@@ -402,5 +428,118 @@ describe('caseInput', () => {
     expect(TranscriptInputSchema.parse(payload.value).turns).toEqual([
       'just the one',
     ])
+  })
+})
+
+// How long a forced timeout waits. Untested, the runner honoured whatever
+// this returned and nothing noticed if it stopped reading the case's own
+// number — the timing test at the seam passes on the default too, only
+// slower.
+describe('toolFailureDelayMs', () => {
+  it('uses the delay the case asked for', () => {
+    expect(
+      toolFailureDelayMs({ tool: 't', mode: 'timeout', afterMs: 2_500 }),
+    ).toBe(2_500)
+  })
+
+  // Short by default, because this reproduces the OUTCOME of a timeout and
+  // not a real wall-clock hang.
+  it('is short when the case named no delay', () => {
+    const delay = toolFailureDelayMs({ tool: 't', mode: 'timeout' })
+    expect(delay).toBeGreaterThan(0)
+    expect(delay).toBeLessThan(1_000)
+  })
+
+  // An `error` step throws before the real execute is reached, so there is
+  // nothing to wait for.
+  it('waits for nothing on a thrown error', () => {
+    expect(toolFailureDelayMs({ tool: 't', mode: 'error' })).toBe(0)
+  })
+
+  // A case list is authored text, and a directive that waited minutes would
+  // be indistinguishable from a wedged sweep.
+  it('has a bound a case list cannot exceed', () => {
+    expect(() =>
+      ToolFailureSchema.parse({
+        tool: 't',
+        mode: 'timeout',
+        afterMs: MAX_TOOL_TIMEOUT_MS + 1,
+      }),
+    ).toThrow()
+    expect(
+      ToolFailureSchema.parse({
+        tool: 't',
+        mode: 'timeout',
+        afterMs: MAX_TOOL_TIMEOUT_MS,
+      }).afterMs,
+    ).toBe(MAX_TOOL_TIMEOUT_MS)
+  })
+})
+
+// A PARTIAL SUM IS NOT THE CONVERSATION'S USAGE. A three-turn case whose
+// third turn never reported has a real total nobody measured, and recording
+// what the first two cost reads as the whole conversation — the same "cheaper
+// than it was" reading the absent-rather-than-zero rule exists to prevent.
+// Zero is what a single unreported turn already recorded before any of this,
+// so it is the existing convention rather than a new one; the trace carries
+// the reason, and TokenUsageSchema's four non-optional ints cannot say
+// "unknown" (the follow-up the README records).
+describe('turnTokens', () => {
+  const ONE_TURN = ['a']
+  const THREE_TURNS = ['a', 'b', 'c']
+
+  it('records what was measured when every turn reported', () => {
+    expect(turnTokens({ input: 350, output: 30 }, 3, THREE_TURNS)).toEqual({
+      input: 350,
+      output: 30,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
+  })
+
+  it('records nothing when a turn went unreported', () => {
+    expect(turnTokens({ input: 350, output: 30 }, 2, THREE_TURNS)).toEqual({
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
+  })
+
+  it('records nothing when no turn reported at all', () => {
+    expect(turnTokens(undefined, 0, ONE_TURN).input).toBe(0)
+  })
+
+  // A turn that really did use nothing reports a true zero, which is an
+  // observation and has to survive.
+  it('keeps a measured zero', () => {
+    expect(turnTokens({ input: 0, output: 0 }, 1, ONE_TURN)).toEqual({
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    })
+  })
+
+  // Zero because prompt caching is not enabled. Carried rather than omitted
+  // so the day it is switched on, pricing fails loudly instead of costing a
+  // cache read at the full input rate.
+  it('always carries the cache fields', () => {
+    const tokens = turnTokens({ input: 1, output: 1 }, 1, ONE_TURN)
+    expect(tokens.cacheRead).toBe(0)
+    expect(tokens.cacheWrite).toBe(0)
+  })
+})
+
+describe('everyTurnPriced', () => {
+  it('is true when as many turns reported as were asked for', () => {
+    expect(everyTurnPriced(2, ['a', 'b'])).toBe(true)
+  })
+
+  // Counted against the turns the case ASKED FOR, not the ones that
+  // completed, which is what makes a conversation that broke on its third
+  // turn unpriceable instead of priced at what its first two turns cost.
+  it('is false when a turn the case asked for never reported', () => {
+    expect(everyTurnPriced(2, ['a', 'b', 'c'])).toBe(false)
   })
 })

@@ -130,6 +130,15 @@ const renderJson: PayloadRenderer = (payload) =>
 // Deterministic in every part, which is what it has to be: the same value
 // renders to the same text or `blindCase` reports two arms of one case as
 // having been asked different things.
+//
+// AND LOSSLESS, which is the harder half. `blindCase` compares the RENDERED
+// text, not the payload, so any field this omits is a field two arms can
+// differ on while rendering identically — and the whole cross-checkout
+// protection is that an older base ref which stripped a case field records a
+// payload that does not match. Every field `TranscriptInputSchema` carries
+// reaches the text below, and the schema is `.strict()` so a field it has not
+// heard of falls this renderer back to whole-value JSON rather than dropping
+// it silently.
 const renderTranscript: PayloadRenderer = (payload) => {
   const parsed = TranscriptInputSchema.safeParse(payload.value)
   // Falls back to pretty JSON rather than throwing. A shape this build does
@@ -141,9 +150,11 @@ const renderTranscript: PayloadRenderer = (payload) => {
   if (seededTranscript !== undefined) {
     lines.push('Conversation so far, written by the harness:')
     for (const turn of seededTranscript) {
+      // Every call, IN ORDER and WITH ITS INPUT. Order is part of what the
+      // agent read, and the input is the only part of a seeded call a newer
+      // ref could differ on — see the lossless rule above.
       const calls = (turn.toolCalls ?? [])
-        .map((call) => call.tool)
-        .sort()
+        .map((call) => `${call.tool}(${JSON.stringify(call.input)})`)
         .join(', ')
       lines.push(
         `  ${turn.role}: ${turn.content}` +
@@ -158,10 +169,16 @@ const renderTranscript: PayloadRenderer = (payload) => {
     ),
   )
   if (toolFailure !== undefined) {
+    // `afterMs` reaches the line for the lossless reason above: a base ref
+    // whose schema predates it strips it and drives the default instead, and
+    // a renderer that dropped it would make the two arms' inputs render
+    // byte-identically and the pair compare as like for like.
+    const after =
+      toolFailure.afterMs === undefined ? '' : ` after ${toolFailure.afterMs}ms`
     lines.push(
       '',
       `Condition: the tool "${toolFailure.tool}" was forced to ` +
-        `${toolFailure.mode}.`,
+        `${toolFailure.mode}${after}.`,
     )
   }
   if (accountState !== undefined) {

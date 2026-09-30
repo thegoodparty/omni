@@ -173,13 +173,61 @@ export const SeededTurnSchema = z
   )
 export type SeededTurn = z.infer<typeof SeededTurnSchema>
 
+// A TRANSCRIPT PRODUCTION COULD HAVE PRODUCED, which is narrower than a list
+// of individually valid rows.
+//
+// `toLlmMessages` folds a LEADING assistant row into the system prompt,
+// because Anthropic requires the replayed list to open on a user turn — and
+// it folds only the first one. So a transcript opening on an assistant reply,
+// or that puts two assistant rows together, leaves an assistant row as the
+// first real message and the provider rejects the turn. That arrives as a
+// stream error after the conversation is open and a turn has been attempted,
+// which is exactly the spend this stack refuses before.
+//
+// The fold is also a reason not to WANT a leading assistant row: it is
+// injected as "You already greeted the candidate with: …", so a case author
+// writing "the agent already said X" would get a greeting claim instead — and
+// on a Serve scope, one that calls an elected official a candidate.
+//
+// campaign_assistant is the case that makes this load-bearing rather than
+// theoretical: its `seedConversation` writes a scripted assistant opener at
+// POST /v1/chats, before anything here runs. With the rule below that opener
+// is the row that gets folded and the seeded transcript follows it legally;
+// without it, an author's leading assistant row is the SECOND one and the
+// turn dies.
+export const transcriptShapeIssue = (
+  turns: readonly SeededTurn[],
+): string | undefined => {
+  if (turns[0]?.role !== 'user') {
+    return (
+      'a prior transcript has to open on a user turn: the replayed ' +
+      'message list must, and a leading assistant row is folded into the ' +
+      'system prompt as a greeting rather than replayed as a reply'
+    )
+  }
+  const doubled = turns.findIndex(
+    (turn, index) =>
+      index > 0 &&
+      turn.role === 'assistant' &&
+      turns[index - 1]?.role === 'assistant',
+  )
+  return doubled === -1
+    ? undefined
+    : `rows ${doubled - 1} and ${doubled} are both assistant turns, which ` +
+        'no conversation produces: the model answers a user turn, so two ' +
+        'replies in a row leave an assistant message where the provider ' +
+        'requires a user one'
+}
+
 // Ten turns is more conversation than any authored case needs and every one
 // of them is a paid model call under a spending sweep.
 export const MAX_CASE_TURNS = 10
-// Twenty rows, against the route's own 40-message replay window. The runner
-// refuses the combination that would push a seeded row out of that window;
-// this is only the authoring bound.
-export const MAX_SEEDED_TURNS = 20
+// Against the route's own 40-message replay window, with room for the
+// scripted opener campaign_assistant's handler seeds before anything here
+// runs. The runner refuses the combination that would push a seeded row out
+// of that window; this is only the authoring bound, and it is deliberately
+// short of it rather than exactly on it.
+export const MAX_SEEDED_TURNS = 18
 
 // The case a chat agent is driven with.
 //
@@ -204,10 +252,33 @@ export const ChatCaseSchema = z
       .array(SeededTurnSchema)
       .min(1)
       .max(MAX_SEEDED_TURNS)
+      // superRefine rather than refine so the reason reaches the message: a
+      // case list is authored text and "not a valid transcript" sends the
+      // author back to read the code.
+      .superRefine((turns, ctx) => {
+        const issue = transcriptShapeIssue(turns)
+        if (issue !== undefined) {
+          ctx.addIssue({ code: 'custom', message: issue })
+        }
+      })
       .optional(),
     toolFailure: ToolFailureSchema.optional(),
     accountState: ChatAccountStateSchema.optional(),
   })
+  // STRICT, WHICH IS NOT THE SAME AS REQUIRING ANYTHING. Every field above is
+  // optional, which is what an older base ref needs. What strict adds is that
+  // a MISSPELLED field name is refused rather than stripped: a
+  // `priorTranscipt` would otherwise be dropped on both arms, the case would
+  // run with no condition applied, and the pair would compare happily and be
+  // reported as a verdict. The inner schemas are strict for the same reason,
+  // and catch a typo inside a directive; this is what catches the directive's
+  // own name.
+  //
+  // The cost is stated in the README: a field this ref does not know refuses
+  // the whole list, which on an older base arm is a named skip for that agent
+  // rather than a silently unconditioned comparison. That is the better of
+  // the two failures.
+  .strict()
   .refine((one) => (one.question === undefined) !== (one.turns === undefined), {
     message:
       'a chat case needs exactly one of `question` (one turn) or `turns` ' +
@@ -227,12 +298,22 @@ export type ChatCase = z.infer<typeof ChatCaseSchema>
 // `turns` is always present, even for a one-turn case: a case that uses any
 // new field records the general shape, which is what makes an older base
 // ref's plainer `{ kind: 'question' }` payload mismatch rather than compare.
-export const TranscriptInputSchema = z.object({
-  turns: z.array(z.string().min(1)).min(1),
-  seededTranscript: z.array(SeededTurnSchema).min(1).optional(),
-  toolFailure: ToolFailureSchema.optional(),
-  accountState: ChatAccountStateSchema.optional(),
-})
+//
+// `.strict()`, and it is the guard rather than tidiness. The renderer's output
+// is what `blindCase` compares across arms, so a field this schema stripped
+// and the renderer therefore never printed would let two arms driven under
+// DIFFERENT conditions compare as equal — the exact failure the payload
+// exists to prevent, in the direction where the base ref is the newer one.
+// Refused instead, which falls the renderer back to whole-value JSON and
+// mismatches loudly.
+export const TranscriptInputSchema = z
+  .object({
+    turns: z.array(z.string().min(1)).min(1),
+    seededTranscript: z.array(SeededTurnSchema).min(1).optional(),
+    toolFailure: ToolFailureSchema.optional(),
+    accountState: ChatAccountStateSchema.optional(),
+  })
+  .strict()
 export type TranscriptInput = z.infer<typeof TranscriptInputSchema>
 
 // The case's user turns, in order. One list whichever spelling was used, so

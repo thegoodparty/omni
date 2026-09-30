@@ -10,6 +10,7 @@ import {
   type ToolCall,
 } from '@/llm/services/llm.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import { sleep } from '@/shared/util/sleep.util'
 import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
 import { toolFailureDelayMs, type ToolFailure } from '../cases'
 import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from '../config'
@@ -166,9 +167,6 @@ export const forcedFailureText = (failure: ToolFailure): string =>
   failure.mode === 'timeout'
     ? `forced timeout: the judge case asked "${failure.tool}" to time out`
     : `forced failure: the judge case asked "${failure.tool}" to fail`
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms))
 
 // Named so a forced timeout is the same failure CLASS a real one is, rather
 // than a generic Error a reader has to interpret.

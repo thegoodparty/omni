@@ -232,6 +232,14 @@ list that uses none behaves exactly as before** — the nineteen lists in
 uses; `turns` is the general spelling of the same thing, and a case must carry
 exactly one of the two.
 
+**The case object is `.strict()`, and that is not the same as requiring
+anything.** Every field is optional, which is what an older base ref needs.
+What strict adds is that a MISSPELLED field name is refused rather than
+stripped: a `priorTranscipt` would otherwise be dropped on BOTH arms, the case
+would run with no condition applied, and the pair would compare happily and be
+reported as a verdict. The nested directives are strict for the same reason and
+catch a typo inside one; this is what catches the directive's own name.
+
 **Several user turns, and nothing hand-builds the history.** The runner posts
 each turn to the same `conversationId`, so turn two is answered against turn
 one and its reply the way `ChatStreamService.run` does it in production — it
@@ -269,8 +277,21 @@ reader of the record sees, not the model's context. Nor can a seeded turn carry
 a tool _result_ — production streams the result to the client and persists only
 the call. What DOES change the model's context is a leading ASSISTANT row,
 which `toLlmMessages` folds into the system prompt rather than sending as an
-invalid leading turn, so a transcript opening on a reply moves the
-`configDigest` too.
+invalid leading turn.
+
+**So a transcript has to be one a conversation could have produced, and the
+schema enforces it: it opens on a user turn and never puts two assistant rows
+together.** The fold takes only the FIRST leading assistant row, so either
+shape leaves an assistant row where the provider requires a user one, and that
+arrives as a stream error after the conversation is open and a turn has been
+attempted — the spend everything else here refuses before. `campaign_assistant`
+is what makes this load-bearing rather than theoretical: its `seedConversation`
+writes a scripted opener before the seeder runs, so with the rule that opener
+is the row that gets folded and the seeded transcript follows it legally.
+Without it, an author's leading assistant row is the second one and the turn
+dies. The fold is also a reason not to want one: it is injected as "You already
+greeted the candidate with: …", which is a greeting claim rather than a reply,
+and on a Serve scope calls an elected official a candidate.
 
 **`anchor` is not a substitute for a transcript, and it is worth knowing which
 you need.** `POST /v1/chats` stores the anchor on the conversation and the
@@ -295,7 +316,16 @@ answers with less information) rather than a real wall-clock hang: a hang would
 cost the route's whole 300s stream timeout per case and arrive as an infraError
 with no answer to compare.
 
-**One consequence to read before authoring these:** `isComparable()` is false
+\*\*The mark covers a seeded transcript and not the other two conditions, which
+is a judgement rather than an omission. A forced tool failure already separates
+itself more strongly than a report line could: `isComparable()` is false for
+it, so the pair never reaches a delta at all. And an account state is a state
+production really produces — a campaign without Pro, an organization without a
+position — seeded through the same rows the app writes, so a verdict under one
+is a verdict about a real account. Only the transcript is a context the harness
+authored and production would not have built.
+
+One consequence to read before authoring these:\*\* `isComparable()` is false
 for any run that hit a tool error, so a forced-failure pair resolves CAN'T SAY
 rather than entering the delta. Telling an injected failure from an incidental
 one needs a field `record.ts` does not have, and `record.ts` is the frozen
@@ -339,6 +369,15 @@ from being called) and **recorded on the capture** (which is what lets the
 runner name it): the chat route catches a throw out of `streamChatCompletion`
 and writes an error chunk, so on the throw alone the run would come back as an
 ordinary infraError and the unhonourable directive would be invisible.
+
+**Adding one of these fields to an EXISTING list is the one operational
+catch.** A `turns`-shaped case fails an older base ref's schema outright, and
+`loadCaseList` throws inside `captureArm`'s per-agent try — so that arm skips
+the WHOLE agent, not just the case, and the candidate arm's already-paid
+records for its other cases have nothing to pair against. It fails loud, and
+the reason reaches the report. But it means `question` plus a new field is the
+gentler way to extend a list until the base ref carries this change, and a
+fresh list for a new bench is gentler still.
 
 **A seeded case is marked all the way to the report**, the road
 `placeholderCases` already travels: the case list, then

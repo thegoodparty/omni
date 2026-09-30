@@ -76,9 +76,9 @@ const HTTP_CREATED: number = HttpStatus.CREATED
 const HTTP_OK: number = HttpStatus.OK
 
 // The case, as the runner needs it. Structurally the loaded `ChatCase` minus
-// the caseId's path-segment regex, which the loader has already applied — so a
-// case list's case is assignable here and a hand-built one in a test needs no
-// file on disk.
+// the caseId's path-segment regex, which the loader has already applied —
+// so a case list's case is assignable here and a hand-built one in a test
+// needs no file on disk.
 export interface ChatJudgeCase {
   caseId: string
   // The turn the agent is asked to take. Must not be a scope's canned-reply
@@ -517,7 +517,7 @@ export const assertSeededAccountState = async (
   if (state === undefined) return
 
   const wrong: string[] = []
-  if (state.district !== undefined || state.pro !== undefined) {
+  if (state.district !== undefined) {
     const organization = await ports.service.prisma.organization.findFirst({
       where: { slug: request.organizationSlug },
       select: { positionId: true },
@@ -582,6 +582,45 @@ export const assertSeededAccountState = async (
       `${request.agentId}/${request.case.caseId} declares an account state ` +
         `the seed does not match: ${wrong.join('; ')}`,
     )
+  }
+}
+
+// PRICE ONLY WHAT WAS MEASURED, AND ONLY WHEN ALL OF IT WAS. An unreported
+// turn leaves the counts short, and pricing what did report produces a
+// confident figure for a run whose cost is genuinely unknown — the "this run
+// was free" reading the schema's absent-rather-than-zero rule exists to
+// prevent. The rule is about whether the tokens were seen, not about the
+// status: a turn that really did use nothing reports a true zero.
+//
+// Counted against the turns the case ASKED FOR rather than the ones that
+// completed, which is what makes a conversation that broke on its third turn
+// unpriceable instead of priced at what its first two turns cost.
+export const everyTurnPriced = (
+  turnsPriced: number,
+  turns: readonly string[],
+): boolean => turnsPriced >= turns.length
+
+// Zero — NOT the partial sum — when any turn went unreported, because a
+// partial sum reads as the whole conversation's usage. There is no third
+// thing to write: TokenUsageSchema's four fields are non-optional ints and
+// cannot say "unknown", which is the follow-up the README already records.
+// Zero is what a single unreported turn recorded before any of this, so it is
+// the existing convention rather than a new reading, and the trace carries
+// the reason either way.
+export const turnTokens = (
+  observed: { input: number; output: number } | undefined,
+  turnsPriced: number,
+  turns: readonly string[],
+): TokenUsage => {
+  const complete = observed !== undefined && everyTurnPriced(turnsPriced, turns)
+  return {
+    input: complete ? observed.input : 0,
+    output: complete ? observed.output : 0,
+    // Zero because prompt caching is not enabled. Carried rather than
+    // omitted so the day it is switched on, pricing fails loudly instead of
+    // costing a cache read at the full input rate.
+    cacheRead: 0,
+    cacheWrite: 0,
   }
 }
 
@@ -684,58 +723,35 @@ export const runChatCase = async (
     )
   }
 
-  // Absent when no turn ever reported, which is not the same as a turn that
-  // used nothing. Accumulated across every turn of the case by readTurnTokens.
-  const observed = llm.capture.tokens
-  const tokens: TokenUsage = {
-    input: observed?.input ?? 0,
-    output: observed?.output ?? 0,
-    // Zero because prompt caching is not enabled. Carried rather than
-    // omitted so the day it is switched on, pricing fails loudly instead of
-    // costing a cache read at the full input rate.
-    cacheRead: 0,
-    cacheWrite: 0,
-  }
+  const tokens = turnTokens(llm.capture.tokens, llm.capture.turnsPriced, turns)
   const model = llm.capture.model || request.variant.model
-  // PRICE ONLY WHAT WAS MEASURED, AND ONLY WHEN ALL OF IT WAS. An unreported
-  // turn leaves those counts at their defaults, and pricing them produces a
-  // confident figure for a run whose cost is genuinely unknown — the "this
-  // run was free" reading the schema's absent-rather-than-zero rule exists to
-  // prevent. The rule is about whether the tokens were seen, not about the
-  // status: a turn that really did use nothing reports a true zero, and one
-  // that died before reporting reports nothing at all.
-  //
-  // Counted against the turns the case ASKED FOR rather than the ones that
-  // completed, which is what makes a conversation that broke on turn three
-  // unpriceable instead of priced at what its first two turns cost.
-  const priced =
-    llm.capture.turnsPriced < turns.length
-      ? {
-          unpriceable:
-            `usage resolved for ${llm.capture.turnsPriced} of ` +
-            `${turns.length} turn(s): the rest ended before the model ` +
-            'reported it, so the cost is unknown rather than zero',
-        }
-      : priceRun(tokens, model)
+  const priced = !everyTurnPriced(llm.capture.turnsPriced, turns)
+    ? {
+        unpriceable:
+          `usage resolved for ${llm.capture.turnsPriced} of ` +
+          `${turns.length} turn(s): the rest ended before the model ` +
+          'reported it, so the cost is unknown rather than zero',
+      }
+    : priceRun(tokens, model)
   const perTurnStatus = outcome.turns.map((turn) =>
     classifyChatStatus(turn.output, turn.streamErrored, fallbackReplies),
   )
   const status = combineChatStatus(perTurnStatus)
-  const answer =
-    status === 'infraError'
-      ? null
-      : joinTurnReplies(
-          // Non-null by construction: a turn with a null output classifies
-          // as infraError, and the combine above would have made the case
-          // infraError too.
-          outcome.turns.map((turn) => turn.output ?? ''),
-        )
-  if (status !== 'infraError' && answer === null) {
+  const replies = outcome.turns.flatMap((turn) =>
+    turn.output === null ? [] : [turn.output],
+  )
+  // A turn with a null output classifies as infraError and combineChatStatus
+  // carries that to the case, so a non-infraError case cannot be short a
+  // reply. Kept as a guard rather than a `?? ''` because if the two ever
+  // disagree, the schema throws away a run that otherwise looks fine and the
+  // message is what says where to look.
+  if (status !== 'infraError' && replies.length !== outcome.turns.length) {
     throw new Error(
-      'a non-infraError run must carry an agent result; classifyChatStatus ' +
-        'and the record schema disagree',
+      'a non-infraError run must carry an agent result for every turn; ' +
+        'classifyChatStatus and the record schema disagree',
     )
   }
+  const answer = status === 'infraError' ? null : joinTurnReplies(replies)
   const unpriceable = unpriceableStep(priced, status, usageErrorTraced)
   const finalTrace =
     unpriceable === undefined ? trace : errorStep(trace, unpriceable)

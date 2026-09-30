@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CaseListError } from '../cases'
+import type { ChatAccountState } from '../cases'
 import {
   assertAccountStateSupported,
   chatOrgSlug,
@@ -86,11 +86,14 @@ describe('seedOptionsFor', () => {
   // live.
   it('refuses Pro on a scope with no campaign', () => {
     expect(() => seedOptionsFor('chief_of_staff', { pro: false })).toThrow(
-      CaseListError,
+      /chief_of_staff cannot express the account state pro/,
     )
+  })
+
+  it('refuses campaign details on a scope with no campaign', () => {
     expect(() =>
       seedOptionsFor('priority_flow', { campaignDetails: false }),
-    ).toThrow(/cannot express the account state/)
+    ).toThrow(/priority_flow cannot express the account state campaignDetails/)
   })
 
   // An ordinance step on a scope with no ordinance anchor is a step nothing
@@ -103,7 +106,7 @@ describe('seedOptionsFor', () => {
 
   it('names the states the scope CAN express, so the fix is obvious', () => {
     expect(() => seedOptionsFor('priority_flow', { pro: false })).toThrow(
-      /district/,
+      /the states it can express are district/,
     )
   })
 
@@ -115,9 +118,26 @@ describe('seedOptionsFor', () => {
       'ordinance_flow',
       'priority_flow',
     ]) {
-      expect(
+      expect(() =>
         assertAccountStateSupported(agentId, { district: false }),
-      ).toBeUndefined()
+      ).not.toThrow()
     }
+  })
+
+  // THE EXHAUSTIVENESS GUARD, and the reason the account vocabulary's several
+  // copies cannot silently disagree. STATES_BY_SCOPE is keyed on
+  // `keyof ChatAccountState`, so a fifth state added to the schema is in no
+  // scope's list until somebody puts it there — and until then every case
+  // declaring it is refused, rather than seeded as nothing while the record
+  // claims the condition.
+  it('refuses a state no scope has been told it can express', () => {
+    expect(() =>
+      // Cast on purpose: the state being described is one the schema knows
+      // and the seeder has not been taught, which no valid ChatAccountState
+      // can name today.
+      assertAccountStateSupported('chief_of_staff', {
+        unwired: true,
+      } as ChatAccountState),
+    ).toThrow(/cannot express the account state unwired/)
   })
 })

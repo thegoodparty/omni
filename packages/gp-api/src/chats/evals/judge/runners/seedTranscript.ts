@@ -1,11 +1,14 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify'
-import { ChatMessageSegmentKind } from '../../../../generated/prisma'
+import {
+  ChatMessageRole,
+  ChatMessageSegmentKind,
+} from '../../../../generated/prisma'
 import {
   ChatStoreService,
   type PersistedSegment,
 } from '@/chats/services/chatStore.prisma'
 import {
-  ChatStreamService,
+  assistantRowToPersist,
   MAX_CHAT_HISTORY_MESSAGES,
   toJsonPayload,
 } from '@/chats/services/chatStream.service'
@@ -18,20 +21,30 @@ import { assertTestProcess } from './chatSeam'
 // NO ROUTE WRITES AN ASSISTANT MESSAGE. The assistant row is produced by the
 // stream as a side effect of a turn, so there is no HTTP way to put one on the
 // record and this has to reach the store directly. That is the whole reason
-// the file exists, and it is also the reason it reuses the two methods the
-// live turn uses rather than building its own row:
+// the file exists, and it is also the reason every rule it writes by is
+// borrowed rather than restated:
 //
 //   ChatStoreService.appendUserMessageIfAlive — exactly what
 //     ChatStreamService.run calls for the user turn, including its
 //     conversation-alive check.
-//   ChatStreamService.persistAssistantText   — exactly what a streamed turn
-//     calls to write its own reply, including the rule that decides when
-//     segments are stored at all.
+//   assistantRowToPersist                     — the decision
+//     ChatStreamService.persistAssistantText makes about what an assistant
+//     turn stores: the content, and whether the segments are worth keeping.
+//   ChatStoreService.appendMessage             — the one write both that
+//     method and this one end in.
+//   toJsonPayload                              — the conversion a streamed
+//     tool call makes on its way to the same column.
 //
 // A HAND-BUILT ROW WOULD BE THE WRONG SHAPE IN WAYS NOBODY WOULD NOTICE, and
 // the model's context would then differ from production while the verdict
-// claimed to be about the agent we ship. Reusing the two methods makes the
-// seeded row identical by construction instead of by inspection.
+// claimed to be about the agent we ship. Borrowing the rules makes the seeded
+// row identical by construction instead of by inspection.
+//
+// `persistAssistantText` itself stays PRIVATE on the service. It is the one
+// write in the chat stack with no ownership check on it, and what this file
+// needs is the rules, not the ability to put an assistant row into an
+// arbitrary conversation. The ownership check this file does need it makes
+// once, below.
 //
 // WHAT REACHES THE MODEL, stated plainly because it is easy to get wrong:
 // `toLlmMessages` replays a history row's `role` and `content` and NOTHING
@@ -55,6 +68,13 @@ export interface SeedTranscriptRequest {
 // assistant reply.
 const ROWS_PER_DRIVEN_TURN = 2
 
+// A scope whose handler seeds a scripted opener (campaign_assistant) has one
+// assistant row on the conversation before this runs. Counted
+// unconditionally: the seeder is handed a conversation id and not a scope, and
+// one row of pessimism is cheaper than a window this arithmetic quietly
+// overshoots on one scope out of four.
+const SCOPE_OPENER_ROWS = 1
+
 // REFUSED BEFORE THE TURN, not discovered during it. The route replays only
 // the most recent MAX_CHAT_HISTORY_MESSAGES rows, so a transcript long enough
 // to be pushed out of that window by the turns driven after it would be
@@ -64,7 +84,7 @@ export const transcriptOverflowText = (
   seeded: number,
   drivenTurns: number,
 ): string | undefined => {
-  const rows = seeded + drivenTurns * ROWS_PER_DRIVEN_TURN
+  const rows = seeded + drivenTurns * ROWS_PER_DRIVEN_TURN + SCOPE_OPENER_ROWS
   return rows <= MAX_CHAT_HISTORY_MESSAGES
     ? undefined
     : `a prior transcript of ${seeded} row(s) plus ${drivenTurns} driven ` +
@@ -92,16 +112,24 @@ export const assertTranscriptFits = (
 // is still deciding, and the text deltas that explain the result arrive after.
 // A seeded turn cannot express an interleaving finer than that, and saying so
 // here is better than inventing a field for it.
-const segmentsFor = (turn: SeededTurn): PersistedSegment[] => [
+export const segmentsFor = (
+  turn: SeededTurn,
+  turnIndex: number,
+): PersistedSegment[] => [
   ...(turn.toolCalls ?? []).map((call, index) => ({
     kind: ChatMessageSegmentKind.tool,
     toolName: call.tool,
     // The same conversion a streamed turn makes on its way to the same
     // column, rather than a second one that could disagree with it.
     payload: toJsonPayload(call.input),
-    // The same shape runScript mints, so a seeded call and a scripted one are
-    // not told apart by their ids.
-    toolCallId: `judge-seeded-${index}`,
+    // The TURN's index as well as the call's, because `toolCallId` is what a
+    // chat card's outreach id is derived from and two seeded turns each
+    // carrying one call would otherwise both be `judge-seeded-0` in one
+    // conversation. `appendMessage` does not write the column today, so this
+    // is parity with the segment the stream BUILDS rather than with a row
+    // anybody can read back — which is also why it is unit-tested here and
+    // not asserted against the database.
+    toolCallId: `judge-seeded-${turnIndex}-${index}`,
   })),
   ...(turn.content.length > 0
     ? [{ kind: ChatMessageSegmentKind.text, text: turn.content }]
@@ -120,19 +148,31 @@ export const seedPriorTranscript = async (
   assertTranscriptFits(request.turns.length, request.drivenTurns)
 
   const store = app.get(ChatStoreService)
-  const stream = app.get(ChatStreamService)
+  // ONCE, UP FRONT, because the assistant write below has no check of its
+  // own: `appendMessage` takes a conversation id and trusts it. A transcript
+  // that opens on an assistant turn would otherwise put a reply nobody's
+  // agent wrote into whatever conversation that id names.
+  const owned = await store.findConversationByIdAndOwner(
+    request.conversationId,
+    request.ownerUserId,
+  )
+  if (!owned) {
+    throw new SeedTranscriptError(
+      `conversation ${request.conversationId} is not open for this user, ` +
+        'so a prior transcript cannot be written onto it',
+    )
+  }
 
-  for (const turn of request.turns) {
+  for (const [turnIndex, turn] of request.turns.entries()) {
     if (turn.role === 'user') {
       const row = await store.appendUserMessageIfAlive({
         conversationId: request.conversationId,
         ownerUserId: request.ownerUserId,
         content: turn.content,
       })
-      // Null means the conversation is gone or is not this user's, which the
-      // live route answers with `conversation_not_found`. Here it means the
-      // harness seeded against the wrong conversation, and carrying on would
-      // drive a turn with a transcript that is missing its middle.
+      // Null means the conversation was deleted between the check above and
+      // this write. Carrying on would drive a turn against a transcript
+      // missing its middle.
       if (!row) {
         throw new SeedTranscriptError(
           `conversation ${request.conversationId} is not open for this ` +
@@ -141,21 +181,25 @@ export const seedPriorTranscript = async (
       }
       continue
     }
-    const row = await stream.persistAssistantText(
-      request.conversationId,
+    const assistant = assistantRowToPersist(
       turn.content,
-      segmentsFor(turn),
+      segmentsFor(turn, turnIndex),
       // A widget-only turn — tool calls, no text — is a real shape and only
-      // persists with this set. Without it the row is silently dropped and
-      // the transcript loses a turn.
+      // persists with this set. Without it the row is dropped and the
+      // transcript loses a turn.
       true,
     )
-    if (!row) {
+    if (!assistant) {
       throw new SeedTranscriptError(
         'an assistant turn with no content and no tool call persists ' +
           'nothing; the case schema refuses one, so reaching here means ' +
           'the two disagree',
       )
     }
+    await store.appendMessage({
+      conversationId: request.conversationId,
+      role: ChatMessageRole.assistant,
+      ...assistant,
+    })
   }
 }

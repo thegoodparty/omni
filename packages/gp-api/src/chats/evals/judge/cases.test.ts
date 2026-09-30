@@ -265,6 +265,23 @@ describe('a chat case with several user turns', () => {
     expect(() => parse({ caseId: 'none' })).toThrow(/exactly one of/)
   })
 
+  // THE DIRECTIVE'S OWN NAME, which the inner schemas cannot catch. A
+  // non-strict case object would strip `priorTranscipt`, run the case with no
+  // condition applied, and let the pair compare happily — and both arms would
+  // do it, so nothing downstream could notice either.
+  it('refuses a misspelled directive rather than dropping it', () => {
+    expect(() =>
+      parse({
+        caseId: 'typo',
+        question: 'ask',
+        priorTranscipt: [{ role: 'user', content: 'earlier' }],
+      }),
+    ).toThrow(CaseListError)
+    expect(() =>
+      parse({ caseId: 'typo2', question: 'ask', tool_failure: {} }),
+    ).toThrow(CaseListError)
+  })
+
   it('reads both spellings back as one ordered list', () => {
     expect(caseTurns({ caseId: 'a', question: 'ask' })).toEqual(['ask'])
     expect(caseTurns({ caseId: 'b', turns: ['x', 'y'] })).toEqual(['x', 'y'])
@@ -327,9 +344,10 @@ describe('a chat case with a seeded prior transcript', () => {
   // empty content and its tool segments, and the replay drops it.
   it('accepts a widget-only assistant turn', () => {
     const one = parse([
+      { role: 'user', content: 'ask' },
       { role: 'assistant', content: '', toolCalls: [{ tool: 't', input: {} }] },
     ])
-    expect(one.priorTranscript?.[0]?.content).toBe('')
+    expect(one.priorTranscript?.[1]?.content).toBe('')
   })
 
   // Beside the two recognised keys, so stripping the unknown one leaves a
@@ -344,6 +362,41 @@ describe('a chat case with a seeded prior transcript', () => {
         },
       ]),
     ).toThrow(CaseListError)
+  })
+
+  // A TRANSCRIPT PRODUCTION COULD HAVE PRODUCED, which is narrower than a
+  // list of individually valid rows. `toLlmMessages` folds only the FIRST
+  // leading assistant row into the system prompt, so either shape below
+  // leaves an assistant row where the provider requires a user one — and
+  // that arrives as a stream error after the conversation is open and a
+  // paid turn has been attempted.
+  it('refuses a transcript that opens on an assistant reply', () => {
+    expect(() =>
+      parse([
+        { role: 'assistant', content: 'Three.' },
+        { role: 'user', content: 'which?' },
+      ]),
+    ).toThrow(/open on a user turn/)
+  })
+
+  it('refuses two assistant turns in a row', () => {
+    expect(() =>
+      parse([
+        { role: 'user', content: 'ask' },
+        { role: 'assistant', content: 'Three.' },
+        { role: 'assistant', content: 'Also this.' },
+      ]),
+    ).toThrow(/both assistant turns/)
+  })
+
+  it('accepts the alternation a conversation actually produces', () => {
+    const one = parse([
+      { role: 'user', content: 'ask' },
+      { role: 'assistant', content: 'Three.' },
+      { role: 'user', content: 'which?' },
+      { role: 'assistant', content: 'Housing.' },
+    ])
+    expect(one.priorTranscript).toHaveLength(4)
   })
 
   it('refuses a transcript key nobody defined', () => {

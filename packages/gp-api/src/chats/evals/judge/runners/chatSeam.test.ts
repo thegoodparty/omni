@@ -922,8 +922,8 @@ describe('installLlmCapture with a tool-failure directive', () => {
     usage: { inputTokens: 10, outputTokens: 1 },
   }
 
-  it('records the refusal AND throws, before the model is reached', async () => {
-    const { llm, streamTextFn } = buildLlm()
+  it('refuses a directive naming a tool the turn never had', async () => {
+    const { llm } = buildLlm()
     const installed = installLlmCapture(llm, {
       script,
       toolFailure: { tool: 'no_such_tool', mode: 'error' },
@@ -931,17 +931,34 @@ describe('installLlmCapture with a tool-failure directive', () => {
 
     await expect(
       llm.streamChatCompletion(optionsWith({ ok_tool: okTool })),
-    ).rejects.toThrow(/no such tool/)
+    ).rejects.toThrow(/registered no such tool/)
     installed.restore()
 
-    // The record is what lets the runner name the mistake: the chat route
+    // THE THROW IS WHAT KEEPS THE TURN FROM BEING PAID FOR, and these two
+    // fields are the evidence. Both are assigned only AFTER the stream
+    // returns, so undefined means the refusal landed before it — which
+    // `streamTextFn` could not have told us, since a scripted turn never
+    // calls it either way.
+    expect(installed.capture.model).toBeUndefined()
+    expect(installed.capture.readUsage).toBeUndefined()
+  })
+
+  it('records the refusal as well as throwing it', async () => {
+    const { llm } = buildLlm()
+    const installed = installLlmCapture(llm, {
+      script,
+      toolFailure: { tool: 'no_such_tool', mode: 'error' },
+    })
+
+    await expect(
+      llm.streamChatCompletion(optionsWith({ ok_tool: okTool })),
+    ).rejects.toThrow()
+    installed.restore()
+
+    // The record is what lets the runner NAME the mistake: the chat route
     // catches a throw out of the seam and writes an error chunk, so on the
     // throw alone the run would come back as an ordinary infraError.
     expect(installed.capture.directiveError).toMatch(/no_such_tool/)
-    // And the throw is what keeps the turn from being paid for. Under a
-    // script there is no model call to make; this is the stand-in for one,
-    // and it must not have been reached.
-    expect(streamTextFn).not.toHaveBeenCalled()
   })
 
   it('says nothing when the directive names a tool the turn has', async () => {

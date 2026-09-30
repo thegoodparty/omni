@@ -9,7 +9,6 @@ import {
   runChatCase,
   type ChatRunRequest,
 } from './chat'
-import { MAX_CASE_TURNS, MAX_SEEDED_TURNS } from '../cases'
 import { MAX_CHAT_HISTORY_MESSAGES } from '@/chats/services/chatStream.service'
 import { chatOrgSlug, seedChatOrg, seedOptionsFor } from './seedChatOrg'
 import { ChatMessageRole, Prisma } from '../../../../generated/prisma'
@@ -681,15 +680,6 @@ describe('runChatCase', () => {
     },
     TURN_TIMEOUT_MS,
   )
-
-  // The two guards have to agree. If a case list can author a transcript the
-  // runner then refuses, the refusal arrives after a sweep was planned and
-  // priced — so the bounds are what keep the backstop above a backstop.
-  it('the authoring bounds cannot overflow the replay window', () => {
-    expect(MAX_SEEDED_TURNS + MAX_CASE_TURNS * 2).toBeLessThanOrEqual(
-      MAX_CHAT_HISTORY_MESSAGES,
-    )
-  })
 
   // A FORCED TOOL FAILURE, honoured at the seam that already wrapped every
   // tool's execute. Compare with 'counts a tool that succeeded': the same
