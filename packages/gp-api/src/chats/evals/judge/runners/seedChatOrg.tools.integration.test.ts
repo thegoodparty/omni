@@ -86,19 +86,27 @@ const withJudgePosition = async <T>(read: () => Promise<T>): Promise<T> => {
 // Patched onto the container's own handler rather than hand-building one, so
 // every other dependency stays the real thing.
 //
-// Removed after the read: the handler is a singleton and a provider left on it
-// would register the tool for every later test in the file.
+// Restored after the read: the handler is a singleton and a provider left on
+// it would register the tool for every later test in the file — including the
+// negative cases below, whose whole point is that the tool stays off.
+//
+// The PRIOR VALUE is put back rather than the property deleted. Nest declares
+// this dependency as a constructor parameter property, which emits
+// `this.constituentProvider = constituentProvider` whatever the injected
+// value is, so the own property always exists — it just holds `undefined`
+// when no credential configured one. A `Object.hasOwn` guard around a delete
+// therefore never fires, and the fake would leak for the rest of the file.
 const withConstituentProvider = async <T>(
   handler: object,
   read: () => Promise<T>,
 ): Promise<T> => {
   const provider = new InMemoryDatabricksProvider(new Map())
-  const had = Object.hasOwn(handler, 'constituentProvider')
+  const prior = Reflect.get(handler, 'constituentProvider')
   Object.assign(handler, { constituentProvider: provider })
   try {
     return await read()
   } finally {
-    if (!had) Reflect.deleteProperty(handler, 'constituentProvider')
+    Object.assign(handler, { constituentProvider: prior })
   }
 }
 

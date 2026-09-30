@@ -1,4 +1,5 @@
-import { existsSync, readdirSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AGENTS, findAgent } from './agents'
 import { CASES_DIR, caseListPath, loadCaseList } from './cases'
@@ -13,19 +14,11 @@ const AUTHORED = [
   'priority_flow',
 ] as const
 
-// The nine background lists, named for the count below only. Their own
-// contents are asserted in backgroundCaseLists.test.ts.
-const AUTHORED_BACKGROUND = [
-  'district_issue_pulse',
-  'district_issue_snapshot',
-  'meeting_briefing',
-  'meeting_schedule',
-  'opponent_research',
-  'race_opponent_actions',
-  'race_opponent_collection',
-  'race_opponent_summary',
-  'self_research',
-] as const
+// The nine background lists contribute to the registry count below, but they
+// are NOT named again here. backgroundCaseLists.test.ts names them and
+// asserts their contents; a second copy of the same nine strings would add no
+// independent check, only a second place to edit when a tenth is authored.
+const AUTHORED_BACKGROUND_COUNT = 9
 
 // One baseline plus seven single-axis variations. Well under gates.minCases,
 // which is deliberate and recorded in every list's `note`.
@@ -99,12 +92,13 @@ describe('the case-list directory', () => {
   it('holds every list the registry names, and the registry names all 13', () => {
     expect(NAMED.length).toBeGreaterThan(0)
     expect(files.length).toBeGreaterThan(0)
-    expect(NAMED.length).toBe(AUTHORED.length + AUTHORED_BACKGROUND.length)
-    expect(files.length).toBeGreaterThanOrEqual(NAMED.length)
+    expect(NAMED.length).toBe(AUTHORED.length + AUTHORED_BACKGROUND_COUNT)
   })
 
   it.each(NAMED)('$agentId names a file that is really there', ({ cases }) => {
     expect(files, cases).toContain(cases)
-    expect(existsSync(caseListPath(cases))).toBe(true)
+    // Resolved as well as listed: `cases` is a registry string, and
+    // caseListPath is what refuses one that would climb out of the directory.
+    expect(caseListPath(cases)).toBe(join(CASES_DIR, cases))
   })
 })

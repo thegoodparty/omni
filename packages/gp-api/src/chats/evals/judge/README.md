@@ -128,15 +128,31 @@ from any of them is a statement about the pipeline and not about the agent.
 once_, so all thirteen stay `pending` and `wired` is still 0. A case list is
 not a verdict.
 
-**A chat question has to be answerable against the state the harness seeds.**
-`runners/seedChatOrg.ts` creates one organization per case plus, per scope, a
-campaign, an ordinance or a priority. It does not set
-`organization.positionId`, so no district resolves and
-`query_constituent_data` never registers on any scope; it seeds no contacts,
-briefings, community issues or campaign details. A question that needs state
-nobody seeded produces "I don't have that" on **both** arms, which is a tie
-that measures nothing. Each chat list's `note` says exactly what its scope
-gets and which cases lean on an absence deliberately.
+**A chat question has to be answerable against the state the harness seeds,
+and the seed is what decides which tools register.** A scope handler
+assembles its tool set from its context, so a row left out does not merely
+thin an answer — it takes a tool off the model's list. `runners/seedChatOrg.ts`
+creates one organization per case, with `positionId` set, plus per scope: a
+Pro campaign carrying `details` and a `raceId` (`campaign_assistant`), an
+ordinance and an `OrdinanceCodeRecord` placing the agent in Judge City WA
+(`ordinance_flow`), a priority (`priority_flow`), or an elected office alone
+(`chief_of_staff`). It still seeds no contacts, briefings or community issues.
+
+`query_constituent_data` and `describe_constituent_data` stay unregistered on
+every run this harness makes, but **that is now a deployment gap rather than a
+seeding one.** The one gate that lived in our own database — a missing
+`organization.positionId`, which `resolveByOrgSlug` refuses on before it asks
+anything else — is seeded. The two that remain are not rows anyone could seed:
+the position itself lives in election-api, read over HTTP, and the provider
+factory returns null without a Databricks credential. Both are absent locally
+and in CI, so the pair registers the moment a credentialed deployment drives
+this same seed, which `runners/seedChatOrg.tools.integration.test.ts` proves
+against the real handler and the real resolver.
+
+A question that needs state nobody seeded produces "I don't have that" on
+**both** arms, which is a tie that measures nothing. Each chat list's `note`
+says exactly what its scope gets and which cases lean on an absence
+deliberately.
 
 **Eight cases each, and `gates.minCases` is 20.** So a corpus verdict over one
 of these lists resolves CAN'T SAY however the judge voted — the floor was set

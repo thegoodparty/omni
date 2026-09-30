@@ -52,8 +52,10 @@ const CHAT_AGENT_IDS = [
 type ChatAgentId = (typeof CHAT_AGENT_IDS)[number]
 
 // The chat agents that have an authored case list. Keyed by the id union for
-// the same reason the background map is: a typo here is a typecheck failure
-// rather than a registry entry pointing at a file nobody wrote.
+// the same reason the background map is: a mistyped agent id is a typecheck
+// failure rather than a silently absent entry. The FILENAME is only a string,
+// so a typo there compiles — what catches a registry entry pointing at a file
+// nobody wrote is the directory check in chatCaseLists.test.ts.
 //
 // briefing_annotation is absent on purpose. It is blocked, not unwritten, so
 // a case list would be inputs for a runner that cannot drive it.
@@ -115,8 +117,9 @@ const BACKGROUND_AGENT_IDS = [
 type BackgroundAgentId = (typeof BACKGROUND_AGENT_IDS)[number]
 
 // The background agents that have an authored case list. Keyed by the id
-// union, so a typo here is a typecheck failure rather than a registry entry
-// pointing at a file nobody wrote.
+// union, so a mistyped agent id is a typecheck failure. As above, a mistyped
+// filename compiles and is caught by the directory check in
+// chatCaseLists.test.ts instead.
 //
 // All nine are placeholder lists — see the `note` in each file — so status
 // stays `pending`. `wired` means an agent has produced a real verdict at
