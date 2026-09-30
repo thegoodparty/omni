@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SPEND_ENV, spendsRealMoney } from './config'
 import { ArmSchema, type Arm } from './record'
 import {
   createLocalRecordStore,
@@ -52,7 +53,8 @@ const AgentIdsSchema = NON_EMPTY.transform((value) => [
 // string 'true' spends. Anything empty, absent or garbled reads as "do not
 // spend", so a mangled value costs a sweep that did not happen rather than one
 // nobody asked for.
-const spends = (value: string | undefined): boolean => value === 'true'
+const spends = (value: string | undefined): boolean =>
+  spendsRealMoney({ [SPEND_ENV]: value })
 
 const PR_NUMBER = z
   .string()

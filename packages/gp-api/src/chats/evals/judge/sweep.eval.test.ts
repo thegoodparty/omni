@@ -114,7 +114,12 @@ describe.skipIf(!sweepRequested)('judge sweep — one arm', () => {
                 },
                 organizationSlug: seeded.organizationSlug,
                 ...(seeded.anchor && { anchor: seeded.anchor }),
-                ...(request.spends ? {} : { script: dryScriptFor(request) }),
+                // A spending arm must SAY it wants the real model. Without
+                // this the seam refuses on its first case, because "no
+                // script" alone is a forgotten field rather than a request.
+                ...(request.spends
+                  ? { realModel: true }
+                  : { script: dryScriptFor(request) }),
                 ...(env.dataVersion !== undefined && {
                   dataVersion: env.dataVersion,
                 }),

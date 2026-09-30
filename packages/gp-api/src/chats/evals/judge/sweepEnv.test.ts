@@ -5,6 +5,7 @@ import {
   parseSweepEnv,
   variantFor,
 } from './sweepEnv'
+import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from './config'
 
 const SHA = 'a'.repeat(40)
 
@@ -232,4 +233,35 @@ describe('parseSweepEnv', () => {
       /judging entry cannot run: JUDGE_SWEEP_ID is not set/,
     )
   })
+})
+
+// Two gates decide whether real money moves: `spends()` here, which tells an
+// arm to drive a real model, and `assertMaySpend` in runners/chatSeam.ts,
+// which refuses to install the seam without a script. They were written on
+// separate branches against different literals — 'true' and '1' — and the
+// merge of those branches failed closed on the first case of any live sweep,
+// with an error naming a forgotten field rather than the mismatch. These pin
+// both to the one constant so they cannot drift apart again.
+describe('the spend switch is one value, not two', () => {
+  it('is the value the workflow sets', () => {
+    // .github/workflows/judge.yml sets JUDGE_SPEND: 'true' on all three
+    // judge-process steps, and judgeWorkflow.test.ts asserts it there.
+    expect(SPEND_VALUE).toBe('true')
+  })
+
+  it('agrees with the arm-capture gate', () => {
+    expect(parseArmEnv(armEnv({ JUDGE_SPEND: SPEND_VALUE })).spends).toBe(true)
+  })
+
+  it('agrees with the seam gate on the same value', () => {
+    expect(spendsRealMoney({ [SPEND_ENV]: SPEND_VALUE })).toBe(true)
+  })
+
+  it.each(['1', 'yes', 'TRUE', 'True', ' true', ''])(
+    'reads %o as "do not spend" on both gates',
+    (value) => {
+      expect(parseArmEnv(armEnv({ JUDGE_SPEND: value })).spends).toBe(false)
+      expect(spendsRealMoney({ [SPEND_ENV]: value })).toBe(false)
+    },
+  )
 })

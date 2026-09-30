@@ -12,6 +12,7 @@ import {
   type StreamTextFn,
 } from '@/llm/services/llm.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
+import { SPEND_ENV, SPEND_VALUE } from '../config'
 import {
   UnpinnableSqlError,
   assertTestProcess,
@@ -99,14 +100,17 @@ const TABLES = ['serve_agent_voters']
 
 // Enables the paid path for one call. Nothing here reaches Anthropic: the
 // stubbed streamTextFn stands in for the model.
+// Reads the constant rather than a literal: the two gates that decide whether
+// real money moves were written against different strings on different
+// branches, and a test that hardcodes one of them hides the next drift.
 const withSpendEnabled = <T>(fn: () => T): T => {
-  const previous = process.env.JUDGE_SPEND
-  process.env.JUDGE_SPEND = '1'
+  const previous = process.env[SPEND_ENV]
+  process.env[SPEND_ENV] = SPEND_VALUE
   try {
     return fn()
   } finally {
-    if (previous === undefined) delete process.env.JUDGE_SPEND
-    else process.env.JUDGE_SPEND = previous
+    if (previous === undefined) delete process.env[SPEND_ENV]
+    else process.env[SPEND_ENV] = previous
   }
 }
 

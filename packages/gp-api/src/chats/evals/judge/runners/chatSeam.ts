@@ -11,6 +11,7 @@ import {
 } from '@/llm/services/llm.service'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import type { DatabricksRowSet } from '@/llm/tools/queryDatabricks.tool'
+import { SPEND_ENV, SPEND_VALUE, spendsRealMoney } from '../config'
 import type { JsonValue, TraceStep } from '../record'
 
 // The three seams a chat run is observed at. Each one is the only place the
@@ -267,11 +268,9 @@ export interface InstalledLlmCapture {
 export interface LlmCaptureOptions {
   // The canned model. With it nothing is spent and the turn is deterministic.
   script?: ChatTurnScript
-  // Ask for the real, paid Anthropic call instead. Needs JUDGE_SPEND=1 too.
+  // Ask for the real, paid Anthropic call instead. Needs the spend switch.
   realModel?: boolean
 }
-
-const SPEND_ENV = 'JUDGE_SPEND'
 
 // No script means the real model answers, which bills Anthropic for every
 // turn of a sweep. A forgotten `script` field type-checks cleanly, so the paid
@@ -285,10 +284,11 @@ const assertMaySpend = (options: LlmCaptureOptions): void => {
         'to ask for the real, paid model on purpose',
     )
   }
-  if (process.env[SPEND_ENV] !== '1') {
+  if (!spendsRealMoney(process.env)) {
     throw new Error(
       `installLlmCapture was asked for the real model, but ${SPEND_ENV} is ` +
-        'not "1": a real turn spends money and has to be enabled explicitly',
+        `not "${SPEND_VALUE}": a real turn spends money and has to be ` +
+        'enabled explicitly',
     )
   }
 }

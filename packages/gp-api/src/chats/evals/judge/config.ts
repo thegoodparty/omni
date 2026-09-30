@@ -11,6 +11,23 @@
 // from a seed and a test can force an exact draw. Returns [0, 1).
 export type Rng = () => number
 
+// THE ONE SPEND SWITCH. Two gates read it — `spends()` in sweepEnv.ts, which
+// decides whether an arm drives a real model, and `assertMaySpend` in
+// runners/chatSeam.ts, which refuses to install the seam without a script.
+// They were written on separate branches against different literals ('true'
+// and '1'), so a live sweep failed closed on its first case with an error that
+// named a developer mistake rather than the mismatch. Lives here because
+// config.ts is the one module both layers already sit above.
+//
+// Only the exact string is affirmative: anything absent or garbled reads as
+// "do not spend", so a mangled value costs a sweep that did not happen rather
+// than one nobody asked for.
+export const SPEND_ENV = 'JUDGE_SPEND'
+export const SPEND_VALUE = 'true'
+
+export const spendsRealMoney = (env: NodeJS.ProcessEnv): boolean =>
+  env[SPEND_ENV] === SPEND_VALUE
+
 export interface OrderSwapConfig {
   // Judging a pair in both orders is the only way to measure position bias,
   // and it costs a second judge call on every pair in the subsample.
