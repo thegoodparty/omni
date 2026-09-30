@@ -42,12 +42,12 @@ Core columns produced by the backfill walk:
   and an event declared in both sums their counts. `0` = declared but uncalled; empty =
   no resolvable key-path, which now means only a dynamic-dispatch event or one fired
   from outside this repo (vendor autocapture, gp-marketing).
-- `call_site_retired_date` — date the call-site count last dropped to zero (targeted
-  `git log -S` on the key-path), populated only when `call_site_count` is `0`. Known gap:
-  `git log -S` needs the dotted path as one literal string in the blob, so a
-  Prettier-wrapped key-path (`EVENTS.A.B\n  .C`) matches no commit and the column stays
-  empty even though the count is a true `0`. (The commit filter itself is wrap-tolerant —
-  the constraint is the pickaxe, not the pattern.)
+- `call_site_retired_date` — date the call-site count last dropped to zero, populated only
+  when `call_site_count` is `0`. Resolved by one full-history walk that reads every
+  commit's diff as two blocks and records the latest one to net-remove each key-path;
+  matching the block rather than each line is what makes a Prettier-wrapped key-path
+  (`EVENTS.A.B\n  .C`) visible. Comments are stripped first, so deleting prose that names
+  a key-path never stamps a date.
 - `instrumented_author_email` / `retired_author_email` — git author email (`%ae`) of the
   commit that instrumented and the commit that retired the event, for follow-up. Empty when
   the event is still in code (no retirement) or predates the walk window.

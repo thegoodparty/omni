@@ -125,8 +125,11 @@ not a silent break.
 
 This flag's propose-and-confirm flow (never auto-decide):
 
-1. Confirm in git: `git log -S'EVENTS.<KeyPath>' -- packages/gp-webapp` and read the removing
-   diff. The key-path is the one resolved from the `EVENTS` map for this event name.
+1. Confirm in git. The row's `call_site_retired_date` already names the day; the CSV's
+   walk is wrap-tolerant, so trust it over your own search. To read the removing diff,
+   pickaxe the **leaf key** (`git log -S'CheckGender' -- packages/gp-webapp`) rather than
+   the dotted key-path: Prettier wraps a long path across lines, so `-S'EVENTS.<KeyPath>'`
+   finds no commit even though the removal is there.
 2. Decide the verdict to propose:
    - **Retired** — the call site was deleted and nothing replaced it.
    - **Superseded by <event>** — a new event took its place (cite it). Never guess; if a
@@ -155,13 +158,7 @@ blind to how the reference is written — not the event dead. Fix the counter, n
    e.g. `MediaRequested`, not the full key-path — the full path is exactly what the counter
    failed to see).
 2. Identify the shape. Aliased (`const x = EVENTS.<prefix>`) and Prettier-wrapped key-paths
-   are counted since DATA-2106, so a rank-0 flag usually means a NEW shape. One exception,
-   and check it first: `call_site_retired_date` comes from `git log -S<key_path>`, and the
-   pickaxe needs the dotted path as one literal string in the blob, so a Prettier-wrapped
-   key-path gets a true `0` count with NO removal date and the straddle gate has nothing to
-   straddle. (The commit filter itself is wrap-tolerant — the constraint is the pickaxe, not
-   the pattern.) An event whose siblings carry a removal date is almost certainly this, not
-   a new shape (DATA-2427).
+   are counted since DATA-2106, so a rank-0 flag means a NEW shape.
 3. Extend `count_call_sites` in `scripts/python/amplitude_event_provenance_backfill.py`
    (tests first), re-run the walk, and confirm the count is non-zero.
 4. Never route a rank-0 event into the rank-2 retirement propose-and-confirm flow.
