@@ -5,6 +5,11 @@ name: setup-smoke
 # .env.example. Confirms the whole bootstrap script (ENG-11190) actually
 # reaches a healthy gp-api, not just that its pieces typecheck.
 #
+# Stays on --from here even though the GitHub device flow (ENG-11194) is
+# setup.sh's default secrets source now: CI has no human to approve an
+# interactive device-flow authorization, so --from is the only path a
+# runner can exercise. The device-flow helper itself is unit-tested below.
+#
 # Deliberately its own workflow, not folded into gp-api.yml's Validate gate:
 # it is the slowest check in the repo (npm ci + docker + full migrate + a
 # cold Next.js boot) and new, so it should not become a required check that
@@ -15,6 +20,7 @@ on:
   pull_request:
     paths:
       - scripts/setup.sh
+      - scripts/setup-config.sh
       - scripts/setup/**
       - package.json
       - package-lock.json
@@ -29,6 +35,7 @@ on:
     branches: [main]
     paths:
       - scripts/setup.sh
+      - scripts/setup-config.sh
       - scripts/setup/**
 
 permissions:
@@ -133,7 +140,7 @@ jobs:
       # Runs after the smoke step on purpose: setup.sh's own `npm ci` has
       # installed the workspace by now, so this uses the lockfile-pinned
       # vitest instead of an unpinned registry download on a bare runner.
-      - name: Unit test the env-merge helper
+      - name: Unit test the setup helpers (env merge, device flow, bundle fetch)
         run: npx --no-install vitest run scripts/setup/lib
 
       - name: Setup log
