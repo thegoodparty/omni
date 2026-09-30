@@ -8,10 +8,7 @@ import DashboardMenu from './DashboardMenu'
 // Renders the real DashboardMenu / NewNavMenu (unlike DashboardLayout.test.tsx,
 // which mocks DashboardMenu out entirely) to exercise the two ENG-10829
 // gating decisions together: the win-team-accounts flag (nav item) and the
-// viewer's organization role (account-settings visibility). useCampaign and
-// useEcanvasser are left un-mocked — both read from a context with a safe
-// default ([null, ...]) when no provider wraps the tree, which is exactly the
-// state this menu renders in for these assertions.
+// viewer's organization role (account-settings visibility).
 
 const {
   mockUseElectedOffice,

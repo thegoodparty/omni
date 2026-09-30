@@ -2,7 +2,6 @@ import {
   HiUsers,
   HiCog,
   HiUserGroup,
-  HiGlobeAlt,
   HiLightningBolt,
   HiClipboardList,
   HiChatAlt2,
@@ -31,12 +30,6 @@ export const navItems: NavItem[] = [
     href: '/dashboard/members',
     icon: HiUserGroup,
     permission: PERMISSIONS.MANAGE_INVITES,
-  },
-  {
-    title: 'Ecanvasser',
-    href: '/dashboard/ecanvasser',
-    icon: HiGlobeAlt,
-    permission: PERMISSIONS.MANAGE_ECANVASSER,
   },
   {
     title: 'Agent Runs',

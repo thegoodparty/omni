@@ -108,7 +108,7 @@ fixes track under ENG-10744.
 | `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                             |
 
 Not this feature: `src/crm/` is the HubSpot **company** sync. `WebsiteContact`
-and `EcanvasserContact` are unrelated models.
+is an unrelated model.
 
 ## HTTP surface
 
@@ -158,7 +158,7 @@ id-list filter can't enumerate outside the org's district.
 | `ContactNote`                                  | Org-authored per-person notes (body ≤ 10k)                                                                                                                                                                                                                                                                                                                                            |
 | `PeerlyPhoneList` / `PeerlyPhoneListRecipient` | Capture tables: which people (and which phone per person) actually landed on a Peerly phone list. The phone↔person mapping the inbound sweep depends on                                                                                                                                                                                                                               |
 | `Outreach`                                     | Carries `organizationSlug` on new writes (legacy rows resolve org via campaign join), `voterFileFilterId?`, `phoneListId?`, `status`                                                                                                                                                                                                                                                  |
-| `VoterOutreachActivity`                        | **Deprecated.** Read-only legacy feed rows; only remaining writer is the eCanvasser door-knock path (own removal workstream). No new writes                                                                                                                                                                                                                                           |
+| `VoterOutreachActivity`                        | **Deprecated.** Read-only legacy feed rows; no write path targets it any more. No new writes                                                                                                                                                                                                                                           |
 
 Outcome→column mapping used by filter resolution: SMS `responded` =
 `respondedAt` not null, `no_response` = null, `opted_out` = `optedOutAt`

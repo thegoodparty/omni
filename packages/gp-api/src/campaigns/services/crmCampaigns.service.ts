@@ -23,7 +23,6 @@ import { AssociationTypes } from '@hubspot/api-client'
 import { AiChatService } from '../ai/chat/aiChat.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
-import { EcanvasserIntegrationService } from '../../vendors/ecanvasserIntegration/services/ecanvasserIntegration.service'
 import {
   CRMCompanyProperties,
   CRMCompanyPropertiesSchema,
@@ -50,7 +49,6 @@ export class CrmCampaignsService {
     private readonly aiChat: AiChatService,
     private readonly voterFile: VoterFileDownloadAccessService,
     private readonly slack: SlackService,
-    private readonly ecanvasser: EcanvasserIntegrationService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(this.constructor.name)
@@ -196,43 +194,36 @@ export class CrmCampaignsService {
     // district/ballot-level and position-name context share the same org row
     // and election-api position, so a single combined resolver deduplicates
     // what were previously two round-trips each re-fetching the same data.
-    const [
-      userResult,
-      aiChatCount,
-      liveMetrics,
-      orgContext,
-      tcrCompliance,
-      ecanvasser,
-    ] = await Promise.all([
-      this.users.findByCampaign(campaign),
-      userId
-        ? this.aiChat.count({ where: { userId, campaignId } })
-        : Promise.resolve(0),
-      this.campaigns.fetchLiveRaceTargetMetrics(campaign),
-      campaign.organizationSlug
-        ? this.organizations.getCrmCompanyOrgContextByOrgSlug(
-            campaign.organizationSlug,
-          )
-        : Promise.resolve({
-            district: null,
-            ballotLevel: null,
-            positionName: null,
-            ballotReadyPositionId: null,
-          }),
-      this.campaigns.client.tcrCompliance.findUnique({
-        where: { campaignId },
-        select: {
-          email: true,
-          phone: true,
-          filingUrl: true,
-          pinDeliveryMethod: true,
-          pinDeliveryDestination: true,
-          pinSentDetectedAt: true,
-          peerlyIdentityId: true,
-        },
-      }),
-      this.ecanvasser.findByCampaignId(campaignId),
-    ])
+    const [userResult, aiChatCount, liveMetrics, orgContext, tcrCompliance] =
+      await Promise.all([
+        this.users.findByCampaign(campaign),
+        userId
+          ? this.aiChat.count({ where: { userId, campaignId } })
+          : Promise.resolve(0),
+        this.campaigns.fetchLiveRaceTargetMetrics(campaign),
+        campaign.organizationSlug
+          ? this.organizations.getCrmCompanyOrgContextByOrgSlug(
+              campaign.organizationSlug,
+            )
+          : Promise.resolve({
+              district: null,
+              ballotLevel: null,
+              positionName: null,
+              ballotReadyPositionId: null,
+            }),
+        this.campaigns.client.tcrCompliance.findUnique({
+          where: { campaignId },
+          select: {
+            email: true,
+            phone: true,
+            filingUrl: true,
+            pinDeliveryMethod: true,
+            pinDeliveryDestination: true,
+            pinSentDetectedAt: true,
+            peerlyIdentityId: true,
+          },
+        }),
+      ])
 
     const user: User =
       // HubSpot SDK types are loosely typed — properties bag is Record<string, string>
@@ -303,17 +294,6 @@ export class CrmCampaignsService {
       ? HubSpot.ProSubStatus.ACTIVE
       : HubSpot.ProSubStatus.INACTIVE
 
-    let ecanvasserCount = 0
-    let ecanvasserHousesCount = 0
-    let ecanvasserInteractionsCount = 0
-    if (ecanvasser) {
-      // get count of contacts and interactions
-      const { contacts, interactions } = ecanvasser
-      ecanvasserCount = contacts?.length
-      ecanvasserInteractionsCount = interactions?.length
-      ecanvasserHousesCount = ecanvasser.houses?.length
-    }
-
     const fieldsToSync: Record<
       HubSpot.OutgoingProperty,
       string | number | undefined
@@ -322,13 +302,11 @@ export class CrmCampaignsService {
       calls_made: reportedVoterGoals?.calls,
       direct_mail_sent: reportedVoterGoals?.directMail,
       event_impressions: reportedVoterGoals?.events,
-      knocked_doors: ecanvasserInteractionsCount || undefined, // TODO: remove/rename one of these two doorknock fields?
-      doors_knocked: reportedVoterGoals?.doorKnocking || undefined, // TODO: remove/rename one of these two doorknock fields?
+      doors_knocked: reportedVoterGoals?.doorKnocking || undefined,
       online_impressions: reportedVoterGoals?.digitalAds || undefined,
       yard_signs_impressions: reportedVoterGoals?.yardSigns || undefined,
       // p2p_texts: reportedVoterGoals?.text, TODO: we need a new field in HS for sms text contact numbers!!!
-      ecanvasser_contacts_count: ecanvasserCount,
-      ecanvasser_houses_count: ecanvasserHousesCount,
+
       // candidate details
       candidate_district: candidateDistrict,
       candidate_email: user?.email,

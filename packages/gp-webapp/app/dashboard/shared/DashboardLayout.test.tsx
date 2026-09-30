@@ -28,9 +28,6 @@ vi.mock('helpers/dateHelper', () => ({
 
 vi.mock('@shared/hooks/useUser', () => ({ useUser: () => [null] }))
 vi.mock('@shared/organization-picker', () => ({ useOrganization: () => null }))
-vi.mock('@shared/hooks/EcanvasserProvider', () => ({
-  EcanvasserProvider: ({ children }: { children: React.ReactNode }) => children,
-}))
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
 vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
