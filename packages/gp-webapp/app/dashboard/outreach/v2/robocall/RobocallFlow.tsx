@@ -41,6 +41,7 @@ import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
 import { useDraftGate } from '../gate/useDraftGate'
+import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
@@ -164,6 +165,7 @@ export const RobocallFlow = ({
   resumeCta,
 }: RobocallFlowProps) => {
   const gate = useOutreachGate('robocall')
+  const lockedAtOpen = useLockedAtOpen(open, gate)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
   const [campaignName, setCampaignName] = useState('')
@@ -862,7 +864,7 @@ export const RobocallFlow = ({
       }
       channel="robocall"
       source={source}
-      locked={gate.requirement === 'pro'}
+      locked={lockedAtOpen}
       trackedStep={showGateChrome ? null : stepId}
       settled={settled}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}

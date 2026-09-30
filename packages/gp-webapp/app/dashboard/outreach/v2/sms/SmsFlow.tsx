@@ -63,6 +63,7 @@ import {
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { REVIEW_GATE_CTA } from '../gate/gateCopy'
+import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { GateBanner } from '../gate/GateBanner'
 import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { OutreachGate, type GateChrome } from '../gate/OutreachGate'
@@ -469,6 +470,7 @@ export const SmsFlow = ({
   const [campaign] = useCampaign()
   const [user] = useUser()
   const gate = useOutreachGate('sms')
+  const lockedAtOpen = useLockedAtOpen(open, gate)
   // gp-api reads the picked wall-clock window in the campaign state's zone
   // (Peerly `requested_timezone`), so the step captions that zone rather
   // than the browser's.
@@ -1427,7 +1429,7 @@ export const SmsFlow = ({
       }
       channel="sms"
       source={source}
-      locked={gate.requirement === 'pro'}
+      locked={lockedAtOpen}
       trackedStep={scheduled || showGateChrome ? null : stepId}
       settled={scheduled}
       currentStep={showGateChrome ? gateChrome.currentStep : stepIndex + 1}

@@ -487,6 +487,7 @@ describe('RobocallFlow', () => {
     })
     gateRef.set({
       enabled: false,
+      resolved: true,
       requirement: null,
       twoStep: false,
       membership: null,
@@ -2170,6 +2171,7 @@ describe('RobocallFlow', () => {
 
     const FREE_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: 'pro',
       twoStep: false,
       membership: {
@@ -2183,6 +2185,7 @@ describe('RobocallFlow', () => {
 
     const PRO_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: null,
       twoStep: false,
       membership: {

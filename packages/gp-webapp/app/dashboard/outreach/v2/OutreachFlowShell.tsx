@@ -72,10 +72,10 @@ interface OutreachFlowShellProps {
   channel?: 'sms' | 'robocall' | 'social' | 'phone-bank' | 'door'
   // Where the flow was opened from, carried on every stage event.
   source?: OutreachFlowSource
-  // Whether the candidate is building behind the Pro wall (free) rather than
-  // on an unlocked channel. Read live, so the stages after an in-flow upgrade
-  // report unlocked.
-  locked?: boolean
+  // Whether this attempt started behind the Pro wall (`useLockedAtOpen`).
+  // Null while the gate is still resolving: stage events are held until it
+  // answers, so none reports a guess. Omitted by flows with no Pro wall.
+  locked?: boolean | null
   // The current stage's stable id, or null to fire nothing. Callers pass null
   // for the compliance-gate sub-flow and the success screen: both borrow this
   // chrome but are not stages of the channel funnel, and tracking them here
@@ -139,7 +139,7 @@ export const OutreachFlowShell = ({
       lastStage.current = null
       return
     }
-    if (!channel) return
+    if (!channel || locked === null) return
     const previous = lastStage.current
     const attribution = {
       ...(source ? { source } : {}),
@@ -183,10 +183,7 @@ export const OutreachFlowShell = ({
       step: trackedStep,
       ...attribution,
     })
-    // `source` and `locked` ride along but are not stage changes, so they
-    // must not re-fire a view.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, channel, trackedStep, currentStep, settled])
+  }, [open, channel, trackedStep, currentStep, settled, source, locked])
 
   const requestClose = (nextOpen: boolean) => {
     if (nextOpen) return

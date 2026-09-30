@@ -3,6 +3,8 @@ import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachFlowShell } from './OutreachFlowShell'
+import { useLockedAtOpen } from './gate/useLockedAtOpen'
+import type { OutreachGateState } from './gate/useOutreachGate'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -431,24 +433,126 @@ describe('OutreachFlowShell stage attribution', () => {
     })
   })
 
-  it('does not re-fire a view when only the lock changes', () => {
-    const shell = (locked: boolean) => (
+  it('holds stage events while the lock is unresolved, then reports it', () => {
+    const shell = (locked: boolean | null) => (
       <OutreachFlowShell
         {...baseProps}
         channel="sms"
         source="outreach_page"
         locked={locked}
-        trackedStep="schedule"
-        currentStep={3}
+        trackedStep="purpose"
+        currentStep={1}
         totalSteps={4}
         cta={null}
       >
         Body
       </OutreachFlowShell>
     )
-    const { rerender } = render(shell(true))
-    rerender(shell(false))
+    const { rerender } = render(shell(null))
+    expect(trackEvent).not.toHaveBeenCalled()
+
+    rerender(shell(true))
 
     expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.Flow.StepViewed, {
+      channel: 'sms',
+      medium: 'text',
+      step: 'purpose',
+      source: 'outreach_page',
+      locked: true,
+    })
+  })
+})
+
+describe('OutreachFlowShell with the lock frozen at open', () => {
+  beforeEach(() => {
+    vi.mocked(trackEvent).mockClear()
+  })
+
+  const gateState = (
+    overrides: Partial<OutreachGateState>,
+  ): OutreachGateState => ({
+    enabled: true,
+    resolved: true,
+    requirement: 'pro',
+    twoStep: true,
+    membership: null,
+    tcrCompliance: null,
+    ...overrides,
+  })
+
+  const Flow = ({
+    open,
+    gate,
+    step,
+  }: {
+    open: boolean
+    gate: OutreachGateState
+    step: number
+  }) => {
+    const locked = useLockedAtOpen(open, gate)
+    return (
+      <OutreachFlowShell
+        {...baseProps}
+        open={open}
+        channel="sms"
+        source="outreach_page"
+        locked={locked}
+        trackedStep={`step-${step}`}
+        currentStep={step}
+        totalSteps={4}
+        cta={null}
+      >
+        Body
+      </OutreachFlowShell>
+    )
+  }
+
+  it('keeps reporting locked on the steps after an in-flow upgrade', () => {
+    const { rerender } = render(
+      <Flow open gate={gateState({ requirement: 'pro' })} step={1} />,
+    )
+    // Payment lands mid-flow: the live requirement clears.
+    rerender(<Flow open gate={gateState({ requirement: null })} step={1} />)
+    rerender(<Flow open gate={gateState({ requirement: null })} step={2} />)
+
+    expect(trackEvent).toHaveBeenLastCalledWith(
+      EVENTS.Outreach.Flow.StepViewed,
+      expect.objectContaining({ step: 'step-2', locked: true }),
+    )
+  })
+
+  it('waits for membership before freezing, so a free first step reads locked', () => {
+    const { rerender } = render(
+      <Flow
+        open
+        gate={gateState({ resolved: false, enabled: false, requirement: null })}
+        step={1}
+      />,
+    )
+    expect(trackEvent).not.toHaveBeenCalled()
+
+    rerender(<Flow open gate={gateState({ requirement: 'pro' })} step={1} />)
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepViewed,
+      expect.objectContaining({ step: 'step-1', locked: true }),
+    )
+  })
+
+  it('freezes afresh on the next open', () => {
+    const { rerender } = render(
+      <Flow open gate={gateState({ requirement: 'pro' })} step={1} />,
+    )
+    rerender(
+      <Flow open={false} gate={gateState({ requirement: null })} step={1} />,
+    )
+    vi.mocked(trackEvent).mockClear()
+    rerender(<Flow open gate={gateState({ requirement: null })} step={1} />)
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Outreach.Flow.StepViewed,
+      expect.objectContaining({ step: 'step-1', locked: false }),
+    )
   })
 })

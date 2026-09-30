@@ -251,6 +251,7 @@ describe('SmsFlow', () => {
     vi.setSystemTime(FROZEN_NOW)
     gateRef.set({
       enabled: false,
+      resolved: true,
       requirement: null,
       twoStep: true,
       membership: null,
@@ -750,6 +751,7 @@ describe('SmsFlow', () => {
 
     const FREE_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: 'pro',
       twoStep: true,
       membership: {
@@ -763,6 +765,7 @@ describe('SmsFlow', () => {
 
     const CLEARED_GATE: OutreachGateState = {
       enabled: true,
+      resolved: true,
       requirement: null,
       twoStep: true,
       membership: {
@@ -1165,6 +1168,7 @@ describe('SmsFlow', () => {
     it('keeps the builder for an ungated elected official', async () => {
       gateRef.set({
         enabled: true,
+        resolved: true,
         requirement: null,
         twoStep: true,
         membership: {

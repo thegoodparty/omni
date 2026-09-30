@@ -264,15 +264,18 @@ knocking joined text, robocall and social. Both events add two properties.
 | Property | Values                                                                                                           |
 | -------- | ---------------------------------------------------------------------------------------------------------------- |
 | `source` | `outreach_page`, `draft`, `campaign_plan`, `campaign_manager`, `voter_data`, `door_knocking_page`, `deep_link` |
-| `locked` | `true` while the candidate is building behind the Pro wall, `false` on an unlocked channel                       |
+| `locked` | `true` when this attempt started behind the Pro wall, `false` when it started on an unlocked channel            |
 
 `source` is `OutreachFlowSource` in `outreachAnalytics.ts`, worked out once
 per open by whatever opened the flow: the hub for its tiles, draft rows and
 compose links, the door knocking page for its create flow. A compose link's
 `campaign_tracker` reads as `campaign_plan` here and only here;
 `Outreach - Click Create` keeps the old value so its history does not split.
-`locked` is read live, so the stages after an in-flow upgrade report
-unlocked.
+`locked` is frozen once per open (`useLockedAtOpen`), so every stage of an
+attempt that started behind the wall reports `true`, including the ones after
+an in-flow upgrade. It waits for the gate to resolve before freezing, since
+membership loads asynchronously, and the shell holds stage events until then
+rather than report a guess.
 
 At the Pro wall the same `source` rides into `Pro Upgrade - Flow Started`,
 beside `channel`, the literal `cta` of the button that opened the gate, and

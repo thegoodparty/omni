@@ -66,6 +66,7 @@ vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
 
 const FREE_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: 'pro',
   twoStep: false,
   membership: {
@@ -79,6 +80,7 @@ const FREE_GATE: OutreachGateState = {
 
 const PRO_GATE: OutreachGateState = {
   enabled: true,
+  resolved: true,
   requirement: null,
   twoStep: false,
   membership: {

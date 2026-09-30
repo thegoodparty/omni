@@ -11,6 +11,9 @@ export type GateRequirement = 'pro' | 'verify' | 'in_review' | 'pin' | null
 export interface OutreachGateState {
   // Flag on and membership ready — the flow can trust `requirement`.
   enabled: boolean
+  // The flag has answered and, when it is on, membership has loaded, so
+  // `requirement` is final rather than a placeholder null.
+  resolved: boolean
   requirement: GateRequirement
   // Texting channels (sms only) need Pro AND verification; every other
   // channel needs Pro alone.
@@ -38,7 +41,8 @@ const deriveRequirement = (
 // needs to decide whether it must pause, and on which screen. A later task
 // mounts this inside each channel flow alongside GateBanner/OutreachGate.
 export const useOutreachGate = (channel: GateChannel): OutreachGateState => {
-  const { enabled: flagEnabled } = useOutreachProGatingV2Flag(false)
+  const { ready: flagReady, enabled: flagEnabled } =
+    useOutreachProGatingV2Flag(false)
   const {
     ready: membershipReady,
     state,
@@ -52,6 +56,7 @@ export const useOutreachGate = (channel: GateChannel): OutreachGateState => {
 
   return {
     enabled,
+    resolved: flagReady && (!flagEnabled || membershipReady),
     requirement: enabled && state ? deriveRequirement(channel, state) : null,
     twoStep,
     membership: state,

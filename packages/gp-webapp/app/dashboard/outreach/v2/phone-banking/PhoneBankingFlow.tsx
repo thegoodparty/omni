@@ -37,6 +37,7 @@ import { GateExplainerModal } from '../gate/GateExplainerModal'
 import { EXPLAINER_COPY } from '../gate/gateCopy'
 import { OutreachGate } from '../gate/OutreachGate'
 import { useOutreachGate } from '../gate/useOutreachGate'
+import { useLockedAtOpen } from '../gate/useLockedAtOpen'
 import { PurposeStep } from '../PurposeStep'
 // Intro is a channel-generic v2 component that currently lives under
 // social/; reused read-only here (same precedent as RobocallPurposeStep).
@@ -269,6 +270,7 @@ export const PhoneBankingFlow = ({
   // the deliverable and nothing exists until create — so the gate stands in
   // front of the one write instead of behind a saved row.
   const gate = useOutreachGate('phone-bank')
+  const lockedAtOpen = useLockedAtOpen(open, gate)
   const [gateOpen, setGateOpen] = useState(false)
   // WHICH gesture opened the gate. The banner rides every step, so its
   // explainer can open the gate long before the candidate has reached the
@@ -802,7 +804,7 @@ export const PhoneBankingFlow = ({
       }
       channel="phone-bank"
       source={source}
-      locked={gate.requirement === 'pro'}
+      locked={lockedAtOpen}
       trackedStep={gateOpen || saved ? null : stepId}
       settled={saved}
       dirty={dirty}

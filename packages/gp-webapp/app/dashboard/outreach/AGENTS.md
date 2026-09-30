@@ -378,7 +378,10 @@ should be absent reads as a real measurement.
 **Every channel flow knows where it was opened from.** The hub, and the door
 knocking page for its create flow, hand each flow an `OutreachFlowSource`
 (`util/outreachAnalytics.ts`). `OutreachFlowShell` puts it on the stage
-events beside `locked`, and each flow's `OutreachGate` passes it, with the
+events beside `locked`, which means "this attempt started behind the Pro
+wall": `v2/gate/useLockedAtOpen.ts` freezes it once per open, after the gate's
+`resolved` says membership has loaded, and the shell holds stage events while
+it is still null. Each flow's `OutreachGate` passes it, with the
 label of the button that opened the gate, into `Pro Upgrade - Flow Started`.
 Every flow takes `source` as a required prop, so a new mount cannot forget
 it. A gate opened from a new button has to record that button's label, the
