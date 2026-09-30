@@ -991,6 +991,14 @@ jobs:
           JUDGE_AGENTS: ${{ needs.plan.outputs.agents }}
           JUDGE_PR_NUMBER: ${{ inputs.pr_number }}
           JUDGE_RECORDS_DIR: ${{ env.RECORDS_DIR }}
+          # THIS STEP SPENDS TOO — one panel call per judgeable pair, per
+          # seat — so it needs the switch the arms needed. Omitting it here
+          # does not make the sweep free: both captures have already been
+          # paid for, and the panel falls back to canned answers, so the job
+          # goes green reporting CAN'T SAY on every case. `judgeSweep`
+          # refuses a setting that disagrees with the arms' manifests, which
+          # is what turns that into a failure instead of a bill.
+          JUDGE_SPEND: 'true'
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail

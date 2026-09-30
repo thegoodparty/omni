@@ -16,7 +16,7 @@ import {
   type RecordStore,
 } from './records'
 import { cannedVerdict, judgeSweep, type SweepResult } from './sweep'
-import type { SweepEnv } from './sweepEnv'
+import { SweepEnvError, type SweepEnv } from './sweepEnv'
 
 // The judging entry over a local store. Both arms are written by hand, which
 // is what the two capture processes would have left behind.
@@ -79,6 +79,7 @@ const manifest = (
   over: Partial<ArmManifest> = {},
 ): ArmManifest => ({
   schemaVersion: 1,
+  spent: true,
   sweepId: BASE.sweepId,
   arm,
   ref: arm === 'base' ? 'universal-judge' : 'judge-track-orchestrator',
@@ -508,6 +509,86 @@ describe('judgeSweep', () => {
     expect(score?.exclusions.ungraded).toBe(0)
     expect(score?.label).toBe("CAN'T SAY")
     expect(score?.labelNote).toContain('below the floor')
+    expect(result.exitCode).toBe(0)
+  })
+})
+
+// The arms and the judging step read JUDGE_SPEND from three different
+// workflow steps, so they can disagree — and the workflow shipped with it set
+// on both captures and not on the judging step, which paid for two live
+// captures and then graded them with the canned panel. Every one of these
+// asserts the judge was NEVER called, because a mismatch has to be caught
+// before the panel is billed on top of the captures.
+describe('a spend switch that disagrees with the captures', () => {
+  const at = async (
+    spends: boolean,
+    manifests: ArmManifest[],
+  ): Promise<SweepResult> =>
+    judgeSweep(
+      {
+        store: await seeded(cases(3), manifests),
+        llm: neverCalled,
+        registry: REGISTRY,
+      },
+      { ...env, spends },
+    )
+
+  it('refuses a canned panel over captures that spent', async () => {
+    await expect(
+      at(false, [
+        manifest('base', { spent: true }),
+        manifest('candidate', { spent: true }),
+      ]),
+    ).rejects.toThrow(SweepEnvError)
+  })
+
+  it('names both arms and what to do about it', async () => {
+    await expect(
+      at(false, [
+        manifest('base', { spent: true }),
+        manifest('candidate', { spent: true }),
+      ]),
+    ).rejects.toThrow(
+      /JUDGE_SPEND is not 'true' on this step but the base and candidate capture were taken with it set to 'true'/,
+    )
+  })
+
+  // The other direction, which is worse rather than merely wasteful: a real
+  // panel reading two canned replies returns a confident verdict about two
+  // stub strings.
+  it('refuses a live panel over captures that called nothing', async () => {
+    await expect(
+      at(true, [
+        manifest('base', { spent: false }),
+        manifest('candidate', { spent: false }),
+      ]),
+    ).rejects.toThrow(/the base and candidate capture were taken with it unset/)
+  })
+
+  // One arm re-run with the switch flipped, which is the shape a retried
+  // capture takes.
+  it('refuses when only one arm disagrees, and names that one', async () => {
+    await expect(
+      at(true, [
+        manifest('base', { spent: true }),
+        manifest('candidate', { spent: false }),
+      ]),
+    ).rejects.toThrow(/the candidate capture was taken with it unset/)
+  })
+
+  it('judges a canned sweep whose captures were also canned', async () => {
+    const result = await judgeSweep(
+      {
+        store: await seeded(cases(3), [
+          manifest('base', { spent: false }),
+          manifest('candidate', { spent: false }),
+        ]),
+        llm: alwaysX,
+        registry: REGISTRY,
+      },
+      { ...env, spends: false },
+    )
+    expect(result.report.agents).toHaveLength(1)
     expect(result.exitCode).toBe(0)
   })
 })

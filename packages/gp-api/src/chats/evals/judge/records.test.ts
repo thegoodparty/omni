@@ -25,6 +25,7 @@ const root = async (): Promise<string> =>
 
 const manifest = (over: Partial<ArmManifest> = {}): ArmManifest => ({
   schemaVersion: 1,
+  spent: true,
   sweepId: BASE.sweepId,
   arm: 'base',
   ref: 'universal-judge',

@@ -62,6 +62,11 @@ export interface SweepResult {
   exitCode: number
 }
 
+// Reads after "taken with it": the manifests in a mismatch all disagree the
+// same way, so the first one's flag describes all of them.
+const m0 = (manifests: readonly ArmManifest[]): string =>
+  manifests[0]?.spent === true ? "set to 'true'" : 'unset'
+
 const skipReasonFor = (
   manifests: readonly ArmManifest[],
   agentId: string,
@@ -119,6 +124,26 @@ export const judgeSweep = async (
     'candidate',
   )
   const manifests = [baseManifest, candidateManifest]
+
+  // The arms and this step read JUDGE_SPEND from two different workflow
+  // steps, so one can be set and the other not — and the first version of
+  // this workflow shipped exactly that way round, paying for both captures
+  // and then grading them with the canned panel. Neither direction may go
+  // green: a paid capture graded by a canned panel reports CAN'T SAY on every
+  // case, and a paid panel grading canned replies reports a confident verdict
+  // about two stub strings.
+  const disagreeing = manifests.filter((m) => m.spent !== env.spends)
+  if (disagreeing.length > 0) {
+    const arms = disagreeing.map((m) => m.arm).join(' and ')
+    throw new SweepEnvError(
+      `JUDGE_SPEND is ${env.spends ? '' : 'not '}'true' on this step but ` +
+        `the ${arms} capture ${disagreeing.length > 1 ? 'were' : 'was'} ` +
+        `taken with it ${m0(disagreeing)}. Set it the same way on every ` +
+        'step of the sweep — the arms have already run, and a verdict ' +
+        'graded on a different setting than the captures says nothing ' +
+        'about the branch.',
+    )
+  }
 
   const records = [
     ...(await deps.store.listRecords(env.sweepId, 'base')),

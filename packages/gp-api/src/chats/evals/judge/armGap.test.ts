@@ -126,6 +126,7 @@ describe('windowOf', () => {
       endedAt: '2026-09-29T10:40:00.000Z',
       agents: [],
       skipped: [{ agentId: 'x', reason: 'no runner' }],
+      spent: true,
     }
     expect(windowOf(manifest)).toEqual({
       startedAt: '2026-09-29T10:00:00.000Z',

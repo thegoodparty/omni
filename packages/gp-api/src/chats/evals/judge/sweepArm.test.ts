@@ -378,4 +378,16 @@ describe('captureArm', () => {
     )
     expect(log[0]?.spends).toBe(false)
   })
+
+  // And records it, because the judging step reads its own copy of
+  // JUDGE_SPEND from a different workflow step and has to be able to tell
+  // that the two disagree before it bills a panel on top of these captures.
+  it.each([true, false])('records that it spent: %s', async (spends) => {
+    const manifest = await captureArm(
+      await deps({ config: oneAttempt, loadCases: () => caseList(1) }),
+      env({ spends }),
+      [COS],
+    )
+    expect(manifest.spent).toBe(spends)
+  })
 })

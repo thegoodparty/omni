@@ -254,6 +254,7 @@ export const captureArm = async (
     endedAt: isoUtc(deps.now()),
     agents,
     skipped,
+    spent: env.spends,
   }
   await deps.store.putManifest(manifest)
   return manifest

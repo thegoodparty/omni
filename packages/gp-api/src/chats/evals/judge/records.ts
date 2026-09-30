@@ -137,6 +137,13 @@ export const ArmManifestSchema = z
     endedAt: z.string().datetime(),
     agents: z.array(ArmAgentSchema),
     skipped: z.array(ArmSkipSchema),
+    // Whether THIS arm called a model, carried across the process boundary
+    // because the arms and the judging step read their spend switch from two
+    // different workflow steps and so can disagree. The judging entry refuses
+    // a mismatch: a paid capture graded by a canned panel reports CAN'T SAY
+    // on every case, and a paid panel grading canned replies reports a
+    // confident verdict about two stub strings.
+    spent: z.boolean(),
   })
   .refine((m) => m.agents.length > 0 || m.skipped.length > 0, {
     message:
