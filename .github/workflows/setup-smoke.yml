@@ -1,0 +1,127 @@
+name: setup-smoke
+
+# Exercises `npm run setup` end-to-end on a fresh runner: fresh clone, no
+# prior npm install, no .env files anywhere, --from a fixture dir built from
+# .env.example. Confirms the whole bootstrap script (ENG-11190) actually
+# reaches a healthy gp-api, not just that its pieces typecheck.
+#
+# Deliberately its own workflow, not folded into gp-api.yml's Validate gate:
+# it is the slowest check in the repo (npm ci + docker + full migrate + a
+# cold Next.js boot) and new, so it should not become a required check that
+# blocks an unrelated PR on a flake while it proves itself out. Not required
+# in branch protection — see docs/deployment.md for what is.
+
+on:
+  pull_request:
+    paths:
+      - scripts/setup.sh
+      - scripts/setup/**
+      - package.json
+      - package-lock.json
+      - .nvmrc
+      - packages/gp-api/.env.example
+      - packages/gp-api/docker-compose.yml
+      - packages/gp-api/src/shared/env/env.schema.ts
+      - packages/gp-api/src/health/**
+      - packages/gp-webapp/.env.example
+      - packages/gp-webapp/env.schema.ts
+  push:
+    branches: [main]
+    paths:
+      - scripts/setup.sh
+      - scripts/setup/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: setup-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  smoke:
+    name: npm run setup --from fixture
+    runs-on: ubuntu-latest
+    # npm ci + docker pull postgres:16.8 + 258 migrations + seed + a cold
+    # Next.js compile, all on a shared 2-core runner. Generous on purpose —
+    # this job is advisory, so a slow pass beats a fast false failure.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          # No submodules: true here on purpose. Leaving ai-rules/ empty lets
+          # this run exercise setup.sh's own preflight submodule-init step,
+          # the same path a genuinely fresh clone hits.
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Fast (~seconds) unit coverage of the merge-precedence rule, gated
+      # before the slow full-boot steps below so a regression there fails in
+      # seconds, not after a cold docker/migrate/Next.js cycle. Root-level
+      # `scripts/` has no package.json of its own, so this depends only on
+      # devDependencies already declared at the repo root.
+      - name: Unit test the env-merge helper
+        run: npx vitest run scripts/setup/lib
+
+      # A schema-complete fixture "working checkout" for --from: every
+      # required var in gp-api's and gp-webapp's schemas already has a
+      # non-empty placeholder in .env.example (enforced by each package's
+      # own check-env-contract.ts CI gate), so this is exactly what tickets
+      # 01/03 promised setup.sh's fixture story. Its DATABASE_URL already
+      # points at postgres:postgres@localhost:5432/gpdb — the same Postgres
+      # setup.sh's own `docker compose up` step stands up — so nothing here
+      # needs to override it for "a real local DATABASE_URL for the runner".
+      - name: Build a schema-complete fixture checkout
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/setup-fixture/packages/gp-api
+          mkdir -p /tmp/setup-fixture/packages/gp-webapp
+          cp packages/gp-api/.env.example /tmp/setup-fixture/packages/gp-api/.env
+          cp packages/gp-webapp/.env.example /tmp/setup-fixture/packages/gp-webapp/.env.local
+
+      - name: npm run setup -- --from fixture
+        run: |
+          set -euo pipefail
+          scripts/setup.sh --from /tmp/setup-fixture >setup.log 2>&1 &
+          setup_pid=$!
+
+          ok=false
+          deadline=$((SECONDS + 900))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if curl -fsS -o /dev/null http://localhost:3000/v1/version; then
+              ok=true
+              break
+            fi
+            if ! kill -0 "$setup_pid" 2>/dev/null; then
+              echo "scripts/setup.sh exited before gp-api became healthy." >&2
+              break
+            fi
+            sleep 3
+          done
+
+          if [ "$ok" != true ]; then
+            echo "--- tail of setup.log ---" >&2
+            tail -n 200 setup.log >&2
+            exit 1
+          fi
+
+          status="$(curl -fsS -o /dev/null -w '%{http_code}' http://localhost:3000/v1/version)"
+          echo "GET /v1/version -> $status"
+          curl -fsS http://localhost:3000/v1/version
+          echo
+          if [ "$status" != "200" ]; then
+            echo "--- tail of setup.log ---" >&2
+            tail -n 200 setup.log >&2
+            exit 1
+          fi
+
+          kill -TERM "$setup_pid" 2>/dev/null || true
+          wait "$setup_pid" 2>/dev/null || true
+
+      - name: Setup log
+        if: always()
+        run: cat setup.log || true
