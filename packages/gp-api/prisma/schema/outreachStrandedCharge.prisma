@@ -1,0 +1,39 @@
+// A payment we captured for a text send the vendor permanently refused, so no
+// send exists and no retry can create one.
+//
+// The draft row itself cannot record this. `outreach.stripe_checkout_session_id`
+// is written only once a send has successfully scheduled — the staff console
+// reads its presence as "this send was paid for" — so a charge that produced
+// nothing lived nowhere but in Stripe and in a log line. That is how a candidate
+// came to pay twice for one send on 2026-09-30: the first charge was invisible
+// to every tool we have, including the one that issues refunds.
+//
+// Rows are written by the post-payment finalize path and are expected to be
+// short-lived: the refund is attempted immediately, and `refunded_at` is the
+// receipt. A row with a null `refunded_at` is money we are still holding for a
+// send that will never happen.
+model OutreachStrandedCharge {
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  outreach   Outreach @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId Int      @map("outreach_id")
+  campaignId Int      @map("campaign_id")
+
+  // The checkout session that captured the money. Unique because both callers
+  // that finalize one payment — the browser's own complete-checkout-session and
+  // the Stripe webhook — can reach the same refusal, and that is one stranded
+  // charge, not two.
+  checkoutSessionId String @unique @map("checkout_session_id")
+
+  // Why no send could be created, in the vendor's own words, so a human reading
+  // the row does not have to find the log line.
+  reason String @db.Text
+
+  // When the automatic refund went through. Null means it did not, and somebody
+  // has to refund this session by hand.
+  refundedAt DateTime? @map("refunded_at")
+
+  @@index([campaignId])
+  @@map("outreach_stranded_charge")
+}

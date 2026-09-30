@@ -163,6 +163,7 @@ model Outreach {
   contactInteractionRobocalls       ContactInteractionRobocall[]
   voterFileFilterActivityConditions VoterFileFilterActivityCondition[]
   assignments                       OutreachAssignment[]
+  strandedCharges                   OutreachStrandedCharge[]
 
   @@index([campaignId])
   @@index([organizationSlug])

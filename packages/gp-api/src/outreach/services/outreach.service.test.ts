@@ -42,6 +42,10 @@ const mockOutreachFindMany = vi.fn()
 const mockOutreachUpdateMany = vi.fn()
 const mockOutreachFindFirst = vi.fn()
 const mockOutreachUpdate = vi.fn()
+const mockStrandedChargeUpsert = vi.fn()
+const mockStrandedChargeUpdateMany = vi.fn()
+const mockRetrieveCheckoutSession = vi.fn()
+const mockRefundPaymentIntent = vi.fn()
 const mockOutreachFindUniqueOrThrow = vi.fn()
 const mockGetFileBytes = vi.fn()
 
@@ -114,6 +118,13 @@ describe('OutreachService', () => {
     mockOutreachUpdateMany.mockReset()
     mockOutreachFindFirst.mockReset()
     mockOutreachUpdate.mockReset()
+    mockStrandedChargeUpsert.mockReset()
+    mockStrandedChargeUpsert.mockResolvedValue({})
+    mockStrandedChargeUpdateMany.mockReset()
+    mockStrandedChargeUpdateMany.mockResolvedValue({ count: 1 })
+    mockRetrieveCheckoutSession.mockReset()
+    mockRefundPaymentIntent.mockReset()
+    mockRefundPaymentIntent.mockResolvedValue({})
     mockOutreachFindUniqueOrThrow.mockReset()
     mockGetFileBytes.mockReset()
     mockTcrFindFirstOrThrow.mockReset()
@@ -149,6 +160,10 @@ describe('OutreachService', () => {
         count: vi.fn(),
         updateMany: mockOutreachUpdateMany,
         update: mockOutreachUpdate,
+      },
+      outreachStrandedCharge: {
+        upsert: mockStrandedChargeUpsert,
+        updateMany: mockStrandedChargeUpdateMany,
       },
       // requireCompliantScript reads the campaign owner's name as one of the
       // candidate-name candidates; the TCR record above supplies the other.
@@ -204,7 +219,10 @@ describe('OutreachService', () => {
         },
         {
           provide: StripeService,
-          useValue: {},
+          useValue: {
+            retrieveCheckoutSession: mockRetrieveCheckoutSession,
+            refundPaymentIntent: mockRefundPaymentIntent,
+          },
         },
         {
           provide: AnalyticsService,
@@ -521,6 +539,109 @@ describe('OutreachService', () => {
           },
           data: { status: OutreachStatus.pending_payment },
         })
+      })
+
+      it('records and refunds the charge for a permanently refused send', async () => {
+        mockOutreachUpdateMany
+          .mockResolvedValueOnce({ count: 0 })
+          .mockResolvedValue({ count: 1 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(heldDraft)
+        mockGetFileBytes.mockResolvedValue({
+          bytes: Buffer.from('img'),
+          contentType: 'image/png',
+        })
+        mockPeerlyCreateJob.mockRejectedValue(
+          new BadRequestException('Message cannot contain bit.ly links.'),
+        )
+        mockRetrieveCheckoutSession.mockResolvedValue({
+          payment_intent: 'pi_live_1',
+        })
+
+        await expect(
+          service.finalizeOutreachPurchase(46, 1, 'cs_live_1'),
+        ).rejects.toThrow(BadRequestException)
+
+        // Recorded before the refund is attempted: a refund we cannot make has
+        // to leave a row somebody can act on.
+        expect(mockStrandedChargeUpsert).toHaveBeenCalledWith({
+          where: { checkoutSessionId: 'cs_live_1' },
+          create: {
+            outreachId: 46,
+            campaignId: 1,
+            checkoutSessionId: 'cs_live_1',
+            reason: 'Message cannot contain bit.ly links.',
+          },
+          update: { reason: 'Message cannot contain bit.ly links.' },
+        })
+        expect(mockRefundPaymentIntent).toHaveBeenCalledWith(
+          'pi_live_1',
+          'outreach-stranded-cs_live_1',
+        )
+        expect(mockStrandedChargeUpdateMany).toHaveBeenCalledWith({
+          where: { checkoutSessionId: 'cs_live_1', refundedAt: null },
+          data: { refundedAt: expect.any(Date) },
+        })
+      })
+
+      it('leaves the money alone when the failure could still succeed on a retry', async () => {
+        mockOutreachUpdateMany
+          .mockResolvedValueOnce({ count: 0 })
+          .mockResolvedValue({ count: 1 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(heldDraft)
+        mockGetFileBytes.mockResolvedValue({
+          bytes: Buffer.from('img'),
+          contentType: 'image/png',
+        })
+        // A vendor 500, not a content refusal: Stripe redelivers and the send
+        // may still schedule, so refunding here would take a paid send away.
+        // submitDraftToPeerly wraps anything that is not a content refusal as
+        // an OutreachStepError, which is what makes it retryable.
+        mockPeerlyCreateJob.mockRejectedValue(
+          new BadGatewayException('Peerly unavailable'),
+        )
+
+        await expect(
+          service.finalizeOutreachPurchase(46, 1, 'cs_live_2'),
+        ).rejects.toThrow(/Peerly unavailable/)
+
+        expect(mockStrandedChargeUpsert).not.toHaveBeenCalled()
+        expect(mockRefundPaymentIntent).not.toHaveBeenCalled()
+      })
+
+      it('still raises the refusal when the refund itself fails', async () => {
+        mockOutreachUpdateMany
+          .mockResolvedValueOnce({ count: 0 })
+          .mockResolvedValue({ count: 1 })
+        mockOutreachFindFirst.mockResolvedValue({
+          status: OutreachStatus.pending_payment,
+          projectId: null,
+        })
+        mockOutreachFindUniqueOrThrow.mockResolvedValue(heldDraft)
+        mockGetFileBytes.mockResolvedValue({
+          bytes: Buffer.from('img'),
+          contentType: 'image/png',
+        })
+        mockPeerlyCreateJob.mockRejectedValue(
+          new BadRequestException('Message cannot contain bit.ly links.'),
+        )
+        mockRetrieveCheckoutSession.mockRejectedValue(new Error('stripe down'))
+
+        // The refusal is what the payment layer must see: swallowing it would
+        // turn a permanent rejection into a webhook redelivery loop.
+        await expect(
+          service.finalizeOutreachPurchase(46, 1, 'cs_live_3'),
+        ).rejects.toThrow(BadRequestException)
+
+        expect(mockStrandedChargeUpsert).toHaveBeenCalled()
+        expect(mockStrandedChargeUpdateMany).not.toHaveBeenCalled()
       })
 
       it('takes the draft over once, then defers to a redelivery', async () => {
